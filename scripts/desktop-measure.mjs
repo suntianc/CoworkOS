@@ -477,6 +477,13 @@ async function oneRun(options, executable, runIndex) {
     if (!peakKb) throw new Error("no startup memory samples");
     marks.startupPeakClientRssKb = peakKb;
     const settled = await sample(rootPid, instance, options);
+    const modelSettings = page.locator('[aria-labelledby="model-settings-title"]');
+    const modelSettingsClosed = await modelSettings.isVisible();
+    if (modelSettingsClosed) {
+      await modelSettings.locator("[data-model-close]").click();
+      await modelSettings.waitFor({ state: "hidden", timeout: options.timeout });
+      process.stdout.write("closed initial model settings through its close button\n");
+    }
     const longHistoryView = await selectHistory(
       page,
       "fixture-long-1",
@@ -546,6 +553,7 @@ async function oneRun(options, executable, runIndex) {
       backend: listening,
       marks,
       settled: pick(settled),
+      modelSettingsClosed,
       longHistory,
       shortHistory,
       returnHistory,
