@@ -1,9 +1,9 @@
 import { _electron as electron } from "@playwright/test";
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { splitByRole, cpuPercent, logOffsets, backendListening } from "./desktop-measure-support.mjs";
 
 /**
  * Measure one packaged desktop build the same way every time.
@@ -32,6 +32,7 @@ const HELP = `Package measurement for desktop release comparisons
   --background MS    Wait after hiding the window (default 10000)
   --reopen MS        Wait after reopening a closed window (default 15000)
   --cpu-window MS    Window between the two CPU snapshots (default 5000)
+  --scratch DIR      Isolated temporary data roots (default: .tmp/desktop-measure)
 The template data root is copied for each run; it is never written by the harness.`;
 
 function parseOptions(args) {
@@ -42,7 +43,8 @@ function parseOptions(args) {
     background: 10_000,
     reopen: 15_000,
     cpuWindow: 5_000,
-    label: "build"
+    label: "build",
+    scratch: ".tmp/desktop-measure"
   };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -55,6 +57,7 @@ function parseOptions(args) {
     else if (argument === "--template") options.template = value();
     else if (argument === "--out") options.out = value();
     else if (argument === "--label") options.label = value();
+    else if (argument === "--scratch") options.scratch = value();
     else if (argument === "--runs") options.runs = Number(value());
     else if (argument === "--timeout") options.timeout = Number(value());
     else if (argument === "--settle") options.settle = Number(value());
@@ -122,84 +125,97 @@ async function processTable() {
     .filter(Boolean);
 }
 
-function cpuSeconds(value) {
-  const parts = value.split(":").map(Number);
-  if (parts.some((part) => !Number.isFinite(part))) return Number.NaN;
-  return parts.reduce((total, part) => total * 60 + part, 0);
+function backendRoots(table, rootPid, instance) {
+  if (instance) return [instance.pid];
+  // Legacy builds own their dashboard child; restrict discovery to this app tree.
+  const descendants = new Set([rootPid]);
+  let previous;
+  do {
+    previous = descendants.size;
+    for (const entry of table) if (descendants.has(entry.ppid)) descendants.add(entry.pid);
+  } while (descendants.size !== previous);
+  return table
+    .filter((entry) => descendants.has(entry.pid) && /dist\/src\/cli\/dashboard\.js/.test(entry.command))
+    .map((entry) => entry.pid);
 }
 
-function descendants(table, rootPid) {
-  const children = new Map();
-  for (const entry of table) {
-    const list = children.get(entry.ppid) ?? [];
-    list.push(entry);
-    children.set(entry.ppid, list);
-  }
-  const found = [];
-  const queue = [rootPid];
-  while (queue.length) {
-    for (const child of children.get(queue.shift()) ?? []) {
-      found.push(child);
-      queue.push(child.pid);
-    }
-  }
-  return found;
-}
-
-/** The backend is the process running the backend entry; everything else is the client. */
-function splitByRole(table, rootPid) {
-  const tree = descendants(table, rootPid);
-  const backend = tree.filter((entry) => /dist\/src\/cli\/(?:dashboard|backend)\.js/.test(entry.command));
-  const backendPids = new Set(backend.map((entry) => entry.pid));
-  const client = tree.filter((entry) => !backendPids.has(entry.pid));
-  const sum = (entries) => entries.reduce((total, entry) => total + entry.rssKb, 0);
-  return {
-    client: { processes: client.length, rssKb: sum(client) },
-    backend: { processes: backend.length, rssKb: sum(backend) },
-    pids: { client: client.map((entry) => entry.pid), backend: backend.map((entry) => entry.pid) }
-  };
-}
-
-function cpuPercent(first, second, pids, windowMs) {
-  const time = (table) => new Map(table.map((entry) => [entry.pid, cpuSeconds(entry.time)]));
-  const before = time(first);
-  const after = time(second);
-  const seconds = pids.reduce((total, pid) => {
-    const delta = (after.get(pid) ?? Number.NaN) - (before.get(pid) ?? Number.NaN);
-    return total + (Number.isFinite(delta) ? delta : 0);
-  }, 0);
-  return Number(((seconds / (windowMs / 1000)) * 100).toFixed(2));
-}
-
-async function sample(table, rootPid, options) {
-  const first = table;
-  const firstSplit = splitByRole(first, rootPid);
+async function sample(rootPid, instance, options) {
+  const first = await processTable();
+  const firstAt = performance.now();
+  const firstSplit = splitByRole(first, rootPid, backendRoots(first, rootPid, instance));
   await delay(options.cpuWindow);
   const second = await processTable();
-  const secondSplit = splitByRole(second, rootPid);
+  const elapsed = performance.now() - firstAt;
+  const secondSplit = splitByRole(second, rootPid, backendRoots(second, rootPid, instance));
+  const cpu = (role) => {
+    const before = firstSplit.pids[role];
+    const after = secondSplit.pids[role];
+    if (before.length !== after.length || before.some((pid) => !after.includes(pid))) return null;
+    return cpuPercent(first, second, before, elapsed);
+  };
   return {
     clientProcesses: secondSplit.client.processes,
     clientRssKb: secondSplit.client.rssKb,
     backendProcesses: secondSplit.backend.processes,
     backendRssKb: secondSplit.backend.rssKb,
-    clientCpuPercent: cpuPercent(first, second, firstSplit.pids.client, options.cpuWindow),
-    backendCpuPercent: cpuPercent(first, second, secondSplit.pids.backend, options.cpuWindow),
+    clientCpuPercent: cpu("client"),
+    backendCpuPercent: cpu("backend"),
     pids: secondSplit.pids
   };
 }
 
-async function backendListening(logsDir) {
+async function readInstance(dataRoot) {
+  let record;
   try {
-    for (const name of await readdir(logsDir)) {
-      if (!name.endsWith(".log")) continue;
-      const text = await readFile(join(logsDir, name), "utf8");
-      const match = /listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(text);
-      if (match) return match[1];
-    }
-  } catch {
-    /* the log directory appears with the first launch */
+    record = JSON.parse(await readFile(join(dataRoot, "runtime", "backend-instance.json"), "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
   }
-  return undefined;
+  if (
+    record.version !== 1 ||
+    !Number.isInteger(record.pid) ||
+    record.pid <= 0 ||
+    typeof record.backendId !== "string" ||
+    !record.backendId ||
+    typeof record.token !== "string" ||
+    !record.token ||
+    record.url !== `http://127.0.0.1:${record.port}` ||
+    !Number.isInteger(record.port)
+  )
+    throw new Error("invalid isolated backend instance record");
+  return record;
+}
+
+async function verifyInstance(instance) {
+  const response = await fetch(`${instance.url}/api/backend`, {
+    headers: { "x-atria-token": instance.token },
+    signal: AbortSignal.timeout(3000)
+  });
+  if (!response.ok) throw new Error(`backend identity HTTP ${response.status}`);
+  const identity = await response.json();
+  if (identity.backendId !== instance.backendId || identity.pid !== instance.pid)
+    throw new Error("backend identity differs from isolated instance record");
+}
+
+async function stopOwnedBackend(dataRoot, expected, executable, options, home) {
+  if (!expected) return { kind: "legacy-app-owned" };
+  const current = await readInstance(dataRoot);
+  if (
+    !current ||
+    current.pid !== expected.pid ||
+    current.backendId !== expected.backendId ||
+    current.token !== expected.token ||
+    current.url !== expected.url
+  )
+    throw new Error("refusing to stop: backend instance identity changed");
+  await verifyInstance(current);
+  const appRoot = resolve(options.app, "Contents/Resources/app");
+  const entry = join(appRoot, "dist/src/cli/backend.js");
+  const env = { ...launchEnvironment(home, dataRoot), ATRIA_HOME: dataRoot, ELECTRON_RUN_AS_NODE: "1" };
+  const { stdout, stderr } = await exec(executable, [entry, "stop"], { cwd: appRoot, env, timeout: 45_000 });
+  if ((await readInstance(dataRoot)) || alive(expected.pid)) throw new Error("backend stop did not complete");
+  return { kind: "standalone", backendId: expected.backendId, pid: expected.pid, stdout, stderr };
 }
 
 async function waitFor(predicate, timeoutMs, description) {
@@ -218,86 +234,188 @@ async function packageBytes(appBundle) {
 }
 
 async function oneRun(options, executable, runIndex) {
-  const runRoot = await mkdtemp(join(tmpdir(), `desktop-measure-${options.label}-`));
+  await mkdir(resolve(options.scratch), { recursive: true });
+  const runRoot = await mkdtemp(join(resolve(options.scratch), `desktop-measure-${options.label}-`));
   const home = join(runRoot, "home");
   const dataRoot = join(runRoot, "data");
   await mkdir(home, { recursive: true });
   await cp(resolve(options.template), dataRoot, { recursive: true, verbatimSymlinks: true });
+  if (await readInstance(dataRoot)) throw new Error("template contains a backend instance record");
   const logsDir = join(dataRoot, "logs");
-  const started = performance.now();
   const errors = [];
   let log = "";
-  const application = await electron.launch({
-    executablePath: executable,
-    args: ["--use-mock-keychain"],
-    env: launchEnvironment(home, dataRoot),
-    timeout: options.timeout
-  });
-  const rootPid = application.process().pid;
-  application.process().stderr?.on("data", (chunk) => {
-    log += String(chunk);
-  });
-  application.process().stdout?.on("data", (chunk) => {
-    log += String(chunk);
-  });
-  const marks = {};
-  let page = await application.firstWindow();
-  page.on("pageerror", (error) => errors.push(String(error)));
-  const ready = async () => {
+  let application;
+  let rootPid;
+  let instance;
+  let legacyRoots = [];
+  let result;
+  const launch = async () => {
+    const app = await electron.launch({
+      executablePath: executable,
+      args: ["--use-mock-keychain"],
+      env: launchEnvironment(home, dataRoot),
+      timeout: options.timeout
+    });
+    app.process().stderr?.on("data", (chunk) => {
+      log += String(chunk);
+    });
+    app.process().stdout?.on("data", (chunk) => {
+      log += String(chunk);
+    });
+    return app;
+  };
+  const ready = async (page) => {
+    page.on("pageerror", (error) => errors.push(String(error)));
     await page.locator(".app-topbar").waitFor({ state: "visible", timeout: options.timeout });
     await page.waitForFunction(() => document.readyState === "complete", undefined, {
       timeout: options.timeout
     });
   };
+  const close = async (app) => {
+    const pid = app.process().pid;
+    const closed = await Promise.race([app.close().then(() => true), delay(15_000).then(() => false)]);
+    if (!closed || alive(pid)) throw new Error(`normal app exit did not complete for pid ${pid}`);
+  };
+  const cleanupOwned = async () => {
+    if (application && rootPid && alive(rootPid)) {
+      try {
+        await close(application);
+      } catch (error) {
+        // This is failure cleanup of the exact app process we launched, never a successful hot start.
+        process.kill(rootPid, "SIGKILL");
+        await waitFor(() => !alive(rootPid), 5000, "owned app exit");
+        log += `\ncleanup: ${error.message}\n`;
+      }
+    }
+    if (!instance) {
+      // The old app owns a dashboard child. Only a previously observed child whose
+      // PID and full command still match can receive its graceful termination signal.
+      const table = await processTable();
+      for (const owned of legacyRoots) {
+        const current = table.find((entry) => entry.pid === owned.pid);
+        if (current && current.command === owned.command) {
+          process.kill(owned.pid, "SIGTERM");
+          await waitFor(() => !alive(owned.pid), 30_000, "owned legacy backend exit");
+        } else if (current) throw new Error("legacy backend PID was reused; refusing cleanup");
+      }
+    }
+    try {
+      const cleanup = await stopOwnedBackend(
+        dataRoot,
+        instance ?? (await readInstance(dataRoot)),
+        executable,
+        options,
+        home
+      );
+      await writeFile(
+        join(resolve(options.out), `${options.label}-run${runIndex + 1}-cleanup.json`),
+        `${JSON.stringify(cleanup, null, 2)}\n`
+      );
+    } finally {
+      await writeFile(join(resolve(options.out), `${options.label}-run${runIndex + 1}-process.log`), log);
+    }
+  };
   try {
-    const listening = await waitFor(() => backendListening(logsDir), options.timeout, "backend listening");
-    marks.backendReadyMs = Math.round(performance.now() - started);
-    await ready();
+    const offsets = await logOffsets(logsDir);
+    const started = performance.now();
+    application = await launch();
+    rootPid = application.process().pid;
+    let page = await application.firstWindow();
+    const listening = await waitFor(
+      () => backendListening(logsDir, offsets),
+      options.timeout,
+      "backend listening"
+    );
+    const marks = { backendReadyMs: Math.round(performance.now() - started) };
+    await ready(page);
     marks.windowReadyMs = Math.round(performance.now() - started);
-    // Start-up ramp: the highest client footprint before the app settles.
+    instance = await readInstance(dataRoot);
+    if (instance) await verifyInstance(instance);
+    const firstTable = await processTable();
+    legacyRoots = instance
+      ? []
+      : backendRoots(firstTable, rootPid, undefined).map((pid) => {
+          const entry = firstTable.find((row) => row.pid === pid);
+          return { pid, command: entry.command };
+        });
+    if (!instance && !legacyRoots.length) throw new Error("legacy backend process was not found in app tree");
     let peakKb = 0;
     while (performance.now() - started < options.settle) {
       const table = await processTable();
-      peakKb = Math.max(peakKb, splitByRole(table, rootPid).client.rssKb);
+      peakKb = Math.max(
+        peakKb,
+        splitByRole(table, rootPid, backendRoots(table, rootPid, instance)).client.rssKb
+      );
       await delay(200);
     }
+    if (!peakKb) {
+      const table = await processTable();
+      peakKb = splitByRole(table, rootPid, backendRoots(table, rootPid, instance)).client.rssKb;
+    }
     marks.startupPeakClientRssKb = peakKb;
-    const settled = await sample(await processTable(), rootPid, options);
+    const settled = await sample(rootPid, instance, options);
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
     await delay(options.background);
-    const background = await sample(await processTable(), rootPid, options);
-    // Repeat window: close it (the app stays alive on macOS) and ask it to open one.
+    const background = await sample(rootPid, instance, options);
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
     await delay(1_500);
     const reopenedAt = performance.now();
     const windowPromise = application.waitForEvent("window", { timeout: options.timeout });
     await application.evaluate(({ app }) => app.emit("activate"));
     page = await windowPromise;
-    page.on("pageerror", (error) => errors.push(String(error)));
-    await ready();
+    await ready(page);
     marks.reopenedWindowReadyMs = Math.round(performance.now() - reopenedAt);
     await delay(Math.max(0, options.reopen - options.cpuWindow));
-    const reopened = await sample(await processTable(), rootPid, options);
-    return {
+    const reopened = await sample(rootPid, instance, options);
+    await close(application);
+    application = undefined;
+    if (instance) await verifyInstance(instance);
+    else if (legacyRoots.some(({ pid }) => alive(pid)))
+      throw new Error("legacy backend survived normal app exit");
+    const hotStarted = performance.now();
+    application = await launch();
+    rootPid = application.process().pid;
+    page = await application.firstWindow();
+    await ready(page);
+    const hotWindowReadyMs = Math.round(performance.now() - hotStarted);
+    const hotInstance = await readInstance(dataRoot);
+    if (instance) {
+      if (
+        !hotInstance ||
+        hotInstance.pid !== instance.pid ||
+        hotInstance.backendId !== instance.backendId ||
+        hotInstance.token !== instance.token
+      )
+        throw new Error("backend identity changed across hot restart");
+      await verifyInstance(hotInstance);
+    } else {
+      const table = await processTable();
+      legacyRoots = backendRoots(table, rootPid, undefined).map((pid) => ({
+        pid,
+        command: table.find((row) => row.pid === pid).command
+      }));
+      if (!legacyRoots.length) throw new Error("legacy hot backend process was not found");
+    }
+    const hot = await sample(rootPid, hotInstance, options);
+    await close(application);
+    application = undefined;
+    if (!instance && legacyRoots.some(({ pid }) => alive(pid)))
+      throw new Error("legacy hot backend survived normal app exit");
+    result = {
       run: runIndex + 1,
+      runRoot,
       backend: listening,
       marks,
       settled: pick(settled),
       background: pick(background),
       reopened: { windowReadyMs: marks.reopenedWindowReadyMs, ...pick(reopened) },
-      errors,
-      stderrBytes: log.length,
-      stderrTail: log.slice(-2_000)
+      hot: { windowReadyMs: hotWindowReadyMs, ...pick(hot) },
+      errors
     };
   } finally {
-    if (alive(rootPid)) {
-      const closed = await Promise.race([
-        application.close().then(() => "closed"),
-        delay(15_000).then(() => "timeout")
-      ]);
-      if (closed === "timeout") process.kill(rootPid, "SIGKILL");
-    }
+    await cleanupOwned();
   }
+  return result;
 }
 
 function pick(sampleResult) {
@@ -323,6 +441,7 @@ function series(values, { scale = 1 } = {}) {
 }
 
 function percentSeries(values) {
+  if (values.some((value) => value === null)) return { samples: values, median: null };
   const rounded = values.map((value) => Number(value.toFixed(2)));
   return { samples: rounded, median: Number(median(rounded.map((value) => value * 100)) / 100) };
 }
@@ -359,6 +478,11 @@ async function main() {
     appBytes: await packageBytes(options.app),
     coldWindowReadyMs: series(runs.map((run) => run.marks.windowReadyMs)),
     coldBackendReadyMs: series(runs.map((run) => run.marks.backendReadyMs)),
+    hotWindowReadyMs: series(runs.map((run) => run.hot.windowReadyMs)),
+    hotClientRssMb: series(
+      runs.map((run) => run.hot.clientRssKb),
+      { scale: 1024 }
+    ),
     startupPeakClientRssMb: series(
       runs.map((run) => run.marks.startupPeakClientRssKb),
       { scale: 1024 }

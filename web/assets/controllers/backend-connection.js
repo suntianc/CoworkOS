@@ -26,7 +26,7 @@ export function createBackendConnection({ management, overview, showToast, onRea
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
   panel.hidden = true;
-  panel.innerHTML = ui`<section class="modal-card model-settings-card settings-card" role="dialog" aria-modal="true" aria-labelledby="backend-title"><header class="settings-heading"><button class="settings-nav-button" type="button" data-settings-back aria-label="返回设置" title="返回设置">${icon("chevron-left")}</button><div><h2 id="backend-title">后端</h2></div><button class="settings-nav-button" type="button" data-backend-close aria-label="关闭设置" title="关闭设置">${icon("close")}</button></header><form class="settings-form"><div class="settings-scroll settings-form-content"><p class="settings-status" data-backend-state role="status"></p><label class="settings-field">后端地址<input name="baseUrl" type="url" inputmode="url" autocomplete="off" placeholder="http://127.0.0.1:3880" aria-describedby="backend-address-help"></label><small class="settings-help" id="backend-address-help">留空使用当前页面所在的后端。</small></div><div class="settings-feedback"><p data-backend-error role="alert"></p></div><footer class="modal-actions"><button type="button" class="app-button is-secondary" data-backend-page>当前页面</button><button type="submit" class="app-button is-primary">连接</button></footer></form></section>`;
+  panel.innerHTML = ui`<section class="modal-card model-settings-card settings-card" role="dialog" aria-modal="true" aria-labelledby="backend-title"><header class="settings-heading"><button class="settings-nav-button" type="button" data-settings-back aria-label="返回设置" title="返回设置">${icon("chevron-left")}</button><div><h2 id="backend-title">后端</h2></div><button class="settings-nav-button" type="button" data-backend-close aria-label="关闭设置" title="关闭设置">${icon("close")}</button></header><form class="settings-form"><div class="settings-scroll settings-form-content"><p class="settings-status" data-backend-state role="status"></p><label class="settings-field">后端地址<input name="baseUrl" type="url" inputmode="url" autocomplete="off" placeholder="http://127.0.0.1:3880" aria-describedby="backend-address-help"></label><small class="settings-help" id="backend-address-help">留空使用当前页面所在的后端。</small></div><div class="settings-feedback"><p data-backend-error role="alert"></p></div><footer class="modal-actions"><button type="button" class="app-button is-secondary" data-backend-page>当前页面</button><button type="button" class="app-button is-primary" data-backend-choose hidden>选择本地后端</button><button type="submit" class="app-button is-primary">连接</button></footer></form></section>`;
   document.body.append(panel);
   const form = panel.querySelector("form");
   const input = form.querySelector('[name="baseUrl"]');
@@ -37,6 +37,14 @@ export function createBackendConnection({ management, overview, showToast, onRea
     overview,
     returnFocus: () => row.querySelector("[data-backend-open]").focus()
   });
+  const desktopBackend = window.bookmanDesktop?.backend;
+  if (desktopBackend) {
+    form.querySelector("[data-backend-choose]").hidden = false;
+    form.querySelector("[data-backend-page]").hidden = true;
+    submit.hidden = true;
+    input.readOnly = true;
+    form.querySelector("#backend-address-help").hidden = true;
+  }
   let current = management.state();
   let busy = false;
   let offline = false;
@@ -140,6 +148,19 @@ export function createBackendConnection({ management, overview, showToast, onRea
       return;
     }
     void run(() => management.switchBackend({ baseUrl: target }));
+  });
+
+  panel.querySelector("[data-backend-choose]").addEventListener("click", async () => {
+    if (!desktopBackend || busy) return;
+    busy = true;
+    errorLine.textContent = "";
+    try {
+      await desktopBackend.choose();
+    } catch (error) {
+      errorLine.textContent = error.message;
+    } finally {
+      busy = false;
+    }
   });
 
   panel.querySelector("[data-backend-page]").addEventListener("click", () => {

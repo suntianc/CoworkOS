@@ -123,6 +123,20 @@ let backendConnection;
  * desktop renderer and a plain browser consume exactly this module.
  */
 const management = createManagementClient({
+  ...(window.bookmanDesktop?.backend
+    ? {
+        authorizeSession: async (input) => {
+          const result = await window.bookmanDesktop.backend.authorize(input);
+          if (result.error) {
+            const error = new Error(result.error.message);
+            error.code = result.error.code;
+            error.status = result.error.status;
+            throw error;
+          }
+          return result;
+        }
+      }
+    : {}),
   storage: (() => {
     try {
       return window.sessionStorage;
@@ -2508,7 +2522,9 @@ if (initialConversationTaskId) linkedConversationNavigation = workbenchControlle
  * half-populated screen.
  */
 async function bootBackend() {
-  const connected = await management.connect({ baseUrl: management.rememberedTarget() });
+  const connected = await management.connect({
+    baseUrl: window.bookmanDesktop?.backend ? "" : management.rememberedTarget()
+  });
   if (connected.status !== "connected") {
     updateSendButton();
     return;

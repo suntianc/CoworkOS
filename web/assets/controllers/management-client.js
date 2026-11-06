@@ -111,6 +111,7 @@ export function createManagementClient({
   clientName = "CoworkOS Web",
   protocolVersion = CLIENT_PROTOCOL_VERSION,
   fetch: fetchImpl = (...args) => globalThis.fetch(...args),
+  authorizeSession,
   storage = memoryStorage(),
   targetStorage = memoryStorage(),
   events = {},
@@ -406,10 +407,15 @@ export function createManagementClient({
       error: null
     });
     try {
-      const result = await send("/api/session", {
-        method: "POST",
-        json: { clientName, protocolVersion }
-      });
+      const at = epoch;
+      const result = authorizeSession
+        ? await authorizeSession({ clientName, protocolVersion, baseUrl: target })
+        : await send("/api/session", {
+            method: "POST",
+            json: { clientName, protocolVersion }
+          });
+      if (at !== epoch)
+        throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
       const session = result?.session;
       if (!session?.token || typeof session.token !== "string")
         throw new ManagementClientError("后端未返回有效的本地会话", { code: "session_invalid" });

@@ -3,17 +3,17 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const { connectRenderer } = createRequire(import.meta.url)("../desktop/renderer-connection.cjs");
-const backend = { url: "http://127.0.0.1:12345", token: "synthetic-session-token" };
+const backend = { url: "http://127.0.0.1:12345" };
 
-test("renderer navigation waits for its authenticated session cookie", async () => {
+test("renderer removes the legacy host cookie before navigating to the selected backend", async () => {
   const events = [];
   await connectRenderer(
     backend,
     {
-      set: async (cookie) => {
-        assert.equal(cookie.httpOnly, true);
-        assert.equal(cookie.value, backend.token);
-        events.push("cookie");
+      remove: async (url, name) => {
+        assert.equal(url, backend.url);
+        assert.equal(name, "atria-session");
+        events.push("remove");
       }
     },
     () => ({
@@ -24,47 +24,20 @@ test("renderer navigation waits for its authenticated session cookie", async () 
       }
     })
   );
-  assert.deepEqual(events, ["cookie", "navigate"]);
+  assert.deepEqual(events, ["remove", "navigate"]);
 });
 
-test("closing the window during a model restart still updates authentication for the next window", async () => {
-  let window = {
-    isDestroyed: () => false,
-    loadURL: async () => {
-      assert.fail("a closed window must not be loaded");
-    }
-  };
-  let installed;
-  await connectRenderer(
-    backend,
-    {
-      set: async (cookie) => {
-        installed = cookie;
-        window = undefined;
-      }
-    },
-    () => window
-  );
-  assert.equal(installed.value, backend.token);
-  await connectRenderer(backend, { set: async () => {} }, () => ({
-    isDestroyed: () => true,
-    loadURL: () => assert.fail("destroyed window")
-  }));
-});
-
-test("a cookie installation failure cannot navigate into an unauthenticated session", async () => {
+test("a closed renderer is not navigated and a cookie removal failure prevents navigation", async () => {
+  await connectRenderer(backend, { remove: async () => {} }, () => undefined);
   await assert.rejects(
     connectRenderer(
       backend,
       {
-        set: async () => {
-          throw new Error("synthetic cookie failure");
+        remove: async () => {
+          throw new Error("cookie failure");
         }
       },
-      () => ({
-        isDestroyed: () => false,
-        loadURL: () => assert.fail("cookie must be ready before navigation")
-      })
+      () => ({ isDestroyed: () => false, loadURL: () => assert.fail("must not navigate") })
     ),
     /cookie failure/
   );

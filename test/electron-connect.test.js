@@ -188,6 +188,86 @@ async function stopRoot(root) {
 }
 
 test(
+  "desktop authorization binds a chosen data root to its live identity",
+  { timeout: 120_000 },
+  async (t) => {
+    const left = await createRoot("atria-host-left-");
+    const right = await createRoot("atria-host-right-");
+    t.after(async () => {
+      await stopRoot(left);
+      await stopRoot(right);
+      await rm(left.base, { recursive: true, force: true });
+      await rm(right.base, { recursive: true, force: true });
+    });
+    const a = await desktopConnect(left);
+    const b = await desktopConnect(right);
+    const { createBackendAuthorization } = require("../desktop/backend-authorization.cjs");
+    const seen = [];
+    const host = createBackendAuthorization({
+      appRoot: repositoryRoot,
+      fetchImpl: (url, options) => {
+        seen.push({ origin: new URL(url).origin, token: options.headers["x-atria-token"] });
+        return fetch(url, options);
+      }
+    });
+    const first = await host.select(left.home);
+    assert.equal(first.backendId, a.backendId);
+    const aSession = await host.authorize({
+      baseUrl: a.url,
+      backendId: a.backendId,
+      clientName: "test",
+      protocolVersion: "1.0"
+    });
+    assert.equal(aSession.backend.backendId, a.backendId);
+    await host.select(right.home);
+    await assert.rejects(
+      host.authorize({ baseUrl: a.url, backendId: b.backendId, clientName: "test", protocolVersion: "1.0" }),
+      /不一致/
+    );
+    const bSession = await host.authorize({
+      baseUrl: b.url,
+      backendId: b.backendId,
+      clientName: "test",
+      protocolVersion: "1.0"
+    });
+    assert.equal(bSession.backend.backendId, b.backendId);
+    assert.notEqual(aSession.session.token, bSession.session.token);
+    assert.equal((await api(b, "DELETE", `/api/session/${bSession.session.sessionId}`)).status, 200);
+    assert.equal(
+      (
+        await host.authorize({
+          baseUrl: b.url,
+          backendId: b.backendId,
+          clientName: "test",
+          protocolVersion: "1.0"
+        })
+      ).backend.backendId,
+      b.backendId
+    );
+    await assert.rejects(host.select(join(right.base, "missing")));
+    const identityFile = join(right.home, "runtime", "backend-identity.json");
+    const oldIdentity = await readFile(identityFile, "utf8");
+    await writeFile(
+      identityFile,
+      JSON.stringify({ version: 1, backendId: "backend_replaced", createdAt: "fixture" })
+    );
+    try {
+      await assert.rejects(
+        host.authorize({
+          baseUrl: b.url,
+          backendId: b.backendId,
+          clientName: "test",
+          protocolVersion: "1.0"
+        }),
+        /身份/
+      );
+    } finally {
+      await writeFile(identityFile, oldIdentity);
+    }
+  }
+);
+
+test(
   "one data root is served by one instance across backend start, desktop attach and the development dashboard",
   { timeout: 120_000 },
   async (t) => {

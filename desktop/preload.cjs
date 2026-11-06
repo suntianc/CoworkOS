@@ -174,6 +174,10 @@ contextBridge.exposeInMainWorld("bookmanDesktop", {
       await ipcRenderer.invoke("bookman:documents-ready", requestId, saved === true);
     });
   },
+  backend: {
+    choose: () => ipcRenderer.invoke("bookman:choose-backend"),
+    authorize: (input) => ipcRenderer.invoke("bookman:authorize-backend", input)
+  },
   modelStatus: () => ipcRenderer.invoke("bookman:model-status"),
   testModel: (settings) => ipcRenderer.invoke("bookman:test-model", settings),
   // Global policy mutation and human resume stay on the trusted main-frame IPC surface.

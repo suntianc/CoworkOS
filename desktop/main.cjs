@@ -19,7 +19,8 @@ const {
   autoUpdater,
   Menu,
   clipboard,
-  nativeTheme
+  nativeTheme,
+  net
 } = require("electron");
 const { createAppearanceHost } = require("./appearance.cjs");
 const { createLanguageHost } = require("./language.cjs");
@@ -39,6 +40,8 @@ const { createComposerDraftStore } = require("./composer-drafts.cjs");
 const { installEditContextMenu } = require("./edit-context-menu.cjs");
 const { connectRenderer } = require("./renderer-connection.cjs");
 const { connectBackend } = require("./backend.cjs");
+const { createBackendAuthorization } = require("./backend-authorization.cjs");
+const { installBundledWeb } = require("./bundled-web.cjs");
 const { desktopProfile } = require("./profile.cjs");
 const { createDesktopSpeechInput } = require("./speech-input.cjs");
 const { migrateLegacyDesktopData } = require("../scripts/data-migration.cjs");
@@ -64,7 +67,10 @@ let backend,
   startupPromise,
   composerDrafts,
   updates,
-  computerPolicy;
+  computerPolicy,
+  backendAuthorization,
+  selectedBackend,
+  selectedRoot;
 const computerControl = createComputerPolicyController({
   store: { snapshot: () => computerPolicy.snapshot(), save: (value) => computerPolicy.save(value) },
   getBackend: () => backend,
@@ -106,10 +112,10 @@ const credentialStorage =
     : safeStorage;
 
 function trust(event) {
-  assertTrustedSender(event, mainWindow, backend?.url);
+  assertTrustedSender(event, mainWindow, selectedBackend?.url || backend?.url);
 }
 function openExternalLink(url) {
-  const target = externalNavigationUrl(url, backend?.url);
+  const target = externalNavigationUrl(url, selectedBackend?.url || backend?.url);
   if (!target) return;
   void shell
     .openExternal(target)
@@ -124,7 +130,25 @@ async function launchBackend() {
   // Window access is granted over trusted host IPC; an execution host that does
   // not expose that bridge yet reports it as a state instead of failing startup.
   if (typeof backend.computer === "function") await computerControl.initialize(backend);
-  await connectRenderer(backend, session.defaultSession.cookies, () => mainWindow);
+  if (!backendAuthorization) backendAuthorization = createBackendAuthorization({ appRoot: paths.appRoot });
+  if (!selectedRoot) {
+    try {
+      const preference = JSON.parse(
+        await fs.readFile(path.join(paths.userData, "desktop-backend.json"), "utf8")
+      );
+      if (typeof preference.home === "string") selectedRoot = preference.home;
+    } catch (error) {
+      if (error.code !== "ENOENT") console.warn("无法读取上次后端选择", error.message);
+    }
+  }
+  try {
+    selectedBackend = await backendAuthorization.select(selectedRoot || paths.userData);
+  } catch (error) {
+    console.warn("上次选择的后端不可用，连接本地后端", error.message);
+    selectedRoot = paths.userData;
+    selectedBackend = await backendAuthorization.select(selectedRoot);
+  }
+  await connectRenderer(selectedBackend, session.defaultSession.cookies, () => mainWindow);
 }
 function createWindow() {
   const icon = applicationIcon();
@@ -146,7 +170,11 @@ function createWindow() {
       sandbox: true
     }
   });
-  installEditContextMenu(mainWindow, { Menu, clipboard, getDashboardUrl: () => backend?.url });
+  installEditContextMenu(mainWindow, {
+    Menu,
+    clipboard,
+    getDashboardUrl: () => selectedBackend?.url || backend?.url
+  });
   const publishWindowState = () =>
     mainWindow?.webContents.send("bookman:window-state", mainWindow.isFullScreen());
   mainWindow.on("enter-full-screen", publishWindowState);
@@ -155,7 +183,7 @@ function createWindow() {
   mainWindow.webContents.on("did-finish-load", publishWindowState);
   followNativeTheme(mainWindow, nativeTheme);
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!isDashboardUrl(url, backend?.url)) {
+    if (!isDashboardUrl(url, selectedBackend?.url || backend?.url)) {
       event.preventDefault();
       openExternalLink(url);
     }
@@ -171,7 +199,7 @@ function createWindow() {
   mainWindow.webContents.on("render-process-gone", releaseComputerSessions);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     // Raw artifacts open inside a separate, unprivileged browser; remote URLs never inherit native IPC.
-    if (isDashboardUrl(url, backend?.url)) {
+    if (isDashboardUrl(url, selectedBackend?.url || backend?.url)) {
       const viewer = new BrowserWindow({
         width: 1000,
         height: 800,
@@ -182,7 +210,7 @@ function createWindow() {
         return { action: "deny" };
       });
       viewer.webContents.on("will-navigate", (event, target) => {
-        if (!isDashboardUrl(target, backend?.url)) event.preventDefault();
+        if (!isDashboardUrl(target, selectedBackend?.url || backend?.url)) event.preventDefault();
       });
       void viewer.loadURL(url);
     } else openExternalLink(url);
@@ -220,6 +248,42 @@ ipcMain.handle("bookman:notify", async (event, value) => {
   if (!Notification.isSupported()) return false;
   new Notification({ title: String(value?.title || "CoworkOS"), body: String(value?.body || "") }).show();
   return true;
+});
+ipcMain.handle("bookman:choose-backend", async (event) => {
+  trust(event);
+  if (closing || quitting || restarting) throw new Error("应用正在关闭或重启，请稍后重试");
+  const choice = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });
+  if (choice.canceled) return;
+  if (!Array.isArray(choice.filePaths) || choice.filePaths.length !== 1)
+    throw new Error("请选择一个本地后端数据目录");
+  if (!(await documents.request())) throw new Error("文档或草稿尚未保存，请保存后再切换后端");
+  const home = choice.filePaths[0];
+  const selected = await backendAuthorization.select(home);
+  await fs.writeFile(path.join(paths.userData, "desktop-backend.json"), JSON.stringify({ home }), {
+    mode: 0o600
+  });
+  selectedRoot = home;
+  selectedBackend = selected;
+  setTimeout(() => {
+    void connectRenderer(selected, session.defaultSession.cookies, () => mainWindow).catch((error) =>
+      dialog.showErrorBox("无法连接后端", error.message)
+    );
+  }, 0);
+});
+ipcMain.handle("bookman:authorize-backend", async (event, input) => {
+  trust(event);
+  if (!input || typeof input !== "object" || Array.isArray(input) || input.baseUrl !== "")
+    throw new Error("无效的后端授权请求");
+  try {
+    return await backendAuthorization.authorize({
+      baseUrl: selectedBackend.url,
+      backendId: selectedBackend.backendId,
+      clientName: input.clientName,
+      protocolVersion: input.protocolVersion
+    });
+  } catch (error) {
+    return { error: { message: error.message, code: error.code, status: error.status } };
+  }
 });
 ipcMain.handle("bookman:model-status", async (event) => {
   trust(event);
@@ -416,7 +480,7 @@ if (owner)
         nativeTheme,
         ipcMain,
         getWindow: () => mainWindow,
-        getDashboardUrl: () => backend?.url
+        getDashboardUrl: () => selectedBackend?.url || backend?.url
       });
       await appearance.load();
       appearance.register();
@@ -424,7 +488,7 @@ if (owner)
         userData,
         ipcMain,
         getWindow: () => mainWindow,
-        getDashboardUrl: () => backend?.url
+        getDashboardUrl: () => selectedBackend?.url || backend?.url
       });
       await language.load();
       language.register();
@@ -440,6 +504,12 @@ if (owner)
       }
       paths = desktopPaths(profile.appRoot, userData);
       await prepareDesktopData(paths, app.getVersion());
+      await installBundledWeb({
+        session: session.defaultSession,
+        net,
+        root: path.join(paths.appRoot, "web"),
+        getOrigin: () => selectedBackend?.url || backend?.url
+      });
       computerPolicy = createComputerPolicyStore(userData);
       await computerPolicy.load();
       composerDrafts = createComposerDraftStore(userData);
