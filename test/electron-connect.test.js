@@ -267,6 +267,86 @@ test(
   }
 );
 
+test("desktop waits for host authorization before business requests", { timeout: 120_000 }, async (t) => {
+  const root = await createRoot("atria-auth-gate-");
+  t.after(async () => {
+    await stopRoot(root);
+    await rm(root.base, { recursive: true, force: true });
+  });
+  const instance = await desktopConnect(root);
+  const { createBackendAuthorization } = require("../desktop/backend-authorization.cjs");
+  const host = createBackendAuthorization({ appRoot: repositoryRoot });
+  await host.select(root.home);
+  let release;
+  const gate = new Promise((done) => {
+    release = done;
+  });
+  let calls = 0;
+  const client = createManagementClient({
+    baseUrl: instance.url,
+    authorizeSession: async ({ clientName, protocolVersion }) => {
+      await gate;
+      return host.authorize({
+        baseUrl: instance.url,
+        backendId: instance.backendId,
+        clientName,
+        protocolVersion
+      });
+    },
+    fetch: (url, options) => {
+      calls++;
+      return fetch(url, options);
+    }
+  });
+  t.after(() => client.stop());
+  await assert.rejects(client.request("/api/tasks"), { code: "backend_connecting" });
+  const connecting = client.connect({ baseUrl: instance.url });
+  await assert.rejects(client.request("/api/tasks"), { code: "backend_connecting" });
+  await assert.rejects(client.blob("/api/files/example"), { code: "backend_connecting" });
+  await assert.rejects(client.openStream("/api/events"), { code: "backend_connecting" });
+  await assert.rejects(client.upload({ name: "test" }), { code: "backend_connecting" });
+  assert.equal(calls, 0);
+  release();
+  assert.equal((await connecting).status, "connected");
+  assert.ok(Array.isArray((await client.request("/api/tasks")).tasks));
+});
+
+test("late pre-session refusal cannot revoke a newly authorized session", { timeout: 120_000 }, async (t) => {
+  const root = await createRoot("atria-auth-race-");
+  t.after(async () => {
+    await stopRoot(root);
+    await rm(root.base, { recursive: true, force: true });
+  });
+  const instance = await desktopConnect(root);
+  let releaseSession, releaseOld;
+  const allowSession = new Promise((done) => {
+    releaseSession = done;
+  });
+  const allowOld = new Promise((done) => {
+    releaseOld = done;
+  });
+  const transport = hostFetch(new Map([[instance.url, instance.token]]));
+  const client = createManagementClient({
+    baseUrl: instance.url,
+    fetch: async (url, options) => {
+      if (url.endsWith("/api/session") && options.method === "POST") await allowSession;
+      if (url.endsWith("/api/old")) {
+        await allowOld;
+        return new Response(JSON.stringify({ error: "old refusal" }), { status: 401 });
+      }
+      return transport(url, options);
+    }
+  });
+  t.after(() => client.stop());
+  const connecting = client.connect({ baseUrl: instance.url });
+  const old = client.request("/api/old").catch((error) => error);
+  releaseSession();
+  assert.equal((await connecting).status, "connected");
+  releaseOld();
+  assert.equal((await old).status, 401);
+  assert.equal(client.state().status, "connected");
+});
+
 test(
   "one data root is served by one instance across backend start, desktop attach and the development dashboard",
   { timeout: 120_000 },
