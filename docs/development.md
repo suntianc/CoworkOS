@@ -8,13 +8,13 @@
 
 使用 Node.js >=22.19.0、npm 和 Git；依赖以锁文件为准，执行 `npm ci`。第一次下载 npm 依赖和 Chromium 需要网络。模型密钥仅用于实际模型请求，普通本地回归使用隔离工作区和本地协议夹具。
 
-| 开发目标      | 环境和准备                                                      | 启动                                            |
-| ------------- | --------------------------------------------------------------- | ----------------------------------------------- |
-| CLI / harness | `ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci`，`npm run build:cli`   | `npm run init`、`npm start`                     |
-| Web           | `npm ci`、`npm run build`；Mac 构建需 Xcode Command Line Tools  | `npm run ui`，默认 `http://127.0.0.1:3880`      |
-| Electron App  | `npm ci`；若此前跳过 Electron 下载，执行 `npm rebuild electron` | `npm run desktop`                               |
-| Computer Use  | Mac、Xcode Command Line Tools；截图需 macOS 14+、系统权限       | 编译随 `npm run build`；动作验收需解锁桌面      |
-| Mac 安装包    | macOS 14+、Apple Silicon Mac；离线完整包另需 uv                 | `npm run desktop:pack` / `npm run desktop:dist` |
+| 开发目标      | 环境和准备                                                                 | 启动                                            |
+| ------------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
+| CLI / harness | `ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci`，`npm run build:cli`              | `npm run init`、`npm start`                     |
+| Web           | `npm ci`、`npm run build`；Mac 构建需 Xcode Command Line Tools             | `npm run ui`，默认 `http://127.0.0.1:3880`      |
+| Electron App  | `npm ci`；打包前由 `node scripts/ensure-electron.mjs` 获取 Electron 运行时 | `npm run desktop`                               |
+| Computer Use  | Mac、Xcode Command Line Tools；截图需 macOS 14+、系统权限                  | 编译随 `npm run build`；动作验收需解锁桌面      |
+| Mac 安装包    | macOS 14+、Apple Silicon Mac；离线完整包另需 uv                            | `npm run desktop:pack` / `npm run desktop:dist` |
 
 `build:cli` 编译共享运行时并准备 CLI 和科学工具；`build`、`build:base` 和 `build:full` 准备文本工作台、数学排版与桌面宿主资源。非 Mac 环境跳过原生辅助程序和图标构建。
 
@@ -58,7 +58,7 @@ Finder 安装入口复制已签名的缓存包，不改内容或再次签名，�
 
 前端使用原生 ES modules，没有 Vite/HMR。JS/CSS 修改后刷新；TypeScript、浏览器生成 bundle 或 Swift 修改后重新构建、退出并重启宿主。图标源、Electron 或包版本变化要重建开发运行时。生成文件不是修改入口。完整/CLI 构建会清理已删除或搬移源码对应的旧编译文件，保留原生 helper 与 Python runner。
 
-只迭代界面时，完成一次 `npm run build` 后可直接运行 `node dist/src/cli/dashboard.js`，省去 `npm run ui` 每次启动时的构建。保留需要的隔离环境变量；服务直接读取 `web/` 中的 HTML、CSS 和 JS，修改后刷新浏览器即可。后端改动仍需停止服务、重新构建并启动。
+只迭代界面时，完成一次 `npm run build` 后可直接运行 `node dist/src/cli/dashboard.js`，省去 `npm run ui` 每次启动时的构建。保留需要的隔离环境变量；服务直接读取 `web/` 中的 HTML、CSS 和 JS，修改后刷新浏览器即可。后端改动仍需停止服务、重新构建并启动。该入口与服务、桌面使用同一实例归属：同一数据根已经后端或桌面连接时复用其地址并退出，不另开写入服务。
 
 独立后端可以脱离启动它的客户端继续运行。完成 `npm run build:cli` 后，`node dist/src/cli/backend.js start`（或 `coworkos backend start`）在同一数据根启动分离进程，`status` 查看实例，`stop` 让后端完成受管进程收尾后退出；端口、会话 token 与实例身份记录在 `ATRIA_HOME/runtime/backend-instance.json`（权限 0600），后端身份在 `backend-identity.json` 中跨重启保持。直接执行 `serve` 遵守同一实例归属：已有可核验实例时只输出其身份并退出，另有启动中的后端或身份无法确认时明确报错，不覆盖实例记录。`stop` 只在后端完成收尾并删除实例记录后返回 `stopped`；超时被强制结束或收尾未完成时返回 `incomplete` 并以非零状态退出，同时保留实例记录供下次 `start` 沿用同一后端身份恢复。这些命令不安装 launchd/systemd 常驻服务；系统级常驻仍只能由 [持续监控服务](../scripts/monitor-service.mjs) 显式安装。
 
@@ -81,7 +81,7 @@ CLI 准备 `build:cli`；开发 App 从“设置 → 更新”准备完整 `buil
 
 发布阶段失败尝试回退；发现并发编辑或回退失败时保留恢复副本并报告人工恢复。忽略的用户配置/任务不复制进候选，也不清理。更新器不 reset、stash 或 clean 检出。
 
-App 启动后检查一次，用户主动执行才更新。草稿保存、运行任务检查与后端关闭属于桌面宿主；构建完成后重启启用新代码，中断或失败不能显示为已安装。更新回归使用本地 Git 远端与假发行响应，不修改真实仓库或发布 Release。
+App 启动后检查一次，用户主动执行才更新。草稿保存与运行任务检查属于桌面宿主，后端在退出后继续运行；构建完成后重启启用新代码，中断或失败不能显示为已安装。更新回归使用本地 Git 远端与假发行响应，不修改真实仓库或发布 Release。
 
 开发 App 更新后由独立 [重启 helper](../scripts/restart-development.mjs) 等待旧进程退出，再刷新开发入口并启动新构建。旧开发入口若缺少工具链元数据，先退出 App，用 `npm run desktop` 或 `npm run desktop:install-dev` 刷新，再使用应用内更新；宿主会在修改源码前给出该提示。
 

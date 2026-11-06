@@ -259,7 +259,7 @@ Mac 开发启动与更新重启共用 [LaunchServices 启动器](../scripts/mac-
 
 CLI tgz 随包携带锁文件对应的可移植生产依赖与依赖记录，不包含 Electron或构建宿主的 esbuild 平台二进制。esbuild 的可移植 JS 安装器按精确版本随包提供，打包时从原始归档恢复并核对锁文件 integrity；安装时官方 postinstall 联网获取匹配版本/平台的原生组件。安装需要运行这些脚本，不能承诺离线或 `--ignore-scripts` 安装。打包变更要验证候选文件内容和实际安装后的依赖版本/启动。
 
-桌面命令的 PATH 发现位于 [后端环境](../desktop/backend-environment.cjs)，由 [后端宿主](../desktop/backend.cjs) 在启动时装配；验证 [环境优先级](../test/desktop-backend-environment.test.js) 与 [真实后端继承](../test/desktop-backend.test.js)。Main 提示中的 scratch 目录由 [工作区存储](../src/workspace/workspace-store.ts) 在 Task 初始化时创建，旧任务恢复同样补建；验证 [目录恢复](../test/workspace-layout.test.js) 与 [真实首轮 Pi](../test/main-task-paths-pi.test.js)。组合命令的显示归 [命令描述](../web/assets/tool-command.js)，整体退出状态仍消费真实工具结果；验证 [工具展示](../test/tool-presentation.test.js)。
+桌面命令的 PATH 发现位于 [后端环境](../desktop/backend-environment.cjs)，由 [执行主机连接](../desktop/backend.cjs) 在启动独立后端时装配；实例归属与退出后继续运行由 [后端生命周期](../src/cli/backend.ts) 负责，开发 dashboard 入口使用同一实例记录。验证 [环境优先级](../test/desktop-backend-environment.test.js)、[真实后端继承](../test/desktop-backend.test.js) 与 [桌面连接与切换](../test/electron-connect.test.js)。Main 提示中的 scratch 目录由 [工作区存储](../src/workspace/workspace-store.ts) 在 Task 初始化时创建，旧任务恢复同样补建；验证 [目录恢复](../test/workspace-layout.test.js) 与 [真实首轮 Pi](../test/main-task-paths-pi.test.js)。组合命令的显示归 [命令描述](../web/assets/tool-command.js)，整体退出状态仍消费真实工具结果；验证 [工具展示](../test/tool-presentation.test.js)。
 
 侧栏显示后台准备进度和失败入口，普通会话继续可用。设置布局沿 [settings CSS](../web/assets/settings.css)，卡片共用 [workbench CSS](../web/assets/workbench.css)。
 

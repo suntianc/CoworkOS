@@ -38,7 +38,7 @@ const { createComputerPolicyStore, createComputerPolicyController } = require(".
 const { createComposerDraftStore } = require("./composer-drafts.cjs");
 const { installEditContextMenu } = require("./edit-context-menu.cjs");
 const { connectRenderer } = require("./renderer-connection.cjs");
-const { startBackend } = require("./backend.cjs");
+const { connectBackend } = require("./backend.cjs");
 const { desktopProfile } = require("./profile.cjs");
 const { createDesktopSpeechInput } = require("./speech-input.cjs");
 const { migrateLegacyDesktopData } = require("../scripts/data-migration.cjs");
@@ -117,14 +117,13 @@ function openExternalLink(url) {
 }
 async function launchBackend() {
   // An unavailable old secret must leave the settings UI reachable for replacement.
-  backend = await startBackend(paths, await settings.read({ allowUnavailableSecret: true }));
+  // The backend is a detached execution host: it keeps running when this client
+  // quits, so there is no child exit to report and no shutdown here.
+  backend = await connectBackend(paths, await settings.read({ allowUnavailableSecret: true }));
   if (closing || quitting) return;
-  const current = backend;
-  await computerControl.initialize(current);
-  current.child.once("exit", () => {
-    if (!quitting && !closing && !restarting && mainWindow && backend === current)
-      dialog.showErrorBox("本地服务已退出", "请重启 CoworkOS；任务数据已保存在用户数据目录。");
-  });
+  // Window access is granted over trusted host IPC; an execution host that does
+  // not expose that bridge yet reports it as a state instead of failing startup.
+  if (typeof backend.computer === "function") await computerControl.initialize(backend);
   await connectRenderer(backend, session.defaultSession.cookies, () => mainWindow);
 }
 function createWindow() {
@@ -285,6 +284,11 @@ function registerComputerTakeover(enabled) {
 ipcMain.handle("bookman:computer-use", async (event, input) => {
   trust(event);
   if (closing || quitting || restarting || !backend) throw new Error("本地服务正在关闭或重启");
+  // The saved preference and its status stay readable; only the grant needs the
+  // execution host's native bridge.
+  if (input?.operation === "policy-status") return computerPolicy.snapshot();
+  if (typeof backend.computer !== "function")
+    throw new Error("窗口访问由执行主机提供，当前独立后端尚未开放该能力");
   return computerControl.request(input);
 });
 ipcMain.handle("bookman:voice-start", (event, input) => {
@@ -477,10 +481,12 @@ app.on("window-all-closed", () => {
 });
 app.on("activate", () => {
   refreshApplicationIcon();
-  if (!mainWindow && backend) {
+  if (!mainWindow) {
     createWindow();
-    void mainWindow.loadURL(backend.url);
-  } else mainWindow?.show();
+    // Reconnect before showing the page: a backend restarted outside the app
+    // publishes a new host credential, and the window must carry the new one.
+    void launchBackend().catch((error) => dialog.showErrorBox("CoworkOS 无法连接本地服务", error.message));
+  } else mainWindow.show();
 });
 app.on("before-quit", (event) => {
   if (quitting || !owner || !app.isReady()) return;
@@ -507,7 +513,7 @@ app.on("before-quit", (event) => {
     await startupPromise;
     await restartPromise;
     await updates?.dispose();
-    await backend?.stop();
+    // The backend keeps serving, and with it every task it already accepted.
     await speechInput.dispose();
     await credentialStorage.close?.();
     quitting = true;
