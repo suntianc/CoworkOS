@@ -28,7 +28,9 @@ export const MANAGEMENT_CAPABILITIES = [
   "session.revoke",
   "operations.query",
   "commands.idempotent",
-  "commands.expectedRevision"
+  "commands.expectedRevision",
+  "events.snapshot",
+  "events.stream"
 ];
 
 export interface ProtocolInfo {

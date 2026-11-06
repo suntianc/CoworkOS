@@ -13,7 +13,15 @@ import { createMenu } from "../ui/menu.js";
 import { escapeHtml as esc } from "../workbench/html.js";
 
 /** Owns artifact loading, preview and editor handoff. It never writes a published artifact. */
-export function createArtifactController({ state, $, api, showToast, renderRightPanel, getWorkbench }) {
+export function createArtifactController({
+  state,
+  $,
+  api,
+  showToast,
+  renderRightPanel,
+  getWorkbench,
+  mediaUrl
+}) {
   function fileBaseName(path) {
     const parts = String(path || "")
       .split(/[\\/]/)
@@ -320,6 +328,37 @@ export function createArtifactController({ state, $, api, showToast, renderRight
     renderRightPanel();
   }
 
+  /**
+   * Binary previews are fetched through the bound backend, which may be another
+   * local origin the page's own URL cannot reach. The bytes become one object
+   * URL per versioned request; a version change asks for a new URL.
+   */
+  const mediaUrls = new Map();
+  function cachedMediaUrl(path) {
+    const existing = mediaUrls.get(path);
+    if (existing) return existing;
+    const pending = mediaUrl(path)
+      .then((href) => {
+        if (href) mediaUrls.set(path, Promise.resolve(href));
+        return href;
+      })
+      .catch(() => undefined);
+    mediaUrls.set(path, pending);
+    return pending;
+  }
+
+  function loadArtifactMedia(path, signature, urls) {
+    const entry = state.artifactCache.get(path);
+    if (!mediaUrl || !entry || entry.status !== "ready" || entry.signature !== signature) return;
+    if (entry.mediaHref || !["pdf", "image"].includes(entry.previewKind)) return;
+    void cachedMediaUrl(urls.rawUrl).then((href) => {
+      const current = state.artifactCache.get(path);
+      if (!href || !current || current.status !== "ready" || current.signature !== signature) return;
+      state.artifactCache.set(path, { ...current, mediaHref: href });
+      if (state.previewPath === path) renderArtifactDrawer();
+    });
+  }
+
   function ensureArtifactLoaded(path) {
     const artifact = state.detail?.artifacts?.find((entry) => entry.relativePath === path);
     if (!artifact) return;
@@ -333,6 +372,7 @@ export function createArtifactController({ state, $, api, showToast, renderRight
       .then((result) => {
         if (state.selected !== taskId || state.artifactCache.get(path) !== pending) return;
         state.artifactCache.set(path, { ...normalizeArtifactPreview(result), status: "ready", signature });
+        loadArtifactMedia(path, signature, artifactRequestUrls(taskId, path, signature));
         if (state.previewPath === path) renderArtifactDrawer();
       })
       .catch((error) => {
@@ -368,6 +408,7 @@ export function createArtifactController({ state, $, api, showToast, renderRight
       artifacts.map((entry) => [entry.relativePath, entry.displayName, artifactVersion(entry)]),
       cached?.status,
       cached?.version,
+      cached?.mediaHref,
       cached?.error
     ]);
     // Polling task status must not reload a PDF or reset the reader every 3.5 s.
@@ -392,7 +433,11 @@ export function createArtifactController({ state, $, api, showToast, renderRight
       content = `<div class="drawer-state"><span class="editor-spinner"></span><strong>正在打开 ${esc(artifact.displayName || fileBaseName(activePath))}</strong><p>正在读取产出物…</p></div>`;
     else if (cached.status === "error")
       content = `<div class="drawer-state is-error"><strong>文件读取失败</strong><p>${esc(cached.error || "未知错误")}</p><button class="drawer-action" data-retry-artifact>重新加载</button></div>`;
-    else content = renderArtifactDocument(cached, activePath, urls);
+    else
+      content = renderArtifactDocument(cached, activePath, {
+        ...urls,
+        rawUrl: cached.mediaHref || urls.rawUrl
+      });
     const canCopy = cached?.status === "ready" && cached.previewKind === "text";
     const copyAction = canCopy
       ? `<button class="drawer-action" data-copy-drawer>${cached.truncated ? "复制已预览内容" : "复制内容"}</button>`

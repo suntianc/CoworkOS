@@ -136,23 +136,26 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 
 ## 路径与环境变量
 
-| 环境变量                                              | 用途                                                        |
-| ----------------------------------------------------- | ----------------------------------------------------------- |
-| `COWORK_CONFIG`                                       | 显式配置文件                                                |
-| `COWORK_API_BASE` / `COWORK_MODEL` / `COWORK_API_KEY` | 模型地址、ID、密钥                                          |
-| `COWORK_MODEL_API`                                    | 与 `api` 取值相同                                           |
-| `COWORK_THINKING_FORMAT`                              | 当前进程的思考格式                                          |
-| `COWORK_SUPPORTS_IMAGES`                              | `1` / `true` 开启，`0` / `false` 关闭                       |
-| `COWORK_REASONING_EFFORT`                             | 推理强度                                                    |
-| `COWORK_SUPPORTS_REASONING_EFFORT`                    | `1` / `true` 开启，`0` / `false` 禁止强度字段               |
-| `COWORK_SUPPORTS_PROMPT_CACHE_KEY`                    | `1` / `true` 开启，`0` / `false` 关闭第三方缓存键           |
-| `ATRIA_HOME`                                          | App、CLI、Web 用户目录，默认 `~/.atria`；显式路径覆盖仍优先 |
-| `COWORK_DESKTOP_DATA`                                 | 独立桌面数据目录                                            |
-| `COWORK_WORKSPACE`                                    | 持久任务数据目录，默认 `~/.atria/workspace`                 |
-| `COWORK_PROJECT_DIR`                                  | Main 文件与命令的项目目录                                   |
-| `PI_CODING_AGENT_DIR`                                 | Pi 状态目录，默认 `~/.atria/pi`                             |
-| `COWORK_TASK_ID`                                      | 固定 Main Task，恢复时配合原 Pi 会话                        |
-| `COWORK_UI_PORT`                                      | 源码 Web 端口，默认 3880                                    |
+| 环境变量                                              | 用途                                                                  |
+| ----------------------------------------------------- | --------------------------------------------------------------------- |
+| `COWORK_CONFIG`                                       | 显式配置文件                                                          |
+| `COWORK_API_BASE` / `COWORK_MODEL` / `COWORK_API_KEY` | 模型地址、ID、密钥                                                    |
+| `COWORK_MODEL_API`                                    | 与 `api` 取值相同                                                     |
+| `COWORK_THINKING_FORMAT`                              | 当前进程的思考格式                                                    |
+| `COWORK_SUPPORTS_IMAGES`                              | `1` / `true` 开启，`0` / `false` 关闭                                 |
+| `COWORK_REASONING_EFFORT`                             | 推理强度                                                              |
+| `COWORK_SUPPORTS_REASONING_EFFORT`                    | `1` / `true` 开启，`0` / `false` 禁止强度字段                         |
+| `COWORK_SUPPORTS_PROMPT_CACHE_KEY`                    | `1` / `true` 开启，`0` / `false` 关闭第三方缓存键                     |
+| `ATRIA_HOME`                                          | App、CLI、Web 用户目录，默认 `~/.atria`；显式路径覆盖仍优先           |
+| `COWORK_DESKTOP_DATA`                                 | 独立桌面数据目录                                                      |
+| `COWORK_WORKSPACE`                                    | 持久任务数据目录，默认 `~/.atria/workspace`                           |
+| `COWORK_PROJECT_DIR`                                  | Main 文件与命令的项目目录                                             |
+| `PI_CODING_AGENT_DIR`                                 | Pi 状态目录，默认 `~/.atria/pi`                                       |
+| `COWORK_TASK_ID`                                      | 固定 Main Task，恢复时配合原 Pi 会话                                  |
+| `COWORK_UI_PORT`                                      | 源码 Web 端口，默认 3880                                              |
+| `COWORK_TRUSTED_CLIENT_ORIGINS`                       | 受信本机页面来源，逗号分隔的精确 `http://127.0.0.1:<port>` 等回环地址 |
+
+`COWORK_TRUSTED_CLIENT_ORIGINS` 只接受精确的本机 `http://` 来源，不接受通配符；命名的来源可以跨端口读取该后端的响应并出现在其页面 `connect-src` 中。真实请求仍走凭据校验，监听地址仍为 `127.0.0.1`。浏览器页面管理另一个本机后端时，两者需要互相命名对方来源。详见 [Product API](product-api.md#trusted-local-client-origins)。
 
 各入口运行状态默认位于 `~/.atria/runtime`。项目设置保存 `projectName`、`projectId`、`projectDirectory`，首条消息才创建会话。项目工作目录与 `workspaceRoot` / `COWORK_WORKSPACE` 下的内部存储相互独立。
 

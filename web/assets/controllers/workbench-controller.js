@@ -34,7 +34,9 @@ export function createWorkbenchController({
   activateDraft = () => {},
   saveDraft = () => {},
   getNavigationContext = () => state.selected,
-  connectEventStream
+  connectEventStream,
+  backendRequest,
+  fetchBytes
 }) {
   const STANDALONE_TASK = "workspace";
   let pendingConnections = 0;
@@ -241,6 +243,8 @@ export function createWorkbenchController({
   }
 
   const applicationApi = createApplicationApi({
+    ...(backendRequest ? { request: backendRequest } : {}),
+    ...(fetchBytes ? { fetchBytes } : {}),
     isStandaloneTask: (taskId) => taskId === STANDALONE_TASK || taskId?.startsWith("temporary-"),
     // The editor's own "打开" menu reaches the rest of the Task's documents
     // through this. It was declared by `createApplicationApi` and never supplied,

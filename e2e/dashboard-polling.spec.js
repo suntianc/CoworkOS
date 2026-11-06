@@ -140,16 +140,43 @@ test("streamed replies received while hidden appear on return and a late old str
     for (const taskId of ["stream-a", "stream-b"])
       await post(page, dashboard.base, "/api/tasks", { taskId, goal: taskId });
     await instrument(page);
+    // Run streams are read through the shared client's fetch transport so the
+    // session header and the bound backend travel with them; EventSource is only
+    // the fallback. This stub is the same fake stream in that shape.
     await page.addInitScript(() => {
       window.pollingStreams = [];
-      window.EventSource = class {
-        constructor(url) {
-          this.url = url;
-          window.pollingStreams.push(this);
-        }
-        close() {
-          this.closed = true;
-        }
+      const original = window.fetch;
+      window.fetch = (input, init = {}) => {
+        const url = String(input?.url ?? input);
+        if (!/\/api\/tasks\/[^/]+\/stream$/.test(new URL(url, location.href).pathname))
+          return original(input, init);
+        const encoder = new TextEncoder();
+        let controller;
+        const stream = {
+          url,
+          closed: false,
+          emit(record) {
+            if (!stream.closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(record)}\n\n`));
+          },
+          close() {
+            stream.closed = true;
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          }
+        };
+        const body = new ReadableStream({
+          start(next) {
+            controller = next;
+          }
+        });
+        init.signal?.addEventListener("abort", () => stream.close(), { once: true });
+        window.pollingStreams.push(stream);
+        return Promise.resolve(
+          new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } })
+        );
       };
     });
     await page.route("**/api/tasks/stream-a", async (route) => {
@@ -189,10 +216,7 @@ test("streamed replies received while hidden appear on return and a late old str
         }
       }
     };
-    await page.evaluate(
-      (record) => window.pollingActiveStream.onmessage({ data: JSON.stringify(record) }),
-      event
-    );
+    await page.evaluate((record) => window.pollingActiveStream.emit(record), event);
     await visibility(page, false);
     await page.clock.runFor(50);
     await expect(page.locator("#conversation")).toContainText("隐藏期间收到的回复");
@@ -202,15 +226,13 @@ test("streamed replies received while hidden appear on return and a late old str
     await page.locator("#composer-input").fill("B 的未发送草稿");
     await page.evaluate(
       (record) =>
-        window.pollingActiveStream.onmessage({
-          data: JSON.stringify({
-            ...record,
-            eventId: "late-record",
-            payload: {
-              ...record.payload,
-              message: { ...record.payload.message, content: [{ type: "text", text: "旧会话晚到回复" }] }
-            }
-          })
+        window.pollingActiveStream.emit({
+          ...record,
+          eventId: "late-record",
+          payload: {
+            ...record.payload,
+            message: { ...record.payload.message, content: [{ type: "text", text: "旧会话晚到回复" }] }
+          }
         }),
       event
     );

@@ -35,7 +35,7 @@ function latestModelRetry(events) {
 function renderUserText(text, markdown) {
   const uploaded = splitUploadedFiles(text);
   if (uploaded.files.length)
-    return `${markdown(uploaded.text)}<div class="message-attachments">${uploaded.files.map((file) => `<button type="button" data-upload-preview="${esc(file.uploadId)}">${file.kind === "image" ? `<img src="/api/uploads/${esc(file.uploadId)}" alt="" />` : icon("paperclip")}<span>${esc(file.name)}</span></button>`).join("")}</div>`;
+    return `${markdown(uploaded.text)}<div class="message-attachments">${uploaded.files.map((file) => `<button type="button" data-upload-preview="${esc(file.uploadId)}">${file.kind === "image" ? `<img data-upload-src="${esc(file.uploadId)}" alt="" />` : icon("paperclip")}<span>${esc(file.name)}</span></button>`).join("")}</div>`;
 
   const marker = "\n\nAttached files:\n";
   const boundary = text.indexOf(marker);

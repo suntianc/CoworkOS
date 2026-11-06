@@ -157,6 +157,65 @@ function browserEnvironment() {
   };
 }
 
+/**
+ * The management protocol the page now needs before it reads any business data.
+ *
+ * Boot authorizes a local session and takes a catalog snapshot; the event
+ * stream stays open without delivering anything, so the page behaves exactly as
+ * a freshly connected backend would.
+ */
+const STUB_PROTOCOL = {
+  version: "1.0",
+  minClientVersion: "1.0",
+  capabilities: [
+    "protocol.negotiate",
+    "session.authorize",
+    "session.revoke",
+    "operations.query",
+    "commands.idempotent",
+    "commands.expectedRevision",
+    "events.snapshot",
+    "events.stream"
+  ]
+};
+
+function stubManagement(url, method, body, catalog) {
+  if (url === "/api/session" && method === "POST")
+    return body(
+      {
+        session: {
+          sessionId: "session_test",
+          token: "stub-session-token",
+          clientName: "CoworkOS Web",
+          protocolVersion: "1.0",
+          createdAt: "2026-01-01T00:00:00.000Z"
+        },
+        backend: { backendId: "backend_test", pid: 1, startedAt: "2026-01-01T00:00:00.000Z" },
+        protocol: STUB_PROTOCOL
+      },
+      201
+    );
+  if (url === "/api/session")
+    return body({ current: { kind: "session", sessionId: "session_test" }, sessions: [] });
+  if (url === "/api/backend")
+    return body({
+      backendId: "backend_test",
+      pid: 1,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      protocol: STUB_PROTOCOL
+    });
+  if (url === "/api/events/snapshot")
+    return body({ ...catalog, backendId: "backend_test", cursor: 0, revisions: {} });
+  if (url.startsWith("/api/events/stream"))
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      body: { getReader: () => ({ read: () => new Promise(() => {}), cancel: async () => {} }) }
+    };
+  return undefined;
+}
+
 /** Answer the page's own requests from a small in-memory workspace. */
 function stubServer({ tabs = [], tasks = [], applications = [], projects } = {}) {
   const calls = [];
@@ -179,6 +238,22 @@ function stubServer({ tabs = [], tasks = [], applications = [], projects } = {})
       json: async () => value,
       headers: { get: () => null }
     });
+    const managed = stubManagement(url, method, body, {
+      tasks,
+      projects: projects ?? [
+        {
+          projectId: "p1",
+          projectName: "默认项目",
+          projectDirectory: "/tmp/w",
+          workspaceRoot: "/tmp/w",
+          tasks
+        }
+      ],
+      workspaceRoot: "/tmp/w",
+      currentWorkspaceRoot: "/tmp/w",
+      model: "test-model"
+    });
+    if (managed !== undefined) return managed;
     if (url.startsWith("/api/tasks") && url.split("/").length === 3 && method === "GET") {
       return body({
         tasks,
@@ -516,6 +591,37 @@ test("startup reads the task list, the model list and the global tab strip", asy
   }
 });
 
+test("only backend file links use the authenticated download client", async (t) => {
+  const page = await boot({ tasks: [{ taskId: "task-1", status: "created", goal: "甲" }] });
+  t.after(page.restore);
+  assert.equal(page.loadError, undefined);
+  const click = (href, name) => {
+    const anchor = page.document.createElement("a");
+    anchor.href = href;
+    anchor.download = name;
+    page.document.body.append(anchor);
+    anchor.dispatchEvent(new page.window.Event("click", { bubbles: true, cancelable: true }));
+  };
+  const callsOf = (fragment) => page.server.calls.filter((call) => call.includes(fragment));
+  // The Markdown export shape: the bytes are already a local blob URL. Taking
+  // it over would send "blob:..." to the bound backend and lose the download.
+  click("blob:http://atria.invalid/markdown-export", "导出.md");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(callsOf("blob:"), [], "a page-produced blob stays local");
+  click("data:text/markdown,hello", "导出.md");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(callsOf("data:text"), [], "an inline data URL stays local");
+  // A backend file does need the session and the bound backend.
+  const before = callsOf("/api/tasks/task-1/artifact").length;
+  click("/api/tasks/task-1/artifact?path=a.md&download=1", "a.md");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(
+    callsOf("/api/tasks/task-1/artifact").length > before,
+    "a backend artifact link is fetched through the authenticated client"
+  );
+  assert.deepEqual(page.failures, []);
+});
+
 test("a projectless new conversation begins immediately and preserves its draft", async (t) => {
   const page = await boot({ projects: [] });
   t.after(page.restore);
@@ -725,6 +831,14 @@ test("with the workbench off the page still loads and the controls stay hidden",
       json: async () => value,
       headers: { get: () => null }
     });
+    const managed = stubManagement(url, method, body, {
+      tasks: [{ taskId: "task-1", status: "created", goal: "甲" }],
+      projects: [],
+      workspaceRoot: "/tmp/w",
+      currentWorkspaceRoot: "/tmp/w",
+      model: "m"
+    });
+    if (managed !== undefined) return managed;
     if (url === "/api/tasks")
       return body({
         tasks: [{ taskId: "task-1", status: "created", goal: "甲" }],
@@ -784,8 +898,11 @@ test("a streamed event is appended in place, not by copying the whole log", asyn
   const source =
     readFileSync("web/assets/controllers/connection-controller.js", "utf8") +
     readFileSync("web/app.js", "utf8");
-  const handler = source.slice(source.indexOf("stream.onmessage"), source.indexOf("stream.onerror"));
-  assert.ok(handler.length > 0, "the SSE handler must be findable");
+  // The stream transport is shared (fetch or EventSource), so the append lives
+  // in one applyRecord used by both; the invariant is the push, not the caller.
+  const start = source.indexOf("const applyRecord");
+  assert.ok(start >= 0, "the stream record handler must be findable");
+  const handler = source.slice(start, source.indexOf("stream.onerror"));
   assert.doesNotMatch(
     handler,
     /runtimeEvents\s*=\s*\[\s*\.\.\./,

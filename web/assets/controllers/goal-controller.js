@@ -283,9 +283,13 @@ export function createGoalController({
     }
     return { ...result, notifications: entries };
   }
+  /** A lifecycle change is a command: the id makes a lost response reconcile, not repeat. */
+  const change = (url, options) => (api.command ? api.command(url, options) : api(url, options));
   async function control(current, action) {
+    // A revision retry is a new command: same operation id with different
+    // content would be refused as an operation conflict.
     const write = (revision) =>
-      api(`${path(current)}/control`, { method: "POST", body: { action, revision } });
+      change(`${path(current)}/control`, { method: "POST", body: { action, revision } });
     try {
       return await write(current.goal.revision);
     } catch (error) {
@@ -460,7 +464,7 @@ export function createGoalController({
     button.disabled = true;
     failure = "";
     try {
-      await api(`${path(current)}/control`, {
+      await change(`${path(current)}/control`, {
         method: "POST",
         body: { action: "respond", answer: node.elements.answer.value }
       });
