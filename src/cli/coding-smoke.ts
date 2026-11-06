@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { createBuiltinTools } from "../tools/builtin.js";
 import { RunService } from "../runtime/run-service.js";
-import { readCoworkConfig } from "../runtime/config.js";
+import { readHostCoworkConfig } from "../runtime/config.js";
 import {
   configuredModelApi,
   configuredContextWindow,
@@ -17,7 +17,7 @@ import {
   runtimeSettingsEnv
 } from "../runtime/runtime-settings.js";
 
-const config = readCoworkConfig();
+const config = readHostCoworkConfig();
 const runtimeEnv = runtimeSettingsEnv(config);
 const apiKey = process.env.COWORK_API_KEY ?? config.apiKey;
 const baseUrl = process.env.COWORK_API_BASE ?? config.baseUrl ?? config.apiBase;

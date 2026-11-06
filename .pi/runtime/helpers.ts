@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { readCoworkConfig, type CoworkConfig } from "../../dist/src/runtime/config.js";
+import { readHostCoworkConfig, type CoworkConfig } from "../../dist/src/runtime/config.js";
 export type RuntimeToolResult = AgentToolResult<unknown> & { isError?: boolean };
 
 export function errorMessage(error: unknown): string {
@@ -32,5 +32,7 @@ export function textFromMessage(message: { content?: unknown }): string {
 }
 
 export function loadConfig(): CoworkConfig {
-  return readCoworkConfig(process.env.COWORK_CONFIG_ROOT ?? process.env.COWORK_HARNESS_ROOT ?? process.cwd());
+  return readHostCoworkConfig(
+    process.env.COWORK_CONFIG_ROOT ?? process.env.COWORK_HARNESS_ROOT ?? process.cwd()
+  );
 }

@@ -299,7 +299,7 @@ async function doctor() {
   let config, input;
   await check("模型配置", () => {
     if (!modules) throw new Error("先修复 CLI 构建。");
-    config = modules.readCoworkConfig(cwd, {
+    config = modules.readHostCoworkConfig(cwd, {
       COWORK_CONFIG: existsSync(configPath) || process.env.COWORK_CONFIG ? configPath : undefined
     });
     input = {
@@ -396,11 +396,11 @@ async function launch() {
       throw new Error("COWORK_TASK_ID requires a valid task ID");
     workerArgs = Object.entries(parsed.options).flatMap(([name, value]) => [`--${name}`, value]);
   }
-  const { readCoworkConfig } = await runtime();
+  const { readHostCoworkConfig } = await runtime();
   const explicit = process.env.COWORK_CONFIG;
   const config = helpOnly
     ? {}
-    : readCoworkConfig(cwd, {
+    : readHostCoworkConfig(cwd, {
         COWORK_CONFIG: existsSync(configPath) || explicit ? configPath : undefined
       });
   const pi = command === "start" || command.startsWith("-");

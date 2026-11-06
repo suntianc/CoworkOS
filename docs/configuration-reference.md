@@ -80,6 +80,10 @@ Finder/Dock 启动的 macOS App 会将存在的 `~/.local/bin`、Homebrew `bin`/
 
 App 使用 Electron safeStorage 的 macOS 加密能力；Web / CLI 通常使用权限为 0600 的本机 JSON。App 的模型、搜索和组件凭据共用钥匙串保存行为：失败或取消时保留表单和旧配置，再次保存重试，不自动改为明文。
 
+独立执行主机把模型与搜索密钥保存在配置文件旁的 `credentials.json`（0600，可用 `COWORK_CREDENTIALS` 指定路径）。设置接口只返回 `configured`、`credentialUnavailable` 或 `secretUnavailable` 及具体 `credentialError`，不返回密钥；空白密钥保留原值，显式清除搜索密钥会删除保存项。旧桌面密文在迁移前按不可用处理，不会被报告为已配置。
+
+旧 Electron 加密配置的一次性转换：先停止后端，再在仓库内运行 `node scripts/migrate-desktop-settings.mjs --config <模型配置文件>`（可选 `--credentials`、`--legacy-secret`；隔离验证可用 `--host-arg --use-mock-keychain` 避免访问真实钥匙串）。工具临时调用旧宿主解密全部值后才写入，先把原文件备份为 `<配置>.before-host-credentials`，再原子改写配置；失败时原文件、备份和凭据文件都不变，成功后原配置中的密文和明文密钥被移除。重跑返回 `already-migrated`，不会新增连接。迁移完成后重新启动后端；正在运行的后端不会重新读取磁盘配置。设置页和真实运行使用同一份主机凭据，密钥不会进入界面状态、日志或事件。
+
 旧单组连接显示为“默认配置”。首次保存多组配置前创建 `.before-model-profiles` 备份，并保留旧桌面 `model-secret.bin`；未知版本拒绝覆盖。恢复备份前先退出应用，配置和备份均按私有数据管理。
 
 正式版和开发版通过独立的钥匙串进程使用相同的 `Atria` 加密标识，开发窗口显示 CoworkOS Dev。旧开发标识加密的密钥可能需要重新输入，原密文与源目录保留。原生钥匙串和签名兼容需单独验收。

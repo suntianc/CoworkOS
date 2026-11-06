@@ -15,7 +15,7 @@ import { applicationServiceForTask } from "../applications/task-service.js";
 import { ResourceMappingStore } from "../applications/mapping-store.js";
 import { McpSupervisor } from "../applications/mcp-supervisor.js";
 import { id, now } from "../domain/types.js";
-import { readCoworkConfig } from "../runtime/config.js";
+import { readHostCoworkConfig } from "../runtime/config.js";
 import {
   runtimeSettingsEnv,
   configuredContextWindow,
@@ -99,7 +99,8 @@ export function createDashboardApplication(
    * still open.
    */
   const mcpSupervisor = new McpSupervisor(projectRoot, dashboardUrl);
-  const runtimeConfig = readCoworkConfig(projectRoot);
+  // The host-owned credential store is overlaid here, so child processes and routes share it.
+  const runtimeConfig = readHostCoworkConfig(projectRoot);
   const data = atriaDataPaths(process.env, runtimeConfig, projectRoot);
   let workspaceRoot = data.workspaceRoot;
   const coordinator = new CoordinatorRuntime();
