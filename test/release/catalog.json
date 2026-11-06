@@ -1,17 +1,32 @@
 {
   "schemaVersion": 1,
   "stages": [
-    { "id": "basic", "name": "一 基础功能" },
-    { "id": "cli", "name": "二 CLI 专门功能" },
-    { "id": "app", "name": "三 App 功能" },
-    { "id": "applications", "name": "四 App 内应用功能" },
-    { "id": "cases", "name": "五 用户 case" }
+    {
+      "id": "basic",
+      "name": "一 基础功能"
+    },
+    {
+      "id": "cli",
+      "name": "二 CLI 专门功能"
+    },
+    {
+      "id": "app",
+      "name": "三 App 功能"
+    },
+    {
+      "id": "applications",
+      "name": "四 App 内应用功能"
+    },
+    {
+      "id": "cases",
+      "name": "五 用户 case"
+    }
   ],
   "rules": [
     {
       "stage": "cases",
-      "node": "^(office-skill-pi|machine-learning-skill-pi|publish-artifact-pi|main-recovery-pi|application-bootstrap-pi|blender-bootstrap-pi|cad-agent-workflow|input-files-pi|vision-session|live-ui)\\.test\\.js$",
-      "browser": "^(cad-chat|pptist-chat|human-interactions|message-delivery|conversation-integrity|request-recovery)\\.spec\\.js$"
+      "node": "^(office-skill-pi|machine-learning-skill-pi|publish-artifact-pi|automation-pi|main-recovery-pi|application-bootstrap-pi|input-files-pi|vision-session|live-ui)\\.test\\.js$",
+      "browser": "^(human-interactions|message-delivery|conversation-integrity|request-recovery)\\.spec\\.js$"
     },
     {
       "stage": "cli",
@@ -20,18 +35,24 @@
     },
     {
       "stage": "applications",
-      "node": "^(application-|binding-|blender-|cad-|computer-|pptist-|text-document-session|software-boundaries|independent-instance-model|workspace-text)",
-      "browser": "^(app-instances|binding-menu|blender|cad|collaboration-picker|computer-use|independent-applications|local-file-open|original-file|pptist|recovery-review|workbench|workspace-applications|workspace-projects)"
+      "node": "^(application-|binding-|computer-|text-document-session|software-boundaries|independent-instance-model|workspace-text)",
+      "browser": "^(app-instances|binding-menu|collaboration-picker|computer-use|independent-applications|local-file-open|original-file|recovery-review|workbench|workspace-applications|workspace-projects)"
     },
     {
       "stage": "app",
       "node": "^(desktop-|composer-|conversation-view|artifact-ui|artifact-navigation|voice-input|markdown|workbench-dom|workbench-ui|tab-refresh|workbench-tab-identity|model-settings|app-boot|request-error)"
     }
   ],
-  "nativeNode": ["test/computer-native.test.js"],
+  "nativeNode": [
+    "test/computer-native.test.js"
+  ],
   "nativeBrowserPattern": "-desktop\\.spec\\.js$",
   "nativeVariants": [
-    { "file": "e2e/model-profiles.spec.js", "kind": "browser", "pattern": "desktop: saved connections" },
+    {
+      "file": "e2e/model-profiles.spec.js",
+      "kind": "browser",
+      "pattern": "desktop: saved connections"
+    },
     {
       "file": "test/desktop-dev.test.js",
       "kind": "node",
@@ -64,17 +85,42 @@
       "note": "已有补充/排队/晋升/取消及持久投递断言；新目录的全部竞态仍需逐项核对。"
     },
     {
-      "cases": ["CLI-01", "CLI-02", "CLI-03", "CLI-04", "CLI-06", "CLI-07"],
-      "files": ["test/cli-onboarding.test.js", "test/agent-smoke-cli.test.js"],
+      "cases": [
+        "CLI-01",
+        "CLI-02",
+        "CLI-03",
+        "CLI-04",
+        "CLI-06",
+        "CLI-07"
+      ],
+      "files": [
+        "test/cli-onboarding.test.js",
+        "test/agent-smoke-cli.test.js"
+      ],
       "note": "已有命令/初始化回归；最终 tgz 的独立安装和真实 PTY 仍单列。"
     },
     {
-      "cases": ["APPHUMAN-02", "APPHUMAN-05", "APPHUMAN-06", "COMPOSER-02", "COMPOSER-03"],
-      "files": ["e2e/message-boundaries.spec.js", "e2e/message-delivery.spec.js"],
+      "cases": [
+        "APPHUMAN-02",
+        "APPHUMAN-05",
+        "APPHUMAN-06",
+        "COMPOSER-02",
+        "COMPOSER-03"
+      ],
+      "files": [
+        "e2e/message-boundaries.spec.js",
+        "e2e/message-delivery.spec.js"
+      ],
       "note": "已有草稿、队列和晚返回场景；不能据此声称丢响应或预期 Run 校验已完整覆盖。"
     },
     {
-      "cases": ["APPCHAT-01", "APPCHAT-02", "APPCHAT-04", "APPCHAT-07", "APPCHAT-08"],
+      "cases": [
+        "APPCHAT-01",
+        "APPCHAT-02",
+        "APPCHAT-04",
+        "APPCHAT-07",
+        "APPCHAT-08"
+      ],
       "files": [
         "test/conversation-api.test.js",
         "test/conversation-view.test.js",
@@ -83,37 +129,27 @@
       "note": "已有轮次/历史断言，五轮完整任务与原生重启仍需按目录验收。"
     },
     {
-      "cases": ["TXT-01", "TXT-02", "TXT-03", "TXT-04", "TXT-05"],
+      "cases": [
+        "TXT-01",
+        "TXT-02",
+        "TXT-03",
+        "TXT-04",
+        "TXT-05"
+      ],
       "files": [
-        "test/text-document-session.test.js",
-        "test/application-text-adapter.test.js",
         "e2e/workbench.spec.js"
       ],
       "note": "已有文本资源/草稿与工作台测试；按应用手册核对具体子项。"
     },
     {
-      "cases": ["CAD-01", "CAD-02", "CAD-03", "CAD-04", "CAD-05", "CAD-06"],
-      "files": [
-        "test/cad-program.test.js",
-        "test/cad-native.test.js",
-        "test/cad-assembly.test.js",
-        "e2e/cad-program.spec.js",
-        "e2e/cad-assembly.spec.js"
+      "cases": [
+        "GUI-01",
+        "GUI-02",
+        "GUI-03",
+        "GUI-04",
+        "GUI-05",
+        "GUI-06"
       ],
-      "note": "真实引擎可因依赖不足跳过；固定 C1/C2 与最终包结果不能仅凭文件名标通过。"
-    },
-    {
-      "cases": ["BLENDER-01", "BLENDER-02", "BLENDER-03", "BLENDER-04", "BLENDER-05", "BLENDER-06"],
-      "files": [
-        "test/blender-application.test.js",
-        "test/blender-document-session.test.js",
-        "test/blender-installer.test.js",
-        "e2e/blender-install.spec.js"
-      ],
-      "note": "已有场景/快照/安装回归；首次联网安装及原生工程重开另验。"
-    },
-    {
-      "cases": ["GUI-01", "GUI-02", "GUI-03", "GUI-04", "GUI-05", "GUI-06"],
       "files": [
         "test/computer-use.test.js",
         "test/computer-http.test.js",
@@ -126,34 +162,13 @@
     },
     {
       "cases": [
-        "PPTIST-01",
-        "PPTIST-02",
-        "PPTIST-03",
-        "PPTIST-04",
-        "PPTIST-05",
-        "PPTIST-06",
-        "PPTIST-07",
-        "PPTIST-08"
+        "APPINSTANCE-01",
+        "APPINSTANCE-02",
+        "APPINSTANCE-03",
+        "APPINSTANCE-04"
       ],
       "files": [
-        "test/pptist-application.test.js",
-        "test/pptist-document-session.test.js",
-        "test/pptist-fidelity.test.js",
-        "test/pptist-fullscreen.test.js",
-        "e2e/pptist-save.spec.js",
-        "e2e/pptist-fidelity.spec.js",
-        "e2e/pptist-artifact.spec.js",
-        "e2e/pptist-desktop.spec.js"
-      ],
-      "note": "已有真实编辑器与导出回归；布局、字体及最终包仍需人工查看。"
-    },
-    {
-      "cases": ["APPINSTANCE-01", "APPINSTANCE-02", "APPINSTANCE-03", "APPINSTANCE-04"],
-      "files": [
-        "test/independent-instance-model.test.js",
-        "e2e/app-instances.spec.js",
-        "e2e/independent-applications.spec.js",
-        "e2e/original-file-save.spec.js"
+        "test/independent-instance-model.test.js"
       ],
       "note": "独立实例/工作区/原文件使用生产路径；新清单仍标部分映射。"
     },
@@ -165,20 +180,16 @@
         "CASE-07",
         "CASE-08",
         "CASE-09",
-        "CASE-10",
-        "CASE-11",
         "CASE-12",
         "CASE-13",
         "CASE-18",
-        "CASE-20",
-        "CASE-25"
+        "CASE-20"
       ],
       "files": [
         "test/main-recovery-pi.test.js",
         "test/publish-artifact-pi.test.js",
         "test/office-skill-pi.test.js",
-        "e2e/message-delivery.spec.js",
-        "e2e/pptist-chat.spec.js"
+        "e2e/message-delivery.spec.js"
       ],
       "note": "复用已有确定性链路；这些文件通过不等于真实模型完成全部用户 case。"
     }
@@ -206,7 +217,7 @@
       "id": "release-applications",
       "stage": "applications",
       "document": "docs/testing-application-release.md",
-      "description": "TXT/CAD/Blender/PPTist 固定素材、实际文件/工程、布局与体验。"
+      "description": "TXT 固定素材、实际文件/工程、布局与体验。"
     },
     {
       "id": "release-computer-use",

@@ -1,13 +1,11 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import {
-  assertMainRequestExecutionScope,
-  mainRequestExecutionScope,
-  validMainRequestExecutionScope
-} from "../dist/src/runtime/main-request-execution-scope.js";
+const { assertMainRequestExecutionScope, mainRequestExecutionScope, validMainRequestExecutionScope } =
+  await import("../dist/src/runtime/main-request-execution-scope.js");
 
 test("execution ownership uses canonical roots and distinguishes app/instance, adapter and MCP tools", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-retry-scope-"));

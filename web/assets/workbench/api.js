@@ -17,7 +17,7 @@ class ApplicationRequestError extends Error {
   }
 }
 
-async function request(path, options) {
+async function defaultRequest(path, options) {
   const response = await fetch(path, options);
   const body = await response.json().catch((error) => {
     // A successful status with an interrupted/malformed body is not a
@@ -60,15 +60,27 @@ const resource = (taskId, resourceId) => `${task(taskId)}/resources/${encodeURIC
 const resourcesPath = (taskId, workspaceRoot) =>
   `${task(taskId)}/resources${taskId === "workspace" && workspaceRoot ? `?workspaceRoot=${encodeURIComponent(workspaceRoot)}` : ""}`;
 
+/** Default byte reader for hosts that did not supply the shared client. */
+async function defaultFetchBytes(url, signal) {
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error("无法读取文件");
+  return { blob: await response.blob() };
+}
+
 export function createApplicationApi({
   handoffToConversation,
   openResourceInTab,
   createAndOpen,
   onDocumentCreated,
   isStandaloneTask,
-  bindToConversation
+  bindToConversation,
+  request: requestImpl = defaultRequest,
+  fetchBytes = defaultFetchBytes
 } = {}) {
+  // Every call belongs to the page's bound backend and carries its session.
+  const request = requestImpl;
   return {
+    readBytes: (url, signal) => fetchBytes(url, signal),
     listWorkspaces: () => request("/api/workbench/workspaces"),
     chooseWorkspace: (workspaceRoot) => request("/api/workbench/workspaces", post({ workspaceRoot })),
     listTemporaryResources: () => request("/api/workbench/temporary-resources"),
@@ -150,22 +162,11 @@ export function createApplicationApi({
     downloadUrl: (taskId, resourceId, format) =>
       `${resource(taskId, resourceId)}/download?format=${encodeURIComponent(format)}`,
     downloadResource: async (taskId, resourceId, format, signal) => {
-      const response = await fetch(
+      const { blob, fileName } = await fetchBytes(
         `${resource(taskId, resourceId)}/download?format=${encodeURIComponent(format)}`,
-        { signal }
+        signal
       );
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new ApplicationRequestError(
-          body.error?.code ?? "request_failed",
-          body.error?.message ?? "导出失败",
-          body.error?.details,
-          body.error?.retryable,
-          response.status
-        );
-      }
-      const name = /filename\*=UTF-8''([^;]+)/i.exec(response.headers.get("content-disposition") ?? "")?.[1];
-      return { blob: await response.blob(), fileName: name ? decodeURIComponent(name) : `export.${format}` };
+      return { blob, fileName: fileName || `export.${format}` };
     },
     unbind: (taskId) => request(`${task(taskId)}/app-instances/unbind`, post({})),
     // Opening the application, not a document: the window may start empty.

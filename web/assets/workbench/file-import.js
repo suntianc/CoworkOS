@@ -19,9 +19,8 @@ export async function importArtifactFile({ taskId, artifact, catalog, registry, 
   const limit = application.contentBytes ?? 2 * 1024 * 1024;
   if (artifact.size > limit) throw new Error(`文件超过 ${limit / 1024 / 1024} MiB 上限`);
   const { rawUrl } = artifactRequestUrls(taskId, artifact.relativePath, artifactVersion(artifact));
-  const response = await fetch(rawUrl);
-  if (!response.ok) throw new Error("无法读取产出物文件");
-  const file = await response.blob();
+  const readBytes = api.readBytes || (async (url) => ({ blob: await (await fetch(url)).blob() }));
+  const { blob: file } = await readBytes(rawUrl);
   if (file.size > limit) throw new Error(`文件超过 ${limit / 1024 / 1024} MiB 上限`);
   const artifactSha256 = Array.from(
     new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())),

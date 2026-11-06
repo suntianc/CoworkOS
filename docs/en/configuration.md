@@ -67,6 +67,8 @@ Stop running tasks, then open Settings → Model connections.
 
 Saving changes to the active connection applies them to subsequent messages. Switching services preserves conversations; the next turn sends the history to the new service.
 
+The execution host stores keys and the UI only shows whether a connection is configured. See [connection storage](configuration-reference.md#connection-storage-and-compatibility) for the location, one-time conversion of an old desktop configuration and failure handling.
+
 ## Connection errors
 
 | Symptom                                          | Action                                                                                                                                                                                                   |

@@ -12,11 +12,18 @@ This is the boundary between the Cowork Runtime and the desktop/Web UI. The UI m
 
 The current implementation is a local single-user service bound to `127.0.0.1`. Host/Origin checks apply to every request.
 
-The native desktop host additionally requires its session token for `/api/*` (HttpOnly `atria-session` Cookie or `x-atria-token` for owned clients). Development mode without a token remains local-only. Remote/multi-user deployment is unsupported. See [architecture](architecture.md) and [software integration](software-integration.md) for current module and protocol boundaries.
+The serving process publishes a host credential in its instance record; `/api/*` requires it (`x-atria-token`, `Authorization: Bearer`, or the desktop's HttpOnly `atria-session` Cookie). A client exchanges that credential for a named local session; see [Local sessions and management commands](#local-sessions-and-management-commands). Development mode without a token remains local-only. Remote/multi-user deployment is unsupported: the listener stays on `127.0.0.1`, and Host/Origin checks run before any credential check. See [architecture](architecture.md) and [software integration](software-integration.md) for current module and protocol boundaries.
 
 ## Global APIs
 
 ```text
+GET  /api/backend
+POST /api/session
+GET  /api/session
+DELETE /api/session/:sessionId
+GET  /api/operations/:operationId
+GET  /api/events/snapshot
+GET  /api/events/stream?cursor=<seq>
 GET  /api/models
 GET  /api/model-settings
 POST /api/model-settings
@@ -36,7 +43,11 @@ POST /api/projects/:projectId/experience
 
 Models returns `{ current, models, configured }`. `GET /api/tasks` returns the grouped catalog `{ workspaceRoot, currentWorkspaceRoot, model, tasks, projects }`, rather than a bare Task array. Explicit projects remain in `projects` with `tasks: []`; legacy automatic groups retain their directory-based IDs and the sidebar hides them when they have no unarchived conversations.
 
+`GET /api/backend` returns `{ backendId, pid, startedAt, protocol }` for the process serving this data root. `protocol` is `{ version, minClientVersion, capabilities }`. The standalone backend keeps `backendId` across restarts, so a client can tell a restarted process from a different backend, and `pid` lets a host stop only the process it recorded. The route is local and credential-checked like the other `/api/*` routes and exposes no configuration.
+
 Desktop model settings use the trusted preload/IPC interface, not these HTTP routes.
+
+Model and search credentials belong to the execution host. `GET /api/model-settings` never returns a key: it returns the connection list plus `configured` and `credentialUnavailable`/`credentialError` when a saved key cannot be read here. `POST /api/model-settings` writes the submitted key to the host credential file (`credentials.json`, mode 0600, beside the configuration; `COWORK_CREDENTIALS` overrides the path) and returns the same redacted status. A blank key keeps the stored one. Old Electron ciphertext is reported as unavailable instead of configured, `POST /api/model-settings/test` rejects it with the same message, and submitting a key replaces it. `GET /api/web-search-settings` follows the same rule with `secretUnavailable`; `POST` stores or clears the Exa key in that file. Use `node scripts/migrate-desktop-settings.mjs --config <config path>` while the backend is stopped to convert old ciphertext once; it backs up the original as `<config>.before-host-credentials` and reports `already-migrated` on a rerun. See [connection storage](configuration-reference.md#连接存储与兼容).
 
 Create a project with `POST /api/projects { projectName, projectDirectory }`; update its name and/or folder with `PATCH /api/projects/:projectId`. Both return `{ project }`, containing `projectId`, `projectName`, `projectDirectory`, `workspaceRoot` (the project folder), `createdAt`, `updatedAt`, and `tasks`. Newly created IDs are stable `project_<uuid>` values. Names must be nonempty and at most 120 characters. The directory must be an existing absolute folder; duplicate project directories return 409. Creation persists an empty project without creating a Task or calling the model.
 
@@ -54,6 +65,96 @@ Model connection testing accepts `{ baseUrl, model, api?, apiKey?, supportsImage
 
 The service verifies a function call in the selected protocol and, when enabled, a synthetic image challenge. Success returns `{ ok: true, model, supportsImages, durationMs }`; errors contain only local diagnostics and never provider response bodies or credentials. Desktop uses trusted `bookman:test-model` IPC with the same probe. This is a connection check, not a general quality benchmark or a guarantee of arbitrary tool compatibility.
 
+## Local sessions and management commands
+
+Route implementations: [sessions](../src/dashboard/session-routes.ts), [local access](../src/dashboard/local-access.ts), [protocol](../src/dashboard/backend-protocol.ts) and [commands](../src/dashboard/management-commands.ts). This is the protocol seam every local client shares; the desktop host, the Web UI and future clients must use it instead of reading backend files.
+
+A host credential authorizes once and names this client as a session. Every later request presents the session credential in the same headers the host credential uses. Sessions belong to the data root and survive a backend restart; only their hashes are written. Revoking one client never disturbs the owner's other clients, and the host credential itself keeps working for owned tools that never authorize.
+
+| Endpoint                           | Behavior                                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/session`                | `{ clientName?, protocolVersion }` → HTTP 201 `{ session: { sessionId, token, clientName?, protocolVersion, createdAt }, backend, protocol }`. |
+| `GET /api/session`                 | `{ current: { kind, sessionId? }, sessions }`; the host sees every session, a session sees itself. Listing never repeats a secret.             |
+| `DELETE /api/session/:sessionId`   | Revoke one session (a session may end itself, the host may end any) → `{ sessionId, revokedAt, revoked: true }`. Repeating is a success.       |
+| `GET /api/operations/:operationId` | The saved receipt `{ operationId, command, status, body, completedAt }` of this identity's command, or HTTP 404 `operation_unknown`.           |
+
+`protocolVersion` is `major.minor`. The major number is compatibility; a client minor newer than this backend is refused, an older one is accepted. A missing version returns HTTP 400 `protocol_required`; an incompatible one returns HTTP 409 `protocol_incompatible` naming both versions, so both sides can show an actionable upgrade message. Capabilities describe the protocol this backend serves; clients branch on capability names instead of route probing. `events.snapshot` and `events.stream` name the catalog reconciliation below: a client that requires them and does not find them reports the missing names instead of probing routes or half-loading a screen.
+
+Change commands accept an optional `operationId`: `POST /api/projects`, `PATCH /api/projects/:projectId`, `POST /api/tasks` and `POST /api/tasks/:taskId/goals/:programId/control`. Management clients send one on every change; omitting it keeps the legacy single-shot behavior the current Web UI uses.
+
+- The same identity, `operationId` and command content returns the saved status and body, marked with the `x-cowork-replayed: 1` response header, instead of applying the change again. Two in-flight duplicates still produce one result.
+- The same `operationId` with different content returns HTTP 409 `operation_conflict` and changes nothing.
+- Receipts are per identity: one client never reads another client's command result. A receipt exists only for a command that succeeded; a failed command can be retried.
+- A lost response is reconciled by reading the receipt, then retrying with the same identity, `operationId` and content. The receipt is written before the response, so a restart between them replays the saved result.
+
+Object changes carry the expected revision their service checks under its own lock: goal lifecycle controls send `revision`, and a stale value returns HTTP 409 `revision_conflict` without changing state. An operation id is the command's identity, not a substitute for the revision check: a replay returns the saved result, while a new command with a stale revision is refused.
+
+Stable error codes: `unauthorized`, `session_revoked`, `session_unknown`, `host_credential_required`, `protocol_required`, `protocol_incompatible`, `operation_id_invalid`, `operation_conflict`, `operation_unknown`, `operation_receipt_invalid`, `revision_conflict`, `cursor_required`, `cursor_expired`, `cursor_unknown`. Messages stay in the server's user-facing language; clients branch on the code. A damaged receipt is never treated as "no command": it returns 500 `operation_receipt_invalid` and leaves the file in place, because re-running the command could apply it twice.
+
+## Snapshot and event recovery
+
+Route implementation: [catalog events](../src/dashboard/catalog-events.ts) over the [durable event ledger](../src/dashboard/event-ledger.ts); the shared client is [management-events.js](../web/assets/controllers/management-events.js). A client that reconnects reconciles here instead of re-reading every Task: the snapshot is the same authoritative catalog `/api/tasks` serves, and the sequence it names is what a subscription resumes from.
+
+`GET /api/events/snapshot` returns `{ backendId, cursor, revisions, ...taskList }` (the fields of `GET /api/tasks`, plus `backendId`, `cursor` and `revisions`). `revisions` maps `project:<projectId>` and `task:<taskId>` to the object revision the snapshot describes. `cursor` is the last event sequence included in the lists. The snapshot and the cursor are taken together, so a change that commits after the snapshot answers is replayed by the subscription rather than lost in the handoff.
+
+`GET /api/events/stream?cursor=<seq>` is Server-Sent Events. Each `data:` frame is one event record:
+
+```json
+{
+  "version": 1,
+  "backendId": "backend_...",
+  "seq": 42,
+  "eventId": "backend_...:42",
+  "scope": "task",
+  "objectId": "task-1",
+  "revision": 3,
+  "type": "task.changed",
+  "occurredAt": "2026-01-01T00:00:00.000Z",
+  "payload": { "taskId": "task-1", "title": "...", "status": "running" }
+}
+```
+
+- `seq` is the backend-wide order; `eventId` is the stable identity; `scope` and `objectId` name the object; `revision` counts that object's own published changes. The cursor is the last `seq` the client applied.
+- `type` is `project.changed`, `task.changed` or `task.deleted`. `payload` is the whole object (`{}` for a deletion), so applying an event never depends on a delta the client did not have.
+- A `task.deleted` tombstone is published for an object this backend already published and that then disappears from a complete catalog read. A workspace root that cannot be read is not treated as a deletion.
+- A `stream.reset` frame reports that the subscriber fell behind the retained log; it names `code` and the current `cursor` and ends the connection. The client takes a new snapshot instead of continuing from a hole.
+
+Cursor outcomes: a missing or non-integer `cursor` returns HTTP 400 `cursor_required`; a cursor older than the retained log returns HTTP 409 `cursor_expired`; a cursor above the current sequence (another backend's, or a lost history) returns HTTP 409 `cursor_unknown`. Both 409s name the retained range and require a new snapshot. The log keeps the newest 2000 records by default (`COWORK_EVENT_LEDGER_RECORDS`, 4–100000); compaction folds older records into a persisted index that keeps each object's revision.
+
+Events are written and fsynced after the business change commits. Every change published by `POST /api/projects`, `PATCH /api/projects/:projectId`, `POST /api/tasks`, `PATCH /api/tasks/:taskId`, `POST /api/tasks/:taskId/action` and `DELETE /api/tasks/:taskId` appends its event immediately. A change made by another writer (a Run transition, an MCP edit) becomes an event when the catalog is next read: on any snapshot, including the first one after a restart, and about once a second while a subscription is open (`COWORK_EVENT_RECONCILE_MS`). Nothing reconciles in the background at backend startup: a restart heals a committed change whose event was never written when the next snapshot is taken or the next subscription opens. Reconciliation publishes such a change and never rolls a published object back.
+
+A client must follow these rules; [management-events.js](../web/assets/controllers/management-events.js) implements them:
+
+1. Bind to one backend identity. Drop any snapshot or record whose `backendId` is not the bound one; after switching backends, close the old connection, discard its cache and take a new snapshot.
+2. Snapshot first, then subscribe from that snapshot's `cursor`.
+3. Ignore a record at or below the applied cursor (duplicate); ignore a record whose object `revision` is not newer than the snapshot's (stale replay).
+4. On a `seq` gap, reconnect from the applied cursor so the server replays the missing records in order; on `cursor_expired`/`cursor_unknown` or `stream.reset`, take a new snapshot.
+5. Reconnecting replays events only. A command is never re-sent by a reconnect; use the `operationId` and receipt rules above when a command's response was lost.
+
+`createManagementEventClient({ backendId, baseUrl, fetch, headers, onSnapshot, onEvent, onReset, onStatus })` exposes `start()`, `snapshot()`, `switchBackend({ backendId, baseUrl })`, `stop()` and `state()`. The Web UI and the desktop host consume the catalog through it rather than opening their own event channel.
+
+### Shared browser client
+
+[management-client.js](../web/assets/controllers/management-client.js) is the one module a browser page uses for the whole protocol: it authorizes a named session with `POST /api/session`, checks the returned protocol and capabilities, reads the catalog snapshot, follows the event stream, and sends change commands with an `operationId` and receipt reconciliation. It downloads backend files and uploads attachments through the same session, so a page never needs Electron IPC or a second transport.
+
+- One bound `backendId` + `baseUrl`. Sessions are stored per backend origin, so a token minted by one backend is never presented to another.
+- `switchBackend({ baseUrl })` aborts every in-flight request, stops the old event stream, and retires the old identity. A response that still resolves afterwards is rejected as `stale_client`; a late event is dropped because its `backendId` does not match. The page also swaps its draft namespace (`composer-session.js`), so drafts stay with the backend that owns them and a switch back restores them.
+- `authorize()` is explicit. A revoked or unknown session puts the page in `unauthorized` with a reauthorize action; an incompatible version or missing capability (`incompatible`/`unsupported`) names both versions or the missing names. Nothing silently retries.
+- `command(path, { method, body, operationId })` sends the command once. If the response is lost it reads `GET /api/operations/:operationId` and only re-sends content the backend never accepted.
+- `snapshot()`, `blob(path)`, `download(path, name)`, `upload(file)`, and `openStream(path)` keep the session header and the bound origin, which is what lets one page manage another trusted local backend.
+
+### Trusted local client origins
+
+A page served by one local backend may manage another. Browsers send that request with the page's `Origin` and require CORS, and the serving page's own `Content-Security-Policy` must allow the other origin in `connect-src`. `COWORK_TRUSTED_CLIENT_ORIGINS` names those exact origins:
+
+```text
+COWORK_TRUSTED_CLIENT_ORIGINS=http://127.0.0.1:3880,http://localhost:3881
+```
+
+Only exact loopback `http://` origins are accepted. The value is never wildcarded and never opens the listener to a non-local host; every other origin keeps the single-origin rule and `sec-fetch-site: cross-site` stays refused. For each named origin the backend answers the preflight, adds `Access-Control-Allow-Origin` for that exact origin with credentials, and lists those origins in the page's `connect-src`. The credential policy (host credential or session) still applies to every real request, so naming an origin does not itself grant access.
+
+The local host credential is a host-scoped cookie, so browsers sharing `127.0.0.1` present the same credential to every local backend served there. `POST /api/session` therefore succeeds against another local backend only when the host installed a credential that backend accepts in the same browser context. Cross-machine remote entry remains out of scope (P6).
+
 ## Project experience
 
 `GET /api/projects/:projectId/experience` returns `{ revision, settings, items }`, with `Cache-Control: no-store`. Catalog resolution owns the stable project identity and paths; request bodies cannot choose a storage directory. `settings` contains independent `enabled`, `learningEnabled`, `autoActivate` (all default false), optional `model`, `maxTokens` (default 2048, range 256–4096), and `maxRequestsPerHour` (default 6, range 2–24). Items include formal and candidate experience/skill records, state, manual/automatic origin, pin, current version, bounded historical versions and source/validation quotes. Internal queues, quota timestamps and deduplication records are not returned.
@@ -65,26 +166,6 @@ Other actions require `{ action, snapshotRevision, id, revision }` and validate 
 All successes return the latest GET shape. Conflicting revisions return 409 without overwriting user drafts; invalid fields or capacity return 400; an unknown project returns 404. Existing local Host/Origin/session authentication applies.
 
 Only active formal items enter the current project's optional context/catalog. Automatic promotion requires opt-in, three distinct verified Task sources and host-side evidence checks; it never overwrites manual/pinned content. See [Project experience](en/project-experience.md) for capacities, provenance, scheduling, model usage and the distinction between reviewing saved checks and executing new validation.
-
-## Application components
-
-The default Mac package includes PPTist and prepares missing CadQuery and Blender runtimes in the background on first launch. Downloads use fixed public component releases without user credentials. Settings → Applications and components shows status, progress, diagnostics and retry/cancel actions, and controls enable/disable. Missing-application buttons open the relevant Settings card. Ordinary conversations remain available during preparation, and compatible managed components are reused across App updates.
-
-Explicit full packages bundle all three components for offline use; their Settings cards provide enable/disable and repair guidance. Internal base packages omit them and do not automatically download runtimes. The actions below are shared by App and CLI component management.
-
-`GET /api/components` returns `{ components }` for `cadquery`, `blender`, and `pptist`. Each state reports availability, enabled/managed status, supported platform, dependencies, version, installation phase/message, progress and known byte sizes. The ordinary request is offline; `?probe=1` clears cached local probes and checks the installed runtime again without network access. `?refresh=1` checks the fixed release catalog for versions and download sizes. Before Blender is installed, `installedBytes` is a conservative space budget; after installation it is the measured size.
-
-`GET /api/components?id=pptist` returns the same envelope with only the selected component's local status, without waiting for other components' runtime probes. `id` accepts `cadquery`, `blender`, or `pptist`; an empty or unknown ID returns 400. The scoped request does not refresh the release catalog or clear local probe caches; use the unscoped `probe` or `refresh` requests for those actions.
-
-`POST /api/components/:id/:action` accepts `install`, `upgrade`, `cancel`, `enable`, `disable`, or `uninstall`, without a client supplied URL, path or command. Install/upgrade returns the state while the shared service owns the background job; poll GET for completion. Concurrent App and CLI installs reuse one component lock and immutable version directory. Cancellation and failed upgrades retain the previous usable version.
-
-Uninstall removes only managed runtime versions and retains documents and external installations. The desktop and CLI use the same user data component home; see [optional components](optional-components.md) for lifecycle, compatibility and CLI commands. Existing desktop authentication and Host/Origin checks apply.
-
-## Blender runtime installation
-
-`GET /api/applications/blender/runtime` returns `{ phase, message, progress?, available, installing, canInstall }`. `POST /api/applications/blender/install` accepts no configuration and returns HTTP 202 with the same state. The Dashboard owns the job and deduplicates concurrent starts; poll GET for progress and the final `ready` or `failed` state. Reloading or closing the panel does not cancel installation; server shutdown aborts it. Retry with POST after failure.
-
-One-click installation currently supports macOS arm64 only. The service uses fixed checksum-pinned downloads, verifies executable startup, and installs into user-owned storage; clients cannot supply a URL, path or command. Existing desktop authentication and Host/Origin checks apply. See [Blender integration](blender-integration.md).
 
 ## Task APIs
 
@@ -396,7 +477,7 @@ PATCH /api/tasks/:taskId/app-instances/:instanceId
 GET   /api/tasks/:taskId/active-app-context
 ```
 
-`GET /api/applications` returns `{ applications: ApplicationDefinition[] }` for every registered application, including compatibility adapters, with supported resource kinds and operation schemas. The optional `catalogVisibility` is `"primary"` or `"compatibility"`; absence means `"primary"`. Default application launchers and the Pi `list_applications` tool omit compatibility entries. The standard default catalog contains `text-editor`, `pptist`, `cad` and `blender`; the Blender, CAD, FreeCAD and Office Harness adapters remain registered as compatibility applications. This field controls discovery only: existing resources retain their `appType` and kind, and explicit creation, opening, binding and recovery continue through the full registry. The platform routes by the adapter declaration.
+`GET /api/applications` returns `{ applications: ApplicationDefinition[] }` for every registered application, including compatibility adapters, with supported resource kinds and operation schemas. The optional `catalogVisibility` is `"primary"` or `"compatibility"`; absence means `"primary"`. Default application launchers and the Pi `list_applications` tool omit compatibility entries. The built-in catalog is empty in this branch. Generic MCP adapters can extend the registry; the platform routes by the adapter declaration.
 
 Resource creation accepts `{ kind, title, initialContent?, appType? }`; `{ fromArtifact, appType? }` opens the existing source resource for an unchanged application export (returns `reused: true`), or imports an unrelated artifact as an editable resource. The App first makes this request before reading or converting the file; only `unsupported_resource_kind` triggers browser conversion.
 
@@ -426,14 +507,14 @@ Native application routes require the Task's resource reference and dispatch thr
 - `preview`: `{ content, options? }`. Does not create a revision; Adapter validates native pointers and may reject unsaved content.
 - `attachments/:name?revision=N`: current revision required; mismatch returns 409. Adapter owns the filename allowlist, MIME type and hash validation.
 - `import-native?revision=N&operationId=...`: raw file bytes, maximum 64 MiB. A failed candidate or stale revision leaves the previous scene intact.
-- `download?format=...&options=<encoded JSON>`: binary export; Blender supports `blend`, `glb`, `png`, and `python`. HTTP disconnect cancels native commands, imports, preview and export. Blender PNG options accept camera ID/name, frame, width/height, samples and denoise; square resolution remains supported. Read-only query/render results identify their source revision/snapshot even if the outer resource state has advanced. See [Blender interface](blender-api.md) for parameters, versioned pagination, compatibility and runtime limits.
+- `download?format=...&options=<encoded JSON>`: exports the resource through its registered adapter. HTTP disconnect cancels ongoing operations.
 
 The operation envelope is:
 
 ```json
 {
   "operationId": "op_client_uuid",
-  "appType": "text-editor",
+  "appType": "custom-editor",
   "operationType": "text.replace",
   "baseRevision": 8,
   "payload": { "from": 42, "to": 48, "text": "目标用户" }
@@ -463,7 +544,7 @@ Task detail gains an `applications` index — resources, open tabs, the active t
 
 Resource changes ride the existing Task SSE stream as ordinary run events, including `resource.created`, `resource.operation_applied`, `resource.selection_changed`, `application.instance_opened` and `application.instance_updated`. Operation/selection changes are published to all referring Tasks. Payload fields such as `appType`, `resourceId`, `appInstanceId` and `revision` identify what changed; their presence depends on event kind.
 
-The browser checks `/api/workbench/revisions` while application tabs are open and the page is visible, waiting 500 ms after each completed check. Automatic Task/tab reads also pause for hidden pages; CAD, Blender and PPTist body checks pause for hidden editors. Becoming visible triggers an immediate refresh. Explicit loading, saving, autosaving and flushing remain available, and SSE continues while the page is hidden. Changed revisions go only to affected adapters; hidden adapters defer their latest-content read until visible. This covers standalone editors, idle Tasks, and edits from another conversation or MCP process. Creating a document in an empty window refreshes the tab state. Unsaved local drafts remain in the editor and remote changes enter its existing conflict flow.
+The browser checks `/api/workbench/revisions` while application tabs are open and the page is visible, waiting 500 ms after each completed check. Automatic Task/tab reads also pause for hidden pages, and hidden application tabs defer their content checks until visible again. Becoming visible triggers an immediate refresh. Explicit loading, saving, autosaving and flushing remain available, and SSE continues while the page is hidden. Changed revisions go only to affected adapters; hidden adapters defer their latest-content read until visible. This covers standalone editors, idle Tasks, and edits from another conversation or MCP process. Creating a document in an empty window refreshes the tab state. Unsaved local drafts remain in the editor and remote changes enter its existing conflict flow.
 
 Each committed operation can appear before the Run finishes; rapid consecutive commits may coalesce into the latest state. Model tokens and native calculations that have not committed are not document revisions. The retained historical `resource.export_completed` type does not imply a current export endpoint.
 
@@ -473,7 +554,7 @@ Main gets five generic tools: `list_applications`, `list_resources`, `list_resou
 
 Resource content is read through the bound application's domain tools. Generic platform tools manage resource identity, revisions and changes; they do not interpret text offsets, geometry or spreadsheet ranges. Domain tools are registered through `agentTools()` or an MCP server only while the application is bound. Text tools use unambiguous anchors instead of requiring a model to derive character offsets from a summary.
 
-The text editor provides `read_document({heading?})`, `outline_document()`, `patch_document({oldText, newText})` and `write_document({content})`, with write tools modeled on the harness's `apply_patch`: callers supply an anchor and a replacement, and the tool requires an unambiguous match (`0 matches` means a stale read, `several` means be more specific). Its MCP server also exposes `replace_section`, which replaces section content up to the next heading of equal or higher rank. CAD adapters declare tools for their own resource semantics.
+External adapters may provide domain-specific tools. Ordinary workspace files use the generic file tools.
 
 Injected context includes platform metadata (kind, `size_bytes`, revision and title) and one application-provided `<shape>` line describing the resource structure without positions. A count ("3 个标题", "47 个特征") is safe because it is nothing a model can pass as an argument; an address ("第 3 行", "A1:C5", an offset) is not. `<selection>` may name a position, because that is a place the user chose.
 
@@ -498,7 +579,7 @@ Application tools return operations for the platform to commit through revision 
 - `GET /api/models` 新增 `connectionProfileId`，配置切换后前端清除旧服务的会话模型选择；已有会话历史保留，后续请求使用新启用的模型配置。
 - 本地附件通过下方 [Local input uploads](#local-input-uploads) 的上传、预览与引用接口读取；现有文本草稿附件的限制不代表上传接口的文件能力。Run prompt 通过 stdin 传给 Pi，服务边界仍拒绝 NUL 和超限消息。
 - interject 的 Inbox 投递不变；响应增加 `messageId`，事件保存完整消息用于跨 Run 的对话投影。`steer` 在界面显示为补充指令；`followUp` 排队时显示等待状态，消费后按新请求分组，保留前一请求的最终回复。
-- `GET /api/tasks/:taskId/resources/:resourceId/review` 返回最近已保存操作的 `revision`、`baseRevision`、`eventId`、前后文本及摘要；无可还原历史时 `available=false`。可选 Adapter `reviewContent` 提供领域投影，Blender 展示对象变换、基础材质、参数、相机和源码。
+- `GET /api/tasks/:taskId/resources/:resourceId/review` 返回最近已保存操作的 `revision`、`baseRevision`、`eventId`、前后文本及摘要；无可还原历史时 `available=false`。可选 Adapter `reviewContent` 提供领域投影。
 - undo 可额外携带 `baseRevision` 与 `eventId`，只撤销已审阅的对应操作；资源已改变时返回 revision_conflict。旧调用仍兼容。前后对比为整次操作，尚未提供分块接受和行评论。
 
 ## Local input uploads
@@ -565,7 +646,7 @@ Goal HTTP routes and Pi tools share `GoalManagement`; routes are [goal-routes](.
 
 Creation accepts `{sourceTaskId?,requestId,scope?,brief}`. `requestId` (1–200 characters) provides stable creation identity; retries with the same identity reuse the goal, while a conflicting brief returns HTTP 409. `scope` defaults to `background`; `session` requires an active source Task. `brief` contains required `title` and `objective`, optional `completionCriteria`/`preferences`, and `notificationPolicy: "important_only" | "digest" | "all"`. Digest policy requires `{dayOfWeek,hour,minute,timeZone}`; day 0 is Sunday and the timezone must be recognized by `Intl.DateTimeFormat`.
 
-Controls use `action: "edit" | "pause" | "resume" | "complete" | "respond"`. Edit supplies the current `revision` and `brief`; lifecycle actions supply the current `revision`. Revision conflicts return HTTP 409 and require rereading. Respond supplies a nonempty answer up to 10000 characters and follows the durable HumanRequest → Inbox path. Completing the last independent background goal also stops its Task work; a session goal does not stop unrelated conversation work.
+Controls use `action: "edit" | "pause" | "resume" | "complete" | "respond"`. Edit supplies the current `revision` and `brief`; lifecycle actions supply the current `revision`. Revision conflicts return HTTP 409 `revision_conflict` and require rereading. A control may also carry `operationId`: a repeat returns the saved result, which is how a client retries after a lost response even though the revision has moved. Respond supplies a nonempty answer up to 10000 characters and follows the durable HumanRequest → Inbox path. Completing the last independent background goal also stops its Task work; a session goal does not stop unrelated conversation work.
 
 Goal state, reports and notifications are distinct. Repeated concrete results reuse `topicKey`; normal same-priority repeats do not create a second notification, while promotion may. Digests assemble accepted routine records without another model request. Unread state is durable. Goal context is bounded; historical report bodies do not enter every model request.
 

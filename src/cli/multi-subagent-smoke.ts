@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CoordinatorRuntime } from "../runtime/coordinator-runtime.js";
-import { readCoworkConfig } from "../runtime/config.js";
+import { readHostCoworkConfig } from "../runtime/config.js";
 import {
   configuredModelApi,
   configuredContextWindow,
@@ -14,7 +14,7 @@ import {
   runtimeSettingsEnv
 } from "../runtime/runtime-settings.js";
 
-const config = readCoworkConfig();
+const config = readHostCoworkConfig();
 const runtimeEnv = runtimeSettingsEnv(config);
 const apiKey = process.env.COWORK_API_KEY ?? config.apiKey;
 const baseUrl = process.env.COWORK_API_BASE ?? config.baseUrl;

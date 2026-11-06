@@ -1,14 +1,26 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody, sendJson, HttpError } from "./http.js";
 import { GoalConflictError } from "../domain/goal.js";
+import { commandContent, runCommand, sendCommandOutcome, type CommandRunner } from "./management-commands.js";
 import type { createGoalService } from "./goal-service.js";
+
+/**
+ * The identity and idempotency store for goal commands. A control call may name
+ * an `operationId`; its `revision` is the expected revision the goal store
+ * checks under its own lock, so a stale one is refused even without a repeat.
+ */
+export interface GoalCommandContext {
+  principalId: string;
+  commands?: CommandRunner;
+}
 
 export async function handleGoalRequest(
   request: IncomingMessage,
   response: ServerResponse,
   url: URL,
   goals: ReturnType<typeof createGoalService>,
-  scheduler: unknown
+  scheduler: unknown,
+  context?: GoalCommandContext
 ): Promise<boolean> {
   if (
     url.pathname !== "/api/goals" &&
@@ -59,14 +71,27 @@ export async function handleGoalRequest(
       sendJson(response, 200, await goals.activity(taskId, programId, offset));
     } else if (request.method === "GET" && programId && !match[3])
       sendJson(response, 200, await goals.get(taskId, programId));
-    else if (request.method === "POST" && programId && match[3] === "control")
-      sendJson(response, 200, await goals.control(taskId, programId, await readJsonBody(request)));
-    else if (request.method === "POST" && programId && match[4])
+    else if (request.method === "POST" && programId && match[3] === "control") {
+      const body = await readJsonBody(request);
+      sendCommandOutcome(
+        response,
+        await runCommand(context?.commands, {
+          principalId: context?.principalId ?? "host",
+          operationId: body.operationId,
+          command: "goals.control",
+          content: commandContent({ ...body, taskId, programId }),
+          apply: async () => ({
+            status: 200,
+            body: await goals.control(taskId, programId, commandContent(body))
+          })
+        })
+      );
+    } else if (request.method === "POST" && programId && match[4])
       sendJson(response, 200, await goals.readNotification(taskId, programId, decodeURIComponent(match[4])));
     else sendJson(response, 405, { error: "method not allowed" });
     return true;
   } catch (error) {
-    if (error instanceof GoalConflictError) throw new HttpError(409, error.message);
+    if (error instanceof GoalConflictError) throw new HttpError(409, error.message, "revision_conflict");
     throw error;
   }
 }

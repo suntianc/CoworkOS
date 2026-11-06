@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -6,21 +7,16 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { once } from "node:events";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import {
-  applicationCapabilityProvider,
-  resourceGrants,
-  acceptResourceCandidate
-} from "../dist/src/applications/agent-capabilities.js";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { DurableScheduler } from "../dist/src/runtime/scheduler.js";
-import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
-import { capabilityProvider, addCapabilityTools } from "../dist/src/runtime/capability-provider.js";
-import {
-  attachmentGrants,
-  attachmentCapabilityProvider
-} from "../dist/src/workspace/attachment-capabilities.js";
-import { InputStore } from "../dist/src/workspace/input-store.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { applicationCapabilityProvider, resourceGrants, acceptResourceCandidate } =
+  await import("../dist/src/applications/agent-capabilities.js");
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
+const { DurableScheduler } = await import("../dist/src/runtime/scheduler.js");
+const { CoordinatorRuntime } = await import("../dist/src/runtime/coordinator-runtime.js");
+const { capabilityProvider, addCapabilityTools } = await import("../dist/src/runtime/capability-provider.js");
+const { attachmentGrants, attachmentCapabilityProvider } =
+  await import("../dist/src/workspace/attachment-capabilities.js");
+const { InputStore } = await import("../dist/src/workspace/input-store.js");
 
 async function fixture(t) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "atria-resource-delegation-"));
@@ -258,32 +254,6 @@ test("multiple same-domain resources require explicit routing without cross-reso
     (await f.service.readResource(f.taskId, f.resource.resourceId)).snapshot.content,
     "alpha beta"
   );
-});
-
-test("the same provider handles CAD candidates without a text-specific delegation path", async (t) => {
-  const f = await fixture(t);
-  const cad = (
-    await f.service.createResource({
-      taskId: f.taskId,
-      appType: "cad",
-      kind: "model/atria-cad+json",
-      title: "model.cad.json",
-      actor: { type: "user", id: "user" }
-    })
-  ).resource;
-  const edit = await f.delegate("candidate", "cad-editor", [
-    { resourceId: cad.resourceId, access: "candidate" }
-  ]);
-  await f.call(edit, "cad_read_model");
-  const result = await f.call(edit, "cad_edit_parts", {
-    upsert: [{ id: "body", shape: "cylinder", radius: 20, height: 100 }]
-  });
-  assert.equal((await f.service.readResource(f.taskId, cad.resourceId)).snapshot.content.parts.length, 0);
-  assert.equal((await f.call(edit, "cad_read_model")).result.model.parts[0].id, "body");
-  await f.accept(result.candidate.candidatePath);
-  const saved = await f.service.readResource(f.taskId, cad.resourceId);
-  assert.equal(saved.resource.revision, 1);
-  assert.equal(saved.snapshot.content.parts[0].id, "body");
 });
 
 test("attachment providers use the native reader with explicit IDs and reject other uploads", async (t) => {

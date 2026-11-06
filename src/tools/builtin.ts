@@ -16,7 +16,6 @@ import {
 import { readWorkspaceText, searchWorkspaceText } from "./workspace-text.js";
 import { containsFilePath, resolveFileTarget } from "./file-path.js";
 import { createImageTools } from "./read-image.js";
-import { createSlideReviewTool } from "./slide-review.js";
 import type { VisionModelConfig } from "./vision-model.js";
 import { executeForegroundCommand } from "./foreground-command.js";
 import {
@@ -342,19 +341,6 @@ export function createBuiltinTools(options: BuiltinToolOptions): ReadonlyMap<str
     resolveWorkPath: (path) => fileTarget(safePath(path))
   });
   for (const [name, tool] of Object.entries(imageTools)) tools.set(name, tool);
-  if (options.visionModel)
-    tools.set(
-      "review_slides",
-      createSlideReviewTool({
-        rootDirectory: options.rootDirectory,
-        taskDirectory: workspaceDirectory,
-        workScope: "work",
-        visionModel: options.visionModel,
-        assertWritableReport: async (path) => {
-          await fileTarget(path, true);
-        }
-      })
-    );
   if (capabilities.longRunning) {
     // A Task that expects hour-long work supervises it instead of deadlining
     // it: the model starts the job, watches the log, and decides whether a

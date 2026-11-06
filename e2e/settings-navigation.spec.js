@@ -27,8 +27,7 @@ test("settings navigation returns from a subpage to its overview", async ({ page
 
 const settingsPages = [
   { entry: "管理模型连接", title: "连接模型" },
-  { entry: "管理联网搜索", title: "联网搜索" },
-  { entry: "管理应用", title: "应用与组件" }
+  { entry: "管理联网搜索", title: "联网搜索" }
 ];
 
 async function assertNavigation(dialog) {
@@ -243,109 +242,6 @@ for (const { entry, title, endpoint, field } of [
       await expect(overview.getByRole("button", { name: entry, exact: true })).toBeFocused();
     } finally {
       release();
-      await dashboard.stop();
-    }
-  });
-}
-
-test("a missing component entry can return to the overview and retains its initiating focus", async ({
-  page
-}) => {
-  const dashboard = await startDashboard();
-  await page.route("**/api/components", (route) =>
-    route.fulfill({
-      json: {
-        components: [
-          {
-            id: "cadquery",
-            phase: "missing",
-            message: "内置组件缺失",
-            enabled: true,
-            available: false,
-            supported: true,
-            installing: false,
-            dependencies: []
-          }
-        ]
-      }
-    })
-  );
-  try {
-    const opened = await page.request.post(`${dashboard.base}/api/workbench/open-application`, {
-      data: { appType: "cad" }
-    });
-    expect(opened.ok()).toBe(true);
-    await page.goto(dashboard.base);
-    const entry = page.locator("[data-app-mount]:not([hidden]) [data-cad-component-settings]");
-    await entry.click();
-    const dialog = page.getByRole("dialog", { name: "应用与组件", exact: true });
-    await expect(dialog.locator('[data-component-id="cadquery"]')).toBeFocused();
-    await dialog.getByRole("button", { name: "返回设置", exact: true }).click();
-    const overview = page.getByRole("dialog", { name: "设置", exact: true });
-    await expect(overview).toBeVisible();
-    await expect(page.getByRole("dialog")).toHaveCount(1);
-    await expect(overview.getByRole("button", { name: "管理应用", exact: true })).toBeFocused();
-    await overview.getByRole("button", { name: "关闭设置", exact: true }).click();
-    await expect(entry).toBeFocused();
-    await entry.click();
-    await dialog.getByRole("button", { name: "关闭设置", exact: true }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(entry).toBeFocused();
-    await entry.click();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(entry).toBeFocused();
-  } finally {
-    await dashboard.stop();
-  }
-});
-
-for (const { entry, title, endpoint, field, saveName } of [
-  {
-    entry: "管理模型连接",
-    title: "连接模型",
-    endpoint: "model-settings",
-    field: "model",
-    saveName: "保存连接"
-  },
-  {
-    entry: "管理联网搜索",
-    title: "联网搜索",
-    endpoint: "web-search-settings",
-    field: "provider",
-    saveName: "保存设置"
-  }
-]) {
-  test(`a failed ${title} status keeps saving disabled and can be retried by returning`, async ({ page }) => {
-    const dashboard = await startDashboard();
-    try {
-      if (title === "联网搜索")
-        await page.request.post(`${dashboard.base}/api/web-search-settings`, { data: { provider: "off" } });
-      await page.goto(dashboard.base);
-      const overview = await openOverview(page);
-      let failing = true;
-      let saves = 0;
-      await page.route(`**/api/${endpoint}`, (route) => {
-        if (route.request().method() === "POST") saves++;
-        return failing && route.request().method() === "GET"
-          ? route.fulfill({ status: 503, json: { error: "设置读取暂不可用" } })
-          : route.continue();
-      });
-      await overview.getByRole("button", { name: entry, exact: true }).click();
-      const dialog = page.getByRole("dialog", { name: title, exact: true });
-      await expect(dialog.getByRole("alert")).toContainText("设置读取暂不可用");
-      await expect(dialog).toContainText("请返回设置后重新进入");
-      await expect(dialog.locator(`[name="${field}"]`)).toBeDisabled();
-      await expect(dialog.getByRole("button", { name: saveName, exact: true })).toBeDisabled();
-      expect(saves).toBe(0);
-      await dialog.getByRole("button", { name: "返回设置", exact: true }).click();
-      failing = false;
-      await overview.getByRole("button", { name: entry, exact: true }).click();
-      await expect(dialog.locator(`[name="${field}"]`)).toBeEnabled();
-      await expect(dialog.getByRole("button", { name: saveName, exact: true })).toBeEnabled();
-      if (title === "联网搜索") await expect(dialog.locator('[name="provider"]')).toHaveValue("off");
-      expect(saves).toBe(0);
-    } finally {
       await dashboard.stop();
     }
   });

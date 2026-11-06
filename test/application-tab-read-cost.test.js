@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
@@ -5,9 +6,9 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { WorkbenchTabStore } from "../dist/src/applications/tab-store.js";
-import { handleApplicationRequest } from "../dist/src/dashboard/application-routes.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { WorkbenchTabStore } = await import("../dist/src/applications/tab-store.js");
+const { handleApplicationRequest } = await import("../dist/src/dashboard/application-routes.js");
 
 const actor = { type: "user", id: "read-cost-fixture" };
 

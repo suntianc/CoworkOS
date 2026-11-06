@@ -24,7 +24,7 @@ const api = async (dashboard, path, body) => {
   return value;
 };
 
-test("a first PPT inherits its named project without creating an internal sidebar project", async ({
+test("a first document inherits its named project without creating an internal sidebar project", async ({
   page
 }) => {
   const evidence = test.info().outputPath("evidence");
@@ -54,29 +54,9 @@ test("a first PPT inherits its named project without creating an internal sideba
         return {
           name: "create_resource",
           arguments: {
-            kind: "presentation/pptist+json",
+            kind: "text/markdown",
             title: "自我介绍",
-            initialContent: {
-              slides: [
-                {
-                  id: "intro",
-                  elements: [
-                    {
-                      id: "title",
-                      type: "text",
-                      left: 100,
-                      top: 100,
-                      width: 800,
-                      height: 100,
-                      rotate: 0,
-                      content: '<p style="font-size:48px">自我介绍</p>',
-                      defaultFontName: "Arial",
-                      defaultColor: "#333333"
-                    }
-                  ]
-                }
-              ]
-            }
+            initialContent: "# 自我介绍\n测试文本。"
           }
         };
       }
@@ -86,13 +66,13 @@ test("a first PPT inherits its named project without creating an internal sideba
         assert.ok(created.resource?.resourceId);
         assert.equal(created.editorOpened, true);
         assert.equal(created.bound, true);
-        assert.equal(created.nextAction.tool, "pptist_read_presentation");
+        assert.equal(created.nextAction.tool, "read_document");
         return { name: created.nextAction.tool, arguments: {} };
       }
       assert.equal(step, 4);
       assert.notEqual(result(body).ok, false);
       await finalGate;
-      return { text: "隔离复现：已创建并核对自我介绍 PPT。" };
+      return { text: "隔离复现：已创建并核对自我介绍文档。" };
     } catch (error) {
       failures.push(error.stack ?? error.message);
       await writeFile(
@@ -113,15 +93,15 @@ test("a first PPT inherits its named project without creating an internal sideba
     await mkdir(projectDirectory);
     const { project } = await api(dashboard, "/api/projects", { projectName: "测试", projectDirectory });
     await api(dashboard, "/api/tasks", {
-      taskId: "ppt-from-project",
-      goal: "在测试项目创建自我介绍 PPT",
+      taskId: "document-from-project",
+      goal: "在测试项目创建自我介绍文档",
       projectId: project.projectId
     });
     const before = await api(dashboard, "/api/tasks");
     expect(before.projects.map((item) => item.projectName)).toEqual(["测试"]);
     await page.goto(dashboard.base);
-    await page.locator('#project-list [data-task="ppt-from-project"]').click();
-    await page.locator("#composer-input").fill("帮我创建一份自我介绍 PPT。");
+    await page.locator('#project-list [data-task="document-from-project"]').click();
+    await page.locator("#composer-input").fill("帮我创建一份自我介绍文档。");
     await page.locator("#send-button").click();
     await expect.poll(() => step).toBe(4);
     expect(failures).toEqual([]);
@@ -129,9 +109,9 @@ test("a first PPT inherits its named project without creating an internal sideba
     await expect(status).toHaveText("正在处理 · 项目：测试");
     await expect(page.locator("#conversation-pane")).toBeVisible();
     await expect(
-      page.locator(`.project-group[data-project="${project.projectId}"] [data-task="ppt-from-project"]`)
+      page.locator(`.project-group[data-project="${project.projectId}"] [data-task="document-from-project"]`)
     ).toBeVisible();
-    const detail = await api(dashboard, "/api/tasks/ppt-from-project");
+    const detail = await api(dashboard, "/api/tasks/document-from-project");
     const { tabs } = await api(dashboard, "/api/workbench/tabs");
     const tab = tabs.find((item) => item.resourceId === created.resource.resourceId);
     expect(detail.projectId).toBe(project.projectId);
@@ -139,11 +119,11 @@ test("a first PPT inherits its named project without creating an internal sideba
     expect(tab.workspaceRoot).toBe(projectDirectory);
     expect(tab.projectId).toBe(project.projectId);
     expect(tab.workspaceRoot).not.toBe(dashboard.workspaceRoot);
-    expect(tab.loadedConversations.map((item) => item.taskId)).toContain("ppt-from-project");
+    expect(tab.loadedConversations.map((item) => item.taskId)).toContain("document-from-project");
     const filePath = new ResourceFiles(tab.workspaceRoot).absolutePath(created.resource);
-    const content = JSON.parse(await readFile(filePath, "utf8"));
-    expect(content.slides[0].id).toBe("intro");
-    await page.screenshot({ path: join(evidence, "ppt-session.png"), fullPage: true });
+    const content = await readFile(filePath, "utf8");
+    expect(content).toBe("# 自我介绍\n测试文本。");
+    await page.screenshot({ path: join(evidence, "document-session.png"), fullPage: true });
     releaseFinal();
     await expect(page.locator("#stop-button")).toBeHidden();
     const after = await api(dashboard, "/api/tasks");
@@ -157,7 +137,7 @@ test("a first PPT inherits its named project without creating an internal sideba
     await expect(page.locator(".project-name")).toHaveText(["测试"]);
     expect(errors).toEqual([]);
     await writeFile(
-      join(evidence, "ppt-session.json"),
+      join(evidence, "document-session.json"),
       JSON.stringify(
         {
           mode: "real Pi, scripted local provider, real Dashboard and Chromium",
@@ -252,113 +232,6 @@ test("orphaned legacy projects stay hidden after restart while explicit empty pr
         2
       )
     );
-  } finally {
-    await dashboard.stop();
-  }
-});
-
-test("a shared document retains its project after rename, folder change and reuse of the original folder", async ({
-  page
-}) => {
-  const dashboard = await startDashboard({ defaultProject: false });
-  try {
-    const projects = [];
-    for (const [directoryName, projectName] of [
-      ["source-folder", "源项目名称"],
-      ["target-folder", "目标项目名称"]
-    ]) {
-      const projectDirectory = join(dashboard.root, directoryName);
-      await mkdir(projectDirectory);
-      const { project } = await api(dashboard, "/api/projects", { projectName, projectDirectory });
-      projects.push(project);
-    }
-    await api(dashboard, "/api/tasks", {
-      taskId: "source",
-      goal: "源会话",
-      projectId: projects[0].projectId
-    });
-    await api(dashboard, "/api/tasks", {
-      taskId: "target",
-      goal: "目标会话",
-      projectId: projects[1].projectId
-    });
-    const created = await api(dashboard, "/api/tasks/source/resources", {
-      kind: "text/plain",
-      title: "共享文档",
-      initialContent: "原内容不移动"
-    });
-    expect(created.resource.projectId).toBe(projects[0].projectId);
-    const service = new ApplicationService(projects[0].projectDirectory, undefined, dashboard.workspaceRoot);
-    await service.referenceResource({
-      taskId: "target",
-      resourceId: created.resource.resourceId,
-      appType: "text-editor"
-    });
-    await api(dashboard, "/api/workbench/load-instance", {
-      taskId: "target",
-      appInstanceId: created.appInstance.appInstanceId
-    });
-    await page.goto(dashboard.base);
-    await page.locator('#project-list [data-task="target"]').click();
-    await page.locator("[data-composer-context]").click();
-    await expect(page.locator("[data-app-task-status]")).toHaveText("项目：源项目名称");
-    await page.locator("#apps-nav").click();
-    await page.locator('[data-toggle-instances="text-editor"]').click();
-    await expect(
-      page.locator(
-        `[data-open-instance="window:${created.appInstance.appInstanceId}"] .app-instance-workspace`
-      )
-    ).toHaveText("项目：源项目名称");
-    const newSourceFolder = join(dashboard.root, "renamed-source-folder");
-    await mkdir(newSourceFolder);
-    const response = await fetch(dashboard.base + "/api/projects/" + projects[0].projectId, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectName: "源项目重命名", projectDirectory: newSourceFolder })
-    });
-    expect(response.ok).toBe(true);
-    const retainedTabs = (await api(dashboard, "/api/workbench/tabs")).tabs;
-    expect(retainedTabs.find((item) => item.resourceId === created.resource.resourceId)?.workspaceRoot).toBe(
-      projects[0].projectDirectory
-    );
-    await api(dashboard, "/api/projects", {
-      projectName: "原目录的新项目",
-      projectDirectory: projects[0].projectDirectory
-    });
-    await page.reload();
-    await page.locator("[data-composer-context]").click();
-    await expect(page.locator("[data-app-task-status]")).toHaveText("项目：源项目重命名");
-    const detail = await api(dashboard, "/api/tasks/target");
-    expect(detail.projectId).toBe(projects[1].projectId);
-    expect(detail.projectDirectory).toBe(projects[1].projectDirectory);
-    expect(detail.applications.workspaceRoot).toBe(projects[0].projectDirectory);
-    const { tabs } = await api(dashboard, "/api/workbench/tabs");
-    const tab = tabs.find((item) => item.resourceId === created.resource.resourceId);
-    expect(tab.projectId).toBe(projects[0].projectId);
-    expect(tab.workspaceRoot).toBe(projects[0].projectDirectory);
-    const continued = await api(dashboard, "/api/tasks/target/resources", {
-      kind: "text/plain",
-      title: "在目标会话项目创建新文件",
-      initialContent: "继承目标项目"
-    });
-    expect(continued.resource.projectId).toBe(projects[1].projectId);
-    expect(continued.resource.project.projectDirectory).toBe(projects[1].projectDirectory);
-    expect(
-      await readFile(new ResourceFiles(projects[1].projectDirectory).absolutePath(continued.resource), "utf8")
-    ).toBe("继承目标项目");
-    expect(
-      await readFile(new ResourceFiles(projects[0].projectDirectory).absolutePath(created.resource), "utf8")
-    ).toBe("原内容不移动");
-    // Creating in this chat uses its project. Reloading the existing shared
-    // window still restores its original affiliation and physical file root.
-    await api(dashboard, "/api/workbench/load-instance", {
-      taskId: "target",
-      appInstanceId: created.appInstance.appInstanceId
-    });
-    await dashboard.restart();
-    await page.reload();
-    await page.locator("[data-composer-context]").click();
-    await expect(page.locator("[data-app-task-status]")).toHaveText("项目：源项目重命名");
   } finally {
     await dashboard.stop();
   }

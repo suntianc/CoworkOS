@@ -1,6 +1,6 @@
 ---
 name: creative-design
-description: 按交付媒介组织网页、UI 设计、交互原型、图表报告、HTML 幻灯片和浏览器动画的制作与验收；普通后端修改不需要加载。
+description: 按交付媒介组织网页、UI 设计、交互原型、图表报告和浏览器动画的制作与验收；普通后端修改不需要加载。
 ---
 
 # 创意设计与制作
@@ -20,9 +20,8 @@ description: 按交付媒介组织网页、UI 设计、交互原型、图表报�
 | 图表与指标                  | [charts](../charts/SKILL.md)                               |
 | 数据报表与看板              | [data-report](../data-report/SKILL.md)                     |
 | 信息图与专题长页            | [visual-exposure](../visual-exposure/SKILL.md)             |
-| HTML 幻灯片                 | [make-a-deck](../make-a-deck/SKILL.md)                     |
 | 浏览器时间轴动画            | [animated-video](../animated-video/SKILL.md)               |
 
-用户指定 PPTX 时使用 [presentations](../presentations/SKILL.md)；已绑定 PPTist 文稿使用 [pptist](../pptist/SKILL.md)，保留资源修订与人工编辑。HTML、PDF 和视频是不同交付格式，必须按请求实际生成。
+HTML、PDF 和视频是不同交付格式，必须按请求实际生成。
 
 只调用当前会话实际提供的工具。部署使用用户指定且已配置的平台，在已有授权范围内执行并验证线上结果。平台未配置时继续完成可交付的本地文件。

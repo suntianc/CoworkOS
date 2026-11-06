@@ -92,25 +92,3 @@ test("unavailable local storage does not reload or lose the current draft", asyn
     await dashboard.stop();
   }
 });
-
-test("English application labels and long-term navigation remain functional", async ({ page }) => {
-  const dashboard = await startDashboard();
-  try {
-    await page.addInitScript(() => localStorage.setItem("atria.language", "en"));
-    const errors = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(dashboard.base);
-    await page.getByRole("button", { name: "Apps", exact: true }).click();
-    await expect(page.locator('[data-toggle-instances="text-editor"] strong')).toHaveText("Text editor");
-    await page.getByRole("button", { name: "Long-term tasks", exact: true }).click();
-    await expect(page.getByRole("button", { name: "New goal", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "New goal", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Start follow-up", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Close goal editor", exact: true }).click();
-    await page.getByRole("button", { name: "Back to conversation ↗", exact: true }).click();
-    await expect(page.locator("#composer-input")).toBeVisible();
-    expect(errors).toEqual([]);
-  } finally {
-    await dashboard.stop();
-  }
-});

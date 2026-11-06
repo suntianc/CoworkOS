@@ -1,10 +1,11 @@
+import "./application-fixture.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { access, mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { InstanceStore } from "../dist/src/applications/instance-store.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { InstanceStore } = await import("../dist/src/applications/instance-store.js");
 import { startDashboard } from "./dashboard-fixture.mjs";
 const actor = { type: "user", id: "local" };
 

@@ -40,12 +40,9 @@ test("local release builds once and uploads candidate archives without publishin
   };
   await runLocalRelease({ tag, repository: repo, root, platform: "darwin", arch: "arm64", commandRunner });
   const commands = calls.map(({ command, args }) => `${command} ${args.join(" ")}`);
-  assert.deepEqual(commands.slice(0, 9), [
+  assert.deepEqual(commands.slice(0, 6), [
     "node scripts/release-metadata.mjs",
     "npm run desktop:dist",
-    "npm run cad:setup",
-    "npm run build:pptist",
-    "npm run components:pack",
     "npm run cli:pack",
     "npm run desktop:npm:pack",
     "npm run npm:pack",
@@ -59,8 +56,8 @@ test("local release builds once and uploads candidate archives without publishin
   assert.ok(
     calls.find(({ command, args }) => command === "gh" && args[0] === "release").args.includes("--clobber")
   );
-  assert.equal(calls[6].options.env.RELEASE_TAG, tag);
-  assert.equal(calls[6].options.env.ATRIA_DESKTOP_NPM_PACKAGE_DIR, join(root, "release"));
+  assert.equal(calls[3].options.env.RELEASE_TAG, tag);
+  assert.equal(calls[3].options.env.ATRIA_DESKTOP_NPM_PACKAGE_DIR, join(root, "release"));
   assert.equal(
     await readFile(join(root, "release", desktopName + ".sha256"), "utf8"),
     `${createHash("sha256").update("desktop").digest("hex")}  ${desktopName}\n`

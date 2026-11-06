@@ -63,36 +63,3 @@ test("collaboration menu separates historical, other and new conversations withi
     await dashboard.stop();
   }
 });
-
-test("restoring PPT from applications fills the workspace and returns directly to its conversation", async ({
-  page
-}) => {
-  const dashboard = await startDashboard();
-  const post = async (path, data) => {
-    const response = await page.request.post(`${dashboard.base}${path}`, { data });
-    expect(response.ok()).toBe(true);
-    return response.json();
-  };
-  try {
-    await post("/api/tasks", { taskId: "ppt-chat", goal: "演示协作" });
-    const { appInstance } = await post("/api/workbench/open-application", { appType: "pptist" });
-    await post("/api/workbench/load-instance", {
-      taskId: "ppt-chat",
-      appInstanceId: appInstance.appInstanceId
-    });
-    await post("/api/workbench/tabs", { kind: "conversation", taskId: "ppt-chat" });
-    await page.goto(dashboard.base);
-    await page.locator('#project-list [data-task="ppt-chat"]').click();
-    await page.locator("#apps-nav").click();
-    await page.locator('[data-toggle-instances="pptist"]').click();
-    await page.locator(`[data-open-instance="window:${appInstance.appInstanceId}"]`).click();
-    await expect(page.locator("#conversation-pane")).toBeHidden();
-    await expect(page.locator(".chat-pane")).toHaveClass(/is-app-expanded/);
-    await page.getByRole("button", { name: "收起工作区", exact: true }).click();
-    await expect(page.getByRole("menu", { name: "与 AI 协作" })).toHaveCount(0);
-    await expect(page.locator(".modal-backdrop:visible")).toHaveCount(0);
-    await expect(page.locator("#conversation-pane")).toBeVisible();
-  } finally {
-    await dashboard.stop();
-  }
-});

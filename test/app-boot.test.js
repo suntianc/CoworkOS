@@ -157,6 +157,65 @@ function browserEnvironment() {
   };
 }
 
+/**
+ * The management protocol the page now needs before it reads any business data.
+ *
+ * Boot authorizes a local session and takes a catalog snapshot; the event
+ * stream stays open without delivering anything, so the page behaves exactly as
+ * a freshly connected backend would.
+ */
+const STUB_PROTOCOL = {
+  version: "1.0",
+  minClientVersion: "1.0",
+  capabilities: [
+    "protocol.negotiate",
+    "session.authorize",
+    "session.revoke",
+    "operations.query",
+    "commands.idempotent",
+    "commands.expectedRevision",
+    "events.snapshot",
+    "events.stream"
+  ]
+};
+
+function stubManagement(url, method, body, catalog) {
+  if (url === "/api/session" && method === "POST")
+    return body(
+      {
+        session: {
+          sessionId: "session_test",
+          token: "stub-session-token",
+          clientName: "CoworkOS Web",
+          protocolVersion: "1.0",
+          createdAt: "2026-01-01T00:00:00.000Z"
+        },
+        backend: { backendId: "backend_test", pid: 1, startedAt: "2026-01-01T00:00:00.000Z" },
+        protocol: STUB_PROTOCOL
+      },
+      201
+    );
+  if (url === "/api/session")
+    return body({ current: { kind: "session", sessionId: "session_test" }, sessions: [] });
+  if (url === "/api/backend")
+    return body({
+      backendId: "backend_test",
+      pid: 1,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      protocol: STUB_PROTOCOL
+    });
+  if (url === "/api/events/snapshot")
+    return body({ ...catalog, backendId: "backend_test", cursor: 0, revisions: {} });
+  if (url.startsWith("/api/events/stream"))
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      body: { getReader: () => ({ read: () => new Promise(() => {}), cancel: async () => {} }) }
+    };
+  return undefined;
+}
+
 /** Answer the page's own requests from a small in-memory workspace. */
 function stubServer({ tabs = [], tasks = [], applications = [], projects } = {}) {
   const calls = [];
@@ -179,6 +238,22 @@ function stubServer({ tabs = [], tasks = [], applications = [], projects } = {})
       json: async () => value,
       headers: { get: () => null }
     });
+    const managed = stubManagement(url, method, body, {
+      tasks,
+      projects: projects ?? [
+        {
+          projectId: "p1",
+          projectName: "默认项目",
+          projectDirectory: "/tmp/w",
+          workspaceRoot: "/tmp/w",
+          tasks
+        }
+      ],
+      workspaceRoot: "/tmp/w",
+      currentWorkspaceRoot: "/tmp/w",
+      model: "test-model"
+    });
+    if (managed !== undefined) return managed;
     if (url.startsWith("/api/tasks") && url.split("/").length === 3 && method === "GET") {
       return body({
         tasks,
@@ -516,6 +591,37 @@ test("startup reads the task list, the model list and the global tab strip", asy
   }
 });
 
+test("only backend file links use the authenticated download client", async (t) => {
+  const page = await boot({ tasks: [{ taskId: "task-1", status: "created", goal: "甲" }] });
+  t.after(page.restore);
+  assert.equal(page.loadError, undefined);
+  const click = (href, name) => {
+    const anchor = page.document.createElement("a");
+    anchor.href = href;
+    anchor.download = name;
+    page.document.body.append(anchor);
+    anchor.dispatchEvent(new page.window.Event("click", { bubbles: true, cancelable: true }));
+  };
+  const callsOf = (fragment) => page.server.calls.filter((call) => call.includes(fragment));
+  // The Markdown export shape: the bytes are already a local blob URL. Taking
+  // it over would send "blob:..." to the bound backend and lose the download.
+  click("blob:http://atria.invalid/markdown-export", "导出.md");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(callsOf("blob:"), [], "a page-produced blob stays local");
+  click("data:text/markdown,hello", "导出.md");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(callsOf("data:text"), [], "an inline data URL stays local");
+  // A backend file does need the session and the bound backend.
+  const before = callsOf("/api/tasks/task-1/artifact").length;
+  click("/api/tasks/task-1/artifact?path=a.md&download=1", "a.md");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(
+    callsOf("/api/tasks/task-1/artifact").length > before,
+    "a backend artifact link is fetched through the authenticated client"
+  );
+  assert.deepEqual(page.failures, []);
+});
+
 test("a projectless new conversation begins immediately and preserves its draft", async (t) => {
   const page = await boot({ projects: [] });
   t.after(page.restore);
@@ -725,6 +831,14 @@ test("with the workbench off the page still loads and the controls stay hidden",
       json: async () => value,
       headers: { get: () => null }
     });
+    const managed = stubManagement(url, method, body, {
+      tasks: [{ taskId: "task-1", status: "created", goal: "甲" }],
+      projects: [],
+      workspaceRoot: "/tmp/w",
+      currentWorkspaceRoot: "/tmp/w",
+      model: "m"
+    });
+    if (managed !== undefined) return managed;
     if (url === "/api/tasks")
       return body({
         tasks: [{ taskId: "task-1", status: "created", goal: "甲" }],
@@ -771,245 +885,6 @@ test("with the workbench off the page still loads and the controls stay hidden",
   assert.equal(view.$("#conversation-pane").hidden, false, "the conversation is unaffected");
 });
 
-test("opening an application needs no conversation, and a new document opens in it", async (t) => {
-  // Two bugs met here: a host callback named exactly like the HTTP method it
-  // wrapped overwrote it and recursed into itself, and the tab was not
-  // remounted when it gained a resource — so the document was created and then
-  // never shown.
-  const page = await boot({
-    tabs: [],
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-
-  // 应用 → 文本编辑器, with no conversation anywhere.
-  page.$("#apps-nav").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  const tile = page.$("#apps-panel [data-create-app]");
-  assert.ok(tile, "the application is offered even with no conversation");
-  tile.dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  confirmApplicationWorkspaceInDom(page);
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  assert.ok(page.server.calls.includes("POST /api/workbench/open-application"), "it opens standalone");
-  assert.ok(page.$("[data-empty-new]"), "an editor with nothing open shows its empty state");
-
-  // 新建文档
-  page.$("[data-empty-new]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  nameDocument(page, "我的新文档.md");
-  await new Promise((resolve) => setTimeout(resolve, 300));
-
-  assert.ok(
-    page.server.calls.some((call) => call.startsWith("POST /api/workbench/instances/")),
-    "the document is created"
-  );
-  assert.equal(page.$("[data-empty-new]"), null, "the empty state must give way to the document");
-  assert.ok(page.$("[data-editor-input]"), "the editor opens the document it just created");
-  assert.match(page.$("[data-tab-strip]").textContent, /我的新文档\.md/, "and the tab takes its name");
-  assert.deepEqual(page.failures, [], "no recursion or unhandled rejection");
-});
-
-test("a late auxiliary project catalog cannot replace a newer task list or its draft", async (t) => {
-  const page = await boot({
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-  page.$("#new-conversation").click();
-  page.$("#composer-input").value = "保持当前项目的未发送草稿";
-  page.$("#apps-nav").click();
-  await waitForPage(() => page.$("#apps-panel [data-create-app]"), "applications must load");
-  page.$("#apps-panel [data-create-app]").click();
-  confirmApplicationWorkspaceInDom(page);
-  await waitForPage(() => page.$("[data-empty-new]"), "independent editor must open");
-
-  const request = globalThis.fetch;
-  let catalogReads = 0,
-    releaseOlder;
-  const freshTask = { taskId: "fresh-task", status: "created", goal: "较新目录中的会话", projectId: "p1" };
-  const reply = (tasks) => ({
-    ok: true,
-    status: 200,
-    headers: { get: () => null },
-    json: async () => ({
-      tasks,
-      projects: [
-        {
-          projectId: "p1",
-          projectName: "默认项目",
-          projectDirectory: "/tmp/w",
-          workspaceRoot: "/tmp/w",
-          tasks
-        }
-      ],
-      workspaceRoot: "/tmp/w",
-      currentWorkspaceRoot: "/tmp/w",
-      model: "test-model"
-    })
-  });
-  globalThis.fetch = async (path, options = {}) => {
-    if (path === "/api/tasks" && (options.method || "GET") === "GET") {
-      catalogReads++;
-      if (catalogReads === 1)
-        return new Promise((resolve) => {
-          releaseOlder = () => resolve(reply([]));
-        });
-      return reply([freshTask]);
-    }
-    return request(path, options);
-  };
-  t.after(() => releaseOlder?.());
-  page.$("[data-empty-new]").click();
-  nameDocument(page, "保留最新目录.md");
-  await waitForPage(() => catalogReads === 1, "document creation must request its project catalog");
-  page.$(".panel-add").click();
-  await waitForPage(() => page.$('[data-task="fresh-task"]'), "newer list must reach the sidebar");
-  releaseOlder();
-  await waitForPage(() => page.$("[data-editor-input]"), "created document must become editable");
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  // Re-render from local state, without another list response masking a stale acceptance.
-  page.$('[data-project-id="p1"]').click();
-  assert.ok(page.$('[data-task="fresh-task"]'), "the older catalog must not erase an acknowledged task");
-  page.$("#new-conversation").click();
-  assert.equal(page.$("#composer-input").value, "保持当前项目的未发送草稿");
-  assert.deepEqual(page.failures, []);
-});
-
-test("document creation remains successful when its auxiliary project catalog returns 503", async (t) => {
-  const page = await boot({
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-  page.$("#apps-nav").click();
-  await waitForPage(() => page.$("#apps-panel [data-create-app]"), "applications must load");
-  page.$("#apps-panel [data-create-app]").click();
-  confirmApplicationWorkspaceInDom(page);
-  await waitForPage(() => page.$("[data-empty-new]"), "independent editor must open");
-  const request = globalThis.fetch;
-  let failedReads = 0;
-  globalThis.fetch = async (path, options = {}) => {
-    if (path === "/api/tasks" && (options.method || "GET") === "GET") {
-      failedReads++;
-      return {
-        ok: false,
-        status: 503,
-        headers: { get: () => null },
-        json: async () => ({ error: "project catalog temporarily unavailable" })
-      };
-    }
-    return request(path, options);
-  };
-  page.$("[data-empty-new]").click();
-  nameDocument(page, "目录暂时离线.md");
-  await waitForPage(
-    () => failedReads && page.$("[data-editor-input]"),
-    "successful creation must open its document despite the catalog outage"
-  );
-  assert.equal(page.$("[data-empty-new]"), null);
-  assert.equal(page.$("[data-name-dialog]"), null, "the creation form must report success and close");
-  assert.equal(
-    page.server.calls.filter((call) => call.startsWith("POST /api/workbench/instances/")).length,
-    1,
-    "the document is created exactly once"
-  );
-  assert.equal(page.server.state.tabs.find((tab) => tab.kind === "application").resourceId, "res_1");
-  const editor = page.$("[data-editor-input]"),
-    content = editor.value;
-  assert.match(page.$("#toast").textContent, /文档已打开/);
-  await useEditorInConversation(page);
-  await waitForPage(() => failedReads >= 2, "loading must retry the catalog");
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(page.$("#conversation-pane").hidden, true);
-  assert.equal(page.$("[data-editor-input]"), editor, "failed navigation must retain the same editor");
-  assert.equal(editor.value, content);
-  assert.match(page.$("#toast").textContent, /关联失败：project catalog temporarily unavailable/);
-  assert.deepEqual(page.server.state.created, []);
-  assert.deepEqual(page.failures, []);
-});
-
-test("asking for a new conversation steps out of the editor and keeps the draft", async (t) => {
-  // The bug this pins: an application tab was covering the content area, so
-  // clicking 新对话 changed the selected task but nothing visible happened —
-  // and the state was not recorded, so the next poll put the editor back.
-  const page = await boot({
-    tabs: [],
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-
-  page.$("#apps-nav").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  page.$("#apps-panel [data-create-app]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  confirmApplicationWorkspaceInDom(page);
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  page.$("[data-empty-new]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  nameDocument(page, "草稿.md");
-  await new Promise((resolve) => setTimeout(resolve, 300));
-
-  const input = page.$("[data-editor-input]");
-  assert.ok(input, "the editor is open on the new document");
-  input.value = "我正在写的内容\n";
-  input.dispatchEvent(new page.window.Event("input", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 60));
-  assert.equal(page.$("#conversation-pane").hidden, true, "the editor is in front");
-
-  page.$("#new-conversation").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-
-  assert.equal(page.$("#conversation-pane").hidden, false, "the conversation must come to the front");
-  assert.equal(
-    page.$("[data-composer-context]").hidden,
-    true,
-    "a new chat cannot advertise a previous file or conversation as its editing context"
-  );
-  assert.equal(
-    page.document.body.classList.contains("app-fullbleed"),
-    false,
-    "and the layout must come back"
-  );
-  // Stepping away is recorded, so a later refresh does not undo it.
-  assert.ok(page.server.calls.includes("PATCH /api/workbench/tabs"), "the server is told no tab is in front");
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  assert.equal(page.$("#conversation-pane").hidden, false, "and it stays in front");
-  // The editor is set aside, not destroyed: unsent typing is the user's only copy.
-  assert.equal(
-    page.$("[data-editor-input]")?.value,
-    "我正在写的内容\n",
-    "the draft must survive stepping away"
-  );
-  assert.deepEqual(page.failures, []);
-});
-
 test("a streamed event is appended in place, not by copying the whole log", async (t) => {
   // The lag this pins: the SSE handler rebuilt `runtimeEvents` with
   // `[...runtimeEvents, record]` on every event. A streaming reply emits
@@ -1023,8 +898,11 @@ test("a streamed event is appended in place, not by copying the whole log", asyn
   const source =
     readFileSync("web/assets/controllers/connection-controller.js", "utf8") +
     readFileSync("web/app.js", "utf8");
-  const handler = source.slice(source.indexOf("stream.onmessage"), source.indexOf("stream.onerror"));
-  assert.ok(handler.length > 0, "the SSE handler must be findable");
+  // The stream transport is shared (fetch or EventSource), so the append lives
+  // in one applyRecord used by both; the invariant is the push, not the caller.
+  const start = source.indexOf("const applyRecord");
+  assert.ok(start >= 0, "the stream record handler must be findable");
+  const handler = source.slice(start, source.indexOf("stream.onerror"));
   assert.doesNotMatch(
     handler,
     /runtimeEvents\s*=\s*\[\s*\.\.\./,
@@ -1090,124 +968,6 @@ test("新对话 opens a tab of its own, and the first message turns it into the 
   assert.deepEqual(page.failures, []);
 });
 
-test("every way of entering a conversation gets past an open editor", async (t) => {
-  // The first fix covered only the 新对话 button. Selecting a task in the
-  // sidebar, in search, or by shortcut set `state.selected` without moving the
-  // strip, so the editor stayed in front and those clicks read as broken too.
-  const page = await boot({
-    tabs: [],
-    tasks: [
-      { taskId: "task-1", status: "created", goal: "写一份产品方案", updatedAt: "2026-01-01T00:00:00.000Z" }
-    ],
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-
-  page.$("#apps-nav").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  page.$("#apps-panel [data-create-app]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  confirmApplicationWorkspaceInDom(page);
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  assert.equal(page.$("#conversation-pane").hidden, true, "the editor is in front");
-
-  // Clicking the conversation in the sidebar must reach it.
-  const row = page.document.querySelector("#project-list [data-task]");
-  assert.ok(row, "the sidebar lists the conversation");
-  row.dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.equal(
-    page.$("#conversation-pane").hidden,
-    false,
-    "selecting a conversation must bring it to the front"
-  );
-  assert.equal(page.document.body.classList.contains("app-fullbleed"), false);
-  // Its tab is now in the strip, so the editor is one click away rather than lost.
-  assert.match(page.$("[data-tab-strip]").textContent, /写一份产品方案/);
-  assert.match(page.$("[data-tab-strip]").textContent, /文本编辑器|未命名/);
-  assert.deepEqual(page.failures, []);
-});
-
-test("an unlinked application creates a conversation and a new draft can load the same application", async (t) => {
-  const page = await boot({
-    tabs: [],
-    tasks: [
-      { taskId: "task-1", status: "created", goal: "写一份产品方案" },
-      { taskId: "task-2", status: "created", goal: "另一个任务" }
-    ],
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-
-  page.$("#apps-nav").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  page.$("#apps-panel [data-create-app]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  confirmApplicationWorkspaceInDom(page);
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  let asked = 0;
-  page.window.prompt = (question) => {
-    // No native prompt is needed for either naming or choosing a conversation.
-    if (/对话|编号/.test(String(question))) {
-      asked += 1;
-      return "1";
-    }
-    throw new Error("prompt() is not supported");
-  };
-  page.$("[data-empty-new]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  nameDocument(page, "草稿.md");
-  await new Promise((resolve) => setTimeout(resolve, 300));
-
-  await useEditorInConversation(page);
-  await new Promise((resolve) => setTimeout(resolve, 400));
-
-  assert.equal(page.server.state.created.length, 1, "first use creates its own conversation");
-  assert.equal(page.server.state.adopted.length, 1, "returning automatically loads the application");
-  assert.equal(page.server.state.adopted[0].taskId, page.server.state.created[0].taskId);
-  assert.equal(page.$("#conversation-pane").hidden, false);
-  page.$("#new-conversation").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  page.$("#app-bind-select").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  assert.ok(page.$('[data-bind-instance="app_1"]'), "the composer offers the independent app");
-  page.$('[data-bind-instance="app_1"]').dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  assert.equal(asked, 0, "no native prompt is used");
-  assert.equal(page.server.state.created.length, 2, "the new draft creates another conversation");
-  assert.equal(page.server.state.adopted.length, 2);
-  assert.equal(
-    page.server.state.adopted[1].taskId,
-    page.server.state.created[1].taskId,
-    "the document joins the conversation that was just made, not an existing one"
-  );
-  assert.equal(
-    page.server.state.adopted[1].appInstanceId,
-    "app_1",
-    "loading keeps the same independent instance identity"
-  );
-  // And it lands in that conversation, not in the editor: relating a document
-  // to a conversation is a statement about what the next message is about.
-  // Asserted on what is actually on screen, not only on the strip's bookkeeping:
-  // `bind-resource` leaves the adopted window active, so re-reading the strip
-  // before claiming the conversation mounted the editor over it.
-  assert.equal(page.server.state.activeTabId, `conversation:${page.server.state.created[1].taskId}`);
-  assert.equal(page.$("#conversation-pane").hidden, false, "the conversation is what the person sees");
-  assert.deepEqual(page.failures, []);
-});
-
 test("choosing a binding in the composer does not navigate away from the conversation", async (t) => {
   // The bug this pins: selecting an application in the binding control called
   // activate() on its tab, so the editor covered the conversation the person
@@ -1269,205 +1029,6 @@ test("choosing a binding in the composer does not navigate away from the convers
   assert.deepEqual(page.failures, []);
 });
 
-test("returning from a standalone document automatically creates and loads its conversation", async (t) => {
-  // The bug this pins: the user was told to go create a conversation and come
-  // back, which is a dead end for the most ordinary case there is — open an
-  // editor, write something, then want CoworkOS's help with it.
-  const page = await boot({
-    tabs: [],
-    tasks: [],
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-
-  page.$("#apps-nav").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  page.$("#apps-panel [data-create-app]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  confirmApplicationWorkspaceInDom(page);
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  page.$("[data-empty-new]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  nameDocument(page, "草稿.md");
-  await new Promise((resolve) => setTimeout(resolve, 300));
-
-  assert.equal(page.$("[data-editor-bind]"), null, "there is no duplicate binding action inside the editor");
-  assert.equal(page.$("[data-app-return-conversation]"), null, "the composer owns application loading");
-  await useEditorInConversation(page);
-  await new Promise((resolve) => setTimeout(resolve, 400));
-
-  assert.equal(page.server.state.created.length, 1, "a conversation is created rather than demanded");
-  // It is named for the work, not after the file: naming it 草稿.md would show
-  // the same words twice in the strip and say nothing about the conversation.
-  assert.match(page.server.state.created[0].goal, /草稿/);
-  assert.notEqual(page.server.state.created[0].goal, "草稿.md");
-  assert.equal(page.server.state.adopted.length, 1, "and the document is adopted into it");
-  assert.equal(page.server.state.adopted[0].taskId, page.server.state.created[0].taskId);
-  assert.equal(page.server.state.activeTabId, `conversation:${page.server.state.created[0].taskId}`);
-  assert.equal(page.$("#conversation-pane").hidden, false);
-  assert.deepEqual(page.failures, []);
-});
-
-test("a document created from the editor's 打开 sheet comes to the front", async (t) => {
-  // The bug this pins, reported twice: 「新建后没打开」. An editor is already
-  // showing a document; 「打开文档 → ＋新建文档」 makes another one. The strip
-  // gained the tab and the server made it active, but the page stayed on the
-  // old document — so the person had to hunt for what they had just created.
-  const page = await boot({
-    tabs: [
-      {
-        tabId: "conversation:task-1",
-        kind: "conversation",
-        taskId: "task-1",
-        title: "写方案",
-        taskGoal: "写方案"
-      },
-      {
-        tabId: "resource:res_1",
-        kind: "application",
-        resourceId: "res_1",
-        appType: "text-editor",
-        title: "第一份.md",
-        hasResource: true,
-        conversations: [{ taskId: "task-1", goal: "写方案" }],
-        groupTaskId: "task-1"
-      }
-    ],
-    tasks: [{ taskId: "task-1", status: "created", goal: "写方案" }],
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-
-  // Sit in the first document.
-  page
-    .$("#project-list [data-task='task-1']")
-    .dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  page.$("[data-tab='resource:res_1']").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  assert.ok(page.$("[data-editor-input]"), "the first document is open");
-
-  // 打开文档 → ＋新建文档
-  page.$("[data-editor-open]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  const fresh = page.$("[data-open-new]");
-  assert.ok(fresh, "the sheet offers creating a new document");
-  fresh.dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  nameDocument(page, "第二份.md");
-  await new Promise((resolve) => setTimeout(resolve, 600));
-
-  // The new document is what the person is looking at.
-  assert.match(page.$("[data-tab-strip]").textContent, /第二份\.md/, "the new document is in the strip");
-  const active = page.$("[data-tab].active")?.dataset.tab;
-  assert.equal(active, "resource:res_2", `the new document is in front, not ${active}`);
-  assert.deepEqual(page.failures, []);
-});
-
-test("creating in an editor opened from a conversation shows the document", async (t) => {
-  // The reported symptom was 「标签都没出现」: a conversation is selected, the
-  // person opens the text editor from the 应用 panel and creates a document —
-  // and neither the tab nor the document appears. The difference from the
-  // standalone case above is that a conversation *is* selected, so the panel
-  // opens the window inside it rather than in the holding area.
-  const page = await boot({
-    tabs: [
-      {
-        tabId: "conversation:task-1",
-        kind: "conversation",
-        taskId: "task-1",
-        title: "写方案",
-        taskGoal: "写方案"
-      }
-    ],
-    tasks: [{ taskId: "task-1", status: "created", goal: "写方案" }],
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-
-  // Sit in the conversation, the way a person working in one would be.
-  page
-    .$("#project-list [data-task='task-1']")
-    .dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 250));
-
-  // 应用 → 文本编辑器
-  page.$("#apps-nav").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  page.$("#apps-panel [data-create-app]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  confirmApplicationWorkspaceInDom(page);
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.ok(
-    page.server.calls.includes("POST /api/workbench/open-application"),
-    "the app entry opens independently of the selected conversation"
-  );
-  assert.ok(page.$("[data-empty-new]"), "the empty editor is in front");
-
-  // 新建文档
-  page.$("[data-empty-new]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  nameDocument(page, "方案草稿.md");
-  await new Promise((resolve) => setTimeout(resolve, 500));
-
-  assert.match(page.$("[data-tab-strip]").textContent, /方案草稿\.md/, "the tab appears");
-  assert.equal(page.$("[data-empty-new]"), null, "the empty state gives way");
-  assert.ok(page.$("[data-editor-input]"), "and the document is what the person sees");
-  assert.deepEqual(page.failures, []);
-});
-
-test("an editor opened while composing stays independent and preserves the draft", async (t) => {
-  const page = await boot({
-    tabs: [],
-    tasks: [],
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-  assert.equal(page.loadError, undefined);
-
-  // 新对话 — a draft, with nothing on the server yet.
-  page.$("#new-conversation").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.deepEqual(page.server.state.created, [], "composing creates nothing yet");
-
-  // 应用 → 文本编辑器 leaves the conversation draft untouched.
-  page.$("#apps-nav").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  page.$("#apps-panel [data-create-app]").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  confirmApplicationWorkspaceInDom(page);
-  await new Promise((resolve) => setTimeout(resolve, 400));
-
-  assert.equal(page.server.state.created.length, 0, "opening an app does not create a conversation");
-  assert.ok(page.server.calls.includes("POST /api/workbench/open-application"));
-  assert.deepEqual(page.failures, []);
-});
-
 test("a temporary document saved to a project starts collaboration in that project without adopting its temporary root", async (t) => {
   const chosen = {
     projectId: "chosen",
@@ -1515,33 +1076,5 @@ test("a temporary document saved to a project starts collaboration in that proje
     "physical temporary roots never become projects"
   );
   assert.equal(page.server.state.adopted[0].appInstanceId, "app_saved");
-  assert.deepEqual(page.failures, []);
-});
-
-test("merely opening the applications panel creates no conversation", async (t) => {
-  // The other half. Listing what a conversation references is a read, so it
-  // must never bring one into being — otherwise glancing at the panel while
-  // composing would litter the sidebar with empty conversations.
-  const page = await boot({
-    tabs: [],
-    tasks: [],
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/markdown"],
-        capabilities: ["view", "edit"]
-      }
-    ]
-  });
-  t.after(page.restore);
-
-  page.$("#new-conversation").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  page.$("#apps-nav").dispatchEvent(new page.window.Event("click", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 400));
-
-  assert.ok(page.$("#apps-panel [data-create-app]"), "the panel is usable");
-  assert.deepEqual(page.server.state.created, [], "but opening it created nothing");
   assert.deepEqual(page.failures, []);
 });

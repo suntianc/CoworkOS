@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { test } from "node:test";
@@ -6,9 +7,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { blenderStatus } from "../dist/src/software/blender/engine.js";
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
 
 const extensionPath = resolve(".pi/extensions/cowork.ts");
 const requirePi = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
@@ -149,134 +149,6 @@ test("the generic resource tools are always registered, and reading content is n
   for (const name of ["call_subagent", "browse_workspace", "askhuman", "finish_task"]) {
     assert.equal(pi.tools.has(name), true, `${name} must still be registered`);
   }
-});
-
-test("creating CAD from an unbound conversation immediately enables its tools", async (t) => {
-  const { call, pi, service, taskId } = await harness(t);
-  assert.equal(pi.getActiveTools().includes("cad_read_model"), false);
-  const apps = await call("list_applications");
-  assert.match(
-    apps.details.applications.find((app) => app.appType === "cad").creationHint,
-    /省略 initialContent/
-  );
-  const created = await call("create_resource", { kind: "model/atria-cad+json", title: "火箭.cad.json" });
-  assert.equal(created.isError, false);
-  assert.equal(created.details.editorOpened, true);
-  assert.equal(created.details.bound, true);
-  assert.ok(created.details.availableTools.includes("cad_edit_parts"));
-  assert.deepEqual(created.details.nextAction, { tool: "cad_read_model", arguments: {} });
-  assert.ok(pi.getActiveTools().includes("cad_read_model"));
-  // No context hook or second user turn is required to build the new model.
-  const read = await call("cad_read_model");
-  assert.deepEqual(read.details.result.model.parts, []);
-  const edit = await call("cad_edit_parts", {
-    upsert: [{ id: "body", shape: "cylinder", radius: 20, height: 100 }]
-  });
-  assert.equal(edit.isError, false);
-  const saved = await service.readResource(taskId, created.details.resource.resourceId);
-  assert.equal(saved.resource.revision, 1);
-  assert.equal(saved.snapshot.content.parts[0].id, "body");
-});
-
-test("structured CAD creation binds in a CLI session without claiming a browser tab exists", async (t) => {
-  const { call } = await harness(t, { tabs: false });
-  const created = await call("create_resource", {
-    kind: "model/atria-cad+json",
-    title: "样件.cad.json",
-    initialContent: { version: 1, units: "mm", parts: [{ id: "plate", shape: "box", size: [30, 20, 5] }] }
-  });
-  assert.equal(created.isError, false);
-  assert.equal(created.details.editorOpened, false);
-  assert.equal(created.details.bound, true);
-  assert.ok(created.details.availableTools.includes("cad_read_model"));
-  const read = await call("cad_read_model");
-  assert.equal(read.isError, false);
-  assert.deepEqual(read.details.result.model.parts[0].size, [30, 20, 5]);
-});
-
-test("concurrent bound CAD calls serialize reads and saves, and a failed call does not block the queue", async (t) => {
-  const { call, bind, turn, service, taskId } = await harness(t);
-  const created = await call("create_resource", {
-    appType: "cad",
-    kind: "model/atria-cad+json",
-    title: "批量验收.cad.json"
-  });
-  const id = created.details.resource.resourceId;
-  await bind(id);
-  await turn();
-  await call("cad_read_model");
-  const results = await Promise.all([
-    call("cad_upsert_part", { part: { id: "body", shape: "box", size: [80, 30, 8] } }),
-    call("cad_edit_parts", {
-      upsert: [
-        { id: "left", shape: "cylinder", mode: "cut", radius: 4, height: 10, position: [-24, 0, 0] },
-        { id: "right", shape: "cylinder", mode: "cut", radius: 4, height: 10, position: [24, 0, 0] }
-      ]
-    }),
-    call("cad_remove_part", { id: "missing" }),
-    call("cad_read_model"),
-    call("cad_upsert_part", { part: { id: "cap", shape: "sphere", radius: 3 } })
-  ]);
-  assert.deepEqual(
-    results.map((r) => r.isError),
-    [false, false, true, false, false]
-  );
-  assert.equal(results[2].details.code, "invalid_operation");
-  assert.equal(results[3].details.result.revision, 2);
-  assert.deepEqual(
-    results[3].details.result.model.parts.map((p) => p.id),
-    ["body", "left", "right"]
-  );
-  const saved = await service.readResource(taskId, id);
-  assert.equal(saved.resource.revision, 3);
-  assert.deepEqual(
-    saved.snapshot.content.parts.map((p) => p.id),
-    ["body", "left", "right", "cap"]
-  );
-  await service.undo({ taskId, resourceId: id, actor: { type: "user", id: "local" } });
-  await service.undo({ taskId, resourceId: id, actor: { type: "user", id: "local" } });
-  assert.deepEqual(
-    (await service.readResource(taskId, id)).snapshot.content.parts.map((p) => p.id),
-    ["body"]
-  );
-});
-
-test("CAD refuses edits based on an unseen human revision until the agent reads it", async (t) => {
-  const { call, bind, turn, service, taskId } = await harness(t);
-  const created = await call("create_resource", {
-    kind: "model/atria-cad+json",
-    title: "共享模型.cad.json",
-    initialContent: { version: 1, units: "mm", parts: [{ id: "body", shape: "box" }] }
-  });
-  const id = created.details.resource.resourceId;
-  await bind(id);
-  await turn();
-  const beforeRead = await call("cad_upsert_part", { part: { id: "body", shape: "box" } });
-  assert.equal(beforeRead.details.code, "operation_precondition_failed");
-  await call("cad_read_model");
-  await service.applyOperation({
-    taskId,
-    resourceId: id,
-    appType: "cad",
-    operationId: "human",
-    operationType: "cad.upsert",
-    baseRevision: 0,
-    payload: { part: { id: "body", shape: "box", size: [60, 30, 20] } },
-    actor: { type: "user", id: "local" }
-  });
-  const stale = await call("cad_upsert_part", { part: { id: "body", shape: "box", radius: 8 } });
-  assert.equal(stale.details.code, "revision_conflict");
-  assert.equal((await service.readResource(taskId, id)).resource.revision, 1);
-  const read = await call("cad_read_model");
-  assert.equal(read.details.result.model.parts[0].size[0], 60);
-  const retried = await call("cad_edit_parts", {
-    upsert: [{ ...read.details.result.model.parts[0], radius: 8 }]
-  });
-  assert.equal(retried.isError, false);
-  const saved = await service.readResource(taskId, id);
-  assert.equal(saved.resource.revision, 2);
-  assert.equal(saved.snapshot.content.parts[0].size[0], 60);
-  assert.equal(saved.snapshot.content.parts[0].radius, 8);
 });
 
 test("Main creates a resource, opens its tab, and reads it back through the application's own tool", async (t) => {
@@ -679,7 +551,8 @@ test("a resource created by a tool is immediately one of the Task's deliverables
 test("binding an application also gives the Agent its skills, tools and working directory", async (t) => {
   const { root, taskId } = await harness(t);
   const { ApplicationRegistry } = await import("../dist/src/applications/registry.js");
-  const { textRuntimeAdapter } = await import("../dist/src/applications/adapters/text-runtime-adapter.js");
+  const { textRuntimeAdapter } =
+    await import("../dist/test/fixtures/application-contract/text-runtime-adapter.js");
 
   // A second application that brings domain knowledge and one specialized
   // tool. Generic tools say *how* to change a resource; this says how to work
@@ -882,7 +755,7 @@ test("a resource whose filename differs from its title is named as one document"
   // Going to the disk to work out which file is meant is exactly what must
   // not happen, so the prompt says not to and names the tool that replaces it.
   assert.match(section, /不需要用 bash\/find\/ls/);
-  assert.match(section, /用 read_document 读到的就是它/);
+  assert.match(section, /用 这个应用的读取工具 读到的就是它/);
 });
 
 test("a resource whose filename matches its title says so plainly", async (t) => {
@@ -1209,57 +1082,11 @@ test("binding says where new work goes, not only what the pronouns mean", async 
   assert.match(bound, /只想看看或先讨论/);
 });
 
-test("native CAD tool activation is retired on TXT rebind and preserves general tools", async (t) => {
-  const { pi, call, bind, turn, service, taskId } = await harness(t);
-  pi.registerTool({ name: "general_test_tool", execute: async () => ({ content: [] }) });
-  const created = await call("create_resource", {
-    kind: "model/atria-cadquery+json",
-    title: "native.cad.json"
-  });
-  assert.deepEqual(created.details.availableTools.sort(), [
-    "cad_get_api_reference",
-    "cad_preview",
-    "cad_read_model",
-    "cad_run_program"
-  ]);
-  const txt = await service.createResource({
-    taskId,
-    kind: "text/plain",
-    title: "other.txt",
-    initialContent: "plain",
-    actor: { type: "user", id: "local" }
-  });
-  await bind(txt.resource.resourceId);
-  await turn();
-  assert.ok(pi.getActiveTools().includes("general_test_tool"));
-  assert.ok(pi.getActiveTools().includes("read_document"));
-  assert.equal(
-    pi.getActiveTools().some((name) => name.startsWith("cad_")),
-    false
-  );
-  assert.equal(
-    (await call("cad_run_program", {})).isError,
-    true,
-    "stale registered CAD tool cannot act on TXT"
-  );
-  const prompt = (await pi.handlers.get("before_agent_start")({ systemPrompt: "General task" })).systemPrompt;
-  assert.equal(/parametric-cad|cad_run_program|OpenCascade/.test(prompt), false);
-  assert.match(prompt, /无关的问答、调研或项目开发继续使用通用工具/);
-  assert.equal((await service.readResource(taskId, txt.resource.resourceId)).snapshot.content, "plain");
-  await bind(created.details.resource.resourceId);
-  await turn();
-  assert.ok(pi.getActiveTools().includes("cad_run_program"));
-  assert.equal(pi.getActiveTools().includes("read_document"), false);
-});
-
 test("application exports publish real artifacts without rebinding or editing resources", async (t) => {
   const { pi, call, service, root, taskId } = await harness(t);
   const contract = pi.tools.get("export_resource").description;
   assert.match(contract, /application's declared formats and options/);
   assert.doesNotMatch(contract, /Blender|Cycles|768/);
-  const domainSkill = await readFile(resolve(".pi/skills/blender/SKILL.md"), "utf8");
-  assert.match(domainSkill, /independent CPU Cycles render/);
-  assert.match(domainSkill, /768×768 and 32 samples/);
 
   const text = await call("create_resource", {
     kind: "text/plain",
@@ -1284,55 +1111,3 @@ test("application exports publish real artifacts without rebinding or editing re
   assert.equal((await call("export_resource", { resourceId: id, format: "step" })).isError, true);
   assert.equal((await call("export_resource", { resourceId: "not-owned", format: "text" })).isError, true);
 });
-
-test(
-  "Blender PNG export reports actual dimensions and makes independent render defaults visible",
-  { skip: !(await blenderStatus()).available, timeout: 120000 },
-  async (t) => {
-    const { call, service, taskId } = await harness(t);
-    const created = await call("create_resource", {
-      kind: "project/atria-blender+json",
-      title: "导出尺寸"
-    });
-    assert.equal(created.isError, false, JSON.stringify(created.details));
-    const id = created.details.resource.resourceId;
-    assert.equal((await call("blender_read_scene")).isError, false);
-    const built = await call("blender_run_python", {
-      source: `import bpy
-bpy.ops.mesh.primitive_cube_add(size=2)
-scene = bpy.context.scene
-scene.render.resolution_x = 384
-scene.render.resolution_y = 384
-scene.render.resolution_percentage = 100
-scene.cycles.samples = 8
-`
-    });
-    assert.equal(built.isError, false, JSON.stringify(built.details));
-    const stable = await service.readResource(taskId, id);
-    const explicit = await call("export_resource", {
-      resourceId: id,
-      format: "png",
-      options: { resolution: 384, samples: 8 }
-    });
-    const defaults = await call("export_resource", { resourceId: id, format: "png" });
-    for (const [result, size] of [
-      [explicit, 384],
-      [defaults, 768]
-    ]) {
-      assert.equal(result.isError, false, JSON.stringify(result.details));
-      const bytes = await readFile(result.details.path);
-      assert.equal(bytes.readUInt32BE(16), size);
-      assert.equal(bytes.readUInt32BE(20), size);
-      assert.equal(result.details.width, bytes.readUInt32BE(16));
-      assert.equal(result.details.height, bytes.readUInt32BE(20));
-      assert.equal(result.details.samples, undefined, "PNG cannot prove the sample count");
-    }
-    const saved = await call("blender_query", {
-      source:
-        "result = [bpy.context.scene.render.resolution_x, bpy.context.scene.render.resolution_y, bpy.context.scene.cycles.samples]"
-    });
-    assert.equal(saved.isError, false, JSON.stringify(saved.details));
-    assert.deepEqual(saved.details.result.value, [384, 384, 8]);
-    assert.equal((await service.readResource(taskId, id)).resource.revision, stable.resource.revision);
-  }
-);

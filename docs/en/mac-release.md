@@ -17,52 +17,22 @@ npm run desktop:pack
 npm run test:desktop
 npm run desktop:dist
 # Separate internal fixture acceptance; does not certify the default archive.
-npm run test:desktop:base
+npm run test:desktop
 ```
 
 `desktop:pack` writes `.tmp/release/mac-arm64/CoworkOS.app`. `desktop:dist` creates and verifies `release/CoworkOS-<version>-mac-arm64.dmg` and SHA-256. Local builds never upload or publish. The hidden build directory avoids duplicate Spotlight/Launchpad installations.
 
-The [general packaged smoke](../../scripts/desktop-smoke.mjs), invoked by `npm run test:desktop`, reads the candidate's package metadata. For a small archive it checks the host, TXT/PPT creation/edit/save, PPT recovery after restart, JSCAD, Pi with a local model, drafts, quit/recovery and relocated upgrades. It disables CAD/Blender only in its disposable test data to avoid repeating large downloads, and explicitly reports their native checks as `SKIPPED`. Full archives retain native bundled CadQuery/BRep/STEP and Blender project checks. A passing host smoke does not certify native CAD/Blender in the small archive.
-
-Run the small-package preparation check separately. It uses isolated local HTTP components and a local model to exercise host availability during downloads, progress, backend restarts and cancellation/cleanup on quit:
-
-```sh
-ATRIA_PUBLIC_COMPONENTS_SMOKE=1 ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app npx playwright test e2e/public-components-desktop.spec.js --workers=1 --output .tmp/public-components-desktop
-```
-
-This check does not establish real public downloads or native kernel execution. Separately cold-install into a fresh component directory without credentials, export an actual CAD STEP and Blender GLB, then verify restart and compatible-host reuse. Record these results independently using the component release procedure below.
-
-Default archives include PPTist and prepare CAD/Blender automatically from a fixed public Release after launch. Settings shows progress and retries; ordinary conversations remain usable. Compatible managed runtimes survive App replacement. Explicit `desktop:pack:full` / `desktop:dist:full` prepare all resources and bundle an offline App. Internal `:base` archives exclude all three components and never install them automatically. See [applications and components](optional-components.md).
-
-Small-package download installation and full-package offline execution require separate acceptance. Keep third-party notices/source materials. Existing results for older archives never certify a new package. Packaging excludes development dependencies, tests, workspaces and private configuration; review actual contents and permissions before distribution.
+`npm run test:desktop` checks the host, TXT creation/edit/save, Pi with a local model, drafts, quit/recovery and relocated upgrades. Domain editors and component installation are excluded.
 
 ## App tags and draft Releases
 
-The default release builds on a local Apple Silicon Mac to avoid hosted macOS minutes. Complete local regression before tagging, then install dependencies, check out the clean version tag, and run `npm run release:local -- v<version>`. The command validates the tag and versions, builds the DMG, components, CLI and npm archives, and uploads a reviewable Release draft. After reviewing its assets, manually run the lightweight Ubuntu npm OIDC workflow; keep the npm Environment approval, then publish the GitHub Release draft after npm verification. Publish the separate public distribution release/update pointer separately when this version requires it. Pushing a tag does not start a hosted Mac build. Beta/rc tags use Pre-release status.
+The default release builds on a local Apple Silicon Mac to avoid hosted macOS minutes. Complete local regression before tagging, then install dependencies, check out the clean version tag, and run `npm run release:local -- v<version>`. The command validates the tag and versions, builds the DMG, CLI and npm archives, and uploads a reviewable Release draft. After reviewing its assets, manually run the lightweight Ubuntu npm OIDC workflow; keep the npm Environment approval, then publish the GitHub Release draft after npm verification. Publish the separate public distribution release/update pointer separately when this version requires it. Pushing a tag does not start a hosted Mac build. Beta/rc tags use Pre-release status.
 
 The [Mac release workflow](../../.github/workflows/release-mac.yml) remains available as a manual cloud fallback. It rebuilds the candidate on macOS 15 arm64 and consumes hosted macOS minutes.
 
 Review and commit release source, documentation and validation before tagging. Follow the [version process](../beta-release-process.md) (Chinese) and existing release notes. Use a new version to repair an already-published artifact; never overwrite published assets or move a published tag. The npm workflow downloads and verifies locally built npm archives from the draft, publishes them in order, and checks the public registry. Publish the GitHub Release draft after reviewing the npm results and assets.
 
 npm may accept an upload before the version becomes publicly visible. Registry verification retries and checks each archive's SHA-512. If processing outlasts verification, run the workflow from `main` with the same tag and `verify_only` enabled to verify accepted packages without republishing them.
-
-## Public component releases
-
-Components are published separately at [Atria-Components Releases](https://github.com/ignorejjj/Atria-Components/releases). Application sources remain private; public App delivery uses Atria-Releases. Testers can share the small DMG in their group and download components anonymously from the App.
-
-Protocol v1 pins `components-v1` and uses `hostVersion: "*"` for compatible Apps. Catalogs, archive names, exact byte sizes and SHA-256 identify a release. Do not follow an arbitrary latest version. Publish changed components under a new tag and update the App's pinned source; never replace published assets or move tags.
-
-```sh
-npm run components:pack:public
-node scripts/prepare-component-sources.mjs
-ATRIA_COMPONENT_SOURCES_DIR=.tmp/component-sources npm run components:publish
-```
-
-Source preparation runs only on maintainer machines, requiring network access, `gh` and `curl`. It never runs on user installations. `SOURCE_MANIFEST.json` lists each source/license asset's `file`, `sha256`, `bytes` and upstream source. Blender supplies its exact application source and the 4.5-series dependency sources; CAD supplies OCCT, OCP, CasADi and dependency sources/build recipes while preserving notices. See [third-party notices](../../THIRD_PARTY_NOTICES.md).
-
-The publisher verifies local component/source materials before uploading and publishing a separate component Release. Published versions reject replacement. Local maintainers use existing GitHub authorization; cross-repository Actions publishing needs the product repository's `COMPONENTS_RELEASE_TOKEN` secret, scoped to writing the component repository. Never put that token in the App, catalog or logs. Users need no credentials.
-
-After publication, use a fresh component directory without credentials to verify real catalog/download validation, installation and reuse after restart. Record actual results. This does not certify all user networks, a clean machine, signing or notarization.
 
 ## App updates and signing
 
@@ -100,8 +70,8 @@ Signing alone does not establish notarization, Gatekeeper acceptance or real old
 
 ## Data and installation acceptance
 
-Users drag CoworkOS from DMG into Applications. Data remains under shared `~/.atria/`, relocated with `ATRIA_HOME`; external project originals require their own backups. Component installation uses its managed directory outside the App. Replacing the App preserves documents, conversations, settings and compatible components. Back up important data before upgrades and verify recovery after restart. See [storage layout](../task-workspace-layout.md) (Chinese).
+Users drag CoworkOS from DMG into Applications. Data remains under shared `~/.atria/`, relocated with `ATRIA_HOME`; external project originals require their own backups. Replacing the App preserves documents, conversations, settings. Back up important data before upgrades and verify recovery after restart. See [storage layout](../task-workspace-layout.md) (Chinese).
 
 The desktop saves model keys using Electron safeStorage, rejecting saves when encryption is unavailable. Gatekeeper may require the system's explicit approval flow for the current beta. Stable distributions still require Developer ID signing, notarization, stapling and downloaded-quarantine acceptance. Do not disable system protections.
 
-Real speech permissions/recording, actual model connections, relocated native CAD/Blender execution, a separate clean machine, interruption/upgrade recovery, source/license review and final artifact hashes are independent acceptance evidence. Skipped checks and protocol fixtures cannot be reported as passed. The [Chinese release guide](../mac-release.md) contains the detailed native resource and acceptance checklist.
+Real speech permissions/recording, actual model connections, a separate clean machine, interruption/upgrade recovery, source/license review and final artifact hashes are independent acceptance evidence. Skipped checks and protocol fixtures cannot be reported as passed. The [Chinese release guide](../mac-release.md) contains the detailed native resource and acceptance checklist.

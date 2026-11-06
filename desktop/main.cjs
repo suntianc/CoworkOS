@@ -32,11 +32,6 @@ const { selectApplicationIcon, refreshDockIcon } = require("./application-icon.c
 const { isDashboardUrl, assertTrustedSender, externalNavigationUrl } = require("./trusted-content.cjs");
 const { desktopPaths, prepareDesktopData, showLegacyDataNotice } = require("./paths.cjs");
 const { createWebSearchSettings } = require("./web-search-settings.cjs");
-const {
-  createComponentAuth,
-  createComponentAuthController,
-  syncComponentAuth
-} = require("./component-auth.cjs");
 const { createModelSettings } = require("./model-settings.cjs");
 const { createRetryableStorage } = require("./retryable-storage.cjs");
 const { createComputerPolicyStore, createComputerPolicyController } = require("./computer-policy.cjs");
@@ -46,9 +41,6 @@ const { connectRenderer } = require("./renderer-connection.cjs");
 const { startBackend } = require("./backend.cjs");
 const { desktopProfile } = require("./profile.cjs");
 const { createDesktopSpeechInput } = require("./speech-input.cjs");
-const { createHarnessTiling } = require("./harness-tiling.cjs");
-const { createCadViewer } = require("./cad-viewer.cjs");
-const { createOfficeHarness } = require("./office-harness.cjs");
 const { migrateLegacyDesktopData } = require("../scripts/data-migration.cjs");
 const {
   managedUpdateLaunch,
@@ -68,16 +60,11 @@ let backend,
   mainWindow,
   settings,
   webSearchSettings,
-  componentAuth,
-  componentAuthController,
   paths,
   startupPromise,
   composerDrafts,
   updates,
-  computerPolicy,
-  harnessTiling,
-  cadViewer,
-  officeHarness;
+  computerPolicy;
 const computerControl = createComputerPolicyController({
   store: { snapshot: () => computerPolicy.snapshot(), save: (value) => computerPolicy.save(value) },
   getBackend: () => backend,
@@ -131,7 +118,6 @@ function openExternalLink(url) {
 async function launchBackend() {
   // An unavailable old secret must leave the settings UI reachable for replacement.
   backend = await startBackend(paths, await settings.read({ allowUnavailableSecret: true }));
-  await syncComponentAuth(backend, componentAuth, process.env.ATRIA_COMPONENTS_RELEASE_ROOT);
   if (closing || quitting) return;
   const current = backend;
   await computerControl.initialize(current);
@@ -210,7 +196,6 @@ function createWindow() {
     releaseComputerSessions();
     mainWindow = undefined;
   });
-  harnessTiling?.bindWindow();
 }
 function applicationIcon() {
   return selectApplicationIcon(profile.appRoot);
@@ -236,15 +221,6 @@ ipcMain.handle("bookman:notify", async (event, value) => {
   if (!Notification.isSupported()) return false;
   new Notification({ title: String(value?.title || "CoworkOS"), body: String(value?.body || "") }).show();
   return true;
-});
-ipcMain.handle("bookman:component-auth-status", async (event) => {
-  trust(event);
-  return componentAuth.status();
-});
-ipcMain.handle("bookman:save-component-auth", async (event, input) => {
-  trust(event);
-  if (restarting || closing || quitting || !backend) throw new Error("本地服务正在关闭或重启");
-  return componentAuthController.save(input);
 });
 ipcMain.handle("bookman:model-status", async (event) => {
   trust(event);
@@ -324,31 +300,9 @@ ipcMain.handle("bookman:voice-cancel", (event, input) => {
   trust(event);
   return speechInput.cancel(input);
 });
-ipcMain.handle("bookman:harness-launch", (event, appType, workspaceDir) => {
-  trust(event);
-  if (closing || quitting || restarting) throw new Error("应用正在关闭或重启，请稍后重试");
-  if (typeof appType !== "string") throw new Error("无效的应用类型");
-  if (workspaceDir !== undefined && (typeof workspaceDir !== "string" || !path.isAbsolute(workspaceDir)))
-    throw new Error("无效的工作区路径");
-  // The cad-viewer / OfficeHarness editor are embedded web apps (WebContentsView),
-  // not tiled native GUIs like FreeCAD/Blender: hand them to their integrations.
-  if (appType === "cad-harness") {
-    if (!cadViewer) throw new Error("应用正在关闭或重启，请稍后重试");
-    return cadViewer.start(workspaceDir);
-  }
-  if (appType === "office-harness") {
-    if (!officeHarness) throw new Error("应用正在关闭或重启，请稍后重试");
-    return officeHarness.start();
-  }
-  if (!harnessTiling) throw new Error("应用正在关闭或重启，请稍后重试");
-  return harnessTiling.launch(appType, workspaceDir);
-});
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
   void updates?.dispose().catch(() => {});
-  harnessTiling?.destroy();
-  cadViewer?.destroy();
-  officeHarness?.destroy();
   void speechInput.dispose();
 });
 ipcMain.handle("bookman:documents-ready", (event, requestId, saved) => {
@@ -486,11 +440,6 @@ if (owner)
       await computerPolicy.load();
       composerDrafts = createComposerDraftStore(userData);
       await composerDrafts.load();
-      componentAuth = createComponentAuth(userData, credentialStorage);
-      componentAuthController = createComponentAuthController(componentAuth, () => {
-        if (restarting || closing || quitting || !backend) throw new Error("本地服务正在关闭或重启");
-        return backend;
-      });
       settings = createModelSettings(paths, credentialStorage);
       webSearchSettings = createWebSearchSettings(paths, credentialStorage);
       refreshApplicationIcon();
@@ -502,9 +451,6 @@ if (owner)
       }
       await initializeUpdates(userData);
       createWindow();
-      harnessTiling = createHarnessTiling({ getMainWindow: () => mainWindow });
-      cadViewer = createCadViewer({ getMainWindow: () => mainWindow, trust });
-      officeHarness = createOfficeHarness({ getMainWindow: () => mainWindow, trust });
       await launchBackend();
       await confirmManagedUpdateLaunch(managedLaunch);
       if (legacySource)

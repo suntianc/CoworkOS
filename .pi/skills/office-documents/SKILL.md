@@ -1,11 +1,11 @@
 ---
 name: office-documents
-description: Create, inspect, edit, render, and validate Word and Excel files (.docx, .xlsx). Use for reports, spreadsheets and conversions; use presentations for PowerPoint work.
+description: Create, inspect, edit, render, and validate Word and Excel files (.docx, .xlsx). Use for reports, spreadsheets and conversions.
 ---
 
 # Office documents
 
-Use this skill for DOCX and XLSX files. For PowerPoint, load `presentations`; a bound editor also uses `pptist`. The skill supplies workflow and format knowledge; the runtime stays generic.
+Use this skill for DOCX and XLSX files. The skill supplies workflow and format knowledge; the runtime stays generic.
 
 ## Workflow
 
@@ -19,7 +19,7 @@ Use this skill for DOCX and XLSX files. For PowerPoint, load `presentations`; a 
 ## Backend rules
 
 - `@officecli/officecli` from `iOfficeAI/OfficeCLI` is the preferred structured local backend when installed. It supports inspection, JSON-shaped operations, validation, and rendering for common Office formats.
-- Python fallbacks are format-specific: `python-pptx` can create and edit PPTX structure, `python-docx` handles DOCX structure, and `openpyxl` handles XLSX structure. These libraries do not render Office files, so a visual preview requires LibreOffice/soffice or another renderer.
+- Python fallbacks are format-specific: `python-docx` handles DOCX structure, and `openpyxl` handles XLSX structure. These libraries do not render Office files, so a visual preview requires LibreOffice/soffice or another renderer.
 - LibreOffice/soffice is a useful conversion or rendering fallback, but it is not a substitute for structured editing. If no backend is available, explain the blocker instead of silently producing a fake file.
 - Keep Office-specific command knowledge in the references and load it on demand. Do not add a permanent Office tool or put the full workflow into the global Main prompt.
 

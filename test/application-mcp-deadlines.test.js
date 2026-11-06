@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
@@ -8,14 +9,11 @@ import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import {
-  McpSupervisor,
-  MCP_TOOL_TIMEOUT_MS,
-  resourceConsumer
-} from "../dist/src/applications/mcp-supervisor.js";
-import { postLocalApiJson } from "../dist/src/applications/mcp/local-api-client.js";
-import { handleApplicationRequest } from "../dist/src/dashboard/application-routes.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { McpSupervisor, MCP_TOOL_TIMEOUT_MS, resourceConsumer } =
+  await import("../dist/src/applications/mcp-supervisor.js");
+const { postLocalApiJson } = await import("../dist/src/applications/mcp/local-api-client.js");
+const { handleApplicationRequest } = await import("../dist/src/dashboard/application-routes.js");
 
 async function fixture(t, deadline) {
   const root = await mkdtemp(join(tmpdir(), "atria-mcp-deadline-"));

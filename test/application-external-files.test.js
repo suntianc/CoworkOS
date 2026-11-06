@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import {
   chmod,
@@ -14,8 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { contentVersion } from "../dist/src/applications/types.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { contentVersion } = await import("../dist/src/applications/types.js");
 
 const actor = { type: "user", id: "local" };
 

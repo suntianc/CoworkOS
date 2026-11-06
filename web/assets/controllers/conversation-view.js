@@ -20,8 +20,8 @@ import { executionElapsedMs, formatExecutionDuration } from "../execution-time.j
 import { reconcileMarkup } from "../ui/reconcile.js";
 
 const toolKinds = new Map([
-  ...["read", "read_file", "read_document"].map((name) => [name, "read"]),
-  ...["write", "write_file", "edit", "apply_patch", "patch_document"].map((name) => [name, "edit"]),
+  ...["read", "read_file"].map((name) => [name, "read"]),
+  ...["write", "write_file", "edit", "apply_patch"].map((name) => [name, "edit"]),
   ...["bash", "run_command", "exec_command", "run_tests"].map((name) => [name, "command"])
 ]);
 
@@ -35,7 +35,7 @@ function latestModelRetry(events) {
 function renderUserText(text, markdown) {
   const uploaded = splitUploadedFiles(text);
   if (uploaded.files.length)
-    return `${markdown(uploaded.text)}<div class="message-attachments">${uploaded.files.map((file) => `<button type="button" data-upload-preview="${esc(file.uploadId)}">${file.kind === "image" ? `<img src="/api/uploads/${esc(file.uploadId)}" alt="" />` : icon("paperclip")}<span>${esc(file.name)}</span></button>`).join("")}</div>`;
+    return `${markdown(uploaded.text)}<div class="message-attachments">${uploaded.files.map((file) => `<button type="button" data-upload-preview="${esc(file.uploadId)}">${file.kind === "image" ? `<img data-upload-src="${esc(file.uploadId)}" alt="" />` : icon("paperclip")}<span>${esc(file.name)}</span></button>`).join("")}</div>`;
 
   const marker = "\n\nAttached files:\n";
   const boundary = text.indexOf(marker);

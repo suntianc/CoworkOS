@@ -6,17 +6,8 @@ import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 
 const execute = promisify(execFile);
-const outputs = [
-  "dist",
-  "src/software/cad/runtime-source.generated.ts",
-  "src/software/cad/api-reference.generated.ts"
-];
-const desktopOutputs = [
-  "build",
-  "web/assets/cad/generated",
-  "web/assets/pptist/generated",
-  "vendor/pptist/node_modules"
-];
+const outputs = ["dist"];
+const desktopOutputs = ["build", "web/assets/math/generated", "web/assets/markdown/generated"];
 
 function updateError(code, message) {
   return Object.assign(new Error(message), { code });
@@ -251,18 +242,6 @@ export async function updateSource(options) {
       options.onProgress?.("复用未改变的依赖，创建独立副本…");
       await copyDependencies(join(root, "node_modules"), join(candidate, "node_modules"));
     }
-    if (
-      target === "desktop" &&
-      (await sameFile(
-        join(root, "vendor/pptist/package-lock.json"),
-        join(candidate, "vendor/pptist/package-lock.json")
-      )) &&
-      (await exists(join(root, "vendor/pptist/node_modules")))
-    )
-      await copyDependencies(
-        join(root, "vendor/pptist/node_modules"),
-        join(candidate, "vendor/pptist/node_modules")
-      );
     options.onProgress?.(target === "desktop" ? "构建新版 App…" : "构建新版 CLI…");
     try {
       await run(npm.command, [...npm.args, "run", target === "desktop" ? "build" : "build:cli"], candidate);

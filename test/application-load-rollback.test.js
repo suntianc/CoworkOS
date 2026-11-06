@@ -1,10 +1,11 @@
+import "./application-fixture.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 
 for (const separateRoots of [false, true])
   test(`rollback reads fixed-load data and restores independent switching/unloading (${separateRoots ? "separate" : "shared"} storage roots)`, async (t) => {

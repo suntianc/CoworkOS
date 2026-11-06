@@ -1,32 +1,15 @@
 /** Signing is explicit; signing/notarization and installation still have separate release gates. */
 const signingConfigured = Boolean(process.env.CSC_NAME?.trim());
-// Normal downloads keep the editor; native runtimes are prepared outside the signed App.
-const componentMode = process.env.ATRIA_PACKAGE_COMPONENTS || "light";
-if (!["light", "base", "full"].includes(componentMode)) throw new Error("Unknown component package mode");
-const bundleComponents = componentMode === "full";
 module.exports = {
   appId: "org.atria.cowork",
   productName: "CoworkOS",
   directories: { output: ".tmp/release" },
-  extraMetadata: {
-    main: "desktop/main.cjs",
-    atriaBundledComponents: bundleComponents,
-    atriaBundledPptist: componentMode !== "base",
-    atriaAutoInstallComponents: componentMode === "light"
-  },
+  extraMetadata: { main: "desktop/main.cjs" },
   // Pi loads TypeScript extensions and spawns scripts by real path.
   asar: false,
   npmRebuild: false,
   forceCodeSigning: signingConfigured,
   electronDist: "node_modules/electron/dist",
-  ...(bundleComponents
-    ? {
-        beforePack: async (context) => {
-          const { verifyDesktopComponents } = await import("./scripts/prepare-desktop-components.mjs");
-          await verifyDesktopComponents({ root: context.packager.info.appDir });
-        }
-      }
-    : {}),
   files: [
     "desktop/**/*.cjs",
     "dist/src/**/*",
@@ -39,7 +22,6 @@ module.exports = {
     ".pi/prompts/**/*",
     ".pi/skills/**/*",
     "scripts/start-pi.mjs",
-    "scripts/components.mjs",
     "scripts/start-pi-runtime.mjs",
     "scripts/cli-runtime-host.mjs",
     "scripts/cli-information.mjs",
@@ -75,16 +57,9 @@ module.exports = {
     "!**/*.tsbuildinfo",
     "!node_modules/**/test{,s}/**",
     "!node_modules/**/example{,s}/**",
-    ...(componentMode === "base" ? ["!web/assets/pptist/generated/**/*"] : []),
     "!**/.DS_Store"
   ],
   extraResources: [
-    ...(bundleComponents
-      ? [
-          { from: ".tools/cadquery-runtime", to: "cadquery" },
-          { from: ".tools/blender-runtime", to: "blender" }
-        ]
-      : []),
     { from: "node_modules/electron/dist/LICENSE", to: "licenses/electron/LICENSE" },
     {
       from: "node_modules/electron/dist/LICENSES.chromium.html",

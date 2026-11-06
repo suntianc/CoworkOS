@@ -1,15 +1,6 @@
 import { icon } from "../ui/icons.js";
 
-const APP_ICONS = {
-  "text-editor": "i-text",
-  pptist: "i-slides",
-  cad: "i-cad",
-  blender: "i-blender",
-  "blender-harness": "i-blender",
-  "freecad-harness": "i-cad",
-  "cad-harness": "i-cad",
-  "office-harness": "i-slides"
-};
+const APP_ICONS = {};
 
 /** One monochrome glyph follows an application across launchers, files and tabs. */
 export function applicationIconName(appType, fallback = "i-file") {

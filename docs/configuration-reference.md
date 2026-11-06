@@ -80,6 +80,10 @@ Finder/Dock 启动的 macOS App 会将存在的 `~/.local/bin`、Homebrew `bin`/
 
 App 使用 Electron safeStorage 的 macOS 加密能力；Web / CLI 通常使用权限为 0600 的本机 JSON。App 的模型、搜索和组件凭据共用钥匙串保存行为：失败或取消时保留表单和旧配置，再次保存重试，不自动改为明文。
 
+独立执行主机把模型与搜索密钥保存在配置文件旁的 `credentials.json`（0600，可用 `COWORK_CREDENTIALS` 指定路径）。设置接口只返回 `configured`、`credentialUnavailable` 或 `secretUnavailable` 及具体 `credentialError`，不返回密钥；空白密钥保留原值，显式清除搜索密钥会删除保存项。旧桌面密文在迁移前按不可用处理，不会被报告为已配置。
+
+旧 Electron 加密配置的一次性转换：先停止后端，再在仓库内运行 `node scripts/migrate-desktop-settings.mjs --config <模型配置文件>`（可选 `--credentials`、`--legacy-secret`；隔离验证可用 `--host-arg --use-mock-keychain` 避免访问真实钥匙串）。工具临时调用旧宿主解密全部值后才写入，先把原文件备份为 `<配置>.before-host-credentials`，再原子改写配置；失败时原文件、备份和凭据文件都不变，成功后原配置中的密文和明文密钥被移除。重跑返回 `already-migrated`，不会新增连接。迁移完成后重新启动后端；正在运行的后端不会重新读取磁盘配置。设置页和真实运行使用同一份主机凭据，密钥不会进入界面状态、日志或事件。
+
 旧单组连接显示为“默认配置”。首次保存多组配置前创建 `.before-model-profiles` 备份，并保留旧桌面 `model-secret.bin`；未知版本拒绝覆盖。恢复备份前先退出应用，配置和备份均按私有数据管理。
 
 正式版和开发版通过独立的钥匙串进程使用相同的 `Atria` 加密标识，开发窗口显示 CoworkOS Dev。旧开发标识加密的密钥可能需要重新输入，原密文与源目录保留。原生钥匙串和签名兼容需单独验收。
@@ -132,23 +136,26 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 
 ## 路径与环境变量
 
-| 环境变量                                              | 用途                                                        |
-| ----------------------------------------------------- | ----------------------------------------------------------- |
-| `COWORK_CONFIG`                                       | 显式配置文件                                                |
-| `COWORK_API_BASE` / `COWORK_MODEL` / `COWORK_API_KEY` | 模型地址、ID、密钥                                          |
-| `COWORK_MODEL_API`                                    | 与 `api` 取值相同                                           |
-| `COWORK_THINKING_FORMAT`                              | 当前进程的思考格式                                          |
-| `COWORK_SUPPORTS_IMAGES`                              | `1` / `true` 开启，`0` / `false` 关闭                       |
-| `COWORK_REASONING_EFFORT`                             | 推理强度                                                    |
-| `COWORK_SUPPORTS_REASONING_EFFORT`                    | `1` / `true` 开启，`0` / `false` 禁止强度字段               |
-| `COWORK_SUPPORTS_PROMPT_CACHE_KEY`                    | `1` / `true` 开启，`0` / `false` 关闭第三方缓存键           |
-| `ATRIA_HOME`                                          | App、CLI、Web 用户目录，默认 `~/.atria`；显式路径覆盖仍优先 |
-| `COWORK_DESKTOP_DATA`                                 | 独立桌面数据目录                                            |
-| `COWORK_WORKSPACE`                                    | 持久任务数据目录，默认 `~/.atria/workspace`                 |
-| `COWORK_PROJECT_DIR`                                  | Main 文件与命令的项目目录                                   |
-| `PI_CODING_AGENT_DIR`                                 | Pi 状态目录，默认 `~/.atria/pi`                             |
-| `COWORK_TASK_ID`                                      | 固定 Main Task，恢复时配合原 Pi 会话                        |
-| `COWORK_UI_PORT`                                      | 源码 Web 端口，默认 3880                                    |
+| 环境变量                                              | 用途                                                                  |
+| ----------------------------------------------------- | --------------------------------------------------------------------- |
+| `COWORK_CONFIG`                                       | 显式配置文件                                                          |
+| `COWORK_API_BASE` / `COWORK_MODEL` / `COWORK_API_KEY` | 模型地址、ID、密钥                                                    |
+| `COWORK_MODEL_API`                                    | 与 `api` 取值相同                                                     |
+| `COWORK_THINKING_FORMAT`                              | 当前进程的思考格式                                                    |
+| `COWORK_SUPPORTS_IMAGES`                              | `1` / `true` 开启，`0` / `false` 关闭                                 |
+| `COWORK_REASONING_EFFORT`                             | 推理强度                                                              |
+| `COWORK_SUPPORTS_REASONING_EFFORT`                    | `1` / `true` 开启，`0` / `false` 禁止强度字段                         |
+| `COWORK_SUPPORTS_PROMPT_CACHE_KEY`                    | `1` / `true` 开启，`0` / `false` 关闭第三方缓存键                     |
+| `ATRIA_HOME`                                          | App、CLI、Web 用户目录，默认 `~/.atria`；显式路径覆盖仍优先           |
+| `COWORK_DESKTOP_DATA`                                 | 独立桌面数据目录                                                      |
+| `COWORK_WORKSPACE`                                    | 持久任务数据目录，默认 `~/.atria/workspace`                           |
+| `COWORK_PROJECT_DIR`                                  | Main 文件与命令的项目目录                                             |
+| `PI_CODING_AGENT_DIR`                                 | Pi 状态目录，默认 `~/.atria/pi`                                       |
+| `COWORK_TASK_ID`                                      | 固定 Main Task，恢复时配合原 Pi 会话                                  |
+| `COWORK_UI_PORT`                                      | 源码 Web 端口，默认 3880                                              |
+| `COWORK_TRUSTED_CLIENT_ORIGINS`                       | 受信本机页面来源，逗号分隔的精确 `http://127.0.0.1:<port>` 等回环地址 |
+
+`COWORK_TRUSTED_CLIENT_ORIGINS` 只接受精确的本机 `http://` 来源，不接受通配符；命名的来源可以跨端口读取该后端的响应并出现在其页面 `connect-src` 中。真实请求仍走凭据校验，监听地址仍为 `127.0.0.1`。浏览器页面管理另一个本机后端时，两者需要互相命名对方来源。详见 [Product API](product-api.md#trusted-local-client-origins)。
 
 各入口运行状态默认位于 `~/.atria/runtime`。项目设置保存 `projectName`、`projectId`、`projectDirectory`，首条消息才创建会话。项目工作目录与 `workspaceRoot` / `COWORK_WORKSPACE` 下的内部存储相互独立。
 

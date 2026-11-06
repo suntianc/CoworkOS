@@ -33,9 +33,6 @@ export async function runLocalRelease({
 
   await run("node", ["scripts/release-metadata.mjs"]);
   await run("npm", ["run", "desktop:dist"]);
-  await run("npm", ["run", "cad:setup"]);
-  await run("npm", ["run", "build:pptist"]);
-  await run("npm", ["run", "components:pack"]);
   await run("npm", ["run", "cli:pack"]);
   await run("npm", ["run", "desktop:npm:pack"], {
     env: { ATRIA_DESKTOP_NPM_PACKAGE_DIR: join(root, "release") }

@@ -370,11 +370,6 @@ test("application and runtime tools have readable names and unfamiliar tools exp
     ["enable_tools", "启用所需工具"],
     ["read_attachment", "读取附件"],
     ["grant_capabilities", "授权执行能力"],
-    ["cad_run_program", "运行 CAD 程序"],
-    ["blender_preview", "预览 Blender 场景"],
-    ["pptist_read_presentation", "读取 PPT"],
-    ["pptist_edit_presentation", "编辑 PPT"],
-    ["pptist_get_schema", "查看 PPT 格式"],
     ["custom_inspection", "调用 custom_inspection"]
   ]) {
     assert.equal(friendlyToolName(name), title);

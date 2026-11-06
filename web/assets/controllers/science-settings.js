@@ -4,12 +4,14 @@ import { icon } from "../ui/icons.js";
 import { createScienceInstallation } from "./science-installation.js";
 
 /** Configuration reads never start Python; checks require an explicit click. */
-export function installScienceSettings({ showToast, overview }) {
+export function installScienceSettings({ showToast, overview, api }) {
   const request = async (method, body, suffix = "") => {
-    const response = await fetch(`/api/science-settings${suffix}`, {
+    const options = {
       method,
       ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {})
-    });
+    };
+    if (api) return api(`/api/science-settings${suffix}`, options);
+    const response = await fetch(`/api/science-settings${suffix}`, options);
     let value;
     try {
       value = await response.json();

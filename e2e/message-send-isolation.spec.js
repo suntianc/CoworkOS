@@ -321,7 +321,11 @@ test("late creation preserves the newer saved task draft and a deliberate clear 
       // A normal pagehide saves the still-correct DOM again. Check the actual
       // durable draft first so that this cannot conceal the stale overwrite.
       const persisted = await page.evaluate((taskId) => {
-        const draft = localStorage.getItem(`atria.composer.v1:${taskId}`);
+        // Drafts are namespaced by backend identity; find this Task's slot.
+        const key = Object.keys(localStorage).find(
+          (entry) => entry.startsWith("atria.composer.v1:") && entry.endsWith(`:${taskId}`)
+        );
+        const draft = key ? localStorage.getItem(key) : null;
         return draft === null ? "" : JSON.parse(draft).text;
       }, createdTask.taskId);
       expect(persisted).toBe(nextDraft);

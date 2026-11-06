@@ -1,9 +1,10 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { startDashboard } from "./dashboard-fixture.mjs";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
 
 const actor = { type: "agent", id: "live-fixture" };
 
@@ -73,16 +74,14 @@ test("revision feed exposes committed standalone operations from another process
   assert.equal((await request("/api/workbench/revisions")).instances[0].revision, 1);
 });
 
-test("revision feed includes PPT, feature/source CAD and Blender resources without invoking native previews", async (t) => {
+test("revision feed includes plain text and Markdown resources without loading document bodies", async (t) => {
   const dashboard = await startDashboard();
   t.after(() => dashboard.stop());
   const service = new ApplicationService(dashboard.workspaceRoot);
   const expected = [];
   for (const [appType, kind] of [
-    ["pptist", "presentation/pptist+json"],
-    ["cad", "model/atria-cad+json"],
-    ["cad", "model/atria-jscad+json"],
-    ["blender", "project/atria-blender+json"]
+    ["text-editor", "text/plain"],
+    ["text-editor", "text/markdown"]
   ]) {
     const response = await fetch(`${dashboard.base}/api/workbench/open-application`, {
       method: "POST",

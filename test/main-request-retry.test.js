@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -12,11 +13,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { createModels, createProvider, normalizeContext } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-request-store.js";
-import { MainRequestRetry } from "../dist/src/runtime/main-request-retry.js";
-import { ModelRequestRecorder } from "../dist/src/storage/model-request-recorder.js";
-import { recordModelRequests } from "../dist/src/runtime/model-request-recording.js";
-import { createCoworkModel } from "../dist/src/runtime/model-profile.js";
+const { MainRequestStore, mainRequestPath } = await import("../dist/src/storage/main-request-store.js");
+const { MainRequestRetry } = await import("../dist/src/runtime/main-request-retry.js");
+const { ModelRequestRecorder } = await import("../dist/src/storage/model-request-recorder.js");
+const { recordModelRequests } = await import("../dist/src/runtime/model-request-recording.js");
+const { createCoworkModel } = await import("../dist/src/runtime/model-profile.js");
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 

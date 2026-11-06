@@ -6,11 +6,7 @@ export const sameWorkspace = (left, right) => normalizedRoot(left) === normalize
 export const applicationProjectLabel = (entry, projects = []) => {
   if (entry?.project !== undefined) {
     if (!entry.project)
-      return entry.accessTaskId?.startsWith("temporary-")
-        ? entry.appType === "pptist"
-          ? "临时工作区 · 草稿自动保留"
-          : "临时工作区 · 自动保存"
-        : "无项目归属";
+      return entry.accessTaskId?.startsWith("temporary-") ? "临时工作区 · 自动保存" : "无项目归属";
     const project = projects.find((project) => project.projectId === entry.project.projectId);
     return `项目：${project?.projectName || entry.project.projectName}`;
   }

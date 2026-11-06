@@ -1,10 +1,11 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ResourceMappingStore } from "../dist/src/applications/mapping-store.js";
-import { withFileLock } from "../dist/src/storage/file-lock.js";
+const { ResourceMappingStore } = await import("../dist/src/applications/mapping-store.js");
+const { withFileLock } = await import("../dist/src/storage/file-lock.js");
 
 test("unchanged resource references preserve the durable mapping and do not wait for a writer", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-mapping-noop-"));

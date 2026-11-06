@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModelSettings as webSettings } from "../dist/src/dashboard/model-settings.js";
 import { visionModelConfig, visionModelEnv } from "../dist/src/runtime/vision-config.js";
-import { readCoworkConfig } from "../dist/src/runtime/config.js";
+import { readHostCoworkConfig } from "../dist/src/runtime/config.js";
 
 const require = createRequire(import.meta.url);
 const { createModelSettings: desktopSettings } = require("../desktop/model-settings.cjs");
@@ -60,7 +60,7 @@ for (const native of [false, true])
     if (native) assert.equal(persisted.includes("fixture-secret"), false);
     const restoredConfig = native
       ? await desktopSettings(paths, secure).read()
-      : readCoworkConfig(root, { COWORK_CONFIG: configPath });
+      : readHostCoworkConfig(root, { COWORK_CONFIG: configPath });
     const vision = visionModelConfig(restoredConfig, {});
     assert.equal(vision.apiKey, "vision-fixture-secret");
     assert.equal(vision.api, "openai-responses");

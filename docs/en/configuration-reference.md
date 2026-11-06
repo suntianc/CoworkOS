@@ -80,6 +80,10 @@ On macOS, Finder/Dock launches add existing `~/.local/bin`, Homebrew `bin`/`sbin
 
 The App uses Electron safeStorage's macOS encryption. Web / CLI typically use local JSON with mode 0600. The App's model, search and component credentials share Keychain save behavior: failure or cancellation preserves the form and previous configuration, and another Save retries without falling back to plaintext.
 
+The standalone execution host keeps model and search keys in `credentials.json` (mode 0600) beside its configuration; `COWORK_CREDENTIALS` selects another path. Settings responses carry only `configured`, `credentialUnavailable` or `secretUnavailable`, and a concrete `credentialError`; they never return a key. A blank key keeps the stored value, and explicitly clearing the search key removes it. Old desktop ciphertext counts as unavailable until migrated and is never reported as configured.
+
+To convert an old Electron configuration once, stop the backend and run `node scripts/migrate-desktop-settings.mjs --config <model config>` from the repository (optional `--credentials`, `--legacy-secret`; isolated validation can pass `--host-arg --use-mock-keychain` to avoid real Keychain access). The tool decrypts every value through the old host before writing, backs the original up as `<config>.before-host-credentials`, then rewrites the configuration atomically. A failure leaves the original, backup and credential file unchanged; a success removes ciphertext and plaintext keys from the configuration. Re-running reports `already-migrated` and adds no connections. Restart the backend afterwards; a running backend does not re-read its configuration from disk. The settings page and real runs share this host store, and keys never enter renderer state, logs or events.
+
 Legacy single connections appear as Default configuration. The first multi-profile save creates a `.before-model-profiles` backup and retains the old desktop `model-secret.bin`. Unknown versions cannot be overwritten. Quit before restoring a backup, and treat configurations and backups as private data.
 
 Release and development Apps use the same `Atria` encryption identity through a separate Keychain process; the development window shows CoworkOS Dev. Keys encrypted under the previous development identity may need re-entry. Original ciphertext and source directories remain available. Native Keychain and signing compatibility require separate acceptance checks.
@@ -132,23 +136,26 @@ Settings apply to CLI Main, headless CLI, subagents, model discovery, connection
 
 ## Paths and environment variables
 
-| Variable                                              | Purpose                                                                           |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `COWORK_CONFIG`                                       | Explicit configuration file                                                       |
-| `COWORK_API_BASE` / `COWORK_MODEL` / `COWORK_API_KEY` | Model URL, ID and key                                                             |
-| `COWORK_MODEL_API`                                    | Same values as `api`                                                              |
-| `COWORK_THINKING_FORMAT`                              | Thinking format for the current process                                           |
-| `COWORK_SUPPORTS_IMAGES`                              | `1` / `true` enables; `0` / `false` disables                                      |
-| `COWORK_REASONING_EFFORT`                             | Reasoning level                                                                   |
-| `COWORK_SUPPORTS_REASONING_EFFORT`                    | `1` / `true` enables; `0` / `false` omits effort fields                           |
-| `COWORK_SUPPORTS_PROMPT_CACHE_KEY`                    | `1` / `true` enables; `0` / `false` disables third-party cache keys               |
-| `ATRIA_HOME`                                          | App, CLI and Web user home, default `~/.atria`; explicit path overrides still win |
-| `COWORK_DESKTOP_DATA`                                 | Separate desktop data directory                                                   |
-| `COWORK_WORKSPACE`                                    | Persistent task data directory, default `~/.atria/workspace`                      |
-| `COWORK_PROJECT_DIR`                                  | Main's project directory for files and commands                                   |
-| `PI_CODING_AGENT_DIR`                                 | Pi state directory, default `~/.atria/pi`                                         |
-| `COWORK_TASK_ID`                                      | Fixed Main Task, used with its original Pi session for recovery                   |
-| `COWORK_UI_PORT`                                      | Source Web port, default 3880                                                     |
+| Variable                                              | Purpose                                                                                      |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `COWORK_CONFIG`                                       | Explicit configuration file                                                                  |
+| `COWORK_API_BASE` / `COWORK_MODEL` / `COWORK_API_KEY` | Model URL, ID and key                                                                        |
+| `COWORK_MODEL_API`                                    | Same values as `api`                                                                         |
+| `COWORK_THINKING_FORMAT`                              | Thinking format for the current process                                                      |
+| `COWORK_SUPPORTS_IMAGES`                              | `1` / `true` enables; `0` / `false` disables                                                 |
+| `COWORK_REASONING_EFFORT`                             | Reasoning level                                                                              |
+| `COWORK_SUPPORTS_REASONING_EFFORT`                    | `1` / `true` enables; `0` / `false` omits effort fields                                      |
+| `COWORK_SUPPORTS_PROMPT_CACHE_KEY`                    | `1` / `true` enables; `0` / `false` disables third-party cache keys                          |
+| `ATRIA_HOME`                                          | App, CLI and Web user home, default `~/.atria`; explicit path overrides still win            |
+| `COWORK_DESKTOP_DATA`                                 | Separate desktop data directory                                                              |
+| `COWORK_WORKSPACE`                                    | Persistent task data directory, default `~/.atria/workspace`                                 |
+| `COWORK_PROJECT_DIR`                                  | Main's project directory for files and commands                                              |
+| `PI_CODING_AGENT_DIR`                                 | Pi state directory, default `~/.atria/pi`                                                    |
+| `COWORK_TASK_ID`                                      | Fixed Main Task, used with its original Pi session for recovery                              |
+| `COWORK_UI_PORT`                                      | Source Web port, default 3880                                                                |
+| `COWORK_TRUSTED_CLIENT_ORIGINS`                       | Trusted local page origins; exact loopback `http://127.0.0.1:<port>` values, comma-separated |
+
+`COWORK_TRUSTED_CLIENT_ORIGINS` accepts only exact local `http://` origins and never a wildcard. Named origins may read this backend's responses across ports and appear in its page's `connect-src`; credentials and the `127.0.0.1` listener are unchanged. A browser page managing another local backend names both origins on the two backends. See [Product API](../product-api.md#trusted-local-client-origins).
 
 Runtime state defaults to `~/.atria/runtime` in every entrypoint. Project settings save `projectName`, `projectId` and `projectDirectory`; the first message creates the conversation. Project working directories are separate from internal storage under `workspaceRoot` / `COWORK_WORKSPACE`.
 

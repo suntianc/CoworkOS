@@ -1,5 +1,8 @@
 name: Static checks
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,4 +26,4 @@ jobs:
       - run: npm ci
       - run: npm run check:ci
         env:
-          FORMAT_BASE: HEAD^
+          FORMAT_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}

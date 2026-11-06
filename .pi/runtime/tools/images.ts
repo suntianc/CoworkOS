@@ -1,7 +1,5 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { join } from "node:path";
-import { createSlideReviewTool } from "../../../dist/src/tools/slide-review.js";
 import { createVisionAnalyzer } from "../../../dist/src/tools/vision-model.js";
 import { createImageTools } from "../../../dist/src/tools/read-image.js";
 import type { CoworkToolContext } from "../extension.ts";
@@ -38,36 +36,11 @@ export function registerImageTools(pi: ExtensionAPI, context: CoworkToolContext)
         list_images: "Find historical Task imageRefs for rereading"
       }[name],
       promptGuidelines: [
-        "ImageRefs and archived crops are historical visual evidence, not current desktop observations. Reobserve a live target before acting. Use review_slides for all final rendered pages when available; do not duplicate unchanged slide checks. Otherwise inspect each final page separately for QA; a contact sheet only checks consistency. A failed or missing review is unreviewed. Fix visible defects and review changed image hashes again; at most one retry per failed check."
+        "ImageRefs and archived crops are historical visual evidence, not current desktop observations. Reobserve a live target before acting. Inspect each final image separately for QA; a contact sheet checks consistency. A failed or missing review is unreviewed. Fix visible defects and review changed image hashes again; at most one retry per failed check."
       ],
       parameters,
       async execute(_id, params, signal) {
         return tool.execute(params, signal);
-      }
-    });
-  }
-  if (context.visionModel) {
-    const batch = createSlideReviewTool({
-      rootDirectory: context.projectDirectory,
-      taskDirectory: context.taskWorkspace,
-      reportDirectory: join(context.taskWorkspace, "agents", "main", "work"),
-      workScope: "project",
-      visionModel: context.visionModel,
-      analyze
-    });
-    pi.registerTool({
-      name: "review_slides",
-      label: "Review Slides",
-      description: batch.description!,
-      executionMode: "sequential",
-      parameters: Type.Unsafe(batch.parameters as Record<string, unknown>),
-      promptSnippet: "Review all final pages with bounded concurrency and reusable pixel evidence",
-      promptGuidelines: [
-        "Submit all final slide paths in order and the contact sheet as overview in the same batch. Reuse the reportPath and goals after one consolidated repair; only changed pixels need new review. Do not repeat read_image for covered pages. Report any remaining issues or unreviewed pages honestly."
-      ],
-      async execute(_id, params, signal) {
-        const result = await batch.execute(params, signal);
-        return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
       }
     });
   }

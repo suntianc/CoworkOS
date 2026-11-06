@@ -1,3 +1,4 @@
+import { applicationFixtureNodeOptions } from "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { access, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -5,10 +6,10 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
-import { ResourceFiles } from "../dist/src/applications/resource-files.js";
+const { ResourceFiles } = await import("../dist/src/applications/resource-files.js");
 
 test(
-  "real Pi creates and reads a first PPT in the conversation project, then restores its tools after restart",
+  "real Pi creates and reads a first text document in the conversation project, then restores its tools after restart",
   { timeout: 90_000 },
   async (t) => {
     for (const name of Object.keys(process.env))
@@ -20,6 +21,7 @@ test(
         name === "NODE_OPTIONS"
       )
         delete process.env[name];
+    process.env.NODE_OPTIONS = applicationFixtureNodeOptions;
     const failures = [],
       seen = { create: [], restore: [] };
     let phase = "create",
@@ -30,32 +32,30 @@ test(
       try {
         const names = request.tools.map((tool) => tool.function.name);
         if (phase === "restore") {
-          assert.ok(names.includes("pptist_read_presentation"));
+          assert.ok(names.includes("read_document"));
           assert.ok(JSON.stringify(request.messages).includes(resourceId));
-          return step === 0
-            ? { name: "pptist_read_presentation", arguments: {} }
-            : { text: "恢复后读取到同一 PPT。" };
+          return step === 0 ? { name: "read_document", arguments: {} } : { text: "恢复后读取到同一 文本。" };
         }
         if (step === 0) return { name: "enable_tools", arguments: { groups: ["applications"] } };
         if (step === 1) {
           assert.ok(names.includes("create_resource"));
           return {
             name: "create_resource",
-            arguments: { kind: "presentation/pptist+json", title: "项目中的自我介绍" }
+            arguments: { kind: "text/markdown", title: "项目中的自我介绍" }
           };
         }
         const result = JSON.parse(request.messages.findLast((message) => message.role === "tool").content);
         assert.notEqual(result.ok, false, JSON.stringify(result));
         assert.ok(!result.error, JSON.stringify(result));
-        assert.ok(names.includes("pptist_read_presentation"));
+        assert.ok(names.includes("read_document"));
         if (step === 2) {
           assert.equal(result.bound, true);
           resourceId = result.resource.resourceId;
           assert.ok(result.resource.project?.projectId);
-          return { name: "pptist_read_presentation", arguments: {} };
+          return { name: "read_document", arguments: {} };
         }
         assert.equal(step, 3);
-        return { text: "已创建并通过应用工具读回 PPT。" };
+        return { text: "已创建并通过应用工具读回 文本。" };
       } catch (error) {
         failures.push(error.stack ?? error.message);
         return { text: "项目上下文回归失败。" };
@@ -85,11 +85,11 @@ test(
       projectName: "自我介绍项目",
       projectDirectory: directory
     });
-    await api("/api/tasks", { taskId: "ppt-chat", goal: "制作自我介绍 PPT", projectId: project.projectId });
+    await api("/api/tasks", { taskId: "text-chat", goal: "制作自我介绍 文本", projectId: project.projectId });
     const settle = async () => {
       const until = Date.now() + 30_000;
       while (Date.now() < until) {
-        const detail = await api("/api/tasks/ppt-chat");
+        const detail = await api("/api/tasks/text-chat");
         if (!detail.runtime.active && ["completed", "failed", "cancelled"].includes(detail.task.status)) {
           assert.equal(detail.task.status, "completed", JSON.stringify(detail.task));
           assert.deepEqual(failures, []);
@@ -99,10 +99,10 @@ test(
       }
       assert.fail("real Pi did not settle");
     };
-    await api("/api/tasks/ppt-chat/run", { prompt: "新建一份自我介绍 PPT，并用应用工具读取确认。" });
+    await api("/api/tasks/text-chat/run", { prompt: "新建一份自我介绍 文本，并用应用工具读取确认。" });
     await settle();
     assert.equal(seen.create.length, 4);
-    const read = await api(`/api/tasks/ppt-chat/resources/${resourceId}`);
+    const read = await api(`/api/tasks/text-chat/resources/${resourceId}`);
     assert.equal(read.resource.project.projectId, project.projectId);
     const file = new ResourceFiles(directory).absolutePath(read.resource);
     const original = await readFile(file, "utf8");
@@ -114,12 +114,12 @@ test(
     assert.equal(tab.workspaceRoot, directory);
     await d.restart({ newPort: true });
     phase = "restore";
-    await api("/api/tasks/ppt-chat/run", { prompt: "继续读取现有 PPT，确认重启恢复。" });
+    await api("/api/tasks/text-chat/run", { prompt: "继续读取现有 文本，确认重启恢复。" });
     await settle();
     assert.equal(seen.restore.length, 2);
     assert.equal(await readFile(file, "utf8"), original);
     assert.equal(
-      (await api("/api/tasks/ppt-chat/active-app-context")).context.resource.resourceId,
+      (await api("/api/tasks/text-chat/active-app-context")).context.resource.resourceId,
       resourceId
     );
   }

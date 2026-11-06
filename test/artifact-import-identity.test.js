@@ -1,11 +1,11 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import PptxGenJS from "pptxgenjs";
 import { startDashboard } from "./dashboard-fixture.mjs";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 
 async function fixture(t) {
   const d = await startDashboard();
@@ -67,39 +67,4 @@ test("ordinary artifact imports serialize concurrent opens and preserve edits th
     replacement.resource.resourceId
   );
   assert.equal((await api(`/api/tasks/chat/resources/${resourceId}`)).snapshot.content, "edited copy");
-});
-
-test("converted PPTX imports validate their file version and reuse one editable resource", async (t) => {
-  const { d, api, publish, open } = await fixture(t);
-  const pptx = new PptxGenJS();
-  pptx.addSlide();
-  const bytes = await pptx.write({ outputType: "nodebuffer" });
-  await publish("blank.pptx", bytes);
-  const input = {
-    fromArtifact: "blank.pptx",
-    artifactSha256: createHash("sha256").update(bytes).digest("hex"),
-    appType: "pptist",
-    kind: "presentation/pptist+json",
-    title: "blank",
-    initialContent: { slides: [{ id: "blank", elements: [], remark: "converted content" }] }
-  };
-  const opened = await Promise.all([open(input), open(input)]);
-  const resourceId = opened[0].resource.resourceId;
-  assert.equal(opened[1].resource.resourceId, resourceId);
-  assert.equal(opened.filter((entry) => entry.reused).length, 1);
-  await d.restart({ newPort: true });
-  const reopened = await open({ fromArtifact: "blank.pptx" });
-  assert.equal(reopened.resource.resourceId, resourceId);
-  assert.equal(reopened.snapshot.content.slides[0].remark, "converted content");
-  assert.equal((await api("/api/tasks/chat/resources")).resources.length, 1);
-  const conflict = await open({ ...input, artifactSha256: "0".repeat(64) }, 409);
-  assert.equal(conflict.error.code, "source_file_conflict");
-  await publish("other.pptx", bytes);
-  const invalid = await open(
-    { ...input, fromArtifact: "other.pptx", appType: "text-editor", kind: "text/plain" },
-    422
-  );
-  assert.equal(invalid.error.code, "unsupported_resource_kind");
-  assert.equal((await api("/api/tasks/chat/resources")).resources.length, 1);
-  assert.deepEqual(await readFile(join(d.workspaceRoot, "chat", "artifacts", "blank.pptx")), bytes);
 });

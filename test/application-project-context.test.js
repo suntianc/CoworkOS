@@ -1,10 +1,11 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { startDashboard } from "./dashboard-fixture.mjs";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { ResourceFiles } from "../dist/src/applications/resource-files.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { ResourceFiles } = await import("../dist/src/applications/resource-files.js");
 
 async function fixture(t) {
   const dashboard = await startDashboard({ defaultProject: false });
@@ -34,11 +35,11 @@ async function fixture(t) {
 const metadataPath = (root, resource) =>
   join(root, "applications", resource.appType, "resources", resource.resourceId, "metadata.json");
 
-test("a first PPT inherits its conversation project in metadata and actual files, independent of Task storage", async (t) => {
+test("a first text document inherits its conversation project in metadata and actual files, independent of Task storage", async (t) => {
   const f = await fixture(t);
   const project = f.projects[0];
   const { applications } = await f.api("/api/applications");
-  const kind = applications.find((entry) => entry.appType === "pptist").resourceKinds[0];
+  const kind = applications.find((entry) => entry.appType === "text-editor").resourceKinds[0];
   const created = await f.api("/api/tasks/first/resources", { kind, title: "自我介绍" });
   assert.equal(created.resource.project?.projectId, project.projectId);
   assert.equal(created.resource.project.projectName, project.projectName);

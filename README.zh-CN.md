@@ -21,41 +21,26 @@
   <b>简体中文</b> | <a href="README.md">English</a>
 </p>
 
-**CoworkOS 是一个面向长程、人机在环工作的开源协作运行时。** 它帮助人与智能体把复杂项目从规划推进到经过验证的产出，覆盖代码、研究、文档、演示文稿、CAD、Blender 和科学计算等工作。人和智能体可以查看并修改同一份持续演化的工作；模型服务可配置，项目工作区、记忆和执行记录保存在本机。
+> 此分支保留完整的 Main、Coordinator、Subagent、长期任务、记忆和恢复逻辑，移除了内置文本/Markdown、Blender、CAD、PPT 编辑器及其工具、技能、提示词和组件安装器。现有工程文件保持原样；这些文件可通过通用文件工具处理。详见[能力范围与迁移](docs/builtin-capabilities.md)。
+
+**CoworkOS 是一个面向长程、人机在环工作的开源协作运行时。** 它帮助人与智能体把复杂项目从规划推进到经过验证的产出，覆盖代码、研究、文档和科学计算等工作。人和智能体可以查看并修改同一份持续演化的工作；模型服务可配置，项目工作区、记忆和执行记录保存在本机。
 
 - **复杂交付与持续监控。** CoworkOS 面向需要推理、工具使用和验证的复杂生产任务，也面向跨会话或持续数日、需要监控、决策与恢复的工作。长时间运行的 Job 保留状态和日志，使任务在等待或中断后能够继续。
 - **用于委派工作的三层运行时。** Main Agent 负责制定计划、委派工作并评估结果；Coordinator Runtime 负责分发子任务并跟踪生命周期；可选的 Subagents 在限定范围内执行具体任务。模型决定任务策略，运行时负责维持协作、反馈和连续性。
-- **共享应用与持续演化的产物。** CLI、搜索、文件和 MCP 可连接文档编辑器、演示文稿、CAD 与 Blender。人和智能体可以共同处理同一份文档、模型或场景；分层工作区、语义记忆和支持修订的候选变更，让人工审阅能够进入整合流程。
+- **自动化与持续演化的产物。** 智能体通过 CLI、搜索、文件和 MCP 完成任务；分层工作区、语义记忆和支持修订的候选变更保留审阅与整合流程。
 - **面向智能体研究的基础设施。** 同一套机制也支持 RSI 式模型后训练等需要持续监控的循环：分析失败、改进数据、运行训练、验证结果，并在保留状态和证据的情况下迭代。配套研究中，五轮实验将 Qwen3.6-35B-A3B 在八个基准上的平均分从 33.19 提升到 42.95。
 
-<p align="center">
-  <img src="docs/assets/readme-workspace.gif" alt="CoworkOS 工作台：人和智能体协作完成涡扇发动机 CAD 任务" width="100%">
-</p>
+## 从源码运行
 
-## 安装
-
-**macOS 桌面版**（Apple Silicon，macOS 14+）。需要 [Node.js ≥22.19.0](https://nodejs.org/en/download)：
+需要 Node.js ≥22.19.0。此剪枝版本使用本仓库源码运行：
 
 ```sh
-npx coworkos-app@latest desktop install
+npm ci
+npm run build
+npm run ui
+# Desktop: npm run desktop
+# CLI: npm run cli
 ```
-
-**仅安装 CLI**（macOS / Linux，Node.js ≥22.19.0）：
-
-```sh
-npm install -g coworkos-app
-```
-
-进入你的项目目录，配置模型并启动 CLI：
-
-```sh
-cd /path/to/your/project
-coworkos init
-coworkos doctor --test-connection
-coworkos
-```
-
-`coworkos init` 会引导填写模型服务地址、模型 ID 和 API Key；连接测试会发送模型请求并消耗额度。在 CoworkOS 中描述要完成的工作即可。退出后可在同一目录运行 `coworkos --continue` 继续最近的会话。详见 [CLI 快速开始](docs/cli-quickstart.md)。
 
 ## 文档与贡献
 

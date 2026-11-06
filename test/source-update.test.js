@@ -27,7 +27,7 @@ async function fixture(t, { name = "coworkos" } = {}) {
   await git(author, "config", "user.email", "fixture@example.invalid");
   await writeFile(
     join(author, ".gitignore"),
-    ".tmp/\nnode_modules/\ndist/\nbuild/\n/config.json\n/workspace/\n/src/software/cad/*.generated.ts\n/web/assets/cad/generated/\n/web/assets/pptist/generated/\n"
+    ".tmp/\nnode_modules/\ndist/\nbuild/\n/config.json\n/workspace/\n/src/software/cad/*.generated.ts\n/web/assets/math/generated/\n/web/assets/pptist/generated/\n"
   );
   await writeFile(join(author, "tsconfig.json"), "{}\n");
   await writeFile(
@@ -76,8 +76,8 @@ if (args[0] === 'ci') {
   await mkdir('src/software/cad', {recursive:true});
   await writeFile('src/software/cad/runtime-source.generated.ts', 'generated\\n');
   if (args[1] === 'build') {
-    await mkdir('web/assets/cad/generated', {recursive:true});
-    await writeFile('web/assets/cad/generated/bundle.js', 'new browser bundle\\n');
+    await mkdir('web/assets/math/generated', {recursive:true});
+    await writeFile('web/assets/math/generated/bundle.js', 'new browser bundle\\n');
   }
   if (process.env.FIXTURE_LIVE_ROOT) await writeFile(join(process.env.FIXTURE_LIVE_ROOT,'notes.md'),'concurrent edit\\n');
 }
@@ -189,7 +189,7 @@ test("desktop update installs changed locked dependencies and publishes its brow
   assert.equal(result.needsRelaunch, true);
   assert.equal(await readFile(join(f.root, "node_modules/dependency.txt"), "utf8"), "new dependencies\n");
   assert.equal(
-    await readFile(join(f.root, "web/assets/cad/generated/bundle.js"), "utf8"),
+    await readFile(join(f.root, "web/assets/math/generated/bundle.js"), "utf8"),
     "new browser bundle\n"
   );
 });
@@ -216,7 +216,7 @@ test("a CLI-only source update makes the App rebuild the same commit before repo
   assert.equal(merges, 0);
   assert.equal(await f.git(f.root, "rev-parse", "HEAD"), next);
   assert.equal(
-    await readFile(join(f.root, "web/assets/cad/generated/bundle.js"), "utf8"),
+    await readFile(join(f.root, "web/assets/math/generated/bundle.js"), "utf8"),
     "new browser bundle\n"
   );
   assert.equal((await checkSourceUpdate({ ...f.options, target: "desktop" })).available, false);
@@ -227,8 +227,8 @@ test("failed same-commit App rebuild preserves its prior outputs and pending bui
   const f = await fixture(t);
   const next = await f.publish();
   await updateSource(f.options);
-  await mkdir(join(f.root, "web/assets/cad/generated"), { recursive: true });
-  await writeFile(join(f.root, "web/assets/cad/generated/bundle.js"), "old browser bundle\n");
+  await mkdir(join(f.root, "web/assets/math/generated"), { recursive: true });
+  await writeFile(join(f.root, "web/assets/math/generated/bundle.js"), "old browser bundle\n");
   await assert.rejects(
     updateSource({ ...f.options, target: "desktop", env: { ...environment, FIXTURE_NPM_FAIL: "run" } }),
     { code: "UPDATE_BUILD_FAILED" }
@@ -236,7 +236,7 @@ test("failed same-commit App rebuild preserves its prior outputs and pending bui
   assert.equal(await f.git(f.root, "rev-parse", "HEAD"), next);
   assert.equal(await readFile(join(f.root, "dist/src/runtime/config.js"), "utf8"), "new source\n");
   assert.equal(
-    await readFile(join(f.root, "web/assets/cad/generated/bundle.js"), "utf8"),
+    await readFile(join(f.root, "web/assets/math/generated/bundle.js"), "utf8"),
     "old browser bundle\n"
   );
   assert.equal((await readFile(join(f.root, ".git/atria-cli-build-commit"), "utf8")).trim(), next);

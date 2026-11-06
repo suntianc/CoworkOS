@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { once } from "node:events";
@@ -7,8 +8,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
-import { mainInputPath, saveMainInput } from "../dist/src/runtime/main-continuation.js";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { mainInputPath, saveMainInput } = await import("../dist/src/runtime/main-continuation.js");
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 
 const shellQuote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
 

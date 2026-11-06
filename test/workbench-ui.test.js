@@ -2,11 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseHTML } from "linkedom";
 import { buildTabs, renderTabStrip } from "../web/assets/workbench/host.js";
-import {
-  minimalReplace,
-  operationId,
-  shouldKeepDraft
-} from "../web/assets/workbench/adapters/text-editor.js";
 import { appsPanelModel, renderAppsPanel } from "../web/assets/workbench/apps-panel.js";
 import { bindingModel, renderBindingMenu, UNBOUND } from "../web/assets/workbench/binding.js";
 
@@ -262,52 +257,6 @@ test("tab titles and task labels from the server are escaped", () => {
   assert.equal(markup.includes("<button"), false);
 });
 
-test("a debounced burst of typing becomes one minimal replacement", () => {
-  // The user typed " 产品" in the middle; only that span should be sent.
-  const patch = minimalReplace("目标用户是谁\n", "目标用户是产品经理\n");
-  assert.deepEqual(patch, { from: 5, to: 6, text: "产品经理" });
-
-  assert.equal(minimalReplace("same", "same"), null, "an unchanged document sends nothing");
-  assert.deepEqual(minimalReplace("", "新内容"), { from: 0, to: 0, text: "新内容" });
-  assert.deepEqual(minimalReplace("删掉我", ""), { from: 0, to: 3, text: "" });
-});
-
-test("minimal replacement offsets are UTF-16 units, matching the runtime adapter", () => {
-  const before = "你好🙂世界";
-  const after = "你好🙂新世界";
-  const patch = minimalReplace(before, after);
-  // The emoji occupies indices 2-3, so the insertion point is 4, not 3.
-  assert.equal(patch.from, 4);
-  assert.equal(before.slice(0, patch.from) + patch.text + before.slice(patch.to), after);
-
-  for (const [a, b] of [
-    ["🙂🙂", "🙂"],
-    ["行一\n行二\n", "行一\n改过的行二\n"],
-    ["abc", "axc"]
-  ]) {
-    const result = minimalReplace(a, b);
-    assert.equal(
-      a.slice(0, result.from) + result.text + a.slice(result.to),
-      b,
-      `patch must reconstruct ${JSON.stringify(b)}`
-    );
-  }
-});
-
-test("a replacement that only appends does not resend the untouched prefix", () => {
-  const long = "很长的文档内容".repeat(500);
-  const patch = minimalReplace(long, `${long}尾部`);
-  assert.equal(patch.text, "尾部");
-  assert.equal(patch.from, long.length);
-  assert.equal(patch.to, long.length);
-});
-
-test("operation ids are unique and safe as a single path segment", () => {
-  const ids = new Set(Array.from({ length: 200 }, () => operationId()));
-  assert.equal(ids.size, 200);
-  for (const id of ids) assert.match(id, /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/);
-});
-
 test("the apps panel lists applications from the server rather than a hard-coded set", () => {
   const model = appsPanelModel({
     applications: [
@@ -400,16 +349,11 @@ test("compatibility apps leave the launcher while their documents stay reachable
   const legacy = document.querySelector('[data-open-resource="legacy"]');
   assert.equal(legacy.getAttribute("data-resource-access"), "old-task");
   assert.equal(legacy.textContent.trim(), "旧场景");
-  assert.equal(legacy.querySelector("use").getAttribute("href"), "#i-blender");
+  assert.equal(legacy.querySelector("use").getAttribute("href"), "#i-file");
 });
 
-test("each app uses one decorative glyph in its launcher, files and both tab states", () => {
-  for (const [appType, glyph] of [
-    ["text-editor", "i-text"],
-    ["pptist", "i-slides"],
-    ["cad", "i-cad"],
-    ["blender", "i-blender"]
-  ]) {
+test("custom apps use generic file glyphs and distinguish empty application tabs", () => {
+  for (const [appType, glyph] of [["custom-editor", "i-file"]]) {
     const model = appsPanelModel({
       applications: [
         { appType, displayName: appType, resourceKinds: ["application/test"], capabilities: ["edit"] }
@@ -437,7 +381,10 @@ test("each app uses one decorative glyph in its launcher, files and both tab sta
     const rendered = [...strip.querySelectorAll("[role=tab]")];
     assert.equal(rendered.length, 2);
     for (const tab of rendered) {
-      assert.equal(tab.querySelector(".tab-icon use").getAttribute("href"), `#${glyph}`);
+      assert.equal(
+        tab.querySelector(".tab-icon use").getAttribute("href"),
+        tab.getAttribute("data-tab-kind") === "application" ? "#i-apps" : "#i-file"
+      );
       assert.ok(tab.getAttribute("aria-label"));
     }
   }
@@ -502,7 +449,7 @@ test("the binding control names the bound application and offers detaching", () 
     ["产品方案.md", "会议记录.md", "不加载应用"]
   );
   const selected = document.querySelector('[data-bind-instance="app_2"]');
-  assert.equal(selected.querySelector(".binding-option-icon use").getAttribute("href"), "#i-text");
+  assert.equal(selected.querySelector(".binding-option-icon use").getAttribute("href"), "#i-file");
   assert.equal(selected.querySelector(".model-option-check use").getAttribute("href"), "#i-check");
   assert.equal(selected.getAttribute("aria-description"), "文本编辑器");
   assert.doesNotMatch(markup, /本轮对话加载|<small/);
@@ -574,31 +521,6 @@ test("binding menu titles from the server are escaped", () => {
   for (const value of [...markup.matchAll(/"([^"]*)"/g)].map((entry) => entry[1])) {
     assert.equal(value.includes("<"), false, `attribute must not contain a raw <: ${value}`);
   }
-});
-
-test("a first load adopts the server's content instead of treating it as a conflict", () => {
-  // The bug this pins: asking "is there a draft?" after the baseline has been
-  // replaced compares the empty initial draft with the content just loaded,
-  // concludes the user has unsaved work, leaves the textarea unapplied, and
-  // the next autosave diffs into "delete the whole document".
-  assert.equal(
-    shouldKeepDraft({ loaded: false, draftContent: "", serverContent: "用户之前写的内容" }),
-    false
-  );
-  // And the save path would have produced exactly that deletion.
-  assert.deepEqual(minimalReplace("用户之前写的内容", ""), { from: 0, to: 8, text: "" });
-});
-
-test("a real draft survives a reload, and an explicit discard drops it", () => {
-  const withDraft = { loaded: true, draftContent: "我正在输入的内容", serverContent: "服务端的内容" };
-  assert.equal(shouldKeepDraft(withDraft), true, "unsent typing must not be thrown away by a refresh");
-  assert.equal(shouldKeepDraft({ ...withDraft, discardDraft: true }), false, "the user chose to reload");
-  // Nothing typed since the last save: the reload is free to apply the server's
-  // version, which is how an Agent edit reaches the screen.
-  assert.equal(
-    shouldKeepDraft({ loaded: true, draftContent: "一样的内容", serverContent: "一样的内容" }),
-    false
-  );
 });
 
 test("a window opened on its own remains selectable beside existing documents", () => {

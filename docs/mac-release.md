@@ -17,26 +17,13 @@ npm run desktop:pack
 npm run test:desktop
 npm run desktop:dist
 # 如需验收内部基础包，单独制作；不替代默认小包的验收。
-npm run test:desktop:base
+npm run test:desktop
 ```
 
 `desktop:pack` 生成 `.tmp/release/mac-arm64/CoworkOS.app`；`desktop:dist` 使用系统 hdiutil 创建、校验 `release/CoworkOS-<version>-mac-arm64.dmg` 并写入 SHA-256。没有 Developer ID 证书时使用 ad-hoc 签名并严格验证 App，仅生成 DMG；签名条件满足后才生成更新 ZIP/feed。以脚本实际输出为准；本地构建不会上传或发布。构建 App 放在隐藏的 `.tmp` 下，避免成为 Spotlight/Launchpad 中重复的安装项。
 
-`npm run test:desktop` 调用的 [通用打包 smoke](../scripts/desktop-smoke.mjs) 读取候选 App 的包元数据决定验收范围。默认小包验证宿主、TXT/PPT 新建编辑保存、PPT 重启恢复、JSCAD、Pi 与本地模型、草稿、退出/恢复及搬移升级；仅在测试自己的隔离数据目录中预先停用 CAD/Blender，避免重复下载大型组件，并明确输出这两项原生检查的 `SKIPPED`。
+`npm run test:desktop` 验证宿主、TXT 新建编辑保存、Pi 与本地模型、草稿、退出/恢复及搬移升级。组件安装与领域编辑器已移除。
 
-完整包继续执行内置 CadQuery/BRep/STEP 与 Blender 工程的原生分支。通用宿主 smoke 通过不能记作小包原生 CAD/Blender 已通过。
-
-默认小包还需执行启动准备专项，使用隔离本地 HTTP 组件和模型验证下载中的宿主可用性、进度、后端重启及退出取消/清理：
-
-```sh
-ATRIA_PUBLIC_COMPONENTS_SMOKE=1 ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app npx playwright test e2e/public-components-desktop.spec.js --workers=1 --output .tmp/public-components-desktop
-```
-
-该专项不证明真实公开下载或原生内核可用。另用无凭据的新组件目录完成 GitHub 冷安装，实际生成 CAD STEP 和 Blender GLB，并核对重启/兼容宿主版本复用；按下面的组件发行流程分别记录结果。
-
-默认 App 保留 PPTist 编辑器，不内嵌 CadQuery/Python 与 Blender。`desktop:pack` / `desktop:dist` 构建小包，首次启动后台从固定的公开组件 Release 下载并校验这两项运行时；用户不需要账号、token、Python 或 uv。下载期间普通会话可继续，设置中查看进度、诊断和重试。兼容受管组件跨 App 更新复用。
-
-显式 `desktop:pack:full` / `desktop:dist:full` 先准备全部资源并生成离线完整包；`:base` 排除 CAD、Blender、PPTist 且不自动下载，仅供内部缺失组件测试。各自边界见 [CAD](cad-integration.md)、[Blender](blender-integration.md) 和 [应用与组件](optional-components.md)。小包自动下载、完整包离线执行必须分别验收，旧包结果不能替代本次发行。
 Pi 扩展与子进程使用真实文件路径，打包关闭 asar。白名单排除测试、私有配置、工作空间、浏览器产出和开发依赖；发布者仍需审查最终包内容、权限与校验值。不能仅依赖 `.gitignore` 排除密钥。
 
 ## 版本 tag 与 Release 草稿
@@ -48,7 +35,7 @@ npm ci
 npm run release:local -- v0.1.3
 ```
 
-完整本地回归应在建立 tag 前完成。该命令校验 tag、版本和干净工作区，构建 DMG、组件、CLI 与两个 npm 包，生成发行清单和校验文件，并上传 GitHub Release 草稿及 npm 包候选。它会停在可审查的草稿，不会发布 npm 或公开 Release。检查草稿资产后，在 Actions 手动运行 Publish npm packages 并输入同一 tag；npm Environment 的 Required reviewers 仍会照常生效。npm 验证通过后，再手动发布 GitHub Release。tag 推送本身不会触发云端 Mac 重建。默认测试版使用 ad-hoc 签名、未公证；预发布版本自动标记 Pre-release。
+完整本地回归应在建立 tag 前完成。该命令校验 tag、版本和干净工作区，构建 DMG、CLI 与两个 npm 包，生成发行清单和校验文件，并上传 GitHub Release 草稿及 npm 包候选。它会停在可审查的草稿，不会发布 npm 或公开 Release。检查草稿资产后，在 Actions 手动运行 Publish npm packages 并输入同一 tag；npm Environment 的 Required reviewers 仍会照常生效。npm 验证通过后，再手动发布 GitHub Release。tag 推送本身不会触发云端 Mac 重建。默认测试版使用 ad-hoc 签名、未公证；预发布版本自动标记 Pre-release。
 
 [Release Mac 工作流](../.github/workflows/release-mac.yml)保留为手动云端备用流程。它从选定 tag 在 macOS 15 arm64 上重新构建候选，适合本地构建机不可用时使用；手动运行会消耗 macOS Actions 分钟。
 
@@ -75,28 +62,6 @@ git push origin v0.1.2-beta.7
 
 主分支保存最新通过评审的集成代码，用户版本以 tag/Release 为准；反馈与发行清单命令见 [版本管理](beta-release-process.md)。版本守卫见 [release-metadata](../scripts/release-metadata.mjs)，本地回归为 `test/release-metadata.test.js`。
 
-## 公开组件发行
-
-大组件与 App 分开发布。组件放在公开的 [Atria-Components](https://github.com/ignorejjj/Atria-Components/releases)；当前源码仓库公开，App 候选放在 GitHub Release 草稿并由 npm 提供安装/更新。旧客户端的 Atria-Releases 发布流程仅在需要兼容时单独运行；安装后的组件下载匿名访问独立公开 Release。
-
-当前组件协议 v1 固定 `components-v1` tag，清单使用 `hostVersion: "*"` 允许协议兼容的 App 复用。版本清单、归档、大小和 SHA-256 共同绑定发行；不读取任意最新版。更换运行时需发布新 tag 并更新程序内固定来源，不覆盖已发布附件或移动 tag。
-
-在 Apple Silicon 构建机执行：
-
-```sh
-npm run components:pack:public
-node scripts/prepare-component-sources.mjs
-ATRIA_COMPONENT_SOURCES_DIR=.tmp/component-sources npm run components:publish
-```
-
-源码准备只在维护者构建机运行，需要网络、`gh` 和 `curl`，不进入用户安装流程。`SOURCE_MANIFEST.json` 列出随 Release 提供的源码/许可材料和每个文件的 `file`、`sha256`、`bytes`、上游来源。Blender 提供固定版本源码与 4.5 系列依赖源码；CAD 提供 OCCT、OCP、CasADi 和相关依赖源码/构建规则，保留原始版权与许可。详见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
-
-发布工具先校验全部本地组件及源码材料，上传草稿后发布到独立公开仓库；已发布版本拒绝覆盖。
-
-维护者本地使用现有 GitHub 授权；Actions 跨仓库发布需在产品源码仓库设置仅能写组件仓库的 `COMPONENTS_RELEASE_TOKEN` secret。不得把发布 token 编入 App、清单或日志，普通用户无需凭据。
-
-发布后使用无凭据的新组件目录验收真实清单与下载、校验、安装及二次启动复用；完整组件下载可能耗时，记录实际结果。一次真实下载通过不代表不同网络可达性、干净机器、签名或公证通过。
-
 ## 应用内更新与发布产物
 
 “设置 → 更新”供开发 App 和已安装 App 检查与执行更新。启动时只检查一次；下载/应用需要用户主动点击，运行中的任务与未保存草稿先按桌面宿主门槛处理。源码开发 App 跟随 Git upstream，独立准备完整构建并重启；脏检出/分叉会拒绝，详见 [源码更新](development.md#更新源码检出)。
@@ -118,7 +83,7 @@ ATRIA_COMPONENT_SOURCES_DIR=.tmp/component-sources npm run components:publish
 
 首次启用前，在 npm 的两个包设置中分别配置 Trusted Publisher：仓库填写 `RUC-NLPIR/CoworkOS`，工作流填写 `publish-npm.yml`，Environment 填写 `npm-publish`。GitHub Actions 使用 OIDC，不把 npm token 放进仓库。可在 GitHub 的 `npm-publish` Environment 设置 Required reviewers，发布前由维护者批准；npm 版本一旦发布不可覆盖。
 
-发布顺序为：先完成本地回归，再推送与 `package.json` 完全一致的 `vX.Y.Z` tag；在该 tag 的干净检出运行 `npm ci` 和 `npm run release:local -- vX.Y.Z`。审查草稿中的 Mac、CLI、组件及 npm 候选资产，然后手动运行 Publish npm packages。保留 npm Trusted Publishing Environment 的 Required reviewers；核对 npm 发布成功后，再手动发布 GitHub Release。公开分发 Release 与更新指针若本版本需要，也按下文步骤单独验收和发布。版本一旦发布不可覆盖；下一个公开版本须递增。
+发布顺序为：先完成本地回归，再推送与 `package.json` 完全一致的 `vX.Y.Z` tag；在该 tag 的干净检出运行 `npm ci` 和 `npm run release:local -- vX.Y.Z`。审查草稿中的 Mac、CLI 及 npm 候选资产，然后手动运行 Publish npm packages。保留 npm Trusted Publishing Environment 的 Required reviewers；核对 npm 发布成功后，再手动发布 GitHub Release。公开分发 Release 与更新指针若本版本需要，也按下文步骤单独验收和发布。版本一旦发布不可覆盖；下一个公开版本须递增。
 
 npm 接收上传后可能仍需处理，匿名查询会暂时返回 404。发布 workflow 会重试查询并核对两个包的 SHA-512 与候选一致；若处理仍未完成，从 `main` 运行同一 workflow，填相同 tag 并勾选 `verify_only`，只验证已接收的包，不再次发布。`verify_only` 可读取草稿或已公开 Release 的固定附件，继续核对 tag 提交、候选包校验值和 npm SHA-512；普通发布仍要求草稿。历史失败运行的红叉会保留，应查看后续验证运行的结果。
 
@@ -182,20 +147,20 @@ Mac 钥匙串重试进程沿用主 Electron 可执行文件，保留完整 Chrom
 
 按 [本地测试指南](testing-local-run.md) 保存当前版本的独立结果，并审查 skip 与待人工项：
 
-| 范围       | 必须核对                                                                                                                     |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 源码与协议 | 构建、静态/类型/格式、文档与源码卫生门槛、Node 回归、浏览器回归                                                              |
-| 候选 App   | `npm run test:desktop` 按包元数据验证宿主、文档、退出/重启和搬移升级；小包明确 skip 原生 CAD/Blender，完整包执行内置原生分支 |
-| 原生能力   | 小包另验启动准备专项和真实组件冷安装；完整包验内置 CAD/Blender，Computer Use 按系统权限单独验收，分别记录实际运行或 skip     |
-| 最终 DMG   | 校验 SHA-256，在无开发环境的另一台 Mac 安装；验证首次启动、模型连接、失败恢复、数据备份和升级                                |
-| 实际模型   | 显式配置自己的 endpoint 与预算，验证请求和代表性任务；本地协议夹具不证明模型质量                                             |
-| 分发       | 核对版本/tag/产物、公开静态更新源与单一当前版本、支持平台、签名/公证、已知限制及许可证                                       |
+| 范围       | 必须核对                                                                                           |
+| ---------- | -------------------------------------------------------------------------------------------------- |
+| 源码与协议 | 构建、静态/类型/格式、文档与源码卫生门槛、Node 回归、浏览器回归                                    |
+| 候选 App   | `npm run test:desktop` 按包元数据验证宿主、文档、退出/重启和搬移升级；覆盖文本工作台与保留的运行时 |
+| 原生能力   | Computer Use 按系统权限单独验收，分别记录实际运行或 skip                                           |
+| 最终 DMG   | 校验 SHA-256，在无开发环境的另一台 Mac 安装；验证首次启动、模型连接、失败恢复、数据备份和升级      |
+| 实际模型   | 显式配置自己的 endpoint 与预算，验证请求和代表性任务；本地协议夹具不证明模型质量                   |
+| 分发       | 核对版本/tag/产物、公开静态更新源与单一当前版本、支持平台、签名/公证、已知限制及许可证             |
 
 `scripts/desktop-smoke.mjs` 使用临时用户目录和本地模型协议服务，不使用真实凭据。源码或打包测试通过不能替代最终 DMG、干净机器、真实模型与人工体验验收。记录系统、芯片、版本、包校验值和当前结果，不复用历史通过计数。
 
 ## 许可证与 CLI 候选
 
-自有代码使用 [MIT](../LICENSE)，第三方保留各自许可证，见 [第三方声明](../THIRD_PARTY_NOTICES.md)。CLI/App 白名单包含这些文件。PPTist 使用 AGPL-3.0，完整构建生成对应 `LICENSE.txt` 和 `source.tar.gz`，随 Web/App 提供；CLI tgz 不包含浏览器编辑器。发布时检查最终包的版权和实际对应源码，MIT 标识不替代第三方义务。
+自有代码使用 [MIT](../LICENSE)，第三方保留各自许可证，见 [第三方声明](../THIRD_PARTY_NOTICES.md)。CLI/App 白名单包含这些文件。发布时检查最终包的版权和实际对应源码，MIT 标识不替代第三方义务。
 
 CLI 可使用隔离输出目录：
 
@@ -204,5 +169,3 @@ ATRIA_PACKAGE_DIR="$PWD/.tmp/cli-candidate" npm run cli:pack
 ```
 
 默认输出为 `release/`。CLI 包携带锁定的可移植生产依赖、许可证及生产 `npm-shrinkwrap.json`。esbuild 恢复校验过的精确版本原始 JavaScript 安装器，安装时获取适合用户系统的精确版本二进制并验证 SHA-256；不复制构建机的原生二进制。因此安装需要网络和安装脚本，不支持 `--ignore-scripts`。流程修改需运行 `test/cli-packaging.test.js`，再隔离安装真实候选，核对 CLI、Pi 扩展和依赖版本。
-
-组件资源、独立发行清单、默认小包、离线完整包与内部基础入口及验收见 [应用与组件](optional-components.md)。

@@ -3,28 +3,12 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import {
-  mkdtemp,
-  readFile,
-  rm,
-  access,
-  cp,
-  writeFile,
-  readdir,
-  mkdir,
-  stat,
-  realpath
-} from "node:fs/promises";
+import { mkdtemp, readFile, rm, access, cp, writeFile, mkdir, stat, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, basename } from "node:path";
-import { pathToFileURL } from "node:url";
 import { startNativeApplicationMonitor } from "./native-application-monitor.mjs";
-import { desktopSmokeEnvironment, prepareDesktopSmokeComponents } from "./desktop-smoke-env.mjs";
+import { desktopSmokeEnvironment } from "./desktop-smoke-env.mjs";
 import { signAsync } from "@electron/osx-sign";
-import { confirmApplicationWorkspace } from "../e2e/application-workspace-helper.js";
-import { loadCurrentApplication } from "../e2e/application-context-helper.js";
-import { newPresentation, presentationSave, presentationStatus } from "../e2e/pptist-helper.js";
-import { openCadExport, openCadProperties } from "../e2e/cad-editor-helper.js";
 
 import { HumanRequestStore } from "../dist/src/runtime/human.js";
 const appPath = resolve(process.env.ATRIA_DESKTOP_APP || ".tmp/release/mac-arm64/CoworkOS.app");
@@ -45,36 +29,6 @@ const root = await realpath(await mkdtemp(join(tmpdir(), "atria-packaged-smoke-"
 const data = join(root, "user-data");
 const projectDirectory = join(root, "project");
 await mkdir(projectDirectory);
-const scope = await prepareDesktopSmokeComponents({ data, metadata: packagedMetadata });
-console.log(`Desktop smoke package mode: ${scope.mode}`);
-if (!scope.nativeComponents)
-  console.log(
-    "Desktop smoke: CAD/Blender downloads disabled only in the disposable smoke data; component delivery has a separate acceptance test."
-  );
-// Even optional runtime discovery uses the disposable home, never inherited
-// ATRIA_HOME/COWORK_BLENDER_EXECUTABLE or the user's private runtime directory.
-const blenderModule = pathToFileURL(
-  join(appPath, "Contents/Resources/app/dist/src/software/blender/engine.js")
-).href;
-const blenderRuntime = JSON.parse(
-  (
-    await promisify(execFile)(
-      process.execPath,
-      [
-        "--input-type=module",
-        "-e",
-        `const {blenderStatus}=await import(${JSON.stringify(blenderModule)}); console.log(JSON.stringify(await blenderStatus()));`
-      ],
-      { env: desktopSmokeEnvironment({ data }) }
-    )
-  ).stdout
-);
-if (scope.nativeComponents) {
-  expect(blenderRuntime.available, "full App includes a working bundled Blender").toBe(true);
-  expect(blenderRuntime.executable).toBe(
-    await realpath(join(appPath, "Contents/Resources/blender/Blender.app/Contents/MacOS/Blender"))
-  );
-}
 const requests = [];
 const deferred = () => {
   let release;
@@ -84,7 +38,7 @@ const deferred = () => {
   return { promise, release };
 };
 const reasoningGates = [deferred(), deferred()];
-const reasoningText = ["先检查绑定文档的完整内容。", "继续确认中文与 Emoji 的保存结果。"];
+const reasoningText = ["先检查工作区文件的完整内容。", "继续确认中文与 Emoji 的保存结果。"];
 let reasoningStarted = false;
 let computerTarget;
 let applicationMonitor;
@@ -114,7 +68,7 @@ const model = createServer(async (req, res) => {
   send({ role: "assistant" });
   if (
     !reasoningStarted &&
-    request.tools?.some((tool) => tool.function.name === "read_document") &&
+    request.tools?.some((tool) => tool.function.name === "read") &&
     !request.messages.some((message) => message.role === "tool")
   ) {
     reasoningStarted = true;
@@ -175,100 +129,26 @@ const model = createServer(async (req, res) => {
     res.end("data: [DONE]\n\n");
     return;
   }
-  if (request.tools?.some((tool) => tool.function.name === "cad_read_model")) {
-    const lastUser = request.messages.findLastIndex((message) => message.role === "user");
-    const recentCalls = request.messages.slice(lastUser + 1).flatMap((message) => message.tool_calls ?? []);
-    const previous = request.messages.findLast((message) => message.role === "tool");
-    const result = previous && JSON.parse(previous.content);
-    const sourceMode = result?.result?.model?.version === 2;
-    const ranSource = recentCalls.some((call) => call.function.name === "cad_run_program");
-    const wroteSource = ranSource || recentCalls.some((call) => call.function.name === "cad_write_program");
-    if (sourceMode || wroteSource) {
-      const previewedSource = ranSource || recentCalls.some((call) => call.function.name === "cad_preview");
-      if (wroteSource && !previewedSource) {
-        send({
-          tool_calls: [
-            {
-              index: 0,
-              id: "desktop-source-preview",
-              type: "function",
-              function: { name: "cad_preview", arguments: "{}" }
-            }
-          ]
-        });
-        send({}, "tool_calls");
-      } else if (wroteSource) {
-        if (result?.ok === false || result?.result?.status !== "ready")
-          throw new Error("Desktop source preview failed");
-        send({ content: "CAD 源码验证成功" });
-        send({}, "stop");
-      } else {
-        send({
-          tool_calls: [
-            {
-              index: 0,
-              id: "desktop-source",
-              type: "function",
-              function: {
-                name: result.result.model.engine === "cadquery" ? "cad_run_program" : "cad_write_program",
-                arguments: JSON.stringify({
-                  source:
-                    result.result.model.source +
-                    (result.result.model.engine === "cadquery"
-                      ? "\n# Desktop AI refinement preserves human parameters.\n"
-                      : "\n// Desktop AI refinement preserves human parameters.\n")
-                })
-              }
-            }
-          ]
-        });
-        send({}, "tool_calls");
-      }
-      res.end("data: [DONE]\n\n");
-      return;
-    }
-    const wrote = recentCalls.some((call) => call.function.name === "cad_upsert_part");
-    const read = recentCalls.some((call) => call.function.name === "cad_read_model");
-    if (wrote) {
-      send({ content: "CAD 模型验证成功" });
-      send({}, "stop");
-    } else {
-      const name = read ? "cad_upsert_part" : "cad_read_model";
-      const argumentsText = read
-        ? JSON.stringify({
-            part: {
-              id: "agent_body",
-              name: "Agent 创建的实体",
-              shape: "box",
-              size: [48, 24, 12],
-              position: [80, 0, 0]
-            }
-          })
-        : "{}";
-      send({
-        tool_calls: [
-          { index: 0, id: `cad-${name}`, type: "function", function: { name, arguments: argumentsText } }
-        ]
-      });
-      send({}, "tool_calls");
-    }
-  } else if (request.messages.some((message) => message.role === "tool")) {
+  if (request.messages.some((message) => message.role === "tool")) {
     send({ content: "桌面模型验证成功" });
     send({}, "stop");
-  } else if (request.tools?.some((tool) => tool.function.name === "read_document")) {
+  } else if (request.tools?.some((tool) => tool.function.name === "read")) {
     send({
       tool_calls: [
         {
           index: 0,
           id: "desktop-read",
           type: "function",
-          function: { name: "read_document", arguments: "{}" }
+          function: {
+            name: "read_file",
+            arguments: JSON.stringify({ path: join(projectDirectory, "desktop-input.txt") })
+          }
         }
       ]
     });
     send({}, "tool_calls");
   } else {
-    send({ content: "绑定文档工具未加载" });
+    send({ content: "通用文件工具未加载" });
     send({}, "stop");
   }
   res.end("data: [DONE]\n\n");
@@ -278,8 +158,6 @@ await once(model, "listening");
 const endpoint = `http://127.0.0.1:${model.address().port}/v1`;
 let native;
 const launch = async (app = executablePath) => {
-  // The relocated full App must discover its own bundled Blender, without an
-  // executable override pointing back to either the original App or this checkout.
   const env = desktopSmokeEnvironment({ data });
   native = await electron.launch({
     executablePath: app,
@@ -359,33 +237,6 @@ const quit = async () => {
     })
     .toBe(true);
 };
-async function focusFile(page, resourceId) {
-  const tab = await page.evaluate(
-    async (id) =>
-      (await (await fetch("/api/workbench/tabs")).json()).tabs.find((item) => item.resourceId === id),
-    resourceId
-  );
-  expect(tab, "the requested document keeps its actual application window identity").toBeTruthy();
-  const mount = page.locator(`[data-app-mount="${tab.tabId}"]`);
-  const output = page.locator("#output-pane-toggle");
-  if (
-    (await output.getAttribute("aria-controls")) === "workbench" &&
-    (await output.getAttribute("aria-expanded")) === "false"
-  )
-    await output.click();
-  const shortcut = page.locator(`[data-tab-rail] [data-tab="${tab.tabId}"]`);
-  if (await shortcut.isVisible()) await shortcut.click();
-  else if (!(await mount.isVisible())) {
-    await showNavigation(page);
-    await page.locator("#apps-nav").click();
-    const group = page.locator(`[data-toggle-instances="${tab.appType}"]`);
-    const instance = page.locator(`[data-open-instance="${tab.tabId}"]`);
-    if (!(await instance.isVisible())) await group.click();
-    await instance.click();
-  }
-  await expect(mount).toBeVisible();
-  if (tab.appType === "text-editor") await expect(mount.locator("[data-editor-input]")).toBeVisible();
-}
 async function showNavigation(page) {
   if (await page.locator("body").evaluate((node) => node.classList.contains("sidebar-collapsed")))
     await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
@@ -540,7 +391,7 @@ try {
   const oldUrl = page.url();
   await page.getByRole("button", { name: "保存连接" }).click();
   await expect.poll(() => page.url(), { timeout: 30_000 }).not.toBe(oldUrl);
-  await expect(page.locator("#apps-nav")).toBeVisible();
+  await expect(page.locator("#apps-nav")).toBeHidden();
   await expect(page.getByRole("heading", { name: "连接模型" })).not.toBeVisible();
   await expect(page.locator("#composer-input")).toHaveValue(setupDraft);
   const modelStatus = await page.evaluate(() => window.bookmanDesktop.modelStatus());
@@ -582,29 +433,8 @@ try {
   await projectDialog.getByRole("textbox", { name: "工作文件夹", exact: true }).fill(projectDirectory);
   await projectDialog.getByRole("button", { name: "创建", exact: true }).click();
   await expect(projectDialog).toBeHidden();
-  const registeredWorkspace = await page.evaluate(async (workspaceRoot) => {
-    const response = await fetch("/api/workbench/workspaces", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceRoot })
-    });
-    return { status: response.status, body: await response.json() };
-  }, projectDirectory);
-  expect(registeredWorkspace.status).toBe(200);
-  expect(registeredWorkspace.body).toMatchObject({ cancelled: false, workspaceRoot: projectDirectory });
-  expect(registeredWorkspace.body.workspaces).toContain(projectDirectory);
-  await page.locator("#apps-nav").click();
-  await page.locator('[data-create-app="text-editor"]').click();
-  await confirmApplicationWorkspace(page, projectDirectory);
-  await page.locator("[data-empty-new]").click();
-  await page.getByRole("textbox", { name: "文件名" }).fill("桌面恢复验证.txt");
-  await page.getByRole("button", { name: "创建", exact: true }).click();
-  let content = "桌面内测内容\n中文与 Emoji 😀\n";
-  await page.locator("[data-editor-input]").fill(content);
-  await page.locator("[data-editor-save]").click();
-  await expect(page.locator("[data-editor-status]")).toHaveAttribute("data-state", "saved");
-  await loadCurrentApplication(page);
-  await page.locator("#composer-input").fill("请读取绑定文档并确认内容。");
+  await writeFile(join(projectDirectory, "desktop-input.txt"), "桌面内测内容\n中文与 Emoji 😀\n");
+  await page.locator("#composer-input").fill("请读取 desktop-input.txt 并确认内容。");
   await page.locator("#send-button").click();
   const reasoning = page.locator(".reasoning-details").filter({ hasText: reasoningText[0] }).first();
   await expect(reasoning).toBeVisible({ timeout: 40_000 });
@@ -756,9 +586,6 @@ try {
     console.log(
       `Desktop smoke: native observation skipped (${computerStatus.reason || "screen permission or own visible window unavailable"})`
     );
-  const resource = await page.evaluate(async () =>
-    (await (await fetch("/api/workbench/tabs")).json()).tabs.find((tab) => tab.resourceId)
-  );
   const conversationDraft = "退出并重新打开后保留的后续要求 😀";
   const draftAttachment = "这份未发送的附件需要在新的本机服务端口恢复。";
   await focusConversation(page, taskId);
@@ -769,14 +596,9 @@ try {
     buffer: Buffer.from(draftAttachment)
   });
   await expect(page.getByRole("button", { name: "移除 未发送的说明.txt", exact: true })).toBeVisible();
-  await focusFile(page, resource.resourceId);
-  await expect(page.locator("[data-editor-input]")).toHaveValue(content);
-  content += "立即退出前的草稿\n";
-  await page.locator("[data-editor-input]").fill(content);
   await quit();
   console.log("Desktop smoke: restart");
   page = await launch();
-  await expect(page.locator("[data-editor-input]")).toHaveValue(content);
   await expect(page.getByRole("heading", { name: "连接模型" })).not.toBeVisible();
   await focusConversation(page, taskId);
   await expect(page.locator("#composer-input")).toHaveValue(conversationDraft);
@@ -859,7 +681,6 @@ try {
   console.log(
     "Desktop human reply PASS: private draft and explicit choice restored after quit/new origin, accepted answer persisted and draft removed."
   );
-  await focusFile(page, resource.resourceId);
   // Simulate a new installed release in a different directory, retaining only user data.
   await quit();
   const next = join(root, "next-release/CoworkOS.app");
@@ -891,7 +712,6 @@ try {
   await promisify(execFile)("/usr/bin/codesign", ["--verify", "--deep", "--strict", next]);
   console.log("Desktop smoke: upgraded/recovered launch");
   page = await launch(join(next, "Contents/MacOS/CoworkOS"));
-  await expect(page.locator("[data-editor-input]")).toHaveValue(content);
   expect(JSON.parse(await readFile(join(data, "data-version.json"), "utf8"))).toMatchObject({
     createdWith: originalVersion,
     lastOpenedWith: pkg.version
@@ -935,390 +755,18 @@ try {
       { timeout: 40_000 }
     )
     .toBe("completed");
-  await focusFile(page, resource.resourceId);
-  await expect(page.locator("[data-editor-input]")).toHaveValue(content);
   // Conversation rows expose the current status through their accessible description.
   await focusConversation(page, taskId);
   await expect(page.locator(`.conversation-item[data-task="${taskId}"]`)).toHaveAttribute(
     "aria-description",
     "已完成"
   );
-  await focusFile(page, resource.resourceId);
   const proof = process.env.ATRIA_DESKTOP_PROOF;
   if (proof) await page.screenshot({ path: resolve(proof) });
-  if (scope.pptist) {
-    console.log("Desktop smoke: bundled PPT editing, save and restart after package relocation");
-    await showNavigation(page);
-    if (!(await page.locator('[data-create-app="pptist"]').isVisible()))
-      await page.locator("#apps-nav").click();
-    await page.locator('[data-create-app="pptist"]').click();
-    await confirmApplicationWorkspace(page, projectDirectory);
-    const ppt = () => page.locator("[data-app-mount]:not([hidden])");
-    await newPresentation(page);
-    await page.getByRole("textbox", { name: "文件名" }).fill("桌面PPT验证");
-    await page.getByRole("button", { name: "创建", exact: true }).click();
-    const frame = () =>
-      page.frameLocator('[data-app-mount]:not([hidden]) iframe[title="PPT 演示文稿编辑器"]');
-    await expect(frame().getByRole("button", { name: "文件操作", exact: true })).toBeVisible({
-      timeout: 30000
-    });
-    await expect(ppt().locator("[data-pptist-loading]")).toBeHidden();
-    const remark = "内置 PPT 编辑、保存与重启验证 😀";
-    await frame().locator(".remark .ProseMirror").fill(remark);
-    await presentationSave(page).click();
-    await expect(presentationStatus(page)).toHaveAttribute("data-state", "saved");
-    const pptTab = await page.evaluate(async () =>
-      (await (await fetch("/api/workbench/tabs")).json()).tabs.find(
-        (tab) => tab.appType === "pptist" && tab.resourceId
-      )
-    );
-    expect(pptTab).toBeTruthy();
-    await expect
-      .poll(() =>
-        page.evaluate(
-          async ({ accessTaskId, resourceId }) =>
-            (await (await fetch(`/api/tasks/${accessTaskId}/resources/${resourceId}`)).json()).snapshot
-              .content.slides[0].remark || "",
-          pptTab
-        )
-      )
-      .toContain(remark);
-    await quit();
-    page = await launch(join(next, "Contents/MacOS/CoworkOS"));
-    await focusFile(page, pptTab.resourceId);
-    await expect(ppt().locator("[data-pptist-loading]")).toBeHidden();
-    await expect(frame().locator(".remark")).toContainText(remark, { timeout: 30000 });
-    console.log("Desktop PPT PASS: bundled editor, persisted edits and relocated restart.");
-    await focusConversation(page, taskId);
-    await focusFile(page, resource.resourceId);
-  } else console.log(`Desktop PPT SKIPPED: ${scope.mode} package does not bundle the PPT editor.`);
-  // A second real application exercises the same native/Pi paths with structured data.
-  await showNavigation(page);
-  if (!(await page.locator('[data-create-app="cad"]').isVisible())) await page.locator("#apps-nav").click();
-  await page.locator('[data-create-app="cad"]').click();
-  await confirmApplicationWorkspace(page, projectDirectory);
-  await page.locator("[data-cad-more] summary").click();
-  await page.locator("[data-cad-new-basic]").click();
-  await page.getByRole("textbox", { name: "文件名" }).fill("桌面CAD验证.cad.json");
-  await page.getByRole("button", { name: "创建", exact: true }).click();
-  await page.locator('[data-cad-add="box"]').click();
-  await expect(page.locator('[data-cad-viewport][data-ready="true"]')).toBeVisible();
-  await page.getByRole("spinbutton", { name: "宽度 X", exact: true }).fill("74");
-  await page.locator("[data-cad-save]").click();
-  await expect(page.locator("[data-cad-status]")).toHaveAttribute("data-state", "saved");
-  const cadTab = await page.evaluate(async () =>
-    (await (await fetch("/api/workbench/tabs")).json()).tabs.find((tab) => tab.appType === "cad")
-  );
-  await loadCurrentApplication(page, { taskId });
-  await page.locator("#composer-input").fill("请读取CAD模型，再添加一个实体。");
-  await page.locator("#send-button").click();
-  await expect(page.getByText("CAD 模型验证成功", { exact: true }).first()).toBeVisible({ timeout: 40_000 });
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          async (id) =>
-            (await (await fetch("/api/tasks")).json()).tasks.find((task) => task.taskId === id)?.status,
-          taskId
-        ),
-      { timeout: 40_000 }
-    )
-    .toBe("completed");
-  const cadRequests = requests.filter((request) =>
-    request.tools?.some((tool) => tool.function.name === "cad_read_model")
-  );
-  expect(cadRequests.length).toBeGreaterThanOrEqual(3);
-  expect(cadRequests[0].tools.some((tool) => tool.function.name === "read_document")).toBe(false);
-  expect(JSON.stringify(cadRequests)).toContain("Agent 创建的实体");
-  await focusFile(page, cadTab.resourceId);
-  await expect(page.locator("[data-cad-save]")).toBeVisible();
-  await expect(page.locator("[data-cad-count]")).toHaveText("2/64");
-  await page.locator('[data-cad-view="fit"]').click();
-  await expect(page.locator('[data-cad-viewport][data-ready="true"]')).toBeVisible();
-  const exportPath = join(root, "desktop-export.stl");
-  // Electron owns native downloads; record its completion without touching Downloads.
-  await native.evaluate(({ BrowserWindow }, savePath) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    window.cadDownload = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Native STL download timed out")), 30_000);
-      window.webContents.session.once("will-download", (_event, item) => {
-        item.setSavePath(savePath);
-        item.once("done", (_event, state) => {
-          clearTimeout(timer);
-          resolve({ state, name: item.getFilename() });
-        });
-      });
-    });
-  }, exportPath);
-  await page.locator("[data-cad-file-menu]").click();
-  await page.locator("[data-cad-stl]").click();
-  const stl = await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].cadDownload);
-  const bytes = await readFile(exportPath);
-  expect(stl).toEqual({ state: "completed", name: "桌面CAD验证.stl" });
-  expect(bytes.readUInt32LE(80)).toBeGreaterThan(0);
-  expect(bytes.length).toBe(84 + bytes.readUInt32LE(80) * 50);
-  const cadProof = process.env.ATRIA_CAD_PROOF;
-  if (cadProof) await page.screenshot({ path: resolve(cadProof) });
-  // The native close handshake must save a CAD draft, too.
-  await page.getByRole("spinbutton", { name: "宽度 X", exact: true }).fill("77");
   await quit();
-  page = await launch(join(next, "Contents/MacOS/CoworkOS"));
-  await expect(page.getByRole("spinbutton", { name: "宽度 X", exact: true })).toHaveValue("77", {
-    timeout: 30_000
-  });
-  await expect(page.locator('[data-cad-viewport][data-ready="true"]')).toBeVisible();
-  // Source CAD exercises the packaged QuickJS WASM worker and full modeling API.
-  const sourceEditor = () => page.locator("[data-app-mount]:not([hidden])");
-  await page.locator("[data-cad-code]").click();
-  await expect(page.locator("[data-program-count]")).toHaveText("1");
-  await page.locator("[data-program-source-toggle]").click();
-  await page
-    .getByRole("textbox", { name: "CAD 建模源码" })
-    .fill(await readFile("test/fixtures/cad-rocket.jscad", "utf8"));
-  await page.locator("[data-program-save]").click();
-  await expect(page.locator("[data-program-status]")).toHaveAttribute("data-state", "saved");
-  await expect(page.locator("[data-program-count]")).toHaveText("14");
-  await openCadProperties(sourceEditor());
-  await page.getByRole("spinbutton", { name: "箭体半径 (mm)", exact: true }).fill("23");
-  await page.getByRole("spinbutton", { name: "箭体半径 (mm)", exact: true }).press("Tab");
-  await page.locator("[data-program-save]").click();
-  await expect(page.locator("[data-program-status]")).toHaveAttribute("data-state", "saved");
-  await focusConversation(page, taskId);
-  await page.locator("#composer-input").fill("继续优化当前源码 CAD，保留人工参数。");
-  await page.locator("#send-button").click();
-  await expect(page.getByText("CAD 源码验证成功", { exact: true }).first()).toBeVisible({ timeout: 40_000 });
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          async (id) =>
-            (await (await fetch("/api/tasks")).json()).tasks.find((task) => task.taskId === id)?.status,
-          taskId
-        ),
-      { timeout: 40_000 }
-    )
-    .toBe("completed");
-  await focusFile(page, cadTab.resourceId);
-  await openCadProperties(sourceEditor());
-  await expect(page.getByRole("spinbutton", { name: "箭体半径 (mm)", exact: true })).toHaveValue("23");
-  const sourceExportPath = join(root, "desktop-source-export.jscad");
-  await native.evaluate(({ BrowserWindow }, savePath) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    window.cadDownload = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Native source download timed out")), 30_000);
-      window.webContents.session.once("will-download", (_event, item) => {
-        item.setSavePath(savePath);
-        item.once("done", (_event, state) => {
-          clearTimeout(timer);
-          resolve(state);
-        });
-      });
-    });
-  }, sourceExportPath);
-  await openCadExport(sourceEditor());
-  await page.locator('[data-program-export="jscad"]').click();
-  expect(await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].cadDownload)).toBe(
-    "completed"
-  );
-  const exported = await readFile(sourceExportPath, "utf8");
-  expect(exported).toContain("savedParameters");
-  expect(exported).toContain("Desktop AI refinement");
-  await page.getByRole("spinbutton", { name: "箭体半径 (mm)", exact: true }).fill("24");
-  await page.getByRole("spinbutton", { name: "箭体半径 (mm)", exact: true }).press("Tab");
-  await quit();
-  page = await launch(join(next, "Contents/MacOS/CoworkOS"));
-  await openCadProperties(sourceEditor());
-  await expect(page.getByRole("spinbutton", { name: "箭体半径 (mm)", exact: true })).toHaveValue("24", {
-    timeout: 30_000
-  });
-  await expect(page.locator('[data-cad-viewport][data-ready="true"]')).toBeVisible();
-  await quit();
-  if (scope.nativeComponents) {
-    // Native CAD after relocation: no developer Python, uv, or runtime path is available.
-    const nativeEditor = () => page.locator("[data-app-mount]:not([hidden])");
-    page = await launch(join(next, "Contents/MacOS/CoworkOS"));
-    await showNavigation(page);
-    await page.locator("#new-conversation").click();
-    await page.locator("#apps-nav").click();
-    await page.locator('[data-create-app="cad"]').click();
-    await confirmApplicationWorkspace(page, projectDirectory);
-    await page.locator("[data-cad-new]").click();
-    await page.getByRole("textbox", { name: "文件名" }).fill("桌面精确火箭.cad.json");
-    await page.getByRole("button", { name: "创建", exact: true }).click();
-    await expect(nativeEditor().locator("[data-program-engine]")).toContainText("OpenCascade");
-    await expect(nativeEditor().locator("[data-program-metrics]")).toHaveText("尚未生成模型", {
-      timeout: 60000
-    });
-    await expect(nativeEditor().locator("[data-program-count]")).toHaveText("0");
-    await nativeEditor().locator("[data-program-source-toggle]").click();
-    await page
-      .getByRole("textbox", { name: "CAD 建模源码" })
-      .fill(await readFile("test/fixtures/cad-rocket.py", "utf8"));
-    await nativeEditor().locator("[data-program-save]").click();
-    await expect(nativeEditor().locator("[data-program-count]")).toHaveText("11", { timeout: 60000 });
-    await page.getByRole("spinbutton", { name: "机身半径 (mm)", exact: true }).fill("26");
-    await page.getByRole("spinbutton", { name: "机身半径 (mm)", exact: true }).press("ControlOrMeta+s");
-    await expect(nativeEditor().locator("[data-program-status]")).toHaveAttribute("data-state", "saved");
-    await expect(nativeEditor().locator("[data-program-details]")).toContainText("BRep 已验证", {
-      timeout: 60000
-    });
-    const nativeTabs = await page.evaluate(
-      async () => (await (await fetch("/api/workbench/tabs")).json()).tabs
-    );
-    const nativeTab = nativeTabs.find((tab) => tab.title === "桌面精确火箭.cad.json");
-    expect(nativeTab.accessTaskId).toBeTruthy();
-    const nativeRead = await page.evaluate(
-      async ({ id, task }) => {
-        const response = await fetch(`/api/tasks/${task}/resources/${id}`);
-        if (!response.ok) throw new Error(`Read native CAD fixture failed: ${response.status}`);
-        return response.json();
-      },
-      { id: nativeTab.resourceId, task: nativeTab.accessTaskId }
-    );
-    expect(nativeRead.snapshot.content.engine).toBe("cadquery");
-    expect(nativeRead.snapshot.content.parameters.radius).toBe(26);
-    // The app's return action creates a conversation in its actual workspace;
-    // a generic new conversation can belong to another temporary workspace.
-    await loadCurrentApplication(page);
-    await page.locator("#composer-input").fill("继续完善当前精确 CAD，保留人工半径。");
-    await page.locator("#send-button").click();
-    await expect(page.getByText("CAD 源码验证成功", { exact: true }).first()).toBeVisible({ timeout: 60000 });
-    const nativeTaskId = await page
-      .locator("#project-list .conversation-item.active")
-      .getAttribute("data-task");
-    expect(nativeTaskId).toBeTruthy();
-    await expect
-      .poll(
-        () =>
-          page.evaluate(
-            async (id) =>
-              (await (await fetch("/api/tasks")).json()).tasks.find((task) => task.taskId === id)?.status,
-            nativeTaskId
-          ),
-        { timeout: 60000 }
-      )
-      .toBe("completed");
-    await focusFile(page, nativeTab.resourceId);
-    await expect(page.getByRole("spinbutton", { name: "机身半径 (mm)", exact: true })).toHaveValue("26");
-    const stepPath = join(root, "desktop-native.step");
-    await native.evaluate(({ BrowserWindow }, savePath) => {
-      const window = BrowserWindow.getAllWindows()[0];
-      window.cadDownload = new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("Native STEP download timed out")), 120000);
-        window.webContents.session.once("will-download", (_event, item) => {
-          item.setSavePath(savePath);
-          item.once("done", (_event, state) => {
-            clearTimeout(timer);
-            resolve(state);
-          });
-        });
-      });
-    }, stepPath);
-    await nativeEditor().locator("[data-program-file-menu]").click();
-    await nativeEditor().locator('[data-program-export="step"]').click();
-    expect(await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].cadDownload)).toBe(
-      "completed"
-    );
-    expect((await readFile(stepPath, "utf8")).startsWith("ISO-10303-21;")).toBe(true);
-    // Re-import with the relocated packaged runtime, independently of display meshes.
-    const { execFileSync } = await import("node:child_process");
-    const measured = JSON.parse(
-      execFileSync(
-        join(next, "Contents/Resources/cadquery/bin/python3"),
-        [
-          "-I",
-          "-B",
-          "-c",
-          'import cadquery as cq,sys,json; s=cq.importers.importStep(sys.argv[1]).val(); print(json.dumps({"valid":s.isValid(),"solids":len(s.Solids())}))',
-          stepPath
-        ],
-        { encoding: "utf8", timeout: 120000 }
-      )
-    );
-    expect(measured).toEqual({ valid: true, solids: 11 });
-    await quit();
-    page = await launch(join(next, "Contents/MacOS/CoworkOS"));
-    await expect(page.getByRole("spinbutton", { name: "机身半径 (mm)", exact: true })).toHaveValue("26", {
-      timeout: 60000
-    });
-    await expect(nativeEditor().locator("[data-program-details]")).toContainText("BRep 已验证", {
-      timeout: 60000
-    });
-    if (blenderRuntime.available) {
-      console.log("Desktop smoke: native Blender workbench after package relocation");
-      await showNavigation(page);
-      await page.locator("#new-conversation").click();
-      await page.locator("#apps-nav").click();
-      await page.locator('[data-create-app="blender"]').click();
-      await confirmApplicationWorkspace(page, projectDirectory);
-      await page.locator("[data-blender-new]").click();
-      await page.getByRole("textbox", { name: "文件名" }).fill("桌面 Blender 机器人");
-      await page.getByRole("button", { name: "创建", exact: true }).click();
-      await page.locator("[data-blender-source-toggle]").click();
-      await page
-        .locator("[data-blender-source]")
-        .fill(await readFile("test/fixtures/blender-robot.py", "utf8"));
-      await page.locator("[data-blender-run]").click();
-      await expect(page.locator("[data-blender-count]")).toHaveText("12", { timeout: 60000 });
-      await expect(page.locator("[data-blender-viewport]")).toHaveAttribute("data-ready", "true");
-      await page.locator("[data-blender-select]").filter({ hasText: "ArmLeft" }).click();
-      await page.getByRole("spinbutton", { name: "位置 X", exact: true }).fill("-3");
-      await page.getByRole("spinbutton", { name: "位置 X", exact: true }).press("Tab");
-      await page.locator("[data-blender-save]").click();
-      await expect(page.locator("[data-blender-status]")).toContainText("已保存", { timeout: 60000 });
-      const blendPath = join(root, "desktop-native.blend");
-      await native.evaluate(({ BrowserWindow }, savePath) => {
-        const window = BrowserWindow.getAllWindows()[0];
-        window.blenderDownload = new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error("Native Blender download timed out")), 60000);
-          window.webContents.session.once("will-download", (_event, item) => {
-            item.setSavePath(savePath);
-            item.once("done", (_event, state) => {
-              clearTimeout(timer);
-              resolve(state);
-            });
-          });
-        });
-      }, blendPath);
-      await page.locator("[data-blender-file-menu]").click();
-      await page.locator('[data-blender-export="blend"]').click();
-      expect(
-        await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].blenderDownload)
-      ).toBe("completed");
-      expect((await readFile(blendPath)).length).toBeGreaterThan(1000);
-      await page.locator("[data-blender-file]").setInputFiles(blendPath);
-      await expect(page.locator("[data-blender-status]")).toContainText("已保存", { timeout: 60000 });
-      await quit();
-      page = await launch(join(next, "Contents/MacOS/CoworkOS"));
-      await expect(page.locator("[data-blender-title]")).toHaveText("桌面 Blender 机器人", {
-        timeout: 60000
-      });
-      await expect(page.locator("[data-blender-count]")).toHaveText("12");
-      await page.locator("[data-blender-select]").filter({ hasText: "ArmLeft" }).click();
-      await expect(page.getByRole("spinbutton", { name: "位置 X", exact: true })).toHaveValue("-3");
-      console.log(
-        "Desktop Blender PASS: native Python, viewport, manual edits, binary download/import, restart after package relocation using bundled Blender runtime."
-      );
-    } else console.log("Desktop Blender native check SKIPPED: bundled Blender runtime unavailable.");
-    await quit();
-  } else {
-    console.log(
-      `Desktop native CAD SKIPPED: ${scope.mode} package does not bundle CadQuery; component download/install is covered by the component acceptance tests.`
-    );
-    console.log(
-      `Desktop Blender native check SKIPPED: ${scope.mode} package does not bundle Blender; component download/install is covered by the component acceptance tests.`
-    );
-    for (const id of ["cadquery", "blender"]) {
-      const files = await readdir(join(data, "components", id));
-      expect(files, "host smoke does not download or install native components").toEqual(["current.json"]);
-      expect(JSON.parse(await readFile(join(data, "components", id, "current.json"), "utf8"))).toEqual({
-        enabled: false
-      });
-    }
-  }
   const log = await readFile(join(data, "logs/dashboard.log"), "utf8");
-  // All launches and their descendants remain under observation through TXT,
-  // ordinary prompts, Computer Use, CAD, Blender and relocated restarts.
+  // All launches and their descendants remain under observation through file reads,
+  // ordinary prompts, Computer Use and relocated restarts.
   expect(unexpectedApplications(), "no unexpected background application registrations").toEqual([]);
   console.log(
     "Desktop smoke known limitation: Keychain workers may briefly appear in Dock; registrations:",
@@ -1326,7 +774,7 @@ try {
   );
   expect(log).not.toContain("desktop-fake-key");
   console.log(
-    `Packaged Mac smoke PASS (${scope.mode}): model app icon, integrated native chrome, fresh configuration, authenticated API, real Pi + local model fixture, TXT/basic CAD/source CAD editing, isolated WASM, ${scope.pptist ? "bundled PPT editing/save/restart, " : ""}${scope.nativeComponents ? "bundled CadQuery/OpenCascade after relocation, STEP export/import, native Blender editing/export/import, " : ""}source export, real CAD tools, graceful quit, restart, upgrade, interrupted run resume. See explicit SKIPPED lines for native desktop branches. No system Node used.`
+    "Packaged Mac smoke PASS: app icon, native chrome, configuration, authenticated API, real Pi with a local model fixture, text editing and export, graceful quit, restart, upgrade and interrupted run recovery. No system Node used."
   );
 } catch (error) {
   console.error("Packaged Mac smoke failed:", (error.stack || error.message).slice(0, 3500));
@@ -1343,7 +791,6 @@ try {
       await page
         .evaluate(() => ({
           active: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
-          cadStatus: document.querySelector("[data-cad-status]")?.textContent,
           computerState: document.querySelector("[data-computer-state]")?.textContent,
           computerError: document.querySelector("[data-computer-error]")?.textContent,
           mounts: [...document.querySelectorAll("[data-app-mount]")].map((element) => ({

@@ -48,7 +48,6 @@ jobs:
           CSC_NAME: ${{ vars.CSC_NAME }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      - run: npm run cad:setup && npm run build:pptist && npm run components:pack
       - run: npm run cli:pack
       - name: Prepare npm archives
         env:
@@ -92,7 +91,6 @@ jobs:
             release/CoworkOS-${{ steps.release.outputs.version }}-mac-arm64.zip
             release/CoworkOS-${{ steps.release.outputs.version }}-mac-arm64.zip.sha256
             release/atria-component-*
-            release/atria-components-darwin-arm64.json
             release/atria-update-mac-arm64.json
             release/atria-release-${{ steps.release.outputs.version }}.json
             release/atria-release-${{ steps.release.outputs.version }}.json.sha256

@@ -35,53 +35,6 @@ async function post(page, base, path, data) {
   return response.json();
 }
 
-test("four dashboard pages stop hidden automatic reads and refresh immediately on return", async ({
-  context
-}, info) => {
-  const dashboard = await startDashboard();
-  const pages = [];
-  try {
-    const seed = await context.newPage();
-    pages.push(seed);
-    await post(seed, dashboard.base, "/api/tasks", { taskId: "poll-a", goal: "轮询会话" });
-    await post(seed, dashboard.base, "/api/workbench/open-application", { appType: "text-editor" });
-    const counts = [];
-    for (let i = 0; i < 4; i++) {
-      const page = i ? await context.newPage() : seed;
-      if (i) pages.push(page);
-      counts.push(await instrument(page));
-      await page.goto(`${dashboard.base}/?task=poll-a`);
-      await expect(page.locator("#composer-input")).toBeVisible();
-      const revision = page.waitForResponse((response) => new URL(response.url()).pathname === paths[2]);
-      await page.clock.fastForward(600);
-      await (await revision).finished();
-    }
-    for (const page of pages.slice(1)) await visibility(page, true);
-    const before = structuredClone(counts);
-    const taskRead = pages[0].waitForResponse((response) => new URL(response.url()).pathname === paths[0]);
-    for (const page of pages) await page.clock.fastForward(7000);
-    await (await taskRead).finished();
-    for (let i = 1; i < 4; i++) expect(counts[i]).toEqual(before[i]);
-    expect(counts[0][paths[0]]).toBeGreaterThan(before[0][paths[0]]);
-    expect(counts[0][paths[1]]).toBeGreaterThan(before[0][paths[1]]);
-    expect(counts[0][paths[2]]).toBeGreaterThan(before[0][paths[2]]);
-    const whileHidden = structuredClone(counts);
-    const hidden = structuredClone(counts[1]);
-    await visibility(pages[1], false);
-    for (const path of paths) await expect.poll(() => counts[1][path]).toBeGreaterThan(hidden[path]);
-    // A menu opened explicitly remains usable while the page is marked hidden.
-    await visibility(pages[1], true);
-    await pages[1].locator("#app-bind-select").click();
-    await expect(pages[1].locator("#app-bind-menu")).toBeVisible();
-    const evidence = info.outputPath("automatic-request-counts.json");
-    await writeFile(evidence, JSON.stringify({ before, whileHidden, afterReturn: counts }, null, 2));
-    await info.attach("automatic-request-counts", { path: evidence, contentType: "application/json" });
-  } finally {
-    await Promise.all(pages.map((page) => page.close()));
-    await dashboard.stop();
-  }
-});
-
 test("a task catalog slower than the polling period still applies and preserves the later draft", async ({
   page
 }) => {
@@ -187,16 +140,43 @@ test("streamed replies received while hidden appear on return and a late old str
     for (const taskId of ["stream-a", "stream-b"])
       await post(page, dashboard.base, "/api/tasks", { taskId, goal: taskId });
     await instrument(page);
+    // Run streams are read through the shared client's fetch transport so the
+    // session header and the bound backend travel with them; EventSource is only
+    // the fallback. This stub is the same fake stream in that shape.
     await page.addInitScript(() => {
       window.pollingStreams = [];
-      window.EventSource = class {
-        constructor(url) {
-          this.url = url;
-          window.pollingStreams.push(this);
-        }
-        close() {
-          this.closed = true;
-        }
+      const original = window.fetch;
+      window.fetch = (input, init = {}) => {
+        const url = String(input?.url ?? input);
+        if (!/\/api\/tasks\/[^/]+\/stream$/.test(new URL(url, location.href).pathname))
+          return original(input, init);
+        const encoder = new TextEncoder();
+        let controller;
+        const stream = {
+          url,
+          closed: false,
+          emit(record) {
+            if (!stream.closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(record)}\n\n`));
+          },
+          close() {
+            stream.closed = true;
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          }
+        };
+        const body = new ReadableStream({
+          start(next) {
+            controller = next;
+          }
+        });
+        init.signal?.addEventListener("abort", () => stream.close(), { once: true });
+        window.pollingStreams.push(stream);
+        return Promise.resolve(
+          new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } })
+        );
       };
     });
     await page.route("**/api/tasks/stream-a", async (route) => {
@@ -236,10 +216,7 @@ test("streamed replies received while hidden appear on return and a late old str
         }
       }
     };
-    await page.evaluate(
-      (record) => window.pollingActiveStream.onmessage({ data: JSON.stringify(record) }),
-      event
-    );
+    await page.evaluate((record) => window.pollingActiveStream.emit(record), event);
     await visibility(page, false);
     await page.clock.runFor(50);
     await expect(page.locator("#conversation")).toContainText("隐藏期间收到的回复");
@@ -249,15 +226,13 @@ test("streamed replies received while hidden appear on return and a late old str
     await page.locator("#composer-input").fill("B 的未发送草稿");
     await page.evaluate(
       (record) =>
-        window.pollingActiveStream.onmessage({
-          data: JSON.stringify({
-            ...record,
-            eventId: "late-record",
-            payload: {
-              ...record.payload,
-              message: { ...record.payload.message, content: [{ type: "text", text: "旧会话晚到回复" }] }
-            }
-          })
+        window.pollingActiveStream.emit({
+          ...record,
+          eventId: "late-record",
+          payload: {
+            ...record.payload,
+            message: { ...record.payload.message, content: [{ type: "text", text: "旧会话晚到回复" }] }
+          }
         }),
       event
     );

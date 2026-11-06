@@ -1,11 +1,12 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { access, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { startDashboard } from "./dashboard-fixture.mjs";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { applicationServiceForTask } from "../dist/src/applications/task-service.js";
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { applicationServiceForTask } = await import("../dist/src/applications/task-service.js");
 
 async function fixture(t) {
   const dashboard = await startDashboard({ defaultProject: false });

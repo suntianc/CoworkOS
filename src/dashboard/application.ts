@@ -5,10 +5,7 @@ import {
   readArchivedMessageVersion,
   versionRuntimeEvents
 } from "../runtime/main-message-edit.js";
-import { createComponentService } from "../software/components/service.js";
-import { autoInstallComponentsEnabled } from "../software/components/paths.js";
 import { createWebSearchSettings } from "./web-search-settings.js";
-import { createBlenderInstaller } from "../software/blender/installer.js";
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -18,7 +15,7 @@ import { applicationServiceForTask } from "../applications/task-service.js";
 import { ResourceMappingStore } from "../applications/mapping-store.js";
 import { McpSupervisor } from "../applications/mcp-supervisor.js";
 import { id, now } from "../domain/types.js";
-import { readCoworkConfig } from "../runtime/config.js";
+import { readHostCoworkConfig } from "../runtime/config.js";
 import {
   runtimeSettingsEnv,
   configuredContextWindow,
@@ -65,6 +62,10 @@ import {
 } from "../runtime/project-experience-learning.js";
 import { createUserMemoryLearningService } from "../runtime/user-memory-learning.js";
 import { createDashboardRunService } from "./run-service.js";
+import { LocalAccess } from "./local-access.js";
+import { FileCommandRunner } from "./management-commands.js";
+import { createCatalogEvents } from "./catalog-events.js";
+import { EventLedger } from "./event-ledger.js";
 import { createWorkspaceDirectory } from "./workspace-directory.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
@@ -77,12 +78,13 @@ export function createDashboardApplication(
     port?: number;
     computerDriver?: ComputerDriver;
     computerClock?: () => number;
-    components?: ReturnType<typeof createComponentService>;
-    autoInstallComponents?: boolean;
+    /** Supplied by a host that persists identity; otherwise this process is the identity. */
+    backendIdentity?: { backendId: string; startedAt: string };
   } = {}
 ) {
   const projectRoot = resolve(options.projectRoot ?? process.env.COWORK_HARNESS_ROOT ?? process.cwd());
   const port = options.port ?? Number(process.env.COWORK_UI_PORT ?? 3880);
+  const backendIdentity = options.backendIdentity ?? { backendId: id("backend"), startedAt: now() };
   /**
    * Where this Dashboard answers.
    *
@@ -101,12 +103,11 @@ export function createDashboardApplication(
    * still open.
    */
   const mcpSupervisor = new McpSupervisor(projectRoot, dashboardUrl);
-  const runtimeConfig = readCoworkConfig(projectRoot);
+  // The host-owned credential store is overlaid here, so child processes and routes share it.
+  const runtimeConfig = readHostCoworkConfig(projectRoot);
   const data = atriaDataPaths(process.env, runtimeConfig, projectRoot);
   let workspaceRoot = data.workspaceRoot;
   const coordinator = new CoordinatorRuntime();
-  const blenderInstaller = createBlenderInstaller();
-  const components = options.components ?? createComponentService();
   const computerDriver = new MacComputerDriver();
   let folderPickerOpen = false;
   const globalIndexPath = data.globalIndex;
@@ -118,8 +119,41 @@ export function createDashboardApplication(
    * strip the browser reads, and it cannot guess this location.
    */
   const tabStorePath = data.tabsIndex;
+  /**
+   * Local session authorization for this data root.
+   *
+   * It lives beside the backend identity so sessions survive a restart, and it
+   * reads the host credential the serving process published. The credential is
+   * read through a getter because a daemon sets it before assembling services.
+   */
+  const access = new LocalAccess(dirname(globalIndexPath), () => process.env.COWORK_API_TOKEN);
+  /**
+   * Durable receipts for idempotent change commands, beside the sessions and
+   * the backend identity so a restart can answer a retry with the saved result.
+   */
+  const commands = new FileCommandRunner(join(dirname(globalIndexPath), "operations"));
   const workspaces = createWorkspaceDirectory(workspaceRoot, globalIndexPath, runtimeValue);
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
+  /**
+   * The durable catalog event log, beside the sessions and receipts.
+   *
+   * A client reconciles against it after a disconnect: the snapshot and its
+   * cursor come from the same serialized section, so a change made in the
+   * handoff is replayed instead of lost, and a cursor older than the retained
+   * log is refused so the client takes a fresh snapshot.
+   */
+  const catalogEvents = createCatalogEvents({
+    ledger: EventLedger.open(join(dirname(globalIndexPath), "events"), backendIdentity.backendId, {
+      ...(process.env.COWORK_EVENT_LEDGER_RECORDS
+        ? { maxRecords: Number(process.env.COWORK_EVENT_LEDGER_RECORDS) }
+        : {}),
+      ...(process.env.COWORK_EVENT_FAULT_INJECT ? { faultInject: process.env.COWORK_EVENT_FAULT_INJECT } : {})
+    }),
+    readCatalog: globalTaskPayload,
+    ...(process.env.COWORK_EVENT_RECONCILE_MS
+      ? { reconcileMs: Number(process.env.COWORK_EVENT_RECONCILE_MS) }
+      : {})
+  });
   const computer = new ComputerUse(
     options.computerDriver ?? computerDriver,
     options.computerClock ?? Date.now,
@@ -588,6 +622,14 @@ export function createDashboardApplication(
   });
   const routes: DashboardRoutePorts = {
     userMemory,
+    access,
+    commands,
+    events: catalogEvents,
+    backendInfo: () => ({
+      backendId: backendIdentity.backendId,
+      pid: process.pid,
+      startedAt: backendIdentity.startedAt
+    }),
     projectExperienceStore,
     watchers,
     goals: createGoalService({
@@ -598,9 +640,7 @@ export function createDashboardApplication(
       resumeHumanAnswers,
       cancelTask: runs.cancelTask
     }),
-    blenderInstaller,
     uploads,
-    components,
     computer,
     dashboardUrl,
     uiRoot,
@@ -654,12 +694,6 @@ export function createDashboardApplication(
   server.once("listening", () => watchers.start());
   server.once("listening", () => memoryLearning.start());
   server.once("listening", () => projectLearning.start());
-  if (options.autoInstallComponents ?? autoInstallComponentsEnabled()) {
-    server.once("listening", () => {
-      // Basic chat becomes reachable before heavy optional downloads start.
-      void components.prepareMissing().catch(() => {});
-    });
-  }
 
   return {
     server,
@@ -704,17 +738,13 @@ export function createDashboardApplication(
       return computer.authorize(input.taskId, input.pid, input.windowId, input.mode);
     },
     async stop() {
+      await catalogEvents.close();
       await memoryLearning.stop();
       await projectLearning.stop();
       computer.close();
       await watchers.stop();
       server.closeAllConnections();
-      await Promise.all([
-        runs.stop(),
-        blenderInstaller.stop(),
-        components.stop(),
-        routes.scienceSettings.stop()
-      ]);
+      await Promise.all([runs.stop(), routes.scienceSettings.stop()]);
       await mcpSupervisor.stopAll();
       await new Promise<void>((done) => server.close(() => done()));
     }

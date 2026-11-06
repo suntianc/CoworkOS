@@ -8,4 +8,4 @@ English | [简体中文](../README.md)
 
 ## Development
 
-[Setup](development.md) · [Architecture](architecture.md) · [API](../product-api.md) · [Contribute](../../CONTRIBUTING.en.md)
+[Setup](development.md) · [Architecture](architecture.md) · [API](../product-api.md) · [Contribute](../../CONTRIBUTING.en.md) · [P1 retrospective (Chinese)](../p1-retrospective.md)

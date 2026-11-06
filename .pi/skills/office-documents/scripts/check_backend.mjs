@@ -32,11 +32,18 @@ console.log(JSON.stringify({ preferred: "officecli", backends: result }, null, 2
 async function probePython() {
   const executable = process.env.COWORK_PYTHON ?? "python3";
   try {
-    const output = await exec(executable, ["-c", [
-      "import importlib.util, json, platform, sys",
-      "packages = {name: bool(importlib.util.find_spec(module)) for name, module in {\"pptx\": \"pptx\", \"docx\": \"docx\", \"openpyxl\": \"openpyxl\"}.items()}",
-      "print(json.dumps({\"version\": platform.python_version(), \"packages\": packages}))"
-    ].join("; ")], { timeout: 5_000, maxBuffer: 8_192 });
+    const output = await exec(
+      executable,
+      [
+        "-c",
+        [
+          "import importlib.util, json, platform, sys",
+          'packages = {name: bool(importlib.util.find_spec(module)) for name, module in {"docx": "docx", "openpyxl": "openpyxl"}.items()}',
+          'print(json.dumps({"version": platform.python_version(), "packages": packages}))'
+        ].join("; ")
+      ],
+      { timeout: 5_000, maxBuffer: 8_192 }
+    );
     const details = JSON.parse(output.stdout.trim());
     return {
       kind: "python",
@@ -45,13 +52,17 @@ async function probePython() {
       version: `Python ${details.version}`,
       packages: details.packages,
       capabilities: {
-        pptx: details.packages.pptx ? "structured-edit" : "unavailable",
         docx: details.packages.docx ? "structured-edit" : "unavailable",
         xlsx: details.packages.openpyxl ? "structured-edit" : "unavailable",
         render: "unavailable"
       }
     };
   } catch (error) {
-    return { kind: "python", executable, available: false, error: error instanceof Error ? error.message : String(error) };
+    return {
+      kind: "python",
+      executable,
+      available: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
   }
 }

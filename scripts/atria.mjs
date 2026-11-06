@@ -48,6 +48,14 @@ API Key input is hidden. Use an environment variable for non-interactive setup.`
 The default check runs locally and does not send model requests.`);
     return;
   }
+  if (topic === "backend") {
+    console.log(`Usage: coworkos backend <start|status|stop>
+  start    Start a detached backend for the current data root, or report the running one
+  status   Report the backend instance for the current data root
+  stop     Ask the backend to finish managed work and exit
+The backend keeps running after the client that started it exits. It never installs a system service.`);
+    return;
+  }
   if (topic === "data") {
     console.log(`Usage: coworkos data paths
        coworkos data import --from PATH [--kind desktop|workspace] [--name NAME]
@@ -291,7 +299,7 @@ async function doctor() {
   let config, input;
   await check("模型配置", () => {
     if (!modules) throw new Error("先修复 CLI 构建。");
-    config = modules.readCoworkConfig(cwd, {
+    config = modules.readHostCoworkConfig(cwd, {
       COWORK_CONFIG: existsSync(configPath) || process.env.COWORK_CONFIG ? configPath : undefined
     });
     input = {
@@ -321,7 +329,7 @@ async function doctor() {
     });
   else if (!options["--test-connection"])
     console.log("未发送模型请求。加 --test-connection 可验证真实连接，会消耗额度。");
-  console.log("原生 CAD、Blender 与桌面窗口操作为可选宿主能力；此检查不要求安装它们。");
+  console.log("桌面窗口操作为可选宿主能力；此检查不要求安装它。");
   process.exitCode = failed ? 1 : 0;
 }
 
@@ -331,8 +339,9 @@ function requireNode() {
 }
 
 async function sessionExport(values) {
-  const { readCoworkConfig } = await runtime();
-  const config = readCoworkConfig(cwd);
+  // Export redaction must cover every effective key, including host-stored ones.
+  const { readHostCoworkConfig } = await runtime();
+  const config = readHostCoworkConfig(cwd);
   const data = cliDataPaths(config);
   const { exportCliSession, parseSessionExportArgs } = await import("./cli-session-export.mjs");
   const result = await exportCliSession({
@@ -343,6 +352,7 @@ async function sessionExport(values) {
     secrets: [
       process.env.COWORK_API_KEY,
       config.apiKey,
+      process.env.COWORK_VISION_API_KEY,
       process.env.COWORK_SERPER_API_KEY,
       process.env.SERPER_API_KEY,
       config.serperApiKey,
@@ -388,11 +398,11 @@ async function launch() {
       throw new Error("COWORK_TASK_ID requires a valid task ID");
     workerArgs = Object.entries(parsed.options).flatMap(([name, value]) => [`--${name}`, value]);
   }
-  const { readCoworkConfig } = await runtime();
+  const { readHostCoworkConfig } = await runtime();
   const explicit = process.env.COWORK_CONFIG;
   const config = helpOnly
     ? {}
-    : readCoworkConfig(cwd, {
+    : readHostCoworkConfig(cwd, {
         COWORK_CONFIG: existsSync(configPath) || explicit ? configPath : undefined
       });
   const pi = command === "start" || command.startsWith("-");
@@ -449,13 +459,17 @@ try {
       : undefined;
   if (
     ["--help", "-h", "help"].includes(command) ||
-    (["init", "doctor", "data", "start", "session"].includes(command) &&
+    (["init", "doctor", "data", "backend", "start", "session"].includes(command) &&
       (command === "start"
         ? startInformation === "help"
         : args.some((argument) => ["--help", "-h"].includes(argument))))
   )
     await help(
-      command === "help" ? args[0] : ["init", "doctor", "data"].includes(command) ? command : undefined
+      command === "help"
+        ? args[0]
+        : ["init", "doctor", "data", "backend"].includes(command)
+          ? command
+          : undefined
     );
   else if (["--version", "-v"].includes(command)) {
     if (args.length) throw new Error("coworkos --version does not accept options");
@@ -469,16 +483,17 @@ try {
       );
     await sessionExport(args);
   } else if (exportArgs) await sessionExport(exportArgs);
-  else if (command === "components") {
-    const { runComponents } = await import("./components.mjs");
-    await runComponents(args);
-  } else if (command === "desktop") {
+  else if (command === "desktop") {
     requireNode();
     const { runDesktop } = await import("./desktop.mjs");
     await runDesktop({ root: harness, args });
   } else if (command === "science") {
     const { runScience } = await import("./science.mjs");
     await runScience(args);
+  } else if (command === "backend") {
+    requireNode();
+    const { runBackendCommand } = await import("../dist/src/cli/backend.js");
+    process.exitCode = await runBackendCommand(args);
   } else if (command === "data") await dataCommand();
   else if (command === "init") {
     requireNode();

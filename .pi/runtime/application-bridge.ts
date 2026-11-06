@@ -911,7 +911,7 @@ export function createApplicationBridge({
         // 整数" and wrote nothing; another read "第 3 行 ## 目标用户" from the
         // context summary, passed `from: 4`, and wrote into line 1 — reported
         // as a success, because 4 is a valid offset.
-        "Prefer the bound application's own tools over this one. A text resource gives you patch_document({oldText, newText}) to change a passage and write_document({content}) to replace the whole thing; neither needs an offset, and both go through the same versioning as this tool.",
+        "Prefer the bound application's own tools over this one. Use generic file tools for ordinary workspace files.",
         "Use this tool directly only when the application declares no dedicated tool for what you need. For text operations, use exact character offsets; for structured models, follow the owning application's payload schema.",
         "Never derive an offset from a line number. Context summaries and operation summaries speak in lines; from/to/at are UTF-16 character offsets. A line number is usually a valid offset, so this mistake is accepted and corrupts the document instead of failing.",
         "On revision_conflict, call list_resource_changes with afterRevision to see what the user changed, re-read the resource with the application's own read tool, then recompute your edit against the new revision. Never reverse a user's change unless they asked for it.",

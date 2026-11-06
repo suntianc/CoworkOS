@@ -11,12 +11,8 @@
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/assets/math.css" />
     <link rel="stylesheet" href="/assets/workbench.css" />
-    <link rel="stylesheet" href="/assets/workbench/text-editor.css" />
     <link rel="stylesheet" href="/assets/agent-galaxy.css" />
     <link rel="stylesheet" href="/assets/starfield.css" />
-    <link rel="stylesheet" href="/assets/cad/styles.css" />
-    <link rel="stylesheet" href="/assets/blender/styles.css" />
-    <link rel="stylesheet" href="/assets/pptist/styles.css" />
     <link rel="stylesheet" href="/assets/ui.css" />
     <link rel="stylesheet" href="/assets/watch.css" />
     <link rel="stylesheet" href="/assets/goal.css" />
@@ -122,9 +118,6 @@
           <rect x="3.5" y="13.5" width="7" height="7" rx="1.6" />
           <path d="M17 14v6M14 17h6" />
         </symbol>
-        <symbol id="i-cad" viewBox="0 0 24 24">
-          <path d="m12 3 9 5v8l-9 5-9-5V8Zm0 10 9-5M3 8l9 5v8" />
-        </symbol>
         <symbol id="i-boxes" viewBox="0 0 24 24">
           <g>
             <path
@@ -188,11 +181,6 @@
         <symbol id="i-slides" viewBox="0 0 24 24">
           <rect x="3" y="3" width="18" height="13" rx="1.5" />
           <path d="M12 16v5m-5 0 5-3 5 3M7 8h10M7 11h5" />
-        </symbol>
-        <symbol id="i-blender" viewBox="0 0 24 24">
-          <ellipse cx="14" cy="14" rx="7" ry="6" />
-          <circle cx="14" cy="14" r="2.5" />
-          <path d="m10 9-6-4h6l9 5M8 11H2l6 3M7 15l-4 4 6-1" />
         </symbol>
         <symbol id="i-cube" viewBox="0 0 24 24">
           <path d="m12 3 9 5v8l-9 5-9-5V8Zm0 10 9-5M3 8l9 5v8" />
@@ -258,7 +246,7 @@
           >
             <svg class="ui-icon" aria-hidden="true"><use href="#i-more" /></svg>
           </button>
-          <span id="connection-state" hidden>CoworkOS Desktop</span>
+          <div id="connection-state" role="status" hidden></div>
           <span id="workspace-path" hidden>Connected</span>
         </div>
         <div class="topbar-actions">
@@ -437,11 +425,11 @@
                       ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
                     ></span>
                   </button>
-                  <button data-prompt="根据我提供的材料制作一份可编辑的演示文稿，先与我确认目标读者和页数。">
+                  <button data-prompt="读取我提供的文件，整理关键信息并生成一份报告。">
                     <span class="prompt-icon"
                       ><svg class="ui-icon" aria-hidden="true"><use href="#i-apps" /></svg
                     ></span>
-                    制作可编辑演示文稿
+                    整理文件并生成报告
                     <span class="prompt-arrow"
                       ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
                     ></span>

@@ -4,8 +4,6 @@ TXT 已可用，软件 v2 和 GUI 的交付范围见下文。软件变更的验�
 
 ## 两代编辑协议
 
-现有 `ApplicationAdapter`/`ResourceStore` 是编辑协议 v1：同步序列化 UTF-8 单文件、数字 revision、可逆 operation、历史、选择与 Agent 绑定。TXT 与 [参数化 CAD](cad-integration.md) 已走通此路径；CAD 使用结构化 UTF-8 JSON，不能直接向此协议传递 PNG、STEP 等二进制或整个工程目录。
-
 `src/software/contracts.ts` 定义独立 v2：异步 `read/apply/close`，revision 是不透明字符串，可承载 hash 或远程 ETag；资源目标与内容用判别联合表示：
 
 | kind        | 目标                    | 内容                             | 驱动必须负责                            |
@@ -20,8 +18,6 @@ TXT 已可用，软件 v2 和 GUI 的交付范围见下文。软件变更的验�
 `BinaryFileProvider` 是实际实现的本地二进制参考驱动：授权根目录、真实路径校验、16 MiB 默认上限、原始字节读取、hash CAS、跨 Harness 进程文件锁、同步并原子替换。仅支持已有文件和 `binary.replace`，尚未接入工作台 UI、历史和撤销。
 
 外部软件不遵循 Harness 文件锁时，仍可能在检查与替换间修改文件；需要软件原生事务或更强的文件协调后才能宣称跨软件原子 CAS。
-
-[BlenderProjectProvider](../src/software/blender/project-provider.ts) 已实现真实 v2 `project` 驱动：独立进程生成 `.blend`、GLB、PNG 和 hash 报告，以不可变目录发布；工作台 v1 清单负责当前版本、CAS、撤销与引用。可信领域 Adapter 调用此驱动，尚未装配为通用 SoftwareService/GrantedPermissions 产品入口；引用检查与原生 OS 隔离各自覆盖对应边界。
 
 远程类型仍是接入契约，使用测试驱动验证，不包含可用 SaaS 驱动。新增正式驱动必须补齐真实工程/连接回归，不能只声明 resource kind。
 
@@ -41,20 +37,18 @@ macOS [Computer Use](computer-use.md) 已装配真实单窗口驱动、桌面系
 4. 补测试：旧 revision、并发写、取消、超限、退出清理、越权、重启、网络断开；工程必须覆盖部分写入失败。
 5. 新增前端 Adapter 与能力发现，再更新架构、接口版本和团队负责人。
 
-PPTist 已通过 v1 Runtime/UI Adapter 接入，原生 JSON、协作编辑与导入导出的边界见 [PPTist 接入说明](pptist-integration.md)。
-
 ## v1 应用开发入口
 
-应用运行时可选 `previewResource({content,options,signal})` 用于计算未保存草稿。通用 HTTP 预览入口先验证对话对资源的引用，再交给 Adapter 校验和计算；不创建新修订。浏览器断开时取消后端任务。CAD 的原生计算在此接口内完成，路由不依赖 CadQuery 类型。
+应用运行时可选 `previewResource({content,options,signal})` 用于计算未保存草稿。通用 HTTP 预览入口先验证对话对资源的引用，再交给 Adapter 校验和计算；不创建新修订。浏览器断开时取消后端任务。
 
-| 步骤                                       | 合同/参考实现                                                                                                                        | 注册与验证                                                                                                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| 实现资源、序列化、操作、逆操作、选区和摘要 | [ApplicationAdapter 类型](../src/applications/types.ts)、[TXT Runtime Adapter](../src/applications/adapters/text-runtime-adapter.ts) | 在 [builtins.ts](../src/applications/builtins.ts) 注册                                                            |
-| 实现 UI 挂载、刷新、关闭与草稿恢复         | [Workbench Host](../web/assets/workbench/host.js)、[TXT UI](../web/assets/workbench/adapters/text-editor.js)                         | 在 [前端 registry](../web/assets/workbench/registry.js) 注册                                                      |
-| 提供模型适用的领域工具                     | Adapter 的 agentTools 或 [TXT MCP](../src/applications/mcp/text-editor-server.ts)                                                    | 工具返回操作，交由服务执行 CAS/历史；绑定后才激活                                                                 |
-| 验证平台未写死领域语义                     | [Dummy Adapter](../src/applications/adapters/dummy-counter-adapter.ts)                                                               | [注册表合同测试](../test/application-registry.test.js)、[应用工具测试](../test/application-adapter-tools.test.js) |
+| 步骤                                       | 合同/参考实现                                                                                          | 注册与验证                                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| 实现资源、序列化、操作、逆操作、选区和摘要 | [ApplicationAdapter 类型](../src/applications/types.ts)、[Adapter types](../src/applications/types.ts) | 在 [builtins.ts](../src/applications/builtins.ts) 注册                                                            |
+| 实现 UI 挂载、刷新、关闭与草稿恢复         | [Workbench Host](../web/assets/workbench/host.js)、[UI registry](../web/assets/workbench/registry.js)  | 在 [前端 registry](../web/assets/workbench/registry.js) 注册                                                      |
+| 提供模型适用的领域工具                     | Adapter 的 agentTools 或 [MCP client](../src/applications/mcp/local-api-client.ts)                     | 工具返回操作，交由服务执行 CAS/历史；绑定后才激活                                                                 |
+| 验证平台未写死领域语义                     | [Dummy Adapter](../src/applications/adapters/dummy-counter-adapter.ts)                                 | [注册表合同测试](../test/application-registry.test.js)、[应用工具测试](../test/application-adapter-tools.test.js) |
 
-核心服务、路由、页面装配不添加 appType 分支。保持资源读取与摘要属于应用；平台负责版本信封、引用、绑定和操作记录。修改 TXT 保存行为先在不依赖 DOM 的 [document session](../web/assets/workbench/adapters/text-document-session.js) 实现和验证。
+核心服务、路由、页面装配不添加 appType 分支。保持资源读取与摘要属于应用；平台负责版本信封、引用、绑定和操作记录。修改 TXT 保存行为先在不依赖 DOM 的 [document session](../web/assets/workbench/host.js) 实现和验证。
 
 应用定义可声明 `creationHint`，向尚未打开该软件的 Agent 解释新建格式与默认内容；`entryReadTool` 指定一个接受空参数的读取工具。`create_resource` 支持文本字符串或结构化对象，在返回前绑定并刷新领域工具；返回 `editorOpened`、`bound`、`availableTools` 和可选 `nextAction`。只在读取工具确实启用时提供下一步调用，不把某款软件的格式与建模规则硬编码进通用桥接或全局提示词。
 
@@ -74,25 +68,11 @@ PPTist 已通过 v1 Runtime/UI Adapter 接入，原生 JSON、协作编辑与导
 
 布局逻辑位于 [workspace-layout.js](../web/assets/workbench/workspace-layout.js)，只管理展示与宽度；[Host](../web/assets/workbench/host.js) 管理会话文件导航、关闭、收起恢复、资源 ID、挂载与事件路由，服务端绑定仍是 Agent 接收上下文的依据。显示右侧文件不等于复制资源，也不额外创建标签。
 
-TXT、PPT、CAD（特征和源码）与 Blender 在每次操作成功提交后刷新对应编辑器，不必等整个 Run 完成。当前运行对话沿用 SSE 即时通知；[连接控制器](../web/assets/controllers/connection-controller.js) 每 500 毫秒检查打开实例的已提交修订，补齐独立应用、空闲对话、跨对话和 MCP 修改。检查只读元数据，不读取大型文档或重算原生预览；空实例创建首份文档后自动打开。
-
-Adapter 继续保护未保存草稿，远端修改按既有冲突流程处理；建模或渲染计算完成并提交后才出现，不能将模型 token 或未提交的计算结果视为可编辑内容。修订检查接口见 [Product API](product-api.md#global-workbench-and-mcp)，验收见 [实时更新](../e2e/application-live-updates.spec.js) 与 [PPT 对话](../e2e/pptist-chat.spec.js)。
+文本应用 在每次操作成功提交后刷新对应编辑器，不必等整个 Run 完成。当前运行对话沿用 SSE 即时通知；[连接控制器](../web/assets/controllers/connection-controller.js) 每 500 毫秒检查打开实例的已提交修订，补齐独立应用、空闲对话、跨对话和 MCP 修改。检查只读元数据，不读取大型文档或重算原生预览；空实例创建首份文档后自动打开。
 
 UI Adapter 的 `handleResourceEvent` 可返回 Promise；读取失败、忙碌或拖动中尚未观察到变更时返回 `false`，宿主会在后续修订检查中重试。成功载入或已向用户展示草稿冲突后返回 `true`；自身已经确认的修订与选区事件不重复读取文档。不能在触发异步读取时就确认通知，以免一次读取失败后长期停留在旧内容。
 
-UI Adapter 的 `mount` 可调用 `onContextChange({ title, selection, dirty })`，提供简短的选区名称和草稿状态；TXT 显示选中字符数、CAD 显示特征名称。宿主在输入框上方展示当前绑定文件的上下文，点击可重新打开文件；这个回调不保存、不绑定、不发送消息，也不能代替 Adapter 的选区持久化协议。
-
-新增应用应覆盖并排/全屏/收起、窄屏切换、草稿保留与对话隔离；对应浏览器回归见 [workbench.spec.js](../e2e/workbench.spec.js) 与 [cad-chat.spec.js](../e2e/cad-chat.spec.js)。
-
-## Harness 应用
-
-`freecad-harness`、`blender-harness`、`cad-harness` 和 `office-harness` 通过外部 MCP 服务接入。先按 [插件目录说明](../src/applications/plugins/README.md) 安装、注册外部插件及对应运行环境；应用磁贴本身不安装这些依赖。点击磁贴创建并绑定一份会话描述。FreeCAD/Blender 启动外部窗口并贴靠；CAD/Office 在对话旁显示原生嵌入视图。启动失败通过错误提示呈现，修正依赖或路径后可重试。
-
-原生视图由当前可见编辑器持有激活令牌。隐藏、关闭或迟到的异步回调只能释放自己的令牌，不能移除后来激活的编辑器；切换 CAD 会话会重新指定任务目录。`GET /api/workbench/tabs` 在对话标签及应用标签的对话引用上返回 `storageRoot`，任务目录为 `<storageRoot>/<taskId>`，应用标签的 `workspaceRoot` 仍表示资源目录。macOS 关闭主窗口后从 Dock 重开会重新挂载视图并绑定窗口跟随事件。编辑器宿主可复用，关闭标签不等于删除文稿。
-
-应用技能按绑定作用域发现。本地兜底技能以 `application` frontmatter 标记所属应用，未绑定该应用时不会出现在目录中。已绑定应用的技能根优先于通用技能根，使外部 Blender 的 `blender` 工作流不会被内置 Blender 技能遮蔽；委派与恢复沿用派发时的作用域。Main 的通用技能沿用 SDK 选择的清单，保留用户同名覆盖，并尊重禁用和空清单；技能元数据使用 SDK 的 YAML 解析器。外部插件/真实模型、原生窗口和干净安装需要分别验收，本地假服务测试不代表外部建模或 Impress 引擎已验收。
-
-English: harness tiles require separately installed external plugins. FreeCAD/Blender use tiled native windows; CAD/Office use embedded native views owned by the visible editor. Conversation references expose `storageRoot` independently of the application's resource directory. Skill discovery follows the bound application, with application roots taking precedence, and delegation preserves that scope.
+UI Adapter 的 `mount` 可调用 `onContextChange({ title, selection, dirty })`，提供简短的选区名称和草稿状态；TXT 显示选中字符数。宿主在输入框上方展示当前绑定文件的上下文，点击可重新打开文件；这个回调不保存、不绑定、不发送消息，也不能代替 Adapter 的选区持久化协议。
 
 ## v2 / GUI 开发入口
 
@@ -109,17 +89,9 @@ English: harness tiles require separately installed external plugins. FreeCAD/Bl
 
 软件 v2 尚未装配为通用 HTTP/Agent 入口；Computer Use 的专门产品入口见 [接口](computer-use.md)。正式接入需显式设计宿主生命周期、权限交互、资源发现、专用工具和 UI；不得把模型输入直接当作人类授权。新增软件先交付一个真实场景闭环，再扩展更多资源种类。
 
-## 可执行源码应用参考
-
-CAD 的源码和旧形体由同一个 Adapter 声明，宿主不解析源码。文档格式校验和派生计算分开：非空源码及合法类型的参数可保存，编译失败不丢失设计；预览不产生资源版本。UI 按文档版本切换编辑器，保留窗口、历史、绑定和 CAS。人工参数默认在 Agent 续写时保留；模型代码只在独立 Worker 内的隔离解释器执行，不进入宿主 Node、浏览器主线程或 GUI 权限域。
-
-Adapter 工具可返回独立 `images`，桥接层按当前模型的图像输入声明决定是否投递原生图片块，并在文字反馈中明确图片是否送达。不要把 base64 混入文本结果。`exportResource` 可返回 Promise，下载接口的可选 `options` 是应用无关的对象，参数语义与预算由 Adapter 校验；CAD 用它传递 PNG 的计算预算。完整实现与能力边界见 [CAD](cad-integration.md)。
-
 ## 按文档启用工具与通用导出
 
-`validateOperation` 可异步检查外部候选，ResourceStore 在锁内、执行 reducer 前调用；耗时建模在锁外完成。最终提交仍检查 baseRevision。Blender 的快照操作只提交通过身份/hash 校验的项目，清单逆操作恢复原生快照。
-
-`executeResourceCommand` 为 UI 调用资源所属 Adapter 的领域工具，要求 Task 引用、baseRevision、operationId；只接受单次原子领域操作并统一提交。HTTP 断连与 Pi 取消信号传递到候选和导出进程。附件按当前 revision 读取，原生导入由可选 `importResource` 处理；路由没有软件类型分支。详见 [Blender](blender-integration.md)。
+`validateOperation` 可异步检查外部候选，ResourceStore 在锁内、执行 reducer 前调用；耗时建模在锁外完成。最终提交仍检查 baseRevision。
 
 Runtime Adapter 的 agentTools 可接收可选 {content}，返回适用于当前文档的工具子集。context-builder 生成 availableToolNames，ApplicationService 按同一名单装配工具；新软件不必修改 Main 提示词。没有绑定时不注入领域上下文，切换应用时停用旧领域工具。应用绑定只影响与该文档相关的任务。
 

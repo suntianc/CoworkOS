@@ -4,12 +4,13 @@ export const MAX_FILES = 10;
 export const uploadedFileIds = (files) =>
   files.filter((file) => typeof file.uploadId === "string").map((file) => file.uploadId);
 
-function upload(file, signal, progress) {
+/** The page's own backend and no header; the shared client supplies the real transport. */
+export function defaultUpload(file, { name = file.name, signal, onProgress: progress = () => {} } = {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const abort = () => xhr.abort();
     signal.addEventListener("abort", abort, { once: true });
-    xhr.open("POST", `/api/uploads?name=${encodeURIComponent(file.name)}`);
+    xhr.open("POST", `/api/uploads?name=${encodeURIComponent(name)}`);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) progress(Math.round((event.loaded / event.total) * 100));
@@ -38,7 +39,15 @@ function upload(file, signal, progress) {
     xhr.send(file);
   });
 }
-export function createFileUpload({ getContext, getFiles, setFiles, onStatus, onBusy, onError }) {
+export function createFileUpload({
+  getContext,
+  getFiles,
+  setFiles,
+  onStatus,
+  onBusy,
+  onError,
+  upload = defaultUpload
+}) {
   let controller,
     retryFiles = [];
   async function add(files) {
@@ -60,8 +69,12 @@ export function createFileUpload({ getContext, getFiles, setFiles, onStatus, onB
         const file = files[index];
         onStatus({ name: file.name, progress: 0, index: index + 1, total: files.length });
         try {
-          const result = await upload(file, active.signal, (progress) => {
-            if (current()) onStatus({ name: file.name, progress, index: index + 1, total: files.length });
+          const result = await upload(file, {
+            name: file.name,
+            signal: active.signal,
+            onProgress: (progress) => {
+              if (current()) onStatus({ name: file.name, progress, index: index + 1, total: files.length });
+            }
           });
           if (!current()) break;
           if (

@@ -24,16 +24,11 @@ playwright-report/
 /release/
 /build/
 
-/web/assets/cad/generated/
 
-/src/software/cad/runtime-source.generated.ts
 
-src/software/cad/api-reference.generated.ts
 
-/web/assets/pptist/generated/
 
 /web/assets/math/generated/
 
-/vendor/pptist/*.tsbuildinfo
 
 /web/assets/markdown/generated/

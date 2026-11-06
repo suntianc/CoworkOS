@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -9,11 +10,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
-import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-request-store.js";
+const { MainRequestStore, mainRequestPath } = await import("../dist/src/storage/main-request-store.js");
 const modelRequestRetryPath = mainRequestPath;
 const readModelRequestRetry = (path) => new MainRequestStore(path, "scope-task").read();
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { ResourceMappingStore } from "../dist/src/applications/mapping-store.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { ResourceMappingStore } = await import("../dist/src/applications/mapping-store.js");
 
 async function fixture(t, handle, api = "openai-completions", { separateResourceRoot = false } = {}) {
   const received = [];

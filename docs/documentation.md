@@ -4,25 +4,25 @@
 
 ## 事实归属
 
-| 内容                         | 主文档                                                                                                  |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------- |
-| 产品能力、入口和支持范围     | 根 README                                                                                               |
-| App / CLI 首次使用           | getting-started、cli-quickstart                                                                         |
-| 更新、备份与安装排错         | installation-reference                                                                                  |
-| 模型设置                     | configuration                                                                                           |
-| 配置字段、运行契约、组件命令 | configuration-reference、runtime-reference、components-reference                                        |
-| 应用与文件编辑               | applications、text-editor、cad-workflow、blender-workflow、external-applications、presentation-workflow |
-| 演示文稿使用与工具参数       | presentation-workflow、presentation-reference                                                           |
-| 开发约束和功能定位           | 根/目录 AGENTS、code-map                                                                                |
-| 依赖方向、状态与进程生命周期 | architecture                                                                                            |
-| 环境、构建、启动和 UI 约定   | development                                                                                             |
-| 本地验证、用例发现和跳过范围 | testing-local-run 及测试指南                                                                            |
-| HTTP/SSE、字段、错误和消费者 | product-api                                                                                             |
-| 路径、revision、备份和恢复   | task-workspace-layout                                                                                   |
-| 应用/软件/GUI 接口           | software-integration 及领域指南                                                                         |
-| PR 和审阅职责                | CONTRIBUTING、module-ownership                                                                          |
-| 待开发工作与验收标准         | ROADMAP                                                                                                 |
-| 打包、升级、签名和发布       | mac-release                                                                                             |
+| 内容                         | 主文档                                                           |
+| ---------------------------- | ---------------------------------------------------------------- |
+| 产品能力、入口和支持范围     | 根 README                                                        |
+| App / CLI 首次使用           | getting-started、cli-quickstart                                  |
+| 更新、备份与安装排错         | installation-reference                                           |
+| 模型设置                     | configuration                                                    |
+| 配置字段、运行契约、组件命令 | configuration-reference、runtime-reference、components-reference |
+| 应用与文件编辑               | applications、external-applications                              |
+| 演示文稿使用与工具参数       | presentation-workflow、presentation-reference                    |
+| 开发约束和功能定位           | 根/目录 AGENTS、code-map                                         |
+| 依赖方向、状态与进程生命周期 | architecture                                                     |
+| 环境、构建、启动和 UI 约定   | development                                                      |
+| 本地验证、用例发现和跳过范围 | testing-local-run 及测试指南                                     |
+| HTTP/SSE、字段、错误和消费者 | product-api                                                      |
+| 路径、revision、备份和恢复   | task-workspace-layout                                            |
+| 应用/软件/GUI 接口           | software-integration 及领域指南                                  |
+| PR 和审阅职责                | CONTRIBUTING、module-ownership                                   |
+| 待开发工作与验收标准         | ROADMAP                                                          |
+| 打包、升级、签名和发布       | mac-release                                                      |
 
 ## 同步规则
 

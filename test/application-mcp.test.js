@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
@@ -7,8 +8,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { McpSupervisor, resourceConsumer } from "../dist/src/applications/mcp-supervisor.js";
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
+const { McpSupervisor, resourceConsumer } = await import("../dist/src/applications/mcp-supervisor.js");
 
 /**
  * Application MCP servers.
@@ -246,7 +247,10 @@ test(
   async (t) => {
     const supervisor = new McpSupervisor(resolve("."));
     t.after(() => supervisor.stopAll());
-    const spec = { command: process.execPath, args: ["dist/src/applications/mcp/text-editor-server.js"] };
+    const spec = {
+      command: process.execPath,
+      args: ["dist/test/fixtures/application-contract/text-editor-server.js"]
+    };
 
     // Starting a process is slow; two callers arriving in that window must not
     // each spawn one, or the second would be unstoppable.

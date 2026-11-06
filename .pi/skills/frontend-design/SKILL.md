@@ -7,7 +7,7 @@ description: 创建或调整网页、落地页与 Web UI 的字体、配色、�
 
 先读 [设计与验收](references/design.md)。用真实内容确定受众、页面的主要动作和一个主题相关的视觉锚点；将字体、色板、间距与栅格整理成少量 CSS tokens。已有页面保持品牌、组件和交互一致。
 
-按需组合 [interactive-prototype](../interactive-prototype/SKILL.md)、[hi-fi-design](../hi-fi-design/SKILL.md)、[wireframe](../wireframe/SKILL.md)、[charts](../charts/SKILL.md)、[data-report](../data-report/SKILL.md)、[make-a-deck](../make-a-deck/SKILL.md) 或 [animated-video](../animated-video/SKILL.md)。普通 hover 和过渡用 CSS，不需要时间轴工作流。
+按需组合 [interactive-prototype](../interactive-prototype/SKILL.md)、[hi-fi-design](../hi-fi-design/SKILL.md)、[wireframe](../wireframe/SKILL.md)、[charts](../charts/SKILL.md)、[data-report](../data-report/SKILL.md) 或 [animated-video](../animated-video/SKILL.md)。普通 hover 和过渡用 CSS，不需要时间轴工作流。
 
 沿用项目框架、路由、依赖与资源策略。独立网页可使用 HTML/CSS/JS；需要 React 时使用项目已有依赖和构建工具。外部脚本、字体和图片必须核实可用性，离线交付要包含依赖和许可。路径按 `load_skill` 返回的技能目录解析，不假定当前目录是安装目录。
 

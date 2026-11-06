@@ -1,37 +1,25 @@
-import { componentTokenProvider, validateComponentToken } from "../software/components/download.js";
-import { componentReleaseRoot, privateComponentSource } from "../software/components/source.js";
-import { createComponentService } from "../software/components/service.js";
 import { readCoworkConfig } from "../runtime/config.js";
 import { applyProxyEnvironment } from "../runtime/http-transport.js";
 import { createDashboardApplication } from "../dashboard/application.js";
+import { backendPaths, ensureBackendIdentity } from "../dashboard/backend-instance.js";
+import { atriaHome } from "../../scripts/data-home.cjs";
 
 applyProxyEnvironment(readCoworkConfig());
-const releaseRoot = componentReleaseRoot();
-let componentToken = componentTokenProvider(releaseRoot)();
+/**
+ * Serve the data root's backend identity, not a new one per process.
+ *
+ * A Backend keeps its identity across restarts (that is what lets a client
+ * recognise a restarted process and scope its drafts and sessions to it). The
+ * detached daemon already persists this record; the UI entry has to read the
+ * same one, or every `ui` restart would look like a different backend.
+ */
+const identity = await ensureBackendIdentity(backendPaths(atriaHome()));
 const dashboard = createDashboardApplication({
-  components: createComponentService({ releaseRoot, githubToken: () => componentToken })
+  backendIdentity: { backendId: identity.backendId, startedAt: new Date().toISOString() }
 });
 // This IPC channel belongs to the Electron parent, not the HTTP/Agent surface.
 process.on("message", (value) => {
   if (!value || typeof value !== "object" || !("type" in value)) return;
-  if (
-    value.type === "components.auth" &&
-    "requestId" in value &&
-    typeof value.requestId === "string" &&
-    "token" in value
-  ) {
-    try {
-      if (privateComponentSource(releaseRoot)) componentToken = validateComponentToken(value.token);
-      process.send?.({ type: "components.auth.reply", requestId: value.requestId });
-    } catch {
-      process.send?.({
-        type: "components.auth.reply",
-        requestId: value.requestId,
-        error: "Invalid component credential"
-      });
-    }
-    return;
-  }
   if (value.type !== "computer.host") return;
   const message = value as { requestId?: unknown; input?: unknown };
   if (typeof message.requestId !== "string") return;

@@ -28,7 +28,7 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / applica
 | ProcessHost                  | 子进程组、重复启动保护、任务停止、限时关闭                          | [ProcessHost](../src/runtime/process-host.ts)                                                                                                                 | 不裁决对话或资源业务状态                                     |
 | Pi 接入                      | Pi hook、工具注册、应用上下文装配                                   | [薄入口](../.pi/extensions/cowork.ts)、[runtime](../.pi/runtime/extension.ts)、[应用桥](../.pi/runtime/application-bridge.ts)、[tools](../.pi/runtime/tools/) | 新领域工具进入对应模块；Pi 上游源码不在此修改                |
 | Applications                 | 注册表、应用实例、共享资源、绑定、revision/CAS、历史、外部文件、MCP | [服务](../src/applications/application-service.ts)、[合同](../src/applications/types.ts)、[Adapters](../src/applications/adapters/)                           | 所有调用方共享操作语义；不处理屏幕输入                       |
-| Software                     | CAD/Blender/PPTist 领域实现、异步驱动、二进制/工程资源              | [合同](../src/software/contracts.ts)、[服务](../src/software/software-service.ts)、[注册表](../src/software/provider-registry.ts)                             | 不能原地改变 v1 文件语义；取消、候选提交、失败恢复由驱动实现 |
+| Software                     | 通用软件、异步驱动、二进制/工程资源                                 | [合同](../src/software/contracts.ts)、[服务](../src/software/software-service.ts)、[注册表](../src/software/provider-registry.ts)                             | 不能原地改变 v1 文件语义；取消、候选提交、失败恢复由驱动实现 |
 | GUI / Security               | 窗口授权、观察/动作、串行队列、取消、审计、执行权限                 | [ComputerUse](../src/gui/computer-use.ts)、[权限](../src/security/execution-permissions.ts)                                                                   | 授权由可信宿主授予；文档 CAS 与模型决策不在此层              |
 | Workspace / Storage / Domain | Task/Run 数据、输入/产出物、索引、持久事件、trace、文件锁与类型     | [工作区](../src/workspace/)、[存储](../src/storage/)、[领域](../src/domain/)                                                                                  | 格式兼容、路径归属与迁移显式维护                             |
 | Desktop                      | 原生窗口、可信 IPC、加密模型设置、用户数据目录、退出保存            | [main](../desktop/main.cjs)、[preload](../desktop/preload.cjs)、[backend](../desktop/backend.cjs)                                                             | renderer 无 Node 权限；产出物查看窗口无可信桥                |
@@ -41,7 +41,7 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / applica
 
 Dashboard Run 管理 Main 子进程和同 Task 的启动/停止串行化；运行时 RunService 管理实际 Pi 会话的 Task/Run、事件与 checkpoint。状态和输出落盘后才宣布完成；不能以最后一条文本代替完成判定。
 
-桌面退出先经可信 IPC 等待编辑器与草稿保存，再关闭后端。后端停止 Run 进程组并等待输出/任务落盘；未完成任务保持可恢复的 waiting 状态。重启由用户继续同一会话。保存失败要保留窗口/草稿，不能强行关掉再依赖恢复。
+桌面退出先经可信 IPC 等待渲染进程完成草稿/文档保存检查，有未保存的文档或任务草稿时提示用户返回处理或确认退出，再关闭后端。后端停止 Run 进程组并等待输出/任务落盘；未完成任务保持可恢复的 waiting 状态。重启由用户继续同一会话。保存失败要保留窗口/草稿，不能强行关掉再依赖恢复。
 
 Pi 的 `before_agent_start` 在首轮请求前发现绑定应用与工具，`context` 在后续请求间刷新资源变化。回归必须覆盖真实 Pi hook 顺序和子进程结束，不能只用测试双证明生命周期。
 
@@ -69,7 +69,7 @@ HTTP、Run 与 Pi 通过 [Task 应用解析](../src/applications/task-service.ts
 
 应用操作使用 revision CAS，冲突保留人工草稿。MCP 进程归应用窗口/本地服务所有，生命周期跨越单次 Run；资源变动使用现有 Run SSE，无 Run 时工作台轮询刷新。
 
-v1 使用同步 UTF-8 文件协议。TXT、CAD JSON 和 PPTist 文档通过各自 Adapter 保存；Blender 的 UTF-8 清单引用 v2 不可变原生工程快照，二进制不转换为字符串。候选在锁外生成，校验与清单 CAS 在锁内提交。通用多文件事务、远程驱动和所有 v2 UI/历史能力仍未完整实现。
+v1 使用同步 UTF-8 文本文件协议，二进制资源保留不可变快照清单。内置应用目录为空，候选由已注册 Adapter 在锁外生成，校验与清单 CAS 在锁内提交。通用多文件事务、远程驱动和所有 v2 UI/历史能力仍未完整实现。
 
 工作台轮询只清理读取快照中确认失效的标签，不删除期间创建或换身份的标签。空窗口创建文档时 `window:<instanceId>` 原位变成 `resource:<resourceId>`。显式导航捕获 Task/草稿身份和导航 token；每个异步步骤检查归属，晚返回可以完成后台工作但不能覆盖新的导航。
 

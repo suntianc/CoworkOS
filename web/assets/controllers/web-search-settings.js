@@ -3,13 +3,15 @@ import { createSettingsModal } from "./settings-modal.js";
 import { icon } from "../ui/icons.js";
 
 /** Search credentials are submitted once. Both hosts use the same choices and status vocabulary. */
-export function installWebSearchSettings({ showToast, overview }) {
+export function installWebSearchSettings({ showToast, overview, api }) {
   const desktop = window.bookmanDesktop;
   const request = async (method, body) => {
-    const response = await fetch("/api/web-search-settings", {
+    const options = {
       method,
       ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {})
-    });
+    };
+    if (api) return api("/api/web-search-settings", options);
+    const response = await fetch("/api/web-search-settings", options);
     const value = await response.json();
     if (!response.ok) throw new Error(value.error || ui("搜索设置暂时不可用"));
     return value;

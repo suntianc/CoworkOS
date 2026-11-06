@@ -1,11 +1,4 @@
 import { MainMessageEditConflict, type EditTextFile } from "../runtime/main-message-edit.js";
-import {
-  selectedComponentDirectory,
-  componentDisabled,
-  componentIds,
-  type ComponentId
-} from "../software/components/paths.js";
-import type { createComponentService } from "../software/components/service.js";
 import { readFile } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -19,7 +12,21 @@ import type { ProjectExperienceStore } from "../runtime/project-experience-store
 import { handleUserMemoryRequest } from "./user-memory-routes.js";
 import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { serveArtifact } from "./artifact-response.js";
-import { dashboardContentPolicy, HttpError, localRequestUrl, readJsonBody, sendJson } from "./http.js";
+import {
+  applyTrustedClientCors,
+  dashboardContentPolicy,
+  HttpError,
+  localRequestUrl,
+  readJsonBody,
+  sendJson,
+  trustedClientOrigin,
+  trustedClientOrigins
+} from "./http.js";
+import { protocolInfo } from "./backend-protocol.js";
+import type { CatalogEvents } from "./catalog-events.js";
+import { HOST_PRINCIPAL, type LocalAccess, type LocalPrincipal } from "./local-access.js";
+import { handleSessionRequest } from "./session-routes.js";
+import { commandContent, runCommand, sendCommandOutcome, type CommandRunner } from "./management-commands.js";
 import { id } from "../domain/types.js";
 import { readAgentTrajectory } from "../runtime/agent-trajectory.js";
 import { CoordinatorRuntime } from "../runtime/coordinator-runtime.js";
@@ -34,7 +41,6 @@ import { readJsonFile, streamRunEvents } from "./event-stream.js";
 import { InputStore, inputPrompt } from "../workspace/input-store.js";
 import { handleUploadRequest } from "./upload-routes.js";
 import { handleComputerRequest } from "./computer-routes.js";
-import type { createBlenderInstaller } from "../software/blender/installer.js";
 import type { ComputerUse } from "../gui/computer-use.js";
 
 import { handleGoalRequest } from "./goal-routes.js";
@@ -53,11 +59,16 @@ type WorkspaceDirectory = ReturnType<typeof createWorkspaceDirectory>;
 type RunService = ReturnType<typeof createDashboardRunService>;
 export interface DashboardRoutePorts {
   userMemory?: UserMemoryStore;
+  backendInfo(): { backendId: string; pid: number; startedAt: string };
+  /** Local session authorization; absent only in partial handlers that serve one router. */
+  access?: LocalAccess;
+  /** Durable receipts for idempotent change commands; absent in partial handlers. */
+  commands?: CommandRunner;
+  /** Snapshot and resumable catalog events; absent in partial handlers. */
+  events?: CatalogEvents;
   projectExperienceStore?: (projectId: string) => Promise<ProjectExperienceStore | undefined>;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
-  components?: ReturnType<typeof createComponentService>;
-  blenderInstaller?: ReturnType<typeof createBlenderInstaller>;
   uploads?: InputStore;
   computer: ComputerUse;
   dashboardUrl: string;
@@ -137,9 +148,86 @@ export function createDashboardHandler(
     taskListItem,
     appendRunEvent
   } = ports;
+  /**
+   * Publish the catalog object this route just committed.
+   *
+   * The append happens after the business write, which is the window the
+   * ledger's reconciliation heals; a failed append never turns the committed
+   * change into an error response (see createCatalogEvents).
+   */
+  const publishProject = async <T extends { projectId: string }>(project: T): Promise<T> => {
+    await ports.events?.project(project as unknown as Record<string, unknown>);
+    return project;
+  };
+  const publishTask = async <T extends { taskId: string }>(task: T): Promise<T> => {
+    await ports.events?.task(task as unknown as Record<string, unknown>);
+    return task;
+  };
   return async (request, response) => {
     try {
-      const url = localRequestUrl(request, dashboardUrl);
+      const admitted = ports.access?.admit(request, dashboardUrl);
+      const url = admitted ? admitted.url : localRequestUrl(request, dashboardUrl);
+      // A page served by another trusted local backend reads this response
+      // through CORS. Same-origin requests get no extra headers.
+      const trustedOrigin = trustedClientOrigin(request);
+      if (trustedOrigin) applyTrustedClientCors(response, trustedOrigin);
+      if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+      const principal: LocalPrincipal = admitted?.principal ?? HOST_PRINCIPAL;
+      // Identity read-only: a host uses it to confirm that the process it
+      // recorded is the one answering here, never to learn configuration.
+      if (request.method === "GET" && url.pathname === "/api/backend") {
+        sendJson(response, 200, { ...ports.backendInfo(), protocol: protocolInfo() });
+        return;
+      }
+      if (
+        ports.access &&
+        (await handleSessionRequest(request, response, url, ports.access, ports.backendInfo, principal))
+      )
+        return;
+      // A command receipt is how a client reconciles after a lost response: ask
+      // whether its command landed, then retry with the same operation id.
+      const operationMatch = url.pathname.match(/^\/api\/operations\/([^/]+)$/);
+      if (request.method === "GET" && operationMatch && ports.commands) {
+        const receipt = await ports.commands.read(
+          principal.principalId,
+          decodeURIComponent(operationMatch[1])
+        );
+        if (!receipt)
+          throw new HttpError(404, "找不到该 operationId 的结果；命令可能尚未执行", "operation_unknown");
+        sendJson(response, 200, receipt);
+        return;
+      }
+      // The snapshot names the cursor it was taken at; the subscription replays
+      // from that cursor, so a change made between the two is never lost.
+      if (ports.events && request.method === "GET" && url.pathname === "/api/events/snapshot") {
+        sendJson(response, 200, await ports.events.snapshot());
+        return;
+      }
+      if (ports.events && request.method === "GET" && url.pathname === "/api/events/stream") {
+        const raw = url.searchParams.get("cursor");
+        const after = raw === null || raw === "" ? Number.NaN : Number(raw);
+        if (!Number.isInteger(after) || after < 0)
+          throw new HttpError(
+            400,
+            "事件订阅需要快照给出的 cursor（非负整数）；先取 GET /api/events/snapshot",
+            "cursor_required"
+          );
+        const admitted = await ports.events.cursorState(after);
+        if (!admitted.ok)
+          throw new HttpError(
+            409,
+            admitted.code === "cursor_unknown"
+              ? `cursor ${after} 不属于本次后端事件序列（当前 ${admitted.cursor}）；请重新获取快照`
+              : `cursor ${after} 早于保留窗口（${admitted.earliest}–${admitted.cursor}）；请重新获取快照`,
+            admitted.code
+          );
+        await ports.events.subscribe(request, response, after);
+        return;
+      }
       // Bind desktop request epochs before any awaited router can cross a
       // stop/revoke/resume boundary while this request is still being admitted.
       if (await handleComputerRequest(request, response, url, ports.computer, locateTask)) return;
@@ -151,40 +239,12 @@ export function createDashboardHandler(
       if (ports.userMemory && (await handleUserMemoryRequest(request, response, url, ports.userMemory)))
         return;
       if (ports.uploads && (await handleUploadRequest(request, response, url, ports.uploads))) return;
-      if (ports.components && url.pathname === "/api/components" && request.method === "GET") {
-        const componentId = url.searchParams.get("id");
-        if (componentId !== null && !componentIds.includes(componentId as ComponentId))
-          throw new HttpError(400, "Unknown component");
-        sendJson(response, 200, {
-          components:
-            componentId !== null
-              ? [await ports.components.status(componentId as ComponentId)]
-              : await ports.components.list(
-                  url.searchParams.get("refresh") === "1",
-                  url.searchParams.get("probe") === "1"
-                )
-        });
-        return;
-      }
-      const componentMatch = url.pathname.match(
-        /^\/api\/components\/([a-z]+)\/(install|upgrade|cancel|enable|disable|uninstall)$/
-      );
-      if (ports.components && componentMatch && request.method === "POST") {
-        if (!componentIds.includes(componentMatch[1] as ComponentId))
-          throw new HttpError(400, "Unknown component");
-        sendJson(
-          response,
-          202,
-          await ports.components.action(componentMatch[1] as ComponentId, componentMatch[2])
-        );
-        return;
-      }
       if (request.method === "GET" && url.pathname === "/") {
         const html = await readFile(join(uiRoot, "index.html"), "utf8");
         response.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
           "cache-control": "no-cache",
-          "content-security-policy": dashboardContentPolicy,
+          "content-security-policy": dashboardContentPolicy(trustedClientOrigins()),
           "x-content-type-options": "nosniff"
         });
         response.end(html);
@@ -194,27 +254,7 @@ export function createDashboardHandler(
         request.method === "GET" &&
         (url.pathname === "/styles.css" || url.pathname === "/app.js" || url.pathname.startsWith("/assets/"))
       ) {
-        const pptPrefix = "/assets/pptist/generated/";
-        const selectedPpt = selectedComponentDirectory("pptist");
-        const disabledPpt = url.pathname.startsWith(pptPrefix) && componentDisabled("pptist");
-        let assetStatus = 200;
-        const assetPath =
-          url.pathname.startsWith(pptPrefix) && selectedPpt
-            ? join(selectedPpt, url.pathname.slice(pptPrefix.length))
-            : join(uiRoot, url.pathname.slice(1));
-        const asset = await (
-          disabledPpt
-            ? Promise.reject(new HttpError(409, "PPT 编辑器已停用，请在设置的应用组件中启用"))
-            : readFile(assetPath)
-        ).catch((error) => {
-          if (url.pathname === `${pptPrefix}index.html`) {
-            assetStatus = 409;
-            return readFile(join(uiRoot, "assets/pptist/missing.html"));
-          }
-          if (url.pathname.startsWith(pptPrefix))
-            throw new HttpError(409, "PPT 编辑器暂不可用，请在设置的应用组件中启用或修复安装");
-          throw error;
-        });
+        const asset = await readFile(join(uiRoot, url.pathname.slice(1)));
         const extension = url.pathname.slice(url.pathname.lastIndexOf(".")).toLowerCase();
         const contentType =
           (
@@ -237,14 +277,17 @@ export function createDashboardHandler(
               ".txt": "text/plain; charset=utf-8"
             } as Record<string, string>
           )[extension] ?? "application/octet-stream";
-        response.writeHead(assetStatus, { "content-type": contentType, "cache-control": "no-cache" });
+        response.writeHead(200, { "content-type": contentType, "cache-control": "no-cache" });
         response.end(asset);
         return;
       }
       if (
         ports.goals &&
         ports.watchers &&
-        (await handleGoalRequest(request, response, url, ports.goals, ports.watchers.health()))
+        (await handleGoalRequest(request, response, url, ports.goals, ports.watchers.health(), {
+          principalId: principal.principalId,
+          ...(ports.commands ? { commands: ports.commands } : {})
+        }))
       )
         return;
       if (ports.watchers && request.method === "GET" && url.pathname === "/api/monitors") {
@@ -302,51 +345,54 @@ export function createDashboardHandler(
       }
       if (request.method === "POST" && url.pathname === "/api/projects") {
         const body = await readJsonBody(request);
-        sendJson(response, 201, {
-          project: await ports.createProject({
-            projectName: body.projectName,
-            projectDirectory: body.projectDirectory
+        sendCommandOutcome(
+          response,
+          await runCommand(ports.commands, {
+            principalId: principal.principalId,
+            operationId: body.operationId,
+            command: "projects.create",
+            content: commandContent(body),
+            apply: async () => ({
+              status: 201,
+              body: {
+                project: await publishProject(
+                  await ports.createProject({
+                    projectName: body.projectName,
+                    projectDirectory: body.projectDirectory
+                  })
+                )
+              }
+            })
           })
-        });
+        );
         return;
       }
       const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
       if (request.method === "PATCH" && projectMatch) {
         const body = await readJsonBody(request);
-        sendJson(response, 200, {
-          project: await ports.updateProject(decodeURIComponent(projectMatch[1]), {
-            projectName: body.projectName,
-            projectDirectory: body.projectDirectory
+        const projectId = decodeURIComponent(projectMatch[1]);
+        sendCommandOutcome(
+          response,
+          await runCommand(ports.commands, {
+            principalId: principal.principalId,
+            operationId: body.operationId,
+            command: "projects.update",
+            // The target is part of the command: one operation id may not mean
+            // "rename A" on one retry and "rename B" on the next.
+            content: commandContent({ ...body, projectId }),
+            apply: async () => ({
+              status: 200,
+              body: {
+                project: await publishProject(
+                  (await ports.updateProject(projectId, {
+                    projectName: body.projectName,
+                    projectDirectory: body.projectDirectory
+                  })) as { projectId: string }
+                )
+              }
+            })
           })
-        });
-        return;
-      }
-      if (
-        ports.blenderInstaller &&
-        url.pathname === "/api/applications/blender/runtime" &&
-        request.method === "GET"
-      ) {
-        const state = ports.components
-          ? await ports.components.status("blender")
-          : await ports.blenderInstaller.status();
-        sendJson(response, 200, {
-          ...state,
-          canInstall: "supported" in state ? state.supported && !state.available : state.canInstall
-        });
-        return;
-      }
-      if (
-        ports.blenderInstaller &&
-        url.pathname === "/api/applications/blender/install" &&
-        request.method === "POST"
-      ) {
-        const state = ports.components
-          ? await ports.components.action("blender", "install")
-          : await ports.blenderInstaller.start();
-        sendJson(response, 202, {
-          ...state,
-          canInstall: "supported" in state ? state.supported && !state.available : state.canInstall
-        });
+        );
         return;
       }
       // Register an application destination without switching or moving any conversation.
@@ -457,54 +503,67 @@ export function createDashboardHandler(
       }
       if (request.method === "POST" && url.pathname === "/api/tasks") {
         const body = await readJsonBody(request);
-        const goal = typeof body.goal === "string" ? body.goal.trim() : "";
-        if (goal.includes("\0")) throw new Error("消息包含不支持的二进制字符");
-        if (!goal) throw new Error("goal must not be empty");
-        const requested = typeof body.taskId === "string" ? body.taskId : id("task");
-        if (!/^[a-zA-Z0-9._-]+$/.test(requested)) throw new Error("unsafe task id");
-        if (body.temporary === true || body.projectId === null) {
-          if (
-            body.workspaceRoot !== undefined ||
-            body.projectDirectory !== undefined ||
-            body.projectId != null
-          )
-            throw new Error("临时会话不能同时指定项目或目录");
-          sendJson(
-            response,
-            201,
-            await ports.createTemporaryTask(
-              requested,
-              { goal: goal.slice(0, 4_000) },
-              body.temporaryWorkspaceRoot
-            )
-          );
-          return;
-        }
-        if (body.temporary !== undefined && body.temporary !== false)
-          throw new Error("temporary 必须是布尔值");
-        if (body.temporaryWorkspaceRoot !== undefined) throw new Error("临时工作区仅用于临时会话");
-        if (body.projectId !== undefined) {
-          if (typeof body.projectId !== "string" || !body.projectId.trim())
-            throw new Error("projectId 必须是非空字符串");
-          if (body.workspaceRoot !== undefined || body.projectDirectory !== undefined)
-            throw new Error("会话继承项目文件夹，请在项目设置中更改");
-          sendJson(
-            response,
-            201,
-            await ports.createProjectTask(requested, body.projectId, { goal: goal.slice(0, 4_000) })
-          );
-          return;
-        }
-        if (body.projectDirectory !== undefined) throw new Error("会话文件夹设置已移至项目");
-        const root =
-          body.workspaceRoot === undefined
-            ? ports.workspaceRoot()
-            : await resolveWorkspacePath(body.workspaceRoot);
-        await ports.registerWorkspace(root);
-        const taskStore = new LocalWorkspaceStore(root);
-        await taskStore.createTask(requested, { goal: goal.slice(0, 4_000) });
-        const location = await locateTask(requested);
-        sendJson(response, 201, taskListItem(location));
+        sendCommandOutcome(
+          response,
+          await runCommand(ports.commands, {
+            principalId: principal.principalId,
+            operationId: body.operationId,
+            command: "tasks.create",
+            content: commandContent(body),
+            apply: async () => {
+              const goal = typeof body.goal === "string" ? body.goal.trim() : "";
+              if (goal.includes("\0")) throw new Error("消息包含不支持的二进制字符");
+              if (!goal) throw new Error("goal must not be empty");
+              const requested = typeof body.taskId === "string" ? body.taskId : id("task");
+              if (!/^[a-zA-Z0-9._-]+$/.test(requested)) throw new Error("unsafe task id");
+              if (body.temporary === true || body.projectId === null) {
+                if (
+                  body.workspaceRoot !== undefined ||
+                  body.projectDirectory !== undefined ||
+                  body.projectId != null
+                )
+                  throw new Error("临时会话不能同时指定项目或目录");
+                return {
+                  status: 201,
+                  body: await publishTask(
+                    await ports.createTemporaryTask(
+                      requested,
+                      { goal: goal.slice(0, 4_000) },
+                      body.temporaryWorkspaceRoot
+                    )
+                  )
+                };
+              }
+              if (body.temporary !== undefined && body.temporary !== false)
+                throw new Error("temporary 必须是布尔值");
+              if (body.temporaryWorkspaceRoot !== undefined) throw new Error("临时工作区仅用于临时会话");
+              if (body.projectId !== undefined) {
+                if (typeof body.projectId !== "string" || !body.projectId.trim())
+                  throw new Error("projectId 必须是非空字符串");
+                if (body.workspaceRoot !== undefined || body.projectDirectory !== undefined)
+                  throw new Error("会话继承项目文件夹，请在项目设置中更改");
+                return {
+                  status: 201,
+                  body: await publishTask(
+                    await ports.createProjectTask(requested, body.projectId, {
+                      goal: goal.slice(0, 4_000)
+                    })
+                  )
+                };
+              }
+              if (body.projectDirectory !== undefined) throw new Error("会话文件夹设置已移至项目");
+              const root =
+                body.workspaceRoot === undefined
+                  ? ports.workspaceRoot()
+                  : await resolveWorkspacePath(body.workspaceRoot);
+              await ports.registerWorkspace(root);
+              const taskStore = new LocalWorkspaceStore(root);
+              await taskStore.createTask(requested, { goal: goal.slice(0, 4_000) });
+              const location = await locateTask(requested);
+              return { status: 201, body: await publishTask(taskListItem(location)) };
+            }
+          })
+        );
         return;
       }
       const streamMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/stream$/);
@@ -802,6 +861,7 @@ export function createDashboardHandler(
         if (activeRuns.has(taskId)) throw new Error("请先停止任务，再删除会话");
         if (location.task.kind === "workspace") throw new Error("工作区不能作为会话删除");
         await location.store.deleteTask(taskId);
+        await ports.events?.taskDeleted(taskId);
         sendJson(response, 200, { taskId, deleted: true });
         return;
       }
@@ -829,7 +889,9 @@ export function createDashboardHandler(
         sendJson(
           response,
           200,
-          taskListItem({ ...location, task: await location.store.updateTask(taskId, patch) })
+          await publishTask(
+            taskListItem({ ...location, task: await location.store.updateTask(taskId, patch) })
+          )
         );
         return;
       }
@@ -870,9 +932,7 @@ export function createDashboardHandler(
             : await location.store.transitionTask(taskId, action === "resume" ? "running" : "completed", {
                 reason: `ui_${action}`
               });
-        sendJson(response, 200, {
-          ...taskListItem({ ...location, task: next })
-        });
+        sendJson(response, 200, await publishTask(taskListItem({ ...location, task: next })));
         return;
       }
       sendJson(response, 405, { error: "method not allowed" });
@@ -890,6 +950,7 @@ export function createDashboardHandler(
             : 400,
           {
             error: error instanceof Error ? error.message : String(error),
+            ...(error instanceof HttpError && error.code ? { code: error.code } : {}),
             ...(error instanceof MainMessageEditConflict ||
             error instanceof MainRequestConflictError ||
             error instanceof MainRequestSnapshotError

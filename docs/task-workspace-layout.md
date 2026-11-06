@@ -18,8 +18,6 @@ Main 的最近一条模型请求执行快照位于 `<task-storage-root>/<taskId>
 
 执行快照保留未脱敏的用户内容，不能用作公开审计或训练导出；HTTP 认证头不保存，重试使用当前有效凭据。它与脱敏的 `*-requests.jsonl` 请求归档分别保存，归档可用 `retryOf` 关联原失败请求。损坏快照拒绝重放并保留原文件；旧会话缺少快照时沿用上下文恢复，不宣称能复原历史请求字节。备份时与 Task 存储一并保护。
 
-可选组件位于用户可写的 `<ATRIA_HOME>/components/`，默认 `~/.atria/components/`；桌面宿主沿用其实际用户数据目录，`ATRIA_COMPONENTS_HOME` 可显式覆盖。各组件的 `versions/` 保存受管运行时，`current.json` 原子切换当前版本，安装锁和进度与 Task 数据分开。安装、停用和卸载均不移动项目、应用文档或 Task；卸载只删除受管版本，不删除发现的外部安装。详见 [可选组件](optional-components.md)。
-
 ## 临时工作区
 
 默认独立应用与无项目会话分别创建 `<dirname(global-index)>/temporary-workspaces/<uuid>/`，通常位于 `~/.atria/runtime/temporary-workspaces/`。这些目录持久保存，不属于 OS 临时目录，也不登记为共享默认 workspace 或普通空项目。每空间有 `.atria-temporary-workspace.json`（版本 1、workspaceId、holdingTaskId、taskStorageRoot、createdAt、retention=`until-explicit-discard`）；目录和记录身份必须匹配，路径 canonical 化且拒绝符号链接。
@@ -30,7 +28,7 @@ Main 的最近一条模型请求执行快照位于 `<task-storage-root>/<taskId>
 
 旧无标记 Task、旧 `workspace` holding Task 和既有项目/null-project 资源保持原解释，不自动迁移、改归属或删除。
 
-桌面端文件选择与编辑区拖入均传递原文件路径和内容 hash，即使应用位于临时工作区也保留 `sourceFile` 关联。PPT 的操作和撤销只提交管理副本中的恢复草稿，显式「保存」或 ⌘/Ctrl+S 才经原文件校验和冲突协议写回原路径；其他编辑器保留原有自动保存语义。资源根仍用于修订和恢复，不因此移动原文件或登记项目。浏览器没有原生路径时保留副本导入；旧的无 `sourceFile` 资源不按同名文件自动补关联。
+桌面端通过应用的文件导入入口选择原文件，桌面环境同时传递原文件路径和内容 hash，即使应用位于临时工作区也保留 `sourceFile` 关联。保存语义由 Adapter 决定：显式保存经原文件校验和冲突协议写回原路径，自动保存只更新管理副本中的恢复草稿。资源根仍用于修订和恢复，不因此移动原文件或登记项目。浏览器没有原生路径时保留副本导入；旧的无 `sourceFile` 资源不按同名文件自动补关联。
 
 显式另存通过 ApplicationService 和 Adapter 导出，ResourceStore 在 revision CAS 锁内维护 `savedCopies`（绝对 path、format、内容 hash、revision、可选 project）。首次文件写入先 sync，再 exclusive 原子提交；首次保存拒绝任何已存在目标，即使内容相同；已落盘的 savedCopies 记录才授权更新。
 
@@ -46,7 +44,7 @@ Independent apps and projectless chats allocate separate `<dirname(global-index)
 
 Task history and holding Tasks remain in the real Task storage root. `temporaryWorkspaceRoot` marks temporary ownership, `projectDirectory` carries the effective tool CWD, and HTTP returns `projectId:null`. Temporary conversations stay visible independently of projects; holding Tasks stay hidden. Legacy records without the marker retain their existing project adoption and null-project resource semantics. No existing resources or history are moved or deleted.
 
-Desktop file selection and drops into an editor pass the original path and content hash, preserving a `sourceFile` association even in temporary workspaces. PPT operations and undo retain a managed recovery draft; only explicit Save or Cmd/Ctrl+S writes to the original through its validation and conflict protocol. Other editors retain their existing autosave behavior. The managed root retains revisions and recovery data without moving the original or registering a project. Browsers without native paths still import copies; legacy resources without `sourceFile` never acquire an association by matching file names.
+Desktop file selection through an application's file import passes the original path and content hash when the desktop provides it, preserving a `sourceFile` association even in temporary workspaces. The adapter decides the save behavior: explicit saves write to the original through its validation and conflict protocol, while autosave only updates a managed recovery draft. The managed root retains revisions and recovery data without moving the original or registering a project. Browsers without native paths still import copies; legacy resources without `sourceFile` never acquire an association by matching file names.
 
 Explicit saving exports through the Adapter under revision CAS and records `savedCopies` (path, format, content hash, revision and optional project). Complete first writes commit exclusively and reject every existing destination, including identical bytes. Only a persisted savedCopies receipt authorizes updates, which verify the prior copy's hash.
 
@@ -167,8 +165,6 @@ Task 初始化会创建 `agents/main/work/`，在 Main 首次模型请求前即�
 
 ## 引用、绑定与关闭
 
-Blender 额外保存 `<application-resource-root>/applications/blender/projects/<projectId>/snapshots/<snapshotId>/`，包含原生场景、GLB、PNG 和 hash 报告；工作台清单与历史引用不可变快照。备份需整个 `applications/blender/`，或下载可移植 `.blend`；单独备份清单不能恢复原生工程。快照清理尚未实现，工程有磁盘预算。详见 [Blender](blender-integration.md)。
-
 - 引用决定资源是否属于该 Task 的可见资源集合。
 - 绑定决定下一次 Main 请求得到哪个应用的上下文与工具；引用不意味着当前一定绑定。
 - 文档 Tab 以 resourceId 标识，同一文档不因多个对话引用而重复成多份。
@@ -201,11 +197,11 @@ Blender 额外保存 `<application-resource-root>/applications/blender/projects/
 
 用户和 Agent 的协议写入均带 baseRevision，版本冲突返回 409，重试使用相同 operationId 保持幂等。专用应用工具返回操作，由应用服务统一提交；不要绕过协议用普通 write 覆盖共享文档。
 
-外部软件或普通文件工具仍可能直接改原文件。读取时检测 contentVersion 变化，推进 revision 并记录 `workspace.external_change`，旧编辑器需重读，保留本地草稿。协议锁无法约束不遵循该锁的外部进程，不能据此宣称跨软件绝对原子写入。
+外部软件或普通文件工具仍可能直接改原文件。读取时检测 contentVersion 变化，推进 revision 并记录 `workspace.external_change`；再次编辑前要重读，未提交的草稿保留。协议锁无法约束不遵循该锁的外部进程，不能据此宣称跨软件绝对原子写入。
 
 内容写入中断后，若文件已经匹配待提交内容但元数据尚未提交，恢复会补齐元数据与原操作日志，保留 operationId、撤销信息和重试幂等性。重命名先持久化 `renames/<resourceId>.json`，记录原路径、目标路径、内容版本和原文件身份，再移动文件并提交元数据。恢复核对路径、hash 与文件身份；旧文件名被另一文档复用时，原资源仍指向确认过的新路径。身份或内容无法确认时保留两边文件与恢复意图，返回 `resource_recovery_required`，不猜测归属或覆盖独立修改。
 
-内部路径和外部文件的 IO/校验在 [resource-files.ts](../src/applications/resource-files.ts)，版本/操作/事务恢复在 [resource-store.ts](../src/applications/resource-store.ts)。TXT 本地草稿与失败恢复在 [text-document-session.js](../web/assets/workbench/adapters/text-document-session.js)。
+内部路径和外部文件的 IO/校验在 [resource-files.ts](../src/applications/resource-files.ts)，版本/操作/事务恢复在 [resource-store.ts](../src/applications/resource-store.ts)。
 
 资源操作历史由 [operation-history.ts](../src/applications/operation-history.ts) 流式读取。小事件仍内联在 `operations.jsonl`；超过 16 KiB 的新事件使用显式 `atria.operation.v1` 日志头，完整内容保存在资源目录的 `history-blobs/<sha256>.gz`。事件中的大字符串按 JSON 编码内容寻址，重复媒体在正向操作、逆操作和后续保存之间共享。
 
@@ -282,7 +278,7 @@ node scripts/migrate-artifacts.mjs --workspace /path/to/workspace --task <task-i
 
 消息保留 messageId、parentEntryId、时间、inCurrentBranch、role、content、instructionSections 和 metadata；metadata 保留工具 details、模型响应 ID、usage、系统工具增删，以及 bash 的 command/output/exitCode 等事实。自定义提示消息也保留类型和 details。工具调用按父节点谱系关联结果，`resultMessageIds` 保留全部有效结果，`resultMessageId` 优先当前分支，未返回的调用标为 unresolved。非消息事件保留事件类型和原数据。旧任务 ID 和会话分支不会因产品品牌更新而改写。
 
-`artifacts` 仅引用现有 `.runtime/artifacts.json` 的注册元数据，不包含文件字节，也不为导出执行扫描或迁移。未能核对会话文件与 workspace 的绑定时，不猜测 Task 关联。凭据字段与所选配置中的模型、搜索凭据脱敏；其他正文和路径仍保留。新建和强制覆盖的导出文件均使用 600 权限，覆盖时先限制权限再写入会话内容。各分支的记录须有唯一 ID、有效父引用，且父引用不能形成循环；异常记录在导出前拒绝，源文件和已有输出保留。HTML 展示当前分支，另附全部分支的审计数据；用户内容始终转义为文本。
+`artifacts` 仅引用现有 `.runtime/artifacts.json` 的注册元数据，不包含文件字节，也不为导出执行扫描或迁移。未能核对会话文件与 workspace 的绑定时，不猜测 Task 关联。凭据字段与所选配置及执行主机凭据存储（`credentials.json`）中的模型、视觉和搜索凭据脱敏，包括环境变量覆盖；其他正文和路径仍保留。新建和强制覆盖的导出文件均使用 600 权限，覆盖时先限制权限再写入会话内容。各分支的记录须有唯一 ID、有效父引用，且父引用不能形成循环；异常记录在导出前拒绝，源文件和已有输出保留。HTML 展示当前分支，另附全部分支的审计数据；用户内容始终转义为文本。
 
 该格式用于阅读、分享和审计，不作为 Pi 恢复输入。内部 JSONL、checkpoint 和请求归档保持原格式，旧会话迁移只发生在导出临时副本中。导出不能替代完整备份：恢复仍需原生会话、工作区和外部项目文件；旧历史未保存的事实无法补回。原生 RPC `export_html` 仍属于引擎兼容接口，产品导出使用 `/coworkos-export`。
 
