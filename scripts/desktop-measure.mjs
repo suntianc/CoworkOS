@@ -1,36 +1,49 @@
-import { execFile, spawn } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { _electron as electron } from "@playwright/test";
+import { execFile } from "node:child_process";
+import { cp, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 /**
  * Measure one packaged desktop build the same way every time.
  *
- * The comparison the release work needs is between builds, so the harness owns
- * the whole condition: a fresh copy of the same data root, an isolated home, the
- * same launch arguments, and the same marks. A window counts as ready when its
- * page reports a complete document over the standard debugging endpoint, not
- * when the process merely exists. Client and backend processes are reported
- * separately because the backend is the part the architecture changes.
+ * The comparison P2-06 needs is between builds, so the harness owns the whole
+ * condition: a fresh copy of the same data root, an isolated home, the same
+ * launch arguments and the same phases. A window counts as ready when its page
+ * reports a complete document with the app frame visible. Client and backend
+ * processes are reported separately because the backend is the part the
+ * architecture changes.
  *
- * Nothing here reads user data or model credentials: the data root is a template
- * the caller supplies and every run starts from a copy of it.
+ * Phases: cold start, settled idle, background (window hidden), and reopening a
+ * closed window. Peak client memory covers the start-up ramp; settled values are
+ * sampled from two process-table snapshots. Nothing here reads user data or
+ * credentials: the template is supplied by the caller and copied per run.
  */
 
 const exec = promisify(execFile);
+
 const HELP = `Package measurement for desktop release comparisons
   node scripts/desktop-measure.mjs --app <CoworkOS.app> --template <data root> --out <dir> [options]
-  --label NAME      Condition name used in file names (default: build)
-  --runs N          Launches to sample (default 3)
-  --timeout MS      Extra time a launch may take in total (default 120000)
-  --settle MS       Idle time before process sampling (default 30000)
-  --cpu-window MS   Window between the two CPU samples (default 5000)
+  --label NAME       Condition name used in file names (default: build)
+  --runs N           Launches to sample (default 3)
+  --timeout MS       Launch/window readiness timeout (default 120000)
+  --settle MS        Idle time before the settled sample (default 30000)
+  --background MS    Wait after hiding the window (default 10000)
+  --reopen MS        Wait after reopening a closed window (default 15000)
+  --cpu-window MS    Window between the two CPU snapshots (default 5000)
 The template data root is copied for each run; it is never written by the harness.`;
 
 function parseOptions(args) {
-  const options = { runs: 3, timeout: 120_000, settle: 30_000, cpuWindow: 5_000, label: "build" };
+  const options = {
+    runs: 3,
+    timeout: 120_000,
+    settle: 30_000,
+    background: 10_000,
+    reopen: 15_000,
+    cpuWindow: 5_000,
+    label: "build"
+  };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     const value = () => {
@@ -45,6 +58,8 @@ function parseOptions(args) {
     else if (argument === "--runs") options.runs = Number(value());
     else if (argument === "--timeout") options.timeout = Number(value());
     else if (argument === "--settle") options.settle = Number(value());
+    else if (argument === "--background") options.background = Number(value());
+    else if (argument === "--reopen") options.reopen = Number(value());
     else if (argument === "--cpu-window") options.cpuWindow = Number(value());
     else if (argument === "--help" || argument === "-h") options.help = true;
     else throw new Error(`Unknown option: ${argument}`);
@@ -56,32 +71,15 @@ function parseOptions(args) {
   return options;
 }
 
-function delay(ms) {
-  return new Promise((done) => setTimeout(done, ms));
-}
+const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 
-async function freePort() {
-  const probe = createServer();
-  probe.listen(0, "127.0.0.1");
-  await new Promise((done) => probe.once("listening", done));
-  const port = probe.address().port;
-  await new Promise((done) => probe.close(done));
-  return port;
-}
-
-/** Run the app with only the environment the measurement controls. */
-function launchEnvironment(home, dataRoot) {
-  const inherited = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([name]) => !/^(?:COWORK_|ATRIA_|PI_|ELECTRON_|NODE_OPTIONS$)/.test(name)
-    )
-  );
-  return {
-    ...inherited,
-    HOME: home,
-    COWORK_DESKTOP_DATA: dataRoot,
-    PI_TELEMETRY: "0"
-  };
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
 }
 
 async function executableOf(appBundle) {
@@ -92,60 +90,13 @@ async function executableOf(appBundle) {
   return join(bundle, "Contents", "MacOS", name);
 }
 
-/** One page target is enough: the app has a single trusted window. */
-async function pageTarget(port) {
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/json/list`, {
-      signal: AbortSignal.timeout(500)
-    });
-    if (!response.ok) return undefined;
-    const targets = await response.json();
-    return targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
-  } catch {
-    return undefined;
-  }
-}
-
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_done, fail) => setTimeout(() => fail(new Error(`${label} timed out`)), ms).unref())
-  ]);
-}
-
-async function documentComplete(target) {
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  try {
-    await withTimeout(
-      new Promise((done, fail) => {
-        socket.addEventListener("open", done, { once: true });
-        socket.addEventListener("error", fail, { once: true });
-      }),
-      3_000,
-      "devtools connection"
-    );
-    const answer = await new Promise((done, fail) => {
-      const timer = setTimeout(() => fail(new Error("devtools did not answer")), 2_000);
-      socket.addEventListener(
-        "message",
-        (event) => {
-          clearTimeout(timer);
-          done(JSON.parse(String(event.data)));
-        },
-        { once: true }
-      );
-      socket.send(
-        JSON.stringify({
-          id: 1,
-          method: "Runtime.evaluate",
-          params: { expression: "document.readyState", returnByValue: true }
-        })
-      );
-    });
-    return answer?.result?.result?.value === "complete";
-  } finally {
-    socket.close();
-  }
+function launchEnvironment(home, dataRoot) {
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) => !/^(?:COWORK_|ATRIA_|PI_|ELECTRON_|NODE_OPTIONS$)/.test(name)
+    )
+  );
+  return { ...inherited, HOME: home, COWORK_DESKTOP_DATA: dataRoot, PI_TELEMETRY: "0" };
 }
 
 /** Parse the process table once so every mark uses the same snapshot. */
@@ -195,32 +146,60 @@ function descendants(table, rootPid) {
   return found;
 }
 
-/** The backend is the child this client started; everything else in the tree is client. */
+/** The backend is the process running the backend entry; everything else is the client. */
 function splitByRole(table, rootPid) {
   const tree = descendants(table, rootPid);
   const backend = tree.filter((entry) => /dist\/src\/cli\/(?:dashboard|backend)\.js/.test(entry.command));
   const backendPids = new Set(backend.map((entry) => entry.pid));
   const client = tree.filter((entry) => !backendPids.has(entry.pid));
-  const total = (entries, field) => entries.reduce((sum, entry) => sum + entry[field], 0);
+  const sum = (entries) => entries.reduce((total, entry) => total + entry.rssKb, 0);
   return {
-    client: { processes: client.length, rssKb: total(client, "rssKb") },
-    backend: { processes: backend.length, rssKb: total(backend, "rssKb") },
+    client: { processes: client.length, rssKb: sum(client) },
+    backend: { processes: backend.length, rssKb: sum(backend) },
     pids: { client: client.map((entry) => entry.pid), backend: backend.map((entry) => entry.pid) }
   };
 }
 
-function cpuByRole(first, second, clientPids, backendPids, windowMs) {
+function cpuPercent(first, second, pids, windowMs) {
   const time = (table) => new Map(table.map((entry) => [entry.pid, cpuSeconds(entry.time)]));
   const before = time(first);
   const after = time(second);
-  const percent = (pids) =>
-    (pids.reduce((sum, pid) => {
-      const delta = (after.get(pid) ?? Number.NaN) - (before.get(pid) ?? Number.NaN);
-      return sum + (Number.isFinite(delta) ? delta : 0);
-    }, 0) /
-      (windowMs / 1000)) *
-    100;
-  return { client: percent(clientPids), backend: percent(backendPids) };
+  const seconds = pids.reduce((total, pid) => {
+    const delta = (after.get(pid) ?? Number.NaN) - (before.get(pid) ?? Number.NaN);
+    return total + (Number.isFinite(delta) ? delta : 0);
+  }, 0);
+  return Number(((seconds / (windowMs / 1000)) * 100).toFixed(2));
+}
+
+async function sample(table, rootPid, options) {
+  const first = table;
+  const firstSplit = splitByRole(first, rootPid);
+  await delay(options.cpuWindow);
+  const second = await processTable();
+  const secondSplit = splitByRole(second, rootPid);
+  return {
+    clientProcesses: secondSplit.client.processes,
+    clientRssKb: secondSplit.client.rssKb,
+    backendProcesses: secondSplit.backend.processes,
+    backendRssKb: secondSplit.backend.rssKb,
+    clientCpuPercent: cpuPercent(first, second, firstSplit.pids.client, options.cpuWindow),
+    backendCpuPercent: cpuPercent(first, second, secondSplit.pids.backend, options.cpuWindow),
+    pids: secondSplit.pids
+  };
+}
+
+async function backendListening(logsDir) {
+  try {
+    for (const name of await readdir(logsDir)) {
+      if (!name.endsWith(".log")) continue;
+      const text = await readFile(join(logsDir, name), "utf8");
+      const match = /listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(text);
+      if (match) return match[1];
+    }
+  } catch {
+    /* the log directory appears with the first launch */
+  }
+  return undefined;
 }
 
 async function waitFor(predicate, timeoutMs, description) {
@@ -233,55 +212,9 @@ async function waitFor(predicate, timeoutMs, description) {
   }
 }
 
-async function backendListening(logsDir) {
-  try {
-    const { readdir } = await import("node:fs/promises");
-    for (const name of await readdir(logsDir)) {
-      if (!name.endsWith(".log")) continue;
-      const text = await readFile(join(logsDir, name), "utf8");
-      const match = /listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(text);
-      if (match) return { url: match[1], log: name };
-    }
-  } catch {
-    /* the log directory appears with the first launch */
-  }
-  return undefined;
-}
-
-/**
- * Stop the launch under measurement without measuring its shutdown.
- *
- * The quit path is not part of this comparison, so it gets a short grace and
- * then a hard stop; the backend is stopped by pid because the baseline build
- * detaches it and a killed parent would otherwise leave it running.
- */
-async function stopProcess(pid, descendantsPids) {
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    /* already gone */
-  }
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      break;
-    }
-    await delay(100);
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    /* already gone */
-  }
-  for (const child of descendantsPids) {
-    try {
-      process.kill(child, "SIGKILL");
-    } catch {
-      /* already gone */
-    }
-  }
+async function packageBytes(appBundle) {
+  const { stdout } = await exec("/usr/bin/du", ["-sk", resolve(appBundle)]);
+  return Number(stdout.split(/\s+/)[0]) * 1024;
 }
 
 async function oneRun(options, executable, runIndex) {
@@ -291,75 +224,107 @@ async function oneRun(options, executable, runIndex) {
   await mkdir(home, { recursive: true });
   await cp(resolve(options.template), dataRoot, { recursive: true, verbatimSymlinks: true });
   const logsDir = join(dataRoot, "logs");
-  const debugPort = await freePort();
   const started = performance.now();
-  const child = spawn(executable, [`--remote-debugging-port=${debugPort}`], {
+  const errors = [];
+  let log = "";
+  const application = await electron.launch({
+    executablePath: executable,
+    args: ["--use-mock-keychain"],
     env: launchEnvironment(home, dataRoot),
-    stdio: ["ignore", "pipe", "pipe"]
+    timeout: options.timeout
   });
-  let stderr = "";
-  child.stderr.on("data", (chunk) => {
-    stderr += String(chunk);
+  const rootPid = application.process().pid;
+  application.process().stderr?.on("data", (chunk) => {
+    log += String(chunk);
   });
-  const exited = new Promise((done) => child.once("exit", (code, signal) => done({ code, signal })));
+  application.process().stdout?.on("data", (chunk) => {
+    log += String(chunk);
+  });
   const marks = {};
-  let table;
-  let cpuDone;
+  let page = await application.firstWindow();
+  page.on("pageerror", (error) => errors.push(String(error)));
+  const ready = async () => {
+    await page.locator(".app-topbar").waitFor({ state: "visible", timeout: options.timeout });
+    await page.waitForFunction(() => document.readyState === "complete", undefined, {
+      timeout: options.timeout
+    });
+  };
   try {
     const listening = await waitFor(() => backendListening(logsDir), options.timeout, "backend listening");
     marks.backendReadyMs = Math.round(performance.now() - started);
-    await waitFor(
-      async () => {
-        const target = await pageTarget(debugPort);
-        if (!target) return undefined;
-        try {
-          return (await documentComplete(target)) ? target : undefined;
-        } catch {
-          return undefined;
-        }
-      },
-      options.timeout,
-      "window document complete"
-    );
+    await ready();
     marks.windowReadyMs = Math.round(performance.now() - started);
-    await delay(options.settle);
-    table = await processTable();
-    const first = table;
-    const firstSplit = splitByRole(first, child.pid);
-    await delay(options.cpuWindow);
-    const second = await processTable();
-    const secondSplit = splitByRole(second, child.pid);
-    cpuDone = cpuByRole(first, second, firstSplit.pids.client, secondSplit.pids.backend, options.cpuWindow);
-    const exit = await Promise.race([exited, delay(0).then(() => undefined)]);
-    if (exit) throw new Error(`the app exited during measurement: ${JSON.stringify(exit)}`);
-    await stopProcess(child.pid, [...secondSplit.pids.client, ...secondSplit.pids.backend]);
-    await exited;
+    // Start-up ramp: the highest client footprint before the app settles.
+    let peakKb = 0;
+    while (performance.now() - started < options.settle) {
+      const table = await processTable();
+      peakKb = Math.max(peakKb, splitByRole(table, rootPid).client.rssKb);
+      await delay(200);
+    }
+    marks.startupPeakClientRssKb = peakKb;
+    const settled = await sample(await processTable(), rootPid, options);
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
+    await delay(options.background);
+    const background = await sample(await processTable(), rootPid, options);
+    // Repeat window: close it (the app stays alive on macOS) and ask it to open one.
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+    await delay(1_500);
+    const reopenedAt = performance.now();
+    const windowPromise = application.waitForEvent("window", { timeout: options.timeout });
+    await application.evaluate(({ app }) => app.emit("activate"));
+    page = await windowPromise;
+    page.on("pageerror", (error) => errors.push(String(error)));
+    await ready();
+    marks.reopenedWindowReadyMs = Math.round(performance.now() - reopenedAt);
+    await delay(Math.max(0, options.reopen - options.cpuWindow));
+    const reopened = await sample(await processTable(), rootPid, options);
     return {
       run: runIndex + 1,
-      labels: { app: basename(executable), ...options },
+      backend: listening,
       marks,
-      process: {
-        clientProcesses: secondSplit.client.processes,
-        clientRssKb: secondSplit.client.rssKb,
-        backendProcesses: secondSplit.backend.processes,
-        backendRssKb: secondSplit.backend.rssKb,
-        clientCpuPercent: Number(cpuDone.client.toFixed(2)),
-        backendCpuPercent: Number(cpuDone.backend.toFixed(2))
-      },
-      backend: listening
+      settled: pick(settled),
+      background: pick(background),
+      reopened: { windowReadyMs: marks.reopenedWindowReadyMs, ...pick(reopened) },
+      errors,
+      stderrBytes: log.length,
+      stderrTail: log.slice(-2_000)
     };
   } finally {
-    const live = table ? splitByRole(table, child.pid) : { pids: { client: [], backend: [] } };
-    await stopProcess(child.pid, [...live.pids.client, ...live.pids.backend]);
-    await writeFile(join(runRoot, "stderr.log"), stderr);
-    marks.stderrBytes = stderr.length;
+    if (alive(rootPid)) {
+      const closed = await Promise.race([
+        application.close().then(() => "closed"),
+        delay(15_000).then(() => "timeout")
+      ]);
+      if (closed === "timeout") process.kill(rootPid, "SIGKILL");
+    }
   }
+}
+
+function pick(sampleResult) {
+  return {
+    clientProcesses: sampleResult.clientProcesses,
+    clientRssKb: sampleResult.clientRssKb,
+    backendProcesses: sampleResult.backendProcesses,
+    backendRssKb: sampleResult.backendRssKb,
+    clientCpuPercent: sampleResult.clientCpuPercent,
+    backendCpuPercent: sampleResult.backendCpuPercent
+  };
 }
 
 function median(values) {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+}
+
+function series(values, { scale = 1 } = {}) {
+  const scaled = values.map((value) => Math.round(value / scale));
+  return { samples: scaled, median: median(scaled), peak: Math.max(...scaled) };
+}
+
+function percentSeries(values) {
+  const rounded = values.map((value) => Number(value.toFixed(2)));
+  return { samples: rounded, median: Number(median(rounded.map((value) => value * 100)) / 100) };
 }
 
 async function main() {
@@ -380,32 +345,47 @@ async function main() {
     );
     process.stdout.write(
       `run ${index + 1}: window ${result.marks.windowReadyMs}ms · backend ${result.marks.backendReadyMs}ms · ` +
-        `client ${Math.round(result.process.clientRssKb / 1024)}MB · backend ${Math.round(
-          result.process.backendRssKb / 1024
-        )}MB\n`
+        `peak ${Math.round(result.marks.startupPeakClientRssKb / 1024)}MB · ` +
+        `settled ${Math.round(result.settled.clientRssKb / 1024)}+${Math.round(
+          result.settled.backendRssKb / 1024
+        )}MB · background ${Math.round(result.background.clientRssKb / 1024)}MB · ` +
+        `reopen ${result.reopened.windowReadyMs}ms ${Math.round(result.reopened.clientRssKb / 1024)}MB\n`
     );
   }
   const summary = {
     condition: options.label,
     runs: runs.length,
-    windowReadyMs: {
-      samples: runs.map((run) => run.marks.windowReadyMs),
-      median: median(runs.map((run) => run.marks.windowReadyMs))
-    },
-    backendReadyMs: {
-      samples: runs.map((run) => run.marks.backendReadyMs),
-      median: median(runs.map((run) => run.marks.backendReadyMs))
-    },
-    clientRssMb: {
-      samples: runs.map((run) => Math.round(run.process.clientRssKb / 1024)),
-      median: median(runs.map((run) => Math.round(run.process.clientRssKb / 1024)))
-    },
-    backendRssMb: {
-      samples: runs.map((run) => Math.round(run.process.backendRssKb / 1024)),
-      median: median(runs.map((run) => Math.round(run.process.backendRssKb / 1024)))
-    },
-    clientCpuPercent: { samples: runs.map((run) => run.process.clientCpuPercent) },
-    backendCpuPercent: { samples: runs.map((run) => run.process.backendCpuPercent) }
+    options,
+    appBytes: await packageBytes(options.app),
+    coldWindowReadyMs: series(runs.map((run) => run.marks.windowReadyMs)),
+    coldBackendReadyMs: series(runs.map((run) => run.marks.backendReadyMs)),
+    startupPeakClientRssMb: series(
+      runs.map((run) => run.marks.startupPeakClientRssKb),
+      { scale: 1024 }
+    ),
+    settledClientRssMb: series(
+      runs.map((run) => run.settled.clientRssKb),
+      { scale: 1024 }
+    ),
+    settledBackendRssMb: series(
+      runs.map((run) => run.settled.backendRssKb),
+      { scale: 1024 }
+    ),
+    settledClientCpuPercent: percentSeries(runs.map((run) => run.settled.clientCpuPercent)),
+    settledBackendCpuPercent: percentSeries(runs.map((run) => run.settled.backendCpuPercent)),
+    backgroundClientRssMb: series(
+      runs.map((run) => run.background.clientRssKb),
+      { scale: 1024 }
+    ),
+    backgroundClientCpuPercent: percentSeries(runs.map((run) => run.background.clientCpuPercent)),
+    reopenedWindowReadyMs: series(runs.map((run) => run.reopened.windowReadyMs)),
+    reopenedClientRssMb: series(
+      runs.map((run) => run.reopened.clientRssKb),
+      { scale: 1024 }
+    ),
+    clientProcesses: series(runs.map((run) => run.settled.clientProcesses)),
+    backendProcesses: series(runs.map((run) => run.settled.backendProcesses)),
+    rendererErrors: runs.reduce((total, run) => total + run.errors.length, 0)
   };
   await writeFile(
     join(resolve(options.out), `${options.label}-summary.json`),
