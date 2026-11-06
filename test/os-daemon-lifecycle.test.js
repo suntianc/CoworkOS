@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -640,3 +640,231 @@ test("jobs close normally and long-term goals survive an explicit stop", { timeo
   assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
   assert.notEqual(resumed.body.status, "paused");
 });
+
+function exitWithin(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null)
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  return new Promise((done) => {
+    const timer = setTimeout(() => {
+      child.off("exit", onExit);
+      done({ timedOut: true });
+    }, timeoutMs);
+    function onExit(code, signal) {
+      clearTimeout(timer);
+      done({ code, signal });
+    }
+    child.once("exit", onExit);
+  });
+}
+
+test(
+  "a direct serve on a live data root reuses the instance instead of replacing the record",
+  { timeout: 60_000 },
+  async (t) => {
+    const root = await createRoot("atria-daemon-serve-");
+    const started = await startBackend(root.env);
+    const before = await readInstance(root);
+    const serve = spawn(process.execPath, [backendEntry, "serve"], {
+      cwd: repositoryRoot,
+      env: root.env,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let out = "";
+    let err = "";
+    serve.stdout.on("data", (chunk) => {
+      out += String(chunk);
+    });
+    serve.stderr.on("data", (chunk) => {
+      err += String(chunk);
+    });
+    try {
+      const exit = await exitWithin(serve, 15_000);
+      assert.equal(exit.timedOut, undefined, "a second serve must not become a second daemon");
+      assert.equal(exit.code, 0, `serve should report the running instance: ${err}`);
+      const reused = JSON.parse(out.trim().split("\n").at(-1));
+      assert.equal(reused.state, "running");
+      assert.equal(reused.backendId, before.backendId);
+      assert.equal(reused.pid, before.pid);
+      const record = await readInstance(root);
+      assert.equal(record.pid, before.pid, "the live instance record is not overwritten");
+      assert.equal(record.backendId, before.backendId);
+      assert.equal(record.token, before.token);
+      assert.equal(alive(before.pid), true);
+      const identity = await api(root, "GET", "/api/backend");
+      assert.equal(identity.body.pid, before.pid, "the original process still answers");
+    } finally {
+      await stopQuietly(root);
+      for (const pid of [started.pid, serve.pid]) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }
+      await rm(root.base, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "a start and a serve racing for one data root leave exactly one owning process",
+  { timeout: 90_000 },
+  async (t) => {
+    const root = await createRoot("atria-daemon-race-");
+    const started = runBackend(["start"], root.env);
+    const serve = spawn(process.execPath, [backendEntry, "serve"], {
+      cwd: repositoryRoot,
+      env: root.env,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const known = [serve.pid];
+    try {
+      const record = await readInstance(root);
+      assert.ok(alive(record.pid), "the record names a live backend");
+      const startResult = await started;
+      if (startResult.code === 0) {
+        const reported = JSON.parse(startResult.out);
+        assert.equal(reported.backendId, record.backendId);
+        assert.equal(reported.pid, record.pid);
+        known.push(reported.pid);
+      } else {
+        assert.match(startResult.err, /正在启动|冲突|无法确认|已启动/);
+      }
+      // Any process that reported serving this data root but is not the record
+      // owner must have released it; otherwise it is an orphan.
+      const losers = [...new Set(known)].filter((pid) => pid !== record.pid);
+      for (const pid of losers) await waitFor(`pid ${pid} to stop serving`, async () => !alive(pid), 10_000);
+      const status = await backendCommand(["status"], root.env);
+      assert.equal(status.state, "running");
+      assert.equal(status.pid, record.pid);
+      assert.equal((await api(root, "GET", "/api/backend")).body.pid, record.pid);
+      const stopped = await stopBackend(root.env);
+      assert.equal(stopped.state, "stopped");
+      await waitFor("the owning backend to exit", async () => !alive(record.pid), 10_000);
+      await exitWithin(serve, 10_000);
+    } finally {
+      await stopQuietly(root);
+      for (const pid of [serve.pid, ...known]) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }
+      await rm(root.base, { recursive: true, force: true });
+    }
+  }
+);
+
+function childProcessPid(parentPid, marker) {
+  const rows = execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" }).split("\n");
+  for (const row of rows) {
+    const [pid, ppid, ...rest] = row.trim().split(/\s+/);
+    if (Number(ppid) !== parentPid) continue;
+    if (rest.join(" ").includes(marker)) return Number(pid);
+  }
+  return undefined;
+}
+
+test(
+  "a slow in-flight MCP startup is awaited instead of cutting the backend at five seconds",
+  { timeout: 180_000 },
+  async (t) => {
+    const preload = `--import=${pathToFileURL(join(repositoryRoot, "test/application-fixture.mjs")).href}`;
+    const root = await createRoot("atria-daemon-slow-stop-", {
+      COWORK_APPLICATION_SLOW_SHUTDOWN: "1",
+      NODE_OPTIONS: preload
+    });
+    let mcpPid;
+    let started;
+    t.after(async () => {
+      await stopQuietly(root);
+      try {
+        if (mcpPid) process.kill(mcpPid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+      await rm(root.base, { recursive: true, force: true });
+    });
+    started = await startBackend(root.env);
+    await createTask(root);
+    // The application server takes six seconds to finish its handshake, so the
+    // supervisor's teardown has an in-flight startup to wait for.
+    void api(root, "POST", "/api/tasks/daemon-task/app-instances/open", { appType: "slow-shutdown" }).catch(
+      () => undefined
+    );
+    mcpPid = await waitFor(
+      "the slow MCP server to spawn",
+      async () => childProcessPid(started.pid, "mcp-slow-shutdown-server.mjs"),
+      15_000
+    );
+    assert.ok(alive(mcpPid), "the MCP server is a real managed child process");
+
+    const begin = Date.now();
+    const stopped = await stopBackend(root.env);
+    const elapsed = Date.now() - begin;
+    assert.equal(stopped.state, "stopped", JSON.stringify(stopped));
+    assert.ok(elapsed > 5_000, `a slow teardown must not be cut at the old five-second timer (${elapsed}ms)`);
+    await waitFor("the MCP server to be reaped", async () => !alive(mcpPid), 8_000);
+    await assert.rejects(readFile(instancePath(root), "utf8"), /ENOENT/);
+
+    const restarted = await startBackend(root.env);
+    assert.equal(restarted.backendId, started.backendId, "the identity survives the slow stop");
+    assert.notEqual(restarted.pid, started.pid);
+    const stoppedAgain = await stopBackend(root.env);
+    assert.equal(stoppedAgain.state, "stopped");
+    assert.equal(alive(restarted.pid), false);
+  }
+);
+
+test(
+  "a teardown that cannot finish reports incomplete and keeps the instance for the next start",
+  { timeout: 180_000 },
+  async (t) => {
+    const preload = `--import=${pathToFileURL(join(repositoryRoot, "test/application-fixture.mjs")).href}`;
+    const root = await createRoot("atria-daemon-incomplete-", {
+      COWORK_APPLICATION_SLOW_SHUTDOWN: "1",
+      COWORK_FIXTURE_MCP_HANG: "1",
+      NODE_OPTIONS: preload
+    });
+    let mcpPid;
+    let started;
+    t.after(async () => {
+      await stopQuietly(root);
+      try {
+        if (mcpPid) process.kill(mcpPid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+      await rm(root.base, { recursive: true, force: true });
+    });
+    started = await startBackend(root.env);
+    await createTask(root);
+    void api(root, "POST", "/api/tasks/daemon-task/app-instances/open", { appType: "slow-shutdown" }).catch(
+      () => undefined
+    );
+    mcpPid = await waitFor(
+      "the hung MCP server to spawn",
+      async () => childProcessPid(started.pid, "mcp-slow-shutdown-server.mjs"),
+      15_000
+    );
+
+    const attempt = await runBackend(["stop"], root.env);
+    assert.equal(attempt.code, 1, "an incomplete stop must fail loudly");
+    const stopped = JSON.parse(attempt.out);
+    assert.equal(stopped.state, "incomplete", JSON.stringify(stopped));
+    assert.match(stopped.reason, /实例记录已保留|收尾/);
+    assert.equal(alive(started.pid), false, "the backend was force-stopped");
+    const kept = JSON.parse(await readFile(instancePath(root), "utf8"));
+    assert.equal(kept.pid, started.pid, "the record is kept as the recovery marker");
+    assert.equal(kept.backendId, started.backendId);
+
+    // The next start reclaims the same identity instead of inventing a new one.
+    const restarted = await startBackend(root.env);
+    assert.equal(restarted.backendId, started.backendId);
+    assert.notEqual(restarted.pid, started.pid);
+    const stoppedAgain = await stopBackend(root.env);
+    assert.equal(stoppedAgain.state, "stopped");
+    assert.equal(alive(restarted.pid), false);
+  }
+);

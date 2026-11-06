@@ -26,10 +26,19 @@ export interface BackendInstance extends BackendIdentity {
   startedAt: string;
 }
 
+/** A serving process that is still starting; another startup must not replace it. */
+export interface BackendStarting {
+  version: 1;
+  token: string;
+  pid: number;
+  startedAt: string;
+}
+
 export interface BackendPaths {
   runtimeDir: string;
   identityPath: string;
   instancePath: string;
+  startingPath: string;
   logPath: string;
 }
 
@@ -59,6 +68,7 @@ export function backendPaths(home: string): BackendPaths {
     runtimeDir,
     identityPath: join(runtimeDir, "backend-identity.json"),
     instancePath: join(runtimeDir, "backend-instance.json"),
+    startingPath: join(runtimeDir, "backend-starting.json"),
     logPath: join(home, "logs", "backend.log")
   };
 }
@@ -70,6 +80,16 @@ function identity(value: unknown): BackendIdentity | undefined {
   if (typeof record.backendId !== "string" || !record.backendId) return undefined;
   if (typeof record.createdAt !== "string" || !record.createdAt) return undefined;
   return { version: 1, backendId: record.backendId, createdAt: record.createdAt };
+}
+
+function starting(value: unknown): BackendStarting | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Partial<BackendStarting>;
+  if (record.version !== 1) return undefined;
+  if (typeof record.token !== "string" || !record.token) return undefined;
+  if (!Number.isInteger(record.pid) || (record.pid ?? 0) <= 0) return undefined;
+  if (typeof record.startedAt !== "string" || !record.startedAt) return undefined;
+  return { version: 1, token: record.token, pid: record.pid!, startedAt: record.startedAt };
 }
 
 function instance(value: unknown): BackendInstance | undefined {
@@ -121,6 +141,10 @@ export function readBackendInstance(paths: BackendPaths): Promise<BackendRecord<
   return readRecord(paths.instancePath, instance);
 }
 
+export function readBackendStarting(paths: BackendPaths): Promise<BackendRecord<BackendStarting>> {
+  return readRecord(paths.startingPath, starting);
+}
+
 /** Create the identity exactly once; a damaged record is an error, not a new identity. */
 export async function ensureBackendIdentity(paths: BackendPaths): Promise<BackendIdentity> {
   const current = await readBackendIdentity(paths);
@@ -156,17 +180,37 @@ export async function writeBackendInstance(paths: BackendPaths, value: BackendIn
   await rename(temporary, paths.instancePath);
 }
 
+export async function writeBackendStarting(paths: BackendPaths, value: BackendStarting): Promise<void> {
+  await mkdir(paths.runtimeDir, { recursive: true });
+  const temporary = `${paths.startingPath}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await rename(temporary, paths.startingPath);
+}
+
 /** Remove the record only when it still describes the instance the caller observed. */
 export async function removeBackendInstance(
   paths: BackendPaths,
-  expected?: Pick<BackendInstance, "pid" | "token">
+  expected?: { pid: number; token?: string }
 ): Promise<void> {
   if (expected) {
     const current = await readBackendInstance(paths);
-    if (current.value && (current.value.pid !== expected.pid || current.value.token !== expected.token))
+    if (
+      current.value &&
+      (current.value.pid !== expected.pid ||
+        (expected.token !== undefined && current.value.token !== expected.token))
+    )
       return;
   }
   await rm(paths.instancePath, { force: true });
+}
+
+/** Remove a startup claim only when it is still the one the caller wrote. */
+export async function removeBackendStarting(paths: BackendPaths, expectedToken?: string): Promise<void> {
+  if (expectedToken) {
+    const current = await readBackendStarting(paths);
+    if (current.value && current.value.token !== expectedToken) return;
+  }
+  await rm(paths.startingPath, { force: true });
 }
 
 export function processIsAlive(pid: number): boolean {
