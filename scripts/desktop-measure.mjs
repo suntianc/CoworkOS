@@ -361,7 +361,7 @@ async function oneRun(options, executable, runIndex) {
       timeout: options.timeout
     });
   };
-  const selectHistory = async (page, taskId, markers, minimumMessages) => {
+  const selectHistory = async (page, taskId, markers, minimumMessages, expectedApiMessages) => {
     const button = page.locator(`#project-list [data-task="${taskId}"]`);
     await button.waitFor({ state: "attached", timeout: options.timeout });
     const group = button.locator("xpath=ancestor::section[contains(@class, 'project-group')]");
@@ -383,11 +383,24 @@ async function oneRun(options, executable, runIndex) {
       { id: taskId, texts: markers, minimum: minimumMessages },
       { timeout: options.timeout }
     );
+    const readyMs = Math.round(performance.now() - started);
+    const response = await page.evaluate(async (id) => {
+      const result = await fetch(`/api/tasks/${encodeURIComponent(id)}`);
+      if (!result.ok) return { status: result.status, messages: null };
+      const body = await result.json();
+      return { status: result.status, messages: Array.isArray(body.messages) ? body.messages.length : null };
+    }, taskId);
+    if (response.status !== 200 || response.messages !== expectedApiMessages)
+      throw new Error(
+        `fixture ${taskId} API response ${response.status} has ${response.messages} messages; expected ${expectedApiMessages}`
+      );
     return {
       taskId,
       markers,
-      readyMs: Math.round(performance.now() - started),
-      renderedMessages: await page.locator("#conversation .chat-message").count()
+      readyMs,
+      renderedMessages: await page.locator("#conversation .chat-message").count(),
+      apiStatus: response.status,
+      apiMessages: response.messages
     };
   };
   const close = async (app) => {
@@ -488,16 +501,18 @@ async function oneRun(options, executable, runIndex) {
       page,
       "fixture-long-1",
       ["LONG-HISTORY-START", "LONG-HISTORY-END"],
-      200
+      200,
+      400
     );
     const longHistory = { ...longHistoryView, ...pick(await sample(rootPid, instance, options)) };
-    const shortHistoryView = await selectHistory(page, "fixture-long-2", ["SHORT-HISTORY-END"], 2);
+    const shortHistoryView = await selectHistory(page, "fixture-long-2", ["SHORT-HISTORY-END"], 1, 2);
     const shortHistory = { ...shortHistoryView, ...pick(await sample(rootPid, instance, options)) };
     const returnHistoryView = await selectHistory(
       page,
       "fixture-long-1",
       ["LONG-HISTORY-START", "LONG-HISTORY-END"],
-      200
+      200,
+      400
     );
     const returnHistory = { ...returnHistoryView, ...pick(await sample(rootPid, instance, options)) };
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
