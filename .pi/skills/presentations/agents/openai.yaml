@@ -1,4 +1,0 @@
-interface:
-  display_name: "Presentations"
-  short_description: "Create and visually validate editable PowerPoint decks"
-  default_prompt: "Use $presentations to create or improve a PPTX, render it, inspect the slides, and validate the final deck."

@@ -1,37 +1,12 @@
-import { componentTokenProvider, validateComponentToken } from "../software/components/download.js";
-import { componentReleaseRoot, privateComponentSource } from "../software/components/source.js";
-import { createComponentService } from "../software/components/service.js";
 import { readCoworkConfig } from "../runtime/config.js";
 import { applyProxyEnvironment } from "../runtime/http-transport.js";
 import { createDashboardApplication } from "../dashboard/application.js";
 
 applyProxyEnvironment(readCoworkConfig());
-const releaseRoot = componentReleaseRoot();
-let componentToken = componentTokenProvider(releaseRoot)();
-const dashboard = createDashboardApplication({
-  components: createComponentService({ releaseRoot, githubToken: () => componentToken })
-});
+const dashboard = createDashboardApplication();
 // This IPC channel belongs to the Electron parent, not the HTTP/Agent surface.
 process.on("message", (value) => {
   if (!value || typeof value !== "object" || !("type" in value)) return;
-  if (
-    value.type === "components.auth" &&
-    "requestId" in value &&
-    typeof value.requestId === "string" &&
-    "token" in value
-  ) {
-    try {
-      if (privateComponentSource(releaseRoot)) componentToken = validateComponentToken(value.token);
-      process.send?.({ type: "components.auth.reply", requestId: value.requestId });
-    } catch {
-      process.send?.({
-        type: "components.auth.reply",
-        requestId: value.requestId,
-        error: "Invalid component credential"
-      });
-    }
-    return;
-  }
   if (value.type !== "computer.host") return;
   const message = value as { requestId?: unknown; input?: unknown };
   if (typeof message.requestId !== "string") return;

@@ -81,7 +81,7 @@ export class ApplicationService {
     private readonly taskStorageRoot: string = workspaceRoot,
     private readonly defaultProject?: ApplicationProject | null
   ) {
-    const registry = customRegistry ?? defaultRegistry(workspaceRoot);
+    const registry = customRegistry ?? defaultRegistry();
     this.registry = registry;
     this.resources = new ResourceStore(workspaceRoot, registry);
     this.instances = new InstanceStore(workspaceRoot, taskStorageRoot);

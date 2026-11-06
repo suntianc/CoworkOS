@@ -140,8 +140,6 @@ Usage:
   coworkos worker ...           Process delegated work
   coworkos main-worker ...      Internal wake worker
   coworkos COMMAND --help        Show command options without changing user data
-  coworkos components list [--refresh]  Show optional component state, dependencies and sizes
-  coworkos components install|upgrade|cancel|enable|disable|uninstall cadquery|blender|pptist
   coworkos science status      Show installed scientific environments without probing Python
   coworkos science install general|chemistry [--python PATH] [--reinstall]
   coworkos science cancel general|chemistry

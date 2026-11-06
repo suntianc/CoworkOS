@@ -412,7 +412,6 @@ body {
   background: var(--workbench-surface);
   color: var(--workbench-muted);
 }
-
 .team-section {
   margin-top: 24px;
   padding-top: 24px;
@@ -997,7 +996,6 @@ body {
     font-size: 11px;
   }
 }
-
 /* Global history is grouped by project/workspace in the left rail. Each
    conversation remains in its own workspace on disk; expanding a project
    only changes the presentation, never the task's execution root. */
@@ -1050,7 +1048,6 @@ body {
 .project-group .conversation-item {
   width: 100%;
 }
-
 /* Artifact files open into a small, persistent editor rather than replacing
    the whole workspace with a one-shot text preview. */
 .agent-pane .output-row {
@@ -1392,7 +1389,6 @@ body {
     transform: rotate(360deg);
   }
 }
-
 /* Transcript and composer share one reading column, centered in the current
    conversation pane (including split application layouts). Container units
    follow sidebar/editor resizing without recreating content or draft nodes. */
@@ -1471,7 +1467,6 @@ body {
     font-size: 13px;
   }
 }
-
 /* The model label is an actual selector, not a decorative status chip. */
 .composer {
   position: relative;
@@ -1559,7 +1554,6 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 /* Artifact detail opens beside the workbench as a full-height side panel.
    The original workspace stays mounted underneath, so the file list and the
    conversation remain available while reading a long deliverable. */
@@ -1981,7 +1975,6 @@ body {
     font-size: 16px;
   }
 }
-
 /* Application workbench: a tab strip above the pane, and the app surfaces it hosts.
    The conversation is one tab among several; it keeps its own layout untouched. */
 .chat-pane {
@@ -2131,45 +2124,6 @@ body {
 .workbench-app[hidden] {
   display: none;
 }
-/* The native cad-viewer WebContentsView is layered over the app-mount area; this
-   overlay is the DOM state shown behind it while the viewer starts or fails. */
-.cad-viewer-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 36px;
-  color: #9a9a9a;
-  background: var(--codex-bg);
-  text-align: center;
-}
-.cad-viewer-overlay[hidden] {
-  display: none;
-}
-.cad-viewer-overlay strong {
-  color: #dcdcdc;
-  font-size: 14px;
-}
-.cad-viewer-overlay p {
-  margin: 0;
-  max-width: 420px;
-}
-.cad-viewer-spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid #2a2a2e;
-  border-top-color: #4f83ff;
-  border-radius: 50%;
-  animation: cad-viewer-spin 0.8s linear infinite;
-}
-@keyframes cad-viewer-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 .workbench-unsupported {
   display: flex;
   flex-direction: column;
@@ -2191,7 +2145,6 @@ body {
   font-size: 12px;
   line-height: 1.75;
 }
-
 /* The sidebar "应用" entry, beside 工作台. */
 .nav-chevron {
   margin-left: auto;
@@ -2327,7 +2280,6 @@ body {
   font-size: 11px;
   line-height: 1.7;
 }
-
 /* The row opens the document; its actions also expose the published files. */
 .output-actions {
   display: flex;
@@ -2423,7 +2375,6 @@ body {
     opacity: 1;
   }
 }
-
 /* Composer binding control: which application the next message refers to. */
 .app-bind-select {
   display: inline-flex;
@@ -2508,7 +2459,6 @@ body {
   margin: 5px 8px;
   border-top: 1px solid light-dark(var(--ui-border), #3a3a3a);
 }
-
 /* An open application owns the content area: the task panel belongs to the
    conversation, and leaving it beside an editor makes the editor read as a
    widget in a dashboard rather than the application itself. */
@@ -2546,14 +2496,12 @@ body {
   line-height: 1.5;
   text-align: left;
 }
-
 .model-menu-group {
   padding: 7px 12px 3px;
   color: light-dark(var(--ui-secondary), #7f7f7f);
   font-size: 10.5px;
   letter-spacing: 0.02em;
 }
-
 /* Settled human replies stay compact; their full question and answer are one disclosure away. */
 .chat-message.human-answer {
   max-width: 800px;
@@ -2642,7 +2590,6 @@ body {
 .human-answer-value p + p {
   margin-top: 6px;
 }
-
 /*
  * An unattached window, and one with nothing open in it.
  *
@@ -2668,7 +2615,6 @@ body {
 .workbench-tab.is-empty-window.active .tab-title {
   color: light-dark(var(--ui-text), #cfcfcf);
 }
-
 /*
  * A conversation still being composed.
  *
@@ -2684,7 +2630,6 @@ body {
   color: light-dark(var(--ui-text), #e0e0e0);
   font-style: normal;
 }
-
 /*
  * The option CoworkOS would pick itself.
  *
@@ -2707,15 +2652,13 @@ body {
   font-size: var(--ui-type-caption);
   font-style: normal;
 }
-
 /* Each application owns a collapsible list of its open views. */
 .app-instance-group {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 32px;
   align-items: center;
 }
-.app-instance-group > [data-app-instances],
-.app-instance-group > [data-blender-install] {
+.app-instance-group > [data-app-instances] {
   grid-column: 1 / -1;
   min-width: 0;
 }
@@ -2778,7 +2721,6 @@ body {
   opacity: 0.5;
   cursor: wait;
 }
-
 /* Keep the editor visible while selecting a collaboration conversation. */
 .collaboration-picker {
   position: fixed;
@@ -2805,7 +2747,6 @@ body {
   max-width: 440px;
   white-space: normal;
 }
-
 .conversation-sidebar .sidebar-nav {
   min-height: 0;
   flex: 0 1 auto;
@@ -2821,7 +2762,6 @@ body {
 .conversation-sidebar .sidebar-top {
   flex-shrink: 0;
 }
-
 .collaboration-project {
   padding: 5px 12px;
   color: var(--muted);
@@ -2830,7 +2770,6 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .app-instance-workspace {
   display: block;
   color: var(--codex-muted);
@@ -2838,7 +2777,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 .apps-workspace-picker {
   display: grid;
   gap: 8px;
@@ -2860,7 +2798,6 @@ body {
 .apps-workspace-picker .app-button {
   justify-self: start;
 }
-
 /* Shared component status cards; mounted by settings. */
 .component-preparation {
   gap: 8px;
@@ -2962,7 +2899,6 @@ body {
   min-width: 0;
   accent-color: var(--ui-accent);
 }
-
 /* Open applications live in a compact rail above the right workbench. */
 .workbench-rail {
   display: flex;

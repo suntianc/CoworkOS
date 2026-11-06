@@ -1,11 +1,12 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { WorkbenchTabStore } from "../dist/src/applications/tab-store.js";
-import { handleApplicationRequest } from "../dist/src/dashboard/application-routes.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { WorkbenchTabStore } = await import("../dist/src/applications/tab-store.js");
+const { handleApplicationRequest } = await import("../dist/src/dashboard/application-routes.js");
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "atria-tab-race-"));
@@ -77,10 +78,7 @@ async function fixture(t) {
   };
 }
 
-for (const [appType, kind, title] of [
-  ["cad", "model/atria-cad+json", "rocket.cad.json"],
-  ["text-editor", "text/plain", "notes.txt"]
-]) {
+for (const [appType, kind, title] of [["text-editor", "text/plain", "notes.txt"]]) {
   for (const legacyTab of [false, true]) {
     test(`${appType}: a concurrent poll preserves the created document (legacy tab: ${legacyTab})`, async (t) => {
       const f = await fixture(t);
@@ -121,7 +119,7 @@ test("pruning a missing conversation never removes a tab opened after the poll s
   await f.tabs.open({ kind: "conversation", taskId: "deleted" });
   const polling = f.poll();
   await f.started;
-  const instance = await f.service.openApplication({ taskId: f.taskId, appType: "cad" });
+  const instance = await f.service.openApplication({ taskId: f.taskId, appType: "text-editor" });
   await f.tabs.open({ kind: "application", taskId: f.taskId, appInstanceId: instance.appInstanceId });
   f.release();
   await polling;

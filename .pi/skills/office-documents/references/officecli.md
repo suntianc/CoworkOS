@@ -5,7 +5,7 @@ These examples describe the open-source `iOfficeAI/OfficeCLI` command named `off
 ## Inspect
 
 ```bash
-officecli view input.pptx --format json
+officecli view input.docx --format json
 officecli get input.docx /document/body --format json
 officecli query input.xlsx 'sheet[name="Sheet1"]' --format json
 ```
@@ -14,7 +14,6 @@ officecli query input.xlsx 'sheet[name="Sheet1"]' --format json
 
 ```bash
 officecli set input.docx /document/body/paragraph[1]/text 'New text'
-officecli add input.pptx /presentation/slides --from slide.json
 officecli batch input.xlsx changes.json
 ```
 
@@ -23,19 +22,19 @@ Use a copied input and keep the original untouched. Prefer `batch` for a group o
 ## Validate and preview
 
 ```bash
-officecli validate result.pptx --format json
-officecli view issues result.pptx --format json
-officecli render result.pptx --output preview/
+officecli validate result.docx --format json
+officecli view issues result.docx --format json
+officecli render result.docx --output preview/
 ```
 
-Treat validation and a rendered preview as separate checks: a structurally valid deck can still have clipped or unreadable content.
+Treat validation and a rendered preview as separate checks: a structurally valid document can still have clipped or unreadable content.
 
 ## Python fallback
 
-When `officecli` and LibreOffice are unavailable, use the format library reported by `check_backend.mjs`. This machine may provide `python-pptx` even when no general Office CLI is installed:
+When `officecli` and LibreOffice are unavailable, use the format library reported by `check_backend.mjs`. This machine may provide `python-docx` even when no general Office CLI is installed:
 
 ```bash
-python3 -c 'from pptx import Presentation; p=Presentation("input.pptx"); print(len(p.slides))'
+python3 -c 'from docx import Document; d=Document("input.docx"); print(len(d.paragraphs))'
 ```
 
 Python libraries are suitable for creating or editing structured content, but they do not provide a trustworthy rendered preview. Report that limitation and perform XML/package validation plus any available reopen check.

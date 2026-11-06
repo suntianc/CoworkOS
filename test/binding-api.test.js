@@ -1,7 +1,8 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { startDashboard } from "./dashboard-fixture.mjs";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 
 test("opening a shared instance loads it into another conversation without unloading its first conversation", async (t) => {
   const dashboard = await startDashboard();

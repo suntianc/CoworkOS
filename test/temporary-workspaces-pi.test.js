@@ -1,3 +1,4 @@
+import { applicationFixtureNodeOptions } from "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -5,7 +6,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
-import { ResourceFiles } from "../dist/src/applications/resource-files.js";
+const { ResourceFiles } = await import("../dist/src/applications/resource-files.js");
 
 test(
   "real Main reads a projectless attachment and temporary document, edits by CAS and restores its original roots after restart",
@@ -20,6 +21,7 @@ test(
         name === "NODE_OPTIONS"
       )
         delete process.env[name];
+    process.env.NODE_OPTIONS = applicationFixtureNodeOptions;
     let phase = "edit",
       step = 0,
       resourceId,

@@ -5,12 +5,12 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
+import { FixtureApplicationService as ApplicationService } from "./document-history-fixture.mjs";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { listTaskArtifacts } from "../dist/src/workspace/artifact-store.js";
 
 const actor = { type: "user", id: "local" };
-const kind = "presentation/pptist+json";
+const kind = "test/history+json";
 
 async function fixture(t, separated = false) {
   const root = await mkdtemp(join(tmpdir(), "atria-artifact-identity-"));
@@ -24,7 +24,7 @@ async function fixture(t, separated = false) {
     taskId: "chat",
     runId: "run",
     producerAgentId: "main",
-    relativePath: "intro.pptx",
+    relativePath: "intro.snapshot",
     content: Buffer.from("immutable source presentation")
   });
   const project = separated
@@ -34,10 +34,10 @@ async function fixture(t, separated = false) {
   const input = {
     taskId: "chat",
     relativePath: artifact.relativePath,
-    appType: "pptist",
+    appType: "history-document",
     kind,
     title: "Intro",
-    initialContent: { slides: [{ id: "original", elements: [] }] },
+    initialContent: { pages: [{ id: "original", elements: [] }] },
     artifactSha256: artifact.sha256,
     actor
   };
@@ -48,7 +48,7 @@ test("deliverables combine editable exports by exact origin, retaining PDF, chan
   const f = await fixture(t);
   const source = await f.service().createResource({
     taskId: "chat",
-    appType: "pptist",
+    appType: "history-document",
     kind,
     title: "Intro",
     initialContent: f.input.initialContent,
@@ -56,13 +56,13 @@ test("deliverables combine editable exports by exact origin, retaining PDF, chan
   });
   const resourceId = source.resource.resourceId;
   for (const [relativePath, sourceResourceId] of [
-    ["exports/intro.pptx", resourceId],
-    ["exports/intro.pptist.json", resourceId],
-    ["exports/intro.pptist", resourceId],
+    ["exports/intro.snapshot", resourceId],
+    ["exports/intro.history-document.json", resourceId],
+    ["exports/intro.history-document", resourceId],
     ["exports/intro.pdf", resourceId],
     ["exports/intro.png", resourceId],
-    ["exports/modified.pptx", resourceId],
-    ["exports/unreferenced.pptx", "res_unreferenced"]
+    ["exports/modified.snapshot", resourceId],
+    ["exports/unreferenced.snapshot", "res_unreferenced"]
   ])
     await f.store.publishArtifact({
       taskId: "chat",
@@ -72,13 +72,16 @@ test("deliverables combine editable exports by exact origin, retaining PDF, chan
       sourceResourceId,
       content: "exported content"
     });
-  await writeFile(join(f.storageRoot, "chat", "artifacts", "exports", "modified.pptx"), "edited outside app");
+  await writeFile(
+    join(f.storageRoot, "chat", "artifacts", "exports", "modified.snapshot"),
+    "edited outside app"
+  );
   const artifacts = await listTaskArtifacts({ workspaceRoot: f.storageRoot, taskId: "chat" });
   const deliverables = await f.service().deliverables("chat", artifacts);
   const row = deliverables.find((entry) => entry.resourceId === resourceId);
   assert.deepEqual(
     row.files.map((file) => file.relativePath).sort(),
-    ["exports/intro.pptx", "exports/intro.pptist.json", "exports/intro.pptist"].sort()
+    ["exports/intro.snapshot", "exports/intro.history-document.json", "exports/intro.history-document"].sort()
   );
   assert.deepEqual(
     deliverables
@@ -86,11 +89,11 @@ test("deliverables combine editable exports by exact origin, retaining PDF, chan
       .map((entry) => entry.relativePath)
       .sort(),
     [
-      "intro.pptx",
+      "intro.snapshot",
       "exports/intro.pdf",
       "exports/intro.png",
-      "exports/modified.pptx",
-      "exports/unreferenced.pptx"
+      "exports/modified.snapshot",
+      "exports/unreferenced.snapshot"
     ].sort()
   );
   assert.equal(deliverables.find((entry) => entry.relativePath === "exports/intro.pdf").editable, false);
@@ -106,18 +109,18 @@ test("deliverables group changed versions of one imported artifact and retain ed
   await f.service().applyOperation({
     taskId: "chat",
     resourceId: old.resource.resourceId,
-    appType: "pptist",
-    operationType: "pptist.replace",
+    appType: "history-document",
+    operationType: "document.replace",
     operationId: "edit-previous-source-version",
     baseRevision: 0,
-    payload: { document: { slides: [{ id: "previous-edited", elements: [] }] } },
+    payload: { document: { pages: [{ id: "previous-edited", elements: [] }] } },
     actor
   });
   const previousExport = await f.store.publishArtifact({
     taskId: "chat",
     runId: "run-previous",
     producerAgentId: "main",
-    relativePath: "exports/previous.pptx",
+    relativePath: "exports/previous.snapshot",
     content: "an export of the edited previous version",
     sourceResourceId: old.resource.resourceId
   });
@@ -125,13 +128,13 @@ test("deliverables group changed versions of one imported artifact and retain ed
     taskId: "chat",
     runId: "run-next",
     producerAgentId: "main",
-    relativePath: "intro.pptx",
+    relativePath: "intro.snapshot",
     content: "a newly generated source presentation"
   });
   const current = await f.service().importArtifact({
     ...f.input,
     artifactSha256: currentArtifact.sha256,
-    initialContent: { slides: [{ id: "current-source", elements: [] }] }
+    initialContent: { pages: [{ id: "current-source", elements: [] }] }
   });
   assert.notEqual(current.resource.resourceId, old.resource.resourceId);
   const pdf = await f.store.publishArtifact({
@@ -147,7 +150,7 @@ test("deliverables group changed versions of one imported artifact and retain ed
   assert.equal(row.resourceId, current.resource.resourceId);
   assert.deepEqual(
     row.files.map((entry) => entry.relativePath),
-    ["intro.pptx", "exports/previous.pptx"]
+    ["intro.snapshot", "exports/previous.snapshot"]
   );
   assert.deepEqual(row.previousVersions, [
     {
@@ -160,12 +163,12 @@ test("deliverables group changed versions of one imported artifact and retain ed
   assert.equal(rows.find((entry) => entry.relativePath === "intro.pdf").kind, "file");
   assert.equal((await f.service().listResources("chat")).length, 2, "grouping never deletes a resource");
   assert.equal(
-    (await f.service().readResource("chat", old.resource.resourceId)).snapshot.content.slides[0].id,
+    (await f.service().readResource("chat", old.resource.resourceId)).snapshot.content.pages[0].id,
     "previous-edited",
     "the previous import keeps its independently edited content"
   );
   assert.equal(
-    (await f.service().importArtifact({ taskId: "chat", relativePath: "intro.pptx", actor })).resource
+    (await f.service().importArtifact({ taskId: "chat", relativePath: "intro.snapshot", actor })).resource
       .resourceId,
     current.resource.resourceId,
     "opening the source file continues to select its current imported version"
@@ -187,13 +190,13 @@ test("import grouping preserves independent documents and requires the full orig
     taskId: "chat",
     runId: "run-next",
     producerAgentId: "main",
-    relativePath: "intro.pptx",
+    relativePath: "intro.snapshot",
     content: "replacement source"
   });
   const current = await f.service().importArtifact({ ...f.input, artifactSha256: currentArtifact.sha256 });
   const independent = await f.service().createResource({
     taskId: "chat",
-    appType: "pptist",
+    appType: "history-document",
     kind,
     title: old.resource.title,
     initialContent: f.input.initialContent,
@@ -207,7 +210,7 @@ test("import grouping preserves independent documents and requires the full orig
     {
       ...metadata,
       resourceId: "res_other_path",
-      importedArtifact: { ...origin, relativePath: "other/intro.pptx" }
+      importedArtifact: { ...origin, relativePath: "other/intro.snapshot" }
     },
     { ...metadata, resourceId: "res_other_app", appType: "different-app" },
     { ...metadata, resourceId: "res_other_kind", kind: "different-kind" }
@@ -240,24 +243,24 @@ test("import grouping preserves independent documents and requires the full orig
   );
 });
 
-test("converted PPT origin survives project-root forwarding, edits, closing and service restart", async (t) => {
+test("converted structured document origin survives project-root forwarding, edits, closing and service restart", async (t) => {
   const f = await fixture(t, true);
   const first = await f.service().importArtifact(f.input);
   const resourceId = first.resource.resourceId;
   assert.deepEqual(first.resource.importedArtifact, {
     storageRoot: await realpath(f.storageRoot),
     taskId: "chat",
-    relativePath: "intro.pptx",
+    relativePath: "intro.snapshot",
     sha256: f.artifact.sha256
   });
   const updated = await f.service().applyOperation({
     taskId: "chat",
     resourceId,
-    appType: "pptist",
-    operationType: "pptist.replace",
+    appType: "history-document",
+    operationType: "document.replace",
     operationId: "edit-presentation",
     baseRevision: 0,
-    payload: { document: { slides: [{ id: "edited", elements: [] }] } },
+    payload: { document: { pages: [{ id: "edited", elements: [] }] } },
     actor
   });
   await new ApplicationService(f.projectRoot, undefined, f.storageRoot).updateInstance({
@@ -270,16 +273,19 @@ test("converted PPT origin survives project-root forwarding, edits, closing and 
     assert.equal(result.reused, true);
     assert.equal(result.resource.resourceId, resourceId);
     assert.equal(result.resource.revision, updated.resource.revision);
-    assert.equal(result.snapshot.content.slides[0].id, "edited");
+    assert.equal(result.snapshot.content.pages[0].id, "edited");
   }
   assert.equal(new Set(reopened.map((result) => result.appInstance.appInstanceId)).size, 1);
   const resources = await f.service().listResources("chat");
   assert.equal(resources.length, 1);
   const artifacts = await listTaskArtifacts({ workspaceRoot: f.storageRoot, taskId: "chat" });
   assert.equal((await f.service().deliverables("chat", artifacts)).length, 1);
-  assert.equal((await readdir(join(f.projectRoot, "applications", "pptist", "resources"))).length, 1);
   assert.equal(
-    await readFile(join(f.storageRoot, "chat", "artifacts", "intro.pptx"), "utf8"),
+    (await readdir(join(f.projectRoot, "applications", "history-document", "resources"))).length,
+    1
+  );
+  assert.equal(
+    await readFile(join(f.storageRoot, "chat", "artifacts", "intro.snapshot"), "utf8"),
     "immutable source presentation"
   );
 });
@@ -292,11 +298,11 @@ for (const rootField of ["storageRoot", "workspaceRoot"])
     await f.service().applyOperation({
       taskId: "chat",
       resourceId,
-      appType: "pptist",
-      operationType: "pptist.replace",
+      appType: "history-document",
+      operationType: "document.replace",
       operationId: "edited-before-origin-upgrade",
       baseRevision: 0,
-      payload: { document: { slides: [{ id: "edited-through-restart", elements: [] }] } },
+      payload: { document: { pages: [{ id: "edited-through-restart", elements: [] }] } },
       actor
     });
     const alias = join(f.storageRoot, "..", "storage-alias");
@@ -304,7 +310,7 @@ for (const rootField of ["storageRoot", "workspaceRoot"])
     const metadataPath = join(
       f.projectRoot,
       "applications",
-      "pptist",
+      "history-document",
       "resources",
       resourceId,
       "metadata.json"
@@ -320,7 +326,7 @@ for (const rootField of ["storageRoot", "workspaceRoot"])
     const reopened = await new ApplicationService(f.projectRoot, undefined, alias).importArtifact({
       taskId: "chat",
       relativePath: f.artifact.relativePath,
-      appType: "pptist",
+      appType: "history-document",
       actor,
       converted: {
         sha256: f.artifact.sha256,
@@ -331,7 +337,7 @@ for (const rootField of ["storageRoot", "workspaceRoot"])
     });
     assert.equal(reopened.reused, true);
     assert.equal(reopened.resource.resourceId, resourceId);
-    assert.equal(reopened.snapshot.content.slides[0].id, "edited-through-restart");
+    assert.equal(reopened.snapshot.content.pages[0].id, "edited-through-restart");
     assert.deepEqual(reopened.resource.importedArtifact, {
       storageRoot: await realpath(f.storageRoot),
       taskId: "chat",
@@ -343,9 +349,9 @@ for (const rootField of ["storageRoot", "workspaceRoot"])
 
 for (const separated of [false, true]) {
   for (const stage of ["mapping", "content", "metadata", "legacy", "occupied"])
-    test(`retry recovers the same PPT after SIGKILL before ${stage} (${separated ? "project" : "same"} root)`, async (t) => {
+    test(`retry recovers the same structured document after SIGKILL before ${stage} (${separated ? "project" : "same"} root)`, async (t) => {
       const f = await fixture(t, separated);
-      const serviceModule = new URL("../dist/src/applications/application-service.js", import.meta.url).href;
+      const serviceModule = new URL("./document-history-fixture.mjs", import.meta.url).href;
       const mappingModule = new URL("../dist/src/applications/mapping-store.js", import.meta.url).href;
       const filesModule = new URL("../dist/src/applications/resource-files.js", import.meta.url).href;
       const project = separated
@@ -357,7 +363,7 @@ for (const separated of [false, true]) {
           "--input-type=module",
           "-e",
           `
-      import { ApplicationService } from ${JSON.stringify(serviceModule)};
+      import { FixtureApplicationService as ApplicationService } from ${JSON.stringify(serviceModule)};
       import { ResourceMappingStore } from ${JSON.stringify(mappingModule)};
       import { ResourceFiles } from ${JSON.stringify(filesModule)};
       const stage = ${JSON.stringify(stage)};
@@ -399,13 +405,13 @@ for (const separated of [false, true]) {
       }
       assert.ok(committed, stderr);
       if (stage !== "mapping") {
-        const records = await readdir(join(f.projectRoot, "applications", "pptist", "resources"));
+        const records = await readdir(join(f.projectRoot, "applications", "history-document", "resources"));
         assert.equal(records.length, 1);
         committed = { resourceId: records[0] };
         const metadataPath = join(
           f.projectRoot,
           "applications",
-          "pptist",
+          "history-document",
           "resources",
           records[0],
           "metadata.json"
@@ -413,7 +419,14 @@ for (const separated of [false, true]) {
         if (stage === "metadata") await rm(metadataPath);
         if (stage === "legacy") {
           for (const name of ["metadata.json", "creation.json"]) {
-            const path = join(f.projectRoot, "applications", "pptist", "resources", records[0], name);
+            const path = join(
+              f.projectRoot,
+              "applications",
+              "history-document",
+              "resources",
+              records[0],
+              name
+            );
             const record = JSON.parse(await readFile(path, "utf8"));
             const resource = name === "creation.json" ? record.resource : record;
             const { storageRoot, ...origin } = resource.importedArtifact;
@@ -423,8 +436,8 @@ for (const separated of [false, true]) {
         }
         if (stage === "occupied") {
           const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
-          const contentPath = join(f.projectRoot, "applications", "pptist", "files", metadata.path);
-          await mkdir(join(f.projectRoot, "applications", "pptist", "files"), { recursive: true });
+          const contentPath = join(f.projectRoot, "applications", "history-document", "files", metadata.path);
+          await mkdir(join(f.projectRoot, "applications", "history-document", "files"), { recursive: true });
           await writeFile(contentPath, "independent external content");
           await assert.rejects(f.service().importArtifact(f.input), { code: "resource_recovery_required" });
           assert.equal(await readFile(contentPath, "utf8"), "independent external content");
@@ -437,6 +450,9 @@ for (const separated of [false, true]) {
       assert.equal(reopened.resource.resourceId, committed.resourceId);
       assert.equal(reopened.reused, true);
       assert.equal((await f.service().listResources("chat")).length, 1);
-      assert.equal((await readdir(join(f.projectRoot, "applications", "pptist", "resources"))).length, 1);
+      assert.equal(
+        (await readdir(join(f.projectRoot, "applications", "history-document", "resources"))).length,
+        1
+      );
     });
 }

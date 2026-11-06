@@ -1,7 +1,9 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { textRuntimeAdapter } from "../dist/src/applications/adapters/text-runtime-adapter.js";
-import { dummyCounterAdapter } from "../dist/src/applications/adapters/dummy-counter-adapter.js";
+const { textRuntimeAdapter } =
+  await import("../dist/test/fixtures/application-contract/text-runtime-adapter.js");
+const { dummyCounterAdapter } = await import("../dist/src/applications/adapters/dummy-counter-adapter.js");
 
 /**
  * Every tool an Adapter declares must work against its own application.
@@ -36,7 +38,13 @@ const cases = [
   {
     adapter: dummyCounterAdapter,
     content: { counters: { opened: 3, closed: 1 } },
-    resource: { resourceId: "r", appType: "dummy-counter", kind: "model/counter+json", title: "c", revision: 0 },
+    resource: {
+      resourceId: "r",
+      appType: "dummy-counter",
+      kind: "model/counter+json",
+      title: "c",
+      revision: 0
+    },
     calls: {
       list_counters: [{}],
       counter_reset_all: [{}]
@@ -49,25 +57,38 @@ for (const { adapter, content, resource, calls } of cases) {
 
   test(`${appType}: every declared tool emits operations its own application accepts`, async () => {
     const declared = adapter.agentTools?.() ?? [];
-    assert.deepEqual(declared.map((tool) => tool.name).sort(), Object.keys(calls).sort(),
-      `${appType}: every declared tool needs a fixture in this table`);
+    assert.deepEqual(
+      declared.map((tool) => tool.name).sort(),
+      Object.keys(calls).sort(),
+      `${appType}: every declared tool needs a fixture in this table`
+    );
 
     for (const tool of declared) {
       for (const params of calls[tool.name]) {
         const outcome = await tool.execute({ params, content, resource });
         for (const operation of outcome.operations ?? []) {
-          assert.ok(operation.operationType in adapter.definition.operationSchemas,
-            `${tool.name} emitted an undeclared operation: ${operation.operationType}`);
+          assert.ok(
+            operation.operationType in adapter.definition.operationSchemas,
+            `${tool.name} emitted an undeclared operation: ${operation.operationType}`
+          );
           const schema = adapter.definition.operationSchemas[operation.operationType];
           for (const field of schema.required) {
-            assert.ok(field in operation.payload,
-              `${tool.name} emitted ${operation.operationType} without the required "${field}"`);
+            assert.ok(
+              field in operation.payload,
+              `${tool.name} emitted ${operation.operationType} without the required "${field}"`
+            );
           }
           // The one that matters: the adapter's own reducer must accept it.
-          assert.doesNotThrow(() => adapter.applyOperation({
-            operationType: operation.operationType, payload: operation.payload,
-            content, actor: { type: "agent", id: "main" }
-          }), `${tool.name}'s ${operation.operationType} is refused by its own application`);
+          assert.doesNotThrow(
+            () =>
+              adapter.applyOperation({
+                operationType: operation.operationType,
+                payload: operation.payload,
+                content,
+                actor: { type: "agent", id: "main" }
+              }),
+            `${tool.name}'s ${operation.operationType} is refused by its own application`
+          );
         }
       }
     }
@@ -81,12 +102,17 @@ for (const { adapter, content, resource, calls } of cases) {
     const declared = adapter.agentTools?.() ?? [];
     const reads = [];
     for (const tool of declared) {
-      const outcome = await tool.execute({ params: calls[tool.name][0], content, resource })
+      const outcome = await tool
+        .execute({ params: calls[tool.name][0], content, resource })
         .catch(() => undefined);
       // A read reports something and changes nothing.
-      if (outcome && !(outcome.operations ?? []).length && outcome.result !== undefined) reads.push(tool.name);
+      if (outcome && !(outcome.operations ?? []).length && outcome.result !== undefined)
+        reads.push(tool.name);
     }
-    assert.ok(reads.length > 0, `${appType} declares no read-only tool; a bound model could not see its document`);
+    assert.ok(
+      reads.length > 0,
+      `${appType} declares no read-only tool; a bound model could not see its document`
+    );
   });
 
   test(`${appType}: the shape line names what the resource is made of, never where`, () => {
@@ -99,8 +125,11 @@ for (const { adapter, content, resource, calls } of cases) {
       /\b(line|row|col|column|page|offset|index)\s*[:#]?\s*\d+/i,
       /\[\s*\d+\s*,\s*\d+\s*[)\]]/
     ]) {
-      assert.equal(address.test(summary.shape), false,
-        `${appType} put an address in its shape: ${JSON.stringify(summary.shape)} matched ${address}`);
+      assert.equal(
+        address.test(summary.shape),
+        false,
+        `${appType} put an address in its shape: ${JSON.stringify(summary.shape)} matched ${address}`
+      );
     }
     // And it is not a second copy of the document.
     assert.ok(summary.shape.length <= 240, `the shape is bounded, got ${summary.shape.length}`);
@@ -108,27 +137,48 @@ for (const { adapter, content, resource, calls } of cases) {
 }
 
 test("the text editor's read tool narrows by heading rather than by offset", async () => {
-  const tools = Object.fromEntries((textRuntimeAdapter.agentTools?.() ?? []).map((tool) => [tool.name, tool]));
+  const tools = Object.fromEntries(
+    (textRuntimeAdapter.agentTools?.() ?? []).map((tool) => [tool.name, tool])
+  );
   const content = "# 标题\n\n## 甲\n甲的正文\n\n## 乙\n乙的正文\n";
-  const resource = { resourceId: "r", appType: "text-editor", kind: "text/markdown", title: "a.md", revision: 7 };
+  const resource = {
+    resourceId: "r",
+    appType: "text-editor",
+    kind: "text/markdown",
+    title: "a.md",
+    revision: 7
+  };
 
   const section = await tools.read_document.execute({ params: { heading: "甲" }, content, resource });
   assert.match(section.result.content, /甲的正文/);
-  assert.equal(section.result.content.includes("乙的正文"), false, "a section stops at the next heading of equal rank");
+  assert.equal(
+    section.result.content.includes("乙的正文"),
+    false,
+    "a section stops at the next heading of equal rank"
+  );
   assert.equal(section.result.revision, 7, "a read reports the revision a write will need");
 
   // A heading that is not there says which ones are, so the model can retry
   // with something real instead of guessing at a position.
   await assert.rejects(
     () => tools.read_document.execute({ params: { heading: "丙" }, content, resource }),
-    (error) => error.code === "operation_precondition_failed" && /甲/.test(error.message) && /乙/.test(error.message)
+    (error) =>
+      error.code === "operation_precondition_failed" && /甲/.test(error.message) && /乙/.test(error.message)
   );
 });
 
 test("a document past the read limit comes back with its headings, not an offset to resume from", async () => {
-  const tools = Object.fromEntries((textRuntimeAdapter.agentTools?.() ?? []).map((tool) => [tool.name, tool]));
+  const tools = Object.fromEntries(
+    (textRuntimeAdapter.agentTools?.() ?? []).map((tool) => [tool.name, tool])
+  );
   const content = `# 很长的文档\n${"填充段落\n".repeat(30_000)}## 末尾一节\n收尾\n`;
-  const resource = { resourceId: "r", appType: "text-editor", kind: "text/markdown", title: "a.md", revision: 0 };
+  const resource = {
+    resourceId: "r",
+    appType: "text-editor",
+    kind: "text/markdown",
+    title: "a.md",
+    revision: 0
+  };
 
   const read = await tools.read_document.execute({ params: {}, content, resource });
   assert.equal(read.result.truncated, true);

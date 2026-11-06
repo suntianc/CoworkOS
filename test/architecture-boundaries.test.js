@@ -17,7 +17,7 @@ test("shared modules cannot import a CLI entrypoint or dashboard orchestration",
   assert.equal(
     (
       await imports(
-        "src/applications/mcp/text-editor-server.ts",
+        "src/applications/mcp/local-api-client.ts",
         'import { example } from "../../cli/cowork.js";'
       )
     ).length,

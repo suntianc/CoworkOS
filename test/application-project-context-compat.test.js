@@ -1,16 +1,15 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { ResourceFiles } from "../dist/src/applications/resource-files.js";
-import {
-  applicationServiceForTask,
-  taskApplicationWorkspace
-} from "../dist/src/applications/task-service.js";
-import { createWorkspaceDirectory } from "../dist/src/dashboard/workspace-directory.js";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { ResourceFiles } = await import("../dist/src/applications/resource-files.js");
+const { applicationServiceForTask, taskApplicationWorkspace } =
+  await import("../dist/src/applications/task-service.js");
+const { createWorkspaceDirectory } = await import("../dist/src/dashboard/workspace-directory.js");
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 import { applicationProjectLabel } from "../web/assets/workbench/workspace-scope.js";
 
 async function fixture(t) {
@@ -42,12 +41,13 @@ test("first document creation inherits the project folder while Task state stays
   const service = await applicationServiceForTask(f.storage, "chat");
   const created = await service.createResource({
     taskId: "chat",
-    kind: "presentation/pptist+json",
+    kind: "text/markdown",
     title: "自我介绍",
+    initialContent: "# 自我介绍\n测试文档。",
     actor
   });
   const path = new ResourceFiles(f.projectDirectory).absolutePath(created.resource);
-  assert.equal(JSON.parse(await readFile(path, "utf8")).slides.length, 1);
+  assert.equal(await readFile(path, "utf8"), "# 自我介绍\n测试文档。");
   assert.equal((await f.store.readTask("chat")).projectId, f.project.projectId);
   assert.equal(created.resource.projectId, f.project.projectId);
   assert.equal((await service.mapping.list("chat"))[0].workspaceRoot, f.projectDirectory);

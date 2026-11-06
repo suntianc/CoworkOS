@@ -41,45 +41,6 @@ test("rename, pin, archive and restore keep the conversation identity and draft"
   }
 });
 
-test("TXT revision comparison and version-bound undo restore the reviewed content", async ({ page }) => {
-  const dashboard = await startDashboard();
-  try {
-    await seed(page, dashboard.base, "review-task", "比较模型改动");
-    const created = await (
-      await page.request.post(`${dashboard.base}/api/tasks/review-task/resources`, {
-        data: { kind: "text/plain", title: "审阅.txt", initialContent: "人工标记\n" }
-      })
-    ).json();
-    const id = created.resource.resourceId;
-    await page.request.post(`${dashboard.base}/api/tasks/review-task/resources/${id}/operations`, {
-      data: {
-        appType: "text-editor",
-        operationType: "text.insert",
-        operationId: "review-e2e",
-        baseRevision: 0,
-        payload: { at: 0, text: "模型新增\n" }
-      }
-    });
-    await page.request.post(`${dashboard.base}/api/workbench/tabs`, {
-      data: { kind: "application", resourceId: id, bindTo: "review-task" }
-    });
-    await page.goto(dashboard.base);
-    await page.getByRole("button", { name: "修改对比", exact: true }).click();
-    await expect(page.locator("[data-review-before]")).toHaveText("人工标记");
-    await expect(page.locator("[data-review-after]")).toHaveText("模型新增\n人工标记");
-    await page.getByRole("button", { name: "撤销这次修改", exact: true }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.locator("[data-editor-input]")).toHaveValue("人工标记\n");
-    const saved = await (
-      await page.request.get(`${dashboard.base}/api/tasks/review-task/resources/${id}`)
-    ).json();
-    expect(saved.resource.revision).toBe(2);
-    expect(saved.snapshot.content).toBe("人工标记\n");
-  } finally {
-    await dashboard.stop();
-  }
-});
-
 test("unconfigured Web offers model setup and an authentication failure can be retried", async ({ page }) => {
   test.setTimeout(60_000);
   let fail = true,

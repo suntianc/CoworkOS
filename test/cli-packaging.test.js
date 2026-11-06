@@ -157,7 +157,7 @@ test("the actual CLI packer excludes retained Mac helpers and tolerates optional
       "CONTRIBUTING.md",
       "CONTRIBUTING.en.md",
       "config.example.json",
-      "vendor/pptist/LICENSE"
+      "vendor/sciagentgym/LICENSE"
     ]) {
       await mkdir(dirname(join(root, file)), { recursive: true });
       await cp(new URL(`../${file}`, import.meta.url), join(root, file));
@@ -308,6 +308,19 @@ test("the actual CLI packer excludes retained Mac helpers and tolerates optional
       ].resolved,
       fixtureDependency.resolved
     );
+    for (const name of ["cad", "blender", "pptist", "presentations", "make-a-deck", "office-harness"])
+      assert.ok(
+        !files.some((file) => file.startsWith(`package/.pi/skills/${name}/`)),
+        `CLI archive includes retired ${name}`
+      );
+    assert.ok(
+      !files.some((file) =>
+        /(?:text-editor|text-runtime-adapter|text-outline|text-document-session|application-fixture|application-contract)/.test(
+          file
+        )
+      ),
+      "CLI archive excludes editor implementations and contract fixtures"
+    );
     assert.ok(files.includes("package/dist/src/gui/driver.js"));
     assert.ok(files.includes("package/vendor/sciagentgym/LICENSE"));
     assert.ok(files.includes("package/vendor/sciagentgym/NOTICE"));
@@ -321,15 +334,10 @@ test("the actual CLI packer excludes retained Mac helpers and tolerates optional
       "charts",
       "data-report",
       "visual-exposure",
-      "make-a-deck",
       "animated-video"
     ])
       assert.ok(files.includes(`package/.pi/skills/${name}/SKILL.md`), `CLI archive excludes ${name}`);
-    for (const file of [
-      "frontend-design/references/design.md",
-      "charts/references/chart-design.md",
-      "make-a-deck/references/html-deck.md"
-    ])
+    for (const file of ["frontend-design/references/design.md", "charts/references/chart-design.md"])
       assert.ok(files.includes(`package/.pi/skills/${file}`), `CLI archive excludes ${file}`);
 
     assert.equal(

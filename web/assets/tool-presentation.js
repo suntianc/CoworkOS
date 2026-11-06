@@ -10,35 +10,9 @@ const titles = {
   list_resource_changes: ui("查看文档变化"),
   create_resource: ui("创建文档"),
   accept_resource_candidate: ui("采用文档版本"),
-  read_document: ui("读取文档"),
-  outline_document: ui("查看文档结构"),
-  patch_document: ui("修改文档"),
-  write_document: ui("写入文档"),
   open_resource: ui("打开文档"),
   export_resource: ui("导出文档"),
   apply_resource_operation: ui("修改应用文档"),
-  blender_read_scene: ui("读取 Blender 场景"),
-  blender_query: ui("检查 Blender 场景"),
-  blender_run_python: ui("运行 Blender 脚本"),
-  blender_apply_operations: ui("修改 Blender 场景"),
-  blender_preview: ui("预览 Blender 场景"),
-  blender_render: ui("渲染 Blender 场景"),
-  blender_get_api_reference: ui("查看 Blender 操作指南"),
-  cad_read_model: ui("读取 CAD 模型"),
-  cad_query: ui("检查 CAD 模型"),
-  cad_edit_parts: ui("修改 CAD 零件"),
-  cad_upsert_part: ui("更新 CAD 零件"),
-  cad_remove_part: ui("删除 CAD 零件"),
-  cad_edit_parameters: ui("调整 CAD 参数"),
-  cad_set_parameters: ui("调整 CAD 参数"),
-  cad_run_source: ui("运行 CAD 源码"),
-  cad_run_program: ui("运行 CAD 程序"),
-  cad_write_program: ui("修改 CAD 程序"),
-  cad_preview: ui("预览 CAD 模型"),
-  cad_get_api_reference: ui("查看 CAD 操作指南"),
-  pptist_read_presentation: ui("读取 PPT"),
-  pptist_edit_presentation: ui("编辑 PPT"),
-  pptist_get_schema: ui("查看 PPT 格式"),
   computer_status: ui("查看电脑操作状态"),
   computer_observe: ui("观察授权窗口"),
   computer_act: ui("操作授权窗口"),
@@ -85,7 +59,7 @@ const titles = {
 };
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const commands = new Set(["bash", "run_command", "exec_command", "run_tests", "start_job"]);
-const reads = new Set(["read", "read_file", "read_document"]);
+const reads = new Set(["read", "read_file"]);
 const searches = new Set(["grep", "search", "search_files", "web_search", "find"]);
 const parse = (value) => {
   if (typeof value !== "string") return value;
@@ -217,7 +191,7 @@ function resultSummary(name, data, completed, failed) {
   }
   if (reads.has(name) && typeof data.path === "string" && typeof data.content === "string")
     return ui`返回 ${data.content ? data.content.split(/\r?\n/).length : 0} 行内容`;
-  if (["write", "write_file", "edit", "apply_patch", "patch_document"].includes(name)) {
+  if (["write", "write_file", "edit", "apply_patch"].includes(name)) {
     if (data.changed === false) return ui("文件没有变化");
     if (typeof data.bytes === "number" && Number.isFinite(data.bytes) && data.bytes >= 0)
       return ui`已写入 ${data.bytes} 字节`;

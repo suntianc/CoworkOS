@@ -1,11 +1,4 @@
 import { MainMessageEditConflict, type EditTextFile } from "../runtime/main-message-edit.js";
-import {
-  selectedComponentDirectory,
-  componentDisabled,
-  componentIds,
-  type ComponentId
-} from "../software/components/paths.js";
-import type { createComponentService } from "../software/components/service.js";
 import { readFile } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -34,7 +27,6 @@ import { readJsonFile, streamRunEvents } from "./event-stream.js";
 import { InputStore, inputPrompt } from "../workspace/input-store.js";
 import { handleUploadRequest } from "./upload-routes.js";
 import { handleComputerRequest } from "./computer-routes.js";
-import type { createBlenderInstaller } from "../software/blender/installer.js";
 import type { ComputerUse } from "../gui/computer-use.js";
 
 import { handleGoalRequest } from "./goal-routes.js";
@@ -56,8 +48,6 @@ export interface DashboardRoutePorts {
   projectExperienceStore?: (projectId: string) => Promise<ProjectExperienceStore | undefined>;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
-  components?: ReturnType<typeof createComponentService>;
-  blenderInstaller?: ReturnType<typeof createBlenderInstaller>;
   uploads?: InputStore;
   computer: ComputerUse;
   dashboardUrl: string;
@@ -151,34 +141,6 @@ export function createDashboardHandler(
       if (ports.userMemory && (await handleUserMemoryRequest(request, response, url, ports.userMemory)))
         return;
       if (ports.uploads && (await handleUploadRequest(request, response, url, ports.uploads))) return;
-      if (ports.components && url.pathname === "/api/components" && request.method === "GET") {
-        const componentId = url.searchParams.get("id");
-        if (componentId !== null && !componentIds.includes(componentId as ComponentId))
-          throw new HttpError(400, "Unknown component");
-        sendJson(response, 200, {
-          components:
-            componentId !== null
-              ? [await ports.components.status(componentId as ComponentId)]
-              : await ports.components.list(
-                  url.searchParams.get("refresh") === "1",
-                  url.searchParams.get("probe") === "1"
-                )
-        });
-        return;
-      }
-      const componentMatch = url.pathname.match(
-        /^\/api\/components\/([a-z]+)\/(install|upgrade|cancel|enable|disable|uninstall)$/
-      );
-      if (ports.components && componentMatch && request.method === "POST") {
-        if (!componentIds.includes(componentMatch[1] as ComponentId))
-          throw new HttpError(400, "Unknown component");
-        sendJson(
-          response,
-          202,
-          await ports.components.action(componentMatch[1] as ComponentId, componentMatch[2])
-        );
-        return;
-      }
       if (request.method === "GET" && url.pathname === "/") {
         const html = await readFile(join(uiRoot, "index.html"), "utf8");
         response.writeHead(200, {
@@ -194,27 +156,7 @@ export function createDashboardHandler(
         request.method === "GET" &&
         (url.pathname === "/styles.css" || url.pathname === "/app.js" || url.pathname.startsWith("/assets/"))
       ) {
-        const pptPrefix = "/assets/pptist/generated/";
-        const selectedPpt = selectedComponentDirectory("pptist");
-        const disabledPpt = url.pathname.startsWith(pptPrefix) && componentDisabled("pptist");
-        let assetStatus = 200;
-        const assetPath =
-          url.pathname.startsWith(pptPrefix) && selectedPpt
-            ? join(selectedPpt, url.pathname.slice(pptPrefix.length))
-            : join(uiRoot, url.pathname.slice(1));
-        const asset = await (
-          disabledPpt
-            ? Promise.reject(new HttpError(409, "PPT 编辑器已停用，请在设置的应用组件中启用"))
-            : readFile(assetPath)
-        ).catch((error) => {
-          if (url.pathname === `${pptPrefix}index.html`) {
-            assetStatus = 409;
-            return readFile(join(uiRoot, "assets/pptist/missing.html"));
-          }
-          if (url.pathname.startsWith(pptPrefix))
-            throw new HttpError(409, "PPT 编辑器暂不可用，请在设置的应用组件中启用或修复安装");
-          throw error;
-        });
+        const asset = await readFile(join(uiRoot, url.pathname.slice(1)));
         const extension = url.pathname.slice(url.pathname.lastIndexOf(".")).toLowerCase();
         const contentType =
           (
@@ -237,7 +179,7 @@ export function createDashboardHandler(
               ".txt": "text/plain; charset=utf-8"
             } as Record<string, string>
           )[extension] ?? "application/octet-stream";
-        response.writeHead(assetStatus, { "content-type": contentType, "cache-control": "no-cache" });
+        response.writeHead(200, { "content-type": contentType, "cache-control": "no-cache" });
         response.end(asset);
         return;
       }
@@ -318,34 +260,6 @@ export function createDashboardHandler(
             projectName: body.projectName,
             projectDirectory: body.projectDirectory
           })
-        });
-        return;
-      }
-      if (
-        ports.blenderInstaller &&
-        url.pathname === "/api/applications/blender/runtime" &&
-        request.method === "GET"
-      ) {
-        const state = ports.components
-          ? await ports.components.status("blender")
-          : await ports.blenderInstaller.status();
-        sendJson(response, 200, {
-          ...state,
-          canInstall: "supported" in state ? state.supported && !state.available : state.canInstall
-        });
-        return;
-      }
-      if (
-        ports.blenderInstaller &&
-        url.pathname === "/api/applications/blender/install" &&
-        request.method === "POST"
-      ) {
-        const state = ports.components
-          ? await ports.components.action("blender", "install")
-          : await ports.blenderInstaller.start();
-        sendJson(response, 202, {
-          ...state,
-          canInstall: "supported" in state ? state.supported && !state.available : state.canInstall
         });
         return;
       }

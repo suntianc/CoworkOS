@@ -8,17 +8,15 @@ Start with [AGENTS](../../AGENTS.en.md), [architecture](architecture.md) and the
 
 Use Node.js >=22.19.0, npm and Git. Install locked dependencies with `npm ci`. Initial dependency/Chromium downloads require network access. Ordinary tests use temporary workspaces and local model protocol fixtures; real credentials are needed only for actual model requests.
 
-| Target         | Preparation                                                                      | Launch                                                                           |
-| -------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| CLI/harness    | `ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci`, `npm run build:cli`                    | `npm run init`, `npm start`                                                      |
-| Web            | `npm ci`, `npm run build`; Mac builds need Xcode Command Line Tools              | `npm run ui`, default `http://127.0.0.1:3880`                                    |
-| Electron App   | `npm ci`; run `npm rebuild electron` if download was previously skipped          | `npm run desktop`                                                                |
-| Native CAD     | Apple Silicon Mac, uv, `npm run cad:setup`                                       | Workbench/domain tests; other platforms use JSCAD                                |
-| Native Blender | Apple Silicon Mac, `npm run blender:setup`, or `COWORK_BLENDER_EXECUTABLE`       | Source workbench/domain tests; distribution App prepares Blender on first launch |
-| Computer Use   | Mac, Xcode Command Line Tools; screenshots need macOS 14+ and system permissions | Built by `npm run build`; input needs an unlocked desktop                        |
-| Mac package    | Apple Silicon Mac; offline full archives also need uv                            | `npm run desktop:pack` / `npm run desktop:dist`                                  |
+| Target       | Preparation                                                                      | Launch                                                    |
+| ------------ | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| CLI/harness  | `ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci`, `npm run build:cli`                    | `npm run init`, `npm start`                               |
+| Web          | `npm ci`, `npm run build`; Mac builds need Xcode Command Line Tools              | `npm run ui`, default `http://127.0.0.1:3880`             |
+| Electron App | `npm ci`; run `npm rebuild electron` if download was previously skipped          | `npm run desktop`                                         |
+| Computer Use | Mac, Xcode Command Line Tools; screenshots need macOS 14+ and system permissions | Built by `npm run build`; input needs an unlocked desktop |
+| Mac package  | Apple Silicon Mac; offline full archives also need uv                            | `npm run desktop:pack` / `npm run desktop:dist`           |
 
-`build:cli` compiles TypeScript and prepares headless CAD/Python runners without browser bundles, Swift helper, icons or Electron packages. Default `build` / `build:base` prepares base host artifacts without PPTist; `build:full` includes all editor resources; non-Mac builds skip Mac helper/icon generation.
+`build:cli` compiles the shared runtime and prepares CLI and science assets. `build`, `build:base` and `build:full` prepare the text workbench, math rendering and desktop host assets. Non-Mac builds skip native helpers and icons.
 
 Document attachment tests need Python 3.11 and PDF/Office parsing dependencies. Missing libraries must be fixed, not counted as passing skips. Fixtures/readers share `COWORK_PYTHON`:
 
@@ -58,7 +56,7 @@ Do not directly execute the binary in `Contents/MacOS/` for system permission ac
 
 The Finder entry copies the signed cached bundle without changing or re-signing it, preserving its permission identity. Changes to the icon, Electron, toolchain or package metadata create a new development runtime that needs a new grant; old grants are not migrated automatically. An old CoworkOS Dev entry without a suffix does not grant access to the new test bundle. Other Apps and system permissions do not need to be removed or reset.
 
-Frontend uses native ES modules without Vite/HMR. Refresh after JS/CSS changes. Rebuild/restart for TypeScript, generated CAD/PPTist bundles or Swift changes. Icon/Electron/package-version changes also require rebuilding the development runtime. Edit source, not generated artifacts. Full/CLI builds remove orphaned compiled files for moved/deleted sources while preserving native helpers and Python runners.
+Frontend uses native ES modules without Vite/HMR. Refresh after JS/CSS changes. Rebuild/restart for TypeScript, generated browser assets or Swift changes. Icon/Electron/package-version changes also require rebuilding the development runtime. Edit source, not generated artifacts. Full/CLI builds remove orphaned compiled files for moved/deleted sources while preserving native helpers and Python runners.
 
 For interface iteration, complete `npm run build` once, then start with `node dist/src/cli/dashboard.js` to avoid the rebuild performed by every `npm run ui` launch. Keep the required isolation environment variables. The server reads HTML, CSS and JS directly from `web/`; refresh the browser after editing them. Backend changes still require stopping the server, rebuilding and restarting.
 
@@ -97,7 +95,7 @@ The update implementations are [source transaction](../../scripts/update-source.
 
 ```sh
 npm run test:unit -- --list
-npm run test:unit -- --file test/text-document-session.test.js
+npm run test:unit -- --file test/application-resource-store.test.js
 npm run test:unit -- --match application
 npm run verify
 ```
@@ -123,7 +121,7 @@ npm run verify
 
 Ordinary Node regression defers explicit native desktop/CUA entrypoints and prints reasons. Optional engines may still produce TAP skips. See [local testing](testing-local-run.md) for prerequisites/reports/native commands. Local fixtures validate Pi protocol/lifecycle, not real model capability. Browser passing does not establish clean-machine installation. [package.json](../../package.json) and runners own exact scope.
 
-For a focused browser run, build first, then `npx playwright test e2e/workbench.spec.js --output=.tmp/playwright-workbench`. Concurrent Playwright processes need distinct `--output` directories. Keyless tests must not read personal connections.
+For a focused browser run, build first, then `npx playwright test e2e/automation-workspace.spec.js --output=.tmp/playwright-workbench`. Concurrent Playwright processes need distinct `--output` directories. Keyless tests must not read personal connections.
 
 ## UI conventions
 
@@ -131,7 +129,7 @@ Use layout to distinguish hierarchy, and remove secondary labels or descriptions
 
 Organize interfaces by task stage and action frequency before styling them. Empty or generating states do not expose every unavailable feature; object actions appear with a selection, and tool results appear when that tool is active. Prioritize content in the workspace, allow secondary panels to close, and adapt them to their container width without leaving empty columns or squeezing text into one-character lines. Group actions meaningfully rather than placing every export format, diagnostic and common action at the same level. Screenshot review checks useful content and task paths as well as control bounds and theme colors.
 
-Page, TXT, CAD and other applications share [ui.css](../../web/assets/ui.css) tokens/buttons/status/menu styles; domain CSS uses its own classes. A locally bundled Inter variable font works offline, with PingFang SC, Microsoft YaHei and system fallbacks for Chinese; see the [third-party notice](../../THIRD_PARTY_NOTICES.md#inter-界面字体--interface-typeface) for provenance and licensing. Body text uses 15px, controls 14px, captions 12px, section headings 16px, task-panel and settings dialog titles 18px, and welcome headings 22 to 26px. Weights are 400 for regular text, 500 for headings, and 600 for emphasis, with normal letter spacing and a body line height of 1.8. Dark mode uses a near-black canvas, subtle dividers and solid input surfaces. The desktop sidebar defaults to 232px, and the transcript and composer align to the same reading column.
+Page and TXT applications share [ui.css](../../web/assets/ui.css) tokens/buttons/status/menu styles; domain CSS uses its own classes. A locally bundled Inter variable font works offline, with PingFang SC, Microsoft YaHei and system fallbacks for Chinese; see the [third-party notice](../../THIRD_PARTY_NOTICES.md#inter-界面字体--interface-typeface) for provenance and licensing. Body text uses 15px, controls 14px, captions 12px, section headings 16px, task-panel and settings dialog titles 18px, and welcome headings 22 to 26px. Weights are 400 for regular text, 500 for headings, and 600 for emphasis, with normal letter spacing and a body line height of 1.8. Dark mode uses a near-black canvas, subtle dividers and solid input surfaces. The desktop sidebar defaults to 232px, and the transcript and composer align to the same reading column.
 
 `ui.css` assembles shared components, then [system-theme.css](../../web/assets/system-theme.css) applies neutral light/dark surfaces and text colors. [settings.css](../../web/assets/settings.css) follows it to unify the overview, model and web search dialogs with shared surfaces, form controls and fixed action bars, always using opaque surfaces. Icons use [icons.js](../../web/assets/ui/icons.js)/the SVG sprite; icon-only controls need `aria-label`, with a preferred 32px hit area.
 
@@ -147,7 +145,7 @@ Without an active conversation, the task panel shows brief getting-started guida
 - Active conversations show a continuous activity indicator and current phase while waiting for the first response, thinking, running tools, or automatically retrying. Completion and stopping end the animation. Tool titles use readable names; unknown tools still display their names.
 - Check rendered text contrast in both themes, plus 1440/1280 and 474/320 widths, menus, truncation, keyboard focus, reachable controls and overflow with real browser coverage. Review screenshots for surface hierarchy and status emphasis.
 
-TXT state and DOM are separate; CAD engine/preview and UI are separate; Blender/PPTist sessions own save/collaboration. Use domain owners from the code map rather than adding application state machines to `web/app.js`.
+TXT state and DOM are separate; its document session owns save and collaboration. Use domain owners from the code map rather than adding application state machines to `web/app.js`.
 
 ## Troubleshooting
 
@@ -160,7 +158,7 @@ TXT state and DOM are separate; CAD engine/preview and UI are separate; Blender/
 | Model launch failure                           | Endpoint/protocol/model/parameters/env and redacted errors; never full config |
 | Late UI response replaces another conversation | Captured Task/draft identity, navigation token and serialization              |
 
-Reports include version/commit, OS, entrypoint, reproduction, redacted logs and test paths. Trace paths are in the workspace reference. CAD compile failures still allow saving/reading/exporting source. Native Blender evidence identifies executable/version.
+Reports include version/commit, OS, entrypoint, reproduction, redacted logs and test paths. Trace paths are in the workspace reference.
 
 ## GitHub Actions
 
@@ -178,4 +176,4 @@ Release tags must equal `v<package version>`, with matching package/lock version
 
 Manual retry accepts an existing version tag and replaces assets only while the Release remains a draft. Published versions require a new version/tag. Version commands, draft review and retry steps are in the [Mac release guide](../mac-release.md#版本-tag-与-release-草稿).
 
-`desktop:pack` / `desktop:dist` produce a small archive with the PPT editor and prepare CAD/Blender automatically after first launch. Explicit `:full` archives bundle all components for offline use; `:base` is for internal base-package tests and never downloads components automatically. Daily `build` and development launch remain lightweight. See [applications and components](optional-components.md) for Settings, advanced CLI commands and runtime path reuse.
+`desktop:pack` / `desktop:dist` package the text workbench and complete orchestration runtime. CAD, Blender and PPT components are excluded. See [capabilities](builtin-capabilities.md).

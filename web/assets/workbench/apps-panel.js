@@ -102,7 +102,6 @@ export function createAppsPanel({
   captureNavigation = () => ({ current: () => true }),
   getNavigationContext = () => undefined,
   onOpened,
-  onOpenHarness,
   onError
 }) {
   const taskForReading = async () => (await getTaskId({ create: false })) ?? null;
@@ -304,26 +303,12 @@ export function createAppsPanel({
     const navigation = captureNavigation();
     const context = getNavigationContext();
     try {
-      const meta = applications?.find((app) => app.appType === appType);
-      // A harness app has no workbench editor: opening it starts a conversation
-      // (which loads the app's MCP tools + prompt) and launches the external
-      // GUI, rather than mounting a document tab.
-      if (onOpenHarness && appType.endsWith("-harness")) {
-        await onOpenHarness({
-          appType,
-          workspaceRoot: getWorkspaceRoot(),
-          kind: meta?.resourceKinds?.[0],
-          displayName: applicationLabel(appType, meta?.displayName || appType),
-          navigation
-        });
-      } else {
-        const opened = await api.openStandaloneApplication(appType);
-        await onOpened?.({
-          appInstanceId: opened.appInstance?.appInstanceId,
-          taskId: opened.taskId,
-          navigation
-        });
-      }
+      const opened = await api.openStandaloneApplication(appType);
+      await onOpened?.({
+        appInstanceId: opened.appInstance?.appInstanceId,
+        taskId: opened.taskId,
+        navigation
+      });
       if (context === getNavigationContext()) close();
     } catch (error) {
       if (navigation.current()) onError?.(ui`打开失败：${error.message}`);

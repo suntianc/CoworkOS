@@ -59,11 +59,7 @@ export function mountLocalFileOpener(host, { accept, read, api, taskId, instance
     }
     void openFile(files[0]);
   };
-  const dropTarget =
-    host.closest(".application-home") ||
-    host.closest("[data-workbench-view]") ||
-    host.closest(".text-editor") ||
-    host;
+  const dropTarget = host.closest(".application-home") || host.closest("[data-workbench-view]") || host;
   dropTarget.addEventListener("dragover", dragover);
   dropTarget.addEventListener("drop", drop);
   return {

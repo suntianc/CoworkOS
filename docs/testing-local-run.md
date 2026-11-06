@@ -43,7 +43,7 @@ npm run test:unit -- --file test/p0.test.ts
 
 # 已完成当前源码构建后，显式复用构建以加快迭代
 npm run test:unit -- --skip-build --match conversation
-npm run test:unit -- --skip-build --file test/text-document-session.test.js --concurrency 1
+npm run test:unit -- --skip-build --file test/application-resource-store.test.js --concurrency 1
 ```
 
 `--match` 是区分大小写的文件路径子串，`--file` 是仓库相对的精确源测试路径，两者不能混用。拼错文件或匹配为空时，在构建前退出失败。
@@ -52,7 +52,7 @@ Node 测试自动发现 `test/` 下 `.test.js`、`.test.mjs`、`.test.ts`；Type
 
 默认 Node 回归明确列出并延后 `computer-native.test.js` 和桌面开发入口的可见窗口重启变体，通过已有发布清单统一控制；即使本机设置了原生测试环境变量，普通入口也关闭该变体。需要真实窗口操作时使用下面的 `--native`。
 
-其他 CAD、Blender、Mac 平台用例仍按自身条件运行或在 TAP 中明确跳过；退出码 0 不代表跳过项已经验证。保存实际测试数和 skip 原因，不能把历史计数作为本次结果。
+其他 Mac 平台用例仍按自身条件运行或在 TAP 中明确跳过；退出码 0 不代表跳过项已经验证。保存实际测试数和 skip 原因，不能把历史计数作为本次结果。
 
 `npm test` 和 `npm run check` 继续保留，分别用于已有 Node 回归和静态门槛；两者连跑会重复构建，显式完整检查用 `verify:full`。
 
@@ -74,7 +74,7 @@ npx playwright test e2e/dashboard-polling.spec.js e2e/editor-visibility-polling.
 - SSE 空闲时不重复读取账本正文；首次连接只读取历史末尾，连接后一次追加 600 条必须全部交付（包括初始空/缺失账本），文件替换后继续同步。详情读取最近 30 条时，普通短记录只需一个 64 KiB 范围，覆盖短读、中文、emoji 和无末尾换行；连接关闭后不能继续写响应或读取其他日志正文。
 - 浏览器检查慢请求不重叠、不丢草稿，无变化详情保留 DOM，折叠栏展开补画；多页面和编辑器隐藏时停止自动读取，恢复可见立即同步，SSE、主动加载、保存和自动保存仍保持正确。
 
-计时对比须保持相同数据、打开窗口数、冷/热状态和运行负载，记录响应状态、大小与耗时，不打印用户正文或配置。测试使用自己的临时工作区和本地服务；原生 CAD/Blender 启动及真实模型延迟需单独测量。
+计时对比须保持相同数据、打开窗口数、冷/热状态和运行负载，记录响应状态、大小与耗时，不打印用户正文或配置。测试使用自己的临时工作区和本地服务；原生启动及真实模型延迟需单独测量。
 
 ## 浏览器、原生与真实使用验证
 
@@ -83,7 +83,7 @@ npx playwright install chromium
 npm run test:browser
 
 # 已有当前构建时，直接挑选浏览器文件
-npx playwright test e2e/workbench.spec.js --output .tmp/browser-workbench
+npx playwright test e2e/automation-workspace.spec.js --output .tmp/browser-workbench
 
 # Mac 原生窗口/输入需要已有权限和解锁桌面
 npm run test:release -- --native --stage app,applications
@@ -91,9 +91,7 @@ npm run test:release -- --native --stage app,applications
 
 浏览器入口会构建并运行 Playwright；原生变体的适用条件以测试和发布清单为准。并行本地浏览器进程使用独立 `--output` 目录。真实模型 smoke 会消耗模型服务资源，按 [模型配置](configuration.md) 显式配置后执行。最终包安装、升级、签名/公证和人工体验按 [发布指南](mac-release.md) 单独记录。
 
-打包 App 的通用 `npm run test:desktop` 按候选包元数据选择范围：小包覆盖宿主、TXT/PPT/JSCAD、Pi/本地模型、保存恢复、退出/重启与搬移升级，在测试自己的隔离数据中停用 CAD/Blender，并明确记录原生检查 skip；完整包保留内置 CAD/Blender 的原生执行。已有当前候选时可用 `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs` 避免重复构建。
-
-小包还需运行 [启动准备专项](../e2e/public-components-desktop.spec.js)，并用全新组件目录另验真实公开下载、原生 STEP/GLB 导出与兼容版本复用。宿主 smoke、本地 HTTP 下载夹具和真实冷安装是独立证据，不将前两项记作全量原生通过；命令与范围见 [Mac 发布](mac-release.md#构建候选包)。
+打包 App 使用 `npm run test:desktop` 验证文本、Pi/本地模型、保存恢复、退出/重启与搬移升级。已有当前候选时可用 `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs` 避免重复构建。
 
 开发入口重启、输入框与模型连接原生测试使用临时 App、独立数据目录和 Chromium 测试钥匙串，验证配置加密读写、草稿与原生进程生命周期，避免临时签名触发真实钥匙串授权。此隔离仅用于测试；产品继续使用系统钥匙串，实际授权、签名安装包和跨版本升级需要单独验收。
 
@@ -103,7 +101,7 @@ npm run test:release -- --native --stage app,applications
 
 ## 使用
 
-在仓库根目录安装锁定依赖，并准备 Chromium。首次 PPTist 构建会安装 vendor 的锁定依赖，需要网络；原生构建沿用现有 Mac 工具链。
+在仓库根目录安装锁定依赖，并准备 Chromium。原生构建沿用现有 Mac 工具链。
 
 ```sh
 npm ci
@@ -132,7 +130,7 @@ npm run test:release -- --stage cli --skip-build
 npm run test:release:runner
 ```
 
-`--native` 需要解锁的 Mac、现有系统权限和可见测试窗口。模型协议、PPTist 等 desktop 文件，以及模型配置文件中的 Electron 变体、开发入口的原生重启变体，都由此开关控制；默认仍保留同文件的 Web/协议测试。未选择的文件和变体在报告单列。某些领域 Node 测试在无引擎环境会自行跳过，报告保留实际 skip 数。`--packages` 只构建候选文件，不能代替最终包安装、升级、签名/公证或真实模型验收。
+`--native` 需要解锁的 Mac、现有系统权限和可见测试窗口。模型协议等 desktop 文件，以及模型配置文件中的 Electron 变体、开发入口的原生重启变体，都由此开关控制；默认仍保留同文件的 Web/协议测试。未选择的文件和变体在报告单列。某些领域 Node 测试在无引擎环境会自行跳过，报告保留实际 skip 数。`--packages` 只构建候选文件，不能代替最终包安装、升级、签名/公证或真实模型验收。
 
 ## 报告含义
 

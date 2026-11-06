@@ -8,7 +8,7 @@ export async function readTextAttachments(files) {
   return Promise.all(
     files.map(async (file) => {
       if (!textExtensions.test(file.name))
-        throw new Error(`“${file.name}”暂不支持作为对话附件，请添加文本文件；Blender 工程请从应用内导入`);
+        throw new Error(`“${file.name}”暂不支持作为对话附件，请添加文本文件`);
       if (file.size > MAX_ATTACHMENT_BYTES)
         throw new Error(`“${file.name}”超过 128 KB，未添加；请拆分文件或在应用中打开`);
       let text;

@@ -43,7 +43,7 @@ npm run test:unit -- --file test/p0.test.ts
 
 # Explicitly reuse a complete build matching the current sources
 npm run test:unit -- --skip-build --match conversation
-npm run test:unit -- --skip-build --file test/text-document-session.test.js --concurrency 1
+npm run test:unit -- --skip-build --file test/application-resource-store.test.js --concurrency 1
 ```
 
 `--match` is a case-sensitive file-path substring. `--file` is an exact repository-relative source test path. They cannot be combined. Unknown files and empty matches fail before building.
@@ -52,7 +52,7 @@ The runner discovers `.test.js`, `.test.mjs` and `.test.ts` files recursively un
 
 Ordinary Node checks print deferred native work: `computer-native.test.js` and the visible desktop development relaunch variant. The existing release catalog controls these gates. Ordinary runs disable the desktop native variant even when its environment variable is set on the developer machine; use `--native` below for real window operation.
 
-Other CAD, Blender and Mac-specific tests still run or explicitly skip according to their own prerequisites. Exit code 0 does not validate skipped checks. Record actual counts and skip reasons for the current run.
+Other Mac-specific tests still run or explicitly skip according to their own prerequisites. Exit code 0 does not validate skipped checks. Record actual counts and skip reasons for the current run.
 
 `npm test` and `npm run check` remain available for existing Node and static checks. Running both rebuilds twice; use `verify:full` when explicitly requesting the complete suite.
 
@@ -74,7 +74,7 @@ npx playwright test e2e/dashboard-polling.spec.js e2e/editor-visibility-polling.
 - Idle SSE must not reread ledger bodies, and initial connections read only the historical tail. An appended burst of 600 records must all be delivered, including with an initially empty/missing ledger; file replacement must keep working. A detail tail of 30 ordinary short records needs only one 64 KiB range, including short reads, Chinese, emoji and a missing final newline. Closed connections must stop response writes and further log-body reads.
 - Browser cases cover nonoverlapping slow polls, retained drafts and unchanged detail DOM, and repainting a collapsed panel on expansion. Hidden pages/editors stop automatic reads and refresh immediately when visible; SSE, explicit loading, saves and autosaves retain correct behavior.
 
-Timing comparisons require matching data, open windows, cold/warm state and runtime load. Record response status, size and elapsed time without printing user content or configuration. Tests use their own temporary workspaces and local services; measure native CAD/Blender startup and actual model latency separately.
+Timing comparisons require matching data, open windows, cold/warm state and runtime load. Record response status, size and elapsed time without printing user content or configuration. Tests use their own temporary workspaces and local services; measure native startup and actual model latency separately.
 
 ## Browser, native and real usage checks
 
@@ -83,7 +83,7 @@ npx playwright install chromium
 npm run test:browser
 
 # Select a browser file after a current build
-npx playwright test e2e/workbench.spec.js --output .tmp/browser-workbench
+npx playwright test e2e/automation-workspace.spec.js --output .tmp/browser-workbench
 
 # Mac native windows/input require existing permissions and an unlocked desktop
 npm run test:release -- --native --stage app,applications
@@ -91,9 +91,7 @@ npm run test:release -- --native --stage app,applications
 
 Browser checks build and run Playwright; native variants follow the tests and release catalog prerequisites. Use independent `--output` directories for parallel local browser processes. Real model smoke checks consume model service resources; configure them explicitly using the [model configuration](configuration.md). Final installation, upgrades, signing/notarization and manual experience require separate records using the [Mac release guide](../mac-release.md).
 
-General packaged-App checks through `npm run test:desktop` select scope from package metadata. Small archives exercise the host, TXT/PPT/JSCAD, Pi/local-model tasks, save/recovery, quit/restart and relocated upgrades. The smoke disables CAD/Blender in its own disposable data and explicitly skips native checks; full archives retain bundled CAD/Blender execution. With a current candidate, run `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs` to avoid rebuilding.
-
-Small archives also require the [preparation check](../../e2e/public-components-desktop.spec.js), plus a separate fresh-directory public download, native STEP/GLB export and compatible-version reuse check. Host smoke, local HTTP download fixtures and real cold installation are separate evidence; the first two never establish full native acceptance. Commands and scope are in [Mac release](mac-release.md#candidate-archives).
+`npm run test:desktop` verifies TXT, Pi/local-model tasks, save/recovery, quit/restart and relocated upgrades. With a current candidate, run `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs` to avoid rebuilding.
 
 The development-entry relaunch, composer and model-connection native tests use a temporary App, isolated data and Chromium's test keychain to verify encrypted settings, drafts and native process lifecycle without prompting for real keychain access under temporary signatures. This isolation applies only to tests. The product uses the system keychain; actual permission prompts, signed packages and upgrades between versions need separate acceptance.
 
@@ -124,7 +122,7 @@ npm run test:release -- --stage cli --skip-build
 npm run test:release:runner
 ```
 
-`--list` does not build, run tests or write a report. A normal run builds once, then groups tests by stage. Node tests share recursive discovery with the daily runner, including `.test.js`, `.test.mjs` and `.test.ts` under `test/`, excluding the separately invoked `test/release/`. TypeScript tests run their compiled outputs, and each source file runs once. Browser discovery covers `e2e/*.spec.js`. The basic stage also runs p0/p1/p2, static checks and runner self-tests. The first PPTist build may install locked vendor dependencies and require network access. Native builds use the existing Mac toolchain.
+`--list` does not build, run tests or write a report. A normal run builds once, then groups tests by stage. Node tests share recursive discovery with the daily runner, including `.test.js`, `.test.mjs` and `.test.ts` under `test/`, excluding the separately invoked `test/release/`. TypeScript tests run their compiled outputs, and each source file runs once. Browser discovery covers `e2e/*.spec.js`. The basic stage also runs p0/p1/p2, static checks and runner self-tests. Native builds use the existing Mac toolchain.
 
 `--native` requires an unlocked Mac with existing system permissions and visible test windows. Mixed files retain Web/protocol coverage while native variants remain deferred by default. The report lists deferred files/variants and actual test skips. `--packages` only builds candidates; it does not validate their final installation, upgrades, signing/notarization or real model behavior.
 

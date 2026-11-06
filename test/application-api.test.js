@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -7,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 
 async function freePort() {
   const probe = createServer();
@@ -1415,114 +1416,31 @@ test("reopening an imported artifact preserves its edited resource and one deliv
   assert.equal(await readFile(join(workspaceRoot, "task", "artifacts", "report.md"), "utf8"), "original");
 });
 
-test("converted artifact imports retain source identity across retries and source changes", async (t) => {
+test("the text editor rejects unsupported binary conversion without changing the artifact", async (t) => {
   const { base, workspaceRoot, store } = await dashboard(t);
   const artifact = await store.publishArtifact({
     taskId: "task",
     runId: "run",
     producerAgentId: "main",
-    relativePath: "intro.pptx",
-    content: Buffer.from("source PPTX bytes")
+    relativePath: "source.bin",
+    content: Buffer.from("original bytes")
   });
-  const converted = {
-    fromArtifact: "intro.pptx",
-    appType: "pptist",
-    kind: "presentation/pptist+json",
-    title: "intro",
-    initialContent: { slides: [{ id: "one", elements: [] }] },
-    artifactSha256: artifact.sha256
-  };
-  const imported = await Promise.all(
-    Array.from({ length: 3 }, () => json(base, "/api/tasks/task/resources", post(converted)))
-  );
-  assert.ok(imported.every((result) => result.status === 201));
-  const resourceId = imported[0].body.resource.resourceId;
-  assert.ok(imported.every((result) => result.body.resource.resourceId === resourceId));
-  assert.equal(imported.filter((result) => !result.body.reused).length, 1);
-  assert.equal(imported[0].body.resource.title, "intro");
-  const origin = imported[0].body.resource.importedArtifact;
-  assert.equal(origin.taskId, "task");
-  assert.equal(origin.relativePath, "intro.pptx");
-  assert.equal(origin.sha256, artifact.sha256);
-  assert.equal(origin.storageRoot, await realpath(workspaceRoot));
-
-  const unrelated = await store.publishArtifact({
-    taskId: "task",
-    runId: "run",
-    producerAgentId: "main",
-    relativePath: "other/intro.pptx",
-    displayName: "intro.pptx",
-    content: Buffer.from("source PPTX bytes")
-  });
-  const other = await json(
+  const result = await json(
     base,
     "/api/tasks/task/resources",
     post({
-      ...converted,
-      fromArtifact: unrelated.relativePath,
-      artifactSha256: unrelated.sha256
+      fromArtifact: artifact.relativePath,
+      appType: "text-editor",
+      kind: "text/plain",
+      title: "source",
+      initialContent: "converted",
+      artifactSha256: artifact.sha256
     })
   );
-  assert.equal(other.status, 201);
-  assert.notEqual(
-    other.body.resource.resourceId,
-    resourceId,
-    "equal names and bytes do not merge distinct files"
+  assert.equal(result.status, 422);
+  assert.equal(result.body.error.code, "unsupported_resource_kind");
+  assert.equal(
+    await readFile(join(workspaceRoot, "task", "artifacts", "source.bin"), "utf8"),
+    "original bytes"
   );
-
-  const changed = await store.publishArtifact({
-    taskId: "task",
-    runId: "run",
-    producerAgentId: "main",
-    relativePath: "intro.pptx",
-    content: Buffer.from("changed source PPTX bytes")
-  });
-  const stale = await json(base, "/api/tasks/task/resources", post(converted));
-  assert.equal(stale.status, 409, "conversion from an older source cannot claim the new bytes");
-  assert.equal(stale.body.error.code, "source_file_conflict");
-  const newer = await json(
-    base,
-    "/api/tasks/task/resources",
-    post({ ...converted, artifactSha256: changed.sha256 })
-  );
-  assert.equal(newer.status, 201);
-  assert.notEqual(newer.body.resource.resourceId, resourceId);
-  const summary = (await json(base, "/api/tasks/task")).body;
-  assert.deepEqual(
-    summary.applications.resources.map((resource) => resource.resourceId).sort(),
-    [resourceId, other.body.resource.resourceId, newer.body.resource.resourceId].sort(),
-    "grouping the deliverables leaves all independently editable resource versions available"
-  );
-  assert.equal(summary.applications.deliverables.length, 2);
-  assert.ok(summary.applications.deliverables.every((row) => row.kind === "resource"));
-  const current = summary.applications.deliverables.find(
-    (row) => row.resourceId === newer.body.resource.resourceId
-  );
-  assert.deepEqual(current.previousVersions, [
-    {
-      resourceId,
-      name: "intro",
-      revision: 0,
-      updatedAt: imported[0].body.resource.updatedAt
-    }
-  ]);
-  assert.deepEqual(
-    current.files.map((file) => file.relativePath),
-    ["intro.pptx"],
-    "the current document keeps the download of its current source artifact"
-  );
-  const separate = summary.applications.deliverables.find(
-    (row) => row.resourceId === other.body.resource.resourceId
-  );
-  assert.equal(separate.previousVersions, undefined);
-  assert.deepEqual(
-    separate.files.map((file) => file.relativePath),
-    ["other/intro.pptx"],
-    "the same-named file at a different source path remains a separate document"
-  );
-  const previous = await json(base, `/api/tasks/task/resources/${resourceId}`);
-  assert.equal(previous.status, 200);
-  assert.equal(previous.body.snapshot.content.slides[0].id, "one");
-  assert.equal(previous.body.resource.importedArtifact.sha256, artifact.sha256);
-  assert.equal(summary.artifacts.length, 2);
 });

@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:http";
@@ -6,22 +7,22 @@ import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 
 // A real Pi session against a local model-protocol fixture. Unlike the fake
 // extension API, this checks the provider-visible tools after a mid-turn bind.
 test(
-  "real Pi discovers built-in applications, creates CAD and immediately exposes its tools",
+  "real Pi discovers built-in applications, creates text and immediately exposes its tools",
   { timeout: 60_000 },
   async (t) => {
-    const root = await mkdtemp(join(tmpdir(), "atria-cad-bootstrap-"));
+    const root = await mkdtemp(join(tmpdir(), "atria-text-bootstrap-"));
     const workspace = join(root, "workspace"),
       project = join(root, "project");
     await mkdir(project);
     await writeFile(join(root, "config.json"), "{}");
     const store = new LocalWorkspaceStore(workspace);
-    await store.createTask("bootstrap-task", { goal: "从对话创建 CAD" });
+    await store.createTask("bootstrap-task", { goal: "从对话创建文本" });
     await store.createRun("bootstrap-task", "bootstrap-run");
     const failures = [],
       calls = [];
@@ -58,62 +59,44 @@ test(
           const catalog = JSON.parse(request.messages.findLast((message) => message.role === "tool").content);
           assert.deepEqual(
             catalog.applications.map((application) => application.appType),
-            ["text-editor", "pptist", "cad", "blender"]
+            ["text-editor"]
           );
-          assert.ok(!names.includes("cad_read_model"));
+          assert.ok(!names.includes("read_document"));
           const schema = request.tools.find((tool) => tool.function.name === "create_resource").function
             .parameters;
           assert.ok(schema.properties.initialContent.anyOf.some((branch) => branch.type === "object"));
           name = "create_resource";
           args = {
-            kind: "model/atria-cad+json",
-            title: "对话火箭.cad.json",
-            initialContent: { version: 1, units: "mm", parts: [] }
+            kind: "text/markdown",
+            title: "对话笔记.md",
+            initialContent: "Original"
           };
         } else {
           const result = JSON.parse(request.messages.findLast((message) => message.role === "tool").content);
-          if (step !== 4) {
-            assert.notEqual(result.ok, false);
-            assert.ok(!result.error, JSON.stringify(result));
-          }
-          assert.ok(
-            names.includes("cad_read_model"),
-            "new tools must be visible immediately after creation, without an extra turn"
-          );
-          assert.ok(names.includes("cad_edit_parts"));
+          assert.notEqual(result.ok, false);
+          assert.ok(!result.error, JSON.stringify(result));
+          assert.ok(names.includes("read_document"));
+          assert.ok(names.includes("write_document"));
           if (step === 3) {
             assert.equal(result.bound, true);
-            assert.deepEqual(result.nextAction, { tool: "cad_read_model", arguments: {} });
-            assert.ok(result.availableTools.includes("cad_read_model"));
-            // Intentionally skip the first read: the structured precondition
-            // error must be marked failed in the real Pi event/transcript.
-            name = "cad_edit_parts";
-            args = { upsert: [{ id: "bad", shape: "sphere", radius: 99 }] };
-          } else if (step === 4) {
-            assert.equal(result.ok, false);
-            assert.equal(result.code, "operation_precondition_failed");
-            assert.deepEqual(result.nextAction, { tool: "cad_read_model", arguments: {} });
-            name = "cad_read_model";
+            assert.deepEqual(result.nextAction, { tool: "read_document", arguments: {} });
+            name = "read_document";
             args = {};
+          } else if (step === 4) {
+            assert.equal(result.result.content, "Original");
+            name = "write_document";
+            args = { content: "Updated document" };
           } else if (step === 5) {
-            assert.deepEqual(result.result.model.parts, []);
-            name = "cad_edit_parts";
-            args = {
-              upsert: [
-                { id: "body", name: "箭体", shape: "cylinder", radius: 20, height: 100 },
-                { id: "nose", name: "头部", shape: "sphere", radius: 20, position: [0, 0, 50] }
-              ]
-            };
-          } else if (step === 6) {
-            name = "cad_read_model";
+            name = "read_document";
             args = {};
           } else {
-            assert.equal(step, 7);
-            assert.equal(result.result.model.parts.length, 2);
-            send({ content: "已创建并读回核对火箭模型。" });
+            assert.equal(step, 6);
+            assert.equal(result.result.content, "Updated document");
+            send({ content: "已创建并读回核对文档。" });
             send({}, "stop");
           }
         }
+
         if (name) {
           calls.push(name);
           send({
@@ -212,24 +195,18 @@ test(
       "enable_tools",
       "list_applications",
       "create_resource",
-      "cad_edit_parts",
-      "cad_read_model",
-      "cad_edit_parts",
-      "cad_read_model"
+      "read_document",
+      "write_document",
+      "read_document"
     ]);
-    const edits = executionEnds.filter((event) => event.toolName === "cad_edit_parts");
-    assert.equal(edits.length, 2);
-    assert.equal(edits[0].isError, true, "real Pi must label a rejected edit as failed");
-    assert.equal(edits[0].result.details.code, "operation_precondition_failed");
-    assert.equal(edits[1].isError, false);
+    const edits = executionEnds.filter((event) => event.toolName === "write_document");
+    assert.equal(edits.length, 1);
+    assert.equal(edits[0].isError, false);
     const service = new ApplicationService(workspace);
     const resources = await service.listResources("bootstrap-task");
     assert.equal(resources.length, 1);
     const saved = await service.readResource("bootstrap-task", resources[0].resourceId);
     assert.equal(saved.resource.revision, 1);
-    assert.deepEqual(
-      saved.snapshot.content.parts.map((part) => part.id),
-      ["body", "nose"]
-    );
+    assert.equal(saved.snapshot.content, "Updated document");
   }
 );

@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,10 +6,10 @@ import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { McpSupervisor } from "../dist/src/applications/mcp-supervisor.js";
-import { WorkbenchTabStore } from "../dist/src/applications/tab-store.js";
-import { handleApplicationRequest } from "../dist/src/dashboard/application-routes.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { McpSupervisor } = await import("../dist/src/applications/mcp-supervisor.js");
+const { WorkbenchTabStore } = await import("../dist/src/applications/tab-store.js");
+const { handleApplicationRequest } = await import("../dist/src/dashboard/application-routes.js");
 
 function deferred() {
   let resolve;

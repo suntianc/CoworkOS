@@ -19,10 +19,8 @@ import { createMenu } from "./assets/ui/menu.js";
 import { createModal } from "./assets/ui/modal.js";
 import { createVisiblePoll } from "./assets/ui/visible-poll.js";
 import { installDesktopSettings } from "./assets/controllers/desktop-settings.js";
-import { installComponentSettings } from "./assets/controllers/component-settings.js";
 import { installScienceSettings } from "./assets/controllers/science-settings.js";
 import { installUserMemorySettings } from "./assets/controllers/user-memory-settings.js";
-import { installComponentPreparation } from "./assets/controllers/component-preparation.js";
 import { installDesktopUpdates } from "./assets/controllers/desktop-updates.js";
 import { presentToolCall } from "./assets/tool-presentation.js";
 import { assistantDisplayContent, normalizeReasoningDisplay } from "./assets/activity.js";
@@ -1120,7 +1118,7 @@ function renderEmpty() {
   goalView.update(null);
   $("#topbar-task").textContent = ui("新任务");
   $("#conversation").innerHTML =
-    ui`<div class="welcome-empty"><div class="welcome-symbol"><img src="/assets/atria-symbol.png" alt="" /></div><h2>有什么可以帮忙的？</h2><div class="starter-prompts"><button data-prompt="帮我梳理这个项目的结构"><span class="prompt-icon">${icon("folder")}</span>梳理项目结构 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="检查最近的代码改动并运行测试"><span class="prompt-icon">${icon("check")}</span>检查代码改动 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="研究这个主题并整理一份简报"><span class="prompt-icon">${icon("search")}</span>研究并整理简报 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="根据我提供的材料制作一份可编辑的演示文稿，先与我确认目标读者和页数。"><span class="prompt-icon">${icon("apps")}</span>制作可编辑演示文稿 <span class="prompt-arrow">${icon("arrow")}</span></button></div></div>`;
+    ui`<div class="welcome-empty"><div class="welcome-symbol"><img src="/assets/atria-symbol.png" alt="" /></div><h2>有什么可以帮忙的？</h2><div class="starter-prompts"><button data-prompt="帮我梳理这个项目的结构"><span class="prompt-icon">${icon("folder")}</span>梳理项目结构 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="检查最近的代码改动并运行测试"><span class="prompt-icon">${icon("check")}</span>检查代码改动 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="研究这个主题并整理一份简报"><span class="prompt-icon">${icon("search")}</span>研究并整理简报 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="读取我提供的文件，整理关键信息并生成一份报告。"><span class="prompt-icon">${icon("apps")}</span>整理文件并生成报告 <span class="prompt-arrow">${icon("arrow")}</span></button></div></div>`;
   bindStarterPrompts();
   state.selectedAgent = null;
   renderAgentRoom({ calls: [] }, { status: "created" }, null);
@@ -2271,8 +2269,6 @@ async function prepareInterfaceClose() {
 window.bookmanDesktop?.onPrepareClose(prepareInterfaceClose);
 installLanguageSettings({ prepareClose: prepareInterfaceClose, storage: draftStorage });
 installDesktopUpdates({ overview: settingsOverview });
-const componentSettings = installComponentSettings({ overview: settingsOverview });
-installComponentPreparation({ open: (id) => componentSettings?.open(id), showToast });
 const modelSettings = installDesktopSettings({
   overview: settingsOverview,
   showToast,

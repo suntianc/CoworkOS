@@ -1,12 +1,5 @@
 # Format acceptance checklist
 
-## PPTX
-
-- Every slide has a clear title or intentional title-less layout.
-- Text fits within its shape; tables, charts, and images are not clipped.
-- Fonts and theme colors remain consistent with the supplied template.
-- Render at least a contact sheet or representative slides and inspect it.
-
 ## DOCX
 
 - Heading hierarchy and page breaks are intentional.

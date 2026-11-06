@@ -14,11 +14,6 @@ export async function inspectSourceFile(
   const path = await files.adoptExternalPath(input.path);
   const ext = extname(path).toLowerCase();
   const formats: Record<string, string> = {
-    ".pptx": "pptx",
-    ".blend": "blend",
-    ".py": "python",
-    ".jscad": "jscad",
-    ".js": "jscad",
     ".md": "markdown",
     ".markdown": "markdown",
     ".txt": "text",

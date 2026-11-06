@@ -139,39 +139,3 @@ test("growing the next-round draft preserves the position while reading older ou
     await dashboard.stop();
   }
 });
-
-test("a growing follow-up draft cannot cover the answer beside a bound document", async ({ page }) => {
-  const dashboard = await startDashboard();
-  try {
-    await setup(page, dashboard);
-    await page.locator("#apps-nav").click();
-    await page.locator('[data-create-app="text-editor"]').click();
-    await confirmApplicationWorkspace(page);
-    await page.locator("[data-empty-new]").click();
-    await page.getByRole("textbox", { name: "文件名" }).fill("协作布局.txt");
-    await page.getByRole("button", { name: "创建", exact: true }).click();
-    await loadCurrentApplication(page);
-    await expect(page.locator(".chat-pane")).toHaveClass(/is-collaborating/);
-    for (const width of [1440, 1280]) {
-      await page.setViewportSize({ width, height: 650 });
-      await page.locator("#composer-input").fill("");
-      await bottom(page);
-      await page.locator("#composer-input").fill(draft);
-      await expectUncovered(page);
-      // Read both boxes in the same layout; asynchronous workbench updates may
-      // otherwise change the composer between two separate boundingBox calls.
-      await expect
-        .poll(() =>
-          page.evaluate(() => {
-            const scroll = document.querySelector("#conversation").getBoundingClientRect();
-            const composer = document.querySelector(".composer-wrap").getBoundingClientRect();
-            return scroll.bottom - composer.top;
-          })
-        )
-        .toBeLessThanOrEqual(1);
-    }
-  } finally {
-    await page.unrouteAll({ behavior: "wait" });
-    await dashboard.stop();
-  }
-});

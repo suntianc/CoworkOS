@@ -21,7 +21,6 @@ const names = [
   "charts",
   "data-report",
   "visual-exposure",
-  "make-a-deck",
   "animated-video"
 ];
 const source = resolve(".");

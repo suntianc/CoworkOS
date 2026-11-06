@@ -457,7 +457,7 @@ export class ResourceStore {
       const previous = await this.history(appType, resourceId).find(operationId);
       if (previous) {
         const content = adapter.parse(await this.files.read(resource), resource.kind);
-        if (resource.appType !== "pptist") await this.saveSourceLocked(resource, content, input.signal);
+        await this.saveSourceLocked(resource, content, input.signal);
         return {
           event: previous,
           resource,
@@ -559,10 +559,7 @@ export class ResourceStore {
         resource: nextResource,
         body
       });
-      // Presentation operations retain a recoverable draft. Only the explicit
-      // save-source action exports it over the selected original presentation.
-      if (nextResource.appType !== "pptist")
-        await this.saveSourceLocked(nextResource, applied.content, input.signal);
+      await this.saveSourceLocked(nextResource, applied.content, input.signal);
       return {
         event,
         resource: nextResource,

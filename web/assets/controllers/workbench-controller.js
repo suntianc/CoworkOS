@@ -359,6 +359,10 @@ export function createWorkbenchController({
     try {
       const { applications } = await applicationApi.listApplications();
       applicationCatalog = applications || [];
+      const navButton = $("#apps-nav");
+      if (navButton) navButton.hidden = applicationCatalog.length === 0;
+      if (!applicationCatalog.length) appsPanel?.close();
+      syncBindingFromTabs();
       for (const application of applicationCatalog) {
         if (!application.capabilities?.includes("edit")) continue;
         for (const kind of application.resourceKinds || []) editableKinds.add(kind);
@@ -473,7 +477,7 @@ export function createWorkbenchController({
     const navButton = $("#apps-nav");
     const panel = $("#apps-panel");
     if (!navButton || !panel) return undefined;
-    navButton.hidden = false;
+    navButton.hidden = applicationCatalog.length === 0;
     appsPanel ??= createAppsPanel({
       navButton,
       panel,
@@ -526,70 +530,6 @@ export function createWorkbenchController({
           await workbench?.activate(tabId, { navigation: navigation.navigation });
           if (workbench?.navigationToken === navigation.navigation && workbench.activeTabId === tabId)
             workbench.setExpanded(true);
-        }
-      },
-      onOpenHarness: async ({
-        appType,
-        workspaceRoot,
-        kind,
-        displayName,
-        navigation = captureNavigation()
-      }) => {
-        if (!kind) throw new Error(ui("缺少该应用的资源类型"));
-        // A harness app is a conversation mode, not a document editor: create a
-        // conversation that binds the harness session resource (so its MCP tools
-        // and prompt load on the next turn), then launch + tile the external GUI.
-        // The default storage directory is not a registered temporary document
-        // workspace. Without a project, let Task creation allocate one instead
-        // of asking the backend to reuse the storage root as a temporary space.
-        const taskWorkspaceRoot =
-          sameWorkspace(workspaceRoot, state.workspaceRoot) &&
-          !state.projects?.some((project) => sameWorkspace(project.projectDirectory, workspaceRoot))
-            ? undefined
-            : workspaceRoot;
-        const taskId = await createTaskForNavigation(
-          ui`使用 ${displayName} 建模`,
-          navigation,
-          taskWorkspaceRoot
-        );
-        if (!navigation.current()) return;
-        const created = await applicationApi.createResource(
-          taskId,
-          { kind, title: displayName },
-          workspaceRoot
-        );
-        if (created.resource?.resourceId) {
-          await applicationApi.bindResourceToTask({ taskId, resourceId: created.resource.resourceId });
-        }
-        if (!navigation.current()) return;
-        await activateConversationTab(taskId, navigation);
-        if (workbench?.navigationToken !== navigation.navigation || state.selected !== taskId) return;
-        await loadDetail(taskId);
-        if (!navigation.current()) return;
-        // Embedded viewers start when their tab becomes visible. External GUI
-        // launch errors must reach the apps panel instead of becoming unhandled
-        // rejections after the conversation has already been created.
-        if (appType !== "cad-harness" && appType !== "office-harness") {
-          await window.bookmanDesktop?.harnessLaunch?.(appType);
-          if (!navigation.current()) return;
-        }
-        // cad-harness and office-harness embed their viewer in the workbench (no
-        // external window): open + activate the application tab so the 3D view /
-        // Impress editor shows beside the conversation. `activate` un-collapses
-        // the workbench on its own; do NOT call setExpanded(true) here (that is
-        // full-screen mode, which hides the conversation pane and the sidebar's
-        // 应用 buttons).
-        if ((appType === "cad-harness" || appType === "office-harness") && created.resource?.resourceId) {
-          await applicationApi.openTab({
-            kind: "application",
-            resourceId: created.resource.resourceId,
-            activate: false
-          });
-          await refreshTabs();
-          if (navigation.current())
-            await workbench?.activate(`resource:${created.resource.resourceId}`, {
-              navigation: navigation.navigation
-            });
         }
       }
     });
@@ -952,7 +892,7 @@ export function createWorkbenchController({
     const bindButton = $("#app-bind-select");
     // Keep binding available for unattached windows: binding creates their
     // conversation when none is selected.
-    if (bindButton) bindButton.hidden = !state.selected && !instances.length;
+    if (bindButton) bindButton.hidden = !applicationCatalog.length || (!state.selected && !instances.length);
     paintComposerContext();
     control.update({
       instances,
@@ -1015,10 +955,8 @@ export function createWorkbenchController({
       return appsPanel;
     },
     iconForDocument(row) {
-      const nativeApp = /\.blend$/i.test(row.relativePath || row.name || "") ? "blender" : undefined;
       const appType =
         row.appType ||
-        nativeApp ||
         applicationCatalog.find(
           (app) =>
             app.resourceKinds?.includes(row.mimeType) ||

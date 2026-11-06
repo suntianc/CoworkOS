@@ -8,17 +8,15 @@
 
 使用 Node.js >=22.19.0、npm 和 Git；依赖以锁文件为准，执行 `npm ci`。第一次下载 npm 依赖和 Chromium 需要网络。模型密钥仅用于实际模型请求，普通本地回归使用隔离工作区和本地协议夹具。
 
-| 开发目标      | 环境和准备                                                                         | 启动                                            |
-| ------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------- |
-| CLI / harness | `ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci`，`npm run build:cli`                      | `npm run init`、`npm start`                     |
-| Web           | `npm ci`、`npm run build`；Mac 构建需 Xcode Command Line Tools                     | `npm run ui`，默认 `http://127.0.0.1:3880`      |
-| Electron App  | `npm ci`；若此前跳过 Electron 下载，执行 `npm rebuild electron`                    | `npm run desktop`                               |
-| 原生 CAD      | Apple Silicon Mac、uv，执行 `npm run cad:setup`                                    | 通过工作台或领域测试；其他平台使用 JSCAD        |
-| 原生 Blender  | Apple Silicon Mac 执行 `npm run blender:setup`，或设置 `COWORK_BLENDER_EXECUTABLE` | 源码工作台/领域测试；发行 App 首次自动准备      |
-| Computer Use  | Mac、Xcode Command Line Tools；截图需 macOS 14+、系统权限                          | 编译随 `npm run build`；动作验收需解锁桌面      |
-| Mac 安装包    | macOS 14+、Apple Silicon Mac；离线完整包另需 uv                                    | `npm run desktop:pack` / `npm run desktop:dist` |
+| 开发目标      | 环境和准备                                                      | 启动                                            |
+| ------------- | --------------------------------------------------------------- | ----------------------------------------------- |
+| CLI / harness | `ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci`，`npm run build:cli`   | `npm run init`、`npm start`                     |
+| Web           | `npm ci`、`npm run build`；Mac 构建需 Xcode Command Line Tools  | `npm run ui`，默认 `http://127.0.0.1:3880`      |
+| Electron App  | `npm ci`；若此前跳过 Electron 下载，执行 `npm rebuild electron` | `npm run desktop`                               |
+| Computer Use  | Mac、Xcode Command Line Tools；截图需 macOS 14+、系统权限       | 编译随 `npm run build`；动作验收需解锁桌面      |
+| Mac 安装包    | macOS 14+、Apple Silicon Mac；离线完整包另需 uv                 | `npm run desktop:pack` / `npm run desktop:dist` |
 
-`build:cli` 编译 TypeScript、准备 headless CAD 和 Python runner，不生成浏览器 bundle、Swift helper、图标或 Electron 安装包。默认 `build` / `build:base` 生成基础宿主产物，不构建 PPTist 编辑器；`build:full` 包含完整编辑器资源，非 Mac 平台自动跳过 Mac helper/图标构建。
+`build:cli` 编译共享运行时并准备 CLI 和科学工具；`build`、`build:base` 和 `build:full` 准备文本工作台、数学排版与桌面宿主资源。非 Mac 环境跳过原生辅助程序和图标构建。
 
 文档附件测试需要 Python 3.11 和 PDF/Office 解析依赖，缺库应修环境，不能把跳过当成通过。使用独立环境，并让夹具和读取器共用 `COWORK_PYTHON`：
 
@@ -58,7 +56,7 @@ Mac 开发启动与更新后重启统一通过 LaunchServices 打开指定的 Ap
 
 Finder 安装入口复制已签名的缓存包，不改内容或再次签名，保持相同权限身份。图标、Electron、工具链或包元数据变化产生新开发运行时后需要为新条目授权，旧授权不会自动迁移；旧版无后缀的 CoworkOS Dev 条目也不代表新测试包已授权。无需删除其他 App 或重置全部系统权限。
 
-前端使用原生 ES modules，没有 Vite/HMR。JS/CSS 修改后刷新；TypeScript、CAD/PPTist 生成 bundle 或 Swift 修改后重新构建、退出并重启宿主。图标源、Electron 或包版本变化要重建开发运行时。生成文件不是修改入口。完整/CLI 构建会清理已删除或搬移源码对应的旧编译文件，保留原生 helper 与 Python runner。
+前端使用原生 ES modules，没有 Vite/HMR。JS/CSS 修改后刷新；TypeScript、浏览器生成 bundle 或 Swift 修改后重新构建、退出并重启宿主。图标源、Electron 或包版本变化要重建开发运行时。生成文件不是修改入口。完整/CLI 构建会清理已删除或搬移源码对应的旧编译文件，保留原生 helper 与 Python runner。
 
 只迭代界面时，完成一次 `npm run build` 后可直接运行 `node dist/src/cli/dashboard.js`，省去 `npm run ui` 每次启动时的构建。保留需要的隔离环境变量；服务直接读取 `web/` 中的 HTML、CSS 和 JS，修改后刷新浏览器即可。后端改动仍需停止服务、重新构建并启动。
 
@@ -97,7 +95,7 @@ App 启动后检查一次，用户主动执行才更新。草稿保存、运行�
 
 ```sh
 npm run test:unit -- --list
-npm run test:unit -- --file test/text-document-session.test.js
+npm run test:unit -- --file test/application-resource-store.test.js
 npm run test:unit -- --match application
 npm run verify
 ```
@@ -123,7 +121,7 @@ npm run verify
 
 普通 Node 回归排除单独的原生桌面/CUA 验收入口，并打印原因；可选引擎仍可能报告 TAP skip。详细前提、报告和显式原生命令见 [本地测试指南](testing-local-run.md)。本地协议夹具验证真实 Pi 的协议/生命周期，不证明实际模型能力；浏览器通过也不证明干净机器安装。检查范围以 [package.json](../package.json) 和执行器为准。
 
-浏览器可先 `npm run build`，再用 `npx playwright test e2e/workbench.spec.js --output=.tmp/playwright-workbench` 运行对应文件。并行的 Playwright 进程须使用不同 `--output`，避免清理对方产物。无需模型的测试不应读取个人连接配置。
+浏览器可先 `npm run build`，再用 `npx playwright test e2e/automation-workspace.spec.js --output=.tmp/playwright-workbench` 运行对应文件。并行的 Playwright 进程须使用不同 `--output`，避免清理对方产物。无需模型的测试不应读取个人连接配置。
 
 ## 应用 UI 约定
 
@@ -131,7 +129,7 @@ npm run verify
 
 先按任务阶段和操作频率组织界面，再调整视觉样式。空白/生成中状态不铺满不可用功能；选择对象后再显示对象操作，启用工具后再显示结果。主工作区优先保留内容，次要面板可关闭并按所在容器宽度适配；文字不能逐字挤压，隐藏面板不能留下空列。功能列表使用有意义的分组，避免把每种导出格式、诊断说明和常用动作平铺为同一级。截图验收同时检查有效内容占比与任务路径，不能只检查控件边界和主题颜色。
 
-页面、TXT、CAD 和其他应用共用 [ui.css](../web/assets/ui.css) 的颜色、字体、按钮、菜单与状态变量；应用样式使用自身类名。字体使用本地 Inter 可变字体，中文回退到苹方、微软雅黑或系统字体，离线可用；来源与许可见[第三方声明](../THIRD_PARTY_NOTICES.md#inter-界面字体--interface-typeface)。正文 15px、控件 14px、辅助文字 12px、栏目标题 16px、任务面板及设置弹窗标题 18px、欢迎标题 22 至 26px；常规 400、标题 500、强调 600，默认正常字间距，正文行高 1.8。深色界面采用近黑底、低对比度分隔线和实色输入表面；桌面侧栏默认 232px，正文与输入框沿同一阅读列对齐。
+页面和 TXT 应用共用 [ui.css](../web/assets/ui.css) 的颜色、字体、按钮、菜单与状态变量；应用样式使用自身类名。字体使用本地 Inter 可变字体，中文回退到苹方、微软雅黑或系统字体，离线可用；来源与许可见[第三方声明](../THIRD_PARTY_NOTICES.md#inter-界面字体--interface-typeface)。正文 15px、控件 14px、辅助文字 12px、栏目标题 16px、任务面板及设置弹窗标题 18px、欢迎标题 22 至 26px；常规 400、标题 500、强调 600，默认正常字间距，正文行高 1.8。深色界面采用近黑底、低对比度分隔线和实色输入表面；桌面侧栏默认 232px，正文与输入框沿同一阅读列对齐。
 
 `ui.css` 装配共享组件后，[system-theme.css](../web/assets/system-theme.css) 加载中性浅深色表面与文字颜色；[settings.css](../web/assets/settings.css) 在其后统一设置总览、模型连接和联网搜索的表面、表单与固定操作栏，始终使用实色表面。图标来自 [icons.js](../web/assets/ui/icons.js) 与 SVG sprite；图标按钮须有 `aria-label`，优先使用 32px 点击区域。
 
@@ -146,7 +144,7 @@ npm run verify
 - 活动对话从等待首个响应、思考到工具执行和自动重试均显示持续的运行指示与当前阶段；完成和停止时退出动画。工具标题使用可读的具体工具名，未知工具仍显示名称。
 - 检查浅深色下实际渲染的文字对比度，以及 1440/1280 和 474/320 宽度、菜单定位、标题截断、控件可达性、键盘焦点和横向溢出；增加对应实际浏览器回归，并复核截图中的表面层级与状态强调。
 
-TXT 状态与 DOM 分开；CAD 引擎/预览与 UI 分开；Blender/PPTist session 负责文档保存协作。使用 [代码地图](code-map.md) 中的领域入口和行为测试，不向 `web/app.js` 添加应用专用状态机。
+TXT 状态与 DOM 分开，文档 session 负责保存协作。使用 [代码地图](code-map.md) 中的领域入口和行为测试，不向 `web/app.js` 添加应用专用状态机。
 
 ## 定位故障
 
@@ -159,7 +157,7 @@ TXT 状态与 DOM 分开；CAD 引擎/预览与 UI 分开；Blender/PPTist sessi
 | 模型启动失败                   | endpoint、协议、模型、参数、环境覆盖和脱敏错误；不输出完整配置     |
 | UI 异步回包覆盖新会话          | 捕获的 Task/草稿身份、导航 token、迟到请求和同 Task 串行化         |
 
-日志/trace 位置见 [数据布局](task-workspace-layout.md)。报告问题注明版本/commit、系统、入口、复现、脱敏日志和测试目录。CAD 编译失败也应允许保存/读回/导出源码；Blender 原生运行要记录实际可执行文件和版本。
+日志/trace 位置见 [数据布局](task-workspace-layout.md)。报告问题注明版本/commit、系统、入口、复现、脱敏日志和测试目录。
 
 ## GitHub Actions
 
@@ -177,4 +175,4 @@ TXT 状态与 DOM 分开；CAD 引擎/预览与 UI 分开；Blender/PPTist sessi
 
 在 Release Mac DMG 等待 DMG/CLI 与校验文件上传，签名构建还需 ZIP/feed，到对应 Release 草稿核对内容和安装验收，再由维护者选择发布分类并点击 Publish。可用手动输入已有 tag 重试/修复草稿；已发布同版本禁止替换，需新版本。完整命令与恢复规则见 [Mac 发布](mac-release.md#版本-tag-与-release-草稿)。
 
-`desktop:pack` / `desktop:dist` 默认生成内置 PPT 编辑器的小包，首次启动后自动准备 CAD/Blender；显式 `:full` 生成内置全部组件的离线完整包，`:base` 仅用于内部基础包测试且不自动下载组件。日常 `build` 与开发启动仍保留轻量构建。设置入口、进阶 CLI 命令和路径复用规则见 [应用与组件](optional-components.md)。
+`desktop:pack` / `desktop:dist` 打包文本工作台和完整编排运行时，不安装或分发 CAD、Blender、PPT 组件。见[能力范围](builtin-capabilities.md)。

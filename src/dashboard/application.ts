@@ -5,10 +5,7 @@ import {
   readArchivedMessageVersion,
   versionRuntimeEvents
 } from "../runtime/main-message-edit.js";
-import { createComponentService } from "../software/components/service.js";
-import { autoInstallComponentsEnabled } from "../software/components/paths.js";
 import { createWebSearchSettings } from "./web-search-settings.js";
-import { createBlenderInstaller } from "../software/blender/installer.js";
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -77,8 +74,6 @@ export function createDashboardApplication(
     port?: number;
     computerDriver?: ComputerDriver;
     computerClock?: () => number;
-    components?: ReturnType<typeof createComponentService>;
-    autoInstallComponents?: boolean;
   } = {}
 ) {
   const projectRoot = resolve(options.projectRoot ?? process.env.COWORK_HARNESS_ROOT ?? process.cwd());
@@ -105,8 +100,6 @@ export function createDashboardApplication(
   const data = atriaDataPaths(process.env, runtimeConfig, projectRoot);
   let workspaceRoot = data.workspaceRoot;
   const coordinator = new CoordinatorRuntime();
-  const blenderInstaller = createBlenderInstaller();
-  const components = options.components ?? createComponentService();
   const computerDriver = new MacComputerDriver();
   let folderPickerOpen = false;
   const globalIndexPath = data.globalIndex;
@@ -598,9 +591,7 @@ export function createDashboardApplication(
       resumeHumanAnswers,
       cancelTask: runs.cancelTask
     }),
-    blenderInstaller,
     uploads,
-    components,
     computer,
     dashboardUrl,
     uiRoot,
@@ -654,12 +645,6 @@ export function createDashboardApplication(
   server.once("listening", () => watchers.start());
   server.once("listening", () => memoryLearning.start());
   server.once("listening", () => projectLearning.start());
-  if (options.autoInstallComponents ?? autoInstallComponentsEnabled()) {
-    server.once("listening", () => {
-      // Basic chat becomes reachable before heavy optional downloads start.
-      void components.prepareMissing().catch(() => {});
-    });
-  }
 
   return {
     server,
@@ -709,12 +694,7 @@ export function createDashboardApplication(
       computer.close();
       await watchers.stop();
       server.closeAllConnections();
-      await Promise.all([
-        runs.stop(),
-        blenderInstaller.stop(),
-        components.stop(),
-        routes.scienceSettings.stop()
-      ]);
+      await Promise.all([runs.stop(), routes.scienceSettings.stop()]);
       await mcpSupervisor.stopAll();
       await new Promise<void>((done) => server.close(() => done()));
     }

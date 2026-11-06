@@ -6,7 +6,6 @@
   font-weight: 100 900;
   font-display: swap;
 }
-
 /* Shared application chrome, neutral surfaces and one restrained type hierarchy. */
 :root {
   --shell-toolbar-height: 64px;
@@ -916,9 +915,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   border-radius: 8px;
   background: transparent;
 }
-.apps-panel [data-blender-install][data-ready="true"] {
-  display: none;
-}
 .apps-group-label {
   color: var(--ui-faint);
   font-size: var(--ui-type-caption);
@@ -1130,7 +1126,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 .tool-step.is-failed .tool-marker {
   color: var(--ui-danger);
 }
-
 /* Conversation and document share one workspace, with independent focus. */
 .workbench-view-actions {
   display: flex;
@@ -1227,15 +1222,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   .is-collaborating .workbench-tabs {
     padding-left: 8px;
   }
-  .is-collaborating .cad-workspace {
-    grid-template-columns: 135px minmax(0, 1fr) 180px;
-  }
-  .is-collaborating .cad-control-label {
-    display: none;
-  }
-  .is-collaborating .cad-view-controls {
-    padding: 8px;
-  }
 }
 
 @media (min-width: 1100px) {
@@ -1260,296 +1246,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   .is-collaborating .mic-button {
     flex-shrink: 0;
   }
-  .is-collaborating .cad-add {
-    gap: 3px;
-    flex-wrap: nowrap;
-  }
-  .is-collaborating .cad-add .app-button {
-    min-width: 0;
-    padding: 7px 2px;
-  }
-  .is-collaborating .cad-features {
-    padding: 12px 8px;
-  }
 }
-
-.cad-program-stage {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.cad-program-stage .cad-stage {
-  flex: 1;
-  min-height: 140px;
-}
-.cad-program-param {
-  display: grid;
-  gap: 6px;
-  margin: 0 0 14px;
-  color: var(--ui-secondary);
-  font-size: var(--ui-type-caption);
-  overflow-wrap: anywhere;
-}
-.cad-program-param input,
-.cad-program-param select {
-  width: 100%;
-  min-width: 0;
-  padding: 8px;
-  border: 1px solid var(--ui-border);
-  border-radius: 7px;
-  background: var(--ui-bg);
-  color: var(--ui-text);
-  font: inherit;
-}
-.cad-program-param input[type="checkbox"] {
-  width: auto;
-  justify-self: start;
-}
-.cad-program-editor .cad-inspector {
-  overflow-y: auto;
-}
-.cad-source-panel {
-  flex: 0 0 230px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--ui-border);
-  background: var(--ui-bg);
-  min-height: 0;
-}
-.cad-source-panel label {
-  display: flex;
-  flex-direction: column;
-  height: calc(100% - 24px);
-  gap: 8px;
-  color: var(--ui-muted);
-  font-size: var(--ui-type-caption);
-}
-.cad-source-panel textarea {
-  resize: none;
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  border: 1px solid var(--ui-border);
-  border-radius: 6px;
-  background: light-dark(var(--ui-raised), #16171a);
-  color: var(--ui-text);
-  padding: 10px;
-  font: var(--ui-type-caption)/1.65 var(--ui-mono);
-  tab-size: 2;
-  white-space: pre;
-  overflow: auto;
-}
-.cad-program-error {
-  padding: 9px 14px;
-  background: light-dark(var(--ui-raised), #302324);
-  color: var(--ui-danger);
-  font-size: var(--ui-type-caption);
-  max-height: 100px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.cad-program-editor .cad-actions {
-  flex-wrap: wrap;
-}
-.cad-view-select {
-  max-width: 100%;
-  min-height: 28px;
-  padding: 4px;
-  border: 0;
-  border-radius: 6px;
-  background: light-dark(var(--ui-raised), #23262d);
-  color: var(--ui-text);
-  font: inherit;
-  font-size: var(--ui-type-caption);
-}
-.cad-preview-notice {
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
-  right: 12px;
-  padding: 9px 12px;
-  border: 1px solid var(--ui-border);
-  border-radius: 8px;
-  background: light-dark(var(--ui-raised), #23262def);
-  color: var(--ui-muted);
-  font-size: var(--ui-type-caption);
-  pointer-events: none;
-}
-@media (max-width: 760px) {
-  .cad-program-editor .cad-workspace {
-    grid-template-columns: 90px minmax(0, 1fr);
-  }
-  .cad-program-editor .cad-inspector {
-    grid-column: 1/-1;
-    max-height: 180px;
-  }
-  .cad-source-panel {
-    flex-basis: 180px;
-  }
-  .cad-program-editor .cad-identity {
-    min-width: 0;
-  }
-}
-
-.cad-program-editor .cad-features [data-program-objects] {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-}
-
-/* The model is the primary canvas; code and object browsing are secondary. */
-.cad-program-editor .cad-workspace {
-  position: relative;
-  grid-template-columns: minmax(0, 1fr);
-  overflow: hidden;
-}
-.cad-program-editor[data-inspector-open="true"] .cad-workspace {
-  grid-template-columns: minmax(0, 1fr) 256px;
-}
-.cad-program-editor .cad-view-controls {
-  flex-direction: row;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 0;
-}
-.cad-program-editor [data-program-parts-toggle] {
-  pointer-events: auto;
-  background: var(--ui-panel);
-  border: 1px solid var(--ui-border);
-  box-shadow: 0 2px 8px #0002;
-}
-.cad-program-editor .cad-parts-panel {
-  position: absolute;
-  z-index: 3;
-  top: 54px;
-  right: 12px;
-  width: min(200px, calc(100% - 24px));
-  max-height: calc(100% - 70px);
-  padding: 12px;
-  border: 1px solid var(--ui-border);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px #0004;
-}
-.cad-program-editor .cad-preview-notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.cad-program-editor .cad-preview-notice button {
-  flex-shrink: 0;
-  pointer-events: auto;
-}
-.cad-program-editor .cad-source-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex-basis: 250px;
-}
-.cad-source-heading,
-.cad-source-heading > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: var(--ui-type-caption);
-  color: var(--ui-muted);
-}
-.cad-program-editor .cad-source-panel textarea {
-  flex: 1;
-}
-.cad-model-info {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--ui-border);
-  color: var(--ui-secondary);
-  font-size: var(--ui-type-caption);
-  line-height: 1.65;
-}
-.cad-model-info summary {
-  cursor: pointer;
-  color: var(--ui-secondary);
-  font-weight: 500;
-}
-.cad-model-info > span {
-  display: block;
-  margin-top: 6px;
-}
-.cad-program-editor [data-program-title] {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cad-program-editor .cad-statusbar [data-program-metrics] {
-  margin-left: auto;
-  color: var(--ui-faint);
-}
-@media (max-width: 760px) {
-  .cad-program-editor .cad-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .cad-program-editor .cad-source-panel {
-    flex-basis: 180px;
-  }
-  .cad-program-editor [data-program-source-toggle] > span {
-    display: none;
-  }
-  .cad-program-editor .cad-toolbar {
-    flex-wrap: wrap;
-  }
-  .cad-program-editor .cad-identity {
-    min-width: 100px;
-  }
-}
-
-/* Apply CAD layout after shared chrome, including older narrow-screen rules. */
-.cad-program-editor .cad-workspace {
-  grid-template-rows: minmax(0, 1fr);
-}
-.cad-program-editor .cad-inspector {
-  grid-column: auto;
-  max-height: none;
-  align-self: stretch;
-  border-top: 0;
-  border-left: 1px solid var(--ui-border);
-}
-.cad-program-editor .cad-preview-notice.is-error {
-  position: static;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  width: auto;
-  margin: 0;
-  padding: 9px 14px;
-  border: 0;
-  border-top: 1px solid var(--ui-border);
-  border-radius: 0;
-  background: var(--ui-panel);
-  color: var(--ui-secondary);
-  text-align: left;
-  transform: none;
-  line-height: 1.5;
-}
-.cad-program-editor .cad-preview-notice.is-error [data-program-preview-message] {
-  flex: 1 1 200px;
-  min-width: 0;
-}
-@container (max-width: 760px) {
-  .cad-program-editor[data-inspector-open="true"] .cad-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .cad-program-editor .cad-inspector {
-    position: absolute;
-    top: 54px;
-    bottom: 0;
-    right: 0;
-    width: min(280px, calc(100% - 32px));
-    box-sizing: border-box;
-    box-shadow: -8px 0 28px #00000014;
-  }
-}
-
 /* The composer has one action row. Labels yield space before task controls do. */
 .composer {
   container-type: inline-size;
@@ -2283,7 +1980,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
     min-height: 0;
   }
 }
-
 /* Shared font families for legacy shell components. Size is centralized below. */
 body {
   font-size: var(--ui-type-control);
@@ -2360,7 +2056,6 @@ textarea {
 .agent-pane .output-heading h2,
 .artifact-drawer-title h2,
 .attachment-preview-card header strong,
-.cad-empty h2,
 .editor-empty-body > strong {
   font-weight: var(--ui-weight-medium);
   letter-spacing: normal;
@@ -2448,7 +2143,6 @@ textarea {
   width: var(--ui-icon-large);
   height: var(--ui-icon-large);
 }
-
 /* Solid surfaces keep chrome, popovers and input controls in one visual system. */
 .app-topbar,
 .conversation-sidebar,
@@ -2529,7 +2223,6 @@ textarea {
 .night-sky {
   background: var(--ui-bg);
 }
-
 /* Component roles set their sizes; body remains the shared reading baseline. */
 body {
   font-size: var(--ui-type-body);
@@ -2741,7 +2434,6 @@ body {
   flex-shrink: 0;
   letter-spacing: 0;
 }
-
 /* The input occupies its own row instead of covering conversation content. */
 .composer-wrap,
 .is-collaborating .composer-wrap {
@@ -2755,7 +2447,6 @@ body {
   padding-bottom: 26px;
   scroll-padding-bottom: 26px;
 }
-
 /* Composer controls share an open surface instead of individual boxes. */
 .composer
   :is(.model-select, .reasoning-select, .app-bind-select, .attach-button, .mic-button, .attachment-chip),
@@ -2774,7 +2465,6 @@ body {
   border: 0;
   box-shadow: none;
 }
-
 /* Low-frequency settings stay lighter than the conversation and its primary action. */
 .conversation-sidebar .sidebar-bottom {
   padding: 8px 12px 12px;
@@ -2849,7 +2539,6 @@ body {
   color: var(--ui-muted);
   font-weight: 400;
 }
-
 .upload-status {
   display: flex;
   align-items: center;
@@ -3023,7 +2712,6 @@ body {
   max-width: 100%;
   overflow-wrap: anywhere;
 }
-
 /* This menu sits inside the composer's blurred surface. A solid surface keeps
    transcript text from bleeding through nested backdrop filters. */
 .composer .app-bind-menu {
@@ -3034,7 +2722,6 @@ body {
 .app-bind-select:disabled {
   cursor: progress;
 }
-
 .request-retry {
   border: 1px solid var(--ui-border);
   border-radius: 10px;
@@ -3044,7 +2731,6 @@ body {
 .request-retry p {
   margin: 6px 0 0;
 }
-
 /* Keep row navigation and its menu as separate keyboard controls. */
 .conversation-row {
   position: relative;
@@ -3264,38 +2950,12 @@ body {
 .chat-actions .icon-action[hidden] {
   display: none;
 }
-
 .app-runtime-tile {
   min-width: 0;
 }
 .app-runtime-tile .app-tile {
   width: 100%;
 }
-.blender-install {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0;
-  color: var(--ui-muted);
-  font-size: var(--ui-type-caption);
-}
-.app-runtime-tile .blender-install {
-  padding: 0 10px 8px;
-}
-.blender-install [data-install-status] {
-  flex: 1 1 120px;
-  overflow-wrap: anywhere;
-}
-.blender-install progress {
-  width: 100%;
-  height: 5px;
-  accent-color: var(--ui-text);
-}
-.blender-install [hidden] {
-  display: none;
-}
-
 .queued-messages {
   margin: 0 0 10px;
   padding: 0 0 10px;
@@ -3366,7 +3026,6 @@ body {
 .composer:has(.queued-messages:not([hidden])) textarea {
   max-height: min(156px, 22dvh);
 }
-
 .app-layout {
   position: relative;
 }
@@ -3410,7 +3069,6 @@ body {
     display: none;
   }
 }
-
 .desktop-updates {
   display: grid;
   gap: 12px;
@@ -3450,7 +3108,6 @@ body {
 .desktop-updates progress {
   width: 100%;
 }
-
 .desktop-updates [hidden] {
   display: none !important;
 }

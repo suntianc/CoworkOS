@@ -1,6 +1,6 @@
 ---
 name: visual-exposure
-description: 制作内容驱动的 HTML 视觉报告、信息图或专题长页，组织叙事、证据与阅读节奏；PPTX 使用 presentations。
+description: 制作内容驱动的 HTML 视觉报告、信息图或专题长页，组织叙事、证据与阅读节奏。
 ---
 
 # 信息图与视觉长页

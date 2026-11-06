@@ -321,7 +321,7 @@ async function doctor() {
     });
   else if (!options["--test-connection"])
     console.log("未发送模型请求。加 --test-connection 可验证真实连接，会消耗额度。");
-  console.log("原生 CAD、Blender 与桌面窗口操作为可选宿主能力；此检查不要求安装它们。");
+  console.log("桌面窗口操作为可选宿主能力；此检查不要求安装它。");
   process.exitCode = failed ? 1 : 0;
 }
 
@@ -469,10 +469,7 @@ try {
       );
     await sessionExport(args);
   } else if (exportArgs) await sessionExport(exportArgs);
-  else if (command === "components") {
-    const { runComponents } = await import("./components.mjs");
-    await runComponents(args);
-  } else if (command === "desktop") {
+  else if (command === "desktop") {
     requireNode();
     const { runDesktop } = await import("./desktop.mjs");
     await runDesktop({ root: harness, args });

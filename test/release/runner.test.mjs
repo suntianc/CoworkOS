@@ -35,7 +35,7 @@ test("every existing test is assigned once, including deferred native tests", as
   ].sort();
   assert.deepEqual(assigned, existing);
   assert.equal(new Set(assigned).size, assigned.length);
-  assert.ok(plan.requirements.some((item) => item.id === "PPTIST-05"));
+  assert.ok(plan.requirements.some((item) => item.id === "TXT-05"));
   assert.ok(plan.requirements.some((item) => item.id === "GUI-04/resume-friendly"));
   assert.ok(plan.requirements.every((item) => ["partial_mapping", "planned"].includes(item.coverage)));
   assert.equal(plan.steps.filter((step) => step.id === "check-docs").length, 1);
@@ -134,7 +134,7 @@ test("stage selection excludes unrelated commands and keeps shared build", async
   const plan = await loadPlan(root, parseOptions(["--stage", "applications"]));
   assert.equal(plan.steps[0].id, "build");
   assert.ok(plan.steps.slice(1).every((step) => step.stage === "applications"));
-  assert.ok(plan.steps.some((step) => step.args.includes("test/pptist-application.test.js")));
+  assert.ok(plan.steps.some((step) => step.args.includes("test/application-resource-store.test.js")));
   assert.ok(!plan.steps.some((step) => step.id === "basic-node"));
 });
 

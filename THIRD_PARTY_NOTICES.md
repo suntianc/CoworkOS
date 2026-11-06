@@ -20,20 +20,6 @@ The application bundles the unmodified Inter Variable font from the linked `inte
 
 The standalone Docs toolchain is pinned by its own lockfile. It uses marked and sanitize-html to build Markdown, Mermaid for browser diagrams, and esbuild for bundling, independently of product runtime dependencies. Builds retain complete license and notice files for packages used by the browser bundle in `.tmp/docs-site/_site/licenses/`, linked from each page footer.
 
-## PPTist
-
-PPTist 浏览器编辑器随 Web/App 提供，CLI tgz 不包含该编辑器。CLI 包保留以下许可文件供参考；带源码链接的开发指南针对源码仓库。
-
-The PPTist browser editor is included with Web/App, and is absent from the CLI tgz. The CLI archive retains the license below for reference. Development guides with source links apply to a repository checkout.
-
-内置演示文稿编辑器来自 [PPTist](https://github.com/pipipi-pikachu/PPTist)。仓库保存的版本标识为 `vendor/pptist/package.json` 中的 `2.0.0`，完整许可证为 [GNU AGPL-3.0](vendor/pptist/LICENSE)。CoworkOS 的桥接代码与本地修改位于 `vendor/pptist/`；打包脚本会提供相应源码和许可证下载。发布包含该编辑器的包时，应核对实际分发物中的源码、版权和许可证，而不能仅将整个应用标记为 MIT。
-
-The bundled presentation editor comes from [PPTist](https://github.com/pipipi-pikachu/PPTist). Its vendored manifest reports version `2.0.0`; the full [GNU AGPL-3.0 license](vendor/pptist/LICENSE) is retained. CoworkOS's bridge and local modifications live in `vendor/pptist/`. The build provides corresponding source and license downloads. Review the source, notices and license in the actual distributed package; the application-wide distribution should not be described solely as MIT.
-
-当前编辑器构建包含 Vue `3.5.43` 与 Apache ECharts `6.1.0`。随包保留锁定 npm 发行中的 [Vue MIT 许可证](https://registry.npmjs.org/vue/-/vue-3.5.43.tgz)、[ECharts 许可证](https://registry.npmjs.org/echarts/-/echarts-6.1.0.tgz)及 [ECharts NOTICE](https://registry.npmjs.org/echarts/-/echarts-6.1.0.tgz)。上游来源：[Vue v3.5.43](https://github.com/vuejs/core/tree/v3.5.43)、[ECharts 6.1.0](https://github.com/apache/echarts/tree/6.1.0)。CLI 不包含 PPTist 浏览器编辑器。
-
-The editor build includes Vue `3.5.43` and Apache ECharts `6.1.0`. The package retains the locked npm distributions' [Vue MIT license](https://registry.npmjs.org/vue/-/vue-3.5.43.tgz), [ECharts license](https://registry.npmjs.org/echarts/-/echarts-6.1.0.tgz), and [ECharts NOTICE](https://registry.npmjs.org/echarts/-/echarts-6.1.0.tgz). Sources: [Vue v3.5.43](https://github.com/vuejs/core/tree/v3.5.43) and [ECharts 6.1.0](https://github.com/apache/echarts/tree/6.1.0). The CLI does not include the PPTist browser editor.
-
 ## KaTeX
 
 Web/App 的数学排版使用锁定的 [KaTeX 0.19.0](https://github.com/KaTeX/KaTeX/tree/v0.19.0)，保留其 [MIT 许可证及版权全文](https://registry.npmjs.org/katex/-/katex-0.19.0.tgz)。构建从原始 npm 发行复制浏览器 ESM（仅将 `.mjs` 改名为 `.js`）、CSS、字体和许可证到本地静态资源，不修改上游实现，不依赖外部 CDN。CLI tgz 不包含 Web 排版资源。
@@ -66,35 +52,11 @@ Node 依赖版本由根 `package-lock.json` 和 `vendor/pptist/package-lock.json
 
 Node dependencies are pinned by the root and PPTist lockfiles. The CLI bundles production dependency manifests and licenses and carries a publishable `npm-shrinkwrap.json`. The native esbuild runtime is fetched at installation using the exact tested version. This document is not a complete inventory of transitive copyright notices. Before public distribution, the release owner must generate and review notices for the actual CLI/App artifacts and retain required license files.
 
-Blender 与 CAD 的 Python 运行时也有独立许可证；默认 Mac 小包在首次启动后独立下载这两项运行时，显式完整包内嵌运行时，Blender 作为独立进程执行并保留官方发行中的许可文件。源码和部署说明见 [Mac 发布](docs/mac-release.md)、[CAD 依赖](scripts/cadquery-requirements.txt) 和 [Blender 接入](docs/blender-integration.md)。最终 Blender 对应源码与分发要求仍需单独审阅，打包配置不代表审阅完成。
-
-Blender and the CAD Python runtime have separate licenses and are downloaded separately after first launch of the default small Mac package; explicit full packages bundle them. Blender runs as a separate process and retains the official distribution's notices. See the [Mac release guide](docs/mac-release.md), [CAD requirements](scripts/cadquery-requirements.txt) and [Blender integration](docs/blender-integration.md). Final Blender corresponding-source and distribution requirements still need independent review; packaging configuration does not establish completion.
-
 ## CoworkOS terminal UI compatibility adapter
 
 CoworkOS 使用原始 Pi coding agent 0.87.1，在交互子进程加载时应用六处受限 UI 差异；各 CLI 模式另有三处命令身份/输出路径差异，使新命令的 `AI_AGENT=atria`、完整输出文件为 `atria-bash-*.log`。不改写依赖文件、许可、历史内容、恢复格式或 RPC 协议结构；模型/工具记录仍保存实际内容与真实输出路径。具体来源、固定 hash、差异和升级门槛见 [终端适配说明](docs/cli-ui-adapter.md)。
 
 CoworkOS uses the original Pi coding agent 0.87.1 with six bounded UI differences applied at load time in the interactive subprocess and three shell identity/output-path differences across CLI modes. New commands use `AI_AGENT=atria` and `atria-bash-*.log` for full output. Dependency files, licenses, historical content, recovery formats and RPC protocol structure remain intact; model/tool records retain actual content and real output paths. Source, pinned hashes, differences and upgrade gates are documented in the [terminal adapter guide](docs/en/cli-ui-adapter.md).
-
-## Bundled Mac CAD runtime
-
-Mac App 的 CAD 运行时含 CadQuery `2.6.1`、`cadquery-ocp` `7.8.1.1.post1`、Open CASCADE Technology (OCCT) `7.8.1` 和 CasADi `3.8.1`。CLI tgz 不包含此 Python/native 运行时。运行时保留 CPython 的 `lib/python3.11/LICENSE.txt`、各 Python 包的许可及 `THIRD_PARTY_LICENSES.txt` 索引；OCP 绑定的 Apache-2.0 许可与 OCCT 内核的许可分别适用。
-
-The Mac App's CAD runtime contains CadQuery `2.6.1`, `cadquery-ocp` `7.8.1.1.post1`, Open CASCADE Technology (OCCT) `7.8.1`, and CasADi `3.8.1`. The CLI tgz does not contain this Python/native runtime. It retains CPython's `lib/python3.11/LICENSE.txt`, Python package licenses, and the `THIRD_PARTY_LICENSES.txt` index. The OCP bindings' Apache-2.0 license and the OCCT kernel's license apply separately.
-
-OCCT 使用 [LGPL-2.1](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_8_1/LICENSE_LGPL_21.txt)及 [OCCT 例外条款](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_8_1/OCCT_LGPL_EXCEPTION.txt)。这两份文件原样来自 [OCCT V7_8_1](https://github.com/Open-Cascade-SAS/OCCT/tree/V7_8_1)；该版本完整上游源码可从 [V7_8_1 源码归档](https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_8_1.tar.gz)取得。
-
-OCCT uses [LGPL-2.1](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_8_1/LICENSE_LGPL_21.txt) with the [OCCT exception](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_8_1/OCCT_LGPL_EXCEPTION.txt). Both texts are copied verbatim from [OCCT V7_8_1](https://github.com/Open-Cascade-SAS/OCCT/tree/V7_8_1). Its complete upstream source is available in the [V7_8_1 source archive](https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_8_1.tar.gz).
-
-CasADi 使用 LGPL-3.0-or-later，运行时已保留 `lib/python3.11/site-packages/casadi/include/licenses/casadi/LICENSE/LICENSE.txt` 及其第三方许可目录。对应版本的完整上游源码及构建文件见 [CasADi 3.8.1](https://github.com/casadi/casadi/tree/3.8.1)和 [3.8.1 源码归档](https://github.com/casadi/casadi/archive/refs/tags/3.8.1.tar.gz)。这些链接标明上游版本；最终发行还需核对所分发 wheel 的构建来源及其中第三方组件的源代码要求。
-
-CasADi uses LGPL-3.0-or-later. The runtime retains `lib/python3.11/site-packages/casadi/include/licenses/casadi/LICENSE/LICENSE.txt` and its third-party license directory. The complete upstream source and build files are available at [CasADi 3.8.1](https://github.com/casadi/casadi/tree/3.8.1) and its [3.8.1 source archive](https://github.com/casadi/casadi/archive/refs/tags/3.8.1.tar.gz). These links identify upstream versions; final distribution must also verify the wheel build provenance and source requirements of its bundled third-party components.
-
-## Bundled and optional distributions / 内置与可选组件
-
-默认 Mac App 包含 PPTist 生成编辑器，CadQuery 独立运行时与官方 Blender 从公开组件 Release 独立分发；显式完整包内嵌这三项资源。CAD 保留 CPython 与各 wheel 的许可元数据；PPTist 保留 AGPL-3.0 的 `LICENSE.txt` 与对应 `source.tar.gz`；Blender 从官方 GPL 发行渠道准备并核对固定校验和，随包保留其许可。内部基础 App 排除这些资源且不自动下载，独立组件归档仍保留对应许可。公开组件 Release 同时提供 `SOURCE_MANIFEST.json` 列出的对应源码、依赖源码、构建规则和许可材料。共享 CAD/PPTX/HTML 依赖继续保留原有许可说明。组件生命周期与发布证据见 [应用与组件](docs/optional-components.md)。
-
-The default Mac App includes the generated PPTist editor; standalone CadQuery and official Blender are distributed through public component Releases. Explicit full packages bundle all three. CAD retains CPython and wheel license metadata; PPTist retains AGPL-3.0 `LICENSE.txt` and corresponding `source.tar.gz`; Blender is prepared from the checksum-pinned official GPL distribution with its notices preserved. Internal base packages exclude these resources and do not download them automatically. Independent component archives retain the same notices, and public component Releases provide source, dependency source, build recipes and license materials listed in `SOURCE_MANIFEST.json`. Shared CAD/PPTX/HTML dependencies keep their existing notices. See [applications and components](docs/optional-components.md) for lifecycle and release evidence.
 
 ## SciAgentGYM scientific tools
 

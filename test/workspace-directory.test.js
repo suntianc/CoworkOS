@@ -1,10 +1,11 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWorkspaceDirectory } from "../dist/src/dashboard/workspace-directory.js";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { createWorkspaceDirectory } = await import("../dist/src/dashboard/workspace-directory.js");
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 
 test("empty storage roots are omitted; legacy projects adopt history and project edits preserve its storage", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-workspace-directory-"));

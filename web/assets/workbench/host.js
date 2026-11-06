@@ -15,24 +15,11 @@ const esc = (value) =>
 
 /** File destinations belong to the document's file menu, beside its exports. */
 function addDocumentFileAction(element, saveCopy) {
-  let panel = element.querySelector(
-    "[data-program-file-panel], [data-cad-file-actions], [data-blender-file-panel]"
-  );
-  if (panel) {
-    const trigger = panel.parentElement.querySelector("button");
-    trigger.dataset.applicationFileMenu = "";
-    panel.dataset.applicationFilePanel = "";
-    const separator = document.createElement("div");
-    separator.className = "ui-menu-divider";
-    separator.setAttribute("role", "separator");
-    panel.append(separator, saveCopy);
-    return;
-  }
   const anchor = document.createElement("div");
   anchor.className = "ui-menu-anchor workbench-document-menu";
   anchor.innerHTML = ui`<button class="app-button" type="button" data-application-file-menu aria-haspopup="menu" aria-expanded="false" aria-label="文件操作">文件${icon("chevron-down")}</button><div class="ui-menu" data-application-file-panel role="menu" aria-label="文件操作" hidden></div>`;
-  panel = anchor.querySelector("[data-application-file-panel]");
-  const download = element.querySelector("[data-editor-download], [data-pptist-export]");
+  const panel = anchor.querySelector("[data-application-file-panel]");
+  const download = element.querySelector("[data-editor-download]");
   if (download) {
     download.classList.remove("is-icon");
     download.setAttribute("role", "menuitem");
@@ -43,9 +30,7 @@ function addDocumentFileAction(element, saveCopy) {
     panel.append(download);
   }
   panel.append(saveCopy);
-  const toolbar =
-    element.querySelector(".editor-menu-actions, .pptist-actions") ||
-    element.querySelector(".cad-toolbar, header");
+  const toolbar = element.querySelector(".editor-menu-actions, header");
   (toolbar || element).prepend(anchor);
   return createMenu(anchor.querySelector("[data-application-file-menu]"), panel);
 }

@@ -1,9 +1,10 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
 
 const user = { type: "user", id: "local" };
 const agent = { type: "agent", id: "main" };

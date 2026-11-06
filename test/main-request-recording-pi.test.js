@@ -1,3 +1,4 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -8,7 +9,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 

@@ -59,11 +59,7 @@ export function localizeShell(root) {
   visit(root);
 }
 
-const builtinApplicationNames = {
-  "text-editor": "文本编辑器",
-  pptist: "PPT 演示文稿",
-  cad: "参数化 CAD"
-};
+const builtinApplicationNames = {};
 export function applicationLabel(type, fallback) {
   return language === "en" && builtinApplicationNames[type] ? ui(builtinApplicationNames[type]) : fallback;
 }

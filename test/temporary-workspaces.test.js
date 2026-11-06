@@ -1,9 +1,10 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { access, mkdir, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { startDashboard } from "./dashboard-fixture.mjs";
-import { ResourceFiles } from "../dist/src/applications/resource-files.js";
+const { ResourceFiles } = await import("../dist/src/applications/resource-files.js");
 
 async function fixture(t) {
   const dashboard = await startDashboard({ defaultProject: false });

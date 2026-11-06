@@ -83,7 +83,7 @@ export interface ApplicationDefinition {
   mcpServer?: McpServerSpec;
   /**
    * Eager orchestration prompt injected into a bound conversation for this
-   * application (conversation-mode apps like cad-harness). Mirrors coderix_main's
+   * application (conversation-mode extensions). Mirrors coderix_main's
    * `agent.systemPrompt`: it carries the domain workflow as a system prompt rather
    * than a skill loaded on demand. Optional; most apps omit it and rely on
    * `skillRoots` + tools.

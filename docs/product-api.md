@@ -66,26 +66,6 @@ All successes return the latest GET shape. Conflicting revisions return 409 with
 
 Only active formal items enter the current project's optional context/catalog. Automatic promotion requires opt-in, three distinct verified Task sources and host-side evidence checks; it never overwrites manual/pinned content. See [Project experience](en/project-experience.md) for capacities, provenance, scheduling, model usage and the distinction between reviewing saved checks and executing new validation.
 
-## Application components
-
-The default Mac package includes PPTist and prepares missing CadQuery and Blender runtimes in the background on first launch. Downloads use fixed public component releases without user credentials. Settings → Applications and components shows status, progress, diagnostics and retry/cancel actions, and controls enable/disable. Missing-application buttons open the relevant Settings card. Ordinary conversations remain available during preparation, and compatible managed components are reused across App updates.
-
-Explicit full packages bundle all three components for offline use; their Settings cards provide enable/disable and repair guidance. Internal base packages omit them and do not automatically download runtimes. The actions below are shared by App and CLI component management.
-
-`GET /api/components` returns `{ components }` for `cadquery`, `blender`, and `pptist`. Each state reports availability, enabled/managed status, supported platform, dependencies, version, installation phase/message, progress and known byte sizes. The ordinary request is offline; `?probe=1` clears cached local probes and checks the installed runtime again without network access. `?refresh=1` checks the fixed release catalog for versions and download sizes. Before Blender is installed, `installedBytes` is a conservative space budget; after installation it is the measured size.
-
-`GET /api/components?id=pptist` returns the same envelope with only the selected component's local status, without waiting for other components' runtime probes. `id` accepts `cadquery`, `blender`, or `pptist`; an empty or unknown ID returns 400. The scoped request does not refresh the release catalog or clear local probe caches; use the unscoped `probe` or `refresh` requests for those actions.
-
-`POST /api/components/:id/:action` accepts `install`, `upgrade`, `cancel`, `enable`, `disable`, or `uninstall`, without a client supplied URL, path or command. Install/upgrade returns the state while the shared service owns the background job; poll GET for completion. Concurrent App and CLI installs reuse one component lock and immutable version directory. Cancellation and failed upgrades retain the previous usable version.
-
-Uninstall removes only managed runtime versions and retains documents and external installations. The desktop and CLI use the same user data component home; see [optional components](optional-components.md) for lifecycle, compatibility and CLI commands. Existing desktop authentication and Host/Origin checks apply.
-
-## Blender runtime installation
-
-`GET /api/applications/blender/runtime` returns `{ phase, message, progress?, available, installing, canInstall }`. `POST /api/applications/blender/install` accepts no configuration and returns HTTP 202 with the same state. The Dashboard owns the job and deduplicates concurrent starts; poll GET for progress and the final `ready` or `failed` state. Reloading or closing the panel does not cancel installation; server shutdown aborts it. Retry with POST after failure.
-
-One-click installation currently supports macOS arm64 only. The service uses fixed checksum-pinned downloads, verifies executable startup, and installs into user-owned storage; clients cannot supply a URL, path or command. Existing desktop authentication and Host/Origin checks apply. See [Blender integration](blender-integration.md).
-
 ## Task APIs
 
 ```text
@@ -396,7 +376,7 @@ PATCH /api/tasks/:taskId/app-instances/:instanceId
 GET   /api/tasks/:taskId/active-app-context
 ```
 
-`GET /api/applications` returns `{ applications: ApplicationDefinition[] }` for every registered application, including compatibility adapters, with supported resource kinds and operation schemas. The optional `catalogVisibility` is `"primary"` or `"compatibility"`; absence means `"primary"`. Default application launchers and the Pi `list_applications` tool omit compatibility entries. The standard default catalog contains `text-editor`, `pptist`, `cad` and `blender`; the Blender, CAD, FreeCAD and Office Harness adapters remain registered as compatibility applications. This field controls discovery only: existing resources retain their `appType` and kind, and explicit creation, opening, binding and recovery continue through the full registry. The platform routes by the adapter declaration.
+`GET /api/applications` returns `{ applications: ApplicationDefinition[] }` for every registered application, including compatibility adapters, with supported resource kinds and operation schemas. The optional `catalogVisibility` is `"primary"` or `"compatibility"`; absence means `"primary"`. Default application launchers and the Pi `list_applications` tool omit compatibility entries. The built-in catalog is empty in this branch. Generic MCP adapters can extend the registry; the platform routes by the adapter declaration.
 
 Resource creation accepts `{ kind, title, initialContent?, appType? }`; `{ fromArtifact, appType? }` opens the existing source resource for an unchanged application export (returns `reused: true`), or imports an unrelated artifact as an editable resource. The App first makes this request before reading or converting the file; only `unsupported_resource_kind` triggers browser conversion.
 
@@ -426,14 +406,14 @@ Native application routes require the Task's resource reference and dispatch thr
 - `preview`: `{ content, options? }`. Does not create a revision; Adapter validates native pointers and may reject unsaved content.
 - `attachments/:name?revision=N`: current revision required; mismatch returns 409. Adapter owns the filename allowlist, MIME type and hash validation.
 - `import-native?revision=N&operationId=...`: raw file bytes, maximum 64 MiB. A failed candidate or stale revision leaves the previous scene intact.
-- `download?format=...&options=<encoded JSON>`: binary export; Blender supports `blend`, `glb`, `png`, and `python`. HTTP disconnect cancels native commands, imports, preview and export. Blender PNG options accept camera ID/name, frame, width/height, samples and denoise; square resolution remains supported. Read-only query/render results identify their source revision/snapshot even if the outer resource state has advanced. See [Blender interface](blender-api.md) for parameters, versioned pagination, compatibility and runtime limits.
+- `download?format=...&options=<encoded JSON>`: exports the resource through its registered adapter. HTTP disconnect cancels ongoing operations.
 
 The operation envelope is:
 
 ```json
 {
   "operationId": "op_client_uuid",
-  "appType": "text-editor",
+  "appType": "custom-editor",
   "operationType": "text.replace",
   "baseRevision": 8,
   "payload": { "from": 42, "to": 48, "text": "目标用户" }
@@ -463,7 +443,7 @@ Task detail gains an `applications` index — resources, open tabs, the active t
 
 Resource changes ride the existing Task SSE stream as ordinary run events, including `resource.created`, `resource.operation_applied`, `resource.selection_changed`, `application.instance_opened` and `application.instance_updated`. Operation/selection changes are published to all referring Tasks. Payload fields such as `appType`, `resourceId`, `appInstanceId` and `revision` identify what changed; their presence depends on event kind.
 
-The browser checks `/api/workbench/revisions` while application tabs are open and the page is visible, waiting 500 ms after each completed check. Automatic Task/tab reads also pause for hidden pages; CAD, Blender and PPTist body checks pause for hidden editors. Becoming visible triggers an immediate refresh. Explicit loading, saving, autosaving and flushing remain available, and SSE continues while the page is hidden. Changed revisions go only to affected adapters; hidden adapters defer their latest-content read until visible. This covers standalone editors, idle Tasks, and edits from another conversation or MCP process. Creating a document in an empty window refreshes the tab state. Unsaved local drafts remain in the editor and remote changes enter its existing conflict flow.
+The browser checks `/api/workbench/revisions` while application tabs are open and the page is visible, waiting 500 ms after each completed check. Automatic Task/tab reads also pause for hidden pages, and hidden application tabs defer their content checks until visible again. Becoming visible triggers an immediate refresh. Explicit loading, saving, autosaving and flushing remain available, and SSE continues while the page is hidden. Changed revisions go only to affected adapters; hidden adapters defer their latest-content read until visible. This covers standalone editors, idle Tasks, and edits from another conversation or MCP process. Creating a document in an empty window refreshes the tab state. Unsaved local drafts remain in the editor and remote changes enter its existing conflict flow.
 
 Each committed operation can appear before the Run finishes; rapid consecutive commits may coalesce into the latest state. Model tokens and native calculations that have not committed are not document revisions. The retained historical `resource.export_completed` type does not imply a current export endpoint.
 
@@ -473,7 +453,7 @@ Main gets five generic tools: `list_applications`, `list_resources`, `list_resou
 
 Resource content is read through the bound application's domain tools. Generic platform tools manage resource identity, revisions and changes; they do not interpret text offsets, geometry or spreadsheet ranges. Domain tools are registered through `agentTools()` or an MCP server only while the application is bound. Text tools use unambiguous anchors instead of requiring a model to derive character offsets from a summary.
 
-The text editor provides `read_document({heading?})`, `outline_document()`, `patch_document({oldText, newText})` and `write_document({content})`, with write tools modeled on the harness's `apply_patch`: callers supply an anchor and a replacement, and the tool requires an unambiguous match (`0 matches` means a stale read, `several` means be more specific). Its MCP server also exposes `replace_section`, which replaces section content up to the next heading of equal or higher rank. CAD adapters declare tools for their own resource semantics.
+External adapters may provide domain-specific tools. Ordinary workspace files use the generic file tools.
 
 Injected context includes platform metadata (kind, `size_bytes`, revision and title) and one application-provided `<shape>` line describing the resource structure without positions. A count ("3 个标题", "47 个特征") is safe because it is nothing a model can pass as an argument; an address ("第 3 行", "A1:C5", an offset) is not. `<selection>` may name a position, because that is a place the user chose.
 
@@ -498,7 +478,7 @@ Application tools return operations for the platform to commit through revision 
 - `GET /api/models` 新增 `connectionProfileId`，配置切换后前端清除旧服务的会话模型选择；已有会话历史保留，后续请求使用新启用的模型配置。
 - 本地附件通过下方 [Local input uploads](#local-input-uploads) 的上传、预览与引用接口读取；现有文本草稿附件的限制不代表上传接口的文件能力。Run prompt 通过 stdin 传给 Pi，服务边界仍拒绝 NUL 和超限消息。
 - interject 的 Inbox 投递不变；响应增加 `messageId`，事件保存完整消息用于跨 Run 的对话投影。`steer` 在界面显示为补充指令；`followUp` 排队时显示等待状态，消费后按新请求分组，保留前一请求的最终回复。
-- `GET /api/tasks/:taskId/resources/:resourceId/review` 返回最近已保存操作的 `revision`、`baseRevision`、`eventId`、前后文本及摘要；无可还原历史时 `available=false`。可选 Adapter `reviewContent` 提供领域投影，Blender 展示对象变换、基础材质、参数、相机和源码。
+- `GET /api/tasks/:taskId/resources/:resourceId/review` 返回最近已保存操作的 `revision`、`baseRevision`、`eventId`、前后文本及摘要；无可还原历史时 `available=false`。可选 Adapter `reviewContent` 提供领域投影。
 - undo 可额外携带 `baseRevision` 与 `eventId`，只撤销已审阅的对应操作；资源已改变时返回 revision_conflict。旧调用仍兼容。前后对比为整次操作，尚未提供分块接受和行评论。
 
 ## Local input uploads

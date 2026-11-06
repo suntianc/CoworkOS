@@ -1,12 +1,13 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { WorkbenchTabStore } from "../dist/src/applications/tab-store.js";
-import { handleApplicationRequest } from "../dist/src/dashboard/application-routes.js";
-import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { WorkbenchTabStore } = await import("../dist/src/applications/tab-store.js");
+const { handleApplicationRequest } = await import("../dist/src/dashboard/application-routes.js");
+const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 
 test("a full tab strip discovers workspace and project catalogs once per request and refreshes on the next", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-tab-resolution-"));

@@ -1,12 +1,14 @@
+import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ApplicationRegistry } from "../dist/src/applications/registry.js";
-import { ApplicationService } from "../dist/src/applications/application-service.js";
-import { textRuntimeAdapter } from "../dist/src/applications/adapters/text-runtime-adapter.js";
-import { dummyCounterAdapter } from "../dist/src/applications/adapters/dummy-counter-adapter.js";
+const { ApplicationRegistry } = await import("../dist/src/applications/registry.js");
+const { ApplicationService } = await import("../dist/src/applications/application-service.js");
+const { textRuntimeAdapter } =
+  await import("../dist/test/fixtures/application-contract/text-runtime-adapter.js");
+const { dummyCounterAdapter } = await import("../dist/src/applications/adapters/dummy-counter-adapter.js");
 
 const user = { type: "user", id: "local" };
 const agent = { type: "agent", id: "main" };

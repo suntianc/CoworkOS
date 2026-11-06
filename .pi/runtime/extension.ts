@@ -625,7 +625,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
                 `当本轮目标是编辑这份文档时，他让你写、整理、补充、扩写而没说放哪儿时，默认写进《${bound.resourceTitle}》，再在回复里说一句写好了，而不是把内容只贴在对话里。除非他说了只想看看或先讨论。`,
                 // Keep editing rules beside the bound application's concrete tools.
                 "改它只用上面这些专用工具。用 write/edit 直接覆盖资源文件会绕过版本协议，被记成来源不明的外部修改，可能冲掉用户正在编辑的内容，而且历史里只剩“被改过”。",
-                `绑定已经确定了是哪一份，不需要用 bash/find/ls 去磁盘上找它或核对是哪一个——用 ${bound.tools.some((tool) => tool.name === "read_document") ? "read_document" : "这个应用的读取工具"} 读到的就是它。磁盘上有名字相近的其他文件是正常的。`,
+                `绑定已经确定了是哪一份，不需要用 bash/find/ls 去磁盘上找它或核对是哪一个——用 这个应用的读取工具 读到的就是它。磁盘上有名字相近的其他文件是正常的。`,
                 "</bound_application>"
               ]
             : [])
@@ -1455,7 +1455,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       ctx.ui.notify("CoworkOS 模型未配置：请运行 coworkos init，或设置模型环境变量。", "warning");
     else {
       const activeTools = pi.getActiveTools();
-      const requiredTools = [...CORE_TOOLS, ...(visionModel ? ["review_slides"] : []), "find", "grep"];
+      const requiredTools = [...CORE_TOOLS, "find", "grep"];
       const missingTools = requiredTools.filter((name) => !activeTools.includes(name));
       if (missingTools.length > 0) pi.setActiveTools([...activeTools, ...missingTools]);
       const taskStore = new LocalWorkspaceStore(workspaceRoot);

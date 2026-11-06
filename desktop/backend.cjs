@@ -22,7 +22,6 @@ async function startBackend(paths, settings, executable = process.execPath) {
   const port = await availablePort();
   const token = crypto.randomBytes(32).toString("hex");
   const inheritedEnv = desktopBackendEnvironment();
-  delete inheritedEnv.ATRIA_COMPONENTS_GITHUB_TOKEN;
   const child = spawn(
     backendExecutable(executable, process.platform, paths.appRoot),
     [path.join(paths.appRoot, "dist/src/cli/dashboard.js")],
@@ -60,49 +59,11 @@ async function startBackend(paths, settings, executable = process.execPath) {
     Boolean
   );
   const record = (chunk) =>
-    log.write(
-      [...secrets, ...authSecrets].reduce(
-        (text, secret) => text.split(secret).join("[REDACTED]"),
-        String(chunk)
-      )
-    );
+    log.write(secrets.reduce((text, secret) => text.split(secret).join("[REDACTED]"), String(chunk)));
   child.stdout.on("data", record);
   child.stderr.on("data", record);
   child.once("close", () => log.end());
   const closed = new Promise((done) => child.once("close", done));
-  const authSecrets = new Set();
-  const authRequests = new Map();
-  const componentAuth = (credential) =>
-    new Promise((resolve, reject) => {
-      if (credential) authSecrets.add(credential);
-      const requestId = crypto.randomUUID();
-      const timer = setTimeout(() => {
-        authRequests.delete(requestId);
-        reject(new Error("组件认证设置超时"));
-      }, 20_000);
-      authRequests.set(requestId, { resolve, reject, timer });
-      child.send({ type: "components.auth", requestId, token: credential }, (error) => {
-        if (!error) return;
-        clearTimeout(timer);
-        authRequests.delete(requestId);
-        reject(new Error("组件认证设置失败"));
-      });
-    });
-  child.on("message", (message) => {
-    if (message?.type !== "components.auth.reply") return;
-    const pending = authRequests.get(message.requestId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    authRequests.delete(message.requestId);
-    message.error ? pending.reject(new Error("组件认证设置失败")) : pending.resolve();
-  });
-  child.once("close", () => {
-    for (const pending of authRequests.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error("本地服务已退出"));
-    }
-    authRequests.clear();
-  });
   const computerRequests = new Map();
   child.on("message", (message) => {
     if (message?.type !== "computer.reply") return;
@@ -180,7 +141,7 @@ async function startBackend(paths, settings, executable = process.execPath) {
       child.once("error", failed);
       child.once("exit", exited);
     });
-    return { child, url: `http://127.0.0.1:${port}`, token, stop, computer, componentAuth };
+    return { child, url: `http://127.0.0.1:${port}`, token, stop, computer };
   } catch (error) {
     await stop();
     throw error;

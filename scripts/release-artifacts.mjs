@@ -138,29 +138,6 @@ export async function inspectReleaseArtifacts({
     throw new Error("Mac signing report and Developer ID ZIP/feed distribution disagree");
   const names = [dmg, dmg + ".sha256", cli, cli + ".sha256", ...(present.every(Boolean) ? signedFiles : [])];
   const artifacts = await Promise.all(names.map((name) => fingerprint(directory, name)));
-  const componentCatalogName = "atria-components-darwin-arm64.json";
-  if (await exists(join(directory, componentCatalogName))) {
-    const catalog = JSON.parse(await readFile(join(directory, componentCatalogName), "utf8"));
-    if (
-      catalog.schemaVersion !== 1 ||
-      catalog.hostVersion !== metadata.version ||
-      !Array.isArray(catalog.artifacts)
-    )
-      throw new Error("Component catalog does not match release");
-    artifacts.push(await fingerprint(directory, componentCatalogName));
-    for (const component of catalog.artifacts) {
-      if (
-        !/^atria-component-[a-zA-Z0-9._-]+\.tar\.gz$/.test(component.file) ||
-        component.hostVersion !== metadata.version
-      )
-        throw new Error("Invalid component release artifact");
-      const actual = await fingerprint(directory, component.file);
-      if (actual.sha256 !== component.sha256 || actual.size !== component.downloadBytes)
-        throw new Error("Component release checksum/size mismatch");
-      await checkChecksum(directory, actual);
-      artifacts.push(actual, await fingerprint(directory, component.file + ".sha256"));
-    }
-  }
 
   if (hasSigning) {
     const signing = await fingerprint(directory, signingName);

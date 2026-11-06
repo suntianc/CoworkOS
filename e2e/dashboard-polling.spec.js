@@ -35,53 +35,6 @@ async function post(page, base, path, data) {
   return response.json();
 }
 
-test("four dashboard pages stop hidden automatic reads and refresh immediately on return", async ({
-  context
-}, info) => {
-  const dashboard = await startDashboard();
-  const pages = [];
-  try {
-    const seed = await context.newPage();
-    pages.push(seed);
-    await post(seed, dashboard.base, "/api/tasks", { taskId: "poll-a", goal: "轮询会话" });
-    await post(seed, dashboard.base, "/api/workbench/open-application", { appType: "text-editor" });
-    const counts = [];
-    for (let i = 0; i < 4; i++) {
-      const page = i ? await context.newPage() : seed;
-      if (i) pages.push(page);
-      counts.push(await instrument(page));
-      await page.goto(`${dashboard.base}/?task=poll-a`);
-      await expect(page.locator("#composer-input")).toBeVisible();
-      const revision = page.waitForResponse((response) => new URL(response.url()).pathname === paths[2]);
-      await page.clock.fastForward(600);
-      await (await revision).finished();
-    }
-    for (const page of pages.slice(1)) await visibility(page, true);
-    const before = structuredClone(counts);
-    const taskRead = pages[0].waitForResponse((response) => new URL(response.url()).pathname === paths[0]);
-    for (const page of pages) await page.clock.fastForward(7000);
-    await (await taskRead).finished();
-    for (let i = 1; i < 4; i++) expect(counts[i]).toEqual(before[i]);
-    expect(counts[0][paths[0]]).toBeGreaterThan(before[0][paths[0]]);
-    expect(counts[0][paths[1]]).toBeGreaterThan(before[0][paths[1]]);
-    expect(counts[0][paths[2]]).toBeGreaterThan(before[0][paths[2]]);
-    const whileHidden = structuredClone(counts);
-    const hidden = structuredClone(counts[1]);
-    await visibility(pages[1], false);
-    for (const path of paths) await expect.poll(() => counts[1][path]).toBeGreaterThan(hidden[path]);
-    // A menu opened explicitly remains usable while the page is marked hidden.
-    await visibility(pages[1], true);
-    await pages[1].locator("#app-bind-select").click();
-    await expect(pages[1].locator("#app-bind-menu")).toBeVisible();
-    const evidence = info.outputPath("automatic-request-counts.json");
-    await writeFile(evidence, JSON.stringify({ before, whileHidden, afterReturn: counts }, null, 2));
-    await info.attach("automatic-request-counts", { path: evidence, contentType: "application/json" });
-  } finally {
-    await Promise.all(pages.map((page) => page.close()));
-    await dashboard.stop();
-  }
-});
-
 test("a task catalog slower than the polling period still applies and preserves the later draft", async ({
   page
 }) => {

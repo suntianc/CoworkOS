@@ -68,8 +68,7 @@ test("real installation failure preserves settings and drafts while ordinary nav
     expect(await settings()).toEqual(before);
     await dialog.getByRole("button", { name: "关闭设置", exact: true }).click();
     await expect(dialog).toBeHidden();
-    await page.locator("#apps-nav").click();
-    await expect(page.locator("#apps-panel")).toBeVisible();
+    await expect(page.locator("#apps-nav")).toBeHidden();
     await page.locator("#new-conversation").click();
     await expect(page.locator("#composer-input")).toBeEditable();
     await page.locator("#composer-input").fill("普通任务草稿仍可编辑");
