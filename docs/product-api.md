@@ -22,6 +22,8 @@ POST /api/session
 GET  /api/session
 DELETE /api/session/:sessionId
 GET  /api/operations/:operationId
+GET  /api/events/snapshot
+GET  /api/events/stream?cursor=<seq>
 GET  /api/models
 GET  /api/model-settings
 POST /api/model-settings
@@ -85,7 +87,49 @@ Change commands accept an optional `operationId`: `POST /api/projects`, `PATCH /
 
 Object changes carry the expected revision their service checks under its own lock: goal lifecycle controls send `revision`, and a stale value returns HTTP 409 `revision_conflict` without changing state. An operation id is the command's identity, not a substitute for the revision check: a replay returns the saved result, while a new command with a stale revision is refused.
 
-Stable error codes: `unauthorized`, `session_revoked`, `session_unknown`, `host_credential_required`, `protocol_required`, `protocol_incompatible`, `operation_id_invalid`, `operation_conflict`, `operation_unknown`, `operation_receipt_invalid`, `revision_conflict`. Messages stay in the server's user-facing language; clients branch on the code. A damaged receipt is never treated as "no command": it returns 500 `operation_receipt_invalid` and leaves the file in place, because re-running the command could apply it twice.
+Stable error codes: `unauthorized`, `session_revoked`, `session_unknown`, `host_credential_required`, `protocol_required`, `protocol_incompatible`, `operation_id_invalid`, `operation_conflict`, `operation_unknown`, `operation_receipt_invalid`, `revision_conflict`, `cursor_required`, `cursor_expired`, `cursor_unknown`. Messages stay in the server's user-facing language; clients branch on the code. A damaged receipt is never treated as "no command": it returns 500 `operation_receipt_invalid` and leaves the file in place, because re-running the command could apply it twice.
+
+## Snapshot and event recovery
+
+Route implementation: [catalog events](../src/dashboard/catalog-events.ts) over the [durable event ledger](../src/dashboard/event-ledger.ts); the shared client is [management-events.js](../web/assets/controllers/management-events.js). A client that reconnects reconciles here instead of re-reading every Task: the snapshot is the same authoritative catalog `/api/tasks` serves, and the sequence it names is what a subscription resumes from.
+
+`GET /api/events/snapshot` returns `{ backendId, cursor, revisions, ...taskList }` (the fields of `GET /api/tasks`, plus `backendId`, `cursor` and `revisions`). `revisions` maps `project:<projectId>` and `task:<taskId>` to the object revision the snapshot describes. `cursor` is the last event sequence included in the lists. The snapshot and the cursor are taken together, so a change that commits after the snapshot answers is replayed by the subscription rather than lost in the handoff.
+
+`GET /api/events/stream?cursor=<seq>` is Server-Sent Events. Each `data:` frame is one event record:
+
+```json
+{
+  "version": 1,
+  "backendId": "backend_...",
+  "seq": 42,
+  "eventId": "backend_...:42",
+  "scope": "task",
+  "objectId": "task-1",
+  "revision": 3,
+  "type": "task.changed",
+  "occurredAt": "2026-01-01T00:00:00.000Z",
+  "payload": { "taskId": "task-1", "title": "...", "status": "running" }
+}
+```
+
+- `seq` is the backend-wide order; `eventId` is the stable identity; `scope` and `objectId` name the object; `revision` counts that object's own published changes. The cursor is the last `seq` the client applied.
+- `type` is `project.changed`, `task.changed` or `task.deleted`. `payload` is the whole object (`{}` for a deletion), so applying an event never depends on a delta the client did not have.
+- A `task.deleted` tombstone is published for an object this backend already published and that then disappears from a complete catalog read. A workspace root that cannot be read is not treated as a deletion.
+- A `stream.reset` frame reports that the subscriber fell behind the retained log; it names `code` and the current `cursor` and ends the connection. The client takes a new snapshot instead of continuing from a hole.
+
+Cursor outcomes: a missing or non-integer `cursor` returns HTTP 400 `cursor_required`; a cursor older than the retained log returns HTTP 409 `cursor_expired`; a cursor above the current sequence (another backend's, or a lost history) returns HTTP 409 `cursor_unknown`. Both 409s name the retained range and require a new snapshot. The log keeps the newest 2000 records by default (`COWORK_EVENT_LEDGER_RECORDS`, 4–100000); compaction folds older records into a persisted index that keeps each object's revision.
+
+Events are written and fsynced after the business change commits. Every change published by `POST /api/projects`, `PATCH /api/projects/:projectId`, `POST /api/tasks`, `PATCH /api/tasks/:taskId`, `POST /api/tasks/:taskId/action` and `DELETE /api/tasks/:taskId` appends its event immediately. A change made by another writer (a Run transition, an MCP edit) becomes an event when the catalog is next read: on a snapshot, about once a second while a subscription is open (`COWORK_EVENT_RECONCILE_MS`), and on startup. Reconciliation publishes a state change whose event was never written — the crash window between the business commit and the append — and never rolls a published object back.
+
+A client must follow these rules; [management-events.js](../web/assets/controllers/management-events.js) implements them:
+
+1. Bind to one backend identity. Drop any snapshot or record whose `backendId` is not the bound one; after switching backends, close the old connection, discard its cache and take a new snapshot.
+2. Snapshot first, then subscribe from that snapshot's `cursor`.
+3. Ignore a record at or below the applied cursor (duplicate); ignore a record whose object `revision` is not newer than the snapshot's (stale replay).
+4. On a `seq` gap, reconnect from the applied cursor so the server replays the missing records in order; on `cursor_expired`/`cursor_unknown` or `stream.reset`, take a new snapshot.
+5. Reconnecting replays events only. A command is never re-sent by a reconnect; use the `operationId` and receipt rules above when a command's response was lost.
+
+`createManagementEventClient({ backendId, baseUrl, fetch, onSnapshot, onEvent, onReset, onStatus })` exposes `start()`, `switchBackend({ backendId, baseUrl })`, `stop()` and `state()`. The Web UI (ticket 05) and the desktop host consume the catalog through it rather than opening their own event channel.
 
 ## Project experience
 
