@@ -45,6 +45,7 @@ type WorkspaceDirectory = ReturnType<typeof createWorkspaceDirectory>;
 type RunService = ReturnType<typeof createDashboardRunService>;
 export interface DashboardRoutePorts {
   userMemory?: UserMemoryStore;
+  backendInfo(): { backendId: string; pid: number; startedAt: string };
   projectExperienceStore?: (projectId: string) => Promise<ProjectExperienceStore | undefined>;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
@@ -130,6 +131,12 @@ export function createDashboardHandler(
   return async (request, response) => {
     try {
       const url = localRequestUrl(request, dashboardUrl);
+      // Identity read-only: a host uses it to confirm that the process it
+      // recorded is the one answering here, never to learn configuration.
+      if (request.method === "GET" && url.pathname === "/api/backend") {
+        sendJson(response, 200, ports.backendInfo());
+        return;
+      }
       // Bind desktop request epochs before any awaited router can cross a
       // stop/revoke/resume boundary while this request is still being admitted.
       if (await handleComputerRequest(request, response, url, ports.computer, locateTask)) return;

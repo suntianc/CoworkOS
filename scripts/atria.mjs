@@ -48,6 +48,14 @@ API Key input is hidden. Use an environment variable for non-interactive setup.`
 The default check runs locally and does not send model requests.`);
     return;
   }
+  if (topic === "backend") {
+    console.log(`Usage: coworkos backend <start|status|stop>
+  start    Start a detached backend for the current data root, or report the running one
+  status   Report the backend instance for the current data root
+  stop     Ask the backend to finish managed work and exit
+The backend keeps running after the client that started it exits. It never installs a system service.`);
+    return;
+  }
   if (topic === "data") {
     console.log(`Usage: coworkos data paths
        coworkos data import --from PATH [--kind desktop|workspace] [--name NAME]
@@ -449,13 +457,17 @@ try {
       : undefined;
   if (
     ["--help", "-h", "help"].includes(command) ||
-    (["init", "doctor", "data", "start", "session"].includes(command) &&
+    (["init", "doctor", "data", "backend", "start", "session"].includes(command) &&
       (command === "start"
         ? startInformation === "help"
         : args.some((argument) => ["--help", "-h"].includes(argument))))
   )
     await help(
-      command === "help" ? args[0] : ["init", "doctor", "data"].includes(command) ? command : undefined
+      command === "help"
+        ? args[0]
+        : ["init", "doctor", "data", "backend"].includes(command)
+          ? command
+          : undefined
     );
   else if (["--version", "-v"].includes(command)) {
     if (args.length) throw new Error("coworkos --version does not accept options");
@@ -476,6 +488,10 @@ try {
   } else if (command === "science") {
     const { runScience } = await import("./science.mjs");
     await runScience(args);
+  } else if (command === "backend") {
+    requireNode();
+    const { runBackendCommand } = await import("../dist/src/cli/backend.js");
+    process.exitCode = await runBackendCommand(args);
   } else if (command === "data") await dataCommand();
   else if (command === "init") {
     requireNode();

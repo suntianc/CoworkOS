@@ -17,6 +17,7 @@ The native desktop host additionally requires its session token for `/api/*` (Ht
 ## Global APIs
 
 ```text
+GET  /api/backend
 GET  /api/models
 GET  /api/model-settings
 POST /api/model-settings
@@ -35,6 +36,8 @@ POST /api/projects/:projectId/experience
 ```
 
 Models returns `{ current, models, configured }`. `GET /api/tasks` returns the grouped catalog `{ workspaceRoot, currentWorkspaceRoot, model, tasks, projects }`, rather than a bare Task array. Explicit projects remain in `projects` with `tasks: []`; legacy automatic groups retain their directory-based IDs and the sidebar hides them when they have no unarchived conversations.
+
+`GET /api/backend` returns `{ backendId, pid, startedAt }` for the process serving this data root. The standalone backend keeps `backendId` across restarts, so a client can tell a restarted process from a different backend, and `pid` lets a host stop only the process it recorded. The route is local and token-checked like the other `/api/*` routes and exposes no configuration.
 
 Desktop model settings use the trusted preload/IPC interface, not these HTTP routes.
 
