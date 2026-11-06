@@ -64,6 +64,8 @@ import { createUserMemoryLearningService } from "../runtime/user-memory-learning
 import { createDashboardRunService } from "./run-service.js";
 import { LocalAccess } from "./local-access.js";
 import { FileCommandRunner } from "./management-commands.js";
+import { createCatalogEvents } from "./catalog-events.js";
+import { EventLedger } from "./event-ledger.js";
 import { createWorkspaceDirectory } from "./workspace-directory.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
@@ -132,6 +134,26 @@ export function createDashboardApplication(
   const commands = new FileCommandRunner(join(dirname(globalIndexPath), "operations"));
   const workspaces = createWorkspaceDirectory(workspaceRoot, globalIndexPath, runtimeValue);
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
+  /**
+   * The durable catalog event log, beside the sessions and receipts.
+   *
+   * A client reconciles against it after a disconnect: the snapshot and its
+   * cursor come from the same serialized section, so a change made in the
+   * handoff is replayed instead of lost, and a cursor older than the retained
+   * log is refused so the client takes a fresh snapshot.
+   */
+  const catalogEvents = createCatalogEvents({
+    ledger: EventLedger.open(join(dirname(globalIndexPath), "events"), backendIdentity.backendId, {
+      ...(process.env.COWORK_EVENT_LEDGER_RECORDS
+        ? { maxRecords: Number(process.env.COWORK_EVENT_LEDGER_RECORDS) }
+        : {}),
+      ...(process.env.COWORK_EVENT_FAULT_INJECT ? { faultInject: process.env.COWORK_EVENT_FAULT_INJECT } : {})
+    }),
+    readCatalog: globalTaskPayload,
+    ...(process.env.COWORK_EVENT_RECONCILE_MS
+      ? { reconcileMs: Number(process.env.COWORK_EVENT_RECONCILE_MS) }
+      : {})
+  });
   const computer = new ComputerUse(
     options.computerDriver ?? computerDriver,
     options.computerClock ?? Date.now,
@@ -602,6 +624,7 @@ export function createDashboardApplication(
     userMemory,
     access,
     commands,
+    events: catalogEvents,
     backendInfo: () => ({
       backendId: backendIdentity.backendId,
       pid: process.pid,
@@ -715,6 +738,7 @@ export function createDashboardApplication(
       return computer.authorize(input.taskId, input.pid, input.windowId, input.mode);
     },
     async stop() {
+      await catalogEvents.close();
       await memoryLearning.stop();
       await projectLearning.stop();
       computer.close();

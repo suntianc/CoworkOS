@@ -14,6 +14,7 @@ import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { serveArtifact } from "./artifact-response.js";
 import { dashboardContentPolicy, HttpError, localRequestUrl, readJsonBody, sendJson } from "./http.js";
 import { protocolInfo } from "./backend-protocol.js";
+import type { CatalogEvents } from "./catalog-events.js";
 import { HOST_PRINCIPAL, type LocalAccess, type LocalPrincipal } from "./local-access.js";
 import { handleSessionRequest } from "./session-routes.js";
 import { commandContent, runCommand, sendCommandOutcome, type CommandRunner } from "./management-commands.js";
@@ -54,6 +55,8 @@ export interface DashboardRoutePorts {
   access?: LocalAccess;
   /** Durable receipts for idempotent change commands; absent in partial handlers. */
   commands?: CommandRunner;
+  /** Snapshot and resumable catalog events; absent in partial handlers. */
+  events?: CatalogEvents;
   projectExperienceStore?: (projectId: string) => Promise<ProjectExperienceStore | undefined>;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
@@ -136,6 +139,21 @@ export function createDashboardHandler(
     taskListItem,
     appendRunEvent
   } = ports;
+  /**
+   * Publish the catalog object this route just committed.
+   *
+   * The append happens after the business write, which is the window the
+   * ledger's reconciliation heals; a failed append never turns the committed
+   * change into an error response (see createCatalogEvents).
+   */
+  const publishProject = async <T extends { projectId: string }>(project: T): Promise<T> => {
+    await ports.events?.project(project as unknown as Record<string, unknown>);
+    return project;
+  };
+  const publishTask = async <T extends { taskId: string }>(task: T): Promise<T> => {
+    await ports.events?.task(task as unknown as Record<string, unknown>);
+    return task;
+  };
   return async (request, response) => {
     try {
       const admitted = ports.access?.admit(request, dashboardUrl);
@@ -163,6 +181,33 @@ export function createDashboardHandler(
         if (!receipt)
           throw new HttpError(404, "找不到该 operationId 的结果；命令可能尚未执行", "operation_unknown");
         sendJson(response, 200, receipt);
+        return;
+      }
+      // The snapshot names the cursor it was taken at; the subscription replays
+      // from that cursor, so a change made between the two is never lost.
+      if (ports.events && request.method === "GET" && url.pathname === "/api/events/snapshot") {
+        sendJson(response, 200, await ports.events.snapshot());
+        return;
+      }
+      if (ports.events && request.method === "GET" && url.pathname === "/api/events/stream") {
+        const raw = url.searchParams.get("cursor");
+        const after = raw === null || raw === "" ? Number.NaN : Number(raw);
+        if (!Number.isInteger(after) || after < 0)
+          throw new HttpError(
+            400,
+            "事件订阅需要快照给出的 cursor（非负整数）；先取 GET /api/events/snapshot",
+            "cursor_required"
+          );
+        const admitted = await ports.events.cursorState(after);
+        if (!admitted.ok)
+          throw new HttpError(
+            409,
+            admitted.code === "cursor_unknown"
+              ? `cursor ${after} 不属于本次后端事件序列（当前 ${admitted.cursor}）；请重新获取快照`
+              : `cursor ${after} 早于保留窗口（${admitted.earliest}–${admitted.cursor}）；请重新获取快照`,
+            admitted.code
+          );
+        await ports.events.subscribe(request, response, after);
         return;
       }
       // Bind desktop request epochs before any awaited router can cross a
@@ -292,10 +337,12 @@ export function createDashboardHandler(
             apply: async () => ({
               status: 201,
               body: {
-                project: await ports.createProject({
-                  projectName: body.projectName,
-                  projectDirectory: body.projectDirectory
-                })
+                project: await publishProject(
+                  await ports.createProject({
+                    projectName: body.projectName,
+                    projectDirectory: body.projectDirectory
+                  })
+                )
               }
             })
           })
@@ -318,10 +365,12 @@ export function createDashboardHandler(
             apply: async () => ({
               status: 200,
               body: {
-                project: await ports.updateProject(projectId, {
-                  projectName: body.projectName,
-                  projectDirectory: body.projectDirectory
-                })
+                project: await publishProject(
+                  (await ports.updateProject(projectId, {
+                    projectName: body.projectName,
+                    projectDirectory: body.projectDirectory
+                  })) as { projectId: string }
+                )
               }
             })
           })
@@ -458,10 +507,12 @@ export function createDashboardHandler(
                   throw new Error("临时会话不能同时指定项目或目录");
                 return {
                   status: 201,
-                  body: await ports.createTemporaryTask(
-                    requested,
-                    { goal: goal.slice(0, 4_000) },
-                    body.temporaryWorkspaceRoot
+                  body: await publishTask(
+                    await ports.createTemporaryTask(
+                      requested,
+                      { goal: goal.slice(0, 4_000) },
+                      body.temporaryWorkspaceRoot
+                    )
                   )
                 };
               }
@@ -475,9 +526,11 @@ export function createDashboardHandler(
                   throw new Error("会话继承项目文件夹，请在项目设置中更改");
                 return {
                   status: 201,
-                  body: await ports.createProjectTask(requested, body.projectId, {
-                    goal: goal.slice(0, 4_000)
-                  })
+                  body: await publishTask(
+                    await ports.createProjectTask(requested, body.projectId, {
+                      goal: goal.slice(0, 4_000)
+                    })
+                  )
                 };
               }
               if (body.projectDirectory !== undefined) throw new Error("会话文件夹设置已移至项目");
@@ -489,7 +542,7 @@ export function createDashboardHandler(
               const taskStore = new LocalWorkspaceStore(root);
               await taskStore.createTask(requested, { goal: goal.slice(0, 4_000) });
               const location = await locateTask(requested);
-              return { status: 201, body: taskListItem(location) };
+              return { status: 201, body: await publishTask(taskListItem(location)) };
             }
           })
         );
@@ -790,6 +843,7 @@ export function createDashboardHandler(
         if (activeRuns.has(taskId)) throw new Error("请先停止任务，再删除会话");
         if (location.task.kind === "workspace") throw new Error("工作区不能作为会话删除");
         await location.store.deleteTask(taskId);
+        await ports.events?.taskDeleted(taskId);
         sendJson(response, 200, { taskId, deleted: true });
         return;
       }
@@ -817,7 +871,9 @@ export function createDashboardHandler(
         sendJson(
           response,
           200,
-          taskListItem({ ...location, task: await location.store.updateTask(taskId, patch) })
+          await publishTask(
+            taskListItem({ ...location, task: await location.store.updateTask(taskId, patch) })
+          )
         );
         return;
       }
@@ -858,9 +914,7 @@ export function createDashboardHandler(
             : await location.store.transitionTask(taskId, action === "resume" ? "running" : "completed", {
                 reason: `ui_${action}`
               });
-        sendJson(response, 200, {
-          ...taskListItem({ ...location, task: next })
-        });
+        sendJson(response, 200, await publishTask(taskListItem({ ...location, task: next })));
         return;
       }
       sendJson(response, 405, { error: "method not allowed" });
