@@ -138,15 +138,35 @@ export function createCatalogEvents(options: CatalogEventsOptions): CatalogEvent
       });
       response.write(`: cowork events connected at ${current.cursor()}\n\n`);
       let cursor = after;
-      let closed = false;
+      /** Set by the one end path below; no frame is written once it is true. */
+      let settled = false;
       let emitting = false;
       let lastReconcile = performance.now();
-      const write = (record: ManagementEventRecord) => {
-        response.write(`id: ${record.eventId}\ndata: ${JSON.stringify(record)}\n\n`);
-        cursor = record.seq;
+      /**
+       * The single end path for a subscription.
+       *
+       * Every way this stream ends — the client disconnecting, a reset that
+       * ends the response, a repeated close event — releases the two timers and
+       * the request/response listeners exactly once. Ending a response must not
+       * leave work behind that the client can no longer see.
+       */
+      const settle = (): boolean => {
+        if (settled) return false;
+        settled = true;
+        clearInterval(poll);
+        clearInterval(keepAlive);
+        request.off("close", settle);
+        response.off("close", settle);
+        return true;
       };
-      const emit = async () => {
-        if (closed || emitting) return;
+      /** Write one frame only while the subscription is live. */
+      const write = (frame: string): boolean => {
+        if (settled) return false;
+        response.write(frame);
+        return true;
+      };
+      const emit = async (): Promise<void> => {
+        if (settled || emitting) return;
         emitting = true;
         try {
           if (performance.now() - lastReconcile >= reconcileMs) {
@@ -154,12 +174,14 @@ export function createCatalogEvents(options: CatalogEventsOptions): CatalogEvent
             // A writer that does not publish (a Run transition, an MCP edit)
             // becomes an event while someone is listening.
             await sync();
+            if (settled) return;
           }
           for (;;) {
             if (!current.canReplay(cursor)) {
               // The retained log moved past a subscriber that fell behind:
-              // say so explicitly instead of silently skipping its events.
-              response.write(
+              // say so explicitly instead of silently skipping its events, then
+              // end the stream through the same cleanup as a client disconnect.
+              write(
                 `data: ${JSON.stringify({
                   version: 1,
                   backendId: current.backendId,
@@ -168,34 +190,34 @@ export function createCatalogEvents(options: CatalogEventsOptions): CatalogEvent
                   cursor: current.cursor()
                 })}\n\n`
               );
-              closed = true;
+              settle();
               response.end();
-              break;
+              return;
             }
             const records = current.replay(cursor);
-            if (!records.length) break;
-            for (const record of records) write(record);
+            if (!records.length) return;
+            for (const record of records) {
+              if (!write(`id: ${record.eventId}\ndata: ${JSON.stringify(record)}\n\n`)) return;
+              cursor = record.seq;
+            }
           }
         } catch (error) {
-          console.error(`[cowork] 事件流刷新失败：${error instanceof Error ? error.message : String(error)}`);
+          if (!settled)
+            console.error(
+              `[cowork] 事件流刷新失败：${error instanceof Error ? error.message : String(error)}`
+            );
         } finally {
           emitting = false;
         }
       };
-      const timer = setInterval(() => {
+      const poll = setInterval(() => {
         void emit();
       }, pollMs);
       const keepAlive = setInterval(() => {
-        if (!closed) response.write(": keep-alive\n\n");
+        write(": keep-alive\n\n");
       }, 15_000);
-      const close = () => {
-        if (closed) return;
-        closed = true;
-        clearInterval(timer);
-        clearInterval(keepAlive);
-      };
-      request.once("close", close);
-      response.once("close", close);
+      request.once("close", settle);
+      response.once("close", settle);
       await emit();
     },
 

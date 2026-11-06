@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
+import { createCatalogEvents } from "../dist/src/dashboard/catalog-events.js";
 import { EventLedger } from "../dist/src/dashboard/event-ledger.js";
 import { createManagementEventClient } from "../web/assets/controllers/management-events.js";
 
@@ -449,6 +451,128 @@ test("the ledger keeps sequence, revisions and retention across a restart", asyn
   await afterCompaction.close();
   await reopened.close();
   await ledger.close();
+});
+
+// ---------------------------------------------------------------------------
+// A subscription's own resources: timers and listeners end with it.
+// ---------------------------------------------------------------------------
+
+test("a subscription releases its timers and listeners on reset and on disconnect", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-events-subscribe-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // Track the real interval handles the subscription creates, so "ended" is
+  // proven by the handles going away, not by a callback that became a no-op.
+  const created = new Set();
+  const realSetInterval = globalThis.setInterval;
+  const realClearInterval = globalThis.clearInterval;
+  globalThis.setInterval = (callback, ms, ...rest) => {
+    const handle = realSetInterval(callback, ms, ...rest);
+    created.add(handle);
+    return handle;
+  };
+  globalThis.clearInterval = (handle) => {
+    created.delete(handle);
+    return realClearInterval(handle);
+  };
+  t.after(() => {
+    for (const handle of created) realClearInterval(handle);
+    globalThis.setInterval = realSetInterval;
+    globalThis.clearInterval = realClearInterval;
+  });
+  const baseline = created.size;
+
+  const ledger = await EventLedger.open(join(root, "events"), "backend_subscribe", { maxRecords: 4 });
+  t.after(() => ledger.close());
+  let published = 0;
+  const publishProject = async (name) => {
+    published += 1;
+    await ledger.publish({
+      scope: "project",
+      objectId: `project-${name}`,
+      type: "project.changed",
+      payload: {
+        projectId: `project-${name}`,
+        projectName: name,
+        updatedAt: new Date(1_700_000_000_000 + published).toISOString()
+      }
+    });
+  };
+  // Publishing inside this read makes a live subscriber fall behind the
+  // retained window while its own emit is in flight: no timing race, and the
+  // reset happens on the poll that was already running.
+  let burst = 0;
+  const service = createCatalogEvents({
+    ledger: Promise.resolve(ledger),
+    readCatalog: async () => {
+      const count = burst;
+      burst = 0;
+      for (let index = 0; index < count; index += 1) await publishProject(`burst-${published}`);
+      return { projects: [], tasks: [] };
+    },
+    pollMs: 20,
+    reconcileMs: 0
+  });
+  /** One HTTP/1.1 response as the stream sees it, including its real close event. */
+  const connection = () => {
+    const request = new EventEmitter();
+    const response = new EventEmitter();
+    const frames = [];
+    let ended = false;
+    response.writeHead = () => {};
+    response.write = (chunk) => {
+      frames.push(String(chunk));
+      return true;
+    };
+    response.end = () => {
+      ended = true;
+      response.emit("close");
+    };
+    return { request, response, frames, ended: () => ended };
+  };
+
+  // Repeated subscribe → reset → close cycles must each return to the baseline,
+  // not accumulate one leaked pair per round.
+  for (let round = 1; round <= 3; round += 1) {
+    await publishProject(`round-${round}-seed`);
+    const stream = connection();
+    await service.subscribe(stream.request, stream.response, ledger.cursor());
+    assert.equal(created.size, baseline + 2, `round ${round} owns exactly the poll and keep-alive timers`);
+    assert.equal(stream.request.listenerCount("close"), 1);
+    assert.equal(stream.response.listenerCount("close"), 1);
+
+    burst = 12; // more than the retained window, so this subscriber is now behind
+    await waitFor(`round ${round} to reset`, () => stream.ended(), 5_000);
+    assert.equal(created.size, baseline, `round ${round} released both timers`);
+    assert.equal(stream.request.listenerCount("close"), 0, "the request keeps no listener");
+    assert.equal(stream.response.listenerCount("close"), 0, "the response keeps no listener");
+    assert.equal(
+      stream.frames.some((frame) => frame.includes("stream.reset")),
+      true,
+      "the client learns why the stream ended"
+    );
+
+    // The emit that ended the response keeps no writing into it, and a repeated
+    // close event is not a second teardown.
+    const written = stream.frames.length;
+    await delay(150);
+    assert.equal(stream.frames.length, written, `round ${round} wrote nothing after settling`);
+    stream.request.emit("close");
+    stream.response.emit("close");
+    assert.equal(created.size, baseline, `round ${round} ignored the repeated close`);
+  }
+
+  // A plain client disconnect goes through the same end path.
+  const stream = connection();
+  await service.subscribe(stream.request, stream.response, ledger.cursor());
+  assert.equal(created.size, baseline + 2);
+  stream.request.emit("close");
+  assert.equal(created.size, baseline, "a disconnect releases both timers");
+  assert.equal(stream.request.listenerCount("close"), 0);
+  assert.equal(stream.response.listenerCount("close"), 0);
+  const written = stream.frames.length;
+  await delay(150);
+  assert.equal(stream.frames.length, written, "a disconnected subscription writes nothing more");
 });
 
 // ---------------------------------------------------------------------------
