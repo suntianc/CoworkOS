@@ -62,6 +62,8 @@ import {
 } from "../runtime/project-experience-learning.js";
 import { createUserMemoryLearningService } from "../runtime/user-memory-learning.js";
 import { createDashboardRunService } from "./run-service.js";
+import { LocalAccess } from "./local-access.js";
+import { FileCommandRunner } from "./management-commands.js";
 import { createWorkspaceDirectory } from "./workspace-directory.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
@@ -114,6 +116,19 @@ export function createDashboardApplication(
    * strip the browser reads, and it cannot guess this location.
    */
   const tabStorePath = data.tabsIndex;
+  /**
+   * Local session authorization for this data root.
+   *
+   * It lives beside the backend identity so sessions survive a restart, and it
+   * reads the host credential the serving process published. The credential is
+   * read through a getter because a daemon sets it before assembling services.
+   */
+  const access = new LocalAccess(dirname(globalIndexPath), () => process.env.COWORK_API_TOKEN);
+  /**
+   * Durable receipts for idempotent change commands, beside the sessions and
+   * the backend identity so a restart can answer a retry with the saved result.
+   */
+  const commands = new FileCommandRunner(join(dirname(globalIndexPath), "operations"));
   const workspaces = createWorkspaceDirectory(workspaceRoot, globalIndexPath, runtimeValue);
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
   const computer = new ComputerUse(
@@ -584,6 +599,8 @@ export function createDashboardApplication(
   });
   const routes: DashboardRoutePorts = {
     userMemory,
+    access,
+    commands,
     backendInfo: () => ({
       backendId: backendIdentity.backendId,
       pid: process.pid,
