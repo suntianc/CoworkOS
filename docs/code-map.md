@@ -249,9 +249,11 @@ CUA 业务确认复用 Main memory/会话压缩和恢复机制，由 [CUA skill]
 
 真实模型 Browser 验收用 [opt-in runner](../scripts/validate-cua-live.mjs) 和 [随机像素页面](../test/cua-live-fixture.mjs)，通过生产 settings/keychain/backend 读取当前默认多模态连接，仅运行独立 Task；命令与证据边界见 [实测指南](cua-live-validation.md)。
 
-窗口访问的持久开关由 [桌面策略](../desktop/computer-policy.cjs) 按所选后端数据根管理；[目标协调器](../desktop/computer-target.cjs) 序列化切换和控制，[宿主桥](../desktop/computer-host.cjs) 核验实例身份并调用受限控制接口。[桌面生命周期](../desktop/main.cjs) 只释放 [操作会话](../src/gui/computer-use.ts)，不自动暂停全局访问。验证 [目标切换](../test/desktop-computer-target.test.js)、[真实后端桥](../test/desktop-computer-host.test.js)、[会话释放](../test/computer-global.test.js) 与 [重启策略](../test/desktop-computer-policy.test.js)。
+窗口访问的持久开关由 [桌面策略](../desktop/computer-policy.cjs) 按所选后端数据根管理；[目标协调器](../desktop/computer-target.cjs) 互斥切换和控制，在操作进行时拒绝切换；[宿主桥](../desktop/computer-host.cjs) 核验实例身份并调用受限控制接口。[桌面生命周期](../desktop/main.cjs) 只释放 [操作会话](../src/gui/computer-use.ts)，不自动暂停全局访问。验证 [目标切换](../test/desktop-computer-target.test.js)、[真实后端桥](../test/desktop-computer-host.test.js)、[会话释放](../test/computer-global.test.js) 与 [重启策略](../test/desktop-computer-policy.test.js)。
 
 ### CLI、桌面与分发
+
+产物打开沿 [产物查看器](../web/assets/controllers/artifact-viewer.js) 和 [媒体请求](../web/assets/controllers/managed-media.js) 使用共用管理会话读取所选后端的内容；桌面 [隔离查看器](../desktop/artifact-viewer.cjs) 限制窗口来源与 PDF 会话。复核 [真实后端与浏览器](../e2e/artifact-open.spec.js) 和 [桌面查看器](../test/desktop-artifact-viewer.test.js)。
 
 CLI 的产品身份由 [默认身份投影](../src/domain/agent-identity.ts) 与 [Main hook](../.pi/runtime/extension.ts) 负责；本地命令在 [CLI 命令适配](../.pi/runtime/cli-commands.ts)，离线发现与只读迁移在 [导出入口](../scripts/cli-session-export.mjs)，记录引用校验、私有写入和审计格式在 [会话序列化器](../src/storage/session-export.ts)。先运行 [产品合同回归](../test/cli-product-contract.test.js) 和 [真实 Main 请求回归](../test/main-request-recording-pi.test.js)，同步 [CLI 快速开始](cli-quickstart.md)和[运行时参考](runtime-reference.md) 和 [数据布局](task-workspace-layout.md)。
 
