@@ -37,6 +37,7 @@ export const maintainedDocumentation = [
   "docs/watcher-runtime-report-2026-10-12.md",
   "docs/cli-ui-adapter.md",
   "docs/development.md",
+  "docs/p1-retrospective.md",
   "docs/code-map.md",
   "docs/architecture.md",
   "docs/module-ownership.md",
