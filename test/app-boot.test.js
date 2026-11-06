@@ -591,6 +591,37 @@ test("startup reads the task list, the model list and the global tab strip", asy
   }
 });
 
+test("only backend file links use the authenticated download client", async (t) => {
+  const page = await boot({ tasks: [{ taskId: "task-1", status: "created", goal: "甲" }] });
+  t.after(page.restore);
+  assert.equal(page.loadError, undefined);
+  const click = (href, name) => {
+    const anchor = page.document.createElement("a");
+    anchor.href = href;
+    anchor.download = name;
+    page.document.body.append(anchor);
+    anchor.dispatchEvent(new page.window.Event("click", { bubbles: true, cancelable: true }));
+  };
+  const callsOf = (fragment) => page.server.calls.filter((call) => call.includes(fragment));
+  // The Markdown export shape: the bytes are already a local blob URL. Taking
+  // it over would send "blob:..." to the bound backend and lose the download.
+  click("blob:http://atria.invalid/markdown-export", "导出.md");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(callsOf("blob:"), [], "a page-produced blob stays local");
+  click("data:text/markdown,hello", "导出.md");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(callsOf("data:text"), [], "an inline data URL stays local");
+  // A backend file does need the session and the bound backend.
+  const before = callsOf("/api/tasks/task-1/artifact").length;
+  click("/api/tasks/task-1/artifact?path=a.md&download=1", "a.md");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(
+    callsOf("/api/tasks/task-1/artifact").length > before,
+    "a backend artifact link is fetched through the authenticated client"
+  );
+  assert.deepEqual(page.failures, []);
+});
+
 test("a projectless new conversation begins immediately and preserves its draft", async (t) => {
   const page = await boot({ projects: [] });
   t.after(page.restore);

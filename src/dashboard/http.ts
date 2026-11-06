@@ -164,9 +164,10 @@ export function trustedClientOrigin(
 /**
  * Let the named trusted page read this response.
  *
- * The credential still travels in a header the client sets, so no cookie and
- * no `Access-Control-Allow-Credentials`; the page is trusted to read the
- * responses it already sent an authorized request for.
+ * The origin is exact and never a wildcard. Credentials are allowed because the
+ * browser presents the host cookie when authorizing against another trusted
+ * local backend, and the client sends its session in a header; either way the
+ * real request still goes through the credential policy.
  */
 export function applyTrustedClientCors(response: ServerResponse, origin: string): void {
   response.setHeader("access-control-allow-origin", origin);

@@ -396,13 +396,26 @@ function hydrateUploadImages(root) {
   }
 }
 
+/**
+ * A download that needs the management client addresses one backend file.
+ *
+ * Only root-relative `/api/` paths are backend files. A `blob:`/`data:` URL or
+ * any other link was produced locally (the Markdown export builds a blob) or
+ * belongs to someone else; rerouting it would ask the backend for a path it
+ * never served. The client marks its own synthetic anchor so this listener
+ * never intercepts the click it just created.
+ */
+function isBackendDownload(href) {
+  return typeof href === "string" && href.startsWith("/api/");
+}
+
 document.addEventListener(
   "click",
   (event) => {
     const link = event.target.closest?.("a[download]");
     if (!link || link.dataset.managedDownload) return;
     const href = link.getAttribute("href");
-    if (!href) return;
+    if (!isBackendDownload(href)) return;
     // The bytes belong to the bound backend; a plain navigation would carry
     // neither the session nor the right origin.
     event.preventDefault();
