@@ -38,7 +38,7 @@ import {
   configuredWorkspaceRoot,
   runtimeSettingsEnv
 } from "../runtime/runtime-settings.js";
-import { readCoworkConfig } from "../runtime/config.js";
+import { readHostCoworkConfig } from "../runtime/config.js";
 import { visionModelConfig } from "../runtime/vision-config.js";
 import { cliHelp, parseCliCommand } from "./commands.js";
 import { runWatchEvent } from "./watch-run.js";
@@ -56,7 +56,7 @@ async function main() {
     console.log(cliHelp(command, parsed.action));
     return;
   }
-  const config = readCoworkConfig();
+  const config = readHostCoworkConfig();
   applyProxyEnvironment(config);
   const apiKey = process.env.COWORK_API_KEY ?? config.apiKey;
   errorApiKey = apiKey;

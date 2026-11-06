@@ -190,6 +190,11 @@ test("profiles migrate legacy settings and keep credentials, activation and rest
   const restarted = createModelSettings(root, restartedConfig, () => false);
   assert.equal(restarted.status().activeProfileId, second.id);
   assert.equal(restarted.status().contextWindow, 128000);
+  assert.equal(
+    restarted.status().profiles.find((profile) => profile.id === second.id).configured,
+    true,
+    "host credentials survive a restart without living in the public config"
+  );
   const first = restarted.status().profiles.find((p) => p.id === original);
   await restarted.save({ ...first, profileId: original, activate: true });
   assert.equal(restartedConfig.apiKey, "first-secret");
@@ -251,8 +256,7 @@ test("native image settings reject cleared connection fields without corrupting 
   const restarted = readCoworkConfig(root);
   assert.equal(restarted.supportsImages, true);
   assert.equal(restarted.modelConnections.visionId, undefined);
-  assert.equal(
-    restarted.modelConnections.profiles.find((profile) => profile.id === profileId).apiKey,
-    "local-settings-secret"
-  );
+  const { HostCredentialStore } = await import("../dist/src/security/host-credentials.js");
+  const stored = new HostCredentialStore(join(root, "credentials.json"));
+  assert.equal(stored.value.modelConnections[profileId], "local-settings-secret");
 });

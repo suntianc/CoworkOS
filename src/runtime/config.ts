@@ -11,6 +11,11 @@ import {
   type RuntimeSettingsConfig
 } from "./runtime-settings.js";
 import { atriaDataPaths } from "../../scripts/data-home.cjs";
+import {
+  applyHostCredentials,
+  hostCredentialsPath,
+  readHostCredentials
+} from "../security/host-credentials.js";
 
 export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig, ScienceEnvironmentConfig {
   modelConnections?: ModelConnections;
@@ -65,4 +70,27 @@ export function readCoworkConfig(root = process.cwd(), env: NodeJS.ProcessEnv = 
     }
   }
   return { ...config, baseUrl: config.baseUrl ?? config.apiBase };
+}
+
+/**
+ * The execution host's effective configuration: the public file plus the
+ * credential store the host owns. A damaged store leaves secrets unresolved so
+ * ordinary runs and unrelated settings keep working; the settings services
+ * report the concrete error instead of starting a process with a bad key.
+ */
+export function readHostCoworkConfig(
+  root = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env
+): CoworkConfig {
+  const config = readCoworkConfig(root, env);
+  let credentials;
+  try {
+    credentials = readHostCredentials(hostCredentialsPath(coworkConfigPath(root, env), env));
+  } catch {
+    // A damaged store is reported by the settings services; it must not stop runs
+    // that use a key from the environment or a legacy plaintext configuration.
+    return config;
+  }
+  applyHostCredentials(config, credentials);
+  return config;
 }

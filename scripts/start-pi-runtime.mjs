@@ -99,10 +99,12 @@ export async function startPi({ uiCompatibility } = {}) {
             ? "config.json"
             : atriaDataPaths().configPath)
     );
-    const { readCoworkConfig } = await import("../dist/src/runtime/config.js");
+    const { readHostCoworkConfig } = await import("../dist/src/runtime/config.js");
     let launchConfig;
     try {
-      launchConfig = readCoworkConfig(process.cwd());
+      // The host store holds the effective keys; without it `coworkos start`
+      // would lose the model env, vision connection and supervisor autostart.
+      launchConfig = readHostCoworkConfig(process.cwd());
     } catch (error) {
       console.error(error.message);
       process.exit(1);

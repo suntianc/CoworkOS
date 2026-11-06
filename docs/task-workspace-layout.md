@@ -278,7 +278,7 @@ node scripts/migrate-artifacts.mjs --workspace /path/to/workspace --task <task-i
 
 消息保留 messageId、parentEntryId、时间、inCurrentBranch、role、content、instructionSections 和 metadata；metadata 保留工具 details、模型响应 ID、usage、系统工具增删，以及 bash 的 command/output/exitCode 等事实。自定义提示消息也保留类型和 details。工具调用按父节点谱系关联结果，`resultMessageIds` 保留全部有效结果，`resultMessageId` 优先当前分支，未返回的调用标为 unresolved。非消息事件保留事件类型和原数据。旧任务 ID 和会话分支不会因产品品牌更新而改写。
 
-`artifacts` 仅引用现有 `.runtime/artifacts.json` 的注册元数据，不包含文件字节，也不为导出执行扫描或迁移。未能核对会话文件与 workspace 的绑定时，不猜测 Task 关联。凭据字段与所选配置中的模型、搜索凭据脱敏；其他正文和路径仍保留。新建和强制覆盖的导出文件均使用 600 权限，覆盖时先限制权限再写入会话内容。各分支的记录须有唯一 ID、有效父引用，且父引用不能形成循环；异常记录在导出前拒绝，源文件和已有输出保留。HTML 展示当前分支，另附全部分支的审计数据；用户内容始终转义为文本。
+`artifacts` 仅引用现有 `.runtime/artifacts.json` 的注册元数据，不包含文件字节，也不为导出执行扫描或迁移。未能核对会话文件与 workspace 的绑定时，不猜测 Task 关联。凭据字段与所选配置及执行主机凭据存储（`credentials.json`）中的模型、视觉和搜索凭据脱敏，包括环境变量覆盖；其他正文和路径仍保留。新建和强制覆盖的导出文件均使用 600 权限，覆盖时先限制权限再写入会话内容。各分支的记录须有唯一 ID、有效父引用，且父引用不能形成循环；异常记录在导出前拒绝，源文件和已有输出保留。HTML 展示当前分支，另附全部分支的审计数据；用户内容始终转义为文本。
 
 该格式用于阅读、分享和审计，不作为 Pi 恢复输入。内部 JSONL、checkpoint 和请求归档保持原格式，旧会话迁移只发生在导出临时副本中。导出不能替代完整备份：恢复仍需原生会话、工作区和外部项目文件；旧历史未保存的事实无法补回。原生 RPC `export_html` 仍属于引擎兼容接口，产品导出使用 `/coworkos-export`。
 
