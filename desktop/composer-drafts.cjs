@@ -16,9 +16,16 @@ const validAttachments = (files) =>
       (file.size !== undefined &&
         (typeof file.size !== "number" || !Number.isFinite(file.size) || file.size < 0))
   );
+/**
+ * A backend-namespaced page writes `<prefix><backendId>:active` beside its
+ * drafts. The trailing name is the session marker in every namespace, so it is
+ * never a draft envelope and its value is always a JSON string.
+ */
+const isSessionMarker = (key) =>
+  key === `${prefix}active` || (key.startsWith(prefix) && key.endsWith(":active"));
 const hasEditing = (entries) =>
   Object.entries(entries).some(
-    ([key, value]) => key.startsWith(prefix) && key !== `${prefix}active` && JSON.parse(value)?.editing
+    ([key, value]) => key.startsWith(prefix) && !isSessionMarker(key) && JSON.parse(value)?.editing
   );
 
 function validateEntries(entries, limit = maximumBytes) {
@@ -52,7 +59,7 @@ function validateEntries(entries, limit = maximumBytes) {
         Object.keys(draft).some((field) => field !== "text" && field !== "choice")
       )
         throw new Error("人工回复草稿格式不正确，请保留当前窗口");
-    } else if (key === `${prefix}active`) {
+    } else if (isSessionMarker(key)) {
       if (typeof draft !== "string") throw new Error("草稿会话记录格式不正确，请保留当前窗口");
     } else if (draft !== null) {
       if (
@@ -153,7 +160,7 @@ function createComposerDraftStore(userData, { limit = maximumBytes } = {}) {
                   : Object.entries(validated).some(
                         ([key, value]) =>
                           key.startsWith(prefix) &&
-                          key !== `${prefix}active` &&
+                          !isSessionMarker(key) &&
                           JSON.parse(value)?.attachments?.some((file) => file.uploadId)
                       )
                     ? 3
