@@ -26,6 +26,8 @@ import { presentToolCall } from "./assets/tool-presentation.js";
 import { assistantDisplayContent, normalizeReasoningDisplay } from "./assets/activity.js";
 import { createWorkbenchController } from "./assets/controllers/workbench-controller.js";
 import { createArtifactController } from "./assets/controllers/artifact-controller.js";
+import { createArtifactViewer } from "./assets/controllers/artifact-viewer.js";
+import { createManagedMedia } from "./assets/controllers/managed-media.js";
 import { createConversationView } from "./assets/controllers/conversation-view.js";
 import { createConversationLayout } from "./assets/controllers/conversation-layout.js";
 import { createConnectionController } from "./assets/controllers/connection-controller.js";
@@ -163,6 +165,19 @@ const management = createManagementClient({
     updateSendButton();
   }
 });
+const artifactViewer = createArtifactViewer({
+  read: (path) => management.blob(path),
+  identity: () => management.state(),
+  host: window.bookmanDesktop?.artifactViewer
+});
+window.addEventListener(
+  "unload",
+  () => {
+    artifactViewer.dispose();
+    clearManagedMedia();
+  },
+  { once: true }
+);
 
 // The last model a person picked stays as the default for the next new
 // conversation, so switching once is enough instead of re-picking each time.
@@ -342,7 +357,8 @@ const artifacts = createArtifactController({
   showToast,
   renderRightPanel,
   getWorkbench: () => workbenchController,
-  mediaUrl: mediaObjectUrl
+  mediaUrl: mediaObjectUrl,
+  openArtifactViewer: (path) => artifactViewer.open(path)
 });
 const {
   fileBaseName,
@@ -377,24 +393,16 @@ const conversationView = createConversationView({
  * would reach the wrong origin without the session. Fetch the bytes through the
  * shared client and hand the DOM one object URL per path.
  */
-const managedMedia = new Map();
+const managedMedia = createManagedMedia({
+  read: (path) => management.blob(path),
+  createObjectURL: (blob) => URL.createObjectURL(blob),
+  revokeObjectURL: (url) => URL.revokeObjectURL(url)
+});
 function mediaObjectUrl(path) {
-  const cached = managedMedia.get(path);
-  if (cached) return cached;
-  const pending = management.blob(path).then(({ blob }) => {
-    const href = URL.createObjectURL(blob);
-    managedMedia.set(path, Promise.resolve(href));
-    while (managedMedia.size > 64) {
-      const [oldPath, oldValue] = managedMedia.entries().next().value;
-      managedMedia.delete(oldPath);
-      Promise.resolve(oldValue)
-        .then((old) => URL.revokeObjectURL(old))
-        .catch(() => undefined);
-    }
-    return href;
-  });
-  managedMedia.set(path, pending);
-  return pending;
+  return managedMedia.get(path);
+}
+function clearManagedMedia() {
+  managedMedia.clear();
 }
 
 function hydrateUploadImages(root) {
@@ -820,6 +828,9 @@ function adoptBackendIdentity(backendId) {
 
 /** Drop everything that belonged to the backend being left. */
 function resetBackendView() {
+  artifactViewer.reset();
+  artifacts.resetMedia();
+  clearManagedMedia();
   connection.close();
   boundBackendId = null;
   state.selected = null;

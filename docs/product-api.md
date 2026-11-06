@@ -2,7 +2,7 @@
 
 Route implementations: [Dashboard](../src/dashboard/routes.ts), [applications](../src/dashboard/application-routes.ts), and [HTTP boundary](../src/dashboard/http.ts). This document covers the local HTTP API; software v2 remains a host interface.
 
-Computer Use discovers/selects windows using an enabled desktop global policy or consumes a legacy Task grant for observation/actions through [task-scoped HTTP routes](computer-use.md#产品和宿主边界); policy mutation and human resume have no HTTP endpoint. GET /api/computer/access reports policy/ownership metadata; Task status includes access, and POST discover/select/release consumes or releases existing global authority.
+Computer Use discovers/selects windows using an enabled desktop global policy or consumes a legacy Task grant for observation/actions through [task-scoped HTTP routes](computer-use.md#产品和宿主边界). GET /api/computer/access reports policy/ownership metadata; Task status includes access, and POST discover/select/release consumes or releases existing global authority. The internal POST /api/host/computer endpoint accepts an explicit host token, no browser Origin, and a matching backend identity; it carries desktop-only permission and policy operations. Browser sessions and cookies cannot invoke it.
 
 Actions accept optional `observeAfter: true` for atomic post-action feedback; `dispatched` acknowledges delivery, while `effectVerified: false` requires the caller to inspect the returned observation.
 
@@ -12,7 +12,7 @@ This is the boundary between the Cowork Runtime and the desktop/Web UI. The UI m
 
 The current implementation is a local single-user service bound to `127.0.0.1`. Host/Origin checks apply to every request.
 
-The serving process publishes a host credential in its instance record; `/api/*` requires it (`x-atria-token`, `Authorization: Bearer`, or the desktop's HttpOnly `atria-session` Cookie). A client exchanges that credential for a named local session; see [Local sessions and management commands](#local-sessions-and-management-commands). Development mode without a token remains local-only. Remote/multi-user deployment is unsupported: the listener stays on `127.0.0.1`, and Host/Origin checks run before any credential check. See [architecture](architecture.md) and [software integration](software-integration.md) for current module and protocol boundaries.
+The serving process publishes a host credential in its instance record. A client exchanges that credential for a named local session, which authorizes business requests; see [Local sessions and management commands](#local-sessions-and-management-commands). Development mode without a token remains local-only. Remote/multi-user deployment is unsupported: the listener stays on `127.0.0.1`, and Host/Origin checks run before any credential check. See [architecture](architecture.md) and [software integration](software-integration.md) for current module and protocol boundaries.
 
 ## Global APIs
 

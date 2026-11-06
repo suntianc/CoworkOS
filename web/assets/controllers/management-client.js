@@ -609,8 +609,14 @@ export function createManagementClient({
       }
       const disposition = response.headers.get("content-disposition") || "";
       const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+      const bytes = await response.blob();
+      if (at !== epoch)
+        throw new ManagementClientError("已切换后端，旧文件请求已作废", {
+          code: "stale_client",
+          stale: true
+        });
       return {
-        blob: await response.blob(),
+        blob: bytes,
         mimeType: response.headers.get("content-type") || "application/octet-stream",
         fileName: encodedName ? decodeURIComponent(encodedName) : undefined
       };

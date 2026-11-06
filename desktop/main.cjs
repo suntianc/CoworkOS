@@ -35,12 +35,15 @@ const { desktopPaths, prepareDesktopData, showLegacyDataNotice } = require("./pa
 const { createWebSearchSettings } = require("./web-search-settings.cjs");
 const { createModelSettings } = require("./model-settings.cjs");
 const { createRetryableStorage } = require("./retryable-storage.cjs");
-const { createComputerPolicyStore, createComputerPolicyController } = require("./computer-policy.cjs");
+const { createComputerTargetCoordinator } = require("./computer-target.cjs");
+const { createComputerNavigationGuard } = require("./computer-navigation.cjs");
 const { createComposerDraftStore } = require("./composer-drafts.cjs");
 const { installEditContextMenu } = require("./edit-context-menu.cjs");
 const { connectRenderer } = require("./renderer-connection.cjs");
 const { connectBackend } = require("./backend.cjs");
 const { createBackendAuthorization } = require("./backend-authorization.cjs");
+const { isArtifactViewerUrl } = require("./artifact-viewer.cjs");
+const { createSettingsTargetGuard } = require("./settings-target.cjs");
 const { installBundledWeb } = require("./bundled-web.cjs");
 const { desktopProfile } = require("./profile.cjs");
 const { createDesktopSpeechInput } = require("./speech-input.cjs");
@@ -67,13 +70,15 @@ let backend,
   startupPromise,
   composerDrafts,
   updates,
-  computerPolicy,
   backendAuthorization,
   selectedBackend,
   selectedRoot;
-const computerControl = createComputerPolicyController({
-  store: { snapshot: () => computerPolicy.snapshot(), save: (value) => computerPolicy.save(value) },
-  getBackend: () => backend,
+const settingsTarget = createSettingsTargetGuard({
+  getOwner: () => backend,
+  getSelected: () => selectedBackend,
+  verifySelected: (selected) => backendAuthorization.verifySelected(selected)
+});
+const computerTargets = createComputerTargetCoordinator({
   registerTakeover: (enabled) => registerComputerTakeover(enabled),
   openPermissionSettings: (permission) =>
     shell.openExternal(
@@ -92,6 +97,18 @@ let quitting = false,
   restarting = false,
   restartPromise;
 let updateStoppedBackend = false;
+let updateComputerTransition = false;
+const artifactViewers = new Set();
+function closeArtifactViewers() {
+  for (const viewer of artifactViewers) if (!viewer.isDestroyed()) viewer.close();
+}
+const computerNavigation = createComputerNavigationGuard({
+  closeViewers: closeArtifactViewers,
+  release: () => {
+    void speechInput.cancelActive();
+    void computerTargets.releaseForNavigation().catch(() => {});
+  }
+});
 const { createRendererFlush } = require("./renderer-flush.cjs");
 const documents = createRendererFlush(() => mainWindow);
 // Establish the stable profile before Chromium and the single-instance lock use it.
@@ -121,34 +138,53 @@ function openExternalLink(url) {
     .openExternal(target)
     .catch(() => dialog.showErrorBox("无法打开链接", "请复制链接后在浏览器中打开。"));
 }
-async function launchBackend() {
-  // An unavailable old secret must leave the settings UI reachable for replacement.
-  // The backend is a detached execution host: it keeps running when this client
-  // quits, so there is no child exit to report and no shutdown here.
-  backend = await connectBackend(paths, await settings.read({ allowUnavailableSecret: true }));
-  if (closing || quitting) return;
-  // Window access is granted over trusted host IPC; an execution host that does
-  // not expose that bridge yet reports it as a state instead of failing startup.
-  if (typeof backend.computer === "function") await computerControl.initialize(backend);
-  if (!backendAuthorization) backendAuthorization = createBackendAuthorization({ appRoot: paths.appRoot });
-  if (!selectedRoot) {
-    try {
-      const preference = JSON.parse(
-        await fs.readFile(path.join(paths.userData, "desktop-backend.json"), "utf8")
-      );
-      if (typeof preference.home === "string") selectedRoot = preference.home;
-    } catch (error) {
-      if (error.code !== "ENOENT") console.warn("无法读取上次后端选择", error.message);
-    }
-  }
+async function connectSelectedRenderer(selected) {
+  return computerNavigation.navigate(selected.url, () =>
+    connectRenderer(selected, session.defaultSession.cookies, () => mainWindow)
+  );
+}
+async function stopSelectedExecutionHost(previous) {
+  const result = await previous.stop();
+  if (result.state !== "stopped") throw new Error("本地服务未完成停止，请重试或检查服务状态");
+  computerTargets.invalidateStopped(previous.backendId, previous.pid);
+  return result;
+}
+async function launchBackend({ computerTransitionHeld = false } = {}) {
+  if (!computerTransitionHeld) await computerTargets.beginSwitch();
   try {
-    selectedBackend = await backendAuthorization.select(selectedRoot || paths.userData);
-  } catch (error) {
-    console.warn("上次选择的后端不可用，连接本地后端", error.message);
-    selectedRoot = paths.userData;
-    selectedBackend = await backendAuthorization.select(selectedRoot);
+    // An unavailable old secret must leave the settings UI reachable for replacement.
+    // The backend is a detached execution host: it keeps running when this client
+    // quits, so there is no child exit to report and no shutdown here.
+    backend = await connectBackend(paths, await settings.read({ allowUnavailableSecret: true }));
+    if (closing || quitting) return;
+    if (!backendAuthorization) backendAuthorization = createBackendAuthorization({ appRoot: paths.appRoot });
+    if (!selectedRoot) {
+      try {
+        const preference = JSON.parse(
+          await fs.readFile(path.join(paths.userData, "desktop-backend.json"), "utf8")
+        );
+        if (typeof preference.home === "string") selectedRoot = preference.home;
+      } catch (error) {
+        if (error.code !== "ENOENT") console.warn("无法读取上次后端选择", error.message);
+      }
+    }
+    try {
+      selectedBackend = await backendAuthorization.select(selectedRoot || paths.userData);
+    } catch (error) {
+      console.warn("上次选择的后端不可用，连接本地后端", error.message);
+      selectedRoot = paths.userData;
+      selectedBackend = await backendAuthorization.select(selectedRoot);
+    }
+    const target = await computerTargets.activate(
+      selectedRoot || paths.userData,
+      backendAuthorization.computerBackend(selectedBackend)
+    );
+    if (!target.ok) console.warn("窗口访问策略恢复失败", target.error);
+    computerTargets.endSwitch();
+    await connectSelectedRenderer(selectedBackend);
+  } finally {
+    computerTargets.endSwitch();
   }
-  await connectRenderer(selectedBackend, session.defaultSession.cookies, () => mainWindow);
 }
 function createWindow() {
   const icon = applicationIcon();
@@ -190,11 +226,10 @@ function createWindow() {
   });
   const releaseComputerSessions = () => {
     void speechInput.cancelActive();
-    void computerControl.request({ operation: "release-sessions" }).catch(() => {});
+    void computerTargets.releaseForNavigation().catch(() => {});
   };
   mainWindow.webContents.on("did-start-navigation", (event) => {
-    if (event.isMainFrame && !event.isSameDocument && mainWindow.webContents.getURL())
-      releaseComputerSessions();
+    computerNavigation.started(event, mainWindow.webContents.getURL());
   });
   mainWindow.webContents.on("render-process-gone", releaseComputerSessions);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -203,7 +238,7 @@ function createWindow() {
       const viewer = new BrowserWindow({
         width: 1000,
         height: 800,
-        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false }
       });
       viewer.webContents.setWindowOpenHandler(({ url: target }) => {
         openExternalLink(target);
@@ -220,6 +255,7 @@ function createWindow() {
     if (updates?.status().mode === "source" && updates.status().applying) event.preventDefault();
   });
   mainWindow.on("closed", () => {
+    closeArtifactViewers();
     releaseComputerSessions();
     mainWindow = undefined;
   });
@@ -243,6 +279,29 @@ ipcMain.handle("bookman:open-path", async (event, value) => {
   if (typeof value !== "string" || !path.isAbsolute(value)) throw new Error("invalid path");
   return shell.openPath(value);
 });
+ipcMain.handle("bookman:open-artifact-viewer", async (event, value) => {
+  trust(event);
+  if (!isArtifactViewerUrl(value, selectedBackend?.url)) throw new Error("无效的产出物预览地址");
+  const sender = event.sender;
+  const viewer = new BrowserWindow({
+    width: 1000,
+    height: 800,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false }
+  });
+  artifactViewers.add(viewer);
+  viewer.webContents.on("will-navigate", (navigation) => navigation.preventDefault());
+  viewer.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  viewer.on("closed", () => {
+    artifactViewers.delete(viewer);
+    if (!sender.isDestroyed()) sender.send("bookman:artifact-viewer-closed", value);
+  });
+  try {
+    await viewer.loadURL(value);
+  } catch (error) {
+    if (!viewer.isDestroyed()) viewer.close();
+    throw error;
+  }
+});
 ipcMain.handle("bookman:notify", async (event, value) => {
   trust(event);
   if (!Notification.isSupported()) return false;
@@ -251,24 +310,35 @@ ipcMain.handle("bookman:notify", async (event, value) => {
 });
 ipcMain.handle("bookman:choose-backend", async (event) => {
   trust(event);
-  if (closing || quitting || restarting) throw new Error("应用正在关闭或重启，请稍后重试");
-  const choice = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });
-  if (choice.canceled) return;
-  if (!Array.isArray(choice.filePaths) || choice.filePaths.length !== 1)
-    throw new Error("请选择一个本地后端数据目录");
-  if (!(await documents.request())) throw new Error("文档或草稿尚未保存，请保存后再切换后端");
-  const home = choice.filePaths[0];
-  const selected = await backendAuthorization.select(home);
-  await fs.writeFile(path.join(paths.userData, "desktop-backend.json"), JSON.stringify({ home }), {
-    mode: 0o600
+  return settingsTarget.select(async () => {
+    if (closing || quitting || restarting) throw new Error("应用正在关闭或重启，请稍后重试");
+    const choice = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });
+    if (choice.canceled) return;
+    if (!Array.isArray(choice.filePaths) || choice.filePaths.length !== 1)
+      throw new Error("请选择一个本地后端数据目录");
+    await computerTargets.beginSwitch();
+    try {
+      if (!(await documents.request())) throw new Error("文档或草稿尚未保存，请保存后再切换后端");
+      const home = choice.filePaths[0];
+      const prepared = await backendAuthorization.prepare(home);
+      await fs.writeFile(path.join(paths.userData, "desktop-backend.json"), JSON.stringify({ home }), {
+        mode: 0o600
+      });
+      const selected = backendAuthorization.commit(prepared);
+      closeArtifactViewers();
+      selectedRoot = home;
+      selectedBackend = selected;
+      const target = await computerTargets.activate(home, backendAuthorization.computerBackend(selected));
+      if (!target.ok) console.warn("窗口访问策略恢复失败", target.error);
+      setTimeout(() => {
+        void connectSelectedRenderer(selected).catch((error) =>
+          dialog.showErrorBox("无法连接后端", error.message)
+        );
+      }, 0);
+    } finally {
+      computerTargets.endSwitch();
+    }
   });
-  selectedRoot = home;
-  selectedBackend = selected;
-  setTimeout(() => {
-    void connectRenderer(selected, session.defaultSession.cookies, () => mainWindow).catch((error) =>
-      dialog.showErrorBox("无法连接后端", error.message)
-    );
-  }, 0);
 });
 ipcMain.handle("bookman:authorize-backend", async (event, input) => {
   trust(event);
@@ -287,35 +357,48 @@ ipcMain.handle("bookman:authorize-backend", async (event, input) => {
 });
 ipcMain.handle("bookman:model-status", async (event) => {
   trust(event);
-  return settings.status();
+  return settingsTarget.read(() => settings.status());
 });
 ipcMain.handle("bookman:web-search-status", async (event) => {
   trust(event);
-  return webSearchSettings.status();
+  return settingsTarget.read(() => webSearchSettings.status());
 });
 ipcMain.handle("bookman:save-web-search", async (event, input) => {
   trust(event);
-  if (restarting || closing || quitting) throw new Error("本地服务正在关闭或重启，请稍后重试");
-  restarting = true;
-  try {
-    await speechInput.cancelActive();
-    await prepareDesktopChange({ backend, documents, action: "修改联网搜索设置" });
-    const status = await webSearchSettings.save(input);
-    const previous = backend;
-    restartPromise = new Promise((done) => setTimeout(done, 100))
-      .then(() => previous.stop())
-      .then(() => {
-        if (!closing && !quitting) return launchBackend();
-      })
-      .catch((error) => dialog.showErrorBox("搜索配置已保存，服务重启失败", error.message))
-      .finally(() => {
-        restarting = false;
-      });
-    return status;
-  } catch (error) {
-    restarting = false;
-    throw error;
-  }
+  return settingsTarget.settings(async ({ assertCurrent, retainUntil }) => {
+    if (restarting || closing || quitting) throw new Error("本地服务正在关闭或重启，请稍后重试");
+    restarting = true;
+    let computerTransitionHeld = false;
+    try {
+      await computerTargets.beginSwitch();
+      computerTransitionHeld = true;
+      await speechInput.cancelActive();
+      await prepareDesktopChange({ backend, documents, action: "修改联网搜索设置" });
+      await assertCurrent();
+      const status = await webSearchSettings.save(input);
+      await assertCurrent();
+      const previous = backend;
+      restartPromise = new Promise((done) => setTimeout(done, 100))
+        .then(async () => {
+          await assertCurrent();
+          return stopSelectedExecutionHost(previous);
+        })
+        .then(() => {
+          if (!closing && !quitting) return launchBackend({ computerTransitionHeld: true });
+        })
+        .catch((error) => dialog.showErrorBox("搜索配置已保存，服务重启失败", error.message))
+        .finally(() => {
+          computerTargets.endSwitch();
+          restarting = false;
+        });
+      retainUntil(restartPromise);
+      return status;
+    } catch (error) {
+      if (computerTransitionHeld) computerTargets.endSwitch();
+      restarting = false;
+      throw error;
+    }
+  });
 });
 // Cached data makes this synchronous restore run before the page's ES modules.
 ipcMain.on("bookman:composer-drafts", (event) => {
@@ -332,8 +415,10 @@ ipcMain.handle("bookman:save-composer-drafts", async (event, entries) => {
 });
 ipcMain.handle("bookman:test-model", async (event, input) => {
   trust(event);
-  if (restarting || closing || quitting) throw new Error("本地服务正在关闭或重启");
-  return settings.test(input);
+  return settingsTarget.read(() => {
+    if (restarting || closing || quitting) throw new Error("本地服务正在关闭或重启");
+    return settings.test(input);
+  });
 });
 function registerComputerTakeover(enabled) {
   const shortcut = "Control+Alt+Escape";
@@ -341,19 +426,14 @@ function registerComputerTakeover(enabled) {
   if (!enabled) return null;
   const registered = globalShortcut.register(shortcut, () => {
     globalShortcut.unregister(shortcut);
-    void computerControl.request({ operation: "pause" }).catch(() => {});
+    void computerTargets.pauseForTakeover().catch(() => {});
   });
   return registered ? "Ctrl + Option + Esc" : null;
 }
 ipcMain.handle("bookman:computer-use", async (event, input) => {
   trust(event);
-  if (closing || quitting || restarting || !backend) throw new Error("本地服务正在关闭或重启");
-  // The saved preference and its status stay readable; only the grant needs the
-  // execution host's native bridge.
-  if (input?.operation === "policy-status") return computerPolicy.snapshot();
-  if (typeof backend.computer !== "function")
-    throw new Error("窗口访问由执行主机提供，当前独立后端尚未开放该能力");
-  return computerControl.request(input);
+  if (closing || quitting || restarting || !selectedBackend) throw new Error("本地服务正在关闭或重启");
+  return computerTargets.request(input);
 });
 ipcMain.handle("bookman:voice-start", (event, input) => {
   trust(event);
@@ -379,29 +459,42 @@ ipcMain.handle("bookman:documents-ready", (event, requestId, saved) => {
 });
 ipcMain.handle("bookman:save-model", async (event, input) => {
   trust(event);
-  if (restarting || closing) throw new Error("模型连接正在更新，请稍后");
-  if (quitting) throw new Error("本地服务正在关闭，请稍后");
-  restarting = true;
-  try {
-    await speechInput.cancelActive();
-    await prepareDesktopChange({ backend, documents, action: "修改模型连接" });
-    const status = await settings.save(input);
-    const previous = backend;
-    // Return the IPC response before loading a new document in the renderer.
-    restartPromise = new Promise((done) => setTimeout(done, 100))
-      .then(() => previous.stop())
-      .then(() => {
-        if (!closing && !quitting) return launchBackend();
-      })
-      .catch((error) => dialog.showErrorBox("模型配置已保存，服务重启失败", error.message))
-      .finally(() => {
-        restarting = false;
-      });
-    return status;
-  } catch (error) {
-    restarting = false;
-    throw error;
-  }
+  return settingsTarget.settings(async ({ assertCurrent, retainUntil }) => {
+    if (restarting || closing) throw new Error("模型连接正在更新，请稍后");
+    if (quitting) throw new Error("本地服务正在关闭，请稍后");
+    restarting = true;
+    let computerTransitionHeld = false;
+    try {
+      await computerTargets.beginSwitch();
+      computerTransitionHeld = true;
+      await speechInput.cancelActive();
+      await prepareDesktopChange({ backend, documents, action: "修改模型连接" });
+      await assertCurrent();
+      const status = await settings.save(input);
+      await assertCurrent();
+      const previous = backend;
+      // Return the IPC response before loading a new document in the renderer.
+      restartPromise = new Promise((done) => setTimeout(done, 100))
+        .then(async () => {
+          await assertCurrent();
+          return stopSelectedExecutionHost(previous);
+        })
+        .then(() => {
+          if (!closing && !quitting) return launchBackend({ computerTransitionHeld: true });
+        })
+        .catch((error) => dialog.showErrorBox("模型配置已保存，服务重启失败", error.message))
+        .finally(() => {
+          computerTargets.endSwitch();
+          restarting = false;
+        });
+      retainUntil(restartPromise);
+      return status;
+    } catch (error) {
+      if (computerTransitionHeld) computerTargets.endSwitch();
+      restarting = false;
+      throw error;
+    }
+  });
 });
 async function initializeUpdates(userData) {
   updates = await createDesktopUpdateHost({
@@ -413,11 +506,17 @@ async function initializeUpdates(userData) {
       if (closing || quitting || restarting) throw new Error("本地服务正在关闭或重启，请稍后更新");
       restarting = true;
       try {
+        await computerTargets.beginSwitch();
+        updateComputerTransition = true;
         await speechInput.cancelActive();
         await prepareDesktopChange({ backend, documents, action: "更新 CoworkOS" });
         updateStoppedBackend = true;
-        await backend.stop();
+        await stopSelectedExecutionHost(backend);
       } catch (error) {
+        if (updateComputerTransition && !updateStoppedBackend) {
+          computerTargets.endSwitch();
+          updateComputerTransition = false;
+        }
         restarting = false;
         throw error;
       }
@@ -427,8 +526,12 @@ async function initializeUpdates(userData) {
       updateStoppedBackend = false;
       restarting = true;
       try {
-        await launchBackend();
+        await launchBackend({ computerTransitionHeld: updateComputerTransition });
       } finally {
+        if (updateComputerTransition) {
+          computerTargets.endSwitch();
+          updateComputerTransition = false;
+        }
         restarting = false;
       }
     },
@@ -510,8 +613,6 @@ if (owner)
         root: path.join(paths.appRoot, "web"),
         getOrigin: () => selectedBackend?.url || backend?.url
       });
-      computerPolicy = createComputerPolicyStore(userData);
-      await computerPolicy.load();
       composerDrafts = createComposerDraftStore(userData);
       await composerDrafts.load();
       settings = createModelSettings(paths, credentialStorage);

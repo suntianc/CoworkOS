@@ -20,7 +20,8 @@ export function createArtifactController({
   showToast,
   renderRightPanel,
   getWorkbench,
-  mediaUrl
+  mediaUrl,
+  openArtifactViewer
 }) {
   function fileBaseName(path) {
     const parts = String(path || "")
@@ -339,10 +340,13 @@ export function createArtifactController({
     if (existing) return existing;
     const pending = mediaUrl(path)
       .then((href) => {
-        if (href) mediaUrls.set(path, Promise.resolve(href));
+        if (href && mediaUrls.get(path) === pending) mediaUrls.set(path, Promise.resolve(href));
         return href;
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (mediaUrls.get(path) === pending) mediaUrls.delete(path);
+        return undefined;
+      });
     mediaUrls.set(path, pending);
     return pending;
   }
@@ -436,7 +440,7 @@ export function createArtifactController({
     else
       content = renderArtifactDocument(cached, activePath, {
         ...urls,
-        rawUrl: cached.mediaHref || urls.rawUrl
+        rawUrl: cached.mediaHref || (mediaUrl ? "" : urls.rawUrl)
       });
     const canCopy = cached?.status === "ready" && cached.previewKind === "text";
     const copyAction = canCopy
@@ -451,7 +455,7 @@ export function createArtifactController({
     scrim.hidden = false;
     drawer.dataset.signature = signature;
     drawer.dataset.activePath = activePath;
-    drawer.innerHTML = `<div class="artifact-drawer-head"><div class="artifact-drawer-title"><span class="drawer-eyebrow">产出物详情</span><h2>${esc(artifact.displayName || fileBaseName(activePath))}</h2><p title="artifacts/${esc(activePath)}">artifacts/${esc(activePath)}</p></div><button class="drawer-close" data-close-drawer aria-label="关闭产出物详情">×</button></div><div class="artifact-drawer-body"><nav class="drawer-file-list" aria-label="产出物文件"><div class="drawer-section-label">产出物 <span>${artifacts.length}</span></div>${files}</nav><section class="drawer-document"><div class="drawer-toolbar"><span class="drawer-file-type">${esc(fileLanguage(activePath))}</span><span class="drawer-file-size">${esc(formatArtifactSize(cached?.size ?? artifact.size))}</span><div class="drawer-actions">${editAction}${copyAction}<a class="drawer-action" href="${esc(urls.rawUrl)}" target="_blank" rel="noopener noreferrer">打开 ↗</a><a class="drawer-action" href="${esc(urls.downloadUrl)}" download="${esc(fileBaseName(activePath))}">下载</a></div></div>${previewNote}<div class="drawer-content ${cached?.previewKind === "pdf" ? "is-pdf" : ""}">${content}</div></section></div>`;
+    drawer.innerHTML = `<div class="artifact-drawer-head"><div class="artifact-drawer-title"><span class="drawer-eyebrow">产出物详情</span><h2>${esc(artifact.displayName || fileBaseName(activePath))}</h2><p title="artifacts/${esc(activePath)}">artifacts/${esc(activePath)}</p></div><button class="drawer-close" data-close-drawer aria-label="关闭产出物详情">×</button></div><div class="artifact-drawer-body"><nav class="drawer-file-list" aria-label="产出物文件"><div class="drawer-section-label">产出物 <span>${artifacts.length}</span></div>${files}</nav><section class="drawer-document"><div class="drawer-toolbar"><span class="drawer-file-type">${esc(fileLanguage(activePath))}</span><span class="drawer-file-size">${esc(formatArtifactSize(cached?.size ?? artifact.size))}</span><div class="drawer-actions">${editAction}${copyAction}<a class="drawer-action" data-open-artifact-viewer href="${esc(urls.rawUrl)}" target="_blank" rel="noopener noreferrer">打开 ↗</a><a class="drawer-action" href="${esc(urls.downloadUrl)}" download="${esc(fileBaseName(activePath))}">下载</a></div></div>${previewNote}<div class="drawer-content ${cached?.previewKind === "pdf" ? "is-pdf" : ""}">${content}</div></section></div>`;
     drawer.querySelector(".drawer-content").scrollTop = scrollTop;
     drawer.querySelector(".drawer-file-list").scrollTop = fileListScrollTop;
     drawer
@@ -461,6 +465,10 @@ export function createArtifactController({
       .querySelector("[data-edit-drawer]")
       ?.addEventListener("click", () => void editArtifact(activePath));
     drawer.querySelector("[data-close-drawer]")?.addEventListener("click", closeArtifactDrawer);
+    drawer.querySelector("[data-open-artifact-viewer]")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      void openArtifactViewer(urls.rawUrl).catch((error) => showToast(error.message));
+    });
     drawer.querySelector("[data-retry-artifact]")?.addEventListener("click", () => {
       state.artifactCache.delete(activePath);
       renderArtifactDrawer();
@@ -526,6 +534,9 @@ export function createArtifactController({
     renderArtifactDrawer,
     renderOutputActions,
     bindOutputActions,
+    resetMedia() {
+      mediaUrls.clear();
+    },
     closeOutputMenu() {
       outputMenu?.menu.close();
     }

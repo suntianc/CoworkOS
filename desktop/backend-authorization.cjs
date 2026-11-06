@@ -1,9 +1,19 @@
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { createComputerHost } = require("./computer-host.cjs");
 
 /** Keep bootstrap credentials in the host and bind authorization to a selected local data root. */
 function createBackendAuthorization({ appRoot, fetchImpl = fetch }) {
   let selected;
+  const preparedSelections = new WeakMap();
+  const publicIdentity = ({ backendId, url, pid, startedAt }) => ({ backendId, url, pid, startedAt });
+  const matches = (left, right) =>
+    left &&
+    right &&
+    left.backendId === right.backendId &&
+    left.url === right.url &&
+    left.pid === right.pid &&
+    left.startedAt === right.startedAt;
   async function inspect(home) {
     if (typeof home !== "string" || !path.isAbsolute(home) || home.length > 4096 || home.includes("\0"))
       throw new Error("无效的后端数据目录");
@@ -37,24 +47,73 @@ function createBackendAuthorization({ appRoot, fetchImpl = fetch }) {
     });
     if (!response.ok) throw new Error("无法验证后端身份");
     const info = await response.json();
-    if (info.backendId !== instance.backendId || info.pid !== instance.pid)
+    if (
+      info.backendId !== instance.backendId ||
+      info.pid !== instance.pid ||
+      info.startedAt !== instance.startedAt
+    )
       throw new Error("后端身份与实例记录不一致");
     return instance;
   }
   return {
-    async select(home) {
+    async prepare(home) {
+      const before = selected;
       const instance = await inspect(home);
-      selected = { home, backendId: instance.backendId, url: instance.url };
-      return { backendId: instance.backendId, url: instance.url };
+      if (selected !== before) throw new Error("后端已切换，请重新选择");
+      const candidate = Object.freeze({ home, ...publicIdentity(instance) });
+      preparedSelections.set(candidate, before ?? null);
+      return candidate;
+    },
+    commit(candidate) {
+      if (!candidate || typeof candidate !== "object" || !preparedSelections.has(candidate))
+        throw new Error("无效的后端选择");
+      const previous = preparedSelections.get(candidate);
+      preparedSelections.delete(candidate);
+      if ((selected ?? null) !== previous) throw new Error("后端已切换，请重新选择");
+      selected = candidate;
+      return publicIdentity(candidate);
+    },
+    async select(home) {
+      return this.commit(await this.prepare(home));
+    },
+    async verifySelected(expected) {
+      const selection = selected;
+      if (!matches(selection, expected)) throw new Error("后端身份已改变，请重新连接");
+      const instance = await inspect(selection.home);
+      if (selection !== selected || !matches(instance, selection))
+        throw new Error("后端身份已改变，请重新连接");
+      return publicIdentity(instance);
+    },
+    computerBackend(expected) {
+      const selection = selected;
+      if (!matches(selection, expected)) throw new Error("后端身份已改变，请重新连接");
+      const inspectSelection = () => inspect(selection.home);
+      return {
+        ...publicIdentity(selection),
+        computer: createComputerHost({
+          expected: selection,
+          inspect: inspectSelection,
+          isCurrent: () => selected === selection,
+          fetchImpl
+        }),
+        // The emergency shortcut remains bound to the old host during a
+        // transition, even after the selected identity changes. It may only
+        // pause, and still checks the old process, record and credential.
+        pauseRetired: () =>
+          createComputerHost({ expected: selection, inspect: inspectSelection, fetchImpl })({
+            operation: "pause"
+          })
+      };
     },
     async authorize(input) {
+      const selection = selected;
       if (
-        !selected ||
+        !selection ||
         !input ||
         typeof input !== "object" ||
         Array.isArray(input) ||
-        input.baseUrl !== selected.url ||
-        input.backendId !== selected.backendId ||
+        input.baseUrl !== selection.url ||
+        input.backendId !== selection.backendId ||
         typeof input.clientName !== "string" ||
         !input.clientName.trim() ||
         input.clientName.length > 120 ||
@@ -64,8 +123,8 @@ function createBackendAuthorization({ appRoot, fetchImpl = fetch }) {
         !/^\d{1,4}\.\d{1,4}$/u.test(input.protocolVersion)
       )
         throw new Error("后端授权参数或身份不一致");
-      const instance = await inspect(selected.home);
-      if (instance.backendId !== selected.backendId || instance.url !== selected.url)
+      const instance = await inspect(selection.home);
+      if (selected !== selection || !matches(instance, selection))
         throw new Error("后端身份或地址已经改变，请重新选择");
       const response = await fetchImpl(`${instance.url}/api/session`, {
         method: "POST",
@@ -75,6 +134,7 @@ function createBackendAuthorization({ appRoot, fetchImpl = fetch }) {
         signal: AbortSignal.timeout(10000)
       });
       const result = await response.json();
+      if (selected !== selection) throw new Error("后端已切换，请重新授权");
       if (!response.ok) {
         const error = new Error(
           result?.error?.message || result?.error || `授权失败（HTTP ${response.status}）`
@@ -83,7 +143,11 @@ function createBackendAuthorization({ appRoot, fetchImpl = fetch }) {
         error.code = result?.error?.code || result?.code;
         throw error;
       }
-      if (result?.backend?.backendId !== instance.backendId || result?.backend?.pid !== instance.pid)
+      if (
+        result?.backend?.backendId !== instance.backendId ||
+        result?.backend?.pid !== instance.pid ||
+        result?.backend?.startedAt !== instance.startedAt
+      )
         throw new Error("授权返回的后端身份不一致");
       return result;
     }

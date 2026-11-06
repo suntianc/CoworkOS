@@ -18,6 +18,7 @@ import {
   HttpError,
   localRequestUrl,
   readJsonBody,
+  sameSecret,
   sendJson,
   trustedClientOrigin,
   trustedClientOrigins
@@ -71,6 +72,8 @@ export interface DashboardRoutePorts {
   goals?: ReturnType<typeof createGoalService>;
   uploads?: InputStore;
   computer: ComputerUse;
+  computerHostRequest?: (input: unknown) => Promise<unknown>;
+  computerHostToken?: string;
   dashboardUrl: string;
   uiRoot: string;
   webSearchSettings: ReturnType<typeof createWebSearchSettings>;
@@ -165,6 +168,35 @@ export function createDashboardHandler(
   };
   return async (request, response) => {
     try {
+      // Privileged desktop control is separate from browser sessions and from
+      // the optional unauthenticated development dashboard. Only the exact
+      // host token in the explicit header can invoke it; browser requests,
+      // cookies and bearer/session tokens are never accepted here.
+      if (request.url === "/api/host/computer") {
+        localRequestUrl(request, dashboardUrl, { admit() {} });
+        if (request.method !== "POST") throw new HttpError(405, "method not allowed");
+        if (
+          request.headers.origin !== undefined ||
+          request.headers["sec-fetch-site"] !== undefined ||
+          request.headers.cookie !== undefined ||
+          !ports.computerHostToken ||
+          !sameSecret(
+            typeof request.headers["x-atria-token"] === "string"
+              ? request.headers["x-atria-token"]
+              : undefined,
+            ports.computerHostToken
+          )
+        )
+          throw new HttpError(403, "需要本地宿主凭据", "host_credential_required");
+        if (!ports.computerHostRequest) throw new HttpError(404, "窗口访问不可用");
+        const body = await readJsonBody(request, 16 * 1024);
+        const identity = ports.backendInfo();
+        if (body.backendId !== identity.backendId || body.pid !== identity.pid)
+          throw new HttpError(409, "后端身份已改变，请重新连接", "backend_identity_changed");
+        const result = await ports.computerHostRequest(body.input);
+        sendJson(response, 200, { backendId: identity.backendId, pid: identity.pid, result });
+        return;
+      }
       const admitted = ports.access?.admit(request, dashboardUrl);
       const url = admitted ? admitted.url : localRequestUrl(request, dashboardUrl);
       // A page served by another trusted local backend reads this response

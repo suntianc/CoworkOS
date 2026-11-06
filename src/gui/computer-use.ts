@@ -36,6 +36,7 @@ export interface ComputerFrame {
 }
 export interface ComputerDriver {
   status(signal?: AbortSignal): Promise<ComputerStatus>;
+  requestPermissions?(permission: "screenRecording" | "accessibility"): Promise<unknown>;
   observe(target: ComputerWindow, signal: AbortSignal): Promise<ComputerFrame>;
   act(target: ComputerWindow, action: GuiAction, frame: ComputerFrame, signal: AbortSignal): Promise<void>;
 }

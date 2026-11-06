@@ -78,6 +78,11 @@ export interface BackendStatus {
   reason?: string;
 }
 
+/** The execution instance a client intended to stop, captured when it attached. */
+export type BackendStopIdentity = Pick<BackendInstance, "backendId" | "pid" | "url" | "startedAt"> & {
+  token?: string;
+};
+
 function publicStatus(value: BackendInstance): BackendStatus {
   return {
     state: "running",
@@ -285,7 +290,10 @@ async function waitForRecord(paths: BackendPaths, spawned: SpawnedBackend): Prom
  * teardown; a forced or incomplete teardown reports `incomplete` and leaves the
  * instance record for the next start to reclaim.
  */
-export async function stopBackend(env: NodeJS.ProcessEnv = process.env): Promise<BackendStatus> {
+export async function stopBackend(
+  env: NodeJS.ProcessEnv = process.env,
+  expected?: BackendStopIdentity
+): Promise<BackendStatus> {
   const paths = backendPaths(atriaHome(env));
   return withFileLock(
     join(paths.runtimeDir, "backend-lifecycle"),
@@ -296,9 +304,19 @@ export async function stopBackend(env: NodeJS.ProcessEnv = process.env): Promise
       const startupAlive = Boolean(starting.value && processIsAlive(starting.value.pid));
       if (inspection.state === "absent") {
         if (startupAlive) throw startupConflict(starting.value!);
+        if (expected) throw new BackendInstanceConflict("后端实例已退出或身份已变化，请重新连接");
         return { state: "absent" };
       }
       const instance = inspection.instance;
+      if (
+        expected &&
+        (instance.backendId !== expected.backendId ||
+          instance.pid !== expected.pid ||
+          instance.url !== expected.url ||
+          instance.startedAt !== expected.startedAt ||
+          (expected.token !== undefined && instance.token !== expected.token))
+      )
+        throw new BackendInstanceConflict("后端实例身份已变化，拒绝停止，请重新连接");
       if (inspection.state === "stale") {
         if (startupAlive) throw startupConflict(starting.value!);
         if (starting.exists) await removeBackendStarting(paths);

@@ -29,6 +29,7 @@ applyProxyEnvironment(readCoworkConfig());
  */
 const paths = backendPaths(atriaHome());
 const enforcedToken = process.env.COWORK_API_TOKEN?.trim() || undefined;
+const computerHostToken = enforcedToken ?? randomBytes(32).toString("hex");
 const served = await claimBackendServing(paths, randomBytes(32).toString("hex"));
 if (served.kind === "existing") {
   console.log(`Cowork dashboard already served on ${served.instance.url}`);
@@ -38,7 +39,8 @@ if (served.kind === "existing") {
   if (!identity.value) throw new Error(`后端身份记录无法解析：${paths.identityPath}`);
   const startedAt = new Date().toISOString();
   const dashboard = createDashboardApplication({
-    backendIdentity: { backendId: identity.value.backendId, startedAt }
+    backendIdentity: { backendId: identity.value.backendId, startedAt },
+    computerHostToken
   });
   // This IPC channel belongs to the Electron parent, not the HTTP/Agent surface.
   process.on("message", (value) => {
@@ -77,7 +79,7 @@ if (served.kind === "existing") {
     pid: process.pid,
     port,
     url: dashboard.dashboardUrl,
-    token: enforcedToken ?? randomBytes(32).toString("hex"),
+    token: computerHostToken,
     startedAt
   };
   await publishBackendServing(paths, claimToken, instance).catch(async (error) => {

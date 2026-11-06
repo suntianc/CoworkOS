@@ -3,6 +3,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { backendExecutable } = require("./backend-executable.cjs");
 const { desktopBackendEnvironment } = require("./backend-environment.cjs");
+const { createComputerHost } = require("./computer-host.cjs");
 
 /**
  * The desktop client of the execution host.
@@ -100,7 +101,12 @@ async function connectBackend(paths, settings, executable = process.execPath) {
   const { startBackend, stopBackend } = await import(pathToFileURL(entry).href);
   const status = await startBackend(env, paths.appRoot, runtime);
   const instance = await readInstance(paths);
-  if (instance.pid !== status.pid || instance.url !== status.url)
+  if (
+    instance.backendId !== status.backendId ||
+    instance.pid !== status.pid ||
+    instance.url !== status.url ||
+    instance.startedAt !== status.startedAt
+  )
     throw new Error("本地服务的实例记录与启动结果不一致，请重试");
   return {
     backendId: instance.backendId,
@@ -109,7 +115,8 @@ async function connectBackend(paths, settings, executable = process.execPath) {
     url: instance.url,
     token: instance.token,
     startedAt: instance.startedAt,
-    stop: () => stopBackend(env)
+    computer: createComputerHost({ expected: instance, inspect: () => readInstance(paths) }),
+    stop: () => stopBackend(env, instance)
   };
 }
 

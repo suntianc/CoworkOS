@@ -178,6 +178,15 @@ contextBridge.exposeInMainWorld("bookmanDesktop", {
     choose: () => ipcRenderer.invoke("bookman:choose-backend"),
     authorize: (input) => ipcRenderer.invoke("bookman:authorize-backend", input)
   },
+  artifactViewer: {
+    open: (url) => ipcRenderer.invoke("bookman:open-artifact-viewer", url),
+    onClosed: (handler) => {
+      if (typeof handler !== "function") return () => {};
+      const listener = (_event, value) => handler(value);
+      ipcRenderer.on("bookman:artifact-viewer-closed", listener);
+      return () => ipcRenderer.removeListener("bookman:artifact-viewer-closed", listener);
+    }
+  },
   modelStatus: () => ipcRenderer.invoke("bookman:model-status"),
   testModel: (settings) => ipcRenderer.invoke("bookman:test-model", settings),
   // Global policy mutation and human resume stay on the trusted main-frame IPC surface.
