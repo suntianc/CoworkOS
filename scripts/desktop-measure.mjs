@@ -33,6 +33,7 @@ const HELP = `Package measurement for desktop release comparisons
   --reopen MS        Wait after reopening a closed window (default 15000)
   --cpu-window MS    Window between the two CPU snapshots (default 5000)
   --scratch DIR      Isolated temporary data roots (default: .tmp/desktop-measure)
+  --confirm-unsaved-test-quit  Select the known unsaved-draft warning for isolated test data
 The template data root is copied for each run; it is never written by the harness.`;
 
 function parseOptions(args) {
@@ -58,6 +59,7 @@ function parseOptions(args) {
     else if (argument === "--out") options.out = value();
     else if (argument === "--label") options.label = value();
     else if (argument === "--scratch") options.scratch = value();
+    else if (argument === "--confirm-unsaved-test-quit") options.confirmUnsavedTestQuit = true;
     else if (argument === "--runs") options.runs = Number(value());
     else if (argument === "--timeout") options.timeout = Number(value());
     else if (argument === "--settle") options.settle = Number(value());
@@ -249,7 +251,7 @@ async function oneRun(options, executable, runIndex) {
   let instance;
   let legacyRoots = [];
   let result;
-  const launch = async () => {
+  const launch = async (phase) => {
     const app = await electron.launch({
       executablePath: executable,
       args: ["--use-mock-keychain"],
@@ -262,6 +264,31 @@ async function oneRun(options, executable, runIndex) {
     app.process().stdout?.on("data", (chunk) => {
       log += String(chunk);
     });
+    if (options.confirmUnsavedTestQuit) {
+      await app.evaluate(({ dialog }, phaseName) => {
+        const show = dialog.showMessageBox;
+        dialog.showMessageBox = async (...args) => {
+          const prompt = args.at(-1);
+          const expectedDetail = "请返回处理草稿保存错误或文档冲突。仍然退出会丢失未保存的更改。";
+          const buttons = prompt?.buttons;
+          if (
+            prompt?.type === "warning" &&
+            prompt.message === "有文档或任务草稿尚未保存" &&
+            prompt.detail === expectedDetail &&
+            prompt.defaultId === 0 &&
+            prompt.cancelId === 0 &&
+            Array.isArray(buttons) &&
+            buttons.length === 2 &&
+            buttons[0] === "返回编辑器" &&
+            buttons[1] === "仍然退出"
+          ) {
+            console.log(`MEASURE_CONFIRMED_TEST_QUIT ${JSON.stringify({ phase: phaseName, response: 1 })}`);
+            return { response: 1, checkboxChecked: false };
+          }
+          return show(...args);
+        };
+      }, phase);
+    }
     return app;
   };
   const ready = async (page) => {
@@ -318,7 +345,7 @@ async function oneRun(options, executable, runIndex) {
   try {
     const offsets = await logOffsets(logsDir);
     const started = performance.now();
-    application = await launch();
+    application = await launch("cold");
     rootPid = application.process().pid;
     let page = await application.firstWindow();
     const listening = await waitFor(
@@ -373,7 +400,7 @@ async function oneRun(options, executable, runIndex) {
     else if (legacyRoots.some(({ pid }) => alive(pid)))
       throw new Error("legacy backend survived normal app exit");
     const hotStarted = performance.now();
-    application = await launch();
+    application = await launch("hot");
     rootPid = application.process().pid;
     page = await application.firstWindow();
     await ready(page);
@@ -410,6 +437,9 @@ async function oneRun(options, executable, runIndex) {
       background: pick(background),
       reopened: { windowReadyMs: marks.reopenedWindowReadyMs, ...pick(reopened) },
       hot: { windowReadyMs: hotWindowReadyMs, ...pick(hot) },
+      quitConfirmations: [...log.matchAll(/MEASURE_CONFIRMED_TEST_QUIT (\{[^\n]*\})/g)].map((match) =>
+        JSON.parse(match[1])
+      ),
       errors
     };
   } finally {
