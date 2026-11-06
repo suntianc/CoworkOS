@@ -74,10 +74,13 @@ export function createDashboardApplication(
     port?: number;
     computerDriver?: ComputerDriver;
     computerClock?: () => number;
+    /** Supplied by a host that persists identity; otherwise this process is the identity. */
+    backendIdentity?: { backendId: string; startedAt: string };
   } = {}
 ) {
   const projectRoot = resolve(options.projectRoot ?? process.env.COWORK_HARNESS_ROOT ?? process.cwd());
   const port = options.port ?? Number(process.env.COWORK_UI_PORT ?? 3880);
+  const backendIdentity = options.backendIdentity ?? { backendId: id("backend"), startedAt: now() };
   /**
    * Where this Dashboard answers.
    *
@@ -581,6 +584,11 @@ export function createDashboardApplication(
   });
   const routes: DashboardRoutePorts = {
     userMemory,
+    backendInfo: () => ({
+      backendId: backendIdentity.backendId,
+      pid: process.pid,
+      startedAt: backendIdentity.startedAt
+    }),
     projectExperienceStore,
     watchers,
     goals: createGoalService({

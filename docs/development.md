@@ -60,6 +60,8 @@ Finder 安装入口复制已签名的缓存包，不改内容或再次签名，�
 
 只迭代界面时，完成一次 `npm run build` 后可直接运行 `node dist/src/cli/dashboard.js`，省去 `npm run ui` 每次启动时的构建。保留需要的隔离环境变量；服务直接读取 `web/` 中的 HTML、CSS 和 JS，修改后刷新浏览器即可。后端改动仍需停止服务、重新构建并启动。
 
+独立后端可以脱离启动它的客户端继续运行。完成 `npm run build:cli` 后，`node dist/src/cli/backend.js start`（或 `coworkos backend start`）在同一数据根启动分离进程，`status` 查看实例，`stop` 让后端完成受管进程收尾后退出；端口、会话 token 与实例身份记录在 `ATRIA_HOME/runtime/backend-instance.json`（权限 0600），后端身份在 `backend-identity.json` 中跨重启保持。这些命令不安装 launchd/systemd 常驻服务；系统级常驻仍只能由 [持续监控服务](../scripts/monitor-service.mjs) 显式安装。
+
 Web 入口默认只监听本机。模型请求、任务执行和文件操作仍由本地后端负责，单独托管静态前端不能运行完整工作台。若把后端部署到远程服务器，命令和文件操作也会在该服务器执行。
 
 ## 更新源码检出
