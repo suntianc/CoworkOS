@@ -339,8 +339,9 @@ function requireNode() {
 }
 
 async function sessionExport(values) {
-  const { readCoworkConfig } = await runtime();
-  const config = readCoworkConfig(cwd);
+  // Export redaction must cover every effective key, including host-stored ones.
+  const { readHostCoworkConfig } = await runtime();
+  const config = readHostCoworkConfig(cwd);
   const data = cliDataPaths(config);
   const { exportCliSession, parseSessionExportArgs } = await import("./cli-session-export.mjs");
   const result = await exportCliSession({
@@ -351,6 +352,7 @@ async function sessionExport(values) {
     secrets: [
       process.env.COWORK_API_KEY,
       config.apiKey,
+      process.env.COWORK_VISION_API_KEY,
       process.env.COWORK_SERPER_API_KEY,
       process.env.SERPER_API_KEY,
       config.serperApiKey,

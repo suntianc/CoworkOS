@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:http";
+import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { promisify } from "node:util";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
@@ -15,6 +17,7 @@ import { HostCredentialStore } from "../dist/src/security/host-credentials.js";
 import { readCoworkConfig, readHostCoworkConfig } from "../dist/src/runtime/config.js";
 
 const configureTimeout = { timeout: 120_000 };
+const execute = promisify(execFile);
 
 /** A strict Responses provider that only answers the key stored by the settings route. */
 async function hostModelFixture(expectedKey, text) {
@@ -215,19 +218,19 @@ test("host settings keep multi-connection, default model, vision and search sema
 test("encrypted desktop credentials report a concrete error instead of a configured connection", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-host-credentials-"));
   const savedEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => name.startsWith("COWORK_"))
+    Object.entries(process.env).filter(([name]) => /^(?:COWORK_|EXA_|SERPER_)/.test(name))
   );
   for (const name of Object.keys(savedEnv)) delete process.env[name];
   const path = join(root, "config.json");
   process.env.COWORK_CONFIG = path;
   t.after(async () => {
-    for (const name of Object.keys(process.env)) if (name.startsWith("COWORK_")) delete process.env[name];
+    for (const name of Object.keys(process.env))
+      if (/^(?:COWORK_|EXA_|SERPER_)/.test(name)) delete process.env[name];
     Object.assign(process.env, savedEnv);
     await rm(root, { recursive: true, force: true });
   });
   const legacy = {
     workspaceRoot: "/keep",
-    apiKey: "plain-legacy-top",
     modelConnections: {
       version: 1,
       activeId: "old",
@@ -429,4 +432,180 @@ test("desktop migration converts a legacy single connection secret", async (t) =
     new HostCredentialStore(join(root, "credentials.json")).value.modelConnections.default,
     "plain-legacy"
   );
+});
+
+test("session export redacts host-stored model, vision and search keys", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-host-export-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const project = join(root, "project");
+  await mkdir(project, { recursive: true });
+  const sentinels = ["export-sentinel-model-key", "export-sentinel-vision-key", "export-sentinel-search-key"];
+  const configPath = join(root, "config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      baseUrl: "http://unused.test",
+      model: "fixture-model",
+      workspaceRoot: join(root, "workspace"),
+      modelConnections: {
+        version: 1,
+        activeId: "main",
+        visionId: "vision",
+        profiles: [
+          {
+            id: "main",
+            name: "Main",
+            baseUrl: "http://unused.test",
+            model: "fixture-model",
+            api: "openai-completions",
+            supportsImages: false
+          },
+          {
+            id: "vision",
+            name: "Vision",
+            baseUrl: "http://vision.test/v1",
+            model: "vision-model",
+            api: "openai-completions",
+            supportsImages: true
+          }
+        ]
+      }
+    })
+  );
+  await writeFile(
+    join(root, "credentials.json"),
+    JSON.stringify({
+      version: 1,
+      modelConnections: { main: sentinels[0], vision: sentinels[1] },
+      webSearch: { exaApiKey: sentinels[2] }
+    }),
+    { mode: 0o600 }
+  );
+  const timestamp = new Date().toISOString();
+  const sessionId = "22222222-3333-4444-5555-666666666666";
+  const sessionPath = join(root, "session.jsonl");
+  const sessionText =
+    [
+      { type: "session", version: 3, id: sessionId, timestamp, cwd: project },
+      {
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp,
+        message: {
+          role: "user",
+          content: [{ type: "text", text: `保留的会话内容 ${sentinels[0]} ${sentinels[2]}` }],
+          timestamp: Date.now()
+        }
+      },
+      {
+        type: "message",
+        id: "a1",
+        parentId: "u1",
+        timestamp,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: `助手答复 ${sentinels[1]}` }],
+          stopReason: "stop",
+          timestamp: Date.now()
+        }
+      }
+    ]
+      .map(JSON.stringify)
+      .join("\n") + "\n";
+  await writeFile(sessionPath, sessionText);
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_|EXA_)/.test(name))
+  );
+  Object.assign(env, {
+    ATRIA_HOME: join(root, "home"),
+    COWORK_CONFIG: configPath,
+    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    PI_OFFLINE: "1"
+  });
+  const exportSession = async (args) => {
+    const { stdout } = await execute(
+      process.execPath,
+      [resolve("scripts/atria.mjs"), "session", "export", ...args],
+      {
+        cwd: root,
+        env,
+        timeout: 30_000
+      }
+    );
+    return JSON.parse(stdout);
+  };
+
+  for (const [format, output] of [
+    ["json", "export.json"],
+    ["html", "export.html"]
+  ]) {
+    const result = await exportSession([sessionPath, "--format", format, "--output", output]);
+    const text = await readFile(result.outputPath, "utf8");
+    assert.match(text, /保留的会话内容/, `${format} export keeps the user message`);
+    assert.match(text, /助手答复/, `${format} export keeps the assistant answer`);
+    for (const sentinel of sentinels)
+      assert.equal(text.includes(sentinel), false, `${format} export leaked ${sentinel}`);
+  }
+  assert.equal(await readFile(sessionPath, "utf8"), sessionText, "export never rewrites the source session");
+});
+
+test("the CLI config writer never copies a host-stored key into the public config", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-host-writer-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configPath = join(root, "config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      baseUrl: "http://unused.test/v1",
+      model: "fixture-model",
+      modelConnections: {
+        version: 1,
+        activeId: "main",
+        profiles: [
+          {
+            id: "main",
+            name: "Main",
+            baseUrl: "http://unused.test/v1",
+            model: "fixture-model",
+            api: "openai-completions",
+            supportsImages: false
+          }
+        ]
+      }
+    })
+  );
+  const credentialsPath = join(root, "credentials.json");
+  const credentials = {
+    version: 1,
+    modelConnections: { main: "host-store-writer-sentinel" }
+  };
+  await writeFile(credentialsPath, JSON.stringify(credentials), { mode: 0o600 });
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_|EXA_)/.test(name))
+  );
+  Object.assign(env, {
+    ATRIA_HOME: join(root, "home"),
+    COWORK_CONFIG: configPath,
+    WRITER_FIXTURE_KEY: "init-plaintext-key"
+  });
+  await execute(
+    process.execPath,
+    [
+      resolve("scripts/atria.mjs"),
+      "init",
+      "--force",
+      "--base-url",
+      "http://new.example/v1",
+      "--model",
+      "new-model",
+      "--api-key-env",
+      "WRITER_FIXTURE_KEY"
+    ],
+    { cwd: root, env, timeout: 30_000 }
+  );
+  const written = await readFile(configPath, "utf8");
+  assert.equal(written.includes("host-store-writer-sentinel"), false);
+  assert.equal(JSON.parse(written).apiKey, "init-plaintext-key");
+  assert.deepEqual(JSON.parse(await readFile(credentialsPath, "utf8")), credentials);
 });
