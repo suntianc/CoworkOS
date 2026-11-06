@@ -169,20 +169,20 @@ test("artifact open displays authorized bytes for each isolated backend", async 
         );
       });
       await drawer.locator('[data-drawer-file="document.pdf"]').click();
-      const pdf = drawer.locator("iframe.artifact-pdf");
-      await expect(pdf).toHaveAttribute("src", /^blob:/);
-      await expect(pdf).toHaveAttribute("sandbox", "");
+      await expect(drawer.locator(".drawer-content")).toContainText("点击“打开 ↗”查看 PDF。");
       const response = await pdfResponse;
       expect(response.headers()["content-type"]).toBe("application/pdf");
-      const blobContents = await page.evaluate(
-        async (url) => {
-          const blob = window.testArtifactBlobs.get(url);
-          return { type: blob.type, bytes: [...new Uint8Array(await blob.arrayBuffer())] };
-        },
-        await pdf.getAttribute("src")
-      );
+      const blobContents = await page.evaluate(async () => {
+        const blobs = [...window.testArtifactBlobs.values()];
+        const blob = blobs.filter((value) => value.type === "application/pdf").at(-1);
+        return { type: blob.type, bytes: [...new Uint8Array(await blob.arrayBuffer())] };
+      });
       expect(blobContents.type).toBe("application/pdf");
       expect(Buffer.from(blobContents.bytes)).toEqual(pdfFixture());
+      const downloadPromise = page.waitForEvent("download");
+      await drawer.getByRole("link", { name: "下载", exact: true }).click();
+      const download = await downloadPromise;
+      expect(await readFile(await download.path())).toEqual(pdfFixture());
       expect(pdfRawStatuses).not.toContain(401);
       expect(cspErrors).toEqual([]);
     }

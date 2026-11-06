@@ -76,6 +76,13 @@ export function createArtifactViewer({
         )
           ? new Blob([blob], { type: "text/plain" })
           : blob;
+      let pdf;
+      if (host && mime === "application/pdf") {
+        if (blob.size > 64 * 1024 * 1024) throw new Error("PDF 产出物超过 64 MiB，请下载文件后打开");
+        pdf = { mime, bytes: await blob.arrayBuffer() };
+        if (disposed || at !== generation || key(identity()) !== key(initial))
+          throw new Error("已切换后端，产出物打开操作已取消");
+      }
       url = createObjectURL(safe);
       allocated.push(url);
       if (!host && mime === "image/svg+xml") {
@@ -95,7 +102,7 @@ export function createArtifactViewer({
         allocated.push(url);
       }
       active.set(url, { timer: null, urls: allocated, popup });
-      if (host) await host.open(url);
+      if (host) await host.open(url, pdf);
       else {
         popup.location.replace(url);
         pending.delete(popup);

@@ -27,6 +27,7 @@ const { createLanguageHost } = require("./language.cjs");
 const { windowBackground, followNativeTheme } = require("./system-theme.cjs");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const { randomUUID } = require("node:crypto");
 const { createDesktopUpdateHost } = require("./update-host.cjs");
 const { prepareDesktopChange } = require("./update-lifecycle.cjs");
 const { selectApplicationIcon, refreshDockIcon } = require("./application-icon.cjs");
@@ -42,7 +43,12 @@ const { installEditContextMenu } = require("./edit-context-menu.cjs");
 const { connectRenderer } = require("./renderer-connection.cjs");
 const { connectBackend } = require("./backend.cjs");
 const { createBackendAuthorization } = require("./backend-authorization.cjs");
-const { isArtifactViewerUrl } = require("./artifact-viewer.cjs");
+const {
+  isArtifactViewerUrl,
+  validatePdfPayload,
+  installPdfSession,
+  PDF_VIEWER_URL
+} = require("./artifact-viewer.cjs");
 const { createSettingsTargetGuard } = require("./settings-target.cjs");
 const { installBundledWeb } = require("./bundled-web.cjs");
 const { desktopProfile } = require("./profile.cjs");
@@ -279,24 +285,37 @@ ipcMain.handle("bookman:open-path", async (event, value) => {
   if (typeof value !== "string" || !path.isAbsolute(value)) throw new Error("invalid path");
   return shell.openPath(value);
 });
-ipcMain.handle("bookman:open-artifact-viewer", async (event, value) => {
+ipcMain.handle("bookman:open-artifact-viewer", async (event, value, pdf) => {
   trust(event);
   if (!isArtifactViewerUrl(value, selectedBackend?.url)) throw new Error("无效的产出物预览地址");
   const sender = event.sender;
-  const viewer = new BrowserWindow({
-    width: 1000,
-    height: 800,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false }
-  });
+  let releasePdf;
+  let target = value;
+  let viewer;
+  try {
+    let webPreferences = { contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false };
+    if (pdf !== undefined) {
+      const bytes = validatePdfPayload(pdf);
+      const pdfSession = session.fromPartition(`artifact-pdf-${randomUUID()}`);
+      releasePdf = installPdfSession(pdfSession, bytes);
+      webPreferences = { ...webPreferences, session: pdfSession, javascript: true, plugins: true };
+      target = PDF_VIEWER_URL;
+    }
+    viewer = new BrowserWindow({ width: 1000, height: 800, webPreferences });
+  } catch (error) {
+    await releasePdf?.();
+    throw error;
+  }
   artifactViewers.add(viewer);
   viewer.webContents.on("will-navigate", (navigation) => navigation.preventDefault());
   viewer.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   viewer.on("closed", () => {
     artifactViewers.delete(viewer);
+    void releasePdf?.().catch((error) => console.error("清理 PDF 预览失败", error.message));
     if (!sender.isDestroyed()) sender.send("bookman:artifact-viewer-closed", value);
   });
   try {
-    await viewer.loadURL(value);
+    await viewer.loadURL(target);
   } catch (error) {
     if (!viewer.isDestroyed()) viewer.close();
     throw error;

@@ -171,3 +171,42 @@ test("browser SVG opens as an inert image wrapper and releases both blobs after 
   callbacks[0]();
   assert.deepEqual(revoked.sort(), ["blob:http://127.0.0.1:1234/1", "blob:http://127.0.0.1:1234/2"]);
 });
+
+test("PDF bytes reach the trusted host and a backend switch during reading cancels opening", async () => {
+  let complete;
+  const gate = new Promise((resolve) => {
+    complete = resolve;
+  });
+  let state = { status: "connected", backendId: "A", sessionId: "one", baseUrl: "" };
+  let args;
+  const blob = new Blob(["%PDF-1.4\nA"], { type: "application/pdf" });
+  const viewer = createArtifactViewer({
+    read: async () => ({ blob }),
+    identity: () => state,
+    host: {
+      open: async (...value) => {
+        args = value;
+      },
+      onClosed: () => () => {}
+    },
+    createObjectURL: () => "blob:http://127.0.0.1:1234/1",
+    revokeObjectURL: () => {}
+  });
+  await viewer.open(path);
+  assert.equal(args[1].mime, "application/pdf");
+  assert.equal(new TextDecoder().decode(args[1].bytes), "%PDF-1.4\nA");
+  const waitingBlob = new Blob(["%PDF-1.4\nA"], { type: "application/pdf" });
+  waitingBlob.arrayBuffer = () => gate;
+  const waiting = createArtifactViewer({
+    read: async () => ({ blob: waitingBlob }),
+    identity: () => state,
+    host: { open: async () => assert.fail("old backend opened"), onClosed: () => () => {} },
+    createObjectURL: () => assert.fail("object URL allocated after switch"),
+    revokeObjectURL: () => {}
+  });
+  const pending = waiting.open(path);
+  await new Promise((resolve) => setImmediate(resolve));
+  state = { status: "connected", backendId: "B", sessionId: "two", baseUrl: "" };
+  complete(new ArrayBuffer(0));
+  await assert.rejects(pending, /切换后端/);
+});

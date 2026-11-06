@@ -179,7 +179,7 @@ contextBridge.exposeInMainWorld("bookmanDesktop", {
     authorize: (input) => ipcRenderer.invoke("bookman:authorize-backend", input)
   },
   artifactViewer: {
-    open: (url) => ipcRenderer.invoke("bookman:open-artifact-viewer", url),
+    open: (url, pdf) => ipcRenderer.invoke("bookman:open-artifact-viewer", url, pdf),
     onClosed: (handler) => {
       if (typeof handler !== "function") return () => {};
       const listener = (_event, value) => handler(value);

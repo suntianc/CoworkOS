@@ -448,6 +448,8 @@ export function createArtifactController({
       : "";
     const canEdit = canEditArtifact(artifact);
     const editAction = canEdit ? '<button class="drawer-action" data-edit-drawer>在应用中打开</button>' : "";
+    const downloadHref =
+      cached?.previewKind === "pdf" && cached.mediaHref ? cached.mediaHref : urls.downloadUrl;
     const previewNote = cached?.truncated
       ? '<div class="artifact-preview-note" role="status">文件较大，仅显示前部分内容。下载可查看完整文件。</div>'
       : "";
@@ -455,7 +457,7 @@ export function createArtifactController({
     scrim.hidden = false;
     drawer.dataset.signature = signature;
     drawer.dataset.activePath = activePath;
-    drawer.innerHTML = `<div class="artifact-drawer-head"><div class="artifact-drawer-title"><span class="drawer-eyebrow">产出物详情</span><h2>${esc(artifact.displayName || fileBaseName(activePath))}</h2><p title="artifacts/${esc(activePath)}">artifacts/${esc(activePath)}</p></div><button class="drawer-close" data-close-drawer aria-label="关闭产出物详情">×</button></div><div class="artifact-drawer-body"><nav class="drawer-file-list" aria-label="产出物文件"><div class="drawer-section-label">产出物 <span>${artifacts.length}</span></div>${files}</nav><section class="drawer-document"><div class="drawer-toolbar"><span class="drawer-file-type">${esc(fileLanguage(activePath))}</span><span class="drawer-file-size">${esc(formatArtifactSize(cached?.size ?? artifact.size))}</span><div class="drawer-actions">${editAction}${copyAction}<a class="drawer-action" data-open-artifact-viewer href="${esc(urls.rawUrl)}" target="_blank" rel="noopener noreferrer">打开 ↗</a><a class="drawer-action" href="${esc(urls.downloadUrl)}" download="${esc(fileBaseName(activePath))}">下载</a></div></div>${previewNote}<div class="drawer-content ${cached?.previewKind === "pdf" ? "is-pdf" : ""}">${content}</div></section></div>`;
+    drawer.innerHTML = `<div class="artifact-drawer-head"><div class="artifact-drawer-title"><span class="drawer-eyebrow">产出物详情</span><h2>${esc(artifact.displayName || fileBaseName(activePath))}</h2><p title="artifacts/${esc(activePath)}">artifacts/${esc(activePath)}</p></div><button class="drawer-close" data-close-drawer aria-label="关闭产出物详情">×</button></div><div class="artifact-drawer-body"><nav class="drawer-file-list" aria-label="产出物文件"><div class="drawer-section-label">产出物 <span>${artifacts.length}</span></div>${files}</nav><section class="drawer-document"><div class="drawer-toolbar"><span class="drawer-file-type">${esc(fileLanguage(activePath))}</span><span class="drawer-file-size">${esc(formatArtifactSize(cached?.size ?? artifact.size))}</span><div class="drawer-actions">${editAction}${copyAction}<a class="drawer-action" data-open-artifact-viewer href="${esc(urls.rawUrl)}" target="_blank" rel="noopener noreferrer">打开 ↗</a><a class="drawer-action" href="${esc(downloadHref)}" download="${esc(fileBaseName(activePath))}">下载</a></div></div>${previewNote}<div class="drawer-content ${cached?.previewKind === "pdf" ? "is-pdf" : ""}">${content}</div></section></div>`;
     drawer.querySelector(".drawer-content").scrollTop = scrollTop;
     drawer.querySelector(".drawer-file-list").scrollTop = fileListScrollTop;
     drawer
