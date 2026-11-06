@@ -112,7 +112,7 @@ npm run verify
 | `npm run verify`                                          | CLI 构建、源码卫生、lint、工作台/Pi 类型、增量格式和文档链接；不运行行为测试          | 完成一项修改后的默认本地门槛                                |
 | `npm run verify:full`                                     | 一次完整构建、静态检查、发布执行器自测和全量 Node 回归                                | 发布验收或影响范围广的修改                                  |
 | `npm test` / `npm run check`                              | 保留的 Node 回归 / 构建与静态检查入口                                                 | 兼容现有本地脚本；已执行 verify:full 时无需为同一源码重复跑 |
-| `npm run check:ci`                                        | CLI 构建、源码卫生、lint、工作台/Pi 类型、增量格式和文档链接                          | 手动 GitHub 轻量检查；本地 verify 与相关测试仍是完成门槛    |
+| `npm run check:ci`                                        | CLI 构建、源码卫生、lint、工作台/Pi 类型、增量格式和文档链接                          | GitHub 轻量检查；本地 verify 与相关测试仍是完成门槛         |
 | `npm run check:source`                                    | 当前受版本管理及非忽略的源码文件；检查私有配置、凭据、个人路径和不应提交的产物/旧文档 | 提交和发行前；不扫描 Git 历史                               |
 | `npm run check:docs`                                      | 现行导航的本地 Markdown 文件链接和标题锚点；不请求外部网站                            | 文档和代码路径修改，可 `-- --list` 查看范围                 |
 | `npx playwright install chromium`                         | 安装 Chromium                                                                         | 首次浏览器测试准备                                          |
@@ -165,9 +165,9 @@ TXT 状态与 DOM 分开，文档 session 负责保存协作。使用 [代码地
 
 仓库只保留 main 一条长期主分支，功能/修复临时分支经 PR 合入后删除。main 是已评审集成代码；发布版本由固定 tag/Release 标识，完整流程见 [版本管理](beta-release-process.md)。
 
-[常规工作流](../.github/workflows/test.yml) 仅通过 Actions 手动触发，使用单组 Ubuntu + Node 24；push 和 PR 不自动执行静态检查。安装时跳过 Electron 二进制下载，然后执行 `npm run check:ci`：`build:cli`、源码卫生、lint、工作台/Pi 类型、增量格式和现行文档链接检查。
+[常规工作流](../.github/workflows/test.yml) 在 PR 和推送到 main 时自动运行，也可在 Actions 手动触发，使用单组 Ubuntu + Node 24；增量格式检查以 PR 基准或推送前的提交为对比基准。安装时跳过 Electron 二进制下载，然后执行 `npm run check:ci`：`build:cli`、源码卫生、lint、工作台/Pi 类型、增量格式和现行文档链接检查。
 
-完整 Node 回归、浏览器、原生引擎、实际模型和安装包体验在本地完成；日常使用轻量 `npm run verify` 与相关测试；发布或广泛影响的修改用 `npm run verify:full`，按改动增加对应层的验收。手动 GitHub 常规检查只提供构建与静态反馈，相关行为验证证据随 PR 提交。
+完整 Node 回归、浏览器、原生引擎、实际模型和安装包体验在本地完成；日常使用轻量 `npm run verify` 与相关测试；发布或广泛影响的修改用 `npm run verify:full`，按改动增加对应层的验收。GitHub 常规检查只提供构建与静态反馈，相关行为验证证据随 PR 提交。
 
 [Internal Mac package](../.github/workflows/internal-mac.yml) 仅手动生成并上传 arm64 内测 DMG/校验文件，不承担完整回归、浏览器或桌面 smoke。[Release Mac DMG](../.github/workflows/release-mac.yml) 则在版本 tag 推送后构建 DMG/CLI 与校验文件，并上传 GitHub Release 草稿，由维护者审阅后 Publish；只有显式配置并验证 Developer ID 签名时，另生成 ZIP、校验文件与 Mac 更新 feed。当前未配置签名，默认仍为 arm64 未签名候选。候选包生成后按 [Mac 发布指南](mac-release.md) 本地安装验收。发布前须完成安装与实际任务验收；分支保护需单独配置。
 

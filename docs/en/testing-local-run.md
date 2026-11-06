@@ -56,7 +56,7 @@ Other Mac-specific tests still run or explicitly skip according to their own pre
 
 `npm test` and `npm run check` remain available for existing Node and static checks. Running both rebuilds twice; use `verify:full` when explicitly requesting the complete suite.
 
-Routine GitHub checks are manual-only with no automatic push/PR triggers. Manual runs use lightweight `npm run check:ci` for the CLI build, lint, types, incremental format, documentation links and source hygiene. Full Node, browser, native, actual-model and release acceptance run locally; lightweight CI passing does not certify those behaviors. See [development](development.md#github-actions) for triggers.
+Routine GitHub checks run automatically on PRs and pushes to main, and can also be triggered manually. They use lightweight `npm run check:ci` for the CLI build, lint, types, incremental format, documentation links and source hygiene. Full Node, browser, native, actual-model and release acceptance run locally; lightweight CI passing does not certify those behaviors. See [development](development.md#github-actions) for triggers.
 
 For version-tag/Release changes, start with `npm run test:unit -- --file test/release-metadata.test.js`. It uses temporary Git repositories to validate versions, tags, commit identity and Actions outputs without accessing remote Releases. Actual Actions logs establish uploads/draft retries; see [release steps](development.md#mac-release-drafts-from-version-tags).
 
