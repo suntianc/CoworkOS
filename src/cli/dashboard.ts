@@ -1,9 +1,22 @@
 import { readCoworkConfig } from "../runtime/config.js";
 import { applyProxyEnvironment } from "../runtime/http-transport.js";
 import { createDashboardApplication } from "../dashboard/application.js";
+import { backendPaths, ensureBackendIdentity } from "../dashboard/backend-instance.js";
+import { atriaHome } from "../../scripts/data-home.cjs";
 
 applyProxyEnvironment(readCoworkConfig());
-const dashboard = createDashboardApplication();
+/**
+ * Serve the data root's backend identity, not a new one per process.
+ *
+ * A Backend keeps its identity across restarts (that is what lets a client
+ * recognise a restarted process and scope its drafts and sessions to it). The
+ * detached daemon already persists this record; the UI entry has to read the
+ * same one, or every `ui` restart would look like a different backend.
+ */
+const identity = await ensureBackendIdentity(backendPaths(atriaHome()));
+const dashboard = createDashboardApplication({
+  backendIdentity: { backendId: identity.backendId, startedAt: new Date().toISOString() }
+});
 // This IPC channel belongs to the Electron parent, not the HTTP/Agent surface.
 process.on("message", (value) => {
   if (!value || typeof value !== "object" || !("type" in value)) return;

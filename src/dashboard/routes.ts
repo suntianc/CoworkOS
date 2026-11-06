@@ -12,7 +12,16 @@ import type { ProjectExperienceStore } from "../runtime/project-experience-store
 import { handleUserMemoryRequest } from "./user-memory-routes.js";
 import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { serveArtifact } from "./artifact-response.js";
-import { dashboardContentPolicy, HttpError, localRequestUrl, readJsonBody, sendJson } from "./http.js";
+import {
+  applyTrustedClientCors,
+  dashboardContentPolicy,
+  HttpError,
+  localRequestUrl,
+  readJsonBody,
+  sendJson,
+  trustedClientOrigin,
+  trustedClientOrigins
+} from "./http.js";
 import { protocolInfo } from "./backend-protocol.js";
 import type { CatalogEvents } from "./catalog-events.js";
 import { HOST_PRINCIPAL, type LocalAccess, type LocalPrincipal } from "./local-access.js";
@@ -158,6 +167,15 @@ export function createDashboardHandler(
     try {
       const admitted = ports.access?.admit(request, dashboardUrl);
       const url = admitted ? admitted.url : localRequestUrl(request, dashboardUrl);
+      // A page served by another trusted local backend reads this response
+      // through CORS. Same-origin requests get no extra headers.
+      const trustedOrigin = trustedClientOrigin(request);
+      if (trustedOrigin) applyTrustedClientCors(response, trustedOrigin);
+      if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
+        response.writeHead(204);
+        response.end();
+        return;
+      }
       const principal: LocalPrincipal = admitted?.principal ?? HOST_PRINCIPAL;
       // Identity read-only: a host uses it to confirm that the process it
       // recorded is the one answering here, never to learn configuration.
@@ -226,7 +244,7 @@ export function createDashboardHandler(
         response.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
           "cache-control": "no-cache",
-          "content-security-policy": dashboardContentPolicy,
+          "content-security-policy": dashboardContentPolicy(trustedClientOrigins()),
           "x-content-type-options": "nosniff"
         });
         response.end(html);

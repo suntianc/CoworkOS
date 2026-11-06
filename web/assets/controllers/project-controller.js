@@ -26,6 +26,8 @@ export function createProjectController({
   openProjectExperience = () => {},
   onUpdated = () => {}
 }) {
+  /** Change commands carry an operation id; the fallback keeps partial handlers working. */
+  const command = (path, options) => (api.command ? api.command(path, options) : api(path, options));
   let dialog,
     dialogEpoch = 0,
     saving = false;
@@ -251,12 +253,11 @@ export function createProjectController({
       saving = true;
       for (const node of panel.querySelectorAll("input,button")) node.disabled = true;
       try {
-        const result = await api(
+        const result = await command(
           project ? `/api/projects/${encodeURIComponent(project.projectId)}` : "/api/projects",
           {
             method: project ? "PATCH" : "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ projectName, projectDirectory })
+            body: { projectName, projectDirectory }
           }
         );
         upsert(result.project);
@@ -289,10 +290,9 @@ export function createProjectController({
       const existing = projects().find((project) => project.projectDirectory === projectDirectory);
       if (existing) return existing;
       try {
-        const { project } = await api("/api/projects", {
+        const { project } = await command("/api/projects", {
           method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ projectName, projectDirectory })
+          body: { projectName, projectDirectory }
         });
         upsert(project);
         return project;
@@ -303,6 +303,17 @@ export function createProjectController({
         if (!project) throw error;
         upsert(project);
         return project;
+      }
+    },
+    /** Backend switching drops this backend's optimistic rows and project selection. */
+    reset() {
+      localProjects.clear();
+      localTasks.clear();
+      state.selectedProjectId = null;
+      try {
+        storage?.removeItem(selectedKey);
+      } catch {
+        /* optional persistence */
       }
     },
     projectForWorkspace(root) {

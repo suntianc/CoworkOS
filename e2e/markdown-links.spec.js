@@ -61,7 +61,6 @@ test("a final local artifact link opens its indexed file and downloads it withou
       })
     );
     await page.goto(dashboard.base);
-    const beforeUrl = page.url();
     await page.locator("#composer-input").fill("点击导出后仍保留的草稿");
     await page.locator("#file-input").setInputFiles({
       name: "draft.txt",
@@ -77,6 +76,8 @@ test("a final local artifact link opens its indexed file and downloads it withou
     expect(href.pathname).toBe(`/api/tasks/${taskId}/artifact`);
     expect(href.searchParams.get("path")).toBe(path);
     expect(href.searchParams.get("download")).toBe("1");
+    // Capture the settled URL: the link itself must not navigate or reselect.
+    const beforeUrl = page.url();
     await link.click();
     const drawer = page.locator("#artifact-drawer");
     await expect(drawer).toBeVisible();
@@ -97,11 +98,11 @@ test("a final local artifact link opens its indexed file and downloads it withou
     );
     expect(await page.evaluate(() => globalThis.injected)).toBeUndefined();
     expect(artifactRequests.length).toBeGreaterThanOrEqual(1);
-    // Downloads are reported by the browser download event, rather than
-    // consistently appearing in the page's request events.
-    const downloadUrl = new URL(file.url());
-    expect(downloadUrl.searchParams.get("download")).toBe("1");
-    for (const url of [...artifactRequests, downloadUrl]) {
+    // The page's own client fetches the bytes (session header, bound backend)
+    // and hands the browser a blob, so the backend request is the one to check.
+    const downloadUrl = artifactRequests.find((url) => url.searchParams.get("download") === "1");
+    expect(downloadUrl).toBeTruthy();
+    for (const url of artifactRequests) {
       expect(url.pathname).toBe(`/api/tasks/${taskId}/artifact`);
       expect(url.searchParams.get("path")).toBe(path);
     }

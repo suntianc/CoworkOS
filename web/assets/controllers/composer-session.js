@@ -7,7 +7,16 @@ export function createComposerSession({
   onError,
   onPersist
 }) {
-  const prefix = "atria.composer.v1:";
+  const legacyPrefix = "atria.composer.v1:";
+  const NAMESPACES_KEY = "atria.composer.namespaces.v1";
+  /**
+   * Drafts belong to one backend. The prefix keeps a conversation started
+   * against backend A out of backend B's composer, and a switch back restores
+   * exactly the draft that backend had. Empty until the first backend is known,
+   * which is the historical key shape and the source of the migration below.
+   */
+  let namespace = "";
+  const prefix = () => (namespace ? `${legacyPrefix}${namespace}:` : legacyPrefix);
   const memory = new Map();
   const pendingStorage = new Set();
   const retainedDrafts = new Map();
@@ -24,7 +33,7 @@ export function createComposerSession({
   const read = (key) => {
     if (memory.has(key)) return memory.get(key);
     try {
-      return JSON.parse(storage?.getItem(prefix + key) || "null");
+      return JSON.parse(storage?.getItem(prefix() + key) || "null");
     } catch {
       return null;
     }
@@ -33,8 +42,8 @@ export function createComposerSession({
     memory.set(key, value);
     try {
       if (!storage) throw new Error("storage unavailable");
-      if (value === null) storage?.removeItem(prefix + key);
-      else storage?.setItem(prefix + key, JSON.stringify(value));
+      if (value === null) storage?.removeItem(prefix() + key);
+      else storage?.setItem(prefix() + key, JSON.stringify(value));
       onPersist?.();
       pendingStorage.delete(key);
       if (!pendingStorage.size) warned = false;
@@ -53,7 +62,7 @@ export function createComposerSession({
       // Another window can update storage after this session cached the source.
       // Only remove a source that still matches in both memory and storage.
       try {
-        const stored = JSON.parse(storage?.getItem(prefix + "new") || "null");
+        const stored = JSON.parse(storage?.getItem(prefix() + "new") || "null");
         if (JSON.stringify(read("new")) !== JSON.stringify(source)) continue;
         if (JSON.stringify(stored) === JSON.stringify(source)) write("new", null);
         else memory.set("new", stored);
@@ -146,6 +155,16 @@ export function createComposerSession({
       return projectDraft(key) || (key === "new" && Boolean(read("new")));
     },
     save,
+    /** Persist the visible draft and leave it to its backend without showing it here. */
+    detach() {
+      save();
+      current = undefined;
+      editing = undefined;
+      editDraft = undefined;
+      token += 1;
+      input.value = "";
+      setAttachments([]);
+    },
     prepareClose() {
       save();
       // Retry every failed conversation, including drafts that are no longer
@@ -153,6 +172,61 @@ export function createComposerSession({
       for (const key of [...pendingStorage]) write(key, memory.get(key));
       finishMigrations();
       return pendingStorage.size === 0;
+    },
+    /**
+     * Bind drafts to one backend.
+     *
+     * The composer exists before the first connection, so its historical keys
+     * carry no backend. The first bind copies those keys into the backend's
+     * namespace once; later binds only change which namespace is read, and the
+     * draft of the backend being left stays on disk exactly as it was.
+     */
+    setBackend(backendId) {
+      const next = typeof backendId === "string" ? backendId : "";
+      if (next === namespace) return;
+      save();
+      const previous = namespace;
+      if (!previous && next && storage) {
+        const from = legacyPrefix;
+        const to = `${legacyPrefix}${next}:`;
+        try {
+          // A key already written for a backend is not a historical draft.
+          // Without this, every reload would nest the old namespace inside the
+          // new one and the visible draft would be looked up in the wrong slot.
+          const known = new Set(JSON.parse(storage.getItem(NAMESPACES_KEY) || "[]"));
+          known.add(next);
+          storage.setItem(NAMESPACES_KEY, JSON.stringify([...known]));
+          const keys = [];
+          for (let index = 0; index < storage.length; index += 1) {
+            const key = storage.key(index);
+            if (typeof key !== "string" || !key.startsWith(from) || key.startsWith(to)) continue;
+            if (known.has(key.slice(from.length).split(":")[0])) continue;
+            keys.push(key);
+          }
+          for (const key of keys) {
+            const value = storage.getItem(key);
+            if (storage.getItem(to + key.slice(from.length)) === null)
+              storage.setItem(to + key.slice(from.length), value);
+          }
+        } catch {
+          /* a disabled storage keeps drafts in memory only */
+        }
+      }
+      namespace = next;
+      // The visible composer must not keep the backend being left's text; the
+      // caller activates a conversation to load this backend's own draft.
+      input.value = "";
+      setAttachments([]);
+      memory.clear();
+      retainedDrafts.clear();
+      draftOwners.clear();
+      draftIdentities.clear();
+      pendingMigrations.clear();
+      pendingStorage.clear();
+      editing = undefined;
+      editDraft = undefined;
+      current = undefined;
+      token += 1;
     },
     activate(taskId, { fresh = false, projectId } = {}) {
       const key = taskId || (projectId ? `new:${encodeURIComponent(projectId)}` : "new");

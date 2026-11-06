@@ -3,7 +3,7 @@ import { installWebSearchSettings } from "./web-search-settings.js";
 import { createSettingsModal } from "./settings-modal.js";
 import { icon } from "../ui/icons.js";
 /** Both hosts share one settings UI; keys are submitted once and never read back. */
-export function installDesktopSettings({ showToast, onSaved, overview }) {
+export function installDesktopSettings({ showToast, onSaved, overview, api }) {
   const desktop = window.bookmanDesktop;
   const errorMessage = (error) => {
     const message = typeof error?.message === "string" ? error.message : ui("模型设置暂时不可用，请稍后重试");
@@ -14,10 +14,13 @@ export function installDesktopSettings({ showToast, onSaved, overview }) {
   if (desktop?.onDraftError) desktop.onDraftError((message) => showToast(errorMessage({ message })));
   else if (desktop?.draftWarning) showToast(desktop.draftWarning);
   const request = async (method, body, path = "/api/model-settings") => {
-    const response = await fetch(path, {
+    const options = {
       method,
       ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {})
-    });
+    };
+    // The Web host reads and writes settings through the shared backend client.
+    if (api) return api(path, options);
+    const response = await fetch(path, options);
     let result;
     try {
       result = await response.json();
@@ -265,7 +268,7 @@ export function installDesktopSettings({ showToast, onSaved, overview }) {
   connectionRow.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("code")}</span><span><strong>模型连接</strong></span></span>`;
   connectionRow.append(button);
   document.querySelector("#profile-settings-connections").append(connectionRow);
-  installWebSearchSettings({ showToast, overview });
+  installWebSearchSettings({ showToast, overview, api });
   // An unconfigured Web workspace also exposes a persistent composer action.
   if (desktop)
     void status()

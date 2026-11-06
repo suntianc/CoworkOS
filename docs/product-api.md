@@ -78,7 +78,7 @@ A host credential authorizes once and names this client as a session. Every late
 | `DELETE /api/session/:sessionId`   | Revoke one session (a session may end itself, the host may end any) → `{ sessionId, revokedAt, revoked: true }`. Repeating is a success.       |
 | `GET /api/operations/:operationId` | The saved receipt `{ operationId, command, status, body, completedAt }` of this identity's command, or HTTP 404 `operation_unknown`.           |
 
-`protocolVersion` is `major.minor`. The major number is compatibility; a client minor newer than this backend is refused, an older one is accepted. A missing version returns HTTP 400 `protocol_required`; an incompatible one returns HTTP 409 `protocol_incompatible` naming both versions, so both sides can show an actionable upgrade message. Capabilities describe the protocol this backend serves; clients branch on capability names instead of route probing.
+`protocolVersion` is `major.minor`. The major number is compatibility; a client minor newer than this backend is refused, an older one is accepted. A missing version returns HTTP 400 `protocol_required`; an incompatible one returns HTTP 409 `protocol_incompatible` naming both versions, so both sides can show an actionable upgrade message. Capabilities describe the protocol this backend serves; clients branch on capability names instead of route probing. `events.snapshot` and `events.stream` name the catalog reconciliation below: a client that requires them and does not find them reports the missing names instead of probing routes or half-loading a screen.
 
 Change commands accept an optional `operationId`: `POST /api/projects`, `PATCH /api/projects/:projectId`, `POST /api/tasks` and `POST /api/tasks/:taskId/goals/:programId/control`. Management clients send one on every change; omitting it keeps the legacy single-shot behavior the current Web UI uses.
 
@@ -131,7 +131,29 @@ A client must follow these rules; [management-events.js](../web/assets/controlle
 4. On a `seq` gap, reconnect from the applied cursor so the server replays the missing records in order; on `cursor_expired`/`cursor_unknown` or `stream.reset`, take a new snapshot.
 5. Reconnecting replays events only. A command is never re-sent by a reconnect; use the `operationId` and receipt rules above when a command's response was lost.
 
-`createManagementEventClient({ backendId, baseUrl, fetch, onSnapshot, onEvent, onReset, onStatus })` exposes `start()`, `switchBackend({ backendId, baseUrl })`, `stop()` and `state()`. The Web UI (ticket 05) and the desktop host consume the catalog through it rather than opening their own event channel.
+`createManagementEventClient({ backendId, baseUrl, fetch, headers, onSnapshot, onEvent, onReset, onStatus })` exposes `start()`, `snapshot()`, `switchBackend({ backendId, baseUrl })`, `stop()` and `state()`. The Web UI and the desktop host consume the catalog through it rather than opening their own event channel.
+
+### Shared browser client
+
+[management-client.js](../web/assets/controllers/management-client.js) is the one module a browser page uses for the whole protocol: it authorizes a named session with `POST /api/session`, checks the returned protocol and capabilities, reads the catalog snapshot, follows the event stream, and sends change commands with an `operationId` and receipt reconciliation. It downloads backend files and uploads attachments through the same session, so a page never needs Electron IPC or a second transport.
+
+- One bound `backendId` + `baseUrl`. Sessions are stored per backend origin, so a token minted by one backend is never presented to another.
+- `switchBackend({ baseUrl })` aborts every in-flight request, stops the old event stream, and retires the old identity. A response that still resolves afterwards is rejected as `stale_client`; a late event is dropped because its `backendId` does not match. The page also swaps its draft namespace (`composer-session.js`), so drafts stay with the backend that owns them and a switch back restores them.
+- `authorize()` is explicit. A revoked or unknown session puts the page in `unauthorized` with a reauthorize action; an incompatible version or missing capability (`incompatible`/`unsupported`) names both versions or the missing names. Nothing silently retries.
+- `command(path, { method, body, operationId })` sends the command once. If the response is lost it reads `GET /api/operations/:operationId` and only re-sends content the backend never accepted.
+- `snapshot()`, `blob(path)`, `download(path, name)`, `upload(file)`, and `openStream(path)` keep the session header and the bound origin, which is what lets one page manage another trusted local backend.
+
+### Trusted local client origins
+
+A page served by one local backend may manage another. Browsers send that request with the page's `Origin` and require CORS, and the serving page's own `Content-Security-Policy` must allow the other origin in `connect-src`. `COWORK_TRUSTED_CLIENT_ORIGINS` names those exact origins:
+
+```text
+COWORK_TRUSTED_CLIENT_ORIGINS=http://127.0.0.1:3880,http://localhost:3881
+```
+
+Only exact loopback `http://` origins are accepted. The value is never wildcarded and never opens the listener to a non-local host; every other origin keeps the single-origin rule and `sec-fetch-site: cross-site` stays refused. For each named origin the backend answers the preflight, adds `Access-Control-Allow-Origin` for that exact origin with credentials, and lists those origins in the page's `connect-src`. The credential policy (host credential or session) still applies to every real request, so naming an origin does not itself grant access.
+
+The local host credential is a host-scoped cookie, so browsers sharing `127.0.0.1` present the same credential to every local backend served there. `POST /api/session` therefore succeeds against another local backend only when the host installed a credential that backend accepts in the same browser context. Cross-machine remote entry remains out of scope (P6).
 
 ## Project experience
 

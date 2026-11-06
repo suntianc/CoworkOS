@@ -1475,12 +1475,25 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   top: var(--shell-toolbar-height);
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(560px, calc(100vw - 32px));
   padding: 8px 16px;
   z-index: 100;
   background: var(--ui-panel);
   border: 1px solid var(--ui-border);
   border-radius: 8px;
-  white-space: nowrap;
+  line-height: 1.4;
+}
+#connection-state[hidden] {
+  display: none;
+}
+#connection-state button {
+  flex: none;
+}
+#connection-state [data-backend-banner-message] {
+  min-width: 0;
 }
 .request-error-actions {
   display: flex;

@@ -29,6 +29,8 @@ import { createArtifactController } from "./assets/controllers/artifact-controll
 import { createConversationView } from "./assets/controllers/conversation-view.js";
 import { createConversationLayout } from "./assets/controllers/conversation-layout.js";
 import { createConnectionController } from "./assets/controllers/connection-controller.js";
+import { createManagementClient } from "./assets/controllers/management-client.js";
+import { createBackendConnection } from "./assets/controllers/backend-connection.js";
 import { createProjectExperienceController } from "./assets/controllers/project-experience.js";
 import { createProjectController } from "./assets/controllers/project-controller.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
@@ -112,6 +114,41 @@ const conversationReadState = createConversationReadState(draftStorage);
 let initialConversationTaskId = conversationTaskId(location.href);
 let linkedConversationNavigation;
 let lastReadSelection;
+let backendConnection;
+/**
+ * The one client every business call goes through.
+ *
+ * It owns the local session, the catalog snapshot and its event stream. The
+ * page never learns a backend's file paths and never calls Electron IPC; the
+ * desktop renderer and a plain browser consume exactly this module.
+ */
+const management = createManagementClient({
+  storage: (() => {
+    try {
+      return window.sessionStorage;
+    } catch {
+      return undefined;
+    }
+  })(),
+  targetStorage: draftStorage,
+  events: {
+    onSnapshot: (snapshot) => adoptCatalogSnapshot(snapshot),
+    onEvent: (record) => applyCatalogEvent(record),
+    onReset: (reset) => {
+      // A cursor reset only asks for a new snapshot of the same backend; the
+      // screen is rebuilt from that snapshot. Only a backend change discards it.
+      if (reset?.reason === "backend_switched" || reset?.reason === "backend_mismatch") resetBackendView();
+    },
+    onStatus: () => {
+      backendConnection?.apply(management.state());
+      updateSendButton();
+    }
+  },
+  onStateChange: (state) => {
+    backendConnection?.apply(state);
+    updateSendButton();
+  }
+});
 
 // The last model a person picked stays as the default for the next new
 // conversation, so switching once is enough instead of re-picking each time.
@@ -262,7 +299,9 @@ const workbenchController = createWorkbenchController({
   activateDraft: (taskId) => composerSession.activate(taskId, { projectId: state.selectedProjectId }),
   saveDraft: () => composerSession.save(),
   getNavigationContext: () => composerSession.currentToken,
-  connectEventStream: (taskId) => connection.connect(taskId)
+  connectEventStream: (taskId) => connection.connect(taskId),
+  backendRequest: (path, options) => api(path, options),
+  fetchBytes: (path, signal) => management.blob(path, { signal })
 });
 const computerUse = installComputerUse({
   api,
@@ -288,7 +327,8 @@ const artifacts = createArtifactController({
   api,
   showToast,
   renderRightPanel,
-  getWorkbench: () => workbenchController
+  getWorkbench: () => workbenchController,
+  mediaUrl: mediaObjectUrl
 });
 const {
   fileBaseName,
@@ -316,14 +356,76 @@ const conversationView = createConversationView({
   messageEdit,
   edit: (taskId, target) => messageEdit.begin(taskId, target)
 });
-const { renderConversation } = conversationView;
+/**
+ * Backend files shown as images or iframes.
+ *
+ * A page may be managing another local backend, where a bare `<img src="/api/…">`
+ * would reach the wrong origin without the session. Fetch the bytes through the
+ * shared client and hand the DOM one object URL per path.
+ */
+const managedMedia = new Map();
+function mediaObjectUrl(path) {
+  const cached = managedMedia.get(path);
+  if (cached) return cached;
+  const pending = management.blob(path).then(({ blob }) => {
+    const href = URL.createObjectURL(blob);
+    managedMedia.set(path, Promise.resolve(href));
+    while (managedMedia.size > 64) {
+      const [oldPath, oldValue] = managedMedia.entries().next().value;
+      managedMedia.delete(oldPath);
+      Promise.resolve(oldValue)
+        .then((old) => URL.revokeObjectURL(old))
+        .catch(() => undefined);
+    }
+    return href;
+  });
+  managedMedia.set(path, pending);
+  return pending;
+}
+
+function hydrateUploadImages(root) {
+  for (const image of root.querySelectorAll("img[data-upload-src]")) {
+    if (image.dataset.uploadLoaded) continue;
+    image.dataset.uploadLoaded = "1";
+    const id = image.dataset.uploadSrc;
+    void mediaObjectUrl(`/api/uploads/${encodeURIComponent(id)}`)
+      .then((href) => {
+        image.src = href;
+      })
+      .catch(() => undefined);
+  }
+}
+
+document.addEventListener(
+  "click",
+  (event) => {
+    const link = event.target.closest?.("a[download]");
+    if (!link || link.dataset.managedDownload) return;
+    const href = link.getAttribute("href");
+    if (!href) return;
+    // The bytes belong to the bound backend; a plain navigation would carry
+    // neither the session nor the right origin.
+    event.preventDefault();
+    void management.download(href, link.getAttribute("download") || undefined).catch((error) => {
+      showToast(error.message);
+    });
+  },
+  true
+);
+
+const { renderConversation: renderConversationView } = conversationView;
+function renderConversation(messages, task) {
+  renderConversationView(messages, task);
+  hydrateUploadImages($("#conversation"));
+}
 const connection = createConnectionController({
   state,
   renderConversation,
   loadDetail,
   getWorkbench: () => workbenchController.host,
   readApplicationRevisions: (signal, ids) => applicationApi.listApplicationRevisions(signal, ids),
-  refreshWorkbench: () => refreshTabs()
+  refreshWorkbench: () => refreshTabs(),
+  openStream: (path, options) => management.openStream(path, options)
 });
 const connectEventStream = (taskId) => connection.connect(taskId);
 
@@ -546,24 +648,12 @@ async function loadModels() {
   }
 }
 
+/** Every business request belongs to the bound backend's session. */
 async function api(path, options) {
-  const response = await fetch(path, options);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(
-      ["main_retry_context_changed", "main_retry_snapshot_invalid"].includes(body.code)
-        ? body.error
-        : requestErrorMessage(
-            typeof body.error === "object" ? body.error?.message : body.error || response.statusText
-          )
-    );
-    error.status = response.status;
-    if (["main_retry_context_changed", "main_retry_snapshot_invalid"].includes(body.code))
-      error.code = body.code;
-    throw error;
-  }
-  return body;
+  return management.request(path, options);
 }
+/** A change command: same operation id and content may be retried after a lost response. */
+api.command = (path, options) => management.command(path, options);
 
 async function humanAction(taskId, action, body) {
   const result = await api(`/api/tasks/${encodeURIComponent(taskId)}/${action}`, {
@@ -603,62 +693,189 @@ function refresh(options) {
   return catalogReads("catalog", options);
 }
 
+/**
+ * Adopt one authoritative catalog, whether it came from `/api/tasks` or from a
+ * snapshot the event client took. Replacing the lists here is what makes a
+ * reconnect consistent: the sequence and revisions move in the same step.
+ */
+async function applyCatalog(data, { poll = false } = {}) {
+  if (!data || typeof data !== "object") return;
+  if (typeof data.workspaceRoot === "string" && data.workspaceRoot.trim()) {
+    state.workspaceRoot = data.currentWorkspaceRoot || data.workspaceRoot;
+    if (!state.workspacePath) state.workspacePath = state.workspaceRoot;
+    state.workspaceLabel = workspaceDisplayName(state.workspacePath);
+  }
+  if (data.model) {
+    // This local response arrives before provider model discovery. Establish
+    // the active connection before historical task models can be cached.
+    if (data.connectionProfileId) syncModelConnection(data.model, data.connectionProfileId);
+    else {
+      state.defaultModel = data.model;
+      if (!state.model) state.model = data.model;
+      if (!state.selected || !state.modelByTask.has(state.selected)) setModelLabel(state.model);
+    }
+  }
+  state.online = true;
+  backendConnection?.setOnline(true);
+  $("#workspace-path").textContent = "Connected";
+  const defaultTask = state.tasks.find((task) => !task.archived && task.monitoring?.scope !== "background");
+  const linkedTaskId = initialConversationTaskId;
+  initialConversationTaskId = null;
+  if (linkedTaskId && !state.tasks.some((task) => task.taskId === linkedTaskId))
+    showToast(ui("找不到链接中的会话，可能已被移除"));
+  if (!state.selected && defaultTask && !state.composingNew) state.selected = defaultTask.taskId;
+  if (state.selected && !state.tasks.some((task) => task.taskId === state.selected))
+    state.selected = defaultTask?.taskId || null;
+  renderConversationList();
+  if (state.selected) {
+    const listed = state.tasks.find((task) => task.taskId === state.selected);
+    const loaded = state.detail?.task;
+    if (
+      !poll ||
+      loaded?.taskId !== state.selected ||
+      listed?.version !== loaded?.version ||
+      listed?.activeRunId !== loaded?.activeRunId ||
+      listed?.status !== loaded?.status
+    )
+      await loadDetail(state.selected, { poll });
+    connectEventStream(state.selected);
+    if (linkedTaskId && state.selected === linkedTaskId && linkedConversationNavigation?.current())
+      await activateConversationTab(linkedTaskId, linkedConversationNavigation);
+  } else if (!poll || !renderedEmpty) renderEmpty();
+  updateSendButton();
+}
+
 async function refreshState({ poll = false, isCurrent = () => true } = {}) {
   const requestSequence = ++listRequestSequence;
   try {
     const data = await readProjectCatalog(requestSequence, isCurrent);
     if (!isCurrent() || requestSequence !== listRequestSequence) return;
-    if (typeof data.workspaceRoot === "string" && data.workspaceRoot.trim()) {
-      state.workspaceRoot = data.currentWorkspaceRoot || data.workspaceRoot;
-      if (!state.workspacePath) state.workspacePath = state.workspaceRoot;
-      state.workspaceLabel = workspaceDisplayName(state.workspacePath);
-    }
-    if (data.model) {
-      // This local response arrives before provider model discovery. Establish
-      // the active connection before historical task models can be cached.
-      if (data.connectionProfileId) syncModelConnection(data.model, data.connectionProfileId);
-      else {
-        state.defaultModel = data.model;
-        if (!state.model) state.model = data.model;
-        if (!state.selected || !state.modelByTask.has(state.selected)) setModelLabel(state.model);
-      }
-    }
-    state.online = true;
-    $("#connection-state").hidden = true;
-    $("#workspace-path").textContent = "Connected";
-    $("#connection-state").textContent = "CoworkOS Desktop";
-    const defaultTask = state.tasks.find((task) => !task.archived && task.monitoring?.scope !== "background");
-    const linkedTaskId = initialConversationTaskId;
-    initialConversationTaskId = null;
-    if (linkedTaskId && !state.tasks.some((task) => task.taskId === linkedTaskId))
-      showToast(ui("找不到链接中的会话，可能已被移除"));
-    if (!state.selected && defaultTask && !state.composingNew) state.selected = defaultTask.taskId;
-    if (state.selected && !state.tasks.some((task) => task.taskId === state.selected))
-      state.selected = defaultTask?.taskId || null;
-    renderConversationList();
-    if (state.selected) {
-      const listed = state.tasks.find((task) => task.taskId === state.selected);
-      const loaded = state.detail?.task;
-      if (
-        !poll ||
-        loaded?.taskId !== state.selected ||
-        listed?.version !== loaded?.version ||
-        listed?.activeRunId !== loaded?.activeRunId ||
-        listed?.status !== loaded?.status
-      )
-        await loadDetail(state.selected, { poll });
-      connectEventStream(state.selected);
-      if (linkedTaskId && state.selected === linkedTaskId && linkedConversationNavigation?.current())
-        await activateConversationTab(linkedTaskId, linkedConversationNavigation);
-    } else if (!poll || !renderedEmpty) renderEmpty();
-    updateSendButton();
+    await applyCatalog(data, { poll });
   } catch (error) {
+    // A request from the backend this page switched away from is not an outage.
+    if (error?.stale || error?.code === "stale_client") return;
     if (!isCurrent() || requestSequence !== listRequestSequence) return;
+    // An ended session has its own actionable state and reauthorize action.
+    if (["session_revoked", "unauthorized", "host_credential_required"].includes(error?.code)) {
+      updateSendButton();
+      return;
+    }
     state.online = false;
-    $("#connection-state").hidden = false;
-    $("#connection-state").textContent = ui("连接中断 · 正在重连");
+    backendConnection?.setOnline(false);
     updateSendButton();
   }
+}
+
+/** The backend the visible catalog belongs to; events from any other are dropped. */
+let boundBackendId = null;
+
+/**
+ * Bind the page to one backend identity.
+ *
+ * Drafts and selections are per backend: the composer swaps its storage
+ * namespace, and a switch back restores exactly what that backend had.
+ */
+function adoptBackendIdentity(backendId) {
+  if (!backendId || backendId === boundBackendId) return;
+  boundBackendId = backendId;
+  composerSession.setBackend(backendId);
+  // The backend's own draft namespace may name a different last conversation
+  // than the page had before the session bound. A conversation link keeps its
+  // choice; otherwise the stored slot is what "the last conversation" means.
+  if (!initialConversationTaskId) {
+    const active = composerSession.activeTask;
+    state.selected = active;
+    state.composingNew = !active && composerSession.hasNewDraft;
+    state.selectedProjectId = composerSession.activeProject ?? null;
+    composerSession.activate(active, { projectId: state.selectedProjectId });
+  }
+}
+
+/** Drop everything that belonged to the backend being left. */
+function resetBackendView() {
+  connection.close();
+  boundBackendId = null;
+  state.selected = null;
+  state.detail = null;
+  state.tasks = [];
+  state.projects = [];
+  state.projectsLoaded = false;
+  state.localMessages = [];
+  state.selectedAgent = null;
+  state.previewPath = null;
+  state.artifactDrawerOpen = false;
+  state.openFiles = [];
+  state.artifactCache.clear();
+  state.viewerTaskId = null;
+  state.modelByTask.clear();
+  state.thinkingLevelByTask.clear();
+  state.models = [];
+  state.model = null;
+  state.defaultModel = null;
+  state.modelConfigured = undefined;
+  state.connectionProfileId = undefined;
+  state.workspacePath = null;
+  state.workspaceRoot = null;
+  state.workspaceLabel = null;
+  state.selectedProjectId = null;
+  state.composingNew = false;
+  renderedDetailSignature = undefined;
+  renderedEmpty = false;
+  projectController.reset();
+  composerSession.detach();
+  renderConversationList();
+  renderEmpty();
+  updateSendButton();
+}
+
+/** The client's catalog snapshot: same payload as `/api/tasks`, plus its cursor. */
+function adoptCatalogSnapshot(snapshot) {
+  if (!snapshot || snapshot.backendId !== management.state().backendId) return;
+  if (snapshot.backendId !== boundBackendId) resetBackendView();
+  adoptBackendIdentity(snapshot.backendId);
+  // The snapshot is a catalog read: accept it exactly like `/api/tasks` before
+  // deciding which conversation it names.
+  projectController.accept(snapshot);
+  void applyCatalog(snapshot).catch(() => undefined);
+}
+
+/** Apply one live catalog event without waiting for a poll. */
+function applyCatalogEvent(record) {
+  if (!record || record.backendId !== boundBackendId) return;
+  if (record.scope === "task") {
+    const index = state.tasks.findIndex((task) => task.taskId === record.objectId);
+    if (record.type === "task.deleted") {
+      if (index >= 0) state.tasks.splice(index, 1);
+      if (state.selected === record.objectId) {
+        state.selected = null;
+        state.detail = null;
+        connection.close();
+      }
+    } else {
+      const task = record.payload;
+      if (!task || typeof task.taskId !== "string") return;
+      if (index >= 0) state.tasks[index] = { ...state.tasks[index], ...task };
+      else state.tasks.unshift(task);
+    }
+  } else if (record.scope === "project" && record.type === "project.changed") {
+    const project = record.payload;
+    if (!project || typeof project.projectId !== "string") return;
+    const index = state.projects.findIndex((entry) => entry.projectId === project.projectId);
+    if (index >= 0) state.projects[index] = { ...state.projects[index], ...project };
+    else state.projects.push({ ...project, tasks: [] });
+  } else {
+    return;
+  }
+  for (const project of state.projects) {
+    project.tasks = state.tasks.filter(
+      (task) =>
+        task.projectId === project.projectId ||
+        (project.tasks || []).some((entry) => entry.taskId === task.taskId)
+    );
+  }
+  renderConversationList();
+  if (state.selected) connectEventStream(state.selected);
+  updateSendButton();
 }
 
 function detailViewSignature(detail) {
@@ -1505,7 +1722,7 @@ function renderAttachments() {
   strip.innerHTML = state.attachments
     .map(
       (file, index) =>
-        ui`<span class="attachment-chip"><span class="attachment-chip-icon">${file.kind === "image" ? `<img src="/api/uploads/${encodeURIComponent(file.uploadId)}" alt="" />` : icon("paperclip")}</span>${file.uploadId ? ui`<button type="button" class="attachment-name" data-upload-preview="${esc(file.uploadId)}" title="预览 ${esc(file.name)}">${esc(file.name)}</button>` : `<span class="attachment-name">${esc(file.name)}</span>`} <small>${esc(formatArtifactSize(file.size ?? new TextEncoder().encode(file.text || "").length))} · ${file.uploadId ? ui("已添加") : ui("完整文本")}</small><button data-remove-attachment="${index}" aria-label="移除 ${esc(file.name)}">${icon("close")}</button></span>`
+        ui`<span class="attachment-chip"><span class="attachment-chip-icon">${file.kind === "image" ? `<img data-upload-src="${encodeURIComponent(file.uploadId)}" alt="" />` : icon("paperclip")}</span>${file.uploadId ? ui`<button type="button" class="attachment-name" data-upload-preview="${esc(file.uploadId)}" title="预览 ${esc(file.name)}">${esc(file.name)}</button>` : `<span class="attachment-name">${esc(file.name)}</span>`} <small>${esc(formatArtifactSize(file.size ?? new TextEncoder().encode(file.text || "").length))} · ${file.uploadId ? ui("已添加") : ui("完整文本")}</small><button data-remove-attachment="${index}" aria-label="移除 ${esc(file.name)}">${icon("close")}</button></span>`
     )
     .join("");
   strip.hidden = state.attachments.length === 0;
@@ -1517,6 +1734,7 @@ function renderAttachments() {
       updateSendButton();
     })
   );
+  hydrateUploadImages(strip);
 }
 
 function clearAttachments() {
@@ -1670,8 +1888,9 @@ const settingsOverview = {
 };
 $("#user-menu-button").addEventListener("click", openProfileMenu);
 document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
-installAttachmentPreview();
+installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
+  upload: (file, options) => management.upload(file, options),
   getContext: () => composerSession.currentToken,
   getFiles: () => state.attachments,
   setFiles: (files) => {
@@ -1779,6 +1998,29 @@ async function createTask(goal, workspaceRoot, submission, projectId) {
   }
 }
 
+/**
+ * One pending Task creation per draft and command content.
+ *
+ * A retry after an uncertain response must present the same operation id and
+ * the same task id; otherwise a response that was lost after the commit would
+ * become a second Task. Editing the draft changes the content key and starts a
+ * genuinely new command.
+ */
+const pendingCreations = new Map();
+
+function pendingCreation(draftIdentity, content) {
+  const contentKey = JSON.stringify(content);
+  const existing = pendingCreations.get(draftIdentity);
+  if (existing && existing.contentKey === contentKey) return existing;
+  const pending = {
+    contentKey,
+    operationId: management.newOperationId(),
+    taskId: `task-${crypto.randomUUID()}`
+  };
+  pendingCreations.set(draftIdentity, pending);
+  return pending;
+}
+
 async function createTaskFromDraft(
   goal,
   sourceTask,
@@ -1790,15 +2032,18 @@ async function createTaskFromDraft(
   submission,
   temporaryWorkspaceRoot
 ) {
-  const taskId = `task-${crypto.randomUUID()}`;
+  const draftIdentity = composerSession.currentDraftIdentity;
+  const pending = pendingCreation(draftIdentity, [goal, projectId, temporaryWorkspaceRoot || null]);
+  const taskId = pending.taskId;
   const body = { taskId, goal, projectId, ...(temporaryWorkspaceRoot ? { temporaryWorkspaceRoot } : {}) };
   // A catalog poll may expose the committed Task before this POST returns.
   if (submission) associateSubmission(submission, taskId);
-  const task = await api("/api/tasks", {
+  const task = await api.command("/api/tasks", {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
+    body,
+    operationId: pending.operationId
   });
+  if (pendingCreations.get(draftIdentity) === pending) pendingCreations.delete(draftIdentity);
   if (submission && task.taskId !== taskId) associateSubmission(submission, task.taskId);
   const foreground =
     state.selected === sourceTask &&
@@ -2035,23 +2280,27 @@ function updateSendButton() {
     promote: promoteQueuedMessage
   });
   const connecting = workbenchController.connecting;
+  const backendReady = Boolean(backendConnection && backendConnection.ready());
   $("#send-button").hidden = showStop;
-  $("#send-button").disabled = isSending || readingAttachments || connecting || stopping || !state.online;
+  $("#send-button").disabled =
+    isSending || readingAttachments || connecting || stopping || !state.online || !backendReady;
   $("#stop-button").hidden = !showStop;
   $("#stop-button").disabled = stopping;
   $("#stop-button").setAttribute("aria-busy", String(stopping));
   $("#stop-button").setAttribute("aria-label", stopping ? ui("正在停止任务") : ui("停止任务"));
   $("#stop-button").title = stopping ? ui("正在停止任务…") : ui("停止任务");
   $("#model-setup-button").hidden = state.modelConfigured !== false;
-  $("#send-button").title = connecting
-    ? ui("正在关联文件…")
-    : isSending
-      ? ui("正在发送…")
-      : readingAttachments
-        ? ui("正在读取附件…")
-        : running
-          ? ui("排队发送（当前任务结束后处理）")
-          : ui("发送（Enter）");
+  $("#send-button").title = !backendReady
+    ? ui("后端连接不可用")
+    : connecting
+      ? ui("正在关联文件…")
+      : isSending
+        ? ui("正在发送…")
+        : readingAttachments
+          ? ui("正在读取附件…")
+          : running
+            ? ui("排队发送（当前任务结束后处理）")
+            : ui("发送（Enter）");
   $("#send-button").setAttribute("aria-label", running ? ui("排队发送") : ui("发送"));
   if (composerSession.editing) {
     $("#send-button").title = ui("请先保存或取消正在编辑的消息");
@@ -2237,10 +2486,32 @@ composerSession.activate(state.selected, { projectId: state.selectedProjectId })
 // Opening a conversation link is a navigation choice. Reserve it before the
 // first tab poll can restore a different conversation or independent editor.
 if (initialConversationTaskId) linkedConversationNavigation = workbenchController.captureNavigation();
-void loadModels();
+/**
+ * Authorize this page and load its backend.
+ *
+ * The page can manage another local backend than the one that served it, so
+ * nothing is read before the session binds; a refused session or an
+ * incompatible protocol leaves the page in an actionable state instead of a
+ * half-populated screen.
+ */
+async function bootBackend() {
+  const connected = await management.connect({ baseUrl: management.rememberedTarget() });
+  if (connected.status !== "connected") {
+    updateSendButton();
+    return;
+  }
+  // Bind drafts to the backend before the first conversation is activated, or
+  // the composer would read the pre-connection namespace.
+  adoptBackendIdentity(connected.backendId);
+  await loadModels();
+  await refresh();
+  updateSendButton();
+}
+void bootBackend();
 // Reserve initial navigation before starting reads that can restore a tab.
 // Automatic reads pause while hidden; explicit actions still refresh directly.
-createVisiblePoll({ run: () => refresh({ poll: true }), intervalMs: 3500, immediate: true });
+// A catalog read stays as the bounded fallback; live changes arrive as events.
+createVisiblePoll({ run: () => refresh({ poll: true }), intervalMs: 3500 });
 // List metadata supplies immediate Task version changes. This independent
 // fallback catches external history/job changes even without a Task version bump.
 createVisiblePoll({
@@ -2266,12 +2537,24 @@ async function prepareInterfaceClose() {
   const composerSaved = composerSession.prepareClose();
   return documentsSaved && repliesSaved && composerSaved;
 }
+backendConnection = createBackendConnection({
+  management,
+  overview: settingsOverview,
+  showToast,
+  onReady: async ({ backendId }) => {
+    adoptBackendIdentity(backendId);
+    await loadModels();
+    await refresh();
+    updateSendButton();
+  }
+});
 window.bookmanDesktop?.onPrepareClose(prepareInterfaceClose);
 installLanguageSettings({ prepareClose: prepareInterfaceClose, storage: draftStorage });
 installDesktopUpdates({ overview: settingsOverview });
 const modelSettings = installDesktopSettings({
   overview: settingsOverview,
   showToast,
+  api,
   onSaved: () => {
     state.modelByTask.clear();
     state.model = null;
@@ -2279,5 +2562,5 @@ const modelSettings = installDesktopSettings({
   }
 });
 $("#model-setup-button").addEventListener("click", () => void modelSettings.open());
-installScienceSettings({ overview: settingsOverview, showToast });
-installUserMemorySettings({ overview: settingsOverview, showToast });
+installScienceSettings({ overview: settingsOverview, showToast, api });
+installUserMemorySettings({ overview: settingsOverview, showToast, api });

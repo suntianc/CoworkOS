@@ -223,7 +223,8 @@ test("creation uses the project contract, preserves new selection during a delay
   f.navigate();
   release({ project: { ...project("new"), projectName: "新项目", updatedAt: "2026-10-11T01:00:00.000Z" } });
   await pending;
-  assert.deepEqual(JSON.parse(f.calls[0].options.body), {
+  const sent = f.calls[0].options.body;
+  assert.deepEqual(typeof sent === "string" ? JSON.parse(sent) : sent, {
     projectName: "新项目",
     projectDirectory: "/tmp/new"
   });

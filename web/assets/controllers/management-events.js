@@ -36,7 +36,7 @@ function delay(ms) {
 }
 
 /** Read one SSE body, handing each complete `data:` frame to the caller. */
-async function readEventStream(body, onRecord) {
+export async function readEventStream(body, onRecord) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -76,6 +76,7 @@ async function readEventStream(body, onRecord) {
  * @param {string} options.backendId  the backend identity this client is bound to
  * @param {string} [options.baseUrl]  backend origin; empty for the page's own
  * @param {typeof fetch} [options.fetch]
+ * @param {object|(() => object)} [options.headers]  the session credential, read per request
  * @param {number} [options.retryDelayMs]
  * @param {(snapshot: object) => void} [options.onSnapshot]  replace the local view
  * @param {(event: object) => void} [options.onEvent]        apply one newer change
@@ -86,6 +87,7 @@ export function createManagementEventClient({
   backendId,
   baseUrl = "",
   fetch: fetchImpl = globalThis.fetch,
+  headers = {},
   retryDelayMs = 250,
   onSnapshot = () => {},
   onEvent = () => {},
@@ -101,6 +103,10 @@ export function createManagementEventClient({
   let connection;
 
   const url = (path) => `${identity.baseUrl}${path}`;
+  const authHeaders = (extra = {}) => ({
+    ...(typeof headers === "function" ? headers() : headers),
+    ...extra
+  });
 
   function open() {
     connection?.abort();
@@ -108,13 +114,21 @@ export function createManagementEventClient({
     return connection;
   }
 
+  /** A refused credential is final: retrying would replace the caller's status with noise. */
+  const unauthorized = (status) => status === 401 || status === 403;
+
   async function readSnapshot(active) {
     const response = await fetchImpl(url(SNAPSHOT_PATH), {
       method: "GET",
-      headers: { accept: "application/json" },
+      headers: authHeaders({ accept: "application/json" }),
       signal: active.signal,
       cache: "no-store"
     });
+    if (unauthorized(response.status)) {
+      const error = new Error(`快照请求未获授权（HTTP ${response.status}）`);
+      error.auth = true;
+      throw error;
+    }
     if (!response.ok) throw new Error(`快照请求失败（HTTP ${response.status}）`);
     return response.json();
   }
@@ -125,14 +139,14 @@ export function createManagementEventClient({
    * @returns {boolean} whether the client still owns it; a snapshot from another
    *   backend identity is rejected instead of being merged into this view.
    */
-  function applySnapshot(snapshot) {
+  function applySnapshot(snapshot, { notify = true } = {}) {
     if (!snapshot || snapshot.backendId !== identity.backendId) {
       onReset({ reason: "backend_mismatch", backendId: identity.backendId });
       return false;
     }
     cursor = Number.isInteger(snapshot.cursor) ? snapshot.cursor : 0;
     revisions = new Map(Object.entries(snapshot.revisions || {}));
-    onSnapshot(snapshot);
+    if (notify) onSnapshot(snapshot);
     return true;
   }
 
@@ -166,7 +180,16 @@ export function createManagementEventClient({
     cursor = 0;
     revisions = new Map();
     onReset({ reason, backendId: identity.backendId });
-    const snapshot = await readSnapshot(active);
+    let snapshot;
+    try {
+      snapshot = await readSnapshot(active);
+    } catch (error) {
+      if (error?.auth) {
+        onStatus("unauthorized", error);
+        return false;
+      }
+      throw error;
+    }
     if (disposed || active !== connection) return false;
     return applySnapshot(snapshot);
   }
@@ -178,11 +201,16 @@ export function createManagementEventClient({
       try {
         const response = await fetchImpl(url(`${STREAM_PATH}?cursor=${cursor}`), {
           method: "GET",
-          headers: { accept: "text/event-stream" },
+          headers: authHeaders({ accept: "text/event-stream" }),
           signal: active.signal,
           cache: "no-store"
         });
         if (disposed || active !== connection) return;
+        if (unauthorized(response.status)) {
+          // The session ended; the owner reauthorizes or shows the refusal.
+          onStatus("unauthorized");
+          return;
+        }
         if (response.status === 409) {
           let code = "cursor_expired";
           try {
@@ -245,13 +273,24 @@ export function createManagementEventClient({
     });
     return handedOff.catch((error) => {
       if (disposed || active !== connection) return;
-      onStatus("failed", error);
+      onStatus(error?.auth ? "unauthorized" : "failed", error);
     });
   }
 
   return {
     /** First snapshot, then follow events until `stop()`. */
     start,
+    /**
+     * Read the authoritative catalog now and keep its cursor, without replaying
+     * the snapshot into the view: the caller that asked for it applies it.
+     */
+    async snapshot() {
+      const active = connection ?? open();
+      const value = await readSnapshot(active);
+      if (disposed || active !== connection) return undefined;
+      applySnapshot(value, { notify: false });
+      return value;
+    },
     /** Follow a different backend: old connection closed, old view not reused. */
     async switchBackend(next) {
       if (!next || typeof next.backendId !== "string" || !next.backendId)

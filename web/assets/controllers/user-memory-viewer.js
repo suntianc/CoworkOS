@@ -3,7 +3,7 @@ import { createSettingsModal } from "./settings-modal.js";
 import { icon } from "../ui/icons.js";
 
 /** One profile editor. Drafts and revision conflicts never silently overwrite user input. */
-export function createUserMemoryViewer({ overview, returnFocus }) {
+export function createUserMemoryViewer({ overview, returnFocus, api }) {
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
   panel.hidden = true;
@@ -17,6 +17,18 @@ export function createUserMemoryViewer({ overview, returnFocus }) {
     </form><p role="status" data-memory-view-status></p></div>
   </section>`;
   document.body.append(panel);
+  /** One backend read/write; the shared client supplies the session and origin. */
+  const send = async (path, options) => {
+    if (api) return api(path, options);
+    const response = await fetch(path, options);
+    const value = await response.json();
+    if (!response.ok) {
+      const error = new Error(value.error || ui("记忆读取失败，请重试"));
+      error.status = response.status;
+      throw error;
+    }
+    return value;
+  };
   const status = panel.querySelector("[data-memory-view-status]");
   const form = panel.querySelector("form");
   const input = form.querySelector("textarea");
@@ -65,19 +77,18 @@ export function createUserMemoryViewer({ overview, returnFocus }) {
     update();
     result.textContent = ui("正在保存…");
     try {
-      const response = await fetch("/api/user-memory", {
+      const value = await send("/api/user-memory", {
         method: "POST",
         cache: "no-store",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "save_text", content, revision })
-      });
-      const value = await response.json();
-      if (!response.ok)
+      }).catch((error) => {
         throw new Error(
-          response.status === 409
+          error?.status === 409
             ? ui("记忆已变化，输入已保留。请先复制草稿，取消修改后核对最新记忆再保存。")
-            : value.error || ui("保存失败，输入已保留，请重试。")
+            : error.message || ui("保存失败，输入已保留，请重试。")
         );
+      });
       revision = value.revision;
       baseline = value.content;
       input.value = baseline;
@@ -99,9 +110,7 @@ export function createUserMemoryViewer({ overview, returnFocus }) {
     input.disabled = true;
     save.disabled = true;
     try {
-      const response = await fetch("/api/user-memory", { cache: "no-store", signal: controller.signal });
-      const value = await response.json();
-      if (!response.ok) throw new Error(value.error || ui("记忆读取失败，请重试"));
+      const value = await send("/api/user-memory", { cache: "no-store", signal: controller.signal });
       if (request !== sequence || panel.hidden) return;
       baseline = value.content;
       revision = value.revision;

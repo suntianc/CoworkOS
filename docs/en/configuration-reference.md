@@ -136,23 +136,26 @@ Settings apply to CLI Main, headless CLI, subagents, model discovery, connection
 
 ## Paths and environment variables
 
-| Variable                                              | Purpose                                                                           |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `COWORK_CONFIG`                                       | Explicit configuration file                                                       |
-| `COWORK_API_BASE` / `COWORK_MODEL` / `COWORK_API_KEY` | Model URL, ID and key                                                             |
-| `COWORK_MODEL_API`                                    | Same values as `api`                                                              |
-| `COWORK_THINKING_FORMAT`                              | Thinking format for the current process                                           |
-| `COWORK_SUPPORTS_IMAGES`                              | `1` / `true` enables; `0` / `false` disables                                      |
-| `COWORK_REASONING_EFFORT`                             | Reasoning level                                                                   |
-| `COWORK_SUPPORTS_REASONING_EFFORT`                    | `1` / `true` enables; `0` / `false` omits effort fields                           |
-| `COWORK_SUPPORTS_PROMPT_CACHE_KEY`                    | `1` / `true` enables; `0` / `false` disables third-party cache keys               |
-| `ATRIA_HOME`                                          | App, CLI and Web user home, default `~/.atria`; explicit path overrides still win |
-| `COWORK_DESKTOP_DATA`                                 | Separate desktop data directory                                                   |
-| `COWORK_WORKSPACE`                                    | Persistent task data directory, default `~/.atria/workspace`                      |
-| `COWORK_PROJECT_DIR`                                  | Main's project directory for files and commands                                   |
-| `PI_CODING_AGENT_DIR`                                 | Pi state directory, default `~/.atria/pi`                                         |
-| `COWORK_TASK_ID`                                      | Fixed Main Task, used with its original Pi session for recovery                   |
-| `COWORK_UI_PORT`                                      | Source Web port, default 3880                                                     |
+| Variable                                              | Purpose                                                                                      |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `COWORK_CONFIG`                                       | Explicit configuration file                                                                  |
+| `COWORK_API_BASE` / `COWORK_MODEL` / `COWORK_API_KEY` | Model URL, ID and key                                                                        |
+| `COWORK_MODEL_API`                                    | Same values as `api`                                                                         |
+| `COWORK_THINKING_FORMAT`                              | Thinking format for the current process                                                      |
+| `COWORK_SUPPORTS_IMAGES`                              | `1` / `true` enables; `0` / `false` disables                                                 |
+| `COWORK_REASONING_EFFORT`                             | Reasoning level                                                                              |
+| `COWORK_SUPPORTS_REASONING_EFFORT`                    | `1` / `true` enables; `0` / `false` omits effort fields                                      |
+| `COWORK_SUPPORTS_PROMPT_CACHE_KEY`                    | `1` / `true` enables; `0` / `false` disables third-party cache keys                          |
+| `ATRIA_HOME`                                          | App, CLI and Web user home, default `~/.atria`; explicit path overrides still win            |
+| `COWORK_DESKTOP_DATA`                                 | Separate desktop data directory                                                              |
+| `COWORK_WORKSPACE`                                    | Persistent task data directory, default `~/.atria/workspace`                                 |
+| `COWORK_PROJECT_DIR`                                  | Main's project directory for files and commands                                              |
+| `PI_CODING_AGENT_DIR`                                 | Pi state directory, default `~/.atria/pi`                                                    |
+| `COWORK_TASK_ID`                                      | Fixed Main Task, used with its original Pi session for recovery                              |
+| `COWORK_UI_PORT`                                      | Source Web port, default 3880                                                                |
+| `COWORK_TRUSTED_CLIENT_ORIGINS`                       | Trusted local page origins; exact loopback `http://127.0.0.1:<port>` values, comma-separated |
+
+`COWORK_TRUSTED_CLIENT_ORIGINS` accepts only exact local `http://` origins and never a wildcard. Named origins may read this backend's responses across ports and appear in its page's `connect-src`; credentials and the `127.0.0.1` listener are unchanged. A browser page managing another local backend names both origins on the two backends. See [Product API](../product-api.md#trusted-local-client-origins).
 
 Runtime state defaults to `~/.atria/runtime` in every entrypoint. Project settings save `projectName`, `projectId` and `projectDirectory`; the first message creates the conversation. Project working directories are separate from internal storage under `workspaceRoot` / `COWORK_WORKSPACE`.
 

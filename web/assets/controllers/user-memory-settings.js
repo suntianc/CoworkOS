@@ -3,7 +3,7 @@ import { icon } from "../ui/icons.js";
 import { createUserMemoryViewer } from "./user-memory-viewer.js";
 
 /** Inline controls with an on-demand view of saved memories. */
-export function installUserMemorySettings({ showToast, overview }) {
+export function installUserMemorySettings({ showToast, overview, api }) {
   const row = document.createElement("div");
   row.className = "user-memory-settings";
   row.innerHTML = ui`<div class="profile-setting user-memory-setting"><span class="settings-row-copy"><span class="settings-row-icon">${icon("history")}</span><span><strong>个人记忆</strong><small role="status" data-memory-status></small></span></span><span class="user-memory-actions"><label class="settings-toggle user-memory-switch"><input type="checkbox" aria-label="使用个人记忆" data-memory-use></label><button type="button" class="app-button is-secondary" data-memory-open aria-label="查看记忆">查看${icon("chevron-right")}</button></span></div>
@@ -20,7 +20,7 @@ export function installUserMemorySettings({ showToast, overview }) {
   let viewer;
   const open = row.querySelector("[data-memory-open]");
   open.addEventListener("click", () => {
-    viewer ??= createUserMemoryViewer({ overview, returnFocus: () => open.focus() });
+    viewer ??= createUserMemoryViewer({ overview, returnFocus: () => open.focus(), api });
     viewer.open();
   });
   const use = row.querySelector("[data-memory-use]");
@@ -72,14 +72,19 @@ export function installUserMemorySettings({ showToast, overview }) {
     for (const field of [model, tokens, limit]) field.disabled = true;
     save.disabled = true;
     try {
-      const response = await fetch("/api/user-memory", {
+      const options = {
         cache: "no-store",
         ...(change
           ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(change) }
           : {})
-      });
-      const value = await response.json();
-      if (!response.ok) throw new Error(value.error || ui("用户记忆暂不可用"));
+      };
+      const value = api
+        ? await api("/api/user-memory", options)
+        : await fetch("/api/user-memory", options).then(async (response) => {
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.error || ui("用户记忆暂不可用"));
+            return body;
+          });
       status.textContent = "";
       if (change?.action === "set_learning_options") {
         optionsDirty = false;
