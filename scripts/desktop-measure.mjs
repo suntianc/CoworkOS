@@ -1,9 +1,16 @@
 import { _electron as electron } from "@playwright/test";
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { splitByRole, cpuPercent, logOffsets, backendListening } from "./desktop-measure-support.mjs";
+import {
+  splitByRole,
+  cpuPercent,
+  logOffsets,
+  backendListening,
+  parseFootprint
+} from "./desktop-measure-support.mjs";
+import { hashFixture, prepareMeasuredFixture } from "./desktop-measure-fixture.mjs";
 
 /**
  * Measure one packaged desktop build the same way every time.
@@ -34,6 +41,7 @@ const HELP = `Package measurement for desktop release comparisons
   --cpu-window MS    Window between the two CPU snapshots (default 5000)
   --scratch DIR      Isolated temporary data roots (default: .tmp/desktop-measure)
   --confirm-unsaved-test-quit  Select the known unsaved-draft warning for isolated test data
+The template must contain fixture-long-1 and fixture-long-2 with the documented history markers.
 The template data root is copied for each run; it is never written by the harness.`;
 
 function parseOptions(args) {
@@ -129,7 +137,7 @@ async function processTable() {
 
 function backendRoots(table, rootPid, instance) {
   if (instance) return [instance.pid];
-  // Legacy builds own their dashboard child; restrict discovery to this app tree.
+  // During startup, discover only backend children of this app tree.
   const descendants = new Set([rootPid]);
   let previous;
   do {
@@ -137,8 +145,19 @@ function backendRoots(table, rootPid, instance) {
     for (const entry of table) if (descendants.has(entry.ppid)) descendants.add(entry.pid);
   } while (descendants.size !== previous);
   return table
-    .filter((entry) => descendants.has(entry.pid) && /dist\/src\/cli\/dashboard\.js/.test(entry.command))
+    .filter(
+      (entry) => descendants.has(entry.pid) && /dist\/src\/cli\/(?:dashboard|backend)\.js/.test(entry.command)
+    )
     .map((entry) => entry.pid);
+}
+
+async function footprint(pids) {
+  if (!pids.length) throw new Error("cannot measure footprint without processes");
+  const { stdout } = await exec("/usr/bin/footprint", ["-f", "bytes", ...pids.map(String)], {
+    timeout: 30_000,
+    maxBuffer: 8 * 1024 * 1024
+  });
+  return parseFootprint(stdout, pids);
 }
 
 async function sample(rootPid, instance, options) {
@@ -162,6 +181,8 @@ async function sample(rootPid, instance, options) {
     backendRssKb: secondSplit.backend.rssKb,
     clientCpuPercent: cpu("client"),
     backendCpuPercent: cpu("backend"),
+    clientFootprintBytes: await footprint(secondSplit.pids.client),
+    backendFootprintBytes: await footprint(secondSplit.pids.backend),
     pids: secondSplit.pids
   };
 }
@@ -231,8 +252,28 @@ async function waitFor(predicate, timeoutMs, description) {
 }
 
 async function packageBytes(appBundle) {
-  const { stdout } = await exec("/usr/bin/du", ["-sk", resolve(appBundle)]);
-  return Number(stdout.split(/\s+/)[0]) * 1024;
+  const bundle = resolve(appBundle);
+  const { stdout } = await exec("/usr/bin/du", ["-sk", bundle]);
+  const inodes = new Set();
+  const count = async (path) => {
+    const info = await lstat(path);
+    if (info.isDirectory()) {
+      const children = await readdir(path);
+      let total = 0;
+      for (const name of children) total += await count(join(path, name));
+      return total;
+    }
+    const id = `${info.dev}:${info.ino}`;
+    if (inodes.has(id)) return 0;
+    inodes.add(id);
+    return info.size;
+  };
+  return {
+    allocatedBytes: Number(stdout.split(/\s+/)[0]) * 1024,
+    apparentBytes: await count(bundle),
+    apparentMethod:
+      "sum of lstat sizes for unique file and symlink inodes; no directory sizes, no symlink traversal"
+  };
 }
 
 async function oneRun(options, executable, runIndex) {
@@ -241,7 +282,7 @@ async function oneRun(options, executable, runIndex) {
   const home = join(runRoot, "home");
   const dataRoot = join(runRoot, "data");
   await mkdir(home, { recursive: true });
-  await cp(resolve(options.template), dataRoot, { recursive: true, verbatimSymlinks: true });
+  const fixture = await prepareMeasuredFixture(options.template, dataRoot);
   if (await readInstance(dataRoot)) throw new Error("template contains a backend instance record");
   const logsDir = join(dataRoot, "logs");
   const errors = [];
@@ -251,6 +292,28 @@ async function oneRun(options, executable, runIndex) {
   let instance;
   let legacyRoots = [];
   let result;
+  let peakKb = 0;
+  let peakTimer;
+  let peakPending = Promise.resolve();
+  let peakBusy = false;
+  let peakError;
+  const collectPeak = () => {
+    if (peakBusy) return;
+    peakBusy = true;
+    peakPending = processTable()
+      .then((table) => {
+        peakKb = Math.max(
+          peakKb,
+          splitByRole(table, rootPid, backendRoots(table, rootPid, instance)).client.rssKb
+        );
+      })
+      .catch((error) => {
+        peakError = error;
+      })
+      .finally(() => {
+        peakBusy = false;
+      });
+  };
   const launch = async (phase) => {
     const app = await electron.launch({
       executablePath: executable,
@@ -298,10 +361,48 @@ async function oneRun(options, executable, runIndex) {
       timeout: options.timeout
     });
   };
+  const selectHistory = async (page, taskId, markers, minimumMessages) => {
+    const button = page.locator(`#project-list [data-task="${taskId}"]`);
+    await button.waitFor({ state: "attached", timeout: options.timeout });
+    const group = button.locator("xpath=ancestor::section[contains(@class, 'project-group')]");
+    const project = group.locator(".project-row");
+    if ((await project.getAttribute("aria-expanded")) === "false") await project.click();
+    const started = performance.now();
+    await button.click();
+    await page.waitForFunction(
+      ({ id, texts, minimum }) => {
+        const active = document.querySelector(`#project-list [data-task="${id}"]`);
+        const conversation = document.querySelector("#conversation");
+        return (
+          active?.getAttribute("aria-current") === "page" &&
+          conversation &&
+          texts.every((text) => conversation.textContent.includes(text)) &&
+          conversation.querySelectorAll(".chat-message").length >= minimum
+        );
+      },
+      { id: taskId, texts: markers, minimum: minimumMessages },
+      { timeout: options.timeout }
+    );
+    return {
+      taskId,
+      markers,
+      readyMs: Math.round(performance.now() - started),
+      renderedMessages: await page.locator("#conversation .chat-message").count()
+    };
+  };
   const close = async (app) => {
     const pid = app.process().pid;
     const closed = await Promise.race([app.close().then(() => true), delay(15_000).then(() => false)]);
     if (!closed || alive(pid)) throw new Error(`normal app exit did not complete for pid ${pid}`);
+  };
+  const verifyTemplateUnchanged = async () => {
+    const templateHashAfter = await hashFixture(options.template);
+    await writeFile(
+      join(resolve(options.out), `${options.label}-run${runIndex + 1}-fixture.json`),
+      `${JSON.stringify({ ...fixture, templateHashAfter }, null, 2)}\n`
+    );
+    if (templateHashAfter !== fixture.templateHash)
+      throw new Error("fixture template changed during measurement");
   };
   const cleanupOwned = async () => {
     if (application && rootPid && alive(rootPid)) {
@@ -347,6 +448,8 @@ async function oneRun(options, executable, runIndex) {
     const started = performance.now();
     application = await launch("cold");
     rootPid = application.process().pid;
+    collectPeak();
+    peakTimer = setInterval(collectPeak, 200);
     let page = await application.firstWindow();
     const listening = await waitFor(
       () => backendListening(logsDir, offsets),
@@ -366,21 +469,30 @@ async function oneRun(options, executable, runIndex) {
           return { pid, command: entry.command };
         });
     if (!instance && !legacyRoots.length) throw new Error("legacy backend process was not found in app tree");
-    let peakKb = 0;
-    while (performance.now() - started < options.settle) {
-      const table = await processTable();
-      peakKb = Math.max(
-        peakKb,
-        splitByRole(table, rootPid, backendRoots(table, rootPid, instance)).client.rssKb
-      );
-      await delay(200);
-    }
-    if (!peakKb) {
-      const table = await processTable();
-      peakKb = splitByRole(table, rootPid, backendRoots(table, rootPid, instance)).client.rssKb;
-    }
+    await delay(Math.max(0, options.settle - (performance.now() - started)));
+    clearInterval(peakTimer);
+    peakTimer = undefined;
+    await peakPending;
+    if (peakError) throw peakError;
+    if (!peakKb) throw new Error("no startup memory samples");
     marks.startupPeakClientRssKb = peakKb;
     const settled = await sample(rootPid, instance, options);
+    const longHistoryView = await selectHistory(
+      page,
+      "fixture-long-1",
+      ["LONG-HISTORY-START", "LONG-HISTORY-END"],
+      200
+    );
+    const longHistory = { ...longHistoryView, ...pick(await sample(rootPid, instance, options)) };
+    const shortHistoryView = await selectHistory(page, "fixture-long-2", ["SHORT-HISTORY-END"], 2);
+    const shortHistory = { ...shortHistoryView, ...pick(await sample(rootPid, instance, options)) };
+    const returnHistoryView = await selectHistory(
+      page,
+      "fixture-long-1",
+      ["LONG-HISTORY-START", "LONG-HISTORY-END"],
+      200
+    );
+    const returnHistory = { ...returnHistoryView, ...pick(await sample(rootPid, instance, options)) };
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
     await delay(options.background);
     const background = await sample(rootPid, instance, options);
@@ -434,6 +546,10 @@ async function oneRun(options, executable, runIndex) {
       backend: listening,
       marks,
       settled: pick(settled),
+      longHistory,
+      shortHistory,
+      returnHistory,
+      fixture,
       background: pick(background),
       reopened: { windowReadyMs: marks.reopenedWindowReadyMs, ...pick(reopened) },
       hot: { windowReadyMs: hotWindowReadyMs, ...pick(hot) },
@@ -443,7 +559,13 @@ async function oneRun(options, executable, runIndex) {
       errors
     };
   } finally {
-    await cleanupOwned();
+    clearInterval(peakTimer);
+    await peakPending;
+    try {
+      await cleanupOwned();
+    } finally {
+      await verifyTemplateUnchanged();
+    }
   }
   return result;
 }
@@ -455,7 +577,9 @@ function pick(sampleResult) {
     backendProcesses: sampleResult.backendProcesses,
     backendRssKb: sampleResult.backendRssKb,
     clientCpuPercent: sampleResult.clientCpuPercent,
-    backendCpuPercent: sampleResult.backendCpuPercent
+    backendCpuPercent: sampleResult.backendCpuPercent,
+    clientFootprintBytes: sampleResult.clientFootprintBytes,
+    backendFootprintBytes: sampleResult.backendFootprintBytes
   };
 }
 
@@ -505,7 +629,28 @@ async function main() {
     condition: options.label,
     runs: runs.length,
     options,
-    appBytes: await packageBytes(options.app),
+    appSize: await packageBytes(options.app),
+    startupPeakMethod:
+      "200 ms process snapshots from Electron launch attachment until settle; RSS includes shared mappings",
+    footprintMethod:
+      "macOS footprint dirty-byte summary, deduplicated within each process role; roles may share pages",
+    longHistoryClientFootprintMb: series(
+      runs.map((run) => run.longHistory.clientFootprintBytes),
+      { scale: 1024 * 1024 }
+    ),
+    longHistoryBackendFootprintMb: series(
+      runs.map((run) => run.longHistory.backendFootprintBytes),
+      { scale: 1024 * 1024 }
+    ),
+    historySwitchReadyMs: series(runs.map((run) => run.returnHistory.readyMs)),
+    settledClientFootprintMb: series(
+      runs.map((run) => run.settled.clientFootprintBytes),
+      { scale: 1024 * 1024 }
+    ),
+    settledBackendFootprintMb: series(
+      runs.map((run) => run.settled.backendFootprintBytes),
+      { scale: 1024 * 1024 }
+    ),
     coldWindowReadyMs: series(runs.map((run) => run.marks.windowReadyMs)),
     coldBackendReadyMs: series(runs.map((run) => run.marks.backendReadyMs)),
     hotWindowReadyMs: series(runs.map((run) => run.hot.windowReadyMs)),

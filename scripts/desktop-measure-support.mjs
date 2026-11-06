@@ -75,3 +75,13 @@ export async function backendListening(logsDir, offsets) {
   }
   return undefined;
 }
+
+/** footprint's multi-process summary deduplicates multiply mapped memory objects. */
+export function parseFootprint(output, pids) {
+  if (!pids.length || pids.some((pid) => !output.includes(`[${pid}]`)))
+    throw new Error("footprint missing process");
+  const pattern = pids.length === 1 ? /Footprint:\s*(\d+) B/ : /Summary Footprint:\s*(\d+) B/;
+  const match = pattern.exec(output);
+  if (!match) throw new Error("footprint missing summary");
+  return Number(match[1]);
+}
