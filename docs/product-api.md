@@ -12,12 +12,16 @@ This is the boundary between the Cowork Runtime and the desktop/Web UI. The UI m
 
 The current implementation is a local single-user service bound to `127.0.0.1`. Host/Origin checks apply to every request.
 
-The native desktop host additionally requires its session token for `/api/*` (HttpOnly `atria-session` Cookie or `x-atria-token` for owned clients). Development mode without a token remains local-only. Remote/multi-user deployment is unsupported. See [architecture](architecture.md) and [software integration](software-integration.md) for current module and protocol boundaries.
+The serving process publishes a host credential in its instance record; `/api/*` requires it (`x-atria-token`, `Authorization: Bearer`, or the desktop's HttpOnly `atria-session` Cookie). A client exchanges that credential for a named local session; see [Local sessions and management commands](#local-sessions-and-management-commands). Development mode without a token remains local-only. Remote/multi-user deployment is unsupported: the listener stays on `127.0.0.1`, and Host/Origin checks run before any credential check. See [architecture](architecture.md) and [software integration](software-integration.md) for current module and protocol boundaries.
 
 ## Global APIs
 
 ```text
 GET  /api/backend
+POST /api/session
+GET  /api/session
+DELETE /api/session/:sessionId
+GET  /api/operations/:operationId
 GET  /api/models
 GET  /api/model-settings
 POST /api/model-settings
@@ -37,7 +41,7 @@ POST /api/projects/:projectId/experience
 
 Models returns `{ current, models, configured }`. `GET /api/tasks` returns the grouped catalog `{ workspaceRoot, currentWorkspaceRoot, model, tasks, projects }`, rather than a bare Task array. Explicit projects remain in `projects` with `tasks: []`; legacy automatic groups retain their directory-based IDs and the sidebar hides them when they have no unarchived conversations.
 
-`GET /api/backend` returns `{ backendId, pid, startedAt }` for the process serving this data root. The standalone backend keeps `backendId` across restarts, so a client can tell a restarted process from a different backend, and `pid` lets a host stop only the process it recorded. The route is local and token-checked like the other `/api/*` routes and exposes no configuration.
+`GET /api/backend` returns `{ backendId, pid, startedAt, protocol }` for the process serving this data root. `protocol` is `{ version, minClientVersion, capabilities }`. The standalone backend keeps `backendId` across restarts, so a client can tell a restarted process from a different backend, and `pid` lets a host stop only the process it recorded. The route is local and credential-checked like the other `/api/*` routes and exposes no configuration.
 
 Desktop model settings use the trusted preload/IPC interface, not these HTTP routes.
 
@@ -56,6 +60,32 @@ The legacy global `POST /api/workspace/choose` still accepts `{ workspaceRoot }`
 Model connection testing accepts `{ baseUrl, model, api?, apiKey?, supportsImages? }` without saving. An omitted or blank key uses the existing local secret; environment-managed connections test the effective configuration. `api` accepts `openai-completions` (default for legacy configurations) or `openai-responses`; unknown values are rejected before saving or requesting. Omitted values preserve the saved format. GET settings returns the effective format; `COWORK_MODEL_API` overrides local configuration and makes Web settings environment-managed.
 
 The service verifies a function call in the selected protocol and, when enabled, a synthetic image challenge. Success returns `{ ok: true, model, supportsImages, durationMs }`; errors contain only local diagnostics and never provider response bodies or credentials. Desktop uses trusted `bookman:test-model` IPC with the same probe. This is a connection check, not a general quality benchmark or a guarantee of arbitrary tool compatibility.
+
+## Local sessions and management commands
+
+Route implementations: [sessions](../src/dashboard/session-routes.ts), [local access](../src/dashboard/local-access.ts), [protocol](../src/dashboard/backend-protocol.ts) and [commands](../src/dashboard/management-commands.ts). This is the protocol seam every local client shares; the desktop host, the Web UI and future clients must use it instead of reading backend files.
+
+A host credential authorizes once and names this client as a session. Every later request presents the session credential in the same headers the host credential uses. Sessions belong to the data root and survive a backend restart; only their hashes are written. Revoking one client never disturbs the owner's other clients, and the host credential itself keeps working for owned tools that never authorize.
+
+| Endpoint                           | Behavior                                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/session`                | `{ clientName?, protocolVersion }` → HTTP 201 `{ session: { sessionId, token, clientName?, protocolVersion, createdAt }, backend, protocol }`. |
+| `GET /api/session`                 | `{ current: { kind, sessionId? }, sessions }`; the host sees every session, a session sees itself. Listing never repeats a secret.             |
+| `DELETE /api/session/:sessionId`   | Revoke one session (a session may end itself, the host may end any) → `{ sessionId, revokedAt, revoked: true }`. Repeating is a success.       |
+| `GET /api/operations/:operationId` | The saved receipt `{ operationId, command, status, body, completedAt }` of this identity's command, or HTTP 404 `operation_unknown`.           |
+
+`protocolVersion` is `major.minor`. The major number is compatibility; a client minor newer than this backend is refused, an older one is accepted. A missing version returns HTTP 400 `protocol_required`; an incompatible one returns HTTP 409 `protocol_incompatible` naming both versions, so both sides can show an actionable upgrade message. Capabilities describe the protocol this backend serves; clients branch on capability names instead of route probing.
+
+Change commands accept an optional `operationId`: `POST /api/projects`, `PATCH /api/projects/:projectId`, `POST /api/tasks` and `POST /api/tasks/:taskId/goals/:programId/control`. Management clients send one on every change; omitting it keeps the legacy single-shot behavior the current Web UI uses.
+
+- The same identity, `operationId` and command content returns the saved status and body, marked with the `x-cowork-replayed: 1` response header, instead of applying the change again. Two in-flight duplicates still produce one result.
+- The same `operationId` with different content returns HTTP 409 `operation_conflict` and changes nothing.
+- Receipts are per identity: one client never reads another client's command result. A receipt exists only for a command that succeeded; a failed command can be retried.
+- A lost response is reconciled by reading the receipt, then retrying with the same identity, `operationId` and content. The receipt is written before the response, so a restart between them replays the saved result.
+
+Object changes carry the expected revision their service checks under its own lock: goal lifecycle controls send `revision`, and a stale value returns HTTP 409 `revision_conflict` without changing state. An operation id is the command's identity, not a substitute for the revision check: a replay returns the saved result, while a new command with a stale revision is refused.
+
+Stable error codes: `unauthorized`, `session_revoked`, `session_unknown`, `host_credential_required`, `protocol_required`, `protocol_incompatible`, `operation_id_invalid`, `operation_conflict`, `operation_unknown`, `operation_receipt_invalid`, `revision_conflict`. Messages stay in the server's user-facing language; clients branch on the code. A damaged receipt is never treated as "no command": it returns 500 `operation_receipt_invalid` and leaves the file in place, because re-running the command could apply it twice.
 
 ## Project experience
 
@@ -548,7 +578,7 @@ Goal HTTP routes and Pi tools share `GoalManagement`; routes are [goal-routes](.
 
 Creation accepts `{sourceTaskId?,requestId,scope?,brief}`. `requestId` (1–200 characters) provides stable creation identity; retries with the same identity reuse the goal, while a conflicting brief returns HTTP 409. `scope` defaults to `background`; `session` requires an active source Task. `brief` contains required `title` and `objective`, optional `completionCriteria`/`preferences`, and `notificationPolicy: "important_only" | "digest" | "all"`. Digest policy requires `{dayOfWeek,hour,minute,timeZone}`; day 0 is Sunday and the timezone must be recognized by `Intl.DateTimeFormat`.
 
-Controls use `action: "edit" | "pause" | "resume" | "complete" | "respond"`. Edit supplies the current `revision` and `brief`; lifecycle actions supply the current `revision`. Revision conflicts return HTTP 409 and require rereading. Respond supplies a nonempty answer up to 10000 characters and follows the durable HumanRequest → Inbox path. Completing the last independent background goal also stops its Task work; a session goal does not stop unrelated conversation work.
+Controls use `action: "edit" | "pause" | "resume" | "complete" | "respond"`. Edit supplies the current `revision` and `brief`; lifecycle actions supply the current `revision`. Revision conflicts return HTTP 409 `revision_conflict` and require rereading. A control may also carry `operationId`: a repeat returns the saved result, which is how a client retries after a lost response even though the revision has moved. Respond supplies a nonempty answer up to 10000 characters and follows the durable HumanRequest → Inbox path. Completing the last independent background goal also stops its Task work; a session goal does not stop unrelated conversation work.
 
 Goal state, reports and notifications are distinct. Repeated concrete results reuse `topicKey`; normal same-priority repeats do not create a second notification, while promotion may. Digests assemble accepted routine records without another model request. Unread state is durable. Goal context is bounded; historical report bodies do not enter every model request.
 

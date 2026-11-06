@@ -17,7 +17,9 @@ export const dashboardContentPolicy = [
 export class HttpError extends Error {
   constructor(
     readonly status: number,
-    message: string
+    message: string,
+    /** A stable protocol code, for clients that branch on outcomes instead of prose. */
+    readonly code?: string
   ) {
     super(message);
     this.name = "HttpError";
@@ -58,11 +60,62 @@ export async function readJsonBody(
 }
 
 /**
+ * The local credential a request presents.
+ *
+ * One reader for the three shapes clients already use: header clients send
+ * `x-atria-token`, the desktop host installs an HttpOnly `atria-session`
+ * cookie, and other local tools may send `Authorization: Bearer`.
+ */
+export function presentedCredential(request: IncomingMessage): string | undefined {
+  const direct = request.headers["x-atria-token"];
+  if (typeof direct === "string" && direct) return direct;
+  const authorization = request.headers.authorization;
+  if (typeof authorization === "string" && authorization.startsWith("Bearer ")) {
+    const bearer = authorization.slice("Bearer ".length).trim();
+    if (bearer) return bearer;
+  }
+  return (
+    String(request.headers.cookie || "")
+      .split(";")
+      .map((item) => item.trim())
+      .find((item) => item.startsWith("atria-session="))
+      ?.slice("atria-session=".length) || undefined
+  );
+}
+
+export function sameSecret(provided: string | undefined, expected: string): boolean {
+  if (!provided) return false;
+  const left = Buffer.from(provided);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+/** Decides whether a request may use `/api/*`; the caller owns the credential policy. */
+export interface LocalCredentialPolicy {
+  admit(request: IncomingMessage): void;
+}
+
+/** The environment token, for a host with no session store: keep the old single-secret check. */
+export function environmentCredentialPolicy(): LocalCredentialPolicy {
+  return {
+    admit(request) {
+      const expected = process.env.COWORK_API_TOKEN;
+      if (expected && !sameSecret(presentedCredential(request), expected))
+        throw new HttpError(401, "本地会话未授权", "unauthorized");
+    }
+  };
+}
+
+/**
  * This server is a local, single-user API, not a remotely accessible backend.
  * Check Host as well as Origin, so DNS rebinding cannot turn it into one.
  * Non-browser local clients (Main and MCP) intentionally need no Origin header.
  */
-export function localRequestUrl(request: IncomingMessage, dashboardUrl: string): URL {
+export function localRequestUrl(
+  request: IncomingMessage,
+  dashboardUrl: string,
+  policy: LocalCredentialPolicy = environmentCredentialPolicy()
+): URL {
   const local = new URL(dashboardUrl);
   const host = request.headers.host;
   const localhost = `localhost:${local.port}`;
@@ -76,18 +129,6 @@ export function localRequestUrl(request: IncomingMessage, dashboardUrl: string):
   }
   const url = new URL(request.url ?? "/", origin);
   if (url.origin !== origin) throw new HttpError(403, "请求地址不是本地 CoworkOS");
-  const expected = process.env.COWORK_API_TOKEN;
-  if (expected && url.pathname.startsWith("/api/")) {
-    const cookie = String(request.headers.cookie || "")
-      .split(";")
-      .map((item) => item.trim())
-      .find((item) => item.startsWith("atria-session="))
-      ?.slice("atria-session=".length);
-    const candidate = request.headers["x-atria-token"] ?? cookie;
-    const provided = typeof candidate === "string" ? Buffer.from(candidate) : Buffer.alloc(0);
-    const secret = Buffer.from(expected);
-    if (provided.length !== secret.length || !timingSafeEqual(provided, secret))
-      throw new HttpError(401, "本地会话未授权");
-  }
+  if (url.pathname.startsWith("/api/")) policy.admit(request);
   return url;
 }
