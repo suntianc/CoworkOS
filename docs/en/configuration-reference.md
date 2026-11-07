@@ -126,6 +126,34 @@ Environment variables take precedence. Only HTTP(S) proxy URLs are accepted, suc
 
 Settings apply to CLI Main, headless CLI, subagents, model discovery, connection checks and separate vision requests with both model protocols. Sessions, vision analyses and checks release their proxy connections on completion or cancellation. Interactive Pi uses SDK environment proxies; there are no separate model or vision proxy variables. Treat credential-bearing proxy URLs as private configuration.
 
+## Project data storage
+
+The project ledger and shared project identities live in a separate project data service: a personal deployment defaults to local SQLite and may explicitly choose PostgreSQL. Both modes share one domain service, HTTP surface and Main tool; business behaviour does not depend on the engine. The engine is fixed when the service starts. An invalid configuration, unreachable database or failed authentication refuses to start and names the engine and target; it never switches to the other engine or continues on an empty database.
+
+```json
+{
+  "projectData": {
+    "engine": "postgres",
+    "postgres": { "connectionString": "postgresql://coworkos@db.example:5432/coworkos" }
+  }
+}
+```
+
+SQLite defaults to `project-data.sqlite` under the data root (`ATRIA_HOME/runtime/project-data.sqlite`, `~/.atria/runtime/project-data.sqlite` by default); `projectData.sqlite.path` selects another file, and a relative path resolves against the data root. PostgreSQL also accepts separate `host`, `port`, `database`, `user`, `password` and `ssl` fields. Connection credentials stay in the serving host's configuration or `COWORK_PROJECT_DATA_URL` and never enter the UI, tool arguments or error text.
+
+Choosing an engine is not a data migration: switching engines does not move the existing project catalog, Task/Run, attachments or Pi history, and this stage adds no cross-engine move, dual write or live switch. The existing project catalog still supplies the stable `projectId`; shared project rows keep only that identity, while the local directory is a binding of the current backend, so a shared row's directory is never used as a local execution directory.
+
+### Backup and restore
+
+The service applies versioned schema migrations at startup. `GET /api/project-data` reports the current engine, server version and applied schema version; `target` is a file path or `postgresql://host:port/database` and carries no credential. Backup and restore use the same service against the current engine:
+
+```sh
+coworkos data backup --to ~/backups/project-data.json
+coworkos data restore --from ~/backups/project-data.json
+```
+
+A backup is a local logical snapshot (mode 0600) of the shared projects, this host's directory bindings, requirements, revisions, decisions and references. Restore replaces those records in one transaction and refuses a snapshot from the other engine. Stop the backend writing the data root before a restore and restart it afterwards.
+
 ## Paths and environment variables
 
 | Variable                                              | Purpose                                                                                      |
@@ -146,6 +174,9 @@ Settings apply to CLI Main, headless CLI, subagents, model discovery, connection
 | `COWORK_TASK_ID`                                      | Fixed Main Task, used with its original Pi session for recovery                              |
 | `COWORK_UI_PORT`                                      | Source Web port, default 3880                                                                |
 | `COWORK_TRUSTED_CLIENT_ORIGINS`                       | Trusted local page origins; exact loopback `http://127.0.0.1:<port>` values, comma-separated |
+| `COWORK_PROJECT_DATA_ENGINE`                          | Project data engine: `sqlite` (default) or `postgres`                                        |
+| `COWORK_PROJECT_DATA_SQLITE`                          | SQLite data file path                                                                        |
+| `COWORK_PROJECT_DATA_URL`                             | PostgreSQL connection URL; overrides `projectData.postgres` in the file                      |
 
 `COWORK_TRUSTED_CLIENT_ORIGINS` accepts only exact local `http://` origins and never a wildcard. Named origins may read this backend's responses across ports and appear in its page's `connect-src`; credentials and the `127.0.0.1` listener are unchanged. A browser page managing another local backend names both origins on the two backends. See [Product API](../product-api.md#trusted-local-client-origins).
 

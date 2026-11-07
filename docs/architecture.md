@@ -35,6 +35,8 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / applica
 
 `createDashboardApplication()` 的导入不会监听端口或注册信号。启动与关闭信号在 `src/cli/dashboard.ts`；应用 MCP 客户端在 `src/applications/mcp/local-api-client.ts`。可复用服务必须能由测试显式装配和停止。
 
+项目台账与共享项目身份由 [项目数据服务](../src/workspace/project-data-service.ts) 持有：Dashboard 启动时按配置打开 SQLite 或 PostgreSQL 并执行版本化迁移，配置或连接失败会停止启动而不切换引擎。HTTP 路由、Main 工具与 `coworkos data backup/restore` 使用同一服务接口；SQL 方言、连接和事务在 [存储适配器](../src/storage/project-data/) 内封装，业务代码不按数据库分叉。Main 工具只经当前 Task 访问其项目，不能指定其他项目。
+
 ## Task、Run 和进程生命周期
 
 浏览器请求 → HTTP 路由 → Dashboard Run → ProcessHost → Pi 启动器 → Pi 扩展 → Coordinator/应用服务。CLI 可以直接使用运行时服务；两种入口不各写一套业务状态机。

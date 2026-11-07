@@ -497,6 +497,7 @@ export async function serveBackend(claimToken?: string, executable = process.exe
     backendIdentity: { backendId: identity.backendId, startedAt }
   });
   try {
+    await application.ready;
     await new Promise<void>((resolveListen, reject) => {
       application.server.once("error", reject);
       application.server.listen(port, "127.0.0.1", () => {

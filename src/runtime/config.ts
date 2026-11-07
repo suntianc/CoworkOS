@@ -15,6 +15,7 @@ import {
   hostCredentialsPath,
   readHostCredentials
 } from "../security/host-credentials.js";
+import type { ProjectDataConfig } from "../storage/project-data/config.js";
 
 export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig {
   modelConnections?: ModelConnections;
@@ -26,6 +27,8 @@ export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig {
   taskId?: string;
   serperApiKey?: string;
   webTools?: boolean;
+  /** Default SQLite; an explicit PostgreSQL choice is never replaced by a fallback. */
+  projectData?: ProjectDataConfig;
 }
 
 /** Explicit and project paths win; all installed hosts share the user fallback. */
