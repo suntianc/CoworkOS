@@ -24,22 +24,29 @@ function loopback(dashboardUrl: string): string {
   try {
     url = new URL(dashboardUrl);
   } catch {
-    throw new Error("台账工具需要本地服务地址");
+    throw new Error("项目台账工具不可用：本地服务地址无效");
   }
   if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
-    throw new Error("台账工具只连接本机服务");
+    throw new Error("项目台账工具不可用：本地服务地址不是回环 HTTP 地址");
   return url.origin;
 }
 
+/**
+ * Build the client, or explain why this run cannot use the ledger.
+ *
+ * Every check lives here rather than at registration: a delegated subprocess
+ * keeps the Dashboard URL while the run credential is deliberately removed, and
+ * a missing credential must cost that one tool call, not the extension.
+ */
 export function createProjectLedgerClient(options: {
   dashboardUrl: string;
   taskId: string;
   token?: string;
 }): ProjectLedgerClient {
   const origin = loopback(options.dashboardUrl);
-  if (!TASK_ID.test(options.taskId)) throw new Error("台账工具需要当前会话 ID");
+  if (!TASK_ID.test(options.taskId)) throw new Error("项目台账工具不可用：当前会话 ID 不合法");
   const token = options.token ?? process.env.COWORK_API_TOKEN;
-  if (!token) throw new Error("台账工具需要当前运行的本地服务凭据");
+  if (!token) throw new Error("项目台账工具不可用：本次运行没有本地服务凭据");
   const endpoint = `${origin}/api/tasks/${encodeURIComponent(options.taskId)}/ledger`;
   return {
     async request(input) {

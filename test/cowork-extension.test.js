@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { test } from "node:test";
 import { createRequire } from "node:module";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -547,6 +549,120 @@ test("Main answers a Subagent question through send_subagent_message and cannot 
     }
     await removeAfterAsyncWrites(root);
   }
+});
+
+test("a delegated workspace without the run credential still registers the extension", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-extension-delegated-"));
+  const previous = { ...process.env };
+  t.after(async () => {
+    for (const name of Object.keys(process.env)) if (!(name in previous)) delete process.env[name];
+    Object.assign(process.env, previous);
+    await rm(root, { recursive: true, force: true });
+  });
+  Object.assign(process.env, {
+    COWORK_API_BASE: "https://example.test",
+    COWORK_API_KEY: "fixture-model-key",
+    COWORK_CONFIG: join(root, "config.json"),
+    COWORK_WORKSPACE: root,
+    COWORK_PROJECT_DIR: root,
+    COWORK_TASK_ID: "delegated-task",
+    COWORK_RUN_ID: "main-delegated",
+    // What businessCommandEnvironment leaves a delegated subprocess: the address
+    // stays and the run credential is deliberately removed.
+    COWORK_DASHBOARD_URL: "http://127.0.0.1:1"
+  });
+  delete process.env.COWORK_API_TOKEN;
+  await writeFile(process.env.COWORK_CONFIG, "{}\n");
+  await new LocalWorkspaceStore(root).createTask("delegated-task", { goal: "delegated" });
+  const pi = fakePi();
+  await (
+    await loadExtension()
+  )(pi);
+  for (const handler of ["session_start", "agent_end", "tool_call"])
+    assert.equal(typeof pi.handlers.get(handler), "function", handler);
+  // The ledger tool registers before the workspace, computer and capability
+  // groups; every one of them must still arrive.
+  for (const name of [
+    "call_subagent",
+    "project_ledger",
+    "read_attachment",
+    "computer_status",
+    "enable_tools"
+  ])
+    assert.ok(pi.tools.has(name), name);
+  await assert.rejects(
+    pi.tools.get("project_ledger").execute("ledger-call", { action: "query" }),
+    (error) => {
+      assert.match(error.message, /项目台账工具不可用：本次运行没有本地服务凭据/);
+      assert.ok(!error.message.includes("http://127.0.0.1:1"));
+      assert.ok(!error.message.includes("fixture-model-key"));
+      return true;
+    }
+  );
+});
+
+test("the registered ledger tool reaches the configured backend with the run credential", async (t) => {
+  const token = "fixture-run-credential";
+  const requests = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      requests.push({
+        url: request.url,
+        token: request.headers["x-atria-token"],
+        body: JSON.parse(Buffer.concat(chunks).toString("utf8"))
+      });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          projectId: "project_a",
+          requirements: [{ requirementId: "requirement_a", title: "来自后端的台账" }]
+        })
+      );
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port } = server.address();
+  const root = await mkdtemp(join(tmpdir(), "atria-extension-ledger-"));
+  const previous = { ...process.env };
+  t.after(async () => {
+    await new Promise((done) => server.close(done));
+    for (const name of Object.keys(process.env)) if (!(name in previous)) delete process.env[name];
+    Object.assign(process.env, previous);
+    await rm(root, { recursive: true, force: true });
+  });
+  Object.assign(process.env, {
+    COWORK_API_BASE: "https://example.test",
+    COWORK_API_KEY: "fixture-model-key",
+    COWORK_CONFIG: join(root, "config.json"),
+    COWORK_WORKSPACE: root,
+    COWORK_PROJECT_DIR: root,
+    COWORK_TASK_ID: "ledger-task",
+    COWORK_RUN_ID: "main-ledger",
+    COWORK_DASHBOARD_URL: `http://127.0.0.1:${port}`,
+    COWORK_API_TOKEN: token
+  });
+  await writeFile(process.env.COWORK_CONFIG, "{}\n");
+  await new LocalWorkspaceStore(root).createTask("ledger-task", { goal: "ledger" });
+  const pi = fakePi();
+  await (
+    await loadExtension()
+  )(pi);
+  assert.equal(typeof pi.handlers.get("session_start"), "function");
+  const result = await pi.tools.get("project_ledger").execute("ledger-call", {
+    action: "query",
+    q: "台账"
+  });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "/api/tasks/ledger-task/ledger");
+  assert.equal(requests[0].token, token);
+  assert.deepEqual(requests[0].body, { action: "query", q: "台账" });
+  assert.deepEqual(JSON.parse(result.content[0].text), {
+    projectId: "project_a",
+    requirements: [{ requirementId: "requirement_a", title: "来自后端的台账" }]
+  });
 });
 
 async function waitUntil(predicate) {

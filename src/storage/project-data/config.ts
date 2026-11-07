@@ -67,6 +67,20 @@ export function resolveProjectDataConfig(options: {
   }
   const connectionString = env.COWORK_PROJECT_DATA_URL?.trim() || config.postgres?.connectionString;
   const postgres = connectionString ? { ...config.postgres, connectionString } : config.postgres;
+  if (postgres?.connectionString !== undefined) {
+    if (typeof postgres.connectionString !== "string" || !postgres.connectionString.trim())
+      throw configurationError(source, "postgres.connectionString 须为非空字符串");
+    if (/^postgres(ql)?:\/\//i.test(postgres.connectionString)) {
+      try {
+        new URL(postgres.connectionString);
+      } catch {
+        throw configurationError(
+          source,
+          "postgres.connectionString 须为有效的 PostgreSQL 连接地址（postgresql://…）"
+        );
+      }
+    }
+  }
   if (!postgres || (!postgres.connectionString && (!postgres.host || !postgres.database)))
     throw configurationError(
       source,

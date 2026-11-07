@@ -25,17 +25,19 @@ interface QueryResult {
   rowCount: number | null;
 }
 
+/** A `postgresql://` connection string, or undefined for a key=value DSN or a bad URL. */
+function parseConnectionUrl(connectionString: string | undefined): URL | undefined {
+  if (!connectionString || !/^postgres(ql)?:\/\//i.test(connectionString)) return undefined;
+  try {
+    return new URL(connectionString);
+  } catch {
+    return undefined;
+  }
+}
+
 /** `host:port/database` — locatable in an error, and never the password. */
 export function postgresTargetLabel(target: PostgresTarget): string {
-  const parse = (): URL | undefined => {
-    if (!target.connectionString) return undefined;
-    try {
-      return new URL(target.connectionString);
-    } catch {
-      return undefined;
-    }
-  };
-  const url = parse();
+  const url = parseConnectionUrl(target.connectionString);
   // A key=value DSN has no parseable target; never echo it back, it may hold a password.
   if (!url && target.connectionString) return "postgresql://(configured connection string)";
   const host = url?.hostname || target.host || "localhost";
@@ -54,11 +56,7 @@ export class PostgresDatabase implements SqlDatabase {
   constructor(private readonly target: PostgresTarget) {
     this.label = postgresTargetLabel(target);
     // `pg` also accepts a key=value DSN; only a URL carries a parseable password.
-    const url =
-      target.connectionString && /^postgres(ql)?:\/\//i.test(target.connectionString)
-        ? new URL(target.connectionString)
-        : undefined;
-    this.secret = url?.password || target.password;
+    this.secret = parseConnectionUrl(target.connectionString)?.password || target.password;
     this.pool = new pg.Pool({
       ...(target.connectionString
         ? { connectionString: target.connectionString }

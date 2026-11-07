@@ -16,7 +16,12 @@ const ID = { type: "string", minLength: 1, maxLength: 300 };
  * registers it.
  */
 export function createProjectLedgerTool(options: ProjectLedgerToolOptions) {
-  const client = createProjectLedgerClient(options);
+  // The bridge is built on first call. Registration must not depend on this
+  // run's credential: a delegated subprocess keeps the Dashboard URL while the
+  // run credential is removed, and a missing credential must disable only this
+  // tool rather than abort every later registration in the extension.
+  let client: ReturnType<typeof createProjectLedgerClient> | undefined;
+  const bridge = () => (client ??= createProjectLedgerClient(options));
   return {
     name: "project_ledger",
     label: "Project Ledger",
@@ -51,6 +56,7 @@ export function createProjectLedgerTool(options: ProjectLedgerToolOptions) {
     },
     async execute(input: Record<string, unknown>): Promise<Record<string, unknown>> {
       const action = input.action;
+      const request = bridge().request;
       const source =
         input.sourceKind === undefined && input.sourceReference === undefined
           ? undefined
@@ -59,14 +65,14 @@ export function createProjectLedgerTool(options: ProjectLedgerToolOptions) {
               ...(input.sourceReference ? { reference: input.sourceReference } : {})
             };
       if (action === "query")
-        return client.request({
+        return request({
           action,
           ...(input.q === undefined ? {} : { q: input.q }),
           ...(input.status === undefined ? {} : { status: input.status })
         });
-      if (action === "get") return client.request({ action, requirementId: input.requirementId });
+      if (action === "get") return request({ action, requirementId: input.requirementId });
       if (action === "create")
-        return client.request({
+        return request({
           action,
           title: input.title,
           content: input.content,
@@ -75,7 +81,7 @@ export function createProjectLedgerTool(options: ProjectLedgerToolOptions) {
           references: [{ kind: "task", value: options.taskId }]
         });
       if (action === "update")
-        return client.request({
+        return request({
           action,
           requirementId: input.requirementId,
           expectedRevision: input.expectedRevision,
@@ -86,7 +92,7 @@ export function createProjectLedgerTool(options: ProjectLedgerToolOptions) {
           taskId: options.taskId
         });
       if (action === "decide")
-        return client.request({
+        return request({
           action,
           requirementId: input.requirementId,
           expectedRevision: input.expectedRevision,
@@ -95,7 +101,7 @@ export function createProjectLedgerTool(options: ProjectLedgerToolOptions) {
           ...(source ? { source } : {})
         });
       if (action === "set_decision_effective")
-        return client.request({
+        return request({
           action,
           requirementId: input.requirementId,
           decisionId: input.decisionId,

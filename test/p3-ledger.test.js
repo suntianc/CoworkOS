@@ -313,6 +313,28 @@ test("an invalid engine is refused with a locatable error and no fallback databa
   t.diagnostic("invalid engine refused at startup");
 });
 
+test("a malformed PostgreSQL URL refuses startup with a locatable configuration error", async (t) => {
+  const password = "fixture-password";
+  const raw = `postgresql://coworkos_test:${encodeURIComponent(password)}@127.0.0.1:not-a-port/ledger`;
+  const fallback = join("/tmp", `coworkos-p3-malformed-fallback-${process.pid}-${Date.now()}.sqlite`);
+  await assert.rejects(
+    startDashboard({
+      defaultProject: false,
+      config: { projectData: { engine: "postgres", postgres: { connectionString: raw } } },
+      env: { COWORK_PROJECT_DATA_SQLITE: fallback }
+    }),
+    (error) => {
+      assert.match(error.message, /PostgreSQL/);
+      assert.match(error.message, /postgres\.connectionString/);
+      assert.ok(!error.message.includes(password), "the password is not echoed");
+      assert.ok(!error.message.includes("not-a-port"), "the raw address is not echoed");
+      return true;
+    }
+  );
+  await assert.rejects(stat(fallback), "no SQLite database was opened as a fallback");
+  t.diagnostic("malformed postgresql:// URL refused at the configuration boundary");
+});
+
 test("an unreachable PostgreSQL refuses to start instead of writing SQLite", async (t) => {
   const port = await closedPort();
   const password = "fixture-password";

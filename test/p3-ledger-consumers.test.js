@@ -184,6 +184,42 @@ test("ledger view shows a requirement's decisions and can retract one", async (t
   assert.equal(view.$("[data-decide]").dataset.effective, "false");
 });
 
+test("ledger configuration is checked when the tool runs, not when it registers", async () => {
+  const token = "fixture-ledger-token";
+  const cases = [
+    [{ dashboardUrl: "http://127.0.0.1:1", taskId: "task-a", token: "" }, /本次运行没有本地服务凭据/],
+    [{ dashboardUrl: "http://127.0.0.1:1", taskId: "bad task", token }, /当前会话 ID 不合法/],
+    [{ dashboardUrl: "http://example.test:3880", taskId: "task-a", token }, /不是回环 HTTP 地址/]
+  ];
+  for (const [options, expected] of cases) {
+    // Construction is what runs at extension registration; it must stay total.
+    const tool = createProjectLedgerTool(options);
+    assert.equal(tool.name, "project_ledger");
+    await assert.rejects(tool.execute({ action: "query" }), (error) => {
+      assert.match(error.message, /项目台账工具不可用/);
+      assert.match(error.message, expected);
+      assert.ok(!error.message.includes(token), "no credential in the error");
+      assert.ok(!error.message.includes(options.dashboardUrl), "no address in the error");
+      return true;
+    });
+  }
+  // A refused first call does not poison the tool: a later credential works.
+  const previous = process.env.COWORK_API_TOKEN;
+  try {
+    delete process.env.COWORK_API_TOKEN;
+    const retry = createProjectLedgerTool({ dashboardUrl: "http://127.0.0.1:1", taskId: "task-a" });
+    await assert.rejects(retry.execute({ action: "query" }), /没有本地服务凭据/);
+    process.env.COWORK_API_TOKEN = token;
+    await assert.rejects(retry.execute({ action: "query" }), (error) => {
+      assert.doesNotMatch(error.message, /没有本地服务凭据/);
+      return true;
+    });
+  } finally {
+    if (previous === undefined) delete process.env.COWORK_API_TOKEN;
+    else process.env.COWORK_API_TOKEN = previous;
+  }
+});
+
 async function toolFixture(t) {
   const dashboard = await startDashboard({
     defaultProject: false,
