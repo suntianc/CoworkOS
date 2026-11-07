@@ -25,7 +25,7 @@
   "rules": [
     {
       "stage": "cases",
-      "node": "^(office-skill-pi|machine-learning-skill-pi|publish-artifact-pi|automation-pi|main-recovery-pi|application-bootstrap-pi|input-files-pi|vision-session|live-ui)\\.test\\.js$",
+      "node": "^(science-removal|machine-learning-skill-pi|publish-artifact-pi|automation-pi|main-recovery-pi|application-bootstrap-pi|input-files-pi|vision-session|live-ui)\\.test\\.js$",
       "browser": "^(human-interactions|message-delivery|conversation-integrity|request-recovery)\\.spec\\.js$"
     },
     {
@@ -188,7 +188,7 @@
       "files": [
         "test/main-recovery-pi.test.js",
         "test/publish-artifact-pi.test.js",
-        "test/office-skill-pi.test.js",
+        "test/science-removal.test.js",
         "e2e/message-delivery.spec.js"
       ],
       "note": "复用已有确定性链路；这些文件通过不等于真实模型完成全部用户 case。"

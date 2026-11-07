@@ -168,7 +168,7 @@
 | TOOL-05 | 新增工具 schema、坏参数、未知字段、Main/Subagent 配置                       | 输入在边界校验；消费者合同一致；取消和预算传递                                      |
 | TOOL-06 | workspace 浏览、work-log/状态/用量/轨迹、Main 与 Subagent 路径、空/损坏日志 | 实际文件和事件可定位；日志入口不把空 trace 当完整会话；用量不重复累加，未知值不伪造 |
 
-现有锚点：`tool-capability-selection.test.js`、`tool-lifecycle.test.js`、`office-skill-pi.test.js`、`main-task-paths-pi.test.js`、`machine-learning-skill-pi.test.js`。
+现有锚点：`tool-capability-selection.test.js`、`tool-lifecycle.test.js`、`workspace-explore-pi.test.js`、`main-task-paths-pi.test.js`、`machine-learning-skill-pi.test.js`。
 
 ### 14 输入附件与视觉
 
