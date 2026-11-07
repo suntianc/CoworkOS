@@ -76,6 +76,20 @@ async function bridge(page, mode, installMethod, options = {}) {
   );
 }
 
+test("installed App shows the local upgrade path without checking remotely", async ({ page }) => {
+  const dashboard = await startDashboard();
+  try {
+    await bridge(page, "release", "manual", { initial: { phase: "manual", available: false } });
+    await page.goto(dashboard.base);
+    await page.locator("#user-menu-button").click();
+    await expect(page.locator("[data-update-message]")).toHaveText("请使用本地安装包手动升级。");
+    await expect(page.locator("[data-update-action]")).toBeHidden();
+    expect(await page.evaluate(() => window.__updateCalls)).toEqual([]);
+  } finally {
+    await dashboard.stop();
+  }
+});
+
 test("source App checks once and updates with progress while keeping saved drafts protected", async ({
   page
 }) => {

@@ -59,6 +59,7 @@ export function installDesktopUpdates({ overview } = {}) {
     if (disposed) return;
     const busy = pending || state.busy === true;
     const source = state.mode === "source";
+    const manual = state.installMethod === "manual";
     const ready = state.downloaded === true;
     const preparing = applying || state.applying === true;
     const inAppInstall = ["native", "managed"].includes(state.installMethod);
@@ -71,7 +72,8 @@ export function installDesktopUpdates({ overview } = {}) {
     section.querySelector("[data-update-version]").textContent = state.currentVersion
       ? ui`当前版本 ${state.currentVersion}${source ? ui(" · 源码开发版") : ""}`
       : ui("版本信息暂不可用");
-    action.disabled = busy || finished;
+    action.hidden = manual;
+    action.disabled = manual || busy || finished;
     action.classList.toggle("is-primary", canApply());
     action.classList.toggle("is-secondary", !canApply());
     action.toggleAttribute("data-update-apply", canApply());
@@ -98,6 +100,7 @@ export function installDesktopUpdates({ overview } = {}) {
                     : ui("下载安装器")
               : ui("检查更新");
     const labels = {
+      manual: ui("请使用本地安装包手动升级。"),
       checking: ui("正在检查更新…"),
       "up-to-date": ui("已是最新版本。"),
       updating: ui("正在更新，完成后会重新打开 CoworkOS。"),
@@ -196,7 +199,14 @@ export function installDesktopUpdates({ overview } = {}) {
       if (disposed) return;
       if (revision === initialRevision) reflect(value);
       // A completed background download remains installable across page reloads.
-      if (!state.downloaded && !state.busy && !state.installReady && !state.updated) await runCheck();
+      if (
+        state.installMethod !== "manual" &&
+        !state.downloaded &&
+        !state.busy &&
+        !state.installReady &&
+        !state.updated
+      )
+        await runCheck();
     })
     .catch((failure) => {
       state = { ...state, error: failure?.message || ui("无法读取更新状态") };

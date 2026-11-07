@@ -66,7 +66,7 @@ async function assertAbsent(target) {
     throw error;
   }
   throw new Error(
-    `CoworkOS is already installed at ${target}. Use Settings to update it; no files were replaced.`
+    `CoworkOS is already installed at ${target}. Back up your data and upgrade with a local installer; no files were replaced.`
   );
 }
 

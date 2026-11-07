@@ -64,13 +64,13 @@ git push origin v0.1.2-beta.7
 
 ## 应用内更新与发布产物
 
-“设置 → 更新”供开发 App 和已安装 App 检查与执行更新。启动时只检查一次；下载/应用需要用户主动点击，运行中的任务与未保存草稿先按桌面宿主门槛处理。源码开发 App 跟随 Git upstream，独立准备完整构建并重启；脏检出/分叉会拒绝，详见 [源码更新](development.md#更新源码检出)。
+当前安装版“设置 → 更新”显示本地安装包手动升级入口，不发起远程更新检查。先备份数据、结束任务并停止独立后端，保留旧 App，再安装本地 DMG；完整步骤见 [安装参考](installation-reference.md#更新)。源码开发 App 跟随 Git upstream，独立准备完整构建并重启；脏检出/分叉会拒绝，详见 [源码更新](development.md#更新源码检出)。正式签名、公证与自动更新由 P6 验收。
 
-新构建的安装版从 npm registry 查询 `coworkos-desktop-darwin-arm64` 的 `latest` 或 `beta` dist-tag，下载对应 tarball，并依次校验 registry SRI、包内文件清单和 DMG SHA-256。App 版本、平台包版本和 DMG 清单版本必须一致；版本比较禁止降级。CLI 的首次安装命令也读取同一个平台包，因此桌面安装、应用内更新和 CLI 更新都使用 npm registry。
+CLI 的首次安装命令可读取 npm 平台包，并校验 registry SRI、包内文件清单和 DMG SHA-256；它不会替换已有 App。以下发行与更新模块保留供旧客户端兼容和后续阶段验收，不是当前安装版的更新入口。
 
 旧 App 的 GitHub 更新地址固化在旧二进制中，发布 npm 包不会改变它。保留旧 GitHub 更新发布流程用于尚能访问该来源的历史 App；无法使用旧来源的用户需按 [安装指南](getting-started.md) 一次性迁移。不要将这次迁移描述为自动升级。
 
-用户点击“下载更新”后仍可编辑；完成后按钮变为“重启并安装”。当前 ad-hoc 包在用户可写安装目录中使用受管替换：校验 DMG/候选 App、同父目录准备候选、保存草稿并等待任务结束、退出后原子替换、保留旧 App 备份并重新启动。失败时保留或恢复旧版；不可写目录提示使用系统安装方式，不自动提权或删除隔离属性。Developer ID 包仍可沿用原生 ZIP 更新，签名与公证验收单独记录。
+历史受管更新实现提供候选校验、退出后替换和失败恢复；当前安装版不启用该入口。
 
 | 产物                                                     | 用途                                                       |
 | -------------------------------------------------------- | ---------------------------------------------------------- |
@@ -95,7 +95,7 @@ ATRIA_DESKTOP_NPM_PACKAGE_DIR="$PWD/.tmp/npm-release" npm run desktop:npm:pack
 ATRIA_PACKAGE_DIR="$PWD/.tmp/npm-release" npm run npm:pack
 ```
 
-两个包均不可覆盖已发布版本。`latest` / `beta` tag 由包的 `publishConfig` 选择。平台包发布后、CLI 发布前，应先通过真实 npm 下载路径验收 installer 和 App 更新 provider。若当前版本属于旧 GitHub 更新客户端，还需按旧发布流程构建兼容迁移版本；新 npm 发布本身不会改写旧 App 的下载地址。
+两个包均不可覆盖已发布版本。`latest` / `beta` tag 由包的 `publishConfig` 选择。平台包发布后、CLI 发布前，应先通过真实 npm 下载路径验收 installer；App 更新 provider 留待 P6 验收。若当前版本属于旧 GitHub 更新客户端，还需按旧发布流程构建兼容迁移版本；新 npm 发布本身不会改写旧 App 的下载地址。
 
 GitHub DMG/CLI Release 与静态更新指针只保留给旧客户端兼容和明确的手动归档分发。对已审核的干净 tag，仍可执行 `node scripts/release-artifacts.mjs` 生成来源清单，再运行 `npm run release:publish:public`；发布器通过旧内容 SHA 比较更新 `updates/coworkos-latest.json`，不可覆盖已发布附件或回退指针。
 
@@ -111,7 +111,7 @@ GitHub 工作流可选读取仓库变量 `CSC_NAME`、仓库 secrets `CSC_LINK` 
 
 签名验证通过后，脚本才对 App 使用 ditto 生成并检查 ZIP，根据实际 ZIP 写入 SHA-256 和 [Squirrel.Mac 静态 JSON feed](https://github.com/Squirrel/Squirrel.Mac#update-file-json-format)。feed 的 URL 使用 `ATRIA_UPDATE_REPOSITORY`、`GITHUB_REPOSITORY` 或包 repository 指定的 GitHub 仓库，并绑定 `v<version>` 资产；版本与 lock/tag 必须一致。
 
-生成签名 ZIP/feed仍需完成公证、Gatekeeper 与真实旧版→新版安装验收；当前默认 ad-hoc 测试包使用经校验的 DMG 受管安装流程。草稿审查后由维护者手动 Publish；更新功能不自动推送 tag 或发布 Release。
+生成签名 ZIP/feed仍需完成公证、Gatekeeper 与真实旧版→新版安装验收；当前 ad-hoc 测试包使用经校验的本地 DMG 手动安装流程。草稿审查后由维护者手动 Publish；更新功能不自动推送 tag 或发布 Release。
 
 CLI/DMG 下载通过发行 helper 验证版本、资产来源、大小及 SHA-256；签名 ZIP 由 Electron 原生更新机制下载并核验签名。失败时报告原因并保留用户数据；不可把下载完成等同于安装完成。Web renderer 只传检查/执行动作，真实路径、URL、命令与保存/退出决策由可信宿主管理。
 
@@ -131,7 +131,7 @@ Mac 钥匙串重试进程沿用主 Electron 可执行文件，保留完整 Chrom
 
 原生回归检查既有密文互读、同一进程延迟读取和保存后的页面刷新；测试钥匙串结果不替代真实系统授权验收。
 
-应用内或手动升级前备份重要数据；受管 DMG 安装保存后退出并替换 App，不可写目录使用系统安装方式。重启后确认会话、文件、配置及任务恢复。Command-Q 等待保存与进程清理，失败或冲突由用户处理；窗口关闭在 macOS 上不等于退出。中断、未确认提交和完整输入草稿按当前协议恢复，不能以删除数据作为故障处理方式。
+手动升级前备份重要数据、结束任务并停止独立后端；保留旧 App 后替换。重启后确认会话、文件、配置及任务恢复。Command-Q 等待保存与进程清理，失败或冲突由用户处理；窗口关闭在 macOS 上不等于退出。中断、未确认提交和完整输入草稿按当前协议恢复，不能以删除数据作为故障处理方式。
 
 无 Developer ID 签名或未公证的包可能被 Gatekeeper 阻止，测试者使用系统提供的打开/批准流程；不提供关闭系统保护的脚本。公开稳定版须完成 Developer ID 签名、公证、staple 与下载隔离属性验收，签名凭据不进仓库。
 

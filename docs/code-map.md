@@ -275,7 +275,7 @@ CLI tgz 随包携带锁文件对应的可移植生产依赖与依赖记录，不
 
 侧栏显示后台准备进度和失败入口，普通会话继续可用。设置布局沿 [settings CSS](../web/assets/settings.css)，卡片共用 [workbench CSS](../web/assets/workbench.css)。
 
-新安装版 App 更新从 npm 平台包读取版本并校验 tarball、DMG，旧客户端仍由[旧版发行下载](../scripts/update-release.mjs)与[公开分发脚本](../scripts/public-release-publish.mjs)维护兼容源；[受管安装器](../desktop/update-install.cjs)负责 DMG 准备、退出后替换与恢复。[更新控制器](../web/assets/controllers/desktop-updates.js)统一管理单一按钮与侧栏提醒，源码更新保持独立生命周期。行为与发行验收见 [Mac 发布](mac-release.md)。
+安装版 App 的[更新宿主](../desktop/update-host.cjs)提供本地手动升级状态，[更新控制器](../web/assets/controllers/desktop-updates.js)展示对应入口；源码更新保持独立生命周期。[包合同回归](../test/electron-package-contract.test.js)覆盖手动升级门槛与数据恢复，旧版下载及受管安装模块保留供历史流程。行为与发行验收见 [Mac 发布](mac-release.md)。
 
 ### 测试
 

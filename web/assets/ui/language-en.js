@@ -331,6 +331,7 @@ export default {
   "检查 CoworkOS 更新": "Check for CoworkOS updates",
   "CoworkOS 更新": "CoworkOS updates",
   "正在读取版本…": "Loading version…",
+  "请使用本地安装包手动升级。": "Upgrade manually using a local installer.",
   检查更新: "Check for updates",
   更新进度: "Update progress",
   当前版本: "Current version",

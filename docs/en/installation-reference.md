@@ -12,7 +12,7 @@ Starting the CLI or running `coworkos doctor` refreshes legacy search adapters t
 
 The existing `~/.atria/` home, `ATRIA_*` environment variables, desktop bundle ID, system keychain identity and persisted format identifiers remain stable. Existing configuration and tasks need no migration; legacy `Atria` / `Atria Dev` data directories are still recognized. GitHub repository URLs and historical release assets retain their real addresses. New builds use the CoworkOS application name and `coworkos-cli` archive name (the Release archive retains its internal package name `atria-cowork-cli` for upgrade ownership; the npm registry package is `coworkos-app`), and can read legacy update assets.
 
-An older App's update URL is stored in its binary; publishing to npm cannot rewrite it. For the one-time migration, follow the [Mac App installation guide](getting-started.md), quit and keep the old App, then install the new version from npm. User data does not need to move. New Apps check for and download updates from the npm registry. The historical GitHub update source remains only for older Apps that can still reach it.
+An older App's update URL is stored in its binary. Current installed Apps use a local DMG for manual upgrades; existing user data stays in its data directory.
 
 The old source updater also rejects the new project name. For the first rename upgrade, save documents and finish tasks, then run `git pull --ff-only`, `npm ci` and `npm run build` in a clean checkout with an upstream branch, and restart. The new updater accepts the one-way transition from `cowork-harness` to `coworkos`, while rejecting unrelated project identities and the reverse rename.
 
@@ -20,7 +20,13 @@ The old source updater also rejects the new project name. For the first rename u
 
 Save documents and finish running tasks before updating.
 
-New Mac App versions check and download updates from the npm registry. In Settings, select Check for updates, download the update, then select Restart and install. Apps predating the npm update channel keep their old update source; see the [Mac App installation guide](getting-started.md) for migration.
+Upgrade the Mac App manually from a local DMG:
+
+1. Back up `~/.atria/` (or the actual `ATRIA_HOME`) and external projects, then finish running tasks. For each running data root, use a matching CLI to run `coworkos backend stop` and confirm `stopped` or `absent`; then quit the App.
+2. Verify the DMG SHA-256 and open it. Rename the old App to retain it, then drag the new App to the original installation directory. App resources and user data are separate.
+3. Open the new App and check connections, conversations, attachments and settings. If startup or data validation fails, quit the new App, restore the retained old App and any needed data backup, and retry.
+
+See [development](development.md#standalone-backend) for standalone backend start, status and stop. Production signing, notarization and automatic updates belong to P6.
 
 For an npm installation, exit the CLI and update with:
 
@@ -28,7 +34,7 @@ For an npm installation, exit the CLI and update with:
 npm install -g coworkos-app@latest
 ```
 
-`coworkos update --check` checks the npm tag; `coworkos update` prints the matching npm command. The npm installer never replaces the independent desktop App; update the App in Settings.
+`coworkos update --check` checks the npm tag; `coworkos update` prints the matching npm command. The npm installer never replaces the independent desktop App; upgrade the App manually as above.
 
 For a Release archive or source installation, exit the interactive interface first, then run these commands in your system terminal:
 

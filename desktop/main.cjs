@@ -30,7 +30,7 @@ const { windowBackground, followNativeTheme } = require("./system-theme.cjs");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { randomUUID } = require("node:crypto");
-const { createDesktopUpdateHost } = require("./update-host.cjs");
+const { createApplicationUpdateHost } = require("./update-host.cjs");
 const { prepareDesktopChange } = require("./update-lifecycle.cjs");
 const { selectApplicationIcon, refreshDockIcon } = require("./application-icon.cjs");
 const { isDashboardUrl, assertTrustedSender, externalNavigationUrl } = require("./trusted-content.cjs");
@@ -437,7 +437,7 @@ ipcMain.handle("bookman:documents-ready", (event, requestId, saved) => {
   documents.acknowledge(requestId, saved);
 });
 async function initializeUpdates(userData) {
-  updates = await createDesktopUpdateHost({
+  updates = await createApplicationUpdateHost({
     profile,
     userData,
     autoUpdater,
