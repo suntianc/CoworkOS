@@ -6,6 +6,7 @@ import { createWatchController } from "./assets/controllers/watch-controller.js"
 import { createMessageEditController } from "./assets/controllers/message-edit.js";
 import { createComposerClipboard } from "./assets/controllers/composer-clipboard.js";
 import { createComposerSession } from "./assets/controllers/composer-session.js";
+import { createDraftRecovery } from "./assets/controllers/draft-recovery.js";
 import { createComposerLayout } from "./assets/controllers/composer-layout.js";
 import { createVoiceInput } from "./assets/controllers/voice-input.js";
 import { createFileUpload, uploadedFileIds } from "./assets/controllers/file-upload.js";
@@ -244,6 +245,7 @@ const composerSession = createComposerSession({
   onError: showToast,
   onPersist: () => window.bookmanDesktop?.saveComposerDrafts?.()
 });
+await composerSession.ready;
 const messageEdit = createMessageEditController({
   composerSession,
   input: $("#composer-input"),
@@ -531,6 +533,13 @@ const projectController = createProjectController({
       workbenchController.host?.navigationToken
     ]),
   onUpdated: () => void refresh()
+});
+const draftRecovery = createDraftRecovery({
+  button: $("#recover-drafts"),
+  session: composerSession,
+  getBackend: () => boundBackendId,
+  getProjects: () => state.projects,
+  openDraft: (projectId) => beginNewConversation(projectId)
 });
 function conversationTitle(task) {
   return task?.title || truncate(String(task?.goal || task?.taskId || ui("新的对话")).split("\n")[0], 48);
@@ -825,6 +834,7 @@ function adoptBackendIdentity(backendId) {
   if (!backendId || backendId === boundBackendId) return;
   boundBackendId = backendId;
   composerSession.setBackend(backendId);
+  void draftRecovery.refresh();
   // The backend's own draft namespace may name a different last conversation
   // than the page had before the session bound. A conversation link keeps its
   // choice; otherwise the stored slot is what "the last conversation" means.
@@ -844,6 +854,7 @@ function resetBackendView() {
   clearManagedMedia();
   connection.close();
   boundBackendId = null;
+  void draftRecovery.refresh();
   state.selected = null;
   state.detail = null;
   state.tasks = [];
@@ -2558,6 +2569,7 @@ async function bootBackend() {
   adoptBackendIdentity(connected.backendId);
   await loadModels();
   await refresh();
+  await draftRecovery.refresh();
   updateSendButton();
   if (window.bookmanDesktop && state.modelConfigured === false) void modelSettings.open();
 }

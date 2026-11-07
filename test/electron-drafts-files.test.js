@@ -15,7 +15,7 @@ import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 
 const { createComposerDraftStore } = createRequire(import.meta.url)("../desktop/composer-drafts.cjs");
 
-function draftFixture(existingStorage) {
+function draftFixture(existingStorage, locks) {
   const records = new Map();
   let unavailable = false;
   const storage = existingStorage || {
@@ -38,6 +38,7 @@ function draftFixture(existingStorage) {
   const session = createComposerSession({
     input,
     storage,
+    locks,
     getAttachments: () => attachments,
     setAttachments: (files) => {
       attachments = files;
@@ -82,6 +83,30 @@ function migrationStorage(capacity = Infinity) {
 
 const attached = { name: "notes.txt", text: "attachment content", size: 18 };
 
+function lockFixture() {
+  const held = new Set();
+  const waiting = new Map();
+  return {
+    async request(name, options, callback) {
+      while (held.has(name)) {
+        if (options.ifAvailable) return callback(null);
+        await new Promise((resolve) => {
+          const queue = waiting.get(name) || [];
+          queue.push(resolve);
+          waiting.set(name, queue);
+        });
+      }
+      held.add(name);
+      try {
+        return await callback({ name });
+      } finally {
+        held.delete(name);
+        waiting.get(name)?.shift()?.();
+      }
+    }
+  };
+}
+
 for (const kind of ["project", "global"]) {
   test(`P3: an unbound ${kind} draft survives successful close and actual process restart`, async () => {
     const root = await mkdtemp(join(tmpdir(), "prebind-process-"));
@@ -113,6 +138,9 @@ for (const kind of ["project", "global"]) {
         if (kind === "project") view.session.activate(null, { projectId: "p1" });
         view.input.value = "unbound " + kind; view.setFiles([${JSON.stringify(attached)}]); view.session.save();
         console.log(JSON.stringify({ close: view.session.prepareClose(), records: Object.fromEntries(records) }));
+      } else if (stage === "interrupt") {
+        console.log(JSON.stringify({ interrupted: true, records: Object.fromEntries(records) }));
+        process.exit(79);
       } else {
         view.session.setBackend(kind === "project" ? "backend-a" : "backend-b");
         view.session.activate(null, kind === "project" ? { projectId: "p1" } : {});
@@ -135,7 +163,7 @@ for (const kind of ["project", "global"]) {
         ],
         { encoding: "utf8" }
       );
-      assert.equal(child.status, 0, child.stderr);
+      assert.equal(child.status, stage === "interrupt" ? 79 : 0, child.stderr);
       const result = JSON.parse(child.stdout);
       console.log(
         JSON.stringify({
@@ -151,6 +179,7 @@ for (const kind of ["project", "global"]) {
     };
     try {
       assert.equal(run("write").close, true);
+      assert.equal(run("interrupt").interrupted, true);
       const recovered = run("delete");
       assert.deepEqual(recovered.restored, { text: `unbound ${kind}`, attachments: [attached] });
       assert.equal(recovered.close, true);
@@ -337,15 +366,17 @@ test("P3: another close preparation cannot release a successor's live marker", (
   assert.equal(successor.input.value, "original");
 });
 
-test("P3: ambiguous completed sessions remain separate and are not claimed together", () => {
+test("P3: separately closed sessions can be explicitly recovered without overwriting a conflict", async () => {
   const storage = migrationStorage();
   const first = draftFixture(storage),
     second = draftFixture(storage);
   first.session.activate(null, { projectId: "p1" });
   first.input.value = "first";
+  first.setFiles([attached]);
   first.session.save();
   second.session.activate(null, { projectId: "p2" });
   second.input.value = "second";
+  second.setFiles([attached]);
   second.session.save();
   assert.equal(first.session.prepareClose(), true);
   assert.equal(second.session.prepareClose(), true);
@@ -353,18 +384,321 @@ test("P3: ambiguous completed sessions remain separate and are not claimed toget
   const next = draftFixture(storage);
   next.session.activate(null);
   next.session.setBackend("backend-b");
+  const candidates = await next.session.listRecoverableDrafts();
+  assert.equal(candidates.length, 2);
+  const one = candidates.find((entry) => entry.projectId === "p1");
+  const two = candidates.find((entry) => entry.projectId === "p2");
+  assert.ok(one && two);
+  assert.deepEqual(await next.session.recoverDraft(one.id, { projectId: "p1" }), { ok: true });
+  next.session.activate(null, { projectId: "p1" });
+  assert.equal(next.input.value, "first");
+  assert.deepEqual(next.files(), [attached]);
+  assert.deepEqual(await next.session.recoverDraft(two.id, { projectId: "p1" }), {
+    ok: false,
+    reason: "conflict"
+  });
+  assert.equal(next.input.value, "first");
+  assert.deepEqual(await next.session.recoverDraft(two.id, { projectId: "p2" }), { ok: true });
+  next.session.activate(null, { projectId: "p2" });
+  assert.equal(next.input.value, "second");
+  assert.deepEqual(next.files(), [attached]);
+  assert.ok(
+    before.some((value) => value.includes("first")) && before.some((value) => value.includes("second"))
+  );
+  assert.equal(next.session.prepareClose(), true);
+  const restarted = draftFixture(storage);
+  restarted.session.activate(null);
+  restarted.session.setBackend("backend-b");
+  restarted.session.activate(null, { projectId: "p1" });
+  assert.equal(restarted.input.value, "first");
+  restarted.session.activate(null, { projectId: "p2" });
+  assert.equal(restarted.input.value, "second");
+});
+
+test("P3: older unindexed groups can be individually assigned without losing their sources", async () => {
+  // These are the key/value shapes emitted by two 90b7bfd0 production
+  // sessions which saved p1 and p2 and successfully prepared to close.
+  const storage = migrationStorage();
+  for (const [id, project] of [
+    ["1".repeat(32), "p1"],
+    ["2".repeat(32), "p2"]
+  ]) {
+    storage.setItem(
+      `atria.composer.v1:__prebind__:${id}:new:${project}`,
+      JSON.stringify({
+        text: `saved ${project}`,
+        attachments: [{ name: `${project}.txt`, text: `bytes ${project}` }]
+      })
+    );
+  }
+  const view = draftFixture(storage);
+  view.session.activate(null);
+  view.session.setBackend("backend-a");
+  const candidates = await view.session.listRecoverableDrafts();
+  assert.equal(candidates.length, 2);
+  for (const projectId of ["p1", "p2"]) {
+    const source = candidates.find((candidate) => candidate.projectId === projectId);
+    assert.ok(source);
+    assert.deepEqual(await view.session.recoverDraft(source.id, { projectId }), { ok: true });
+    view.session.activate(null, { projectId });
+    assert.equal(view.input.value, `saved ${projectId}`);
+    assert.deepEqual(view.files(), [{ name: `${projectId}.txt`, text: `bytes ${projectId}` }]);
+    assert.ok(storage.getItem(source.id), "unmarked historical source stays available");
+  }
+  view.input.value = "";
+  view.setFiles([]);
+  view.session.save();
+  assert.equal(view.session.prepareClose(), true);
+  const restarted = draftFixture(storage);
+  restarted.session.activate(null);
+  restarted.session.setBackend("backend-a");
+  restarted.session.activate(null, { projectId: "p1" });
+  assert.equal(restarted.input.value, "saved p1");
+  restarted.session.activate(null, { projectId: "p2" });
+  assert.equal(restarted.input.value, "");
+  assert.deepEqual(restarted.files(), []);
+});
+
+test("P3: a ready group alongside unmarked history requires an explicit choice", async () => {
+  const storage = migrationStorage();
+  const original = draftFixture(storage);
+  original.session.activate(null, { projectId: "p1" });
+  original.input.value = "ready";
+  original.session.save();
+  assert.equal(original.session.prepareClose(), true);
+  storage.setItem(
+    `atria.composer.v1:__prebind__:${"a".repeat(32)}:new:p2`,
+    JSON.stringify({ text: "history", attachments: [attached] })
+  );
+  const next = draftFixture(storage);
+  next.session.activate(null);
+  next.session.setBackend("backend-b");
   next.session.activate(null, { projectId: "p1" });
   assert.equal(next.input.value, "");
+  assert.deepEqual((await next.session.listRecoverableDrafts()).map((draft) => draft.text).sort(), [
+    "history",
+    "ready"
+  ]);
+});
+
+test("P3: a legacy live marker from an exited owner remains manually recoverable", async () => {
+  const storage = migrationStorage();
+  const prefix = `atria.composer.v1:__prebind__:${"b".repeat(32)}:`;
+  storage.setItem(prefix + "active", JSON.stringify(`live:${"c".repeat(32)}`));
+  storage.setItem(prefix + "new:p1", JSON.stringify({ text: "interrupted legacy", attachments: [attached] }));
+  const next = draftFixture(storage);
+  next.session.activate(null);
+  next.session.setBackend("backend-a");
+  const [draft] = await next.session.listRecoverableDrafts();
+  assert.equal(draft.text, "interrupted legacy");
+  assert.deepEqual(await next.session.recoverDraft(draft.id, { projectId: "p1" }), { ok: true });
+  next.session.activate(null, { projectId: "p1" });
+  assert.deepEqual(next.files(), [attached]);
+  next.input.value = "";
+  next.setFiles([]);
+  next.session.save();
+  assert.equal(next.session.prepareClose(), true);
+  const restarted = draftFixture(storage);
+  restarted.session.activate(null);
+  restarted.session.setBackend("backend-a");
+  restarted.session.activate(null, { projectId: "p1" });
+  assert.equal(restarted.input.value, "");
+  assert.ok(storage.getItem(prefix + "new:p1"), "the potentially active old source is retained");
+  assert.equal((await restarted.session.listRecoverableDrafts())[0].text, "interrupted legacy");
+});
+
+test("P3: an automatic migration conflict remains selectable for another project", async () => {
+  const storage = migrationStorage();
+  storage.setItem(
+    "atria.composer.v1:backend-a:new:p1",
+    JSON.stringify({ text: "existing", attachments: [] })
+  );
+  const original = draftFixture(storage);
+  original.session.activate(null, { projectId: "p1" });
+  original.input.value = "staged";
+  original.setFiles([attached]);
+  original.session.save();
+  assert.equal(original.session.prepareClose(), true);
+  const next = draftFixture(storage);
+  next.session.activate(null);
+  next.session.setBackend("backend-a");
+  next.session.activate(null, { projectId: "p1" });
+  assert.equal(next.input.value, "existing");
+  const candidates = await next.session.listRecoverableDrafts();
+  assert.equal(candidates.length, 1);
+  assert.deepEqual(await next.session.recoverDraft(candidates[0].id, { projectId: "p1" }), {
+    ok: false,
+    reason: "conflict"
+  });
+  assert.deepEqual(await next.session.recoverDraft(candidates[0].id, { projectId: "p2" }), { ok: true });
   next.session.activate(null, { projectId: "p2" });
-  assert.equal(next.input.value, "");
-  assert.ok(
-    before.some((value) => value.includes("first")) &&
-      [...storage.records.values()].some((value) => value.includes("first"))
+  assert.equal(next.input.value, "staged");
+  assert.deepEqual(next.files(), [attached]);
+  next.session.activate(null, { projectId: "p1" });
+  assert.equal(next.input.value, "existing");
+});
+
+test("P3: explicit recovery retries a failed journal before consuming its source", async () => {
+  const storage = migrationStorage();
+  const sessions = [];
+  for (const [projectId, text] of [
+    ["p1", "one"],
+    ["p2", "two"]
+  ]) {
+    const view = draftFixture(storage);
+    sessions.push(view.session);
+    view.session.activate(null, { projectId });
+    view.input.value = text;
+    view.setFiles([attached]);
+    view.session.save();
+  }
+  for (const session of sessions) assert.equal(session.prepareClose(), true);
+  const next = draftFixture(storage);
+  next.session.activate(null);
+  next.session.setBackend("backend-a");
+  const source = (await next.session.listRecoverableDrafts()).find((draft) => draft.projectId === "p1");
+  const write = storage.setItem.bind(storage);
+  let failed = true;
+  storage.setItem = (key, value) => {
+    if (failed && key === "atria.composer.v1:migration-journal:active")
+      throw new Error("journal unavailable");
+    write(key, value);
+  };
+  assert.deepEqual(await next.session.recoverDraft(source.id, { projectId: "p1" }), {
+    ok: false,
+    reason: "save"
+  });
+  assert.ok(storage.getItem(source.id));
+  assert.equal(storage.getItem("atria.composer.v1:backend-a:new:p1"), null);
+  failed = false;
+  assert.equal(next.session.prepareClose(), true);
+  const restarted = draftFixture(storage);
+  restarted.session.activate(null);
+  restarted.session.setBackend("backend-a");
+  restarted.session.activate(null, { projectId: "p1" });
+  assert.equal(restarted.input.value, "one");
+  assert.deepEqual(restarted.files(), [attached]);
+});
+
+test("P3: a live lease isolates a closed source; releasing it restores recovery", async () => {
+  const locks = lockFixture();
+  const storage = migrationStorage();
+  const owner = draftFixture(storage, locks);
+  await owner.session.ready;
+  owner.session.activate(null, { projectId: "p1" });
+  owner.input.value = "owned content";
+  owner.setFiles([attached]);
+  owner.session.save();
+  assert.equal(owner.session.prepareClose(), true);
+  const concurrent = draftFixture(storage, locks);
+  await concurrent.session.ready;
+  concurrent.session.activate(null);
+  concurrent.session.setBackend("backend-b");
+  concurrent.session.activate(null, { projectId: "p1" });
+  assert.equal(concurrent.input.value, "");
+  assert.deepEqual(await concurrent.session.listRecoverableDrafts(), []);
+  assert.ok([...storage.records.values()].some((value) => value.includes("owned content")));
+  owner.session.dispose();
+  await new Promise((resolve) => setImmediate(resolve));
+  const interrupted = draftFixture(storage, locks);
+  await interrupted.session.ready;
+  interrupted.session.activate(null);
+  interrupted.session.dispose();
+  await new Promise((resolve) => setImmediate(resolve));
+  const restarted = draftFixture(storage, locks);
+  await restarted.session.ready;
+  restarted.session.activate(null);
+  restarted.session.setBackend("backend-a");
+  restarted.session.activate(null, { projectId: "p1" });
+  assert.equal(restarted.input.value, "owned content");
+  assert.deepEqual(restarted.files(), [attached]);
+  restarted.session.dispose();
+  concurrent.session.dispose();
+});
+
+test("P3: journal replay cannot consume a source held by a live instance", async () => {
+  const locks = lockFixture();
+  const storage = migrationStorage();
+  const owner = draftFixture(storage, locks);
+  await owner.session.ready;
+  owner.session.activate(null, { projectId: "p1" });
+  owner.input.value = "source held during cleanup";
+  owner.setFiles([attached]);
+  owner.session.save();
+  const remove = storage.removeItem.bind(storage);
+  let failCleanup = true;
+  storage.removeItem = (key) => {
+    if (failCleanup && key.includes(":__prebind__:") && key.endsWith(":new:p1"))
+      throw new Error("cleanup unavailable");
+    remove(key);
+  };
+  owner.session.setBackend("backend-a");
+  assert.equal(owner.session.prepareClose(), false);
+  const source = [...storage.records.keys()].find(
+    (key) => key.includes(":__prebind__:") && key.endsWith(":new:p1")
   );
-  assert.ok(
-    before.some((value) => value.includes("second")) &&
-      [...storage.records.values()].some((value) => value.includes("second"))
+  assert.ok(source && storage.getItem(source));
+  failCleanup = false;
+  const other = draftFixture(storage, locks);
+  await other.session.ready;
+  assert.ok(storage.getItem(source), "a different live session must not consume the owner's source");
+  await owner.session.dispose();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(storage.getItem(source), null);
+  assert.equal(other.session.prepareClose(), true);
+  other.session.activate(null);
+  other.session.setBackend("backend-a");
+  other.session.activate(null, { projectId: "p1" });
+  assert.equal(other.input.value, "source held during cleanup");
+  assert.deepEqual(other.files(), [attached]);
+  await other.session.dispose();
+});
+
+test("P3: an unavailable browser lease blocks a false successful close", async () => {
+  const storage = migrationStorage();
+  const view = draftFixture(storage, {
+    request() {
+      throw new Error("lease unavailable");
+    }
+  });
+  await view.session.ready;
+  view.session.activate(null, { projectId: "p1" });
+  view.input.value = "not yet durable";
+  view.setFiles([attached]);
+  view.session.save();
+  assert.equal(view.session.prepareClose(), false);
+  assert.equal(
+    [...storage.records.values()].some((value) => value.includes("not yet durable")),
+    false
   );
+  assert.equal(view.input.value, "not yet durable");
+});
+
+test("P3: a browser without cross-context locks copies only on explicit selection", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {};
+  try {
+    const storage = migrationStorage();
+    const first = draftFixture(storage);
+    first.session.activate(null, { projectId: "p1" });
+    first.input.value = "explicit fallback";
+    first.setFiles([attached]);
+    first.session.save();
+    assert.equal(first.session.prepareClose(), true);
+    const second = draftFixture(storage);
+    second.session.activate(null);
+    second.session.setBackend("backend-a");
+    second.session.activate(null, { projectId: "p1" });
+    assert.equal(second.input.value, "");
+    const [source] = await second.session.listRecoverableDrafts();
+    assert.deepEqual(await second.session.recoverDraft(source.id, { projectId: "p1" }), { ok: true });
+    assert.equal(second.input.value, "explicit fallback");
+    assert.deepEqual(second.files(), [attached]);
+    assert.ok(storage.getItem(source.id), "without cross-context locks the source is retained");
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
 });
 
 test("P3: an unbound draft is not published when its ownership marker cannot be stored", () => {
@@ -396,7 +730,7 @@ test("P3: an unbound draft is not published when its ownership marker cannot be 
   assert.deepEqual(restarted.files(), [attached]);
 });
 
-test("P3: a failed recovery claim retries and restores the visible draft", () => {
+test("P3: a failed recovery journal retries and restores the visible draft", () => {
   const storage = migrationStorage();
   const first = draftFixture(storage);
   first.session.activate(null, { projectId: "p1" });
@@ -407,13 +741,7 @@ test("P3: a failed recovery claim retries and restores the visible draft", () =>
   const setItem = storage.setItem.bind(storage);
   let fail = true;
   storage.setItem = (key, value) => {
-    if (
-      fail &&
-      key.includes(":__prebind__:") &&
-      key.endsWith(":active") &&
-      JSON.parse(value).startsWith("live:")
-    )
-      throw new Error("claim unavailable");
+    if (fail && key === "atria.composer.v1:migration-journal:active") throw new Error("journal unavailable");
     setItem(key, value);
   };
   const next = draftFixture(storage);

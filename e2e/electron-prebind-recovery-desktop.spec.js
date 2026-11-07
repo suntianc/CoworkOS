@@ -82,11 +82,13 @@ test("desktop restores drafts saved before the first backend binding", async () 
         JSON.stringify({ text: "existing A", attachments: [] })
       );
       const a = fixture();
+      await a.session.ready;
       a.session.activate(null);
       a.session.setBackend("fixture-a");
       a.session.activate(null);
       const aClosed = a.session.prepareClose();
       const waiting = fixture();
+      await waiting.session.ready;
       waiting.session.activate(null);
       waiting.session.activate(null, { projectId: "native-p1" });
       waiting.input.value = "native prebind project";
