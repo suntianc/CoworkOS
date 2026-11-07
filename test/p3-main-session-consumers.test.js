@@ -869,6 +869,9 @@ test("two near-simultaneous starts admit exactly one Run", { timeout: 120_000 },
   const request = client(dashboard);
   const { project, requirementId, session } = await sharedSession(request, dashboard, "racing");
 
+  // Both racers name the same requirement: whichever the serialized admission
+  // accepts, the Run's requirement association is the same, so the assertions
+  // below do not depend on which HTTP response wins.
   const started = await Promise.all([
     request(`/api/tasks/${encodeURIComponent(session.taskId)}/run`, {
       prompt: "并发请求一。",
@@ -877,7 +880,8 @@ test("two near-simultaneous starts admit exactly one Run", { timeout: 120_000 },
     }),
     request(`/api/tasks/${encodeURIComponent(session.taskId)}/run`, {
       prompt: "并发请求二。",
-      mainSessionId: session.sessionId
+      mainSessionId: session.sessionId,
+      requirementId
     })
   ]);
   assert.deepEqual(started.map((entry) => entry.status).sort(), [202, 400], JSON.stringify(started));
