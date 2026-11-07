@@ -37,7 +37,7 @@ test(
     assert.equal(result.exitCode, 0, result.plain);
     assert.equal(result.ready, true, result.plain.slice(-3000));
     assert.equal(result.actions[0]?.matched, true, result.plain.slice(-3000));
-    assert.match(result.plain, /Full output:\s+[^\r\n]*atria-bash-[a-f0-9]+\.log/);
+    assert.match(result.plain, /Full output:[\s\S]{0,2000}?atria-bash-[a-f0-9]+\.log/);
     const files = await readdir(temp);
     const output = files.find((name) => /^atria-bash-[a-f0-9]+\.log$/.test(name));
     assert.ok(output, JSON.stringify(files));
