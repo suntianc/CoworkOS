@@ -29,6 +29,7 @@ export async function startPi({ uiCompatibility } = {}) {
   delete process.env.ATRIA_COMPONENTS_GITHUB_TOKEN;
   let projectExecution;
   let projectExecutionTimer;
+  let capacityExecution;
   try {
     const harnessRoot = resolve(process.env.COWORK_HARNESS_ROOT ?? process.cwd());
     const piBin = resolve(
@@ -201,6 +202,38 @@ export async function startPi({ uiCompatibility } = {}) {
       console.error(error.message);
       process.exit(1);
     }
+    // A CLI-launched external Main spends the same budget as the Dashboard. The
+    // Dashboard and the worker hand down the slot they already reserved.
+    if (!process.env.COWORK_MAIN_CAPACITY_GRANTED)
+      try {
+        const { openMainCapacityGate } = await import("./main-capacity-gate.mjs");
+        const capacity = await openMainCapacityGate({ taskId, cwd: process.cwd() });
+        if (capacity?.external) {
+          const decided = await capacity.admit({
+            projectId: capacity.external.projectId,
+            sessionId: capacity.external.sessionId,
+            taskId,
+            kind: capacity.external.kind,
+            runId: process.env.COWORK_RUN_ID ?? `main-${taskId}`,
+            resume: true,
+            prompt: "External Main started from the CLI.",
+            origin: "cli",
+            queueWhenFull: false
+          });
+          if (decided.state !== "running")
+            throw new Error(
+              decided.state === "queued"
+                ? `外部 Main 名额已满，已排队第 ${decided.position} 位；请等待当前 Main 完成后从界面继续`
+                : "外部 Main 名额已满，请等待当前 Main 完成后从界面继续"
+            );
+          await capacity.bindProcess(decided.requestId, process.pid);
+          capacityExecution = { capacity, requestId: decided.requestId };
+        }
+      } catch (error) {
+        await projectExecution?.release().catch(() => {});
+        console.error(error.message);
+        process.exit(1);
+      }
     const sessionDirectoryArg = optionArgs.lastIndexOf("--session-dir");
     if (
       !cliLaunch &&
@@ -405,6 +438,8 @@ export async function startPi({ uiCompatibility } = {}) {
   } finally {
     clearInterval(projectExecutionTimer);
     await projectExecution?.release().catch(() => {});
+    if (capacityExecution)
+      await capacityExecution.capacity.release(capacityExecution.requestId).catch(() => {});
   }
 }
 

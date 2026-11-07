@@ -166,6 +166,20 @@ coworkos data restore --from ~/backups/project-data.json
 
 备份是本机逻辑快照（文件权限 0600），包含共享项目、本机目录绑定、需求、修订、决定、引用、看板条目与事件、Main 会话与运行归属；Pi 历史不在快照里，仍由执行后端本地保管。恢复在一个事务里按外键顺序整体替换这些记录，并拒绝来自另一引擎或旧 schema 的备份文件。恢复前先停止写入该数据根的后端，恢复后重启后端读取。使用 `projectData.authority` 的后端没有本地数据库，备份和恢复在权威服务所在后端执行。
 
+## 外部 Main 容量
+
+external 服务的外部 Main 配额写在本机配置中；未配置时保持原有内部用法，并拒绝创建 external 会话。`resident` 为正整数，`continuation` 为非负整数，两者上限 32；非法值在读取配置时报错，不猜测默认值。
+
+```json
+{ "mainCapacity": { "resident": 2, "continuation": 1 } }
+```
+
+`resident` 限制同时运行的外部常规 Main，`continuation` 保留给接续 Main，二者不能互相借用；内部 Main 不占外部配额。每个项目可保存的外部常规会话数等于 `resident`，保存但未运行不占运行名额，接续会话不计入项目常规上限。降低配额若低于正在运行的数量或任何项目已保存的常规会话数会被拒绝并说明原因，已有运行不会被终止。
+
+配额与容量状态经 `GET /api/main-capacity` 读取、`POST /api/main-capacity` 修改；运行与排队事实保存在数据根的 `main-capacity/state.json`（默认 `~/.atria/runtime/main-capacity/state.json`），随本机后端身份，不写入共享项目数据。程序按到达顺序占用空闲名额，进程结束、启动失败、取消、崩溃和重启对账都会释放名额并推进队列；重启只核对本机自有进程，不终止无关进程。CLI 与 main-worker 启动 external Main 时读取同一文件并写入同一队列。
+
+接口说明见 [Product API](product-api.md#external-main-capacity)。
+
 ## 路径与环境变量
 
 | 环境变量                                              | 用途                                                                  |

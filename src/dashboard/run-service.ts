@@ -53,6 +53,7 @@ import { mainRunFailure, MainRunOutput } from "./main-run-outcome.js";
 import { projectExecutionIsAlive } from "../workspace/project-execution.js";
 import { ProjectCatalogError } from "../workspace/project-catalog.js";
 import { normalizeReasoningEffort, type PiThinkingLevel } from "../runtime/runtime-settings.js";
+import type { MainCapacityDecision, MainCapacityRequest } from "../domain/main-capacity.js";
 
 import { now, type TaskStatus } from "../domain/types.js";
 import type { TaskLocation } from "./workspace-directory.js";
@@ -60,6 +61,40 @@ import type { TaskLocation } from "./workspace-directory.js";
 /** A fresh object per Main process; runId alone can be reused after a stop. */
 export interface InterjectionTarget {
   readonly runId: string;
+}
+
+/**
+ * What the caller adds to one Main start beyond the prompt.
+ *
+ * `onRunAccepted` is the only place a caller may record ownership; it runs
+ * after every refusal check, so a queued or refused request records no Run.
+ */
+export interface MainLaunchSubmission {
+  body?: string;
+  edit?: MessageEditRequest;
+  attachmentIds?: string[];
+  textAttachments?: EditTextFile[];
+  thinkingLevel?: PiThinkingLevel;
+  onPrepared?: (rollback: () => Promise<void>) => void;
+  onAcceptedInput?: (messageId: string) => void;
+  onRunAccepted?: (location: TaskLocation, runId: string) => Promise<void>;
+  source?: "composer" | "human" | "inbox";
+  /** Which entry point asked, so the queue can report where a demand came from. */
+  origin?: "http" | "worker" | "cli" | "internal";
+  /** The persistent session this request names, when the caller knows it. */
+  mainSessionId?: unknown;
+  /** The requirement this Run works on, for capacity dedupe. */
+  requirementId?: unknown;
+  /** A person waiting on the page keeps the demand; a background retry reports it full. */
+  queueWhenFull?: boolean;
+  /** A slot this request already owns; the dispatch of a queued demand sets it. */
+  admittedRequestId?: string;
+}
+
+/** Mutable launch facts: what admission gave this request and whether it spawned. */
+export interface MainLaunchAdmission {
+  requestId?: string;
+  spawned: boolean;
 }
 
 export interface RunServicePorts {
@@ -77,6 +112,28 @@ export interface RunServicePorts {
   onRunExit?: (taskId: string) => void;
   onRunFinalized?: (location: TaskLocation, runId: string) => Promise<void>;
   withTaskProjectLock?<T>(taskId: string, action: () => Promise<T>): Promise<T>;
+  /**
+   * Who owns a start: which persistent Main session already holds this Task.
+   * Read before admission so an external demand is decided before it is recorded.
+   */
+  mainSessions?: {
+    resolve(
+      location: TaskLocation,
+      input: { mainSessionId?: unknown }
+    ): Promise<
+      { sessionId: string; entryKind: "internal" | "external"; kind: "regular" | "continuation" } | undefined
+    >;
+  };
+  /** The external Main budget this host applies to every entry point. */
+  mainCapacity?: {
+    /** Whether this host runs external Mains at all; a disabled host reads no session. */
+    enabled(): boolean;
+    admit(request: MainCapacityRequest): Promise<MainCapacityDecision>;
+    bindProcess(requestId: string, pid: number): Promise<void>;
+    release(requestId: string): Promise<void>;
+    /** A cancelled Task gives up its waiting demand, if it has one. */
+    cancelTask(taskId: string): Promise<void>;
+  };
   normalizeModel(value: unknown): string | undefined;
   appendRunEvent(
     workspace: string,
@@ -102,6 +159,8 @@ export function createDashboardRunService({
   onRunExit = () => {},
   onRunFinalized = async () => {},
   withTaskProjectLock = (_taskId, action) => action(),
+  mainSessions,
+  mainCapacity,
   normalizeModel,
   appendRunEvent,
   readJsonFile,
@@ -162,24 +221,20 @@ export function createDashboardRunService({
     resume = false,
     requestedModel?: string,
     retryRequestId?: string,
-    submission?: {
-      body?: string;
-      edit?: MessageEditRequest;
-      attachmentIds?: string[];
-      textAttachments?: EditTextFile[];
-      thinkingLevel?: PiThinkingLevel;
-      onPrepared?: (rollback: () => Promise<void>) => void;
-      onAcceptedInput?: (messageId: string) => void;
-      /**
-       * Called once this request is admitted and its Run id is fixed, before any
-       * durable Run write or process start. It is the only place a caller may
-       * record ownership: a refused request never reaches it.
-       */
-      onRunAccepted?: (location: TaskLocation, runId: string) => Promise<void>;
-      source?: "composer" | "human" | "inbox";
-    }
-  ): Promise<{ taskId: string; runId: string; status: string; model: string }> {
+    submission?: MainLaunchSubmission,
+    admission: MainLaunchAdmission = { spawned: false }
+  ): Promise<{
+    taskId: string;
+    runId: string;
+    status: "running" | "queued" | "duplicate";
+    model: string;
+    sessionId?: string;
+    queuePosition?: number;
+  }> {
     if (stopping) throw new Error("Runtime is shutting down");
+    // A dispatched demand already owns its slot; keep that identity so the
+    // process record and the release below address the same claim.
+    if (submission?.admittedRequestId) admission.requestId = submission.admittedRequestId;
     const existing = activeRuns.get(taskId);
     if (existing && !existing.killed) throw new Error("Task already has an active Main run");
     // Cancel only the background request. Task state still changes after the
@@ -300,6 +355,68 @@ export function createDashboardRunService({
           savedVersions
         )
       : undefined;
+    // External capacity is decided here, with the Run id fixed and every other
+    // refusal already applied. A queued demand records no Run and starts no
+    // process, so "waiting for a slot" never looks like a running Main.
+    let capacitySessionId: string | undefined;
+    if (mainCapacity?.enabled() && mainSessions && location.projectId && !submission?.admittedRequestId) {
+      const owner = await mainSessions.resolve(location, {
+        ...(submission?.mainSessionId === undefined || submission.mainSessionId === null
+          ? {}
+          : { mainSessionId: submission.mainSessionId })
+      });
+      if (owner?.entryKind === "external") {
+        capacitySessionId = owner.sessionId;
+        const decision = await mainCapacity.admit({
+          projectId: location.projectId,
+          sessionId: owner.sessionId,
+          taskId,
+          kind: owner.kind,
+          ...(typeof submission?.requirementId === "string"
+            ? { requirementId: submission.requirementId }
+            : {}),
+          runId,
+          resume: continueSession,
+          // Keep only the explicit choice: a queued demand resolves the host
+          // and project defaults when it actually gets a slot.
+          ...(requestedModel ? { model: requestedModel } : {}),
+          ...(retryRequestId ? { retryRequestId } : {}),
+          prompt,
+          ...(submission
+            ? {
+                submission: {
+                  ...(submission.body === undefined ? {} : { body: submission.body }),
+                  ...(submission.thinkingLevel ? { thinkingLevel: submission.thinkingLevel } : {}),
+                  ...(submission.attachmentIds ? { attachmentIds: submission.attachmentIds } : {}),
+                  ...(submission.textAttachments ? { textAttachments: submission.textAttachments } : {}),
+                  ...(submission.source ? { source: submission.source } : {})
+                }
+              }
+            : {}),
+          origin: submission?.origin ?? "internal",
+          queueWhenFull: submission?.queueWhenFull === true
+        });
+        if (decision.state === "queued")
+          return {
+            taskId,
+            runId,
+            status: "queued",
+            model,
+            sessionId: owner.sessionId,
+            queuePosition: decision.position
+          };
+        if (decision.state === "duplicate")
+          return {
+            taskId,
+            runId: decision.runId ?? runId,
+            status: "duplicate",
+            model,
+            sessionId: owner.sessionId,
+            ...(decision.position === undefined ? {} : { queuePosition: decision.position })
+          };
+        admission.requestId = decision.requestId;
+      }
+    }
     // Every check that can refuse this request has passed and the Run id it will
     // launch is fixed. Ownership is recorded only now, so a refused request
     // cannot rewrite a Run another process owns.
@@ -409,12 +526,26 @@ export function createDashboardRunService({
               : {})
           }),
           COWORK_MAIN_CONTINUATION: continuation ? inputPath : "",
+          // Admission is this process's budget decision; the launcher must not
+          // ask for a second slot for the same Run.
+          ...(admission.requestId ? { COWORK_MAIN_CAPACITY_GRANTED: admission.requestId } : {}),
           COWORK_MAIN_RETRY_REQUEST_ID: retryRequest?.requestId ?? "",
           COWORK_MAIN_RETRY_MODEL: retryRequest ? JSON.stringify(retryRequest.model) : ""
         },
         stdio: ["pipe", "pipe", "pipe"]
       }
     );
+    admission.spawned = true;
+    if (admission.requestId && mainCapacity && child.pid)
+      await mainCapacity
+        .bindProcess(admission.requestId, child.pid)
+        .catch((error) =>
+          console.error(
+            `[cowork] external capacity process record failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          )
+        );
     activeRunIds.set(taskId, runId);
     interjectionTargets.set(taskId, { runId });
     child.stdin?.on("error", () => {
@@ -590,6 +721,18 @@ export function createDashboardRunService({
             interjectionTargets.delete(taskId);
           }
           if (activeRunIds.get(taskId) === runId) activeRunIds.delete(taskId);
+          // The process is gone, so this Run no longer occupies an external
+          // slot; the next waiting demand may start now.
+          if (admission.requestId && mainCapacity)
+            await mainCapacity
+              .release(admission.requestId)
+              .catch((error) =>
+                console.error(
+                  `[cowork] external capacity release failed: ${
+                    error instanceof Error ? error.message : String(error)
+                  }`
+                )
+              );
           // A quick reply can arrive while askhuman's process is still exiting.
           // Wait for its durable settlement before starting the resumed session.
           if (!stopping && humanWakeups.has(taskId)) void resumeHumanAnswers(taskId);
@@ -598,17 +741,45 @@ export function createDashboardRunService({
       taskFinalizations.set(taskId, finalization);
     });
     if (submission?.edit) await finishMessageEditTransaction(taskWorkspace, taskId);
-    return { taskId, runId, status: "running", model };
+    return {
+      taskId,
+      runId,
+      status: "running",
+      model,
+      ...(capacitySessionId ? { sessionId: capacitySessionId } : {})
+    };
   }
 
   async function launchMainRun(
-    ...args: Parameters<typeof launchMainRunWithActivity> extends [string, ...infer Rest] ? Rest : never
+    ...args: [
+      taskId: string,
+      prompt: string,
+      requestedRunId?: string,
+      resume?: boolean,
+      requestedModel?: string,
+      retryRequestId?: string,
+      submission?: MainLaunchSubmission
+    ]
   ) {
     const activityId = randomUUID();
+    const admission: MainLaunchAdmission = { spawned: false };
     await userMemory?.taskForegroundActive(args[0], activityId).catch(() => {});
     try {
-      return await launchMainRunWithActivity(activityId, ...args);
+      return await launchMainRunWithActivity(
+        activityId,
+        args[0],
+        args[1],
+        args[2],
+        args[3] ?? false,
+        args[4],
+        args[5],
+        args[6],
+        admission
+      );
     } catch (error) {
+      // A Run that was admitted but never reached a process still owns no slot.
+      if (admission.requestId && !admission.spawned && mainCapacity)
+        await mainCapacity.release(admission.requestId).catch(() => {});
       await userMemory?.taskForegroundIdle(args[0], activityId).catch(() => {});
       throw error;
     }
@@ -929,6 +1100,7 @@ export function createDashboardRunService({
   function cancelTask(taskId: string) {
     return serialize(taskId, async () => {
       cancellations.add(taskId);
+      await mainCapacity?.cancelTask(taskId).catch(() => {});
       humanWakeups.delete(taskId);
       try {
         const location = await locateTask(taskId);
@@ -1096,3 +1268,5 @@ export function createDashboardRunService({
     }
   };
 }
+
+export type RunService = ReturnType<typeof createDashboardRunService>;

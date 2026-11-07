@@ -2,6 +2,7 @@ import { access, mkdir, open, readFile, unlink, writeFile } from "node:fs/promis
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { atriaDataPaths } from "./data-home.cjs";
+import { capacityReceipt, openMainCapacityGate } from "./main-capacity-gate.mjs";
 
 // A small independent wake worker for long-running Tasks. It does not make
 // semantic decisions: it only starts a resumable Main session when durable
@@ -20,6 +21,15 @@ if (!lock) {
   console.log(JSON.stringify({ started: false, reason: "main_worker_already_running", taskId }));
   process.exit(0);
 }
+// The same external Main budget the Dashboard applies: an exhausted service
+// leaves this wake to the program's queue instead of spawning a Main of its own.
+let capacity;
+try {
+  capacity = await openMainCapacityGate({ taskId, cwd: process.cwd() });
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
+}
+const WAKE_PROMPT = "Resume this Task from durable memory and process pending Inbox messages.";
 
 let stopped = false;
 const stop = () => {
@@ -32,15 +42,30 @@ try {
     const wake = await readWakeState(taskRoot);
     if (wake.shouldWake) {
       const runId = wake.runId ?? process.env.COWORK_RUN_ID ?? `main-${taskId}`;
+      const external = capacity?.external;
+      const admission = external
+        ? await capacity.admit({
+            projectId: external.projectId,
+            sessionId: external.sessionId,
+            taskId,
+            kind: external.kind,
+            runId,
+            resume: true,
+            prompt: WAKE_PROMPT,
+            origin: "worker",
+            queueWhenFull: true
+          })
+        : undefined;
+      if (admission && admission.state !== "running") {
+        console.log(JSON.stringify({ reason: wake.reason, ...capacityReceipt(taskId, admission, runId) }));
+        if (once) break;
+        await wait(pollMs);
+        continue;
+      }
       console.log(JSON.stringify({ started: true, taskId, runId, reason: wake.reason }));
       const child = spawn(
         process.execPath,
-        [
-          resolve("scripts", "start-pi.mjs"),
-          "--continue",
-          "--print",
-          "Resume this Task from durable memory and process pending Inbox messages."
-        ],
+        [resolve("scripts", "start-pi.mjs"), "--continue", "--print", WAKE_PROMPT],
         {
           cwd: process.cwd(),
           stdio: "inherit",
@@ -49,11 +74,15 @@ try {
             COWORK_CLI_SESSION: "0",
             COWORK_WORKSPACE: workspaceRoot,
             COWORK_TASK_ID: taskId,
-            COWORK_RUN_ID: runId
+            COWORK_RUN_ID: runId,
+            // This process already holds the slot; the launcher must not ask twice.
+            ...(admission?.state === "running" ? { COWORK_MAIN_CAPACITY_GRANTED: admission.requestId } : {})
           }
         }
       );
+      if (admission?.state === "running") await capacity.bindProcess(admission.requestId, child.pid);
       await onceExit(child);
+      if (admission?.state === "running") await capacity.release(admission.requestId);
       if (once) break;
     } else if (once) {
       console.log(JSON.stringify({ started: false, taskId, reason: "no_wakeup" }));

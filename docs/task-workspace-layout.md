@@ -62,6 +62,10 @@ App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，
 
 后续 Dashboard 和关联 CLI 会话继承项目目录。目录改变后继续原 Pi 历史时，启动器按新 CWD 派生会话并保留源 transcript；旧消息中的绝对路径和外部文档引用保持原值。项目使用流程见 [运行时参考](runtime-reference.md#会话与消息)，接口见 [Product API](product-api.md)。
 
+## 外部 Main 容量
+
+外部 Main 的运行名额与排队是执行主机的本机事实，保存在数据根的 `main-capacity/state.json`（默认 `~/.atria/runtime/main-capacity/state.json`，权限 0600）：本机 external 会话的 Task 索引、正在占用名额的 Run 与进程、以及等待中的需求。它不进入共享项目数据，也不在项目数据库备份快照内；进程结束后由程序释放名额并推进队列，重启时只核对本机自有进程。运行记录与 Main 会话归属仍以共享会话和 Task 为准。
+
 ## 项目经验数据
 
 独立项目经验位于 `ATRIA_HOME/project-experience/<sha256(catalog-path, projectId)>/`，正式经验不写入项目源码、Task 目录或个人记忆文件；独立 Pi CLI 的当前轮有界证据另存为所属 Task 的 `runs/<runId>/experience-evidence.json`，供后台读取。目录含权威 `experience.json`（经验、候选、版本、来源、引用队列、额度和去重）、轻量 `profile.json`（只含正式经验及技能目录）与重启发现用 `identity.json`。

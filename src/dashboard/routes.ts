@@ -38,6 +38,9 @@ import { ProjectCatalogError } from "../workspace/project-catalog.js";
 import { ProjectDataConflictError, ProjectDataError } from "../domain/project-ledger.js";
 import { handleProjectDataRequest } from "./project-data-routes.js";
 import type { ProjectDataRuntime } from "../workspace/project-data-service.js";
+import type { MainRunLauncher } from "./main-run-launch.js";
+import type { MainCapacityService } from "./main-capacity-service.js";
+import { handleMainCapacityRequest } from "./main-capacity-routes.js";
 import { handleMainSessionRequest } from "./main-session-routes.js";
 import type { createMainSessionService } from "./main-session-service.js";
 import { MainRequestConflictError } from "../runtime/main-request-retry.js";
@@ -56,7 +59,7 @@ import type { WatchCreation } from "../runtime/watch-management.js";
 import type { createWebSearchSettings } from "./web-search-settings.js";
 import type { createModelSettings } from "./model-settings.js";
 import type { createDashboardRunService, RunServicePorts } from "./run-service.js";
-import type { createWorkspaceDirectory, TaskLocation } from "./workspace-directory.js";
+import type { createWorkspaceDirectory } from "./workspace-directory.js";
 import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
 
 type WorkspaceDirectory = ReturnType<typeof createWorkspaceDirectory>;
@@ -75,6 +78,7 @@ export interface DashboardRoutePorts {
   projectData?: ProjectDataRuntime;
   /** Persistent project Main sessions; absent only in partial handlers that serve one router. */
   mainSessions?: ReturnType<typeof createMainSessionService>;
+  mainCapacity?: MainCapacityService;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
   uploads?: InputStore;
@@ -116,6 +120,7 @@ export interface DashboardRoutePorts {
   normalizeModel(value: unknown): string | undefined;
   runtimeValue: RunServicePorts["runtimeValue"];
   startMainRun: RunService["startMainRun"];
+  launchMainRun: MainRunLauncher;
   editMainMessage: RunService["editMainMessage"];
   messageVersion(taskId: string, versionId: string): Promise<unknown>;
   activeRuns: RunService["activeRuns"];
@@ -378,9 +383,14 @@ export function createDashboardHandler(
               : undefined;
           },
           projectTasks: ports.projectTasks,
-          createProjectTask: ports.createProjectTask
+          createProjectTask: ports.createProjectTask,
+          // The same budget the run path enforces: a saved external session is
+          // part of the project's limit before it ever runs.
+          capacity: ports.mainCapacity
         }))
       )
+        return;
+      if (ports.mainCapacity && (await handleMainCapacityRequest(request, response, url, ports.mainCapacity)))
         return;
       if (
         ports.projectExperienceStore &&
@@ -817,65 +827,26 @@ export function createDashboardHandler(
           body.thinkingLevel === undefined
             ? undefined
             : normalizeReasoningEffort(body.thinkingLevel, "thinkingLevel");
-        const mainSessions = ports.mainSessions;
-        const location = mainSessions ? await locateTask(taskId) : undefined;
-        if (body.mainSessionId !== undefined && location && !location.projectId)
-          throw new HttpError(400, "临时会话不属于项目，不能选择 Main 会话");
-        // A session is a continuing conversation: resume its Pi transcript
-        // whenever one exists, even if the Task snapshot lost its Run id.
-        const resumeSession =
-          body.resume === true ||
-          (location && mainSessions ? await mainSessions.hasHistory(location) : false);
-        // Only the Run this request is actually admitted to launch may be
-        // recorded or settled. `onRunAccepted` runs inside the RunService's
-        // per-task serialization after every refusal check, so a rejected start
-        // never rewrites another process's ownership record.
-        const claimed: { runId?: string; projectId?: string; sessionId?: string } = {};
-        const submission = {
-          body: typeof body.body === "string" ? body.body : undefined,
-          ...(thinkingLevel ? { thinkingLevel } : {}),
-          ...(mainSessions && location
-            ? {
-                onRunAccepted: async (acceptedLocation: TaskLocation, acceptedRunId: string) => {
-                  const binding = await mainSessions.beginRun(acceptedLocation, {
-                    runId: acceptedRunId,
-                    mainSessionId: body.mainSessionId,
-                    requirementId: body.requirementId
-                  });
-                  claimed.runId = acceptedRunId;
-                  claimed.projectId = acceptedLocation.projectId;
-                  claimed.sessionId = binding?.sessionId;
-                }
-              }
-            : {})
-        };
-        try {
-          const result = await startMainRun(
+        // A person waiting on the page keeps its demand when the external Main
+        // budget is full; the accepted Run starts from the queue later.
+        sendJson(
+          response,
+          202,
+          await ports.launchMainRun({
             taskId,
             prompt,
-            runId,
-            resumeSession,
-            model,
-            body.retryRequestId as string | undefined,
-            submission
-          );
-          sendJson(response, 202, claimed.sessionId ? { ...result, sessionId: claimed.sessionId } : result);
-        } catch (error) {
-          // A claimed Run that never spawned is settled here. A request that was
-          // refused before acceptance claimed nothing, so it must not settle a
-          // different Run; a failed compensation write keeps the launch error.
-          if (claimed.runId && claimed.projectId)
-            await mainSessions
-              ?.settle(claimed.projectId, taskId, claimed.runId, "failed")
-              .catch((settleError) =>
-                console.error(
-                  `[cowork] session run settlement failed: ${
-                    settleError instanceof Error ? settleError.message : String(settleError)
-                  }`
-                )
-              );
-          throw error;
-        }
+            ...(runId ? { runId } : {}),
+            ...(body.resume === true ? { resume: true } : {}),
+            ...(model ? { model } : {}),
+            ...(typeof body.retryRequestId === "string" ? { retryRequestId: body.retryRequestId } : {}),
+            ...(typeof body.body === "string" ? { body: body.body } : {}),
+            ...(thinkingLevel ? { thinkingLevel } : {}),
+            ...(body.mainSessionId === undefined ? {} : { mainSessionId: body.mainSessionId }),
+            ...(body.requirementId === undefined ? {} : { requirementId: body.requirementId }),
+            source: "composer",
+            queueWhenFull: true
+          })
+        );
         return;
       }
       const versionMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/message-versions\/([^/]+)$/);
