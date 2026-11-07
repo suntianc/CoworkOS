@@ -267,6 +267,10 @@ test("project drafts and attachments restore separately from Task drafts across 
   const options = {
     input,
     storage: {
+      get length() {
+        return records.size;
+      },
+      key: (index) => [...records.keys()][index] ?? null,
       getItem: (key) => records.get(key),
       setItem: (key, value) => records.set(key, value),
       removeItem: (key) => records.delete(key)
@@ -277,6 +281,8 @@ test("project drafts and attachments restore separately from Task drafts across 
     }
   };
   const session = createComposerSession(options);
+  session.activate(null);
+  session.setBackend("backend-a");
   session.activate(null, { projectId: "a" });
   input.value = "项目A草稿";
   attachments = [{ name: "a.txt", text: "A" }];
@@ -292,10 +298,14 @@ test("project drafts and attachments restore separately from Task drafts across 
   session.activate(null, { projectId: "a" });
   assert.equal(input.value, "项目A草稿");
   assert.equal(attachments[0].name, "a.txt");
+  assert.equal(session.prepareClose(), true);
   const restored = createComposerSession(options);
+  restored.activate(null);
+  restored.setBackend("backend-a");
   assert.equal(restored.activeTask, null);
   assert.equal(restored.activeProject, "a");
   assert.equal(restored.hasNewDraft, true);
+  restored.activate(null, { projectId: "a" });
   restored.activate(null, { projectId: "b" });
   assert.equal(input.value, "项目B草稿");
   restored.activate("task-a");
@@ -347,6 +357,10 @@ test("first project activation after reload recovers a legacy global draft witho
     const options = {
       input,
       storage: {
+        get length() {
+          return records.size;
+        },
+        key: (index) => [...records.keys()][index] ?? null,
         getItem: (key) => records.get(key),
         setItem: (key, value) => records.set(key, value),
         removeItem: (key) => records.delete(key)
@@ -357,18 +371,26 @@ test("first project activation after reload recovers a legacy global draft witho
       }
     };
     const session = createComposerSession(options);
+    assert.equal(session.activeProject, active === "new:a" ? "a" : null);
+    session.activate(session.activeTask, { projectId: session.activeProject ?? undefined });
+    session.setBackend("backend-a");
     session.activate(null, { projectId: "a" });
     assert.equal(input.value, "恢复草稿");
     assert.equal(attachments[0].name, "恢复.txt");
     assert.equal(records.has("atria.composer.v1:new"), false);
+    assert.equal(records.has("atria.composer.v1:backend-a:new"), false);
     session.activate(null, { projectId: "b" });
     assert.equal(input.value, "");
     session.activate(null, { projectId: "a" });
     assert.equal(input.value, "恢复草稿");
-    records.set("atria.composer.v1:new", JSON.stringify({ text: "另一个旧草稿", attachments: [] }));
-    createComposerSession(options).activate(null, { projectId: "a" });
+    assert.equal(session.prepareClose(), true);
+    records.set("atria.composer.v1:backend-a:new", JSON.stringify({ text: "另一个旧草稿", attachments: [] }));
+    const restored = createComposerSession(options);
+    restored.activate(null);
+    restored.setBackend("backend-a");
+    restored.activate(null, { projectId: "a" });
     assert.equal(input.value, "恢复草稿");
-    assert.equal(JSON.parse(records.get("atria.composer.v1:new")).text, "另一个旧草稿");
+    assert.equal(JSON.parse(records.get("atria.composer.v1:backend-a:new")).text, "另一个旧草稿");
   }
 });
 
@@ -383,9 +405,13 @@ test("legacy draft migration retains its durable source through quota failures a
   ]);
   let quota = true;
   const storage = {
+    get length() {
+      return records.size;
+    },
+    key: (index) => [...records.keys()][index] ?? null,
     getItem: (key) => records.get(key),
     setItem: (key, value) => {
-      if (quota && key === "atria.composer.v1:new:a") throw new Error("destination quota exceeded");
+      if (quota && key === "atria.composer.v1:backend-a:new:a") throw new Error("destination quota exceeded");
       records.set(key, value);
     },
     removeItem: (key) => records.delete(key)
@@ -403,6 +429,8 @@ test("legacy draft migration retains its durable source through quota failures a
       },
       onError: (message) => warnings.push(message)
     });
+    session.activate(null);
+    session.setBackend("backend-a");
     return { input, session, attachments: () => attachments, warnings };
   };
   const first = create();
@@ -410,22 +438,22 @@ test("legacy draft migration retains its durable source through quota failures a
   assert.equal(first.input.value, "必须恢复的旧草稿");
   assert.equal(first.attachments()[0].text, "完整附件");
   assert.ok(first.warnings.length);
-  assert.equal(records.get("atria.composer.v1:new"), source);
-  assert.equal(records.has("atria.composer.v1:new:a"), false);
+  assert.equal(records.get("atria.composer.v1:backend-a:new"), source);
+  assert.equal(records.has("atria.composer.v1:backend-a:new:a"), false);
   assert.equal(first.session.prepareClose(), false);
-  assert.equal(records.get("atria.composer.v1:new"), source);
+  assert.equal(records.get("atria.composer.v1:backend-a:new"), source);
 
   const reloaded = create();
   reloaded.session.activate(null, { projectId: "a" });
   assert.equal(reloaded.input.value, "必须恢复的旧草稿");
   assert.equal(reloaded.attachments()[0].name, "恢复.txt");
   assert.equal(reloaded.session.prepareClose(), false);
-  assert.equal(records.get("atria.composer.v1:new"), source);
+  assert.equal(records.get("atria.composer.v1:backend-a:new"), source);
   reloaded.input.value = "恢复后继续编辑的草稿";
   quota = false;
   assert.equal(reloaded.session.prepareClose(), true);
-  assert.equal(records.has("atria.composer.v1:new"), false);
-  const saved = JSON.parse(records.get("atria.composer.v1:new:a"));
+  assert.equal(records.has("atria.composer.v1:backend-a:new"), false);
+  const saved = JSON.parse(records.get("atria.composer.v1:backend-a:new:a"));
   assert.equal(saved.text, "恢复后继续编辑的草稿");
   assert.equal(saved.attachments[0].text, "完整附件");
 });
@@ -440,9 +468,14 @@ test("a recovered migration preserves a newer global draft written while its des
     const session = createComposerSession({
       input,
       storage: {
+        get length() {
+          return records.size;
+        },
+        key: (index) => [...records.keys()][index] ?? null,
         getItem: (key) => records.get(key),
         setItem: (key, value) => {
-          if (quota && key === "atria.composer.v1:new:a") throw new Error("destination quota exceeded");
+          if (quota && key === "atria.composer.v1:backend-a:new:a")
+            throw new Error("destination quota exceeded");
           records.set(key, value);
         },
         removeItem: (key) => records.delete(key)
@@ -450,17 +483,19 @@ test("a recovered migration preserves a newer global draft written while its des
       getAttachments: () => [],
       setAttachments() {}
     });
+    session.activate(null);
+    session.setBackend("backend-a");
     if (previouslySelected) session.activate(null);
     session.activate(null, { projectId: "a" });
     assert.equal(input.value, "原始迁移草稿");
     const newerGlobal = JSON.stringify({ text: "另一个窗口的新全局草稿", attachments: [] });
-    records.set("atria.composer.v1:new", newerGlobal);
+    records.set("atria.composer.v1:backend-a:new", newerGlobal);
     input.value = "迁移草稿的后续编辑";
     quota = false;
     assert.equal(session.prepareClose(), true);
-    assert.equal(JSON.parse(records.get("atria.composer.v1:new:a")).text, "迁移草稿的后续编辑");
+    assert.equal(JSON.parse(records.get("atria.composer.v1:backend-a:new:a")).text, "迁移草稿的后续编辑");
     assert.equal(
-      records.get("atria.composer.v1:new"),
+      records.get("atria.composer.v1:backend-a:new"),
       newerGlobal,
       `preserve source with cached=${previouslySelected}`
     );
@@ -471,16 +506,21 @@ test("an existing project draft prevents legacy source cleanup even after a fail
   const source = JSON.stringify({ text: "独立旧草稿", attachments: [] });
   const records = new Map([
     ["atria.composer.v1:new", source],
-    ["atria.composer.v1:new:a", JSON.stringify({ text: "A 已有草稿", attachments: [] })]
+    ["atria.composer.v1:backend-a:new:a", JSON.stringify({ text: "A 已有草稿", attachments: [] })]
   ]);
   let quota = true;
   const input = { value: "", addEventListener() {} };
   const session = createComposerSession({
     input,
     storage: {
+      get length() {
+        return records.size;
+      },
+      key: (index) => [...records.keys()][index] ?? null,
       getItem: (key) => records.get(key),
       setItem: (key, value) => {
-        if (quota && key === "atria.composer.v1:new:a") throw new Error("destination quota exceeded");
+        if (quota && key === "atria.composer.v1:backend-a:new:a")
+          throw new Error("destination quota exceeded");
         records.set(key, value);
       },
       removeItem: (key) => records.delete(key)
@@ -488,13 +528,15 @@ test("an existing project draft prevents legacy source cleanup even after a fail
     getAttachments: () => [],
     setAttachments() {}
   });
+  session.activate(null);
+  session.setBackend("backend-a");
   session.activate(null, { projectId: "a" });
   assert.equal(input.value, "A 已有草稿");
   assert.equal(session.prepareClose(), false);
   quota = false;
   assert.equal(session.prepareClose(), true);
-  assert.equal(JSON.parse(records.get("atria.composer.v1:new:a")).text, "A 已有草稿");
-  assert.equal(records.get("atria.composer.v1:new"), source);
+  assert.equal(JSON.parse(records.get("atria.composer.v1:backend-a:new:a")).text, "A 已有草稿");
+  assert.equal(records.get("atria.composer.v1:backend-a:new"), source);
 });
 
 test("legacy empty migration groups require document evidence while named empty projects survive", (t) => {

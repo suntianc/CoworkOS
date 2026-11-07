@@ -116,6 +116,32 @@ const startBackend = (env) => backendCommand(["start"], env);
 const stopBackend = (env) => backendCommand(["stop"], env);
 const instancePath = (root) => join(root.home, "runtime", "backend-instance.json");
 
+test("a client reuses a running backend without loading the dashboard server into its process", async (t) => {
+  const root = await createRoot("atria-daemon-client-import-");
+  t.after(async () => {
+    await stopQuietly(root);
+    await rm(root.base, { recursive: true, force: true });
+  });
+  const started = await startBackend(root.env);
+  const program = `
+    const { registerHooks } = require("node:module");
+    registerHooks({ resolve(specifier, context, next) {
+      const result = next(specifier, context);
+      if (result.url.endsWith("/dashboard/application.js")) throw new Error("client loaded dashboard server");
+      return result;
+    }});
+    import(${JSON.stringify(backendModuleUrl)}).then(async ({ startBackend }) => {
+      console.log(JSON.stringify(await startBackend(process.env)));
+    }).catch(error => { console.error(error.stack); process.exitCode = 1; });
+  `;
+  const reused = await runProcess(process.execPath, ["-e", program], root.env, 30_000);
+  assert.equal(reused.code, 0, reused.err);
+  const status = JSON.parse(reused.out);
+  assert.equal(status.state, "running");
+  assert.equal(status.pid, started.pid);
+  assert.equal(status.backendId, started.backendId);
+});
+
 async function readInstance(root) {
   for (let attempt = 0; attempt < 400; attempt += 1) {
     try {

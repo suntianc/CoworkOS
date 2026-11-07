@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { createManagementClient } from "../web/assets/controllers/management-client.js";
 import { createComposerSession } from "../web/assets/controllers/composer-session.js";
 import { createArtifactController } from "../web/assets/controllers/artifact-controller.js";
+import { createArtifactViewer } from "../web/assets/controllers/artifact-viewer.js";
 import { artifactVersion } from "../web/assets/artifacts.js";
 import { parseHTML } from "linkedom";
 
@@ -222,7 +223,7 @@ async function createProject(client, name, directory) {
   return project;
 }
 
-test("opening an artifact reads the bound backend's file through its authorized session", async (t) => {
+test("opening a PDF reads the bound backend's file through its authorized session", async (t) => {
   const first = await createRoot("cowork-artifact-view-a-", { COWORK_API_TOKEN: "artifact-host-a" });
   const second = await createRoot("cowork-artifact-view-b-", { COWORK_API_TOKEN: "artifact-host-b" });
   const a = await startBackend(first);
@@ -243,7 +244,7 @@ test("opening an artifact reads the bound backend's file through its authorized 
   t.after(() => {
     globalThis.document = previousDocument;
   });
-  const artifact = { relativePath: "report.md", size: 12 };
+  const artifact = { relativePath: "report.pdf", size: 12 };
   const state = {
     selected: "shared-task",
     detail: { artifacts: [artifact] },
@@ -251,13 +252,25 @@ test("opening an artifact reads the bound backend's file through its authorized 
     previewPath: artifact.relativePath,
     openFiles: [artifact.relativePath],
     artifactCache: new Map([
-      [
-        artifact.relativePath,
-        { status: "ready", signature: artifactVersion(artifact), previewKind: "text", content: "preview" }
-      ]
+      [artifact.relativePath, { status: "ready", signature: artifactVersion(artifact), previewKind: "pdf" }]
     ])
   };
   const opened = [];
+  const viewer = createArtifactViewer({
+    read: (path) => client.blob(path),
+    identity: () => client.state(),
+    host: {
+      onClosed: () => () => {},
+      open: async (_url, pdf) => {
+        opened.push({
+          backendId: client.state().backendId,
+          text: Buffer.from(pdf.bytes).toString("utf8"),
+          type: pdf.mime
+        });
+      }
+    }
+  });
+  t.after(() => viewer.dispose());
   const controller = createArtifactController({
     state,
     $: (selector) => document.querySelector(selector),
@@ -267,15 +280,13 @@ test("opening an artifact reads the bound backend's file through its authorized 
     },
     renderRightPanel() {},
     getWorkbench: () => ({ editableKinds: new Set() }),
-    openArtifactViewer: async (path) => {
-      const result = await client.blob(path);
-      opened.push({ backendId: client.state().backendId, text: await result.blob.text() });
-    }
+    openArtifactViewer: (path) => viewer.open(path)
   });
   for (const [root, instance, body] of [
     [first, a, "artifact from A"],
     [second, b, "artifact from B"]
   ]) {
+    viewer.reset();
     const connected = await client.switchBackend({ baseUrl: instance.url });
     assert.equal(connected.status, "connected");
     const project = await createProject(client, `project-${body}`, root.project);
@@ -284,11 +295,13 @@ test("opening an artifact reads the bound backend's file through its authorized 
     });
     const directory = join(root.workspace, "shared-task", "artifacts");
     await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, "report.md"), body);
-    const rawPath = "/api/tasks/shared-task/artifact?path=report.md&raw=1";
+    await writeFile(join(directory, "report.pdf"), body);
+    const rawPath = "/api/tasks/shared-task/artifact?path=report.pdf&raw=1";
     assert.equal((await fetch(instance.url + rawPath)).status, 401, "uncredentialed navigation is refused");
     delete document.querySelector("#artifact-drawer").dataset.signature;
     controller.renderArtifactDrawer();
+    assert.equal(document.querySelector("#artifact-drawer iframe"), null);
+    assert.match(document.querySelector("#artifact-drawer").textContent, /点击“打开 ↗”查看 PDF/);
     document
       .querySelector('#artifact-drawer a[target="_blank"]')
       .dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }));
@@ -298,6 +311,7 @@ test("opening an artifact reads the bound backend's file through its authorized 
       1000
     );
     assert.equal(opened.at(-1).text, body);
+    assert.equal(opened.at(-1).type, "application/pdf");
   }
   assert.deepEqual(
     opened.map((item) => item.text),

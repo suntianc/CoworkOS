@@ -1126,7 +1126,10 @@ test("upload filenames and thumbnails render without exposing prompt metadata or
   const attachments = document.querySelector(".message-attachments");
   assert.ok(attachments);
   assert.equal(attachments.querySelectorAll("img").length, 1);
-  assert.equal(attachments.querySelector("img").getAttribute("src"), "/api/uploads/" + id);
+  const image = attachments.querySelector("img");
+  assert.equal(image.getAttribute("data-upload-src"), id);
+  assert.equal(image.getAttribute("src"), null);
+  assert.equal(attachments.querySelector("[data-upload-preview]").getAttribute("data-upload-preview"), id);
   assert.equal(
     attachments.querySelector("[data-upload-preview]").textContent,
     "<img src=x onerror=alert(1)>.png"

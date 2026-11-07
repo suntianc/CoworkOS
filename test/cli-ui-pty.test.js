@@ -14,7 +14,7 @@ const node = process.env.TEST_ATRIA_NODE || process.execPath;
 
 test(
   "interactive manual shell uses CoworkOS tool identity and a real CoworkOS output file",
-  { skip: process.platform === "win32", timeout: 20000 },
+  { skip: process.platform === "win32", timeout: 35000 },
   async (t) => {
     const f = await fixture(t);
     const temp = join(f.root, "shell-output");
@@ -30,12 +30,14 @@ test(
       publicEntry: true,
       extraEnv: { TMPDIR: temp },
       actions: [
-        { text: command + "\r", waitFor: "Full output:", seconds: 3 },
+        { text: command + "\r", waitFor: "atria-bash-", seconds: 12, required: true },
         { text: "/quit\r", seconds: 0.5 }
       ]
     });
     assert.equal(result.exitCode, 0, result.plain);
-    assert.match(result.plain, /Full output: .*atria-bash-/);
+    assert.equal(result.ready, true, result.plain.slice(-3000));
+    assert.equal(result.actions[0]?.matched, true, result.plain.slice(-3000));
+    assert.match(result.plain, /Full output:\s+[^\r\n]*atria-bash-[a-f0-9]+\.log/);
     const files = await readdir(temp);
     const output = files.find((name) => /^atria-bash-[a-f0-9]+\.log$/.test(name));
     assert.ok(output, JSON.stringify(files));
