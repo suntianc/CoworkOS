@@ -88,6 +88,26 @@ App 使用 Electron safeStorage 加密客户端会话凭据，保存在桌面数
 
 客户端会话使用独立钥匙串进程的 `CoworkOS Client` 加密标识；旧模型密文转换仍使用 `Atria` 标识。旧开发标识加密的密钥可能需要重新输入，原密文与源目录保留。原生钥匙串和签名兼容需单独验收。
 
+## 角色模型
+
+`roleModels` 只在执行主机的本地配置中保存角色绑定；连接和密钥仍由 `modelConnections` 与主机凭据管理。
+
+```json
+{
+  "roleModels": {
+    "version": 1,
+    "host": { "main": { "profileId": "<连接 ID>" } },
+    "projects": { "project_<uuid>": { "main": { "profileId": "<连接 ID>" } } }
+  }
+}
+```
+
+- `host` 是本机所有项目的角色默认；`projects` 是按共享项目稳定 ID 索引的本机覆盖。两者都不进入共享项目数据，其他后端不会继承。
+- 解析优先级为单次/会话显式选择、当前执行主机的项目覆盖、主机角色默认、现有启用连接。旧 Task 的显式 `model` 仍在没有连接组时作为回退，连接切换与推理参数语义不变。
+- 每次 Run 在准入时固定连接、模型、消息格式与推理参数，并把非敏感来源记录为 `main.run_spawned.modelSelection`；之后修改设置只影响下一次 Run，在途 Run 和原请求重试继续使用已保存的执行归属。
+- 已保存的角色引用找不到连接时给出包含角色、范围和连接 ID 的错误，并拒绝启动，不会改用其他账号。保存接口拒绝新建失效引用。
+- P3 只接通 Main；`executor`、`reviewer`、`router` 是可复用配置键，但不会由运行路径读取，UI 也不显示为已生效。
+
 ## 独立视觉连接
 
 `modelConnections.visionId` 指向已保存且启用 `supportsImages` 的连接。原生图像模型直接接收像素；只有纯文本模型调用 `read_image` 时使用独立视觉连接。界面操作见 [模型连接](configuration.md#app-与-web-模型连接)。

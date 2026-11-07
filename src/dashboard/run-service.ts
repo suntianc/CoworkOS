@@ -53,6 +53,7 @@ import { mainRunFailure, MainRunOutput } from "./main-run-outcome.js";
 import { projectExecutionIsAlive } from "../workspace/project-execution.js";
 import { ProjectCatalogError } from "../workspace/project-catalog.js";
 import { normalizeReasoningEffort, type PiThinkingLevel } from "../runtime/runtime-settings.js";
+import { modelRoleSnapshot, type ModelRoleRequest, type ResolvedModelRole } from "../runtime/role-models.js";
 
 import { now, type TaskStatus } from "../domain/types.js";
 import type { TaskLocation } from "./workspace-directory.js";
@@ -71,8 +72,14 @@ export interface RunServicePorts {
   runCredential: string;
   coordinator: CoordinatorRuntime;
   locateTask(taskId: string): Promise<TaskLocation>;
-  runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
-  activeConnection?: () => boolean;
+  /**
+   * Resolve the execution host's connection for one admitted Run.
+   *
+   * Called at the moment the launch is admitted, so a queued request that only
+   * starts later reads the settings in force then. The returned snapshot is
+   * fixed for the life of the process.
+   */
+  resolveMainModel(request: ModelRoleRequest): ResolvedModelRole;
   onRunStarting?: () => void;
   onRunExit?: (taskId: string) => void;
   onRunFinalized?: (location: TaskLocation, runId: string) => Promise<void>;
@@ -96,8 +103,7 @@ export function createDashboardRunService({
   runCredential,
   coordinator,
   locateTask,
-  runtimeValue,
-  activeConnection = () => false,
+  resolveMainModel,
   onRunStarting = () => {},
   onRunExit = () => {},
   onRunFinalized = async () => {},
@@ -167,6 +173,8 @@ export function createDashboardRunService({
       edit?: MessageEditRequest;
       attachmentIds?: string[];
       textAttachments?: EditTextFile[];
+      /** Explicit one-off connection; an unknown id refuses instead of falling back. */
+      profileId?: string;
       thinkingLevel?: PiThinkingLevel;
       onPrepared?: (rollback: () => Promise<void>) => void;
       onAcceptedInput?: (messageId: string) => void;
@@ -196,6 +204,12 @@ export function createDashboardRunService({
     const continueSession = resume || Boolean(task.activeRunId);
     const continuation = resume && !prompt.trim();
     const requestStore = new MainRequestStore(mainRequestPath(taskWorkspace, taskId), taskId);
+    // The connection a retry must still belong to. Resolving it here also refuses
+    // an explicit profile id before this request is admitted.
+    const roleRequestBase = {
+      ...(location.projectId ? { projectId: location.projectId } : {}),
+      ...(submission?.profileId ? { profileId: submission.profileId } : {})
+    };
     const retryRequest = continuation
       ? await requestStore.inspectPending(async (snapshot) => {
           if (
@@ -242,9 +256,9 @@ export function createDashboardRunService({
           } catch (error) {
             throw new MainRequestConflictError(error instanceof Error ? error.message : String(error));
           }
-          const configuredBase = runtimeValue("COWORK_API_BASE");
           const endpoint = (value: string) => value.replace(/\/+$/, "").replace(/\/v1$/, "");
-          if (configuredBase && endpoint(configuredBase) !== endpoint(snapshot.model.baseUrl))
+          const configuredBase = resolveMainModel(roleRequestBase).baseUrl;
+          if (endpoint(configuredBase) !== endpoint(snapshot.model.baseUrl))
             throw new MainRequestConflictError(
               "原请求的模型连接已变化，已有内容仍保留。请恢复原连接后重试，或发送新消息。"
             );
@@ -258,14 +272,22 @@ export function createDashboardRunService({
         ? task.activeRunId
         : `main-${Date.now()}`);
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(runId)) throw new Error("unsafe run id");
-    const model =
-      retryRequest?.model.id ??
-      normalizeModel(requestedModel) ??
-      (activeConnection() ? runtimeValue("COWORK_MODEL") : normalizeModel(task.model)) ??
-      runtimeValue("COWORK_MODEL") ??
-      "glm-5.3";
-    const baseUrl = runtimeValue("COWORK_API_BASE");
-    const apiKey = runtimeValue("COWORK_API_KEY");
+    // Fix the connection, model and reasoning profile now: a setting changed after
+    // this point applies to the next Run, not to the request already underway.
+    const selection = resolveMainModel({
+      ...roleRequestBase,
+      ...(retryRequest
+        ? { retryModel: retryRequest.model.id }
+        : requestedModel
+          ? { model: normalizeModel(requestedModel) }
+          : { taskModel: task.model }),
+      ...(submission?.thinkingLevel
+        ? { thinkingLevel: normalizeReasoningEffort(submission.thinkingLevel, "thinkingLevel") }
+        : {})
+    });
+    const model = selection.model;
+    const baseUrl = selection.baseUrl;
+    const apiKey = selection.apiKey;
     if (!baseUrl || !apiKey) throw new Error("模型 API 未配置：请填写 config.json 或 .cowork/config.json");
     if (prompt.includes("\0")) throw new Error("消息包含不支持的二进制字符，请移除附件后重试");
     if (Buffer.byteLength(prompt, "utf8") > 512 * 1024) throw new Error("消息及附件合计不能超过 512 KB");
@@ -353,6 +375,7 @@ export function createDashboardRunService({
     await location.store.createRun(taskId, runId);
     await appendRunEvent(taskWorkspace, taskId, runId, "main.run_spawned", {
       model,
+      modelSelection: modelRoleSnapshot(selection),
       prompt: prompt.slice(0, 4_000),
       resumed: continueSession,
       ...(continuation ? { continuation: true } : {})
@@ -404,6 +427,7 @@ export function createDashboardRunService({
             dashboardUrl,
             piAgentDir: process.env.PI_CODING_AGENT_DIR,
             projectRoot,
+            selection,
             ...(input?.thinkingLevel
               ? { thinkingLevel: normalizeReasoningEffort(input.thinkingLevel, "thinkingLevel") }
               : {})

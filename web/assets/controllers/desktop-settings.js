@@ -9,6 +9,7 @@ export function installDesktopSettings({
   onSaved,
   overview,
   api,
+  projectId: projectIdOf,
   identity = () => location.origin
 }) {
   const desktop = window.bookmanDesktop;
@@ -49,8 +50,20 @@ export function installDesktopSettings({
     };
     return settingsBackend.request(path, options);
   };
-  const status = () => request("GET");
+  const currentProject = () => {
+    const value = projectIdOf?.();
+    return typeof value === "string" ? value : "";
+  };
+  const status = () => {
+    const scoped = currentProject();
+    return request(
+      "GET",
+      undefined,
+      scoped ? `/api/model-settings?projectId=${encodeURIComponent(scoped)}` : "/api/model-settings"
+    );
+  };
   const save = (body) => request("POST", body);
+  const saveRole = (body) => request("POST", body, "/api/model-settings/roles");
   const test = (body) => request("POST", body, "/api/model-settings/test");
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
@@ -59,6 +72,11 @@ export function installDesktopSettings({
     <header class="settings-heading"><button class="settings-nav-button" type="button" data-settings-back aria-label="返回设置" title="返回设置">${icon("chevron-left")}</button><div><h2 id="model-settings-title">连接模型</h2></div><button class="settings-nav-button" type="button" data-model-close aria-label="关闭设置" title="关闭设置">${icon("close")}</button></header>
     <form id="model-settings-form" class="settings-form"><div class="settings-scroll settings-form-content">
       <div class="settings-profile"><label class="settings-field model-profile-picker">已保存的配置<select data-model-profiles aria-label="已保存的配置"></select></label><p class="settings-help" data-model-active></p></div>
+      <div class="settings-profile" data-model-roles>
+        <label class="settings-field">Main 角色<select data-role-host aria-label="Main 角色默认连接"></select></label>
+        <label class="settings-field" data-role-project hidden>项目覆盖<select data-role-project aria-label="当前项目的 Main 模型连接"></select></label>
+        <p class="settings-help" data-role-effective></p>
+      </div>
       <div class="model-connection-fields">
         <label class="settings-field">配置名称<input name="profileName" maxlength="80" required></label>
         <label class="settings-field">模型 ID<input name="model" required placeholder="填写服务商提供的模型 ID"></label>
@@ -105,13 +123,82 @@ export function installDesktopSettings({
   let dirty = false;
   const setBusy = (value) => {
     busy = value;
-    for (const input of form.querySelectorAll("input, select")) input.disabled = busy || !loaded || managed;
+    for (const input of form.querySelectorAll("input, select"))
+      if (!input.closest("[data-model-roles]")) input.disabled = busy || !loaded || managed;
     submitButton.disabled = busy || !loaded || managed;
     activateButton.disabled = busy || !loaded || managed;
     picker.disabled = busy || !loaded || managed;
     testButton.disabled = busy || !loaded;
     testButton.textContent = loading ? ui("载入中…") : busy ? ui("请稍候…") : ui("测试连接");
+    setRoleDisabled();
   };
+  const hostRole = panel.querySelector("[data-role-host]");
+  const projectRole = panel.querySelector("[data-role-project]");
+  const projectRoleField = projectRole.closest("label");
+  const roleEffective = panel.querySelector("[data-role-effective]");
+  let roleBusy = false;
+  const roleLabels = {
+    project: ui("项目覆盖"),
+    host: ui("主机默认"),
+    active: ui("当前启用连接"),
+    environment: ui("启动环境"),
+    explicit: ui("单次选择"),
+    retry: ui("原请求快照")
+  };
+  const roleOption = (value, label) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    return option;
+  };
+  const mainRole = () => snapshot.modelRoles?.roles?.find((role) => role.role === "main");
+  const setRoleDisabled = () => {
+    const disabled = roleBusy || busy || !loaded || managed;
+    hostRole.disabled = disabled || !(snapshot.profiles || []).length;
+    projectRole.disabled = disabled;
+  };
+  const fillRoleSelect = (select, current, fallback) => {
+    select.replaceChildren(roleOption("", fallback));
+    for (const profile of snapshot.profiles || []) select.append(roleOption(profile.id, profile.name));
+    select.value = current || "";
+  };
+  const showRoles = () => {
+    const main = mainRole();
+    projectRoleField.hidden = !snapshot.modelRoles?.projectId;
+    fillRoleSelect(hostRole, main?.host?.profileId, ui("跟随当前启用连接"));
+    fillRoleSelect(projectRole, main?.project?.profileId, ui("跟随主机默认"));
+    if (main?.error) roleEffective.textContent = main.error;
+    else if (main?.effective) {
+      const label = roleLabels[main.effective.source] || main.effective.source;
+      roleEffective.textContent = ui`生效：${main.effective.connectionName || main.effective.model} · ${main.effective.model}（${label}）`;
+    } else roleEffective.textContent = ui("尚未配置 Main 模型");
+    setRoleDisabled();
+  };
+  const changeRole = async (body) => {
+    if (roleBusy || busy || !loaded || managed) return;
+    roleBusy = true;
+    setRoleDisabled();
+    panel.querySelector("[data-model-error]").textContent = "";
+    try {
+      const result = await saveRole(body);
+      snapshot.modelRoles = result.modelRoles;
+    } catch (error) {
+      panel.querySelector("[data-model-error]").textContent = errorMessage(error);
+    } finally {
+      roleBusy = false;
+      showRoles();
+    }
+  };
+  hostRole.addEventListener("change", () => void changeRole({ role: "main", profileId: hostRole.value }));
+  projectRole.addEventListener(
+    "change",
+    () =>
+      void changeRole({
+        role: "main",
+        projectId: snapshot.modelRoles?.projectId || "",
+        profileId: projectRole.value
+      })
+  );
   const fill = (value) => {
     form.elements.profileName.value = value.profileName || value.name || ui("新配置");
     form.elements.baseUrl.value = value.baseUrl || "";
@@ -197,6 +284,7 @@ export function installDesktopSettings({
       submitButton.textContent = ui("保存连接");
       showProfiles();
       fill({});
+      showRoles();
       panel.querySelector("[data-model-error]").textContent = "";
       panel.querySelector("[data-model-result]").textContent = "";
       const draft = next && backendDrafts.get(next);
@@ -210,6 +298,7 @@ export function installDesktopSettings({
         dirty = true;
         showProfiles();
         fill(draft.input);
+        showRoles();
         return;
       }
     }
@@ -231,6 +320,7 @@ export function installDesktopSettings({
       const active = value.profiles?.find((p) => p.id === value.activeProfileId);
       loaded = true;
       fill(managed ? value : active || value);
+      showRoles();
     } catch (error) {
       if (revision !== openRevision) return;
       panel.querySelector("[data-model-error]").textContent = errorMessage(error);
@@ -294,7 +384,9 @@ export function installDesktopSettings({
       if (revision === openRevision) setBusy(false);
     }
   });
-  form.addEventListener("input", () => {
+  form.addEventListener("input", (event) => {
+    // Role selects save on change; they must not mark the connection form dirty.
+    if (event.target?.closest?.("[data-model-roles]")) return;
     if (!busy && !loading) {
       dirty = true;
       panel.querySelector("[data-model-error]").textContent = "";

@@ -48,6 +48,7 @@ import { createGoalService } from "./goal-service.js";
 import { createWatchService } from "./watch-service.js";
 import { mainIsAlive, readHeartbeat } from "../runtime/main-heartbeat.js";
 import { createModelSettings } from "./model-settings.js";
+import { resolveModelRole } from "../runtime/role-models.js";
 import { createDashboardHandler, type DashboardRoutePorts } from "./routes.js";
 import { UserMemoryStore } from "../runtime/user-memory-store.js";
 import {
@@ -259,8 +260,7 @@ export function createDashboardApplication(
     coordinator,
     locateTask,
     withTaskProjectLock: workspaces.withTaskProjectLock,
-    runtimeValue,
-    activeConnection: () => Boolean(runtimeConfig.modelConnections?.activeId),
+    resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
     onRunExit: (taskId) => computer.finishTask(taskId),
     normalizeModel,
     appendRunEvent,

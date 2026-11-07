@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+import { singleConnectionMainModel } from "./role-model-fixture.mjs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   latestEditableMessage,
@@ -332,8 +333,7 @@ for (const reason of ["persistence failure", "unrelated pending question"]) {
       dashboardUrl: "http://127.0.0.1:1",
       coordinator: {},
       locateTask: async () => ({ workspaceRoot: f.root, store, task: await store.readTask("task") }),
-      runtimeValue: (name) =>
-        ({ COWORK_API_BASE: "http://127.0.0.1:1", COWORK_API_KEY: "fixture", COWORK_MODEL: "fixture" })[name],
+      resolveMainModel: singleConnectionMainModel(),
       normalizeModel: () => "fixture",
       appendRunEvent: async () => {
         throw new Error("isolated persistence failure");

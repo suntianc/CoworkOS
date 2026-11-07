@@ -1,5 +1,6 @@
 import { atriaDataPaths } from "../../scripts/data-home.cjs";
 import type { PiThinkingLevel } from "../runtime/runtime-settings.js";
+import { roleConnectionEnv, type ResolvedModelRole } from "../runtime/role-models.js";
 
 /**
  * The environment a Main run is spawned with.
@@ -25,6 +26,14 @@ export interface MainRunEnvInput {
   dashboardUrl: string;
   piAgentDir?: string;
   projectRoot?: string;
+  /**
+   * The connection and model this Run was admitted with. A connection chosen
+   * from the local registry pins its whole profile, so a role-selected
+   * connection never inherits the active one's protocol, reasoning level or
+   * output limits. Environment-managed and legacy single connections keep
+   * their existing path: the child reads the same configuration file.
+   */
+  selection?: ResolvedModelRole;
   /** Per-request override; omitted so the child inherits the connection default. */
   thinkingLevel?: PiThinkingLevel;
 }
@@ -34,7 +43,11 @@ export function mainRunEnv(input: MainRunEnvInput): Record<string, string> {
     COWORK_API_BASE: input.baseUrl,
     COWORK_API_KEY: input.apiKey,
     COWORK_MODEL: input.model,
-    ...(input.thinkingLevel ? { COWORK_REASONING_EFFORT: input.thinkingLevel } : {}),
+    ...(input.selection?.connectionId
+      ? roleConnectionEnv(input.selection)
+      : input.thinkingLevel
+        ? { COWORK_REASONING_EFFORT: input.thinkingLevel }
+        : {}),
     COWORK_WORKSPACE: input.taskWorkspace,
     COWORK_PROJECT_DIR: input.projectDirectory ?? input.taskWorkspace,
     COWORK_TASK_ID: input.taskId,

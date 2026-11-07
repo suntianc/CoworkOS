@@ -10,6 +10,7 @@ import { readJsonFile } from "../dist/src/dashboard/event-stream.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { WatchProgramStore } from "../dist/src/runtime/watch-program-store.js";
 import { readSleep, writeSleep } from "../dist/src/runtime/main-sleep.js";
+import { singleConnectionMainModel } from "./role-model-fixture.mjs";
 
 const assistant = (stopReason, errorMessage) => ({
   role: "assistant",
@@ -92,8 +93,7 @@ async function fixture(
       waitForSubagents: async () => ({ pending: [], callbackPending: [] })
     },
     locateTask: async () => ({ workspaceRoot, store, task: await store.readTask("task") }),
-    runtimeValue: (name) =>
-      ({ COWORK_API_BASE: "http://127.0.0.1:1", COWORK_API_KEY: "fixture", COWORK_MODEL: "fixture" })[name],
+    resolveMainModel: singleConnectionMainModel(),
     normalizeModel: (value) => (typeof value === "string" ? value : undefined),
     appendRunEvent: async (_workspace, _task, _run, type, payload) => {
       records.push({ type, payload });
