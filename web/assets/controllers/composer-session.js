@@ -23,9 +23,11 @@ export function createComposerSession({
     );
   const prebindRoot = `${legacyPrefix}__prebind__:`;
   const prebindId = randomId();
+  const lockManager = locks;
+  const readyMarker = `ready:${lockManager ? "lease:" : ""}${prebindId}`;
+  const hasLeaseMarker = (marker) => typeof marker === "string" && /^ready:lease:[a-f0-9]{32}$/.test(marker);
   let prebindPrefix = `${prebindRoot}${prebindId}:`;
   let adoptedMarker;
-  const lockManager = locks;
   const unknownOccupancy = !lockManager && typeof window !== "undefined";
   const claims = storage && !lockManager ? localClaims.get(storage) || new Map() : null;
   if (claims && !localClaims.has(storage)) localClaims.set(storage, claims);
@@ -141,7 +143,10 @@ export function createComposerSession({
     if (value === null && (protectedDestinations.has(destination) || pendingMigrations.has(destination)))
       retainedNulls.add(destination);
     else retainedNulls.delete(destination);
-    if (pendingMigrations.has(destination) && (invalidJournal || pendingStorage.has(journalKey))) {
+    if (
+      (pendingMigrations.has(destination) || protectedDestinations.has(destination)) &&
+      (invalidJournal || pendingStorage.has(journalKey))
+    ) {
       memory.set(destination, value);
       pendingStorage.add(destination);
       return false;
@@ -284,7 +289,7 @@ export function createComposerSession({
     const claimedByOther = claims?.has(prebindPrefix) && claims.get(prebindPrefix) !== prebindId;
     if (
       claimedByOther ||
-      (owner && owner !== `live:${prebindId}` && owner !== `ready:${prebindId}` && owner !== adoptedMarker)
+      (owner && owner !== `live:${prebindId}` && owner !== readyMarker && owner !== adoptedMarker)
     ) {
       // A successor adopted this session after close preparation. Keep the
       // continuing session's cached work under a fresh identity.
@@ -343,6 +348,11 @@ export function createComposerSession({
       ([, group]) => typeof group.marker === "string" && group.marker.startsWith("ready:")
     );
     const orphans = candidates.filter(([, group]) => group.marker === null);
+    if (lockManager) {
+      const coordinated = ready.filter(([, group]) => hasLeaseMarker(group.marker));
+      const unknown = [...orphans, ...ready.filter(([, group]) => !hasLeaseMarker(group.marker))];
+      return coordinated.length === 1 && unknown.length === 0 ? coordinated[0] : null;
+    }
     const chosen =
       ready.length === 1 && orphans.length === 0
         ? ready[0]
@@ -355,7 +365,7 @@ export function createComposerSession({
     const marker = prebindPrefix + "active";
     if (pendingStorage.has(marker) || prebindEntries(prebindPrefix).length) return;
     const owner = JSON.parse(storage?.getItem(marker) || "null");
-    if (owner === `live:${prebindId}` || owner === `ready:${prebindId}` || owner === adoptedMarker)
+    if (owner === `live:${prebindId}` || owner === readyMarker || owner === adoptedMarker)
       writeRecord(marker, null);
   };
   const migratePrebind = (backendId) => {
@@ -424,12 +434,28 @@ export function createComposerSession({
         throw new Error("invalid migration journal");
       journalPresent = true;
       let changed = false;
+      const conservativeWrites = [];
       for (const { sourceKey, destination, legacy, conflict } of entries) {
         const source = JSON.parse(storage.getItem(sourceKey) || "null");
         const rawDestination = storage.getItem(destination);
         const target = JSON.parse(rawDestination || "null");
         if (source === null) {
           changed = true;
+          continue;
+        }
+        const group = sourceKey.match(/^(atria\.composer\.v1:__prebind__:[a-f0-9]{32}:)/)?.[1];
+        const marker = group ? JSON.parse(storage.getItem(group + "active") || "null") : null;
+        if (group && (lockManager || unknownOccupancy) && (unknownOccupancy || !hasLeaseMarker(marker))) {
+          // Older writers never held a lease. Keep their source even after
+          // replay; the journal also protects an explicit destination delete.
+          migrationConflicts.set(destination, { sourceKey, legacy });
+          protectedDestinations.add(destination);
+          if (!conflict) changed = true;
+          if (!conflict && rawDestination === null) {
+            memory.set(destination, source);
+            pendingStorage.add(destination);
+            conservativeWrites.push(destination);
+          }
           continue;
         }
         if (lockManager && sourceKey.startsWith(prebindRoot) && !conflict) deferredSources.add(sourceKey);
@@ -457,6 +483,7 @@ export function createComposerSession({
       }
       if (changed) persistJournal();
       if (!pendingStorage.has(journalKey)) {
+        for (const destination of conservativeWrites) writeRecord(destination, memory.get(destination));
         for (const destination of pendingMigrations.keys()) {
           if (pendingStorage.has(destination)) writeRecord(destination, memory.get(destination));
         }
@@ -534,10 +561,12 @@ export function createComposerSession({
         } else {
           // A live owner retains the source until its context exits. The
           // queued lock resumes journal cleanup once that ownership ends.
-          void lockManager
-            .request(lockName(group), {}, (lock) => {
-              if (lock && !disposed) finishDeferredGroup(group);
-            })
+          void Promise.resolve()
+            .then(() =>
+              lockManager.request(lockName(group), {}, (lock) => {
+                if (lock && !disposed) finishDeferredGroup(group);
+              })
+            )
             .catch(() => {});
         }
       }
@@ -617,7 +646,7 @@ export function createComposerSession({
         const source = JSON.parse(storage?.getItem(id) || "null");
         if (!hasContent(source)) return { ok: false, reason: "unavailable" };
         const marker = JSON.parse(storage?.getItem(group + "active") || "null");
-        if (typeof marker === "string" && marker.startsWith("ready:") && !unknownOccupancy) {
+        if (hasLeaseMarker(marker) && !unknownOccupancy) {
           registerMigration(destination, { sourceKey: id, source });
           finishMigrations();
         } else {
@@ -728,7 +757,11 @@ export function createComposerSession({
       if (pendingStorage.has(journalKey)) writeRecord(journalKey, memory.get(journalKey));
       for (const key of [...pendingStorage]) {
         if (lockManager && !releaseLease && key.startsWith(prebindPrefix)) continue;
-        if ((invalidJournal || pendingStorage.has(journalKey)) && pendingMigrations.has(key)) continue;
+        if (
+          (invalidJournal || pendingStorage.has(journalKey)) &&
+          (pendingMigrations.has(key) || protectedDestinations.has(key))
+        )
+          continue;
         if (
           key.startsWith(prebindPrefix) &&
           key !== prebindPrefix + "active" &&
@@ -754,10 +787,10 @@ export function createComposerSession({
       if (!namespace && !pendingStorage.size && !pendingMigrations.size && !invalidJournal) {
         const marker = prebindPrefix + "active";
         if (prebindEntries(prebindPrefix).length) {
-          if (claimPrebind()) writeRecord(prebindPrefix + "active", `ready:${prebindId}`);
+          if (claimPrebind()) writeRecord(prebindPrefix + "active", readyMarker);
         } else {
           const owner = JSON.parse(storage?.getItem(marker) || "null");
-          if (owner === `live:${prebindId}` || owner === `ready:${prebindId}`) writeRecord(marker, null);
+          if (owner === `live:${prebindId}` || owner === readyMarker) writeRecord(marker, null);
         }
       }
       if (!lockManager && claims?.get(prebindPrefix) === prebindId) claims.delete(prebindPrefix);

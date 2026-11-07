@@ -508,6 +508,125 @@ test("P3: a legacy live marker from an exited owner remains manually recoverable
   assert.equal((await restarted.session.listRecoverableDrafts())[0].text, "interrupted legacy");
 });
 
+for (const marker of [null, "ready:old-writer"]) {
+  test(`P3: an old ${marker === null ? "unmarked" : "ready"} writer is never consumed without a shared lease`, async () => {
+    const storage = migrationStorage();
+    const prefix = `atria.composer.v1:__prebind__:${"d".repeat(32)}:`;
+    if (marker) storage.setItem(prefix + "active", JSON.stringify(marker));
+    const source = JSON.stringify({ text: "old writer content", attachments: [attached] });
+    storage.setItem(prefix + "new:p1", source);
+    const next = draftFixture(storage, lockFixture());
+    await next.session.ready;
+    next.session.activate(null);
+    next.session.setBackend("backend-a");
+    next.session.activate(null, { projectId: "p1" });
+    assert.equal(next.input.value, "");
+    assert.equal(storage.getItem(prefix + "new:p1"), source);
+    const [draft] = await next.session.listRecoverableDrafts();
+    assert.deepEqual(await next.session.recoverDraft(draft.id, { projectId: "p1" }), { ok: true });
+    assert.equal(next.input.value, "old writer content");
+    assert.deepEqual(next.files(), [attached]);
+    assert.equal(storage.getItem(prefix + "new:p1"), source);
+    await next.session.dispose();
+  });
+}
+
+test("P3: replay of an old writer's journal preserves its potentially live source", async () => {
+  const storage = migrationStorage();
+  const prefix = `atria.composer.v1:__prebind__:${"e".repeat(32)}:`;
+  const sourceKey = prefix + "new:p1";
+  const destination = "atria.composer.v1:backend-a:new:p1";
+  const source = JSON.stringify({ text: "legacy journal source", attachments: [attached] });
+  storage.setItem(sourceKey, source);
+  storage.setItem(destination, source);
+  storage.setItem(
+    "atria.composer.v1:migration-journal:active",
+    JSON.stringify(JSON.stringify([{ sourceKey, destination }]))
+  );
+  const view = draftFixture(storage, lockFixture());
+  await view.session.ready;
+  assert.equal(storage.getItem(sourceKey), source);
+  view.session.activate(null);
+  view.session.setBackend("backend-a");
+  view.session.activate(null, { projectId: "p1" });
+  assert.equal(view.input.value, "legacy journal source");
+  view.input.value = "";
+  view.setFiles([]);
+  view.session.save();
+  assert.equal(view.session.prepareClose(), true);
+  await view.session.dispose();
+  const restarted = draftFixture(storage, lockFixture());
+  await restarted.session.ready;
+  restarted.session.activate(null);
+  restarted.session.setBackend("backend-a");
+  restarted.session.activate(null, { projectId: "p1" });
+  assert.equal(restarted.input.value, "");
+  assert.equal(storage.getItem(sourceKey), source);
+  await restarted.session.dispose();
+});
+
+test("P3: an old journal persists protection before retrying a missing destination", async () => {
+  const storage = migrationStorage();
+  const sourceKey = `atria.composer.v1:__prebind__:${"f".repeat(32)}:new:p1`;
+  const destination = "atria.composer.v1:backend-a:new:p1";
+  const source = JSON.stringify({ text: "old interrupted write", attachments: [attached] });
+  storage.setItem(sourceKey, source);
+  storage.setItem(
+    "atria.composer.v1:migration-journal:active",
+    JSON.stringify(JSON.stringify([{ sourceKey, destination }]))
+  );
+  const write = storage.setItem.bind(storage);
+  let fail = true;
+  storage.setItem = (key, value) => {
+    if (fail && key === "atria.composer.v1:migration-journal:active") throw new Error("journal unavailable");
+    write(key, value);
+  };
+  const view = draftFixture(storage, lockFixture());
+  await view.session.ready;
+  assert.equal(view.session.prepareClose(), false);
+  assert.equal(storage.getItem(sourceKey), source);
+  assert.equal(storage.getItem(destination), null);
+  fail = false;
+  assert.equal(view.session.prepareClose(), true);
+  assert.equal(storage.getItem(sourceKey), source);
+  assert.equal(storage.getItem(destination), source);
+  view.session.activate(null);
+  view.session.setBackend("backend-a");
+  view.session.activate(null, { projectId: "p1" });
+  assert.equal(view.input.value, "old interrupted write");
+  assert.deepEqual(view.files(), [attached]);
+  await view.session.dispose();
+});
+
+test("P3: a browser without cross-context locks preserves journal sources", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {};
+  try {
+    const storage = migrationStorage();
+    const prefix = `atria.composer.v1:__prebind__:${"a".repeat(32)}:`;
+    const sourceKey = prefix + "new:p1";
+    const destination = "atria.composer.v1:backend-a:new:p1";
+    const source = JSON.stringify({ text: "unlocked source", attachments: [attached] });
+    storage.setItem(prefix + "active", JSON.stringify(`ready:lease:${"a".repeat(32)}`));
+    storage.setItem(sourceKey, source);
+    storage.setItem(destination, source);
+    storage.setItem(
+      "atria.composer.v1:migration-journal:active",
+      JSON.stringify(JSON.stringify([{ sourceKey, destination }]))
+    );
+    const view = draftFixture(storage);
+    assert.equal(storage.getItem(sourceKey), source);
+    view.session.activate(null);
+    view.session.setBackend("backend-a");
+    view.session.activate(null, { projectId: "p1" });
+    assert.equal(view.input.value, "unlocked source");
+    assert.equal(view.session.prepareClose(), true);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
 test("P3: an automatic migration conflict remains selectable for another project", async () => {
   const storage = migrationStorage();
   storage.setItem(
@@ -626,6 +745,7 @@ test("P3: journal replay cannot consume a source held by a live instance", async
   owner.input.value = "source held during cleanup";
   owner.setFiles([attached]);
   owner.session.save();
+  assert.equal(owner.session.prepareClose(), true);
   const remove = storage.removeItem.bind(storage);
   let failCleanup = true;
   storage.removeItem = (key) => {

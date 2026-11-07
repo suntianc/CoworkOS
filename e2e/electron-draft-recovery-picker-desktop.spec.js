@@ -111,7 +111,7 @@ test("desktop lets users recover separate unbound drafts to chosen projects", as
       await observer.dispose();
       await one.dispose();
       await two.dispose();
-      // Same unmarked format as 90b7bfd0's successfully closed drafts.
+      // Historical unmarked and pre-lease ready formats.
       for (const [id, index, text] of [
         ["1".repeat(32), 2, "old one"],
         ["2".repeat(32), 3, "old two"]
@@ -120,6 +120,8 @@ test("desktop lets users recover separate unbound drafts to chosen projects", as
           `atria.composer.v1:__prebind__:${id}:new:${encodeURIComponent(projects[index].projectId)}`,
           JSON.stringify({ text, attachments: [{ name: text + ".txt", text: text + " bytes" }] })
         );
+        if (index === 3)
+          localStorage.setItem(`atria.composer.v1:__prebind__:${id}:active`, JSON.stringify(`ready:${id}`));
       }
       window.bookmanDesktop.saveComposerDrafts();
       return {
