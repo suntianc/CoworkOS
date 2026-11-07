@@ -25,6 +25,13 @@ function externalNavigationUrl(value, dashboardUrl) {
   }
 }
 
+/** The only document backed by bundled code is the main application page. */
+function isTrustedDocument(value, dashboardUrl) {
+  if (!isDashboardUrl(value, dashboardUrl)) return false;
+  const pathname = new URL(value).pathname;
+  return pathname === "/" || pathname === "/index.html";
+}
+
 /** Only our main renderer may invoke native capabilities, never an iframe or another window. */
 function assertTrustedSender(event, mainWindow, dashboardUrl) {
   if (
@@ -32,7 +39,7 @@ function assertTrustedSender(event, mainWindow, dashboardUrl) {
     event.sender !== mainWindow.webContents ||
     !event.senderFrame ||
     event.senderFrame !== event.sender.mainFrame ||
-    !isDashboardUrl(event.senderFrame.url, dashboardUrl)
+    !isTrustedDocument(event.senderFrame.url, dashboardUrl)
   ) {
     throw new Error("Untrusted desktop IPC sender");
   }

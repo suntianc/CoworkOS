@@ -70,6 +70,9 @@ import { createWorkspaceDirectory } from "./workspace-directory.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
 import { MacComputerDriver } from "../gui/macos-driver.js";
+import { createMacComputerApproval } from "../gui/macos-approval.js";
+import { HttpError } from "./http.js";
+import { ComputerApproval, type ComputerApprovalAuthentication } from "./computer-approval.js";
 
 /** Assemble one local Dashboard; importing this module never opens a port or installs signals. */
 export function createDashboardApplication(
@@ -78,6 +81,11 @@ export function createDashboardApplication(
     port?: number;
     computerDriver?: ComputerDriver;
     computerClock?: () => number;
+    /** Local management credential used by the optional open development dashboard. */
+    localAccessToken?: string;
+    computerApprovalAuthenticate?: ComputerApprovalAuthentication;
+    computerApprovalClock?: () => number;
+    computerApprovalTtlMs?: number;
     /** Supplied by a host that persists identity; otherwise this process is the identity. */
     backendIdentity?: { backendId: string; startedAt: string };
   } = {}
@@ -126,7 +134,16 @@ export function createDashboardApplication(
    * reads the host credential the serving process published. The credential is
    * read through a getter because a daemon sets it before assembling services.
    */
-  const access = new LocalAccess(dirname(globalIndexPath), () => process.env.COWORK_API_TOKEN);
+  const access = new LocalAccess(
+    dirname(globalIndexPath),
+    () => process.env.COWORK_API_TOKEN,
+    () => options.localAccessToken ?? process.env.COWORK_API_TOKEN
+  );
+  const computerApproval = new ComputerApproval(
+    options.computerApprovalAuthenticate ?? createMacComputerApproval(projectRoot),
+    options.computerApprovalClock,
+    options.computerApprovalTtlMs
+  );
   /**
    * Durable receipts for idempotent change commands, beside the sessions and
    * the backend identity so a restart can answer a retry with the saved result.
@@ -620,6 +637,66 @@ export function createDashboardApplication(
     isTaskActive: (taskId) => activeRuns.has(taskId),
     isForegroundActive: () => runs.isBusy()
   });
+  async function computerHostRequest(value: unknown) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new HttpError(400, "无效 Computer Use 请求");
+    const input = value as Record<string, unknown>;
+    const exact = (...keys: string[]) => Object.keys(input).every((key) => keys.includes(key));
+    if (input.operation === "policy") {
+      if (
+        !exact("operation", "enabled", "mode") ||
+        typeof input.enabled !== "boolean" ||
+        (input.mode !== "observe" && input.mode !== "control")
+      )
+        throw new HttpError(400, "无效 Computer Use 策略");
+      return computer.configurePolicy({ enabled: input.enabled, mode: input.mode });
+    }
+    if (input.operation === "resume" && exact("operation")) return computer.resume();
+    if (input.operation === "pause" && exact("operation")) return computer.takeOver();
+    if (input.operation === "release-sessions") {
+      if (!exact("operation")) throw new HttpError(400, "无效 Computer Use 请求");
+      computer.releaseSessions();
+      return null;
+    }
+    if (input.operation === "end") {
+      if (!exact("operation")) throw new HttpError(400, "无效 Computer Use 请求");
+      computer.close();
+      return null;
+    }
+    if (input.operation === "access" && exact("operation")) return computer.access();
+    if (input.operation === "status" && exact("operation"))
+      return (options.computerDriver ?? computerDriver).status();
+    if (input.operation === "permissions") {
+      if (
+        !exact("operation", "permission") ||
+        (input.permission !== "screenRecording" && input.permission !== "accessibility")
+      )
+        throw new HttpError(400, "无效系统权限请求");
+      return (
+        (options.computerDriver ?? computerDriver).requestPermissions?.(input.permission) ??
+        Promise.reject(new HttpError(503, "当前驱动不支持系统权限请求"))
+      );
+    }
+    if (
+      input.operation !== "authorize" ||
+      !exact("operation", "taskId", "pid", "windowId", "mode", "bundleId", "application", "title") ||
+      [input.bundleId, input.application, input.title].some(
+        (value) => value !== undefined && (typeof value !== "string" || value.length > 1024)
+      ) ||
+      typeof input.taskId !== "string" ||
+      input.taskId.length === 0 ||
+      input.taskId.length > 200 ||
+      typeof input.pid !== "number" ||
+      !Number.isSafeInteger(input.pid) ||
+      input.pid <= 0 ||
+      typeof input.windowId !== "number" ||
+      !Number.isSafeInteger(input.windowId) ||
+      input.windowId <= 0 ||
+      (input.mode !== "observe" && input.mode !== "control")
+    )
+      throw new HttpError(400, "无效 Computer Use 授权");
+    return computer.authorize(input.taskId, input.pid, input.windowId, input.mode);
+  }
   const routes: DashboardRoutePorts = {
     userMemory,
     access,
@@ -642,6 +719,8 @@ export function createDashboardApplication(
     }),
     uploads,
     computer,
+    computerHostRequest,
+    computerApproval,
     dashboardUrl,
     uiRoot,
     webSearchSettings: createWebSearchSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
@@ -701,43 +780,9 @@ export function createDashboardApplication(
     mcpSupervisor,
     dashboardUrl,
     routePorts: routes,
-    async computerHostRequest(value: unknown) {
-      if (!value || typeof value !== "object") throw new Error("无效 Computer Use 请求");
-      const input = value as Record<string, unknown>;
-      if (input.operation === "policy") {
-        if (typeof input.enabled !== "boolean" || (input.mode !== "observe" && input.mode !== "control"))
-          throw new Error("无效 Computer Use 策略");
-        return computer.configurePolicy({ enabled: input.enabled, mode: input.mode });
-      }
-      if (input.operation === "resume") return computer.resume();
-      if (input.operation === "pause") return computer.takeOver();
-      if (input.operation === "release-sessions") {
-        computer.releaseSessions();
-        return null;
-      }
-      if (input.operation === "end") {
-        computer.close();
-        return null;
-      }
-      if (input.operation === "status") return (options.computerDriver ?? computerDriver).status();
-      if (input.operation === "permissions") {
-        if (input.permission !== "screenRecording" && input.permission !== "accessibility")
-          throw new Error("无效系统权限请求");
-        return computerDriver.requestPermissions(input.permission);
-      }
-      if (
-        input.operation !== "authorize" ||
-        typeof input.taskId !== "string" ||
-        typeof input.pid !== "number" ||
-        !Number.isInteger(input.pid) ||
-        typeof input.windowId !== "number" ||
-        !Number.isInteger(input.windowId) ||
-        (input.mode !== "observe" && input.mode !== "control")
-      )
-        throw new Error("无效 Computer Use 授权");
-      return computer.authorize(input.taskId, input.pid, input.windowId, input.mode);
-    },
+    computerHostRequest,
     async stop() {
+      await computerApproval.close();
       await catalogEvents.close();
       await memoryLearning.stop();
       await projectLearning.stop();

@@ -112,7 +112,8 @@ export class LocalAccess {
    */
   constructor(
     directory: string,
-    private readonly bootstrapToken: () => string | undefined
+    private readonly bootstrapToken: () => string | undefined,
+    private readonly localHostToken: () => string | undefined = bootstrapToken
   ) {
     this.directory = directory;
     this.sessionsPath = join(directory, SESSION_FILE);
@@ -252,6 +253,8 @@ export class LocalAccess {
           return;
         }
         if (expected && sameSecret(presented, expected)) return;
+        const localHost = this.localHostToken();
+        if (localHost && sameSecret(presented, localHost)) return;
         const record = this.findPresented(presented);
         if (!record) throw new HttpError(401, "本地会话未授权", "unauthorized");
         if (record.revokedAt)
@@ -265,6 +268,8 @@ export class LocalAccess {
     if (!presented) return HOST_PRINCIPAL;
     const expected = this.bootstrapToken();
     if (expected && sameSecret(presented, expected)) return HOST_PRINCIPAL;
+    const localHost = this.localHostToken();
+    if (localHost && sameSecret(presented, localHost)) return HOST_PRINCIPAL;
     const record = this.findPresented(presented);
     return record
       ? { kind: "session", principalId: `session:${record.sessionId}`, sessionId: record.sessionId }

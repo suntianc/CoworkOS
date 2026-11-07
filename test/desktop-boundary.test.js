@@ -19,6 +19,10 @@ test("desktop native capabilities are limited to the trusted main renderer", () 
     assert.throws(() => assertTrustedSender(event, window, url), /Untrusted/);
   frame.url = "https://untrusted.invalid/";
   assert.throws(() => assertTrustedSender({ sender, senderFrame: frame }, window, url), /Untrusted/);
+  frame.url = `${url}/api/tasks/task/artifact`;
+  assert.throws(() => assertTrustedSender({ sender, senderFrame: frame }, window, url), /Untrusted/);
+  frame.url = `${url}/assets/untrusted.html`;
+  assert.throws(() => assertTrustedSender({ sender, senderFrame: frame }, window, url), /Untrusted/);
 });
 
 test("desktop external navigation accepts only bounded HTTP(S) links without credentials", () => {

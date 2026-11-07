@@ -51,6 +51,25 @@ test("draft validation retains compatible empty records and attachments while re
   assert.deepEqual(store.snapshot().entries, entries);
 });
 
+test("a backend-namespaced page keeps its session marker beside its own drafts", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-draft-namespace-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = createComposerDraftStore(root);
+  await store.load();
+  const entries = {
+    "atria.composer.v1:backend_fixture:active": JSON.stringify("new"),
+    "atria.composer.v1:backend_fixture:new": JSON.stringify({ text: "namespaced", attachments: [] }),
+    "atria.composer.v1:active": JSON.stringify("new")
+  };
+  await store.save(entries);
+  assert.deepEqual(store.snapshot().entries, entries);
+  await assert.rejects(store.save({ "atria.composer.v1:backend_fixture:active": "12" }), /会话/);
+  await writeFile(join(root, "composer-drafts.json"), JSON.stringify({ version: 4, entries }));
+  const restored = createComposerDraftStore(root);
+  await restored.load();
+  assert.deepEqual(restored.snapshot().entries, entries);
+});
+
 test("desktop drafts persist privately across origins without accepting other storage keys", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-draft-profile-"));
   t.after(() => rm(root, { recursive: true, force: true }));

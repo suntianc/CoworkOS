@@ -13,6 +13,7 @@ export function dashboardContentPolicy(trustedOrigins: string[] = []): string {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
+    "frame-src 'self' blob:",
     `connect-src ${["'self'", ...trustedOrigins].join(" ")}`,
     "object-src 'none'",
     "base-uri 'none'",

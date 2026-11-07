@@ -42,6 +42,7 @@ import { InputStore, inputPrompt } from "../workspace/input-store.js";
 import { handleUploadRequest } from "./upload-routes.js";
 import { handleComputerRequest } from "./computer-routes.js";
 import type { ComputerUse } from "../gui/computer-use.js";
+import type { ComputerApproval } from "./computer-approval.js";
 
 import { handleGoalRequest } from "./goal-routes.js";
 import type { createGoalService } from "./goal-service.js";
@@ -71,6 +72,8 @@ export interface DashboardRoutePorts {
   goals?: ReturnType<typeof createGoalService>;
   uploads?: InputStore;
   computer: ComputerUse;
+  computerHostRequest?: (input: unknown) => Promise<unknown>;
+  computerApproval?: ComputerApproval;
   dashboardUrl: string;
   uiRoot: string;
   webSearchSettings: ReturnType<typeof createWebSearchSettings>;
@@ -165,6 +168,88 @@ export function createDashboardHandler(
   };
   return async (request, response) => {
     try {
+      if (request.url === "/api/host/computer" || request.url === "/api/host/computer/approve") {
+        if (request.method !== "POST") throw new HttpError(405, "method not allowed");
+        if (
+          request.headers.origin !== undefined ||
+          request.headers["sec-fetch-site"] !== undefined ||
+          request.headers.cookie !== undefined ||
+          typeof request.headers["x-atria-token"] !== "string" ||
+          !request.headers["x-atria-token"] ||
+          !ports.access
+        )
+          throw new HttpError(403, "需要本地连接凭据", "host_credential_required");
+        ports.access.admit(request, dashboardUrl);
+        if (!ports.computerHostRequest || !ports.computerApproval) throw new HttpError(404, "窗口访问不可用");
+        const body = await readJsonBody(request, 16 * 1024);
+        const identity = ports.backendInfo();
+        if (
+          body.backendId !== identity.backendId ||
+          body.pid !== identity.pid ||
+          body.startedAt !== identity.startedAt
+        )
+          throw new HttpError(409, "后端身份已改变，请重新连接", "backend_identity_changed");
+        if (request.url === "/api/host/computer/approve") {
+          if (Object.keys(body).some((key) => !["backendId", "pid", "startedAt"].includes(key)))
+            throw new HttpError(400, "无效的本机身份验证请求");
+          const controller = new AbortController();
+          let issued: string | undefined;
+          const disconnected = () => {
+            if (!response.writableFinished) {
+              controller.abort();
+              if (issued) ports.computerApproval?.revokeIfCurrent(issued);
+            }
+          };
+          const finished = () => response.off("close", disconnected);
+          response.once("close", disconnected);
+          response.once("finish", finished);
+          try {
+            const approval = await ports.computerApproval.approve(identity, controller.signal);
+            if (controller.signal.aborted) {
+              ports.computerApproval.revokeIfCurrent(approval.token);
+              return;
+            }
+            issued = approval.token;
+            response.setHeader("cache-control", "no-store");
+            sendJson(response, 200, { ...identity, approval });
+          } catch (error) {
+            response.off("close", disconnected);
+            response.off("finish", finished);
+            throw error;
+          }
+          return;
+        }
+        const input = body.input as { operation?: unknown; enabled?: unknown } | undefined;
+        const safe =
+          input?.operation === "status" ||
+          input?.operation === "access" ||
+          input?.operation === "permissions" ||
+          input?.operation === "pause" ||
+          input?.operation === "end" ||
+          input?.operation === "release-sessions" ||
+          (input?.operation === "policy" && input.enabled === false);
+        if (
+          !safe &&
+          !ports.computerApproval.valid(request.headers["x-computer-approval"] as string | undefined)
+        )
+          throw new HttpError(403, "请先完成本机身份验证", "host_approval_required");
+        if (input?.operation === "revoke-approval") {
+          if (Object.keys(input).length !== 1) throw new HttpError(400, "无效的本机身份验证请求");
+          ports.computerApproval.revoke();
+          sendJson(response, 200, { ...identity, result: null });
+          return;
+        }
+        if (
+          input?.operation === "pause" ||
+          input?.operation === "end" ||
+          input?.operation === "release-sessions"
+        )
+          ports.computerApproval.cancelPending();
+        if (input?.operation === "policy" && input.enabled === false) ports.computerApproval.revoke();
+        const result = await ports.computerHostRequest(body.input);
+        sendJson(response, 200, { ...identity, result });
+        return;
+      }
       const admitted = ports.access?.admit(request, dashboardUrl);
       const url = admitted ? admitted.url : localRequestUrl(request, dashboardUrl);
       // A page served by another trusted local backend reads this response

@@ -78,6 +78,11 @@ export interface BackendStatus {
   reason?: string;
 }
 
+/** The execution instance a client intended to stop, captured when it attached. */
+export type BackendStopIdentity = Pick<BackendInstance, "backendId" | "pid" | "url" | "startedAt"> & {
+  token?: string;
+};
+
 function publicStatus(value: BackendInstance): BackendStatus {
   return {
     state: "running",
@@ -145,7 +150,8 @@ async function waitForStartup(
 /** Start a detached backend, or report the one already serving this data root. */
 export async function startBackend(
   env: NodeJS.ProcessEnv = process.env,
-  cwd = process.cwd()
+  cwd = process.cwd(),
+  executable = process.execPath
 ): Promise<BackendStatus> {
   const paths = backendPaths(atriaHome(env));
   const prepared = await withFileLock(
@@ -174,7 +180,7 @@ export async function startBackend(
       };
       await writeBackendStarting(paths, claim);
       try {
-        const spawned = await spawnBackend(paths, env, cwd, claimToken, instanceToken);
+        const spawned = await spawnBackend(paths, env, cwd, claimToken, instanceToken, executable);
         return { kind: "starting", claim, instanceToken, spawned };
       } catch (error) {
         await removeBackendStarting(paths, claimToken).catch(() => undefined);
@@ -217,14 +223,15 @@ async function spawnBackend(
   env: NodeJS.ProcessEnv,
   cwd: string,
   claimToken: string,
-  instanceToken: string
+  instanceToken: string,
+  executable: string
 ): Promise<SpawnedBackend> {
   await mkdir(paths.runtimeDir, { recursive: true });
   await mkdir(dirname(paths.logPath), { recursive: true });
   const log = openSync(paths.logPath, "a", 0o600);
   let child: ChildProcess;
   try {
-    child = spawn(process.execPath, [fileURLToPath(import.meta.url), "serve", "--claim", claimToken], {
+    child = spawn(executable, [fileURLToPath(import.meta.url), "serve", "--claim", claimToken], {
       cwd,
       env: { ...env, COWORK_API_TOKEN: instanceToken },
       detached: process.platform !== "win32",
@@ -283,7 +290,10 @@ async function waitForRecord(paths: BackendPaths, spawned: SpawnedBackend): Prom
  * teardown; a forced or incomplete teardown reports `incomplete` and leaves the
  * instance record for the next start to reclaim.
  */
-export async function stopBackend(env: NodeJS.ProcessEnv = process.env): Promise<BackendStatus> {
+export async function stopBackend(
+  env: NodeJS.ProcessEnv = process.env,
+  expected?: BackendStopIdentity
+): Promise<BackendStatus> {
   const paths = backendPaths(atriaHome(env));
   return withFileLock(
     join(paths.runtimeDir, "backend-lifecycle"),
@@ -294,9 +304,19 @@ export async function stopBackend(env: NodeJS.ProcessEnv = process.env): Promise
       const startupAlive = Boolean(starting.value && processIsAlive(starting.value.pid));
       if (inspection.state === "absent") {
         if (startupAlive) throw startupConflict(starting.value!);
+        if (expected) throw new BackendInstanceConflict("后端实例已退出或身份已变化，请重新连接");
         return { state: "absent" };
       }
       const instance = inspection.instance;
+      if (
+        expected &&
+        (instance.backendId !== expected.backendId ||
+          instance.pid !== expected.pid ||
+          instance.url !== expected.url ||
+          instance.startedAt !== expected.startedAt ||
+          (expected.token !== undefined && instance.token !== expected.token))
+      )
+        throw new BackendInstanceConflict("后端实例身份已变化，拒绝停止，请重新连接");
       if (inspection.state === "stale") {
         if (startupAlive) throw startupConflict(starting.value!);
         if (starting.exists) await removeBackendStarting(paths);
@@ -366,6 +386,76 @@ export async function backendStatus(env: NodeJS.ProcessEnv = process.env): Promi
 }
 
 /**
+ * One data root has one serving process.
+ *
+ * Every entry that wants to serve — the detached daemon, a direct `serve` and
+ * the development dashboard — asks here first. A verified instance is reused,
+ * an identity that cannot be confirmed is refused, and only the caller that
+ * recorded the startup claim may publish the instance record.
+ */
+export type BackendServingStart =
+  { kind: "existing"; instance: BackendInstance } | { kind: "claimed"; claim: BackendStarting };
+
+export async function claimBackendServing(
+  paths: BackendPaths,
+  claimToken: string
+): Promise<BackendServingStart> {
+  const registered = await withFileLock(
+    join(paths.runtimeDir, "backend-lifecycle"),
+    async (): Promise<{ existing: BackendInstance } | { claim: BackendStarting }> => {
+      const inspection = await inspectBackend(paths);
+      if (inspection.state === "running") return { existing: inspection.instance };
+      if (inspection.state === "conflict") throw new BackendInstanceConflict(inspection.reason);
+      const starting = await readBackendStarting(paths);
+      if (starting.value && processIsAlive(starting.value.pid)) throw startupConflict(starting.value);
+      if (starting.exists) await removeBackendStarting(paths);
+      await ensureBackendIdentity(paths);
+      if (inspection.state === "stale") await removeBackendInstance(paths, inspection.instance);
+      const claim: BackendStarting = {
+        version: 1,
+        token: claimToken,
+        pid: process.pid,
+        startedAt: new Date().toISOString()
+      };
+      await writeBackendStarting(paths, claim);
+      return { claim };
+    },
+    { recoverDeadOwner: true, timeoutMs: LOCK_TIMEOUT_MS }
+  );
+  return "existing" in registered
+    ? { kind: "existing", instance: registered.existing }
+    : { kind: "claimed", claim: registered.claim };
+}
+
+/**
+ * Publish the instance under the claim that started this boot.
+ *
+ * The claim is re-checked under the lock: a startup that lost ownership to a
+ * newer one aborts instead of overwriting the record that process will serve.
+ */
+export async function publishBackendServing(
+  paths: BackendPaths,
+  claimToken: string,
+  instance: BackendInstance
+): Promise<void> {
+  await withFileLock(
+    join(paths.runtimeDir, "backend-lifecycle"),
+    async () => {
+      const claim = await readBackendStarting(paths);
+      if (!claim.value || claim.value.token !== claimToken) throw new Error("后端启动归属已失效，未启动");
+      await writeBackendInstance(paths, instance);
+      await removeBackendStarting(paths, claimToken);
+    },
+    { recoverDeadOwner: true, timeoutMs: LOCK_TIMEOUT_MS }
+  );
+}
+
+/** Give up a serving claim that never published an instance record. */
+export async function releaseBackendServing(paths: BackendPaths, claimToken: string): Promise<void> {
+  await removeBackendStarting(paths, claimToken).catch(() => undefined);
+}
+
+/**
  * Serve until an explicit stop.
  *
  * The instance record is the readiness signal clients wait for; it is written
@@ -373,7 +463,7 @@ export async function backendStatus(env: NodeJS.ProcessEnv = process.env): Promi
  * daemon awaits its own teardown: it never exits mid-cleanup, so a controller
  * that sees the process gone knows the record outcome is final.
  */
-export async function serveBackend(claimToken?: string): Promise<void> {
+export async function serveBackend(claimToken?: string, executable = process.execPath): Promise<void> {
   const env = process.env;
   const paths = backendPaths(atriaHome(env));
   applyProxyEnvironment(readCoworkConfig());
@@ -385,33 +475,12 @@ export async function serveBackend(claimToken?: string): Promise<void> {
     if (!claim.value || claim.value.token !== claimToken) throw new Error("后端启动归属已失效，未启动");
   } else {
     // A direct serve: obey the same ownership rule as `start`.
-    const registered = await withFileLock(
-      join(paths.runtimeDir, "backend-lifecycle"),
-      async (): Promise<{ existing: BackendInstance } | { claim: BackendStarting }> => {
-        const inspection = await inspectBackend(paths);
-        if (inspection.state === "running") return { existing: inspection.instance };
-        if (inspection.state === "conflict") throw new BackendInstanceConflict(inspection.reason);
-        const starting = await readBackendStarting(paths);
-        if (starting.value && processIsAlive(starting.value.pid)) throw startupConflict(starting.value);
-        if (starting.exists) await removeBackendStarting(paths);
-        await ensureBackendIdentity(paths);
-        if (inspection.state === "stale") await removeBackendInstance(paths, inspection.instance);
-        const claim: BackendStarting = {
-          version: 1,
-          token: randomBytes(32).toString("hex"),
-          pid: process.pid,
-          startedAt: new Date().toISOString()
-        };
-        await writeBackendStarting(paths, claim);
-        return { claim };
-      },
-      { recoverDeadOwner: true, timeoutMs: LOCK_TIMEOUT_MS }
-    );
-    if ("existing" in registered) {
-      process.stdout.write(`${JSON.stringify(publicStatus(registered.existing))}\n`);
+    const started = await claimBackendServing(paths, randomBytes(32).toString("hex"));
+    if (started.kind === "existing") {
+      process.stdout.write(`${JSON.stringify(publicStatus(started.instance))}\n`);
       return;
     }
-    claimToken = registered.claim.token;
+    claimToken = started.claim.token;
   }
   const identity = await ensureBackendIdentity(paths);
   const requested = env.COWORK_UI_PORT ? Number(env.COWORK_UI_PORT) : undefined;
@@ -435,7 +504,7 @@ export async function serveBackend(claimToken?: string): Promise<void> {
     });
   } catch (error) {
     application.server.close();
-    await removeBackendStarting(paths, claimToken).catch(() => undefined);
+    await releaseBackendServing(paths, claimToken);
     throw error;
   }
   const instance: BackendInstance = {
@@ -484,19 +553,8 @@ export async function serveBackend(claimToken?: string): Promise<void> {
   process.on("SIGTERM", () => shutdown(0));
   process.on("SIGINT", () => shutdown(0));
   try {
-    // Publishing takes the lock and re-checks the claim: a startup that lost
-    // its claim to a newer owner must abort instead of overwriting the record.
-    await withFileLock(
-      join(paths.runtimeDir, "backend-lifecycle"),
-      async () => {
-        const claim = await readBackendStarting(paths);
-        if (!claim.value || claim.value.token !== claimToken) throw new Error("后端启动归属已失效，未启动");
-        await writeBackendInstance(paths, instance);
-        published = instance;
-        await removeBackendStarting(paths, claimToken);
-      },
-      { recoverDeadOwner: true, timeoutMs: LOCK_TIMEOUT_MS }
-    );
+    await publishBackendServing(paths, claimToken, instance);
+    published = instance;
     markReady();
   } catch (error) {
     markReady();

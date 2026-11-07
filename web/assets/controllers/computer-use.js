@@ -31,6 +31,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
     taskBlocked = false,
     pendingPolicy,
     warning,
+    approvalRequired = false,
     permissions,
     takeoverShortcut,
     generation = 0,
@@ -76,7 +77,9 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
         : pendingPolicy
           ? "取消开启窗口访问"
           : "关闭窗口访问"
-      : "开启窗口访问";
+      : approvalRequired
+        ? "确认并开启窗口访问"
+        : "开启窗口访问";
     toggle.setAttribute("aria-busy", String(pendingPolicy !== undefined));
     for (const button of section.querySelectorAll("[data-computer-permission]")) {
       const permission = button.dataset.computerPermission;
@@ -103,7 +106,9 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
                 : missing.length
                   ? "等待系统授权"
                   : "已开启"
-              : warning || (permissionsReady() ? "已关闭" : "请先开启屏幕录制和辅助功能");
+              : approvalRequired
+                ? "等待本机确认"
+                : warning || (permissionsReady() ? "已关闭" : "请先开启屏幕录制和辅助功能");
     const permissionMessage =
       !native || !permissions
         ? ""
@@ -198,6 +203,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
       const policy = await native({ operation: "policy-status" });
       if (version !== generation) return;
       warning = policy.warning;
+      approvalRequired = policy.approvalRequired === true;
       await Promise.all([refreshAccess(), refreshPermissions()]);
     } catch {
       error("连接中断，可使用人工接管或关闭窗口访问");
@@ -214,6 +220,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
       const result = await native({ operation: "policy", enabled, mode: "control" });
       if (version !== generation || result.cancelled) return;
       warning = result.warning;
+      approvalRequired = false;
       takeoverShortcut = result.takeoverShortcut;
       access = { policy: { enabled: result.enabled, mode: "control" }, paused: false };
       taskBlocked = false;
@@ -229,6 +236,8 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
     } catch (reason) {
       if (version !== generation) return;
       error(reason.message);
+      const policy = await native({ operation: "policy-status" }).catch(() => undefined);
+      if (version === generation && policy) approvalRequired = policy.approvalRequired === true;
       await Promise.all([refreshAccess(), refreshPermissions()]).catch(() => {});
     } finally {
       if (version === generation) {

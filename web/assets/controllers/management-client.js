@@ -111,6 +111,7 @@ export function createManagementClient({
   clientName = "CoworkOS Web",
   protocolVersion = CLIENT_PROTOCOL_VERSION,
   fetch: fetchImpl = (...args) => globalThis.fetch(...args),
+  authorizeSession,
   storage = memoryStorage(),
   targetStorage = memoryStorage(),
   events = {},
@@ -311,8 +312,19 @@ export function createManagementClient({
     }
   }
 
+  function requireHostSession() {
+    if (authorizeSession && !token && (state.status === "idle" || state.status === "connecting"))
+      throw new ManagementClientError("正在连接后端，请稍后重试", { code: "backend_connecting" });
+  }
+
+  function rejectCurrentSession(requestToken, error) {
+    if (requestToken === token && state.status === "connected") markUnauthorized(error);
+  }
+
   /** One request through the bound identity, with the epoch guard on the way out. */
   async function send(path, { json, headers, signal, method = "GET", body, ...rest } = {}) {
+    requireHostSession();
+    const requestToken = token;
     const at = epoch;
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -372,7 +384,7 @@ export function createManagementClient({
         if (detail.details !== undefined) error.details = detail.details;
         if (detail.retryable !== undefined) error.retryable = Boolean(detail.retryable);
       }
-      if (response.status === 401) markUnauthorized(error);
+      if (response.status === 401) rejectCurrentSession(requestToken, error);
       throw error;
     }
     return parse(response);
@@ -406,10 +418,15 @@ export function createManagementClient({
       error: null
     });
     try {
-      const result = await send("/api/session", {
-        method: "POST",
-        json: { clientName, protocolVersion }
-      });
+      const at = epoch;
+      const result = authorizeSession
+        ? await authorizeSession({ clientName, protocolVersion, baseUrl: target })
+        : await send("/api/session", {
+            method: "POST",
+            json: { clientName, protocolVersion }
+          });
+      if (at !== epoch)
+        throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
       const session = result?.session;
       if (!session?.token || typeof session.token !== "string")
         throw new ManagementClientError("后端未返回有效的本地会话", { code: "session_invalid" });
@@ -563,6 +580,8 @@ export function createManagementClient({
 
   /** Fetch one backend file as bytes; downloads and previews share this path. */
   async function blob(path, { signal } = {}) {
+    requireHostSession();
+    const requestToken = token;
     const at = epoch;
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -585,13 +604,19 @@ export function createManagementClient({
           code: `http_${response.status}`,
           status: response.status
         });
-        if (response.status === 401) markUnauthorized(error);
+        if (response.status === 401) rejectCurrentSession(requestToken, error);
         throw error;
       }
       const disposition = response.headers.get("content-disposition") || "";
       const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+      const bytes = await response.blob();
+      if (at !== epoch)
+        throw new ManagementClientError("已切换后端，旧文件请求已作废", {
+          code: "stale_client",
+          stale: true
+        });
       return {
-        blob: await response.blob(),
+        blob: bytes,
         mimeType: response.headers.get("content-type") || "application/octet-stream",
         fileName: encodedName ? decodeURIComponent(encodedName) : undefined
       };
@@ -623,6 +648,8 @@ export function createManagementClient({
   /** Upload bytes with the current session, keeping the existing progress UI. */
   function upload(file, { name, signal, onProgress } = {}) {
     return new Promise((resolve, reject) => {
+      requireHostSession();
+      const requestToken = token;
       if (typeof XMLHttpRequest === "undefined") {
         reject(new ManagementClientError("当前环境不支持上传", { code: "upload_unavailable" }));
         return;
@@ -662,7 +689,7 @@ export function createManagementClient({
           code: result?.code || `http_${xhr.status}`,
           status: xhr.status
         });
-        if (xhr.status === 401) markUnauthorized(error);
+        if (xhr.status === 401) rejectCurrentSession(requestToken, error);
         reject(error);
       };
       xhr.onerror = () => {
@@ -684,6 +711,8 @@ export function createManagementClient({
    * same reader the catalog client uses consumes the response instead.
    */
   async function openStream(path, { onRecord = () => {}, onOpen, signal } = {}) {
+    requireHostSession();
+    const requestToken = token;
     const at = epoch;
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -698,7 +727,8 @@ export function createManagementClient({
       });
       if (at !== epoch) return;
       if (response.status === 401 || response.status === 403) {
-        markUnauthorized(
+        rejectCurrentSession(
+          requestToken,
           new ManagementClientError("本地会话已失效，任务事件订阅已停止。", {
             code: "session_revoked",
             status: response.status

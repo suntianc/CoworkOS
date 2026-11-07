@@ -1,150 +1,123 @@
-const { spawn } = require("node:child_process");
-const { createServer } = require("node:net");
-const { once } = require("node:events");
-const fs = require("node:fs");
+const fs = require("node:fs/promises");
 const path = require("node:path");
-const crypto = require("node:crypto");
+const { pathToFileURL } = require("node:url");
 const { backendExecutable } = require("./backend-executable.cjs");
 const { desktopBackendEnvironment } = require("./backend-environment.cjs");
+const { createComputerHost } = require("./computer-host.cjs");
 
-async function availablePort() {
-  const probe = createServer();
-  probe.listen(0, "127.0.0.1");
-  await once(probe, "listening");
-  const port = probe.address().port;
-  await new Promise((done) => probe.close(done));
-  return port;
+/**
+ * The desktop client of the execution host.
+ *
+ * The app no longer owns a private backend child: it attaches to the data
+ * root's serving instance through the same lifecycle the CLI uses, so a desktop
+ * launch, `backend start` and the development dashboard all resolve to one
+ * process. The backend outlives this client — quitting the app must not stop a
+ * task it already accepted — and the next launch finds the same instance again.
+ *
+ * The instance record is the only thing read from disk: it is the host
+ * credential the renderer's local session is derived from. Business data stays
+ * on the HTTP protocol the browser also uses.
+ */
+
+function instancePath(paths) {
+  return path.join(paths.userData, "runtime", "backend-instance.json");
 }
-/** Readiness comes from our child via IPC, never from an arbitrary process on a fixed port. */
-async function startBackend(paths, settings, executable = process.execPath) {
-  const { visionModelEnv } = await import("../dist/src/runtime/vision-config.js");
-  const visionEnv = visionModelEnv(settings, {});
-  const port = await availablePort();
-  const token = crypto.randomBytes(32).toString("hex");
-  const inheritedEnv = desktopBackendEnvironment();
-  const child = spawn(
-    backendExecutable(executable, process.platform, paths.appRoot),
-    [path.join(paths.appRoot, "dist/src/cli/dashboard.js")],
-    {
-      cwd: paths.appRoot,
-      env: {
-        ...inheritedEnv,
-        ELECTRON_RUN_AS_NODE: "1",
-        ATRIA_HOME: paths.userData,
-        COWORK_UI_PORT: String(port),
-        COWORK_HARNESS_ROOT: paths.appRoot,
-        COWORK_WORKSPACE: paths.workspaceRoot,
-        COWORK_GLOBAL_INDEX: paths.globalIndex,
-        COWORK_TABS_INDEX: paths.tabsIndex,
-        PI_CODING_AGENT_DIR: paths.piAgentDir,
-        COWORK_CONFIG: paths.configPath,
-        COWORK_UI_DIR: path.join(paths.appRoot, "web"),
-        COWORK_API_TOKEN: token,
-        COWORK_API_BASE: settings.baseUrl || "",
-        COWORK_API_KEY: settings.apiKey || "",
-        ...(settings.webSearch?.exaApiKey ? { COWORK_EXA_API_KEY: settings.webSearch.exaApiKey } : {}),
-        COWORK_MODEL: settings.model || "glm-5.3",
-        COWORK_VISION_API_BASE: "",
-        COWORK_VISION_API_KEY: "",
-        COWORK_VISION_MODEL: "",
-        COWORK_VISION_MODEL_API: "",
-        ...visionEnv
-      },
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-      detached: process.platform !== "win32"
-    }
-  );
-  const log = fs.createWriteStream(path.join(paths.logs, "dashboard.log"), { flags: "a", mode: 0o600 });
-  const secrets = [settings.apiKey, visionEnv.COWORK_VISION_API_KEY, settings.webSearch?.exaApiKey].filter(
-    Boolean
-  );
-  const record = (chunk) =>
-    log.write(secrets.reduce((text, secret) => text.split(secret).join("[REDACTED]"), String(chunk)));
-  child.stdout.on("data", record);
-  child.stderr.on("data", record);
-  child.once("close", () => log.end());
-  const closed = new Promise((done) => child.once("close", done));
-  const computerRequests = new Map();
-  child.on("message", (message) => {
-    if (message?.type !== "computer.reply") return;
-    const pending = computerRequests.get(message.requestId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    computerRequests.delete(message.requestId);
-    message.error ? pending.reject(new Error(message.error)) : pending.resolve(message.result);
-  });
-  child.once("close", () => {
-    for (const pending of computerRequests.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error("Computer Use 本地服务已退出"));
-    }
-    computerRequests.clear();
-  });
-  const computer = (input) =>
-    new Promise((resolve, reject) => {
-      const requestId = crypto.randomUUID();
-      const timer = setTimeout(
-        () => {
-          computerRequests.delete(requestId);
-          reject(new Error("Computer Use 请求超时"));
-        },
-        input?.operation === "permissions" ? 5 * 60_000 + 5_000 : 20_000
-      );
-      computerRequests.set(requestId, { resolve, reject, timer });
-      child.send({ type: "computer.host", requestId, input }, (error) => {
-        if (!error) return;
-        clearTimeout(timer);
-        computerRequests.delete(requestId);
-        reject(error);
-      });
-    });
-  let stopping;
-  const stop = () =>
-    (stopping ||= (async () => {
-      if (child.exitCode !== null || child.signalCode !== null) return;
-      child.kill("SIGTERM");
-      let timer;
-      try {
-        await Promise.race([
-          closed,
-          new Promise((done) => {
-            timer = setTimeout(done, 5_000);
-          })
-        ]);
-      } finally {
-        clearTimeout(timer);
-      }
-      try {
-        if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL");
-        else if (child.exitCode === null) child.kill("SIGKILL");
-      } catch {
-        /* group already exited */
-      }
-      await closed;
-    })());
+
+/** Validate the record the serving process published; a partial one is not usable. */
+function validInstance(value) {
+  if (!value || typeof value !== "object") return undefined;
+  if (value.version !== 1) return undefined;
+  if (typeof value.backendId !== "string" || !value.backendId) return undefined;
+  if (!Number.isInteger(value.pid) || value.pid <= 0) return undefined;
+  if (!Number.isInteger(value.port) || value.port <= 0 || value.port > 65535) return undefined;
+  if (typeof value.url !== "string" || !value.url) return undefined;
+  if (typeof value.token !== "string" || !value.token) return undefined;
+  if (typeof value.startedAt !== "string" || !value.startedAt) return undefined;
+  return value;
+}
+
+async function readInstance(paths) {
+  let raw;
   try {
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => finish(new Error("本地服务启动超时")), 15_000);
-      function finish(error) {
-        clearTimeout(timer);
-        child.off("message", ready);
-        child.off("error", failed);
-        child.off("exit", exited);
-        error ? reject(error) : resolve();
-      }
-      const failed = () => finish(new Error("本地服务无法启动，请查看诊断日志"));
-      const exited = () => finish(new Error("本地服务在启动期间退出，请查看诊断日志"));
-      const ready = (message) => {
-        if (message?.type === "dashboard.ready" && message.url === `http://127.0.0.1:${port}`) finish();
-      };
-      child.on("message", ready);
-      child.once("error", failed);
-      child.once("exit", exited);
-    });
-    return { child, url: `http://127.0.0.1:${port}`, token, stop, computer };
+    raw = await fs.readFile(instancePath(paths), "utf8");
   } catch (error) {
-    await stop();
+    if (error.code === "ENOENT") throw new Error("本地服务的实例记录不存在，请重启 CoworkOS");
     throw error;
   }
+  let value;
+  try {
+    value = validInstance(JSON.parse(raw));
+  } catch {
+    value = undefined;
+  }
+  if (!value) throw new Error(`本地服务的实例记录无法解析：${instancePath(paths)}`);
+  return value;
 }
-module.exports = { startBackend };
+
+/**
+ * The environment the execution host starts with.
+ *
+ * The model credentials the desktop still stores are passed the same way as
+ * before; moving them fully onto the host's own settings belongs to the desktop
+ * settings work, not to the connection change.
+ */
+async function backendEnvironment(paths, settings) {
+  const { visionModelEnv } = await import("../dist/src/runtime/vision-config.js");
+  const visionEnv = visionModelEnv(settings, {});
+  return {
+    ...desktopBackendEnvironment(),
+    ELECTRON_RUN_AS_NODE: "1",
+    ATRIA_HOME: paths.userData,
+    COWORK_HARNESS_ROOT: paths.appRoot,
+    COWORK_WORKSPACE: paths.workspaceRoot,
+    COWORK_GLOBAL_INDEX: paths.globalIndex,
+    COWORK_TABS_INDEX: paths.tabsIndex,
+    PI_CODING_AGENT_DIR: paths.piAgentDir,
+    COWORK_CONFIG: paths.configPath,
+    COWORK_UI_DIR: path.join(paths.appRoot, "web"),
+    COWORK_API_BASE: settings.baseUrl || "",
+    COWORK_API_KEY: settings.apiKey || "",
+    ...(settings.webSearch?.exaApiKey ? { COWORK_EXA_API_KEY: settings.webSearch.exaApiKey } : {}),
+    COWORK_MODEL: settings.model || "glm-5.3",
+    COWORK_VISION_API_BASE: "",
+    COWORK_VISION_API_KEY: "",
+    COWORK_VISION_MODEL: "",
+    COWORK_VISION_MODEL_API: "",
+    ...visionEnv
+  };
+}
+
+/**
+ * Attach to this data root's backend, starting the detached instance if none serves it.
+ *
+ * Returns the host credential and identity the renderer needs for its local
+ * session. `stop` is for the two explicit actions that replace the serving
+ * process — settings restarts and updates — never for quitting the app.
+ */
+async function connectBackend(paths, settings, executable = process.execPath) {
+  const env = await backendEnvironment(paths, settings);
+  const runtime = backendExecutable(executable, process.platform, paths.appRoot);
+  const entry = path.join(paths.appRoot, "dist/src/cli/backend.js");
+  const { startBackend, stopBackend } = await import(pathToFileURL(entry).href);
+  const status = await startBackend(env, paths.appRoot, runtime);
+  const instance = await readInstance(paths);
+  if (
+    instance.backendId !== status.backendId ||
+    instance.pid !== status.pid ||
+    instance.url !== status.url ||
+    instance.startedAt !== status.startedAt
+  )
+    throw new Error("本地服务的实例记录与启动结果不一致，请重试");
+  return {
+    backendId: instance.backendId,
+    pid: instance.pid,
+    port: instance.port,
+    url: instance.url,
+    token: instance.token,
+    startedAt: instance.startedAt,
+    computer: createComputerHost({ expected: instance, inspect: () => readInstance(paths) }),
+    stop: () => stopBackend(env, instance)
+  };
+}
+
+module.exports = { connectBackend, backendEnvironment, readInstance, instancePath };

@@ -174,6 +174,19 @@ contextBridge.exposeInMainWorld("bookmanDesktop", {
       await ipcRenderer.invoke("bookman:documents-ready", requestId, saved === true);
     });
   },
+  backend: {
+    choose: () => ipcRenderer.invoke("bookman:choose-backend"),
+    authorize: (input) => ipcRenderer.invoke("bookman:authorize-backend", input)
+  },
+  artifactViewer: {
+    open: (url, pdf) => ipcRenderer.invoke("bookman:open-artifact-viewer", url, pdf),
+    onClosed: (handler) => {
+      if (typeof handler !== "function") return () => {};
+      const listener = (_event, value) => handler(value);
+      ipcRenderer.on("bookman:artifact-viewer-closed", listener);
+      return () => ipcRenderer.removeListener("bookman:artifact-viewer-closed", listener);
+    }
+  },
   modelStatus: () => ipcRenderer.invoke("bookman:model-status"),
   testModel: (settings) => ipcRenderer.invoke("bookman:test-model", settings),
   // Global policy mutation and human resume stay on the trusted main-frame IPC surface.

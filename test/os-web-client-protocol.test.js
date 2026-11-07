@@ -7,6 +7,9 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { createManagementClient } from "../web/assets/controllers/management-client.js";
 import { createComposerSession } from "../web/assets/controllers/composer-session.js";
+import { createArtifactController } from "../web/assets/controllers/artifact-controller.js";
+import { artifactVersion } from "../web/assets/artifacts.js";
+import { parseHTML } from "linkedom";
 
 /**
  * The shared Web/Electron client against real backends.
@@ -218,6 +221,138 @@ async function createProject(client, name, directory) {
   });
   return project;
 }
+
+test("opening an artifact reads the bound backend's file through its authorized session", async (t) => {
+  const first = await createRoot("cowork-artifact-view-a-", { COWORK_API_TOKEN: "artifact-host-a" });
+  const second = await createRoot("cowork-artifact-view-b-", { COWORK_API_TOKEN: "artifact-host-b" });
+  const a = await startBackend(first);
+  const b = await startBackend(second);
+  t.after(async () => {
+    await stopQuietly(first);
+    await stopQuietly(second);
+    await rm(first.base, { recursive: true, force: true });
+    await rm(second.base, { recursive: true, force: true });
+  });
+  const { client } = clientFor([a, b]);
+  t.after(() => client.stop());
+  const { document, window } = parseHTML(
+    '<div id="artifact-drawer"></div><div id="artifact-drawer-scrim"></div>'
+  );
+  const previousDocument = globalThis.document;
+  globalThis.document = document;
+  t.after(() => {
+    globalThis.document = previousDocument;
+  });
+  const artifact = { relativePath: "report.md", size: 12 };
+  const state = {
+    selected: "shared-task",
+    detail: { artifacts: [artifact] },
+    artifactDrawerOpen: true,
+    previewPath: artifact.relativePath,
+    openFiles: [artifact.relativePath],
+    artifactCache: new Map([
+      [
+        artifact.relativePath,
+        { status: "ready", signature: artifactVersion(artifact), previewKind: "text", content: "preview" }
+      ]
+    ])
+  };
+  const opened = [];
+  const controller = createArtifactController({
+    state,
+    $: (selector) => document.querySelector(selector),
+    api: (path) => client.request(path),
+    showToast: (message) => {
+      throw new Error(message);
+    },
+    renderRightPanel() {},
+    getWorkbench: () => ({ editableKinds: new Set() }),
+    openArtifactViewer: async (path) => {
+      const result = await client.blob(path);
+      opened.push({ backendId: client.state().backendId, text: await result.blob.text() });
+    }
+  });
+  for (const [root, instance, body] of [
+    [first, a, "artifact from A"],
+    [second, b, "artifact from B"]
+  ]) {
+    const connected = await client.switchBackend({ baseUrl: instance.url });
+    assert.equal(connected.status, "connected");
+    const project = await createProject(client, `project-${body}`, root.project);
+    await client.command("/api/tasks", {
+      body: { taskId: "shared-task", goal: body, projectId: project.projectId }
+    });
+    const directory = join(root.workspace, "shared-task", "artifacts");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "report.md"), body);
+    const rawPath = "/api/tasks/shared-task/artifact?path=report.md&raw=1";
+    assert.equal((await fetch(instance.url + rawPath)).status, 401, "uncredentialed navigation is refused");
+    delete document.querySelector("#artifact-drawer").dataset.signature;
+    controller.renderArtifactDrawer();
+    document
+      .querySelector('#artifact-drawer a[target="_blank"]')
+      .dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }));
+    await waitFor(
+      "authorized artifact to open",
+      () => opened.find((item) => item.backendId === instance.backendId),
+      1000
+    );
+    assert.equal(opened.at(-1).text, body);
+  }
+  assert.deepEqual(
+    opened.map((item) => item.text),
+    ["artifact from A", "artifact from B"]
+  );
+});
+
+test("a file response whose body finishes after switching backends is discarded", async (t) => {
+  const first = await createRoot("cowork-artifact-body-a-");
+  const second = await createRoot("cowork-artifact-body-b-");
+  const a = await startBackend(first);
+  const b = await startBackend(second);
+  t.after(async () => {
+    await stopQuietly(first);
+    await stopQuietly(second);
+    await rm(first.base, { recursive: true, force: true });
+    await rm(second.base, { recursive: true, force: true });
+  });
+  let releaseBody, bodyStarted;
+  const bodyGate = new Promise((resolve) => {
+    releaseBody = resolve;
+  });
+  const started = new Promise((resolve) => {
+    bodyStarted = resolve;
+  });
+  const { client } = clientFor([a, b], {
+    fetch: (url, options) => {
+      if (!String(url).includes("/artifact?")) return;
+      return fetch(url, options).then((response) => ({
+        ok: response.ok,
+        status: response.status,
+        headers: response.headers,
+        async blob() {
+          bodyStarted();
+          await bodyGate;
+          return new Blob(["held A"]);
+        }
+      }));
+    }
+  });
+  t.after(() => client.stop());
+  assert.equal((await client.connect({ baseUrl: a.url })).status, "connected");
+  const project = await createProject(client, "body race", first.project);
+  await client.command("/api/tasks", {
+    body: { taskId: "body-race", goal: "body race", projectId: project.projectId }
+  });
+  const directory = join(first.workspace, "body-race", "artifacts");
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "report.md"), "held A");
+  const pending = client.blob("/api/tasks/body-race/artifact?path=report.md&raw=1");
+  await started;
+  assert.equal((await client.switchBackend({ baseUrl: b.url })).backendId, b.backendId);
+  releaseBody();
+  await assert.rejects(pending, (error) => error.code === "stale_client");
+});
 
 test("a browser client authorizes, reads projects, follows Task events and downloads an artifact", async (t) => {
   const root = await createRoot("cowork-web-client-", {
