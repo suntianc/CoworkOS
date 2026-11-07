@@ -36,6 +36,7 @@ import { createBackendConnection } from "./assets/controllers/backend-connection
 import { createProjectExperienceController } from "./assets/controllers/project-experience.js";
 import { createProjectController } from "./assets/controllers/project-controller.js";
 import { createProjectLedgerController } from "./assets/controllers/project-ledger.js";
+import { createMainSessionsController } from "./assets/controllers/main-sessions.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
 import { createConversationReadState, conversationTaskId } from "./assets/conversation-actions.js";
@@ -535,6 +536,16 @@ const projectController = createProjectController({
 });
 const ledgerController = createProjectLedgerController({ api, state, showToast });
 $("#ledger-nav").addEventListener("click", () => ledgerController.open());
+const mainSessionsController = createMainSessionsController({
+  api,
+  state,
+  openSession: ({ projectId, taskId }) => {
+    const project = state.projects.find((entry) => entry.projectId === projectId);
+    if (project) projectController.select(project.projectId);
+    selectConversation(taskId);
+  }
+});
+$("#main-sessions-nav").addEventListener("click", () => mainSessionsController.open());
 const draftRecovery = createDraftRecovery({
   button: $("#recover-drafts"),
   session: composerSession,
@@ -1044,6 +1055,7 @@ function renderConversationList() {
   syncNavigationHistory();
   projectController.render();
   ledgerController.render();
+  mainSessionsController.render();
 }
 
 function selectConversation(taskId) {

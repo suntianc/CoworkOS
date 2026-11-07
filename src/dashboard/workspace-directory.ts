@@ -371,6 +371,12 @@ export function createWorkspaceDirectory(
     locateTask,
     taskListItem,
     globalTaskPayload,
+    /** One project's conversations, for the session list's lazy compatibility map. */
+    async projectTasks(projectId: string): Promise<TaskListItem[]> {
+      await catalogReady;
+      const project = (await listGlobalProjects()).projects.find((entry) => entry.projectId === projectId);
+      return project?.tasks ?? [];
+    },
     projectCatalog,
     async withApplicationProjectLock<T>(
       projectId: string,

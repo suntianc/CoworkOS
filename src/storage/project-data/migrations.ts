@@ -89,6 +89,44 @@ export const PROJECT_DATA_MIGRATIONS: readonly ProjectDataMigration[] = [
       `CREATE INDEX IF NOT EXISTS project_data_revisions_project
          ON project_data_requirement_revisions(project_id, requirement_id)`
     ]
+  },
+  {
+    version: 3,
+    statements: [
+      // A session is shared fact; its Pi transcript stays with the Task on the
+      // backend that holds it. `task_id` is that backend's local container.
+      `CREATE TABLE IF NOT EXISTS project_data_main_sessions (
+         project_id TEXT NOT NULL REFERENCES project_data_projects(project_id) ON DELETE CASCADE,
+         session_id TEXT NOT NULL,
+         title TEXT NOT NULL,
+         entry_kind TEXT NOT NULL,
+         kind TEXT NOT NULL,
+         backend_id TEXT NOT NULL,
+         task_id TEXT NOT NULL,
+         current_requirement_id TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, session_id),
+         UNIQUE (backend_id, project_id, task_id)
+       )`,
+      `CREATE TABLE IF NOT EXISTS project_data_main_session_runs (
+         project_id TEXT NOT NULL,
+         session_id TEXT NOT NULL,
+         run_id TEXT NOT NULL,
+         task_id TEXT NOT NULL,
+         requirement_id TEXT,
+         state TEXT NOT NULL,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, session_id, run_id),
+         FOREIGN KEY (project_id, session_id)
+           REFERENCES project_data_main_sessions(project_id, session_id) ON DELETE CASCADE
+       )`,
+      `CREATE INDEX IF NOT EXISTS project_data_main_sessions_project
+         ON project_data_main_sessions(project_id, updated_at)`,
+      `CREATE INDEX IF NOT EXISTS project_data_main_session_runs_task
+         ON project_data_main_session_runs(task_id, run_id)`
+    ]
   }
 ];
 

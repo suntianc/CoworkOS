@@ -38,6 +38,8 @@ import { ProjectCatalogError } from "../workspace/project-catalog.js";
 import { ProjectDataConflictError, ProjectDataError } from "../domain/project-ledger.js";
 import { handleProjectDataRequest } from "./project-data-routes.js";
 import type { ProjectDataRuntime } from "../workspace/project-data-service.js";
+import { handleMainSessionRequest } from "./main-session-routes.js";
+import type { createMainSessionService } from "./main-session-service.js";
 import { MainRequestConflictError } from "../runtime/main-request-retry.js";
 import { MainRequestSnapshotError } from "../storage/main-request-store.js";
 import { readJsonFile, streamRunEvents } from "./event-stream.js";
@@ -71,6 +73,8 @@ export interface DashboardRoutePorts {
   projectExperienceStore?: (projectId: string) => Promise<ProjectExperienceStore | undefined>;
   /** Shared project ledger; absent only in partial handlers that serve one router. */
   projectData?: ProjectDataRuntime;
+  /** Persistent project Main sessions; absent only in partial handlers that serve one router. */
+  mainSessions?: ReturnType<typeof createMainSessionService>;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
   uploads?: InputStore;
@@ -86,6 +90,7 @@ export interface DashboardRoutePorts {
   globalTaskPayload: WorkspaceDirectory["globalTaskPayload"];
   locateTask: WorkspaceDirectory["locateTask"];
   taskListItem: WorkspaceDirectory["taskListItem"];
+  projectTasks: WorkspaceDirectory["projectTasks"];
   knownWorkspaceRoots: WorkspaceDirectory["knownWorkspaceRoots"];
   applicationWorkspaceRoots: WorkspaceDirectory["applicationWorkspaceRoots"];
   applicationProjectForRoot: WorkspaceDirectory["applicationProjectForRoot"];
@@ -352,6 +357,27 @@ export function createDashboardHandler(
                 }
               : undefined;
           }
+        }))
+      )
+        return;
+      if (
+        ports.mainSessions &&
+        ports.projectData &&
+        (await handleMainSessionRequest(request, response, url, {
+          runtime: ports.projectData,
+          backendId: ports.backendInfo().backendId,
+          project: async (projectId) => {
+            const project = await ports.applicationProjectForId(projectId);
+            return project
+              ? {
+                  projectId: project.projectId,
+                  projectName: project.projectName,
+                  projectDirectory: project.projectDirectory
+                }
+              : undefined;
+          },
+          projectTasks: ports.projectTasks,
+          createProjectTask: ports.createProjectTask
         }))
       )
         return;
@@ -789,6 +815,51 @@ export function createDashboardHandler(
           body.thinkingLevel === undefined
             ? undefined
             : normalizeReasoningEffort(body.thinkingLevel, "thinkingLevel");
+        const submission = {
+          body: typeof body.body === "string" ? body.body : undefined,
+          ...(thinkingLevel ? { thinkingLevel } : {})
+        };
+        // A session owns the Run before the process starts, so the ledger knows
+        // which requirement it is working on and a late response keeps its owner.
+        // A retry or a pure continuation (no new words) keeps an existing Run.
+        const claimsRun =
+          body.retryRequestId === undefined && !(body.resume === true && !String(body.prompt ?? "").trim());
+        if (ports.mainSessions && claimsRun) {
+          const location = await locateTask(taskId);
+          if (body.mainSessionId !== undefined && !location.projectId)
+            throw new HttpError(400, "临时会话不属于项目，不能选择 Main 会话");
+          const current = location.task;
+          const sessionRunId =
+            runId?.trim() ||
+            (["running", "waiting"].includes(current.status) && current.activeRunId
+              ? current.activeRunId
+              : `main-${Date.now()}`);
+          const binding = await ports.mainSessions.beginRun(location, {
+            runId: sessionRunId,
+            mainSessionId: body.mainSessionId,
+            requirementId: body.requirementId
+          });
+          try {
+            // A session is a continuing conversation: resume its Pi transcript
+            // whenever one exists, even if the Task snapshot lost its Run id.
+            const resumeSession = body.resume === true || (await ports.mainSessions.hasHistory(location));
+            const result = await startMainRun(
+              taskId,
+              prompt,
+              sessionRunId,
+              resumeSession,
+              model,
+              undefined,
+              submission
+            );
+            sendJson(response, 202, binding ? { ...result, sessionId: binding.sessionId } : result);
+          } catch (error) {
+            if (location.projectId)
+              await ports.mainSessions.settle(location.projectId, taskId, sessionRunId, "failed");
+            throw error;
+          }
+          return;
+        }
         sendJson(
           response,
           202,
@@ -799,10 +870,7 @@ export function createDashboardHandler(
             body.resume === true,
             model,
             body.retryRequestId as string | undefined,
-            {
-              body: typeof body.body === "string" ? body.body : undefined,
-              ...(thinkingLevel ? { thinkingLevel } : {})
-            }
+            submission
           )
         );
         return;
@@ -1048,6 +1116,7 @@ export function createDashboardHandler(
             }
           }
         }
+        const cancelledRunId = action === "cancel" ? task.activeRunId : undefined;
         if (action === "cancel") ports.computer.stop(taskId, "ended");
         const next =
           action === "cancel"
@@ -1055,6 +1124,9 @@ export function createDashboardHandler(
             : await location.store.transitionTask(taskId, action === "resume" ? "running" : "completed", {
                 reason: `ui_${action}`
               });
+        // A cancelled Run still belongs to its session; it is never handed on.
+        if (action === "cancel" && ports.mainSessions && location.projectId && cancelledRunId)
+          await ports.mainSessions.settle(location.projectId, taskId, cancelledRunId, "cancelled");
         sendJson(response, 200, await publishTask(taskListItem({ ...location, task: next })));
         return;
       }

@@ -191,6 +191,31 @@ A requirement returns `projectId`, `requirementId`, `title`, `content`, `source`
 
 The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project from its local catalog, so a tool argument cannot select another project. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project.
 
+## Main sessions
+
+A project's persistent Main sessions are shared records, while their Pi transcripts stay local. Each session names one Task as its history container (`<storage>/<taskId>/sessions/main/pi`) and one `backendId` that may run it. A session handles requirements one after another; finishing a requirement ends that Run, not the session.
+
+```text
+GET  /api/projects/:projectId/main-sessions
+GET  /api/projects/:projectId/main-sessions/:sessionId
+POST /api/projects/:projectId/main-sessions
+```
+
+A session returns `sessionId`, `projectId`, `title`, `entryKind` (`internal|external`), `kind` (`regular|continuation`), `backendId`, `taskId`, `currentRequirementId`, `currentRequirementTitle`, timestamps, `projectDirectory`, `local`, `activeRunId` and `runs` (`runId`, `requirementId`, `state`). `local` is true only when this backend owns the Task, so a session created on another backend is visible but cannot be continued here. These routes never move or copy a transcript.
+
+POST bodies carry `action`:
+
+- `create` (`title`, optional `entryKind`, `kind`, `requirementId`) creates the Task history container and the session, and makes the requirement current.
+- `select_requirement` (`requirementId`, with the session in the path or as `sessionId`) changes the session's current requirement without starting work.
+
+A session's Run uses the existing Task route with the session identity:
+
+```text
+POST /api/tasks/:taskId/run   { prompt, mainSessionId, requirementId? }
+```
+
+The session must belong to this backend and name that Task; a mismatch is refused before a process starts. The Run is recorded against the session before the process starts, `requirementId` also becomes the session's current requirement, and a settled or cancelled Run updates its state. A conversation that predates sessions is adopted on first list or run, keeping its original Pi history in place.
+
 ## Task APIs
 
 ```text

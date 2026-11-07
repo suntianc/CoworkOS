@@ -152,7 +152,7 @@ coworkos data backup --to ~/backups/project-data.json
 coworkos data restore --from ~/backups/project-data.json
 ```
 
-A backup is a local logical snapshot (mode 0600) of the shared projects, this host's directory bindings, requirements, revisions, decisions and references. Restore replaces those records in one transaction and refuses a snapshot from the other engine. Stop the backend writing the data root before a restore and restart it afterwards.
+A backup is a local logical snapshot (mode 0600) of the shared projects, this host's directory bindings, requirements, revisions, decisions, references, Main sessions and Run ownership. Pi transcripts are not in the snapshot; the executing backend keeps them locally. Restore replaces those records in one transaction in foreign-key order and refuses a snapshot from the other engine. Stop the backend writing the data root before a restore and restart it afterwards.
 
 ## Paths and environment variables
 

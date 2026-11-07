@@ -85,7 +85,9 @@ for (const engine of PROJECT_DATA_ENGINES) {
     const info = await f.request("/api/project-data", undefined, "GET");
     assert.equal(info.status, 200);
     assert.equal(info.body.engine, engine);
-    assert.equal(info.body.schemaVersion, 1);
+    // v1 stayed intact; v3 adds project Main sessions. Migrations are applied
+    // one version at a time, so a later version does not hide an unapplied one.
+    assert.equal(info.body.schemaVersion, 3);
     assert.ok(info.body.serverVersion, "the engine version is reported");
     assert.doesNotMatch(JSON.stringify(info.body), /password/i);
     if (engine === "sqlite")
@@ -253,7 +255,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     assert.equal(detail.body.requirement.revisions.length, 3);
     assert.equal(detail.body.requirement.decisions[0].effective, false);
     const infoAfterRestart = await f.request("/api/project-data", undefined, "GET");
-    assert.equal(infoAfterRestart.body.schemaVersion, 1);
+    assert.equal(infoAfterRestart.body.schemaVersion, 3);
   });
 
   test(`${engine}: existing project and task history keep their identity and files`, async (t) => {
