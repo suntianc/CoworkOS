@@ -20,6 +20,7 @@ import {
 } from "../../../dist/src/runtime/runtime-settings.js";
 import { assessTaskCompletion } from "../../../dist/src/runtime/task-completion.js";
 import { LocalWorkspaceStore } from "../../../dist/src/workspace/workspace-store.js";
+import { businessCommandEnvironment } from "../../../dist/src/runtime/command-environment.js";
 import { WatchManagement } from "../../../dist/src/runtime/watch-management.js";
 import { goalOwnsTaskClock } from "../../../dist/src/runtime/goal-routing.js";
 import type { CoworkToolContext } from "../extension.ts";
@@ -355,7 +356,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     ),
     executionMode: "parallel",
     ...delegationRenderers(() => context.cliDebugEnabled()),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx): Promise<RuntimeToolResult> {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<RuntimeToolResult> {
       if (!context.baseUrl || !context.apiKey)
         throw new Error("Cowork requires COWORK_API_BASE/COWORK_API_KEY or .cowork/config.json");
       const goal = String(params.task ?? "").trim();
@@ -363,6 +364,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       if (params.mode !== "sync" && params.mode !== "async")
         throw new Error("call_subagent mode must be sync or async");
       const capabilityGrants = await context.delegationGrants(params.resources, params.attachments);
+      const commandEnv = await businessCommandEnvironment(context.runtimeEnv, signal);
       const { agentId, name } = await reserveSubagentIdentity(context.taskWorkspace);
       const callId = `call-${randomUUID()}`;
       // An open experiment absorbs this delegation automatically. Attribution
@@ -381,6 +383,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         task: goal,
         mode: params.mode,
         workspaceRoot: context.workspaceRoot,
+        commandEnv,
         projectDirectory: context.projectDirectory,
         baseUrl: context.baseUrl,
         apiKey: context.apiKey,

@@ -17,6 +17,7 @@ export function createWatchService(ports: {
     | "supportsReasoningEffort"
     | "supportsPromptCacheKey"
     | "runtimeEnv"
+    | "commandEnv"
     | "api"
     | "thinkingFormat"
     | "contextWindow"

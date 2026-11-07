@@ -91,7 +91,15 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
       button.setAttribute("aria-busy", String(pending));
     }
     $("[data-computer-state]").textContent = !native
-      ? "请在 CoworkOS 桌面版开启窗口访问"
+      ? !permissions
+        ? "正在读取执行主机状态"
+        : !permissions.available || permissions.controlAvailable === false
+          ? "执行主机窗口访问不可用"
+          : paused
+            ? "执行主机窗口访问已暂停"
+            : enabled
+              ? "执行主机窗口访问已开启"
+              : "执行主机窗口访问已关闭"
       : pendingPolicy !== undefined
         ? pendingPolicy
           ? "正在开启窗口访问…"
@@ -109,9 +117,14 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
               : approvalRequired
                 ? "等待本机确认"
                 : warning || (permissionsReady() ? "已关闭" : "请先开启屏幕录制和辅助功能");
-    const permissionMessage =
-      !native || !permissions
-        ? ""
+    const permissionMessage = !permissions
+      ? ""
+      : !native
+        ? `执行主机：${
+            permissions.available
+              ? `屏幕录制：${permissions.screenRecording ? "已开启" : "未开启"} · 辅助功能：${permissions.accessibility ? "已开启" : "未开启"}${permissions.accessibility && permissions.postEventAccess === false ? " · 输入事件：未开启" : ""}${permissions.controlAvailable === false ? `。${permissions.reason || "桌面暂不可操作"}` : ""}`
+              : permissions.reason || "窗口访问不可用"
+          }。请在执行主机的 CoworkOS 桌面版处理权限。`
         : !permissions.available
           ? permissions.reason || "当前电脑操作不可用"
           : [
@@ -148,7 +161,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
     }
   }
   function needsPolling() {
-    return native && (!settings.hidden || access.policy.enabled || access.owner);
+    return !settings.hidden || (native && (access.policy.enabled || access.owner));
   }
   function beginPolling() {
     if (timer || !needsPolling()) return;
@@ -160,13 +173,17 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
         return;
       }
       polling = true;
+      const version = generation;
       void Promise.all([
         refreshAccess(),
         ...(!settings.hidden || missingPermissions().length || !permissions?.available
           ? [refreshPermissions()]
           : [])
       ])
-        .catch(() => error("连接中断，可使用人工接管或关闭窗口访问"))
+        .catch(() => {
+          if (version === generation)
+            error(native ? "连接中断，可使用人工接管或关闭窗口访问" : "连接中断，无法读取执行主机权限");
+        })
         .finally(() => {
           polling = false;
         });
@@ -197,19 +214,23 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
     paint();
   }
   async function refresh() {
-    if (!native) return;
+    const version = generation;
     try {
-      const version = generation;
-      const policy = await native({ operation: "policy-status" });
-      if (version !== generation) return;
-      warning = policy.warning;
-      approvalRequired = policy.approvalRequired === true;
+      if (native) {
+        const policy = await native({ operation: "policy-status" });
+        if (version !== generation) return;
+        warning = policy.warning;
+        approvalRequired = policy.approvalRequired === true;
+      }
       await Promise.all([refreshAccess(), refreshPermissions()]);
+      if (version === generation) error();
     } catch {
-      error("连接中断，可使用人工接管或关闭窗口访问");
+      if (version === generation)
+        error(native ? "连接中断，可使用人工接管或关闭窗口访问" : "连接中断，无法读取执行主机权限");
     }
   }
   async function savePolicy() {
+    if (!native) return;
     const enabled = !(pendingPolicy ?? access.policy.enabled);
     if (enabled && !permissionsReady()) return;
     const version = ++generation;
@@ -247,6 +268,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
     }
   }
   async function control(operation) {
+    if (!native) return;
     const version = ++generation;
     error();
     try {
@@ -301,12 +323,29 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
   paint();
   void refresh();
   return {
+    refresh,
+    reset() {
+      generation++;
+      access = { policy: { enabled: false }, paused: false };
+      permissions = undefined;
+      pendingPolicy = undefined;
+      approvalRequired = false;
+      warning = undefined;
+      takeoverShortcut = undefined;
+      taskBlocked = false;
+      viewedTaskId = undefined;
+      pendingPermissions.clear();
+      if (timer) clearInterval(timer);
+      timer = undefined;
+      error();
+      paint();
+    },
     syncTask() {
       const selected = getSelectedTaskId();
       if (selected === viewedTaskId) return;
       viewedTaskId = selected;
       taskBlocked = false;
-      if (native) void refreshAccess().catch(() => {});
+      void refreshAccess().catch(() => {});
     }
   };
 }

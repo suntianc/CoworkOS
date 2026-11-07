@@ -89,6 +89,44 @@ async function hostFixture(page) {
   return state;
 }
 
+test("web settings show only the selected execution host's permission state", async ({ page }) => {
+  const dashboard = await startDashboard();
+  let status = {
+    available: true,
+    screenRecording: false,
+    accessibility: true,
+    controlAvailable: true,
+    windows: []
+  };
+  const hostRequests = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/host/computer")) hostRequests.push(request.url());
+  });
+  await page.route("**/api/computer/status", (route) => route.fulfill({ json: status }));
+  try {
+    await page.goto(dashboard.base);
+    await openSettings(page);
+    const permissions = page.locator("[data-computer-permissions]");
+    await expect(permissions).toContainText("执行主机：屏幕录制：未开启 · 辅助功能：已开启");
+    await expect(permissions).toContainText("请在执行主机的 CoworkOS 桌面版处理权限");
+    await expect(page.locator(".computer-permission-actions")).toBeHidden();
+    status = {
+      available: true,
+      screenRecording: true,
+      accessibility: true,
+      controlAvailable: false,
+      windows: [],
+      reason: "执行主机无图形桌面"
+    };
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(page.locator("[data-computer-state]")).toHaveText("执行主机窗口访问不可用");
+    await expect(permissions).toContainText("执行主机无图形桌面");
+    expect(hostRequests).toEqual([]);
+  } finally {
+    await dashboard.stop();
+  }
+});
+
 test("three settings buttons gate full access for all conversations and persists on reload", async ({
   page,
   request

@@ -13,6 +13,8 @@ export interface ForegroundCommandOptions {
   previewBytes?: number;
   /** Full raw stdout/stderr logs, each bounded by maxOutputBytes. */
   outputLogDirectory?: string;
+  /** Per-invocation environment overrides; never serialized into command arguments. */
+  env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
 }
 
@@ -38,9 +40,19 @@ export async function executeForegroundCommand(
             fileURLToPath(new URL("./foreground-command-host.js", import.meta.url)),
             JSON.stringify({ command, args, cwd: options.cwd, shell: options.shell })
           ],
-          { cwd: options.cwd, detached: true, stdio: ["pipe", "pipe", "pipe", "pipe"] }
+          {
+            cwd: options.cwd,
+            env: { ...process.env, ...options.env },
+            detached: true,
+            stdio: ["pipe", "pipe", "pipe", "pipe"]
+          }
         )
-      : spawn(command, args, { cwd: options.cwd, shell: options.shell, stdio: "pipe" });
+      : spawn(command, args, {
+          cwd: options.cwd,
+          env: { ...process.env, ...options.env },
+          shell: options.shell,
+          stdio: "pipe"
+        });
   } catch (error) {
     await output.close();
     throw Object.assign(error as Error, output.receipt());

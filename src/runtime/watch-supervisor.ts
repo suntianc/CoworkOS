@@ -50,6 +50,8 @@ export interface WatchSupervisorOptions {
   web?: WebToolOptions;
   /** The same resolved configuration environment used by Main. */
   runtimeEnv?: NodeJS.ProcessEnv;
+  /** In-memory command context supplied by the execution host. */
+  commandEnv?: NodeJS.ProcessEnv;
   maxTurns?: number;
   maxTokens?: number;
   contextWindow?: number;
@@ -1342,6 +1344,7 @@ export class WatchSupervisor {
         task: prompt,
         mode: "sync",
         workspaceRoot: this.options.workspaceRoot,
+        commandEnv: this.options.commandEnv,
         baseUrl: this.options.baseUrl,
         apiKey: this.options.apiKey,
         model: this.options.model,
