@@ -54,7 +54,7 @@ RELEASE_TAG=v0.1.2-beta.7 GITHUB_REPOSITORY=RUC-NLPIR/CoworkOS node scripts/rele
 
 没有 Developer ID 证书的 Mac 测试版使用 ad-hoc 签名维护包完整性，仍未经过 Apple 公证，首次启动可能需要“系统设置 → 隐私与安全性 → 仍要打开”。ad-hoc 不表示 Apple 已验证开发者，原生 ZIP 自动更新只对通过 Developer ID 验证的包生成；当前测试版首次通过 DMG 安装，应用内更新可在用户可写目录中校验后受管替换并保留旧版备份。按 [安装指南](getting-started.md)操作，不关闭系统安全保护。
 
-公开 beta 发布前核对源代码和第三方对应源码可访问、许可文件完整、发行包不含用户配置/任务，并记录实际安装与模型任务的验收状态。版本说明分开列出已完成和待人工验收项，声明未经真实模型、录音或干净机器验收的范围；协议夹具不能代替这些结果。正式/稳定版承诺须完成 [P0 门槛](../CONTRIBUTING.md#pr审阅与发布)。
+公开 beta 发布前核对源代码和第三方对应源码可访问、许可文件完整、发行包不含用户配置/任务，并记录实际安装与模型任务的验收状态。版本说明分开列出已完成和待人工验收项，声明未经真实模型或干净机器验收的范围；协议夹具不能代替这些结果。正式/稳定版承诺须完成 [P0 门槛](../CONTRIBUTING.md#pr审阅与发布)。
 
 公开源码仓库提供代码与 Release 候选；npm 是当前 CLI 和 Mac App 安装/更新渠道。旧客户端使用的 [Atria-Releases](https://github.com/ignorejjj/Atria-Releases/releases) 保留历史安装包与兼容更新清单。普通用户安装 npm 版本不需要仓库凭据。
 

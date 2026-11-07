@@ -51,7 +51,7 @@ A public beta still requires source, third-party license and package-content rev
 
 The initial Mac beta is an ad-hoc signed DMG targeting macOS 14+ Apple Silicon, without Developer ID or notarization; first installation uses the DMG and normal Gatekeeper approval. In-app updates can verify and replace the App in user-writable locations while retaining a previous-App backup and preserving system security. No Developer ID signed ZIP/feed is produced without that signing identity. CLI requires Node >=22.19.0; declare tested platforms from the candidate's actual evidence, without inferring other platforms from compilation.
 
-Release notes separately record completed local verify, protocol/browser regressions, native/package checks and their versions/environments, alongside pending acceptance. Actual model connections, real recordings, and installation/upgrade on another machine without a development environment still require independent acceptance. Local fake models, audio-event fixtures, packaging and minimum-OS configuration do not certify those results. Unexecuted, failed, skipped or older-candidate results must not be reported as passing this candidate.
+Release notes separately record completed local verify, protocol/browser regressions, native/package checks and their versions/environments, alongside pending acceptance. Actual model connections and installation/upgrade on another machine without a development environment still require independent acceptance. Local fake models, packaging and minimum-OS configuration do not certify those results. Unexecuted, failed, skipped or older-candidate results must not be reported as passing this candidate.
 
 ## Documentation and languages
 
