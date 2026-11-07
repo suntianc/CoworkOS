@@ -14,6 +14,7 @@ export interface ProjectLedgerClientError extends Error {
 
 export interface ProjectLedgerClient {
   request(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  board(input?: Record<string, unknown>, method?: "GET" | "POST"): Promise<Record<string, unknown>>;
 }
 
 const TASK_ID = /^[A-Za-z0-9._-]+$/;
@@ -47,29 +48,38 @@ export function createProjectLedgerClient(options: {
   if (!TASK_ID.test(options.taskId)) throw new Error("项目台账工具不可用：当前会话 ID 不合法");
   const token = options.token ?? process.env.COWORK_API_TOKEN;
   if (!token) throw new Error("项目台账工具不可用：本次运行没有本地服务凭据");
-  const endpoint = `${origin}/api/tasks/${encodeURIComponent(options.taskId)}/ledger`;
-  return {
-    async request(input) {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        redirect: "error",
-        headers: { "content-type": "application/json", "x-atria-token": token },
-        body: JSON.stringify(input),
-        signal: AbortSignal.timeout(TIMEOUT_MS)
-      });
-      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-      if (!response.ok) {
-        const error = new Error(
-          typeof body.error === "string" && body.error
-            ? body.error
-            : `台账请求失败（HTTP ${response.status}）`
-        ) as ProjectLedgerClientError;
-        error.status = response.status;
-        if (typeof body.code === "string") error.code = body.code;
-        if (typeof body.currentRevision === "number") error.currentRevision = body.currentRevision;
-        throw error;
-      }
-      return body;
+  const taskPath = `/api/tasks/${encodeURIComponent(options.taskId)}`;
+  const send = async (
+    endpoint: string,
+    input: Record<string, unknown> | undefined,
+    method: "GET" | "POST"
+  ): Promise<Record<string, unknown>> => {
+    const response = await fetch(endpoint, {
+      method,
+      redirect: "error",
+      headers: {
+        ...(input === undefined ? {} : { "content-type": "application/json" }),
+        "x-atria-token": token
+      },
+      ...(input === undefined ? {} : { body: JSON.stringify(input) }),
+      signal: AbortSignal.timeout(TIMEOUT_MS)
+    });
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const error = new Error(
+        typeof body.error === "string" && body.error
+          ? body.error
+          : `项目数据请求失败（HTTP ${response.status}）`
+      ) as ProjectLedgerClientError;
+      error.status = response.status;
+      if (typeof body.code === "string") error.code = body.code;
+      if (typeof body.currentRevision === "number") error.currentRevision = body.currentRevision;
+      throw error;
     }
+    return body;
+  };
+  return {
+    request: (input) => send(`${origin}${taskPath}/ledger`, input, "POST"),
+    board: (input, method = "POST") => send(`${origin}${taskPath}/board`, input, method)
   };
 }

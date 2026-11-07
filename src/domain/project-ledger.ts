@@ -127,6 +127,13 @@ export class ProjectDataUnavailableError extends ProjectDataError {
   }
 }
 
+/** The shared authority refused this backend's credential; no write is pretended. */
+export class ProjectDataAuthError extends ProjectDataError {
+  constructor(message: string) {
+    super(message, 401, "shared_auth_failed");
+  }
+}
+
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const CONTROL = /[\0-\x08\x0b\x0c\x0e-\x1f\x7f]/;
 

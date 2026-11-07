@@ -330,6 +330,7 @@ export function createDashboardHandler(
         (await handleProjectDataRequest(request, response, url, {
           runtime: ports.projectData,
           backendId: ports.backendInfo().backendId,
+          principal,
           project: async (projectId) => {
             const project = await ports.applicationProjectForId(projectId);
             return project
@@ -482,7 +483,8 @@ export function createDashboardHandler(
                 project: await publishProject(
                   await ports.createProject({
                     projectName: body.projectName,
-                    projectDirectory: body.projectDirectory
+                    projectDirectory: body.projectDirectory,
+                    ...(body.projectId === undefined ? {} : { projectId: body.projectId })
                   })
                 )
               }

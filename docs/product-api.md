@@ -46,7 +46,7 @@ Desktop and Web use the same model and search HTTP routes. Desktop keeps its cli
 
 Model and search credentials belong to the execution host. `GET /api/model-settings` never returns a key: it returns the connection list plus `configured` and `credentialUnavailable`/`credentialError` when a saved key cannot be read here. `POST /api/model-settings` writes the submitted key to the host credential file (`credentials.json`, mode 0600, beside the configuration; `COWORK_CREDENTIALS` overrides the path) and returns the same redacted status. A blank key keeps the stored one. Old Electron ciphertext is reported as unavailable instead of configured, `POST /api/model-settings/test` rejects it with the same message, and submitting a key replaces it. `GET /api/web-search-settings` follows the same rule with `secretUnavailable`; `POST` stores or clears the Exa key in that file. Use `node scripts/migrate-desktop-settings.mjs --config <config path>` while the backend is stopped to convert old ciphertext once; it backs up the original as `<config>.before-host-credentials` and reports `already-migrated` on a rerun. See [connection storage](configuration-reference.md#连接存储与兼容).
 
-Create a project with `POST /api/projects { projectName, projectDirectory }`; update its name and/or folder with `PATCH /api/projects/:projectId`. Both return `{ project }`, containing `projectId`, `projectName`, `projectDirectory`, `workspaceRoot` (the project folder), `createdAt`, `updatedAt`, and `tasks`. Newly created IDs are stable `project_<uuid>` values. Names must be nonempty and at most 120 characters. The directory must be an existing absolute folder; duplicate project directories return 409. Creation persists an empty project without creating a Task or calling the model.
+Create a project with `POST /api/projects { projectName, projectDirectory, projectId? }`; update its name and/or folder with `PATCH /api/projects/:projectId`. Both return `{ project }`, containing `projectId`, `projectName`, `projectDirectory`, `workspaceRoot` (the project folder), `createdAt`, `updatedAt`, and `tasks`. Newly created IDs are stable `project_<uuid>` values; a secondary backend may pass the shared `projectId` of an existing project to map its own folder onto the same shared identity. Duplicate IDs and duplicate directories are refused, and a directory is never used as the shared identity. Names must be nonempty and at most 120 characters. The directory must be an existing absolute folder; duplicate project directories return 409. Creation persists an empty project without creating a Task or calling the model.
 
 Folder changes apply to every associated conversation. Active Main/subagents, waiting work, scheduled wakeups, or command jobs reject directory changes with 409; renaming is allowed. Project changes and run startup are serialized to prevent changing a running conversation's CWD.
 
@@ -170,6 +170,8 @@ The ledger is the authoritative shared record of what a project needs, its revis
 
 ```text
 GET  /api/project-data
+GET  /api/project-data/projects
+POST /api/project-data/bindings
 GET  /api/projects/:projectId/ledger?q=<text>&status=open|delivered|withdrawn&limit=1..200
 GET  /api/projects/:projectId/ledger/:requirementId
 POST /api/projects/:projectId/ledger
@@ -177,7 +179,7 @@ GET  /api/tasks/:taskId/ledger
 POST /api/tasks/:taskId/ledger
 ```
 
-`GET /api/project-data` returns `{ engine, target, serverVersion, schemaVersion, source }` and carries no credential. Project routes resolve the project through the local catalog; a request cannot choose a storage directory, and a shared project's directory is never used as a local execution directory.
+`GET /api/project-data` returns `{ engine, target, serverVersion, schemaVersion, source }` and carries no credential. `GET /api/project-data/projects` lists shared project identities (no local directories). `POST /api/project-data/bindings` takes `{ projectId, projectName, projectDirectory }` and stores the caller backend's own directory binding; a remote backend uses it on first access so the authority never resolves its path through the authority's catalog. Project routes resolve the project through the local catalog; a request cannot choose a storage directory, and a shared project's directory is never used as a local execution directory.
 
 POST bodies carry `action`:
 
@@ -190,6 +192,30 @@ POST bodies carry `action`:
 A requirement returns `projectId`, `requirementId`, `title`, `content`, `source`, `status`, `revision`, timestamps, `decisions` and `references`; reading one requirement also returns every `revisions` entry. A stale `expectedRevision` returns 409 with `code:"revision_conflict"` and `currentRevision`, and never overwrites the newer revision. Unknown requirements return 404; invalid fields return 400.
 
 The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project from its local catalog, so a tool argument cannot select another project. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project.
+
+## Demand board
+
+The board is a separate projection of the ledger: one external demand has one board item linked by `requirementId`. An internal `create` on the ledger stays ledger-only and creates no board item; only a controlled external `publish` creates one. Entries keep the owning `backendId`, entry kind, state, revision, the handling Main (when claimed) and an append-only event history. The handler identity is `{ backendId, projectId, taskId }` — a stable Task binding until persistent MainSession ids land; never a Task id or directory used as a cross-backend identity.
+
+```text
+GET  /api/projects/:projectId/board
+GET  /api/projects/:projectId/board/:boardId
+POST /api/projects/:projectId/board
+GET  /api/tasks/:taskId/board
+POST /api/tasks/:taskId/board
+```
+
+`GET` returns `{ projectId, entries }`; the single-item read returns `{ entry, events }`. An entry has `projectId`, `boardId`, `requirementId`, `title`, `content`, `entryKind:"external"`, `source`, `state` (`pending`, `claimed`, `in_progress`, `paused`, `cancelled`), `revision`, `backendId`, optional `assignment` (`{ kind: "user"|"main", actorId, handler?, assignedAt }`) and timestamps.
+
+POST bodies carry `action`:
+
+- `publish` (`requestId`, `title`, `content`, `source` with `kind:"external"`, optional reference) creates the requirement and its board item in one transaction and returns 201. `source.kind` must be `external`.
+- `claim` (`boardId`, `expectedRevision`, `requestId`, optional `handler`) moves `pending` to `claimed`. The Task-scoped route fills `handler` from the current Task, so a Main cannot name another backend or project.
+- `pause` (`claimed`/`in_progress` → `paused`) keeps the owner; `release` clears ownership back to `pending`; `cancel` is terminal and stays visible. A stale `expectedRevision` returns 409 `revision_conflict` with `currentRevision`.
+
+Every write carries a `requestId`: repeating the same request returns the committed entry and appends no second event. Two backends claiming at the same revision produce one winner; the other receives 409. Only the serving host or the current owner may pause, release or cancel (`403 board_assignee_required` otherwise). Handler mismatches return `board_handler_mismatch` or `board_project_mismatch`; reusing a request id for a different action returns `board_request_reused`.
+
+A secondary backend with `projectData.authority` reads and writes this same surface through its authenticated client. Its `POST /api/project-data/bindings` stores that backend's own local folder binding, and an authenticated remote request never resolves a shared path as a local execution directory. An unreachable authority returns `503 storage_unavailable`; a revoked session returns `401 shared_auth_failed`. Neither reports a successful claim nor transfers ownership.
 
 ## Task APIs
 
