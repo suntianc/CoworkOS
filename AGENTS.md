@@ -55,7 +55,7 @@
 
 ## 本地验证与交付
 
-开发环境使用 Node >=22.19.0 和 `npm ci`。日常按修改范围验证：纯文档改动运行 `check:docs` 和 `format:check`；行为改动运行相关测试及轻量 `npm run verify`（CLI 构建、源码卫生和静态检查）。发布验收或影响范围广的修改显式运行 `npm run verify:full`，完成完整构建、发布 runner 自测和全量确定性 Node 回归，不对每次小修改重复全量执行。`npm run test:unit -- --match model` 选择相关文件，`npm run check:docs` 检查文档链接，`npm run check:source` 检查当前源码是否混入私有配置、凭据、个人路径或生成/旧文档。完整命令和测试分层以 [本地测试指南](docs/testing-local-run.md) 为准。相关测试不能由模拟断言替代真实生命周期；浏览器、原生、真实模型与干净安装分别记录结果。
+开发环境使用 Node >=22.19.0 和 `npm ci`。日常按修改范围验证：纯文档改动运行 `check:docs` 和 `format:check`；行为改动运行相关测试及轻量 `npm run verify`（CLI 与 Web 资源构建、源码卫生和静态检查）。发布验收或影响范围广的修改显式运行 `npm run verify:full`，完成完整构建、发布 runner 自测和全量确定性 Node 回归，不对每次小修改重复全量执行。`npm run test:unit -- --match model` 选择相关文件，`npm run check:docs` 检查文档链接，`npm run check:source` 检查当前源码是否混入私有配置、凭据、个人路径或生成/旧文档。完整命令和测试分层以 [本地测试指南](docs/testing-local-run.md) 为准。相关测试不能由模拟断言替代真实生命周期；浏览器、原生、真实模型与干净安装分别记录结果。
 
 GitHub 的日常检查流程仅手动触发，不随 push/PR 自动运行；执行轻量静态检查 `npm run check:ci`。完整回归和发布验收在本地执行并记录证据。Mac 工作流仅手动触发，打包并上传到 Release 草稿，详见 [Mac 发布](docs/mac-release.md)。不要把 CI 通过当作完整测试通过，也不要默认添加浏览器、原生或跨平台测试矩阵。
 

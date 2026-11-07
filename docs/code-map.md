@@ -75,7 +75,7 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 宿主会话授权与草稿共同使用 [组合回归](../test/merge-drafts-transport.test.js) 检查双后端切换、正文取消及迟到响应；[Electron 组合验证](../e2e/electron-merge-combination-desktop.spec.js) 覆盖连接等待、nonce 与草稿重启。
 
-表中测试是起点；跨层修改同时验证消费者。`npm run test:unit -- --file test/xxx.test.js` 会准备构建；轻量检查用 `npm run verify`，发布或广泛影响的修改用 `npm run verify:full`。浏览器命令与原生验收见 [本地测试说明](testing-local-run.md)。
+表中测试是起点；跨层修改同时验证消费者。`npm run test:unit -- --file test/xxx.test.js` 会准备构建；轻量检查用 `npm run verify`，发布或广泛影响的修改用 `npm run verify:full`。轻量 [验证编排](../scripts/verify.mjs) 构建 CLI 及 [Web 资源](../scripts/build-math.mjs)，仓库检查见 [验证回归](../test/repository-checks.test.js)。浏览器命令与原生验收见 [本地测试说明](testing-local-run.md)。
 
 ### 项目经验与个人记忆
 

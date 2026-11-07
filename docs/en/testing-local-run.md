@@ -18,7 +18,7 @@ npm run verify -- --list
 npm run verify:full -- --list
 ```
 
-`verify` runs `build:cli`, `lint`, `check:workbench`, `check:extensions`, `format:check`, `check:docs` and `check:source`, without behavioral tests. `verify:full` (equivalent to `verify -- --full`) uses one `build:full`, then static checks, `test:release:runner` and the complete Node suite. Both modes stop at the first failure and preserve its exit code. Quick checks do not certify related behavior or the full suite.
+`verify` runs `build:cli`, `build:web-assets`, `lint`, `check:workbench`, `check:extensions`, `format:check`, `check:docs` and `check:source`, without behavioral tests. `build:web-assets` prepares KaTeX and Markdown dependencies, but not native desktop resources. `verify:full` (equivalent to `verify -- --full`) uses one `build:full`, then static checks, `test:release:runner` and the complete Node suite. Both modes stop at the first failure and preserve its exit code. Quick checks do not certify related behavior or the full suite.
 
 `format:check` checks changed files; Manual CI uses `FORMAT_BASE=HEAD^` to compare the previous commit; set `FORMAT_BASE` locally for a different baseline.
 

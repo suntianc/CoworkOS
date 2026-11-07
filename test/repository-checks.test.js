@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { mkdtemp, mkdir, writeFile, rm, access, readFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  rm,
+  access,
+  readFile,
+  copyFile,
+  symlink,
+  realpath,
+  rename
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -162,7 +173,63 @@ test("formatter excludes retained staged deletions locally and against a commit 
   });
 });
 
-test("verify defaults to CLI build and static checks without launching the full regression", async () => {
+test("quick verify prepares real web assets from a clean checkout", async () => {
+  await fixture(async (root, put) => {
+    for (const name of ["verify.mjs", "test.mjs", "build-math.mjs", "build-document-markdown.mjs"]) {
+      await mkdir(join(root, "scripts"), { recursive: true });
+      await copyFile(
+        fileURLToPath(new URL("../scripts/" + name, import.meta.url)),
+        join(root, "scripts", name)
+      );
+    }
+    await symlink(
+      fileURLToPath(new URL("../node_modules", import.meta.url)),
+      join(root, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir"
+    );
+    const actual = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+    const noop = 'node -e "process.exit(0)"';
+    const scripts = Object.fromEntries(
+      [
+        "build:cli",
+        "lint",
+        "check:workbench",
+        "check:extensions",
+        "format:check",
+        "check:docs",
+        "check:source"
+      ].map((name) => [name, noop])
+    );
+    if (actual.scripts["build:web-assets"]) scripts["build:web-assets"] = actual.scripts["build:web-assets"];
+    await put("package.json", JSON.stringify({ type: "module", scripts }));
+    await assert.rejects(access(join(root, "web/assets/math/generated/katex.js")), { code: "ENOENT" });
+    const realRoot = await realpath(root);
+    execFileSync(process.execPath, [join(realRoot, "scripts/verify.mjs")], {
+      cwd: realRoot,
+      env: { ...process.env, npm_config_cache: join(root, ".npm-cache") },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    for (const path of [
+      "web/assets/math/generated/katex.js",
+      "web/assets/math/generated/katex.min.css",
+      "web/assets/math/generated/LICENSE.txt",
+      "web/assets/math/generated/fonts/KaTeX_Main-Regular.woff2",
+      "web/assets/markdown/generated/dependencies.js"
+    ])
+      assert.ok((await readFile(join(root, path))).length > 0, path);
+    await rename(join(root, "node_modules"), join(root, "node_modules-disabled"));
+    const missing = spawnSync(process.execPath, [join(realRoot, "scripts/verify.mjs")], {
+      cwd: realRoot,
+      env: { ...process.env, npm_config_cache: join(root, ".npm-cache") },
+      encoding: "utf8"
+    });
+    assert.notEqual(missing.status, 0, "missing web asset dependencies must fail verification");
+    assert.match(missing.stderr, /ERR_MODULE_NOT_FOUND/);
+    assert.doesNotMatch(missing.stdout, /Verify: npm run lint/);
+  });
+});
+
+test("verify defaults to CLI and web asset builds with static checks, without the full regression", async () => {
   const calls = [];
   assert.equal(
     await verify([], async (_command, args) => {
@@ -176,6 +243,7 @@ test("verify defaults to CLI build and static checks without launching the full 
     verificationScripts
   );
   assert.equal(calls.filter((args) => args[1] === "build:cli").length, 1);
+  assert.equal(calls.filter((args) => args[1] === "build:web-assets").length, 1);
   assert.ok(calls.every((args) => args[0] === "run"));
   assert.ok(!calls.some((args) => args[1] === "build:full" || args[1] === "test:release:runner"));
 });
@@ -194,6 +262,7 @@ test("verify --full builds all assets once and retains runner and Node regressio
     fullVerificationScripts
   );
   assert.equal(calls.filter((args) => args[1] === "build:full").length, 1);
+  assert.equal(calls.filter((args) => args[1] === "build:web-assets").length, 0);
   assert.equal(calls.filter((args) => args[1] === "test:release:runner").length, 1);
   assert.deepEqual(calls.at(-1), ["scripts/test.mjs"]);
 });
@@ -208,7 +277,10 @@ test("both verification modes stop on the first nonzero check", async () => {
       }),
       7
     );
-    assert.equal(stopped.length, 2);
+    assert.deepEqual(
+      stopped.map((args) => args[1]),
+      mode.length ? ["build:full", "lint"] : ["build:cli", "build:web-assets", "lint"]
+    );
   }
   await assert.rejects(() => verify(["--skip-build"]), /accepts --full, --list or --help/);
 });
