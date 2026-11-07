@@ -50,6 +50,18 @@ async function projectDirectory(value: unknown): Promise<string> {
   }
   return directory;
 }
+/**
+ * A shared project keeps the same id on every backend. It is an opaque
+ * identity, never a directory or Task id.
+ */
+function sharedId(value: unknown): string {
+  // New shared identities are opaque `project_<uuid>` values. A legacy
+  // absolute-directory id is history, not something another host may adopt.
+  if (typeof value !== "string" || !/^project_[a-f0-9-]+$/.test(value))
+    throw new ProjectCatalogError("共享项目 ID 格式不合法");
+  return value;
+}
+
 function validRecord(value: unknown): value is ProjectRecord {
   if (!value || typeof value !== "object") return false;
   const record = value as ProjectRecord;
@@ -90,12 +102,18 @@ export class GlobalProjectCatalog {
 
   async create(
     input: { projectName: unknown; projectDirectory: unknown },
-    { adoptLegacy = false } = {}
+    {
+      adoptLegacy = false,
+      projectId: requestedProjectId
+    }: { adoptLegacy?: boolean; projectId?: unknown } = {}
   ): Promise<ProjectRecord> {
     const name = projectName(input.projectName);
     const directory = await projectDirectory(input.projectDirectory);
+    const sharedProjectId = requestedProjectId === undefined ? undefined : sharedId(requestedProjectId);
     return this.withOperation(async () => {
       const document = await this.readDocument();
+      if (sharedProjectId && document.projects.some((project) => project.projectId === sharedProjectId))
+        throw new ProjectCatalogError("该共享项目已在此后端映射，请刷新项目列表", 409);
       const existing = document.projects.find((project) => project.projectDirectory === directory);
       if (existing?.legacy && adoptLegacy) {
         const adopted = { ...existing, projectName: name, legacy: false, updatedAt: now() };
@@ -108,7 +126,7 @@ export class GlobalProjectCatalog {
       this.checkDuplicate(document, directory);
       const timestamp = now();
       const record: ProjectRecord = {
-        projectId: id("project"),
+        projectId: sharedProjectId ?? id("project"),
         projectName: name,
         projectDirectory: directory,
         createdAt: timestamp,

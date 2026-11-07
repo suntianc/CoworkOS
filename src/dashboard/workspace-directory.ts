@@ -380,7 +380,7 @@ export function createWorkspaceDirectory(
         action({ ...project, projectCatalogPath: projectCatalog.filePath })
       );
     },
-    async createProject(input: { projectName: unknown; projectDirectory: unknown }) {
+    async createProject(input: { projectName: unknown; projectDirectory: unknown; projectId?: unknown }) {
       await catalogReady;
       await projectRecords(await storedTasks());
       const visible = (await listGlobalProjects()).projects;
@@ -391,7 +391,13 @@ export function createWorkspaceDirectory(
           project.projectDirectory === resolve(input.projectDirectory) &&
           !visible.some((entry) => entry.projectId === project.projectId)
       );
-      const project = await projectCatalog.create(input, { adoptLegacy: hiddenLegacy });
+      const project = await projectCatalog.create(
+        { projectName: input.projectName, projectDirectory: input.projectDirectory },
+        {
+          adoptLegacy: hiddenLegacy,
+          ...(input.projectId === undefined ? {} : { projectId: input.projectId })
+        }
+      );
       return { ...project, workspaceRoot: project.projectDirectory, tasks: [] };
     },
     async createProjectTask(taskId: string, projectId: string, metadata: TaskMetadata) {

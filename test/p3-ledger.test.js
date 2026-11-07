@@ -85,7 +85,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     const info = await f.request("/api/project-data", undefined, "GET");
     assert.equal(info.status, 200);
     assert.equal(info.body.engine, engine);
-    assert.equal(info.body.schemaVersion, 1);
+    assert.equal(info.body.schemaVersion, 2);
     assert.ok(info.body.serverVersion, "the engine version is reported");
     assert.doesNotMatch(JSON.stringify(info.body), /password/i);
     if (engine === "sqlite")
@@ -107,10 +107,13 @@ for (const engine of PROJECT_DATA_ENGINES) {
     assert.equal(requirement.references[0].value, "session-a");
     // An internal requirement is ledger-only: this ticket adds no board projection.
     assert.ok(!("boardEntry" in requirement));
-    assert.equal(
-      (await f.request(`/api/projects/${encodeURIComponent(a.projectId)}/board`, undefined, "GET")).status,
-      404
+    const emptyBoard = await f.request(
+      `/api/projects/${encodeURIComponent(a.projectId)}/board`,
+      undefined,
+      "GET"
     );
+    assert.equal(emptyBoard.status, 200);
+    assert.deepEqual(emptyBoard.body.entries, [], "an internal need creates no board item");
 
     const revised = await f.request(ledger(a.projectId), {
       action: "update",
@@ -253,7 +256,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     assert.equal(detail.body.requirement.revisions.length, 3);
     assert.equal(detail.body.requirement.decisions[0].effective, false);
     const infoAfterRestart = await f.request("/api/project-data", undefined, "GET");
-    assert.equal(infoAfterRestart.body.schemaVersion, 1);
+    assert.equal(infoAfterRestart.body.schemaVersion, 2);
   });
 
   test(`${engine}: existing project and task history keep their identity and files`, async (t) => {

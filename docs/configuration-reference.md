@@ -139,6 +139,18 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 }
 ```
 
+其他后端不打开本地引擎，而是经认证客户端访问同一权威服务：
+
+```json
+{
+  "projectData": {
+    "authority": { "url": "http://127.0.0.1:3880", "token": "本机凭据" }
+  }
+}
+```
+
+`authority` 与 `engine`、`sqlite`、`postgres` 互斥。客户端启动时用主机凭据换取一个本地会话，之后只出示该会话；凭据保存在服务端配置或 `COWORK_PROJECT_DATA_TOKEN`，不进入界面、工具参数或错误文本。权威服务不可达返回 `storage_unavailable`，会话被撤销返回 `shared_auth_failed`；两者都不伪造认领成功，也不自动转移归属。共享项目沿用同一 `projectId`，每个后端只登记自己的本机目录绑定；远端绝对路径不会成为本机执行目录。备份与恢复在权威服务所在后端执行，远程客户端会明确拒绝。
+
 SQLite 的默认文件是数据根下的 `project-data.sqlite`（`ATRIA_HOME/runtime/project-data.sqlite`，默认 `~/.atria/runtime/project-data.sqlite`）；`projectData.sqlite.path` 可指定文件，相对路径按数据根解析。PostgreSQL 也可用 `host`、`port`、`database`、`user`、`password`、`ssl` 分开填写。连接凭据只保存在服务端配置或 `COWORK_PROJECT_DATA_URL`，不进入界面、工具参数或错误文本。
 
 选择引擎与既有数据迁移是两件事：更换引擎不会移动已有项目目录索引、Task/Run、附件或 Pi 历史，本阶段也不做跨引擎自动搬迁、双写或运行中热切换。既有项目目录索引继续提供稳定 `projectId`；共享项目记录只保存身份，本机目录作为当前后端的绑定单独保存，共享记录中的目录不会被当作本机执行目录。
@@ -152,7 +164,7 @@ coworkos data backup --to ~/backups/project-data.json
 coworkos data restore --from ~/backups/project-data.json
 ```
 
-备份是本机逻辑快照（文件权限 0600），包含共享项目、本机目录绑定、需求、修订、决定和引用；恢复在一个事务里整体替换这些记录，并拒绝来自另一引擎的备份文件。恢复前先停止写入该数据根的后端，恢复后重启后端读取。
+备份是本机逻辑快照（文件权限 0600），包含共享项目、本机目录绑定、需求、修订、决定、引用、看板条目与事件；恢复在一个事务里整体替换这些记录，并拒绝来自另一引擎或旧 schema 的备份文件。恢复前先停止写入该数据根的后端，恢复后重启后端读取。使用 `projectData.authority` 的后端没有本地数据库，备份和恢复在权威服务所在后端执行。
 
 ## 路径与环境变量
 
@@ -176,6 +188,8 @@ coworkos data restore --from ~/backups/project-data.json
 | `COWORK_PROJECT_DATA_ENGINE`                          | 项目数据引擎：`sqlite`（默认）或 `postgres`                           |
 | `COWORK_PROJECT_DATA_SQLITE`                          | SQLite 数据文件路径                                                   |
 | `COWORK_PROJECT_DATA_URL`                             | PostgreSQL 连接地址，覆盖配置文件中的 `projectData.postgres`          |
+| `COWORK_PROJECT_DATA_AUTHORITY`                       | 共享项目数据权威服务地址，覆盖 `projectData.authority.url`            |
+| `COWORK_PROJECT_DATA_TOKEN`                           | 权威服务访问凭据，覆盖 `projectData.authority.token`                  |
 | `COWORK_TRUSTED_CLIENT_ORIGINS`                       | 受信本机页面来源，逗号分隔的精确 `http://127.0.0.1:<port>` 等回环地址 |
 
 `COWORK_TRUSTED_CLIENT_ORIGINS` 只接受精确的本机 `http://` 来源，不接受通配符；命名的来源可以跨端口读取该后端的响应并出现在其页面 `connect-src` 中。真实请求仍走凭据校验，监听地址仍为 `127.0.0.1`。浏览器页面管理另一个本机后端时，两者需要互相命名对方来源。详见 [Product API](product-api.md#trusted-local-client-origins)。
