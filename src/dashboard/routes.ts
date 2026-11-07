@@ -114,7 +114,7 @@ export interface DashboardRoutePorts {
   createTemporaryWorkspace: WorkspaceDirectory["createTemporaryWorkspace"];
   withApplicationProjectLock: WorkspaceDirectory["withApplicationProjectLock"];
   normalizeModel(value: unknown): string | undefined;
-  runtimeValue: RunServicePorts["runtimeValue"];
+  runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
   startMainRun: RunService["startMainRun"];
   editMainMessage: RunService["editMainMessage"];
   messageVersion(taskId: string, versionId: string): Promise<unknown>;
@@ -622,8 +622,25 @@ export function createDashboardHandler(
         sendJson(response, 200, await ports.modelSettings.test(await readJsonBody(request)));
         return;
       }
+      if (url.pathname === "/api/model-settings/roles") {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "method not allowed" });
+          return;
+        }
+        const body = await readJsonBody(request);
+        if (body.projectId !== undefined) {
+          if (typeof body.projectId !== "string" || !body.projectId.trim())
+            throw new HttpError(400, "项目 ID 不合法");
+          if (!(await ports.applicationProjectForId(body.projectId.trim())))
+            throw new HttpError(404, "项目不存在");
+        }
+        sendJson(response, 200, await ports.modelSettings.saveRole(body));
+        return;
+      }
       if (url.pathname === "/api/model-settings") {
-        if (request.method === "GET") sendJson(response, 200, ports.modelSettings.status());
+        const scopedProject = url.searchParams.get("projectId") ?? "";
+        if (request.method === "GET")
+          sendJson(response, 200, ports.modelSettings.status(scopedProject || undefined));
         else if (request.method === "POST")
           sendJson(response, 200, await ports.modelSettings.save(await readJsonBody(request)));
         else sendJson(response, 405, { error: "method not allowed" });
@@ -801,6 +818,7 @@ export function createDashboardHandler(
             body.resume !== true ||
             body.prompt !== undefined ||
             body.thinkingLevel !== undefined ||
+            body.profileId !== undefined ||
             (body.attachmentIds !== undefined &&
               (!Array.isArray(body.attachmentIds) || body.attachmentIds.length > 0)))
         )
@@ -813,6 +831,9 @@ export function createDashboardHandler(
         }
         const runId = typeof body.runId === "string" ? body.runId : undefined;
         const model = body.model === undefined ? undefined : normalizeModel(body.model);
+        if (body.profileId !== undefined && (typeof body.profileId !== "string" || !body.profileId.trim()))
+          throw new HttpError(400, "模型连接 ID 不合法");
+        const profileId = typeof body.profileId === "string" ? body.profileId.trim() : undefined;
         const thinkingLevel =
           body.thinkingLevel === undefined
             ? undefined
@@ -833,6 +854,7 @@ export function createDashboardHandler(
         const claimed: { runId?: string; projectId?: string; sessionId?: string } = {};
         const submission = {
           body: typeof body.body === "string" ? body.body : undefined,
+          ...(profileId ? { profileId } : {}),
           ...(thinkingLevel ? { thinkingLevel } : {}),
           ...(mainSessions && location
             ? {

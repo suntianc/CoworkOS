@@ -8,6 +8,7 @@ import { configuredSupportsImages } from "../runtime/runtime-settings.js";
 import { testModelConnection } from "../runtime/model-connection.js";
 import { publicConnections, saveConnection, selectedConnection } from "../runtime/model-connections.js";
 import { connectionProfile, parseConnectionProfile } from "../runtime/model-profile.js";
+import { publicModelRoles, saveRoleModelBinding } from "../runtime/role-models.js";
 import {
   applyHostCredentials,
   hasHostCredentials,
@@ -40,7 +41,7 @@ export function createModelSettings(
       ? "已保存的模型密钥由旧版桌面宿主加密；请重新填写 API Key，或先运行桌面配置迁移工具"
       : undefined;
   const credentialError = () => store.error ?? unavailableModelCredential(config) ?? legacyCredential();
-  const status = () => {
+  const status = (projectId?: string) => {
     const error = credentialError();
     return {
       ...connectionProfile(config),
@@ -72,8 +73,30 @@ export function createModelSettings(
         process.env.COWORK_CONTEXT_WINDOW !== undefined
       ),
       credentialUnavailable: Boolean(unavailableModelCredential(config) || legacyCredential()),
-      ...(error ? { credentialError: error } : {})
+      ...(error ? { credentialError: error } : {}),
+      modelRoles: publicModelRoles(config, projectId)
     };
+  };
+  /**
+   * One atomic private write for the public configuration.
+   *
+   * Keys are moved to the host store before the file is written, so a settings
+   * response and the file on disk can never disagree about where a secret lives.
+   */
+  const persist = async (next: CoworkConfig) => {
+    const persisted = structuredClone(next);
+    const extracted = takeHostCredentials(persisted);
+    const credentials = mergeHostCredentials(store.value, extracted);
+    if (hasHostCredentials(credentials)) await store.write(credentials);
+    await mkdir(dirname(path), { recursive: true });
+    const temporary = `${path}.tmp-${randomUUID()}`;
+    await writeFile(temporary, JSON.stringify(persisted, null, 2) + "\n", { mode: 0o600 });
+    await rename(temporary, path);
+    await chmod(path, 0o600);
+    Object.assign(config, persisted);
+    if (persisted.roleModels) config.roleModels = persisted.roleModels;
+    else delete config.roleModels;
+    applyHostCredentials(config, credentials);
   };
   return {
     status,
@@ -126,19 +149,28 @@ export function createModelSettings(
           await chmod(`${path}.before-model-profiles`, 0o600);
         }
         // One write commits the public connection and its host-owned key together.
-        const persisted = structuredClone(next);
-        const extracted = takeHostCredentials(persisted);
-        const credentials = mergeHostCredentials(store.value, extracted);
-        if (hasHostCredentials(credentials)) await store.write(credentials);
-        await mkdir(dirname(path), { recursive: true });
-        const temporary = `${path}.tmp-${randomUUID()}`;
-        await writeFile(temporary, JSON.stringify(persisted, null, 2) + "\n", { mode: 0o600 });
-        await rename(temporary, path);
-        await chmod(path, 0o600);
-        Object.assign(config, persisted);
-        applyHostCredentials(config, credentials);
+        await persist(next);
       });
       return status();
+    },
+    /**
+     * Save one role binding on this execution host.
+     *
+     * Allowed while a Run is active on purpose: the change must apply to the
+     * next Run and never rewrite the snapshot the current process was given.
+     */
+    async saveRole(value: Record<string, unknown>) {
+      if (status().managedByEnvironment) throw new Error("当前连接由启动环境管理，请在启动配置中修改");
+      await withFileLock(path, async () => {
+        store.reload();
+        if (store.error) throw new Error(store.error);
+        const previous = existsSync(path) ? readCoworkConfig(root, { COWORK_CONFIG: path }) : config;
+        applyHostCredentials(previous, store.value);
+        await persist(saveRoleModelBinding(previous, value));
+      });
+      const projectId =
+        typeof value.projectId === "string" && value.projectId.trim() ? value.projectId.trim() : undefined;
+      return status(projectId);
     }
   };
 }

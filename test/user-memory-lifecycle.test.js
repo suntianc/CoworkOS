@@ -16,6 +16,7 @@ import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { emptyCompaction } from "../dist/src/runtime/agent-checkpoint.js";
 import { createUserMemoryLearningService } from "../dist/src/runtime/user-memory-learning.js";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
+import { singleConnectionMainModel } from "./role-model-fixture.mjs";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "atria-memory-lifecycle-"));
@@ -216,8 +217,7 @@ test(
         await locationGate;
         return { workspaceRoot, store: workspace, task: await workspace.readTask("task") };
       },
-      runtimeValue: (name) =>
-        ({ COWORK_API_BASE: baseUrl, COWORK_API_KEY: "fixture", COWORK_MODEL: "protocol-fixture" })[name],
+      resolveMainModel: singleConnectionMainModel({ baseUrl, model: "protocol-fixture" }),
       onRunStarting: () => learning.pause(),
       normalizeModel: (value) => (typeof value === "string" ? value : undefined),
       appendRunEvent: async () => {},
