@@ -91,6 +91,60 @@ export const PROJECT_DATA_MIGRATIONS: readonly ProjectDataMigration[] = [
     ]
   },
   {
+    // v2: the shared demand board. Board facts project one requirement; the
+    // event rows keep every accepted transition, and a request id makes a retry
+    // return the committed result without appending a second event.
+    version: 2,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS project_data_board_entries (
+         project_id TEXT NOT NULL,
+         board_id TEXT NOT NULL,
+         requirement_id TEXT NOT NULL,
+         entry_kind TEXT NOT NULL,
+         state TEXT NOT NULL,
+         revision INTEGER NOT NULL,
+         backend_id TEXT NOT NULL,
+         publish_request_id TEXT NOT NULL,
+         assignment_kind TEXT,
+         assignee_id TEXT,
+         handler_backend_id TEXT,
+         handler_project_id TEXT,
+         handler_task_id TEXT,
+         assigned_at TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, board_id),
+         UNIQUE (project_id, requirement_id),
+         UNIQUE (project_id, publish_request_id),
+         FOREIGN KEY (project_id, requirement_id)
+           REFERENCES project_data_requirements(project_id, requirement_id) ON DELETE CASCADE
+       )`,
+      `CREATE TABLE IF NOT EXISTS project_data_board_events (
+         project_id TEXT NOT NULL,
+         board_id TEXT NOT NULL,
+         event_id TEXT NOT NULL,
+         kind TEXT NOT NULL,
+         request_id TEXT NOT NULL,
+         actor_id TEXT NOT NULL,
+         handler_backend_id TEXT,
+         handler_project_id TEXT,
+         handler_task_id TEXT,
+         from_state TEXT,
+         to_state TEXT NOT NULL,
+         revision INTEGER NOT NULL,
+         created_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, board_id, event_id),
+         UNIQUE (project_id, request_id),
+         FOREIGN KEY (project_id, board_id)
+           REFERENCES project_data_board_entries(project_id, board_id) ON DELETE CASCADE
+       )`,
+      `CREATE INDEX IF NOT EXISTS project_data_board_entries_project
+         ON project_data_board_entries(project_id, updated_at)`,
+      `CREATE INDEX IF NOT EXISTS project_data_board_events_board
+         ON project_data_board_events(project_id, board_id, revision)`
+    ]
+  },
+  {
     version: 3,
     statements: [
       // A session is shared fact; its Pi transcript stays with the Task on the

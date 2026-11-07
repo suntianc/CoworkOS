@@ -161,7 +161,8 @@ export function createDashboardApplication(
     config: runtimeConfig.projectData,
     env: process.env,
     configPath: coworkConfigPath(projectRoot),
-    dataRoot: dirname(globalIndexPath)
+    dataRoot: dirname(globalIndexPath),
+    backendId: backendIdentity.backendId
   });
   const mainSessions = createMainSessionService({
     runtime: projectData,

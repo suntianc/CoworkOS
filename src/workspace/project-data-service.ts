@@ -38,6 +38,14 @@ import {
   type MainSessionRun,
   type MainSessionRunState
 } from "../domain/main-session.js";
+import {
+  type BoardAction,
+  type BoardActionContext,
+  type BoardActionInput,
+  type BoardEntry,
+  type BoardEvent,
+  type BoardPublishInput
+} from "../domain/project-board.js";
 import { id, now } from "../domain/types.js";
 import {
   openProjectDataDatabase,
@@ -47,6 +55,8 @@ import {
   type ProjectDataEngine
 } from "../storage/project-data/config.js";
 import type { SqlDatabase, SqlTransaction } from "../storage/project-data/database.js";
+import { ProjectBoardRepository } from "./project-board.js";
+import { RemoteProjectDataService } from "./project-data-remote.js";
 
 interface ProjectRow {
   project_id: string;
@@ -129,14 +139,14 @@ export interface RequirementQuery {
   limit?: unknown;
 }
 
-interface RequirementCreate {
+export interface RequirementCreate {
   title?: unknown;
   content?: unknown;
   source?: unknown;
   references?: unknown;
 }
 
-interface RequirementUpdate {
+export interface RequirementUpdate {
   expectedRevision?: unknown;
   title?: unknown;
   content?: unknown;
@@ -154,7 +164,99 @@ export interface ProjectDataDescription {
   source: string;
 }
 
-const SNAPSHOT_VERSION = 1;
+export interface ProjectDataBackup {
+  path: string;
+  engine: ProjectDataEngine;
+  takenAt: string;
+  schemaVersion: number;
+  counts: Record<string, number>;
+}
+
+export interface ProjectDataRestore {
+  takenAt: string;
+  counts: Record<string, number>;
+}
+
+/**
+ * The business surface every consumer uses.
+ *
+ * A local authority serves this from SQLite/PostgreSQL; a secondary backend
+ * serves the same surface through the authenticated remote client. HTTP routes
+ * and the Main tool therefore never branch on where the fact is stored.
+ */
+export interface ProjectDataGateway {
+  readonly description: ProjectDataDescription;
+  ensureProject(input: Parameters<ProjectDataRepository["ensureProject"]>[0]): Promise<ProjectIdentity>;
+  projects(): Promise<SharedProject[]>;
+  createRequirement(projectId: unknown, input: RequirementCreate): Promise<RequirementDetail>;
+  updateRequirement(
+    projectId: unknown,
+    requirementId: unknown,
+    input: RequirementUpdate
+  ): Promise<RequirementDetail>;
+  addDecision(
+    projectId: unknown,
+    requirementId: unknown,
+    input: { expectedRevision?: unknown; text?: unknown; effective?: unknown; source?: unknown }
+  ): Promise<RequirementDetail>;
+  setDecisionEffective(
+    projectId: unknown,
+    requirementId: unknown,
+    decisionId: unknown,
+    input: { expectedRevision?: unknown; effective?: unknown }
+  ): Promise<RequirementDetail>;
+  getRequirement(projectId: unknown, requirementId: unknown): Promise<RequirementDetail>;
+  queryRequirements(projectId: unknown, query?: RequirementQuery): Promise<RequirementSummary[]>;
+  // Persistent Main sessions are business facts too: a secondary backend writes
+  // them through this surface, never through SQL or a transaction callback.
+  createMainSession(
+    projectId: unknown,
+    input: Parameters<ProjectDataRepository["createMainSession"]>[1]
+  ): Promise<MainSessionRecord>;
+  adoptMainSessionTasks(
+    projectId: unknown,
+    backendId: unknown,
+    tasks: Parameters<ProjectDataRepository["adoptMainSessionTasks"]>[2]
+  ): Promise<number>;
+  listMainSessions(projectId: unknown): Promise<MainSessionRecord[]>;
+  getMainSession(projectId: unknown, sessionId: unknown): Promise<MainSessionRecord>;
+  findMainSessionByTask(
+    projectId: unknown,
+    backendId: unknown,
+    taskId: unknown
+  ): Promise<MainSessionRecord | undefined>;
+  setMainSessionRequirement(
+    projectId: unknown,
+    sessionId: unknown,
+    requirementId: unknown
+  ): Promise<MainSessionRecord>;
+  recordMainSessionRun(
+    projectId: unknown,
+    sessionId: unknown,
+    input: Parameters<ProjectDataRepository["recordMainSessionRun"]>[2]
+  ): Promise<MainSessionRun>;
+  settleMainSessionRun(projectId: unknown, taskId: unknown, runId: unknown, state: unknown): Promise<number>;
+  boardEntries(projectId: unknown): Promise<BoardEntry[]>;
+  boardEntry(projectId: unknown, boardId: unknown): Promise<BoardEntry>;
+  boardEvents(projectId: unknown, boardId: unknown): Promise<BoardEvent[]>;
+  publishBoardEntry(
+    projectId: unknown,
+    input: BoardPublishInput,
+    context: BoardActionContext
+  ): Promise<BoardEntry>;
+  boardAction(
+    projectId: unknown,
+    boardId: unknown,
+    action: BoardAction,
+    input: BoardActionInput,
+    context: BoardActionContext
+  ): Promise<BoardEntry>;
+  backupTo(path: string): Promise<ProjectDataBackup>;
+  restoreFrom(path: string): Promise<ProjectDataRestore>;
+  close(): Promise<void>;
+}
+
+const SNAPSHOT_VERSION = 2;
 const TABLES = [
   "project_data_projects",
   "project_data_bindings",
@@ -162,6 +264,8 @@ const TABLES = [
   "project_data_requirement_revisions",
   "project_data_decisions",
   "project_data_references",
+  "project_data_board_entries",
+  "project_data_board_events",
   "project_data_main_sessions",
   "project_data_main_session_runs"
 ] as const;
@@ -208,6 +312,39 @@ const TABLE_COLUMNS: Record<SnapshotTable, readonly string[]> = {
     "created_at"
   ],
   project_data_references: ["project_id", "requirement_id", "reference_id", "kind", "value", "created_at"],
+  project_data_board_entries: [
+    "project_id",
+    "board_id",
+    "requirement_id",
+    "entry_kind",
+    "state",
+    "revision",
+    "backend_id",
+    "publish_request_id",
+    "assignment_kind",
+    "assignee_id",
+    "handler_backend_id",
+    "handler_project_id",
+    "handler_task_id",
+    "assigned_at",
+    "created_at",
+    "updated_at"
+  ],
+  project_data_board_events: [
+    "project_id",
+    "board_id",
+    "event_id",
+    "kind",
+    "request_id",
+    "actor_id",
+    "handler_backend_id",
+    "handler_project_id",
+    "handler_task_id",
+    "from_state",
+    "to_state",
+    "revision",
+    "created_at"
+  ],
   project_data_main_sessions: [
     "project_id",
     "session_id",
@@ -986,6 +1123,11 @@ export class ProjectDataRepository {
     }
     return grouped;
   }
+
+  /** Board writes share this transaction, so a published entry commits with its requirement. */
+  board(): ProjectBoardRepository {
+    return new ProjectBoardRepository(this.transaction, this, this.lockRows);
+  }
 }
 
 /**
@@ -993,7 +1135,7 @@ export class ProjectDataRepository {
  * ledger, and the backup/restore pair. HTTP, the Main tool and the CLI all use
  * this one interface, so engine choice never changes business behaviour.
  */
-export class ProjectDataService {
+export class ProjectDataService implements ProjectDataGateway {
   constructor(
     private readonly database: SqlDatabase,
     readonly description: ProjectDataDescription
@@ -1074,6 +1216,40 @@ export class ProjectDataService {
   }
   settleMainSessionRun(projectId: unknown, taskId: unknown, runId: unknown, state: unknown) {
     return this.transaction((repository) => repository.settleMainSessionRun(projectId, taskId, runId, state));
+  }
+
+  boardEntries(projectId: unknown) {
+    const sharedProjectId = ledgerProjectId(projectId);
+    return this.transaction((repository) => repository.board().list(sharedProjectId));
+  }
+  boardEntry(projectId: unknown, boardId: unknown) {
+    const sharedProjectId = ledgerProjectId(projectId);
+    return this.transaction((repository) => repository.board().get(sharedProjectId, boardId));
+  }
+  boardEvents(projectId: unknown, boardId: unknown) {
+    const sharedProjectId = ledgerProjectId(projectId);
+    return this.transaction((repository) => repository.board().events(sharedProjectId, boardId));
+  }
+  publishBoardEntry(projectId: unknown, input: BoardPublishInput, context: BoardActionContext) {
+    const sharedProjectId = ledgerProjectId(projectId);
+    return this.transaction((repository) => repository.board().publish(sharedProjectId, input, context));
+  }
+  boardAction(
+    projectId: unknown,
+    boardId: unknown,
+    action: BoardAction,
+    input: BoardActionInput,
+    context: BoardActionContext
+  ) {
+    const sharedProjectId = ledgerProjectId(projectId);
+    return this.transaction((repository) => {
+      const board = repository.board();
+      if (action === "claim") return board.claim(sharedProjectId, boardId, input, context);
+      if (action === "pause") return board.pause(sharedProjectId, boardId, input, context);
+      if (action === "release") return board.release(sharedProjectId, boardId, input, context);
+      if (action === "cancel") return board.cancel(sharedProjectId, boardId, input, context);
+      throw new ProjectDataInvalidError("未知的看板操作");
+    });
   }
 
   /** A consistent logical snapshot of every ledger table, portable across restarts. */
@@ -1159,6 +1335,8 @@ function parseSnapshot(raw: string): ProjectDataSnapshot {
     throw new ProjectDataInvalidError("备份文件不是有效 JSON");
   }
   const snapshot = value as Partial<ProjectDataSnapshot>;
+  if (snapshot && typeof snapshot === "object" && snapshot.version === 1)
+    throw new ProjectDataInvalidError("备份文件是旧版本（1），不含看板数据；请用对应版本恢复或重新备份");
   if (
     !snapshot ||
     typeof snapshot !== "object" ||
@@ -1196,16 +1374,25 @@ function parseSnapshot(raw: string): ProjectDataSnapshot {
  */
 export class ProjectDataRuntime {
   readonly ready: Promise<void>;
-  private readonly opening: Promise<ProjectDataService>;
+  private readonly opening: Promise<ProjectDataGateway>;
 
   constructor(options: {
     config?: ProjectDataConfig;
     env?: NodeJS.ProcessEnv;
     configPath: string;
     dataRoot: string;
+    /** This backend's stable id; a remote client presents it as a namespace, not a path. */
+    backendId?: string;
   }) {
     this.opening = (async () => {
       const resolved = resolveProjectDataConfig(options);
+      if (resolved.mode === "authority")
+        return RemoteProjectDataService.open({
+          url: resolved.authority.url,
+          token: resolved.authority.token,
+          backendId: options.backendId ?? id("backend"),
+          source: resolved.source
+        });
       const { database, serverVersion, schemaVersion } = await openProjectDataDatabase(resolved);
       return new ProjectDataService(database, {
         engine: resolved.engine,
@@ -1221,7 +1408,7 @@ export class ProjectDataRuntime {
     this.ready.catch(() => undefined);
   }
 
-  service(): Promise<ProjectDataService> {
+  service(): Promise<ProjectDataGateway> {
     return this.opening;
   }
 

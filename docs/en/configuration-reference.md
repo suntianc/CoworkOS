@@ -139,6 +139,18 @@ The project ledger and shared project identities live in a separate project data
 }
 ```
 
+A secondary backend does not open a local engine; it reaches the same authority through the authenticated client:
+
+```json
+{
+  "projectData": {
+    "authority": { "url": "http://127.0.0.1:3880", "token": "host credential" }
+  }
+}
+```
+
+`authority` excludes `engine`, `sqlite` and `postgres`. At startup the client exchanges the host credential for one local session and presents only that session afterwards; the credential stays in server configuration or `COWORK_PROJECT_DATA_TOKEN` and never enters the UI, tool arguments or error text. An unreachable authority returns `storage_unavailable`; a revoked session returns `shared_auth_failed`. Neither fakes a successful claim or transfers ownership. Main session records are shared through the same client, while the Task, Pi transcript and execution ownership stay on the backend that created them; another backend cannot record or settle a Run for a session it does not own. Shared projects keep one `projectId`; each backend registers only its own local directory binding, and a remote absolute path never becomes a local execution directory. Backup and restore run on the authority's backend; a remote client refuses them explicitly.
+
 SQLite defaults to `project-data.sqlite` under the data root (`ATRIA_HOME/runtime/project-data.sqlite`, `~/.atria/runtime/project-data.sqlite` by default); `projectData.sqlite.path` selects another file, and a relative path resolves against the data root. PostgreSQL also accepts separate `host`, `port`, `database`, `user`, `password` and `ssl` fields. Connection credentials stay in the serving host's configuration or `COWORK_PROJECT_DATA_URL` and never enter the UI, tool arguments or error text.
 
 Choosing an engine is not a data migration: switching engines does not move the existing project catalog, Task/Run, attachments or Pi history, and this stage adds no cross-engine move, dual write or live switch. The existing project catalog still supplies the stable `projectId`; shared project rows keep only that identity, while the local directory is a binding of the current backend, so a shared row's directory is never used as a local execution directory.
@@ -152,7 +164,7 @@ coworkos data backup --to ~/backups/project-data.json
 coworkos data restore --from ~/backups/project-data.json
 ```
 
-A backup is a local logical snapshot (mode 0600) of the shared projects, this host's directory bindings, requirements, revisions, decisions, references, Main sessions and Run ownership. Pi transcripts are not in the snapshot; the executing backend keeps them locally. Restore replaces those records in one transaction in foreign-key order and refuses a snapshot from the other engine. Stop the backend writing the data root before a restore and restart it afterwards.
+A backup is a local logical snapshot (mode 0600) of the shared projects, this host's directory bindings, requirements, revisions, decisions, references, board entries and events, Main sessions and Run ownership. Pi transcripts are not in the snapshot; the executing backend keeps them locally. Restore replaces those records in one transaction in foreign-key order and refuses a snapshot from the other engine or an older schema. Stop the backend writing the data root before a restore and restart it afterwards. A backend using `projectData.authority` has no local database; run backup and restore on the authority's backend.
 
 ## Paths and environment variables
 
@@ -177,6 +189,8 @@ A backup is a local logical snapshot (mode 0600) of the shared projects, this ho
 | `COWORK_PROJECT_DATA_ENGINE`                          | Project data engine: `sqlite` (default) or `postgres`                                        |
 | `COWORK_PROJECT_DATA_SQLITE`                          | SQLite data file path                                                                        |
 | `COWORK_PROJECT_DATA_URL`                             | PostgreSQL connection URL; overrides `projectData.postgres` in the file                      |
+| `COWORK_PROJECT_DATA_AUTHORITY`                       | Shared project data authority URL; overrides `projectData.authority.url`                     |
+| `COWORK_PROJECT_DATA_TOKEN`                           | Authority access credential; overrides `projectData.authority.token`                         |
 
 `COWORK_TRUSTED_CLIENT_ORIGINS` accepts only exact local `http://` origins and never a wildcard. Named origins may read this backend's responses across ports and appear in its page's `connect-src`; credentials and the `127.0.0.1` listener are unchanged. A browser page managing another local backend names both origins on the two backends. See [Product API](../product-api.md#trusted-local-client-origins).
 

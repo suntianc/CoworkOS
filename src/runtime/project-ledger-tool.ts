@@ -26,18 +26,36 @@ export function createProjectLedgerTool(options: ProjectLedgerToolOptions) {
     name: "project_ledger",
     label: "Project Ledger",
     description:
-      "The current project's requirement ledger. Query it before recording anything, so one need keeps one requirement. create records a new internal requirement; it does not create a board item. update appends a revision and must carry the revision you last read. decide records a settled decision; set_decision_effective retracts or restores one. The current project comes from this conversation, so no project id is accepted.",
+      "The current project's requirement ledger and board. Query the ledger before recording anything, so one need keeps one requirement. create records a new internal requirement; it does not create a board item. update appends a revision and must carry the revision you last read. decide records a settled decision; set_decision_effective retracts or restores one. board lists published demands; claim_board claims one as this Task, while pause_board/release_board/cancel_board act only on what this conversation owns. The current project and Task come from this conversation, so no project id or path is accepted.",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["query", "get", "create", "update", "decide", "set_decision_effective"]
+          enum: [
+            "query",
+            "get",
+            "create",
+            "update",
+            "decide",
+            "set_decision_effective",
+            "board",
+            "claim_board",
+            "pause_board",
+            "release_board",
+            "cancel_board"
+          ]
         },
         q: { type: "string", description: "query: match requirement title or content." },
         status: { type: "string", enum: ["open", "delivered", "withdrawn"] },
         requirementId: { ...ID, description: "get/update/decide/set_decision_effective target." },
         decisionId: { ...ID, description: "set_decision_effective target." },
+        boardId: { ...ID, description: "claim_board/pause_board/release_board/cancel_board target." },
+        requestId: {
+          type: "string",
+          maxLength: 200,
+          description: "Optional retry identity for a board write; a repeat returns the committed result."
+        },
         expectedRevision: {
           type: "integer",
           minimum: 1,
@@ -55,8 +73,9 @@ export function createProjectLedgerTool(options: ProjectLedgerToolOptions) {
       additionalProperties: false
     },
     async execute(input: Record<string, unknown>): Promise<Record<string, unknown>> {
-      const action = input.action;
-      const request = bridge().request;
+      const action = typeof input.action === "string" ? input.action : "";
+      const client = bridge();
+      const request = client.request;
       const source =
         input.sourceKind === undefined && input.sourceReference === undefined
           ? undefined
@@ -107,6 +126,21 @@ export function createProjectLedgerTool(options: ProjectLedgerToolOptions) {
           decisionId: input.decisionId,
           expectedRevision: input.expectedRevision,
           effective: input.effective
+        });
+      if (action === "board") return client.board(undefined, "GET");
+      if (
+        action === "claim_board" ||
+        action === "pause_board" ||
+        action === "release_board" ||
+        action === "cancel_board"
+      )
+        return client.board({
+          action: action.slice(0, -"_board".length),
+          boardId: input.boardId,
+          expectedRevision: input.expectedRevision,
+          requestId:
+            input.requestId ??
+            `board_${String(action)}_${String(input.boardId)}_${String(input.expectedRevision)}`
         });
       throw new Error(`未知的台账操作：${String(action)}`);
     }

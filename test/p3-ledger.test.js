@@ -85,8 +85,9 @@ for (const engine of PROJECT_DATA_ENGINES) {
     const info = await f.request("/api/project-data", undefined, "GET");
     assert.equal(info.status, 200);
     assert.equal(info.body.engine, engine);
-    // v1 stayed intact; v3 adds project Main sessions. Migrations are applied
-    // one version at a time, so a later version does not hide an unapplied one.
+    // v1 and v2 stayed intact; v3 adds project Main sessions. Migrations are
+    // applied one version at a time, so a later version does not hide an
+    // unapplied one.
     assert.equal(info.body.schemaVersion, 3);
     assert.ok(info.body.serverVersion, "the engine version is reported");
     assert.doesNotMatch(JSON.stringify(info.body), /password/i);
@@ -109,10 +110,13 @@ for (const engine of PROJECT_DATA_ENGINES) {
     assert.equal(requirement.references[0].value, "session-a");
     // An internal requirement is ledger-only: this ticket adds no board projection.
     assert.ok(!("boardEntry" in requirement));
-    assert.equal(
-      (await f.request(`/api/projects/${encodeURIComponent(a.projectId)}/board`, undefined, "GET")).status,
-      404
+    const emptyBoard = await f.request(
+      `/api/projects/${encodeURIComponent(a.projectId)}/board`,
+      undefined,
+      "GET"
     );
+    assert.equal(emptyBoard.status, 200);
+    assert.deepEqual(emptyBoard.body.entries, [], "an internal need creates no board item");
 
     const revised = await f.request(ledger(a.projectId), {
       action: "update",

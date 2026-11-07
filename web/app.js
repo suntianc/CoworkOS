@@ -37,6 +37,7 @@ import { createProjectExperienceController } from "./assets/controllers/project-
 import { createProjectController } from "./assets/controllers/project-controller.js";
 import { createProjectLedgerController } from "./assets/controllers/project-ledger.js";
 import { createMainSessionsController } from "./assets/controllers/main-sessions.js";
+import { createProjectBoardController } from "./assets/controllers/project-board.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
 import { createConversationReadState, conversationTaskId } from "./assets/conversation-actions.js";
@@ -546,6 +547,13 @@ const mainSessionsController = createMainSessionsController({
   }
 });
 $("#main-sessions-nav").addEventListener("click", () => mainSessionsController.open());
+const boardController = createProjectBoardController({
+  api,
+  state,
+  getBackend: () => boundBackendId,
+  showToast
+});
+$("#board-nav").addEventListener("click", () => boardController.open());
 const draftRecovery = createDraftRecovery({
   button: $("#recover-drafts"),
   session: composerSession,
@@ -1056,6 +1064,7 @@ function renderConversationList() {
   projectController.render();
   ledgerController.render();
   mainSessionsController.render();
+  boardController.render();
 }
 
 function selectConversation(taskId) {

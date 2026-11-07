@@ -13,6 +13,8 @@ import { parseHTML } from "linkedom";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
+import { startProjectDataDashboard } from "./p3-storage-fixture.mjs";
+import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 import { createMainSessionsController } from "../web/assets/controllers/main-sessions.js";
 import { createComposerSession } from "../web/assets/controllers/composer-session.js";
 
@@ -85,12 +87,13 @@ async function settle(request, taskId, status) {
   assert.fail(`Main ${taskId} did not settle to ${status}`);
 }
 
-async function createProject(request, dashboard, name) {
+async function createProject(request, dashboard, name, projectId) {
   const directory = join(dashboard.root, `project-${name}`);
   await mkdir(directory, { recursive: true });
   const created = await request("/api/projects", {
     projectName: `项目 ${name}`,
-    projectDirectory: directory
+    projectDirectory: directory,
+    ...(projectId ? { projectId } : {})
   });
   assert.equal(created.status, 201, JSON.stringify(created.body));
   return created.body.project;
@@ -491,3 +494,248 @@ test("cancel and an abnormal exit leave no Main process this run owns", { timeou
   );
   assert.deepEqual(local.failures, []);
 });
+
+/**
+ * Two independent backends over one authenticated authority.
+ *
+ * The session's Task and Pi transcript live on the backend that created it;
+ * only the shared identity, the requirement link and Run ownership cross the
+ * wire. This proves the remote gateway records what the authority later shows,
+ * that a session cannot be run from the wrong backend, and that a board handler
+ * identifies exactly one session.
+ */
+async function secondaryBackend(t, authority, options = {}) {
+  const instance = await readBackendInstance(backendPaths(join(authority.root, "home")));
+  assert.ok(instance.value?.token, "the authority published its local credential");
+  const dashboard = await startDashboard({
+    defaultProject: false,
+    ...options,
+    config: { projectData: { authority: { url: authority.base, token: instance.value.token } } }
+  });
+  t.after(() => dashboard.stop());
+  const backendId = (await readBackendInstance(backendPaths(join(dashboard.root, "home")))).value?.backendId;
+  assert.ok(backendId, "the secondary backend published its identity");
+  return { ...dashboard, backendId, request: client(dashboard), authorityToken: instance.value.token };
+}
+
+test(
+  "two backends share Main session metadata while each keeps its own Task and process",
+  { timeout: 120_000 },
+  async (t) => {
+    const local = await provider(t);
+    const authority = await startProjectDataDashboard(t, "sqlite", {});
+    const authorityToken = (await readBackendInstance(backendPaths(join(authority.root, "home")))).value
+      ?.token;
+    assert.ok(authorityToken, "the authority published its local credential");
+    const project = await createProject(client(authority), authority, "shared-authority");
+    const backend = await secondaryBackend(t, authority, {
+      modelEndpoint: local.base,
+      model: "fixture-model"
+    });
+    const secondaryProject = await createProject(
+      backend.request,
+      backend,
+      "shared-secondary",
+      project.projectId
+    );
+    assert.equal(secondaryProject.projectId, project.projectId, "the shared project id is reused");
+    const sessionsPath = (projectId) => `/api/projects/${encodeURIComponent(projectId)}/main-sessions`;
+
+    // B writes the requirement and the session through its remote gateway; the
+    // Task history container is created in B's own data root.
+    const requirement = await backend.request(
+      `/api/projects/${encodeURIComponent(project.projectId)}/ledger`,
+      {
+        action: "create",
+        title: "跨后端需求",
+        content: "两个后端共享同一会话记录。"
+      }
+    );
+    assert.equal(requirement.status, 201, JSON.stringify(requirement.body));
+    const created = await backend.request(sessionsPath(project.projectId), {
+      action: "create",
+      title: "B 的会话",
+      requirementId: requirement.body.requirement.requirementId
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const session = created.body.session;
+    assert.equal(session.backendId, backend.backendId);
+    assert.equal(session.local, true);
+    assert.equal(session.projectDirectory, secondaryProject.projectDirectory);
+    assert.equal(session.currentRequirementTitle, "跨后端需求");
+    assert.match(session.taskId, /^task-/);
+
+    // The authority sees the same shared record but cannot run its history.
+    const authorityView = await authority.request(sessionsPath(project.projectId), undefined, "GET");
+    assert.equal(authorityView.status, 200, JSON.stringify(authorityView.body));
+    assert.equal(authorityView.body.sessions.length, 1);
+    const shared = authorityView.body.sessions[0];
+    assert.equal(shared.sessionId, session.sessionId);
+    assert.equal(shared.taskId, session.taskId);
+    assert.equal(shared.backendId, backend.backendId);
+    assert.equal(shared.currentRequirementId, requirement.body.requirement.requirementId);
+    assert.equal(shared.local, false, "the authority does not hold B's Task history");
+    const authorityTask = await authority.request(
+      `/api/tasks/${encodeURIComponent(session.taskId)}`,
+      undefined,
+      "GET"
+    );
+    assert.equal(authorityTask.status, 400, "the authority has no such local Task");
+
+    // The requirement records the accepting session on the shared side.
+    const requirementDetail = await authority.request(
+      `/api/projects/${encodeURIComponent(project.projectId)}/ledger/${encodeURIComponent(
+        requirement.body.requirement.requirementId
+      )}`,
+      undefined,
+      "GET"
+    );
+    assert.deepEqual(
+      requirementDetail.body.requirement.references
+        .map((reference) => [reference.kind, reference.value])
+        .sort(),
+      [
+        ["session", session.sessionId],
+        ["task", session.taskId]
+      ]
+    );
+
+    // A requirement written by the authority becomes current in B's session.
+    const next = await authority.request(`/api/projects/${encodeURIComponent(project.projectId)}/ledger`, {
+      action: "create",
+      title: "权威侧需求",
+      content: "由权威后端写入。"
+    });
+    const selected = await backend.request(`${sessionsPath(project.projectId)}/${session.sessionId}`, {
+      action: "select_requirement",
+      requirementId: next.body.requirement.requirementId
+    });
+    assert.equal(selected.status, 200, JSON.stringify(selected.body));
+    assert.equal(selected.body.session.currentRequirementId, next.body.requirement.requirementId);
+    assert.equal(
+      (await authority.request(sessionsPath(project.projectId), undefined, "GET")).body.sessions[0]
+        .currentRequirementTitle,
+      "权威侧需求"
+    );
+
+    // A real Main run on B records and settles its Run through the gateway.
+    const run = await backend.request(`/api/tasks/${encodeURIComponent(session.taskId)}/run`, {
+      prompt: "在 B 上执行跨后端会话。",
+      mainSessionId: session.sessionId,
+      requirementId: next.body.requirement.requirementId
+    });
+    assert.equal(run.status, 202, JSON.stringify(run.body));
+    assert.equal(run.body.sessionId, session.sessionId);
+    await settle(backend.request, session.taskId, "completed");
+    assert.equal(local.requests.length, 1);
+    assert.match(userText(local.requests[0]), /在 B 上执行跨后端会话/);
+
+    // The authority reads the completed ownership record, not a second Run.
+    const afterRun = (await authority.request(sessionsPath(project.projectId), undefined, "GET")).body
+      .sessions[0];
+    assert.deepEqual(
+      afterRun.runs.map((entry) => [entry.runId, entry.state, entry.taskId, entry.requirementId]),
+      [[run.body.runId, "completed", session.taskId, next.body.requirement.requirementId]]
+    );
+    assert.equal(afterRun.activeRunId, null);
+
+    // A run recorded for the session from the wrong backend is refused.
+    const crossWrite = await fetch(
+      `${authority.base}/api/projects/${encodeURIComponent(project.projectId)}/main-sessions`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-atria-token": authorityToken,
+          "x-cowork-backend-id": "backend_somewhere_else"
+        },
+        body: JSON.stringify({
+          action: "record_run",
+          sessionId: session.sessionId,
+          runId: "run-elsewhere",
+          taskId: session.taskId
+        })
+      }
+    );
+    assert.equal(crossWrite.status, 403, await crossWrite.text());
+    assert.equal(
+      (await authority.request(sessionsPath(project.projectId), undefined, "GET")).body.sessions[0].runs
+        .length,
+      1,
+      "a refused write appends no Run"
+    );
+
+    // A shared session cannot be driven from B when it belongs to A.
+    const authoritySession = await authority.request(sessionsPath(project.projectId), {
+      action: "create",
+      title: "A 的会话"
+    });
+    assert.equal(authoritySession.status, 201, JSON.stringify(authoritySession.body));
+    const localTaskId = `task-${crypto.randomUUID()}`;
+    const localTask = await backend.request("/api/tasks", {
+      taskId: localTaskId,
+      goal: "B 的本地任务",
+      projectId: project.projectId
+    });
+    assert.equal(localTask.status, 201, JSON.stringify(localTask.body));
+    const wrongBackend = await backend.request(`/api/tasks/${encodeURIComponent(localTaskId)}/run`, {
+      prompt: "不该在 B 上启动 A 的会话。",
+      mainSessionId: authoritySession.body.session.sessionId
+    });
+    assert.equal(wrongBackend.status, 409, JSON.stringify(wrongBackend.body));
+    assert.match(wrongBackend.body.error, /另一台后端/);
+    assert.equal(local.requests.length, 1, "the refused run reached no model");
+
+    // A board handler locates exactly one session: the one owning its Task.
+    const published = await backend.request(`/api/projects/${encodeURIComponent(project.projectId)}/board`, {
+      action: "publish",
+      requestId: "publish-handler",
+      title: "看板需求",
+      content: "认领后能定位处理会话。",
+      source: { kind: "external", reference: "控制入口" }
+    });
+    assert.equal(published.status, 201, JSON.stringify(published.body));
+    const claimed = await backend.request(`/api/tasks/${encodeURIComponent(session.taskId)}/board`, {
+      action: "claim",
+      boardId: published.body.entry.boardId,
+      expectedRevision: 1,
+      requestId: "claim-handler"
+    });
+    assert.equal(claimed.status, 200, JSON.stringify(claimed.body));
+    assert.deepEqual(claimed.body.entry.assignment.handler, {
+      backendId: session.backendId,
+      projectId: session.projectId,
+      taskId: session.taskId
+    });
+    const located = await fetch(
+      `${authority.base}/api/projects/${encodeURIComponent(project.projectId)}/main-sessions`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-atria-token": authorityToken,
+          "x-cowork-backend-id": session.backendId
+        },
+        body: JSON.stringify({ action: "find_by_task", taskId: session.taskId })
+      }
+    );
+    assert.equal(located.status, 200);
+    const locatedBody = await located.json();
+    assert.equal(locatedBody.record.session.sessionId, session.sessionId);
+    assert.equal(locatedBody.record.session.projectId, claimed.body.entry.assignment.handler.projectId);
+    const missing = await fetch(
+      `${authority.base}/api/projects/${encodeURIComponent(project.projectId)}/main-sessions`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-atria-token": authorityToken,
+          "x-cowork-backend-id": session.backendId
+        },
+        body: JSON.stringify({ action: "find_by_task", taskId: "task-not-a-session" })
+      }
+    );
+    assert.equal(missing.status, 404);
+    assert.deepEqual(local.failures, []);
+  }
+);

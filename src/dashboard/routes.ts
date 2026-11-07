@@ -335,6 +335,7 @@ export function createDashboardHandler(
         (await handleProjectDataRequest(request, response, url, {
           runtime: ports.projectData,
           backendId: ports.backendInfo().backendId,
+          principal,
           project: async (projectId) => {
             const project = await ports.applicationProjectForId(projectId);
             return project
@@ -508,7 +509,8 @@ export function createDashboardHandler(
                 project: await publishProject(
                   await ports.createProject({
                     projectName: body.projectName,
-                    projectDirectory: body.projectDirectory
+                    projectDirectory: body.projectDirectory,
+                    ...(body.projectId === undefined ? {} : { projectId: body.projectId })
                   })
                 )
               }
@@ -1125,8 +1127,12 @@ export function createDashboardHandler(
                 reason: `ui_${action}`
               });
         // A cancelled Run still belongs to its session; it is never handed on.
+        // The process is already stopped, so an unreachable authority must not
+        // turn a completed cancellation into an error response.
         if (action === "cancel" && ports.mainSessions && location.projectId && cancelledRunId)
-          await ports.mainSessions.settle(location.projectId, taskId, cancelledRunId, "cancelled");
+          await ports.mainSessions
+            .settle(location.projectId, taskId, cancelledRunId, "cancelled")
+            .catch(() => undefined);
         sendJson(response, 200, await publishTask(taskListItem({ ...location, task: next })));
         return;
       }

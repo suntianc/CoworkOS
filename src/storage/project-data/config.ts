@@ -7,20 +7,41 @@ import type { SqlDatabase } from "./database.js";
 
 export type ProjectDataEngine = "sqlite" | "postgres";
 
+export interface ProjectDataAuthority {
+  /** Origin of the one authoritative project data service. */
+  url?: string;
+  /** Host credential for that service; kept server-side, never returned to a renderer. */
+  token?: string;
+}
+
 export interface ProjectDataConfig {
   /** Personal deployments default to SQLite; PostgreSQL is an explicit choice. */
   engine?: ProjectDataEngine;
   sqlite?: { path?: string };
   postgres?: PostgresTarget;
+  /**
+   * A secondary backend does not open a local engine; it reads and writes the
+   * same facts through the authenticated authority client.
+   */
+  authority?: ProjectDataAuthority;
 }
 
-export interface ResolvedProjectDataConfig {
-  engine: ProjectDataEngine;
-  /** The configuration file or environment variable that chose the engine. */
-  source: string;
-  sqlitePath?: string;
-  postgres?: PostgresTarget;
-}
+export type ResolvedProjectDataConfig =
+  | {
+      mode: "local";
+      engine: ProjectDataEngine;
+      /** The configuration file or environment variable that chose the engine. */
+      source: string;
+      sqlitePath?: string;
+      postgres?: PostgresTarget;
+    }
+  | {
+      mode: "authority";
+      source: string;
+      authority: { url: string; token: string };
+    };
+
+export type LocalProjectDataConfig = Extract<ResolvedProjectDataConfig, { mode: "local" }>;
 
 const ENGINES: readonly ProjectDataEngine[] = ["sqlite", "postgres"];
 
@@ -45,6 +66,11 @@ export function resolveProjectDataConfig(options: {
   const { config = {}, env = process.env, configPath, dataRoot } = options;
   if (typeof config !== "object" || Array.isArray(config))
     throw configurationError(configPath, "projectData 必须是对象");
+  if (
+    config.authority !== undefined &&
+    (typeof config.authority !== "object" || Array.isArray(config.authority))
+  )
+    throw configurationError(configPath, "projectData.authority 必须是对象");
   if (config.sqlite !== undefined && (typeof config.sqlite !== "object" || Array.isArray(config.sqlite)))
     throw configurationError(configPath, "projectData.sqlite 必须是对象");
   if (
@@ -52,18 +78,52 @@ export function resolveProjectDataConfig(options: {
     (typeof config.postgres !== "object" || Array.isArray(config.postgres))
   )
     throw configurationError(configPath, "projectData.postgres 必须是对象");
+  const authorityUrl = env.COWORK_PROJECT_DATA_AUTHORITY?.trim() || config.authority?.url;
   const engineValue = env.COWORK_PROJECT_DATA_ENGINE?.trim() || config.engine;
   const source = env.COWORK_PROJECT_DATA_ENGINE?.trim()
     ? "COWORK_PROJECT_DATA_ENGINE"
     : `${configPath} 的 projectData`;
+  if (authorityUrl !== undefined) {
+    const authoritySource = env.COWORK_PROJECT_DATA_AUTHORITY?.trim()
+      ? "COWORK_PROJECT_DATA_AUTHORITY"
+      : `${configPath} 的 projectData.authority`;
+    if (engineValue !== undefined || config.sqlite !== undefined || config.postgres !== undefined)
+      throw configurationError(authoritySource, "authority 不能与 engine、sqlite 或 postgres 同时配置");
+    if (typeof authorityUrl !== "string" || !authorityUrl.trim())
+      throw configurationError(authoritySource, "authority.url 须为非空字符串");
+    let parsed: URL;
+    try {
+      parsed = new URL(authorityUrl);
+    } catch {
+      throw configurationError(authoritySource, "authority.url 须为有效的 http:// 或 https:// 地址");
+    }
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.origin !== authorityUrl.replace(/\/+$/, "") ||
+      parsed.username ||
+      parsed.password
+    )
+      throw configurationError(authoritySource, "authority.url 只填写协议、主机和端口，不要包含路径或凭据");
+    const token = env.COWORK_PROJECT_DATA_TOKEN?.trim() || config.authority?.token;
+    if (typeof token !== "string" || !token.trim())
+      throw configurationError(
+        authoritySource,
+        "authority 需要访问凭据（token 或 COWORK_PROJECT_DATA_TOKEN）"
+      );
+    return {
+      mode: "authority",
+      source: authoritySource,
+      authority: { url: parsed.origin, token: token.trim() }
+    };
+  }
   if (engineValue === undefined) {
     const sqlitePath = resolveSqlitePath(config, env, dataRoot);
-    return { engine: "sqlite", source: `${configPath} 默认 SQLite`, sqlitePath };
+    return { mode: "local", engine: "sqlite", source: `${configPath} 默认 SQLite`, sqlitePath };
   }
   if (typeof engineValue !== "string" || !ENGINES.includes(engineValue as ProjectDataEngine))
     throw configurationError(source, `engine 须为 ${ENGINES.join(" / ")}`);
   if (engineValue === "sqlite") {
-    return { engine: "sqlite", source, sqlitePath: resolveSqlitePath(config, env, dataRoot) };
+    return { mode: "local", engine: "sqlite", source, sqlitePath: resolveSqlitePath(config, env, dataRoot) };
   }
   const connectionString = env.COWORK_PROJECT_DATA_URL?.trim() || config.postgres?.connectionString;
   const postgres = connectionString ? { ...config.postgres, connectionString } : config.postgres;
@@ -97,6 +157,7 @@ export function resolveProjectDataConfig(options: {
     if (postgres[field] !== undefined && typeof postgres[field] !== "string")
       throw configurationError(source, `postgres.${field} 须为字符串`);
   return {
+    mode: "local",
     engine: "postgres",
     source,
     postgres: { ...postgres, ...(connectionString ? { connectionString } : {}) }
@@ -113,7 +174,7 @@ function resolveSqlitePath(config: ProjectDataConfig, env: NodeJS.ProcessEnv, da
 
 /** Open exactly the configured engine, migrate it, and report what is being served. */
 export async function openProjectDataDatabase(
-  config: ResolvedProjectDataConfig
+  config: LocalProjectDataConfig
 ): Promise<{ database: SqlDatabase; serverVersion: string; schemaVersion: number }> {
   if (config.engine === "sqlite") {
     const path = config.sqlitePath!;
@@ -137,6 +198,6 @@ export async function openProjectDataDatabase(
   }
 }
 
-export function projectDataTarget(config: ResolvedProjectDataConfig): string {
+export function projectDataTarget(config: LocalProjectDataConfig): string {
   return config.engine === "sqlite" ? config.sqlitePath! : postgresTargetLabel(config.postgres ?? {});
 }
