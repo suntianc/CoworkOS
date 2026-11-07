@@ -31,7 +31,7 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / applica
 | Software                     | 通用软件、异步驱动、二进制/工程资源                                 | [合同](../src/software/contracts.ts)、[服务](../src/software/software-service.ts)、[注册表](../src/software/provider-registry.ts)                             | 不能原地改变 v1 文件语义；取消、候选提交、失败恢复由驱动实现 |
 | GUI / Security               | 窗口授权、观察/动作、串行队列、取消、审计、执行权限                 | [ComputerUse](../src/gui/computer-use.ts)、[权限](../src/security/execution-permissions.ts)                                                                   | 授权由可信宿主授予；文档 CAS 与模型决策不在此层              |
 | Workspace / Storage / Domain | Task/Run 数据、输入/产出物、索引、持久事件、trace、文件锁与类型     | [工作区](../src/workspace/)、[存储](../src/storage/)、[领域](../src/domain/)                                                                                  | 格式兼容、路径归属与迁移显式维护                             |
-| Desktop                      | 原生窗口、可信 IPC、加密模型设置、用户数据目录、退出保存            | [main](../desktop/main.cjs)、[preload](../desktop/preload.cjs)、[backend](../desktop/backend.cjs)                                                             | renderer 无 Node 权限；产出物查看窗口无可信桥                |
+| Desktop                      | 原生窗口、可信 IPC、加密客户端凭据、用户数据目录、退出保存          | [main](../desktop/main.cjs)、[preload](../desktop/preload.cjs)、[backend](../desktop/backend.cjs)                                                             | renderer 无 Node 权限；产出物查看窗口无可信桥                |
 
 `createDashboardApplication()` 的导入不会监听端口或注册信号。启动与关闭信号在 `src/cli/dashboard.ts`；应用 MCP 客户端在 `src/applications/mcp/local-api-client.ts`。可复用服务必须能由测试显式装配和停止。
 
@@ -41,9 +41,9 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / applica
 
 Dashboard Run 管理 Main 子进程和同 Task 的启动/停止串行化；运行时 RunService 管理实际 Pi 会话的 Task/Run、事件与 checkpoint。状态和输出落盘后才宣布完成；不能以最后一条文本代替完成判定。
 
-桌面退出先经可信 IPC 等待渲染进程完成草稿/文档保存检查，有未保存的文档或任务草稿时提示用户返回处理或确认退出。桌面是独立后端的客户端：保存完成后它只结束自己的窗口与宿主能力，后端和已接受的 Run 继续执行，下次打开连接同一实例并读取同一任务。只有用户显式更换设置或安装更新时桌面才停止后端，随后重新连接。保存失败要保留窗口/草稿，不能强行关掉再依赖恢复。
+桌面退出先经可信 IPC 等待渲染进程完成草稿/文档保存检查，有未保存的文档或任务草稿时提示用户返回处理或确认退出。桌面是独立后端的客户端：保存完成后它只结束自己的窗口与宿主能力，后端和已接受的 Run 继续执行，下次打开连接同一实例并读取同一任务。安装更新时遵守更新停机门槛。保存失败要保留窗口/草稿。
 
-当前桌面模型和联网搜索设置仍经启动环境传入默认执行主机；选中其他后端时桌面设置拒绝读取和修改，并显示其归属。保存默认后端设置会停止并重启该主机。后续桌面设置工作需迁移到执行主机的设置接口，并明确运行中任务的处理方式。
+桌面和 Web 的模型、联网搜索设置都通过所选执行主机的接口读写；运行中任务存在时后端拒绝变更。设置表单绑定后端实例，切换后须重新读取。客户端会话令牌由桌面宿主加密保存并注入受信主窗口请求；任务通知复用目录事件流并按后端与完成身份去重。
 
 Pi 的 `before_agent_start` 在首轮请求前发现绑定应用与工具，`context` 在后续请求间刷新资源变化。回归必须覆盖真实 Pi hook 顺序和子进程结束，不能只用测试双证明生命周期。
 

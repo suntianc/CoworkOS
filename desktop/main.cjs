@@ -20,7 +20,9 @@ const {
   Menu,
   clipboard,
   nativeTheme,
-  net
+  net,
+  Tray,
+  nativeImage
 } = require("electron");
 const { createAppearanceHost } = require("./appearance.cjs");
 const { createLanguageHost } = require("./language.cjs");
@@ -33,9 +35,11 @@ const { prepareDesktopChange } = require("./update-lifecycle.cjs");
 const { selectApplicationIcon, refreshDockIcon } = require("./application-icon.cjs");
 const { isDashboardUrl, assertTrustedSender, externalNavigationUrl } = require("./trusted-content.cjs");
 const { desktopPaths, prepareDesktopData, showLegacyDataNotice } = require("./paths.cjs");
-const { createWebSearchSettings } = require("./web-search-settings.cjs");
-const { createModelSettings } = require("./model-settings.cjs");
 const { createRetryableStorage } = require("./retryable-storage.cjs");
+const { createSessionCredentialStore } = require("./session-credentials.cjs");
+const { createSessionTransport } = require("./session-transport.cjs");
+const { createDesktopNotifications } = require("./notifications.cjs");
+const { createDesktopTray } = require("./tray.cjs");
 const { createComputerTargetCoordinator } = require("./computer-target.cjs");
 const { createComputerNavigationGuard } = require("./computer-navigation.cjs");
 const { createComposerDraftStore } = require("./composer-drafts.cjs");
@@ -70,19 +74,23 @@ const profile = desktopProfile({
 
 let backend,
   mainWindow,
-  settings,
-  webSearchSettings,
+  clientSessions,
   paths,
   startupPromise,
   composerDrafts,
   updates,
   backendAuthorization,
+  desktopTray,
   selectedBackend,
   selectedRoot;
 const settingsTarget = createSettingsTargetGuard({
   getOwner: () => backend,
   getSelected: () => selectedBackend,
   verifySelected: (selected) => backendAuthorization.verifySelected(selected)
+});
+const sessionTransport = createSessionTransport({
+  getSelected: () => selectedBackend,
+  requestToken: (selected) => backendAuthorization?.requestToken(selected)
 });
 const computerTargets = createComputerTargetCoordinator({
   registerTakeover: (enabled) => registerComputerTakeover(enabled),
@@ -127,6 +135,7 @@ const credentialStorage =
   process.platform === "darwin"
     ? createRetryableStorage({
         executable: process.execPath,
+        appName: "CoworkOS Client",
         args: [
           app.getAppPath(),
           ...(process.argv.includes("--use-mock-keychain") ? ["--use-mock-keychain"] : [])
@@ -145,6 +154,7 @@ function openExternalLink(url) {
     .catch(() => dialog.showErrorBox("无法打开链接", "请复制链接后在浏览器中打开。"));
 }
 async function connectSelectedRenderer(selected) {
+  sessionTransport.rotate();
   return computerNavigation.navigate(selected.url, () =>
     connectRenderer(selected, session.defaultSession.cookies, () => mainWindow)
   );
@@ -156,14 +166,17 @@ async function stopSelectedExecutionHost(previous) {
   return result;
 }
 async function launchBackend({ computerTransitionHeld = false } = {}) {
-  if (!computerTransitionHeld) await computerTargets.beginSwitch();
+  if (!computerTransitionHeld) await computerTargets.beginSwitch({ waitForNavigationRelease: true });
   try {
-    // An unavailable old secret must leave the settings UI reachable for replacement.
     // The backend is a detached execution host: it keeps running when this client
     // quits, so there is no child exit to report and no shutdown here.
-    backend = await connectBackend(paths, await settings.read({ allowUnavailableSecret: true }));
+    backend = await connectBackend(paths);
     if (closing || quitting) return;
-    if (!backendAuthorization) backendAuthorization = createBackendAuthorization({ appRoot: paths.appRoot });
+    if (!backendAuthorization)
+      backendAuthorization = createBackendAuthorization({
+        appRoot: paths.appRoot,
+        sessionStore: clientSessions
+      });
     if (!selectedRoot) {
       try {
         const preference = JSON.parse(
@@ -321,11 +334,30 @@ ipcMain.handle("bookman:open-artifact-viewer", async (event, value, pdf) => {
     throw error;
   }
 });
+const desktopNotifications = createDesktopNotifications({
+  getBackendId: () => selectedBackend?.backendId,
+  supported: () => Notification.isSupported(),
+  show: (value) => new Notification(value).show()
+});
+ipcMain.on("bookman:transport-nonce", (event) => {
+  try {
+    trust(event);
+    event.returnValue = sessionTransport.nonce();
+  } catch {
+    event.returnValue = null;
+  }
+});
+ipcMain.on("bookman:capabilities", (event) => {
+  try {
+    trust(event);
+    event.returnValue = { notifications: Notification.isSupported(), tray: desktopTray?.supported === true };
+  } catch {
+    event.returnValue = null;
+  }
+});
 ipcMain.handle("bookman:notify", async (event, value) => {
   trust(event);
-  if (!Notification.isSupported()) return false;
-  new Notification({ title: String(value?.title || "CoworkOS"), body: String(value?.body || "") }).show();
-  return true;
+  return desktopNotifications.notify(value);
 });
 ipcMain.handle("bookman:choose-backend", async (event) => {
   trust(event);
@@ -364,60 +396,19 @@ ipcMain.handle("bookman:authorize-backend", async (event, input) => {
   if (!input || typeof input !== "object" || Array.isArray(input) || input.baseUrl !== "")
     throw new Error("无效的后端授权请求");
   try {
+    const expected = selectedBackend;
+    await credentialStorage.retry?.();
+    if (expected !== selectedBackend) throw new Error("后端已切换，请重新授权");
     return await backendAuthorization.authorize({
       baseUrl: selectedBackend.url,
       backendId: selectedBackend.backendId,
       clientName: input.clientName,
-      protocolVersion: input.protocolVersion
+      protocolVersion: input.protocolVersion,
+      reuse: input.reuse
     });
   } catch (error) {
     return { error: { message: error.message, code: error.code, status: error.status } };
   }
-});
-ipcMain.handle("bookman:model-status", async (event) => {
-  trust(event);
-  return settingsTarget.read(() => settings.status());
-});
-ipcMain.handle("bookman:web-search-status", async (event) => {
-  trust(event);
-  return settingsTarget.read(() => webSearchSettings.status());
-});
-ipcMain.handle("bookman:save-web-search", async (event, input) => {
-  trust(event);
-  return settingsTarget.settings(async ({ assertCurrent, retainUntil }) => {
-    if (restarting || closing || quitting) throw new Error("本地服务正在关闭或重启，请稍后重试");
-    restarting = true;
-    let computerTransitionHeld = false;
-    try {
-      await computerTargets.beginSwitch();
-      computerTransitionHeld = true;
-      await speechInput.cancelActive();
-      await prepareDesktopChange({ backend, documents, action: "修改联网搜索设置" });
-      await assertCurrent();
-      const status = await webSearchSettings.save(input);
-      await assertCurrent();
-      const previous = backend;
-      restartPromise = new Promise((done) => setTimeout(done, 100))
-        .then(async () => {
-          await assertCurrent();
-          return stopSelectedExecutionHost(previous);
-        })
-        .then(() => {
-          if (!closing && !quitting) return launchBackend({ computerTransitionHeld: true });
-        })
-        .catch((error) => dialog.showErrorBox("搜索配置已保存，服务重启失败", error.message))
-        .finally(() => {
-          computerTargets.endSwitch();
-          restarting = false;
-        });
-      retainUntil(restartPromise);
-      return status;
-    } catch (error) {
-      if (computerTransitionHeld) computerTargets.endSwitch();
-      restarting = false;
-      throw error;
-    }
-  });
 });
 // Cached data makes this synchronous restore run before the page's ES modules.
 ipcMain.on("bookman:composer-drafts", (event) => {
@@ -431,13 +422,6 @@ ipcMain.on("bookman:composer-drafts", (event) => {
 ipcMain.handle("bookman:save-composer-drafts", async (event, entries) => {
   trust(event);
   await composerDrafts.save(entries, new URL(event.senderFrame.url).origin);
-});
-ipcMain.handle("bookman:test-model", async (event, input) => {
-  trust(event);
-  return settingsTarget.read(() => {
-    if (restarting || closing || quitting) throw new Error("本地服务正在关闭或重启");
-    return settings.test(input);
-  });
 });
 function registerComputerTakeover(enabled) {
   const shortcut = "Control+Alt+Escape";
@@ -475,45 +459,6 @@ app.on("will-quit", () => {
 ipcMain.handle("bookman:documents-ready", (event, requestId, saved) => {
   trust(event);
   documents.acknowledge(requestId, saved);
-});
-ipcMain.handle("bookman:save-model", async (event, input) => {
-  trust(event);
-  return settingsTarget.settings(async ({ assertCurrent, retainUntil }) => {
-    if (restarting || closing) throw new Error("模型连接正在更新，请稍后");
-    if (quitting) throw new Error("本地服务正在关闭，请稍后");
-    restarting = true;
-    let computerTransitionHeld = false;
-    try {
-      await computerTargets.beginSwitch();
-      computerTransitionHeld = true;
-      await speechInput.cancelActive();
-      await prepareDesktopChange({ backend, documents, action: "修改模型连接" });
-      await assertCurrent();
-      const status = await settings.save(input);
-      await assertCurrent();
-      const previous = backend;
-      // Return the IPC response before loading a new document in the renderer.
-      restartPromise = new Promise((done) => setTimeout(done, 100))
-        .then(async () => {
-          await assertCurrent();
-          return stopSelectedExecutionHost(previous);
-        })
-        .then(() => {
-          if (!closing && !quitting) return launchBackend({ computerTransitionHeld: true });
-        })
-        .catch((error) => dialog.showErrorBox("模型配置已保存，服务重启失败", error.message))
-        .finally(() => {
-          computerTargets.endSwitch();
-          restarting = false;
-        });
-      retainUntil(restartPromise);
-      return status;
-    } catch (error) {
-      if (computerTransitionHeld) computerTargets.endSwitch();
-      restarting = false;
-      throw error;
-    }
-  });
 });
 async function initializeUpdates(userData) {
   updates = await createDesktopUpdateHost({
@@ -610,7 +555,8 @@ if (owner)
         userData,
         ipcMain,
         getWindow: () => mainWindow,
-        getDashboardUrl: () => selectedBackend?.url || backend?.url
+        getDashboardUrl: () => selectedBackend?.url || backend?.url,
+        onChange: (value) => desktopTray?.setLanguage(value)
       });
       await language.load();
       language.register();
@@ -630,13 +576,29 @@ if (owner)
         session: session.defaultSession,
         net,
         root: path.join(paths.appRoot, "web"),
-        getOrigin: () => selectedBackend?.url || backend?.url
+        getOrigin: () => selectedBackend?.url || backend?.url,
+        authorizeRequest: (request) => sessionTransport.authorize(request)
       });
       composerDrafts = createComposerDraftStore(userData);
       await composerDrafts.load();
-      settings = createModelSettings(paths, credentialStorage);
-      webSearchSettings = createWebSearchSettings(paths, credentialStorage);
+      clientSessions = createSessionCredentialStore({ userData, storage: credentialStorage });
       refreshApplicationIcon();
+      desktopTray = createDesktopTray({
+        Tray,
+        Menu,
+        nativeImage,
+        icon: applicationIcon(),
+        platform: process.platform,
+        language: language.get(),
+        show: () => {
+          if (!mainWindow) app.emit("activate");
+          else {
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        },
+        quit: () => app.quit()
+      });
       // A fresh installation still has a valid empty, non-secret configuration.
       try {
         await fs.writeFile(paths.configPath, "{}\n", { flag: "wx", mode: 0o600 });
@@ -707,6 +669,7 @@ app.on("before-quit", (event) => {
     await computerTargets.dispose().catch(() => {});
     await speechInput.dispose();
     await credentialStorage.close?.();
+    desktopTray?.dispose();
     quitting = true;
     app.quit();
   })().catch((error) => {

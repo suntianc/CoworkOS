@@ -1,9 +1,16 @@
 import { ui } from "../ui/language.js";
 import { installWebSearchSettings } from "./web-search-settings.js";
 import { createSettingsModal } from "./settings-modal.js";
+import { createSettingsBackend } from "./settings-backend.js";
 import { icon } from "../ui/icons.js";
 /** Both hosts share one settings UI; keys are submitted once and never read back. */
-export function installDesktopSettings({ showToast, onSaved, overview, api }) {
+export function installDesktopSettings({
+  showToast,
+  onSaved,
+  overview,
+  api,
+  identity = () => location.origin
+}) {
   const desktop = window.bookmanDesktop;
   const errorMessage = (error) => {
     const message = typeof error?.message === "string" ? error.message : ui("模型设置暂时不可用，请稍后重试");
@@ -13,12 +20,15 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
   };
   if (desktop?.onDraftError) desktop.onDraftError((message) => showToast(errorMessage({ message })));
   else if (desktop?.draftWarning) showToast(desktop.draftWarning);
-  const request = async (method, body, path = "/api/model-settings") => {
-    const options = {
-      method,
-      ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {})
-    };
-    // The Web host reads and writes settings through the shared backend client.
+  if (desktop?.capabilities) {
+    const row = document.createElement("div");
+    row.className = "profile-setting";
+    const notice = desktop.capabilities.notifications ? ui("支持") : ui("不可用");
+    const tray = desktop.capabilities.tray ? ui("支持") : ui("不可用");
+    row.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("bell")}</span><span><strong>桌面能力</strong><small>通知：${notice} · 托盘：${tray}</small></span></span>`;
+    document.querySelector("#profile-settings-general").append(row);
+  }
+  const transport = async (path, options) => {
     if (api) return api(path, options);
     const response = await fetch(path, options);
     let result;
@@ -31,10 +41,17 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
       throw new Error(typeof result?.error === "string" ? result.error : ui("模型设置无法读取"));
     return result;
   };
-  const status = () => (desktop ? desktop.modelStatus() : request("GET"));
-  const save = (body) => (desktop ? desktop.saveModel(body) : request("POST", body));
-  const test = (body) =>
-    desktop ? desktop.testModel(body) : request("POST", body, "/api/model-settings/test");
+  const settingsBackend = createSettingsBackend({ identity, api: transport });
+  const request = async (method, body, path = "/api/model-settings") => {
+    const options = {
+      method,
+      ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {})
+    };
+    return settingsBackend.request(path, options);
+  };
+  const status = () => request("GET");
+  const save = (body) => request("POST", body);
+  const test = (body) => request("POST", body, "/api/model-settings/test");
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
   panel.hidden = true;
@@ -47,7 +64,7 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
         <label class="settings-field">模型 ID<input name="model" required placeholder="填写服务商提供的模型 ID"></label>
         <label class="settings-field model-full-width">API 地址<input name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
         <label class="settings-field">消息格式<select name="api"><option value="openai-responses">Responses</option><option value="openai-completions">Chat Completions</option></select></label>
-        <label class="settings-field">API Key<input name="apiKey" type="password" autocomplete="off" aria-label="API Key" aria-describedby="model-key-help"><small class="settings-help" id="model-key-help">${desktop ? ui("密钥由 macOS 加密保存。") : ui("密钥保存在本机私有配置中。")}</small></label>
+        <label class="settings-field">API Key<input name="apiKey" type="password" autocomplete="off" aria-label="API Key" aria-describedby="model-key-help"><small class="settings-help" id="model-key-help">${ui("密钥保存在执行主机的私有配置中。")}</small></label>
       </div>
       <div class="settings-capabilities">
         <label class="settings-toggle"><span><strong>此模型支持图像输入</strong><small>未启用时，历史图片不会发送给模型；原图仍保留。</small></span><input name="supportsImages" type="checkbox" aria-label="此模型支持图像输入"></label>
@@ -124,7 +141,7 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
     form.elements.apiKey.required = !value.configured;
     panel.querySelector("[data-model-error]").textContent = managed
       ? ui("当前连接由启动环境管理，请在启动配置中修改。")
-      : "";
+      : snapshot.credentialError || "";
     panel.querySelector("[data-model-result]").textContent = ui("测试连接会消耗模型额度。");
     activateButton.hidden = managed || !snapshot.activeProfileId || selectedId === snapshot.activeProfileId;
     setBusy(false);
@@ -144,6 +161,7 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
     setBusy(false);
     panel.querySelector("[data-model-result]").textContent = ui("正在读取模型连接…");
     try {
+      settingsBackend.bind();
       const value = await status();
       if (revision !== openRevision || busy) return;
       snapshot = value;
@@ -233,9 +251,7 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
     setBusy(true);
     submitButton.textContent = ui("保存中…");
     panel.querySelector("[data-model-error]").textContent = "";
-    panel.querySelector("[data-model-result]").textContent = desktop
-      ? ui("正在保存连接和草稿；如 macOS 弹出钥匙串授权，请先处理系统提示。完成后将刷新本地服务…")
-      : ui("正在保存模型连接…");
+    panel.querySelector("[data-model-result]").textContent = ui("正在保存模型连接…");
     try {
       await save(input);
       form.elements.apiKey.value = "";
@@ -268,13 +284,6 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
   connectionRow.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("code")}</span><span><strong>模型连接</strong></span></span>`;
   connectionRow.append(button);
   document.querySelector("#profile-settings-connections").append(connectionRow);
-  installWebSearchSettings({ showToast, overview, api });
-  // An unconfigured Web workspace also exposes a persistent composer action.
-  if (desktop)
-    void status()
-      .then((value) => {
-        if (!value.configured) void open();
-      })
-      .catch((error) => showToast(errorMessage(error)));
+  installWebSearchSettings({ showToast, overview, api, identity });
   return { open };
 }

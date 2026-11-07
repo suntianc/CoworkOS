@@ -6,7 +6,7 @@ const maxMessage = 128 * 1024;
 /** A fresh Electron process gets a fresh OSCrypt attempt, with the same signed app identity. */
 async function runKeychainWorker({ app, BrowserWindow, safeStorage }) {
   // Retain the historical Safe Storage key so existing encrypted connections remain readable.
-  app.setName("Atria");
+  app.setName(process.env.ATRIA_KEYCHAIN_WORKER_NAME || "Atria");
   app.setPath("userData", process.env.ATRIA_KEYCHAIN_WORKER_DATA);
   await app.whenReady();
   app.dock?.hide();

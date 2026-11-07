@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "../scripts/desktop-dev.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
 for (const reasoningEffort of ["off", "max"]) {
-  test(`native desktop persists each protocol and ${reasoningEffort} across backend restart and application relaunch`, async ({}, testInfo) => {
+  test(`native desktop persists each protocol and ${reasoningEffort} across saves and application relaunch`, async ({}, testInfo) => {
     test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
     test.setTimeout(120_000);
     const root = await mkdtemp(join(tmpdir(), "atria-protocol-desktop-"));
@@ -59,15 +60,22 @@ for (const reasoningEffort of ["off", "max"]) {
         await dialog.locator('[name="reasoningEffort"]').selectOption(reasoningEffort);
         await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
         await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
-        const oldUrl = page.url();
         await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-        await expect.poll(() => page.url(), { timeout: 30_000 }).not.toBe(oldUrl);
+        await expect(dialog).toBeHidden();
         await expect(page.locator("#composer-input")).toBeVisible();
         await native.close();
         native = undefined;
         page = await launch();
         await expect(page.locator("#composer-input")).toBeVisible();
-        const status = await page.evaluate(() => window.bookmanDesktop.modelStatus());
+        const status = await page.evaluate(async () =>
+          (
+            await fetch("/api/model-settings", {
+              headers: window.bookmanDesktop?.transportNonce
+                ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+                : {}
+            })
+          ).json()
+        );
         expect(status.api).toBe(api);
         expect(status.reasoningEffort).toBe(reasoningEffort);
         expect(status.configured).toBe(true);
@@ -119,6 +127,7 @@ for (const reasoningEffort of ["off", "max"]) {
       throw error;
     } finally {
       await native?.close();
+      await stopNativeBackend(root);
       for (const provider of providers) await provider.close();
       await rm(root, { recursive: true, force: true });
     }

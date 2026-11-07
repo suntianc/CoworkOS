@@ -11,6 +11,7 @@ import { launchMacApplication } from "../scripts/mac-application-launch.mjs";
 import { restartDevelopment } from "../scripts/restart-development.mjs";
 import { developmentExecutable, installDevelopmentApp } from "../scripts/desktop-dev.mjs";
 import { startNativeApplicationMonitor } from "../scripts/native-application-monitor.mjs";
+import { stopNativeBackend } from "./native-backend-fixture.mjs";
 
 const run = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -206,7 +207,7 @@ test(
 );
 
 test(
-  "Finder development entry preserves encrypted settings and drafts across native relaunch",
+  "Finder development entry preserves host settings and drafts across native relaunch",
   { skip: process.platform !== "darwin" || process.env.ATRIA_NATIVE_DESKTOP_TEST !== "1", timeout: 120_000 },
   async () => {
     const { _electron } = await import("@playwright/test");
@@ -263,29 +264,39 @@ test(
         { polling: 100, timeout: 15_000 }
       );
       assert.match(await page.locator("[data-update-version]").textContent(), /当前版本/);
-      const previousUrl = page.url();
-      const modelSaved = await page.evaluate(async () => {
-        try {
-          await window.bookmanDesktop.saveModel({
-            baseUrl: "http://127.0.0.1:1/v1",
-            apiKey: "local-development-fixture",
-            model: "dev-fixture",
-            api: "openai-completions"
-          });
-          return { ok: true };
-        } catch (error) {
-          return { error: error.message };
-        }
-      });
-      assert.deepEqual(modelSaved, { ok: true });
-      await page.waitForURL((url) => url.href !== previousUrl, { waitUntil: "commit", timeout: 15_000 });
+      const modelDialog = page.getByRole("dialog", { name: "连接模型", exact: true });
+      await modelDialog.waitFor({ state: "visible" });
+      await modelDialog.locator('[name="baseUrl"]').fill("http://127.0.0.1:1/v1");
+      await modelDialog.locator('[name="apiKey"]').fill("local-development-fixture");
+      await modelDialog.locator('[name="model"]').fill("dev-fixture");
+      await modelDialog.locator('[name="api"]').selectOption("openai-completions");
+      await modelDialog.getByRole("button", { name: "保存连接", exact: true }).click();
+      await modelDialog.waitFor({ state: "hidden" });
       await page.locator("#apps-nav").waitFor();
       await page.locator("#composer-input").fill("development relaunch draft");
       assert.deepEqual(await desktop.evaluate(() => globalThis.__fixtureWarnings), []);
       await desktop.close();
       desktop = undefined;
       page = await launch();
-      const status = await page.evaluate(() => window.bookmanDesktop.modelStatus());
+      await page.waitForFunction(
+        async () =>
+          (
+            await fetch("/api/model-settings", {
+              headers: window.bookmanDesktop?.transportNonce
+                ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+                : {}
+            })
+          ).ok
+      );
+      const status = await page.evaluate(async () =>
+        (
+          await fetch("/api/model-settings", {
+            headers: window.bookmanDesktop?.transportNonce
+              ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+              : {}
+          })
+        ).json()
+      );
       assert.equal(status.configured, true);
       assert.equal(status.model, "dev-fixture");
       const applications = await monitor.snapshot();
@@ -308,6 +319,7 @@ test(
       assert.equal(config.includes("local-development-fixture"), false);
     } finally {
       await desktop?.close();
+      await stopNativeBackend(directory);
       await monitor?.stop();
       // Remove the Finder record before deleting the temporary app bundle.
       await run(

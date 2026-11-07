@@ -9,6 +9,7 @@ function createComputerTargetCoordinator({
   let current;
   let pending = 0;
   let transition;
+  let navigationRelease;
   let shortcutEnabled = false;
   const register = (enabled) => {
     shortcutEnabled = enabled;
@@ -45,7 +46,14 @@ function createComputerTargetCoordinator({
     return target.initializing;
   };
   return {
-    async beginSwitch() {
+    async beginSwitch({ waitForNavigationRelease = false } = {}) {
+      if (waitForNavigationRelease && navigationRelease) {
+        try {
+          await navigationRelease;
+        } catch {
+          // The switch below retries release before changing the target.
+        }
+      }
       if (transition || pending) throw new Error("窗口访问操作正在进行，请稍后切换后端");
       const change = { old: current, shortcutEnabled, paused: false };
       transition = change;
@@ -97,8 +105,15 @@ function createComputerTargetCoordinator({
       }
     },
     async releaseForNavigation() {
+      if (navigationRelease) return navigationRelease;
       if (transition || !current?.ready) return;
-      return this.request({ operation: "release-sessions" });
+      const release = this.request({ operation: "release-sessions" });
+      navigationRelease = release;
+      try {
+        return await release;
+      } finally {
+        if (navigationRelease === release) navigationRelease = undefined;
+      }
     },
     async pauseForTakeover() {
       if (transition) {
