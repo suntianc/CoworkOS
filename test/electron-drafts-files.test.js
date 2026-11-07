@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { createComposerSession } from "../web/assets/controllers/composer-session.js";
 import { createManagementClient } from "../web/assets/controllers/management-client.js";
@@ -210,6 +212,77 @@ test("S2: quota failure cannot move an unmarked backend task into another backen
   restarted.session.activate("task-a");
   assert.equal(restarted.input.value, "saved work A");
   assert.deepEqual(restarted.files(), [attached]);
+});
+
+test("S2: quota-limited task survives actual process exit and another backend's first connection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "draft-quota-process-"));
+  const store = join(root, "local-storage.json");
+  const modulePath =
+    process.env.COWORK_TEST_DRAFT_SESSION_FILE || resolve("web/assets/controllers/composer-session.js");
+  const script = `
+    import { existsSync, readFileSync, writeFileSync } from "node:fs";
+    const { createComposerSession } = await import(process.argv[1]);
+    const path = process.argv[2], stage = process.argv[3], capacity = 1200;
+    const records = new Map(existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : []);
+    const size = (map) => [...map].reduce((sum, [key, value]) => sum + key.length + value.length, 0);
+    const persist = () => writeFileSync(path, JSON.stringify([...records]));
+    const storage = {
+      get length() { return records.size; },
+      key: (index) => [...records.keys()][index] ?? null,
+      getItem: (key) => records.get(key) ?? null,
+      setItem(key, value) {
+        const next = new Map(records); next.set(key, String(value));
+        if (size(next) > capacity) throw new DOMException("quota exceeded", "QuotaExceededError");
+        records.set(key, String(value)); persist();
+      },
+      removeItem(key) { records.delete(key); persist(); }
+    };
+    const input = { value: "", addEventListener() {} };
+    let files = [];
+    const session = createComposerSession({ input, storage, getAttachments: () => files, setAttachments: (next) => { files = next; } });
+    const task = "atria.composer.v1:backend-a:task-a", filler = "fixture.other-cache";
+    if (stage === "write") {
+      storage.setItem(filler, "x".repeat(capacity - filler.length));
+      session.activate(null); session.setBackend("backend-a"); session.activate("task-a");
+      const draft = JSON.stringify({ text: "saved work A", attachments: [${JSON.stringify(attached)}] });
+      storage.setItem(filler, "x".repeat(capacity - filler.length - task.length - draft.length));
+      input.value = "saved work A"; files = [${JSON.stringify(attached)}]; session.save();
+      console.log(JSON.stringify({ used: size(records), task: storage.getItem(task), active: storage.getItem("atria.composer.v1:backend-a:active") }));
+    } else {
+      storage.removeItem(filler);
+      session.activate(null); session.setBackend("backend-b"); session.activate("task-b");
+      const afterB = { visible: input.value, source: storage.getItem(task) };
+      session.setBackend("backend-a"); session.activate("task-a");
+      console.log(JSON.stringify({ afterB, text: input.value, attachments: files, source: storage.getItem(task) }));
+    }
+  `;
+  const run = (stage) => {
+    const child = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, pathToFileURL(modulePath).href, store, stage],
+      { encoding: "utf8" }
+    );
+    assert.equal(child.status, 0, child.stderr);
+    const result = JSON.parse(child.stdout);
+    console.log(
+      JSON.stringify({ event: "quota-process", stage, pid: child.pid, exitCode: child.status, result })
+    );
+    return result;
+  };
+  try {
+    const written = run("write");
+    assert.equal(written.used, 1200);
+    assert.equal(written.active, null);
+    assert.deepEqual(JSON.parse(written.task), { text: "saved work A", attachments: [attached] });
+    const restored = run("restart");
+    assert.equal(restored.afterB.visible, "");
+    assert.equal(restored.afterB.source, written.task);
+    assert.equal(restored.source, written.task);
+    assert.equal(restored.text, "saved work A");
+    assert.deepEqual(restored.attachments, [attached]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("S2: an ambiguous saved key is preserved until its backend is known", () => {
