@@ -20,6 +20,7 @@ import {
   type ProjectIdentity
 } from "../domain/project-ledger.js";
 import type {
+  MainSessionRecord,
   ProjectDataBackup,
   ProjectDataDescription,
   ProjectDataGateway,
@@ -28,6 +29,7 @@ import type {
   RequirementQuery,
   RequirementUpdate
 } from "./project-data-service.js";
+import type { MainSessionRun } from "../domain/main-session.js";
 import type { RequirementDetail, RequirementSummary, SharedProject } from "../domain/project-ledger.js";
 
 export interface RemoteProjectDataOptions {
@@ -229,6 +231,120 @@ export class RemoteProjectDataService implements ProjectDataGateway {
       body: { action: "query", q: query.text, status: query.status, limit: query.limit }
     });
     return (result.requirements as RequirementSummary[]) ?? [];
+  }
+
+  /**
+   * Main sessions are shared facts, so a secondary backend reads and writes
+   * them through the same authenticated business surface. The authority derives
+   * this backend's identity from the session, never from a body field.
+   */
+  private async sessionRequest(
+    projectId: unknown,
+    body: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    return this.request(projectPath(projectId, "/main-sessions"), { body });
+  }
+
+  async createMainSession(
+    projectId: unknown,
+    input: {
+      title?: unknown;
+      entryKind?: unknown;
+      kind?: unknown;
+      backendId: unknown;
+      taskId: unknown;
+      requirementId?: unknown;
+    }
+  ): Promise<MainSessionRecord> {
+    const result = await this.sessionRequest(projectId, {
+      action: "create",
+      title: input.title,
+      entryKind: input.entryKind,
+      kind: input.kind,
+      taskId: input.taskId,
+      requirementId: input.requirementId
+    });
+    return result.record as MainSessionRecord;
+  }
+
+  async adoptMainSessionTasks(
+    projectId: unknown,
+    _backendId: unknown,
+    tasks: ReadonlyArray<{ taskId: string; title?: string; goal?: string }>
+  ): Promise<number> {
+    const result = await this.sessionRequest(projectId, { action: "adopt", tasks });
+    return Number(result.adopted ?? 0);
+  }
+
+  async listMainSessions(projectId: unknown): Promise<MainSessionRecord[]> {
+    const result = await this.request(projectPath(projectId, "/main-sessions"));
+    return (result.records as MainSessionRecord[]) ?? [];
+  }
+
+  async getMainSession(projectId: unknown, sessionId: unknown): Promise<MainSessionRecord> {
+    const result = await this.request(
+      projectPath(projectId, `/main-sessions/${encodeURIComponent(String(sessionId))}`)
+    );
+    return result.record as MainSessionRecord;
+  }
+
+  async findMainSessionByTask(
+    projectId: unknown,
+    _backendId: unknown,
+    taskId: unknown
+  ): Promise<MainSessionRecord | undefined> {
+    try {
+      const result = await this.sessionRequest(projectId, { action: "find_by_task", taskId });
+      return result.record as MainSessionRecord;
+    } catch (error) {
+      // The lookup is explicitly optional: no session for this Task is not a failure.
+      if (error instanceof ProjectDataNotFoundError) return undefined;
+      throw error;
+    }
+  }
+
+  async setMainSessionRequirement(
+    projectId: unknown,
+    sessionId: unknown,
+    requirementId: unknown
+  ): Promise<MainSessionRecord> {
+    const result = await this.sessionRequest(projectId, {
+      action: "set_requirement",
+      sessionId,
+      requirementId
+    });
+    return result.record as MainSessionRecord;
+  }
+
+  async recordMainSessionRun(
+    projectId: unknown,
+    sessionId: unknown,
+    input: { runId: unknown; taskId: unknown; requirementId?: unknown; state?: unknown }
+  ): Promise<MainSessionRun> {
+    const result = await this.sessionRequest(projectId, {
+      action: "record_run",
+      sessionId,
+      runId: input.runId,
+      taskId: input.taskId,
+      requirementId: input.requirementId,
+      state: input.state
+    });
+    return result.run as MainSessionRun;
+  }
+
+  async settleMainSessionRun(
+    projectId: unknown,
+    taskId: unknown,
+    runId: unknown,
+    state: unknown
+  ): Promise<number> {
+    const result = await this.sessionRequest(projectId, {
+      action: "settle_run",
+      taskId,
+      runId,
+      state
+    });
+    return Number(result.settled ?? 0);
   }
 
   async boardEntries(projectId: unknown): Promise<BoardEntry[]> {

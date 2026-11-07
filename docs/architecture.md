@@ -35,7 +35,7 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / applica
 
 `createDashboardApplication()` 的导入不会监听端口或注册信号。启动与关闭信号在 `src/cli/dashboard.ts`；应用 MCP 客户端在 `src/applications/mcp/local-api-client.ts`。可复用服务必须能由测试显式装配和停止。
 
-项目台账与共享项目身份由 [项目数据服务](../src/workspace/project-data-service.ts) 持有：Dashboard 启动时按配置打开 SQLite 或 PostgreSQL 并执行版本化迁移，配置或连接失败会停止启动而不切换引擎。HTTP 路由、Main 工具与 `coworkos data backup/restore` 使用同一服务接口；SQL 方言、连接和事务在 [存储适配器](../src/storage/project-data/) 内封装，业务代码不按数据库分叉。Main 工具只经当前 Task 访问其项目，不能指定其他项目。需求看板是台账需求的独立投影：受控外部入口在同一事务里发布需求与看板条目，内部新需求只进台账；认领用条件更新产生唯一赢家，暂停保留归属，显式释放才回到待认领。其他后端可通过 [认证远程客户端](../src/workspace/project-data-remote.ts) 访问同一权威服务，只登记自己的本机目录绑定，远端路径不进入执行目录。
+项目台账与共享项目身份由 [项目数据服务](../src/workspace/project-data-service.ts) 持有：Dashboard 启动时按配置打开 SQLite 或 PostgreSQL 并执行版本化迁移，配置或连接失败会停止启动而不切换引擎。HTTP 路由、Main 工具与 `coworkos data backup/restore` 使用同一服务接口；SQL 方言、连接和事务在 [存储适配器](../src/storage/project-data/) 内封装，业务代码不按数据库分叉。Main 工具只经当前 Task 访问其项目，不能指定其他项目。需求看板是台账需求的独立投影：受控外部入口在同一事务里发布需求与看板条目，内部新需求只进台账；认领用条件更新产生唯一赢家，暂停保留归属，显式释放才回到待认领。同一服务还持有项目持久 Main 会话与运行归属；每个会话以本机一个 Task 作为历史容器，Pi 历史与执行目录留在实际执行后端，不进入共享记录。其他后端可通过 [认证远程客户端](../src/workspace/project-data-remote.ts) 访问同一权威服务，只登记自己的本机目录绑定，远端路径不进入执行目录。
 
 ## Task、Run 和进程生命周期
 

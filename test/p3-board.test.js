@@ -454,7 +454,9 @@ test("a v1 project database upgrades in place and keeps its ledger", async (t) =
   });
   const service = await runtime.service();
   t.after(() => runtime.close());
-  assert.equal(service.description.schemaVersion, 2);
+  // v1 and v2 keep their meaning; v3 adds project Main sessions. Each missing
+  // version is applied on its own, so the final schema is the latest one.
+  assert.equal(service.description.schemaVersion, 3);
   const requirements = await service.queryRequirements("project_legacy");
   assert.deepEqual(
     requirements.map((requirement) => requirement.title),
@@ -472,4 +474,15 @@ test("a v1 project database upgrades in place and keeps its ledger", async (t) =
     { backendId: "backend_upgrade", actor: { id: "host", host: true } }
   );
   assert.equal(entry.state, "pending");
+  // The same upgrade makes the session tables available without touching v1.
+  const session = await service.createMainSession("project_legacy", {
+    title: "升级后的会话",
+    backendId: "backend_upgrade",
+    taskId: "task-upgrade"
+  });
+  assert.equal(session.session.title, "升级后的会话");
+  assert.deepEqual(
+    (await service.listMainSessions("project_legacy")).map((record) => record.session.sessionId),
+    [session.session.sessionId]
+  );
 });

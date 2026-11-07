@@ -134,12 +134,18 @@ export async function handleProjectDataRequest(
     return true;
   }
 
-  const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/(ledger|board)(?:\/([^/]+))?$/);
+  const projectMatch = url.pathname.match(
+    /^\/api\/projects\/([^/]+)\/(ledger|board|main-sessions)(?:\/([^/]+))?$/
+  );
   const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/(ledger|board)$/);
   if (!projectMatch && !taskMatch) return false;
+  const declared = declaredBackend(request, ports.backendId);
+  // The project's local session view resolves this backend's own catalog and
+  // local execution facts; only an authenticated secondary backend uses the
+  // shared business surface here.
+  if (projectMatch?.[2] === "main-sessions" && !declared) return false;
   const service = await ports.runtime.service();
   response.setHeader("cache-control", "no-store");
-  const declared = declaredBackend(request, ports.backendId);
   const backendId = declared ?? ports.backendId;
   let project: LedgerProject;
   let scopedTaskId: string | undefined;
@@ -153,8 +159,90 @@ export async function handleProjectDataRequest(
     scopedTaskId = taskId;
   }
   if (!declared) await bindProject(service, project, ports.backendId);
-  const kind = (projectMatch?.[2] ?? taskMatch?.[2]) as "ledger" | "board";
+  const kind = (projectMatch?.[2] ?? taskMatch?.[2]) as "ledger" | "board" | "main-sessions";
   const itemId = projectMatch?.[3] === undefined ? undefined : decodeURIComponent(projectMatch[3]);
+
+  if (kind === "main-sessions") {
+    // Shared session metadata for a secondary backend. The Task it names and
+    // the Pi history stay on the backend that owns it, so this surface only
+    // records identity; it never starts or cancels a process.
+    if (request.method === "GET") {
+      if (itemId !== undefined)
+        return reply(response, 200, {
+          record: await service.getMainSession(project.projectId, itemId)
+        });
+      return reply(response, 200, {
+        projectId: project.projectId,
+        records: await service.listMainSessions(project.projectId)
+      });
+    }
+    if (request.method !== "POST") throw new HttpError(405, "method not allowed");
+    const body = await readJsonBody(request);
+    switch (body.action) {
+      case "create":
+        return reply(response, 201, {
+          record: await service.createMainSession(project.projectId, {
+            title: body.title,
+            entryKind: body.entryKind,
+            kind: body.kind,
+            // The admitted backend owns the Task container; never a body field.
+            backendId,
+            taskId: body.taskId,
+            requirementId: body.requirementId
+          })
+        });
+      case "adopt":
+        return reply(response, 200, {
+          adopted: await service.adoptMainSessionTasks(
+            project.projectId,
+            backendId,
+            Array.isArray(body.tasks) ? (body.tasks as Array<{ taskId: string }>) : []
+          )
+        });
+      case "find_by_task": {
+        const record = await service.findMainSessionByTask(project.projectId, backendId, body.taskId);
+        if (!record) throw new HttpError(404, "找不到该 Main 会话", "not_found");
+        return reply(response, 200, { record });
+      }
+      case "set_requirement": {
+        const record = await service.getMainSession(project.projectId, body.sessionId);
+        assertSessionOwner(record, backendId);
+        return reply(response, 200, {
+          record: await service.setMainSessionRequirement(
+            project.projectId,
+            body.sessionId,
+            body.requirementId
+          )
+        });
+      }
+      case "record_run": {
+        const record = await service.getMainSession(project.projectId, body.sessionId);
+        assertSessionOwner(record, backendId);
+        if (record.session.taskId !== body.taskId)
+          throw new HttpError(409, "运行不属于该会话的历史容器", "session_task_mismatch");
+        return reply(response, 200, {
+          run: await service.recordMainSessionRun(project.projectId, body.sessionId, {
+            runId: body.runId,
+            taskId: body.taskId,
+            requirementId: body.requirementId,
+            state: body.state
+          })
+        });
+      }
+      case "settle_run": {
+        // Settling is optional by contract: a Run from before sessions existed,
+        // or one that already settled, simply has nothing to update.
+        const record = await service.findMainSessionByTask(project.projectId, backendId, body.taskId);
+        return reply(response, 200, {
+          settled: record
+            ? await service.settleMainSessionRun(project.projectId, body.taskId, body.runId, body.state)
+            : 0
+        });
+      }
+      default:
+        throw new HttpError(400, "未知的 Main 会话操作");
+    }
+  }
 
   if (kind === "board") {
     if (request.method === "GET") {
@@ -309,6 +397,12 @@ async function resolveProject(
   const resolved = await ports.project(projectId);
   if (!resolved) throw new HttpError(404, "项目不存在");
   return resolved;
+}
+
+/** A session's Run belongs to the backend that holds its history. */
+function assertSessionOwner(record: { session: { backendId: string } }, backendId: string): void {
+  if (record.session.backendId !== backendId)
+    throw new HttpError(403, "该会话由另一后端执行，不能在此记录", "session_backend_mismatch");
 }
 
 function reply(response: ServerResponse, status: number, body: unknown): true {

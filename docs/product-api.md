@@ -193,9 +193,36 @@ A requirement returns `projectId`, `requirementId`, `title`, `content`, `source`
 
 The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project from its local catalog, so a tool argument cannot select another project. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project.
 
+## Main sessions
+
+A project's persistent Main sessions are shared records, while their Pi transcripts stay local. Each session names one Task as its history container (`<storage>/<taskId>/sessions/main/pi`) and one `backendId` that may run it. A session handles requirements one after another; finishing a requirement ends that Run, not the session.
+
+```text
+GET  /api/projects/:projectId/main-sessions
+GET  /api/projects/:projectId/main-sessions/:sessionId
+POST /api/projects/:projectId/main-sessions
+```
+
+A session returns `sessionId`, `projectId`, `title`, `entryKind` (`internal|external`), `kind` (`regular|continuation`), `backendId`, `taskId`, `currentRequirementId`, `currentRequirementTitle`, timestamps, `projectDirectory`, `local`, `activeRunId` and `runs` (`runId`, `requirementId`, `state`). `local` is true only when this backend owns the Task, so a session created on another backend is visible but cannot be continued here. These routes never move or copy a transcript.
+
+POST bodies carry `action`:
+
+- `create` (`title`, optional `entryKind`, `kind`, `requirementId`) creates the Task history container and the session, and makes the requirement current.
+- `select_requirement` (`requirementId`, with the session in the path or as `sessionId`) changes the session's current requirement without starting work.
+
+A session's Run uses the existing Task route with the session identity:
+
+```text
+POST /api/tasks/:taskId/run   { prompt, mainSessionId, requirementId? }
+```
+
+The session must belong to this backend and name that Task; a mismatch is refused before a process starts. The Run is recorded against the session before the process starts, `requirementId` also becomes the session's current requirement, and a settled or cancelled Run updates its state. A conversation that predates sessions is adopted on first list or run, keeping its original Pi history in place.
+
+A secondary backend with `projectData.authority` reads and writes these same session records through its authenticated client, as business requests only: it never sends SQL or a transaction callback, and the authority keeps the token, the shared records and each backend's directory binding. Session records cross backends; the Task, Pi transcript and process ownership do not. A request recording or settling a Run for a session owned by another backend is refused with `session_backend_mismatch` instead of writing a second owner.
+
 ## Demand board
 
-The board is a separate projection of the ledger: one external demand has one board item linked by `requirementId`. An internal `create` on the ledger stays ledger-only and creates no board item; only a controlled external `publish` creates one. Entries keep the owning `backendId`, entry kind, state, revision, the handling Main (when claimed) and an append-only event history. The handler identity is `{ backendId, projectId, taskId }` — a stable Task binding until persistent MainSession ids land; never a Task id or directory used as a cross-backend identity.
+The board is a separate projection of the ledger: one external demand has one board item linked by `requirementId`. An internal `create` on the ledger stays ledger-only and creates no board item; only a controlled external `publish` creates one. Entries keep the owning `backendId`, entry kind, state, revision, the handling Main (when claimed) and an append-only event history. The handler identity is `{ backendId, projectId, taskId }`; it names exactly one project Main session through the session's own `{ backendId, projectId, taskId }` triple, so a claim can be resolved to the conversation that handles it without a second claim model or a directory identity.
 
 ```text
 GET  /api/projects/:projectId/board

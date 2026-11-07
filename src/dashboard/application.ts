@@ -65,6 +65,7 @@ import { FileCommandRunner } from "./management-commands.js";
 import { createCatalogEvents } from "./catalog-events.js";
 import { EventLedger } from "./event-ledger.js";
 import { createWorkspaceDirectory } from "./workspace-directory.js";
+import { createMainSessionService } from "./main-session-service.js";
 import { ProjectDataRuntime } from "../workspace/project-data-service.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
@@ -163,6 +164,22 @@ export function createDashboardApplication(
     dataRoot: dirname(globalIndexPath),
     backendId: backendIdentity.backendId
   });
+  const mainSessions = createMainSessionService({
+    runtime: projectData,
+    backendId: backendIdentity.backendId,
+    project: async (projectId) => {
+      const project = await workspaces.applicationProjectForId(projectId);
+      return project
+        ? {
+            projectId: project.projectId,
+            projectName: project.projectName,
+            projectDirectory: project.projectDirectory
+          }
+        : undefined;
+    },
+    projectTasks: workspaces.projectTasks,
+    createProjectTask: workspaces.createProjectTask
+  });
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
   /**
    * The durable catalog event log, beside the sessions and receipts.
@@ -209,6 +226,21 @@ export function createDashboardApplication(
     },
     onRunFinalized: async (location, runId) => {
       if (!location.projectId) return;
+      // A Run keeps the session that owned it after it settles. The shared write
+      // is best-effort here: the local experience record below is an independent
+      // finalization step, and an unreachable authority must not suppress it.
+      try {
+        await mainSessions.settle(
+          location.projectId,
+          location.task.taskId,
+          runId,
+          location.task.status === "failed" ? "failed" : "completed"
+        );
+      } catch (error) {
+        console.error(
+          `[cowork] session run settlement failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       const store = await projectExperienceStore(location.projectId);
       if (store)
         await enqueueProjectExperienceRun({
@@ -714,6 +746,7 @@ export function createDashboardApplication(
   const routes: DashboardRoutePorts = {
     userMemory,
     projectData,
+    mainSessions,
     access,
     commands,
     events: catalogEvents,
@@ -742,6 +775,7 @@ export function createDashboardApplication(
     modelSettings: createModelSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
     globalTaskPayload,
     locateTask,
+    projectTasks: workspaces.projectTasks,
     locateResource,
     knownWorkspaceRoots,
     applicationWorkspaceRoots: workspaces.applicationWorkspaceRoots,
