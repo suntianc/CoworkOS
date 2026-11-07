@@ -10,7 +10,7 @@ import {
 } from "../scripts/mac-signing.mjs";
 
 const version = "0.1.2-beta.1";
-const audio = "<plist><dict><key>com.apple.security.device.audio-input</key><true/></dict></plist>";
+const noAudio = "<plist><dict></dict></plist>";
 
 async function fixture(t, changes = {}) {
   const directory = await mkdtemp(join(tmpdir(), "atria-mac-signing-"));
@@ -24,8 +24,6 @@ async function fixture(t, changes = {}) {
     CFBundleShortVersionString: version,
     CFBundleVersion: version,
     LSMinimumSystemVersion: "14.0",
-    NSMicrophoneUsageDescription: "Fixture microphone purpose",
-    NSSpeechRecognitionUsageDescription: "Fixture speech purpose",
     ...changes.info
   };
   const calls = [];
@@ -33,22 +31,21 @@ async function fixture(t, changes = {}) {
   const commandRunner = async (command, args) => {
     calls.push({ command, args });
     const target = args.at(-1);
-    const helper = target.endsWith("atria-speech-input");
     if (args.includes("--verify")) {
       if (changes.invalidSignature) throw new Error("Fixture signature verification failed");
       return {};
     }
     if (command === "/usr/bin/plutil") return { stdout: JSON.stringify(info) };
     if (args.includes("--entitlements")) {
-      return { stdout: changes.audio === undefined ? audio : changes.audio };
+      return { stdout: changes.audio === undefined ? noAudio : changes.audio };
     }
     return {
       stderr: [
-        `Identifier=${changes.identifier || (helper ? "org.atria.cowork.speech-input" : "org.atria.cowork")}`,
+        `Identifier=${changes.identifier || "org.atria.cowork"}`,
         `CodeDirectory flags=0x10002(${changes.runtime === false ? "adhoc" : "adhoc,runtime"})`,
         changes.authority ||
           (mode === "developer-id" ? "Authority=Developer ID Application: Fixture Team" : "Signature=adhoc"),
-        `TeamIdentifier=${helper ? changes.helperTeam || "FIXTURETEAM" : "FIXTURETEAM"}`,
+        `TeamIdentifier=${changes.team === undefined ? "FIXTURETEAM" : changes.team}`,
         `CDHash=${changes.cdHash === undefined ? "a".repeat(40) : changes.cdHash}`
       ].join("\n")
     };
@@ -93,7 +90,7 @@ test("an explicit Developer ID name preserves its configured credentials and add
   assert.throws(() => macPackagingArguments("/fixture/root", "unknown"), /Unknown/);
 });
 
-test("ad-hoc report binds the parent/helper signatures, privacy purposes and actual beta package version", async (t) => {
+test("ad-hoc report binds the parent signature and actual beta package version without audio entitlement", async (t) => {
   const f = await fixture(t);
   const report = await verifyMacApplication(f);
   assert.equal(report.mode, "adhoc");
@@ -104,9 +101,8 @@ test("ad-hoc report binds the parent/helper signatures, privacy purposes and act
   assert.equal(report.minimumSystemVersion, "14.0");
   assert.equal(report.strictVerified, true);
   assert.equal(report.parent.identifier, "org.atria.cowork");
-  assert.equal(report.speechHelper.identifier, "org.atria.cowork.speech-input");
-  assert.equal(report.parent.audioInput, true);
-  assert.equal(report.speechHelper.audioInput, true);
+  assert.equal(report.parent.audioInput, false);
+  assert.equal("speechHelper" in report, false);
   assert.deepEqual(f.calls[0], {
     command: "/usr/bin/codesign",
     args: ["--verify", "--deep", "--strict", f.appPath]
@@ -118,7 +114,7 @@ test("ad-hoc report binds the parent/helper signatures, privacy purposes and act
   );
 });
 
-test("Developer ID verification requires one matching parent/helper team and cannot accept ad-hoc", async (t) => {
+test("Developer ID verification requires a valid team and cannot accept ad-hoc", async (t) => {
   const report = await verifyMacApplication(await fixture(t, { mode: "developer-id" }));
   assert.equal(report.developerId, true);
   assert.equal(report.notarized, null, "certificate verification does not prove notarization");
@@ -127,8 +123,8 @@ test("Developer ID verification requires one matching parent/helper team and can
     /must use developer-id/
   );
   await assert.rejects(
-    verifyMacApplication(await fixture(t, { mode: "developer-id", helperTeam: "OTHERTEAM" })),
-    /same Developer ID team/
+    verifyMacApplication(await fixture(t, { mode: "developer-id", team: "not set" })),
+    /Developer ID team/
   );
   await assert.rejects(
     verifyMacApplication(await fixture(t, { authority: "Authority=Apple Development: Fixture" })),
@@ -141,19 +137,20 @@ test("signature or metadata failures stop a candidate before it can become a DMG
     { invalidSignature: true },
     { identifier: "org.other.app" },
     { runtime: false },
-    { audio: "<key>com.apple.security.device.audio-input</key><false/>" },
+    { audio: "<key>com.apple.security.device.audio-input</key><true/>" },
     { cdHash: "" },
     { info: { CFBundleShortVersionString: "0.1.2" } },
     { packageVersion: "0.1.1" },
     { info: { LSMinimumSystemVersion: "12.0" } },
-    { info: { NSSpeechRecognitionUsageDescription: "" } }
+    { info: { NSSpeechRecognitionUsageDescription: "Fixture speech purpose" } },
+    { info: { NSMicrophoneUsageDescription: "Fixture microphone purpose" } }
   ])
     await assert.rejects(verifyMacApplication(await fixture(t, changes)));
 });
 
-test("modern codesign dictionary output retains explicit audio-input authorization", async (t) => {
+test("modern codesign dictionary output rejects audio-input authorization", async (t) => {
   const f = await fixture(t, {
     audio: "[Dict]\n\t[Key] com.apple.security.device.audio-input\n\t[Value]\n\t\t[Bool] true\n"
   });
-  assert.equal((await verifyMacApplication(f)).parent.audioInput, true);
+  await assert.rejects(verifyMacApplication(f), /audio-input/);
 });

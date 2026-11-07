@@ -67,27 +67,17 @@ function macSigningReport(report, version) {
     !report.bundleVersion
   )
     throw new Error("Mac signing report differs from the release version or validated distribution mode");
-  for (const [key, identifier] of [
-    ["parent", "org.atria.cowork"],
-    ["speechHelper", "org.atria.cowork.speech-input"]
-  ]) {
-    const signature = report[key];
-    if (
-      signature?.identifier !== identifier ||
-      signature.mode !== report.mode ||
-      signature.hardenedRuntime !== true ||
-      signature.audioInput !== true ||
-      !/^[a-f0-9]{40,64}$/.test(signature.cdHash ?? "")
-    )
-      throw new Error("Mac signing report is missing its verified App or speech helper signature");
-  }
+  const signature = report.parent;
   if (
-    developerId &&
-    (!report.parent.teamIdentifier ||
-      report.parent.teamIdentifier === "not set" ||
-      report.parent.teamIdentifier !== report.speechHelper.teamIdentifier)
+    signature?.identifier !== "org.atria.cowork" ||
+    signature.mode !== report.mode ||
+    signature.hardenedRuntime !== true ||
+    signature.audioInput !== false ||
+    !/^[a-f0-9]{40,64}$/.test(signature.cdHash ?? "")
   )
-    throw new Error("Mac signing report has inconsistent Developer ID teams");
+    throw new Error("Mac signing report is missing its verified App signature or permits audio input");
+  if (developerId && (!signature.teamIdentifier || signature.teamIdentifier === "not set"))
+    throw new Error("Mac signing report is missing its Developer ID team");
   return {
     signing: report.mode,
     developerId,

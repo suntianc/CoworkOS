@@ -65,7 +65,7 @@ v1 is a synchronous UTF-8 protocol for text files; binary resources use immutabl
 
 Workbench polling removes only invalid tabs confirmed in its captured snapshot. Creating a document rekeys `window:<instanceId>` to `resource:<resourceId>` in place. Explicit navigation captures Task/draft identity and a navigation token and checks them after each async step. Late work may complete in the background but cannot replace newer navigation.
 
-Composer Session stores drafts and validated attachments per conversation. Sending captures the original Task, draft token, model and attachments. Refresh, switching, queued/steered messages, attachment reads and voice input retain that identity. Streaming updates preserve DOM identity, focus, selection, reading position and expanded details.
+Composer Session stores drafts and validated attachments per conversation. Sending captures the original Task, draft token, model and attachments. Refresh, switching, queued/steered messages and attachment reads retain that identity. Streaming updates preserve DOM identity, focus, selection, reading position and expanded details.
 
 Desktop ports change between launches, so origin localStorage alone cannot restore drafts. Trusted preload restores private `composer-drafts.json` before page startup and mirrors only allowed draft keys. Files have format/size checks, atomic writes and corrupt backups. Web uses origin storage. Review reads snapshots; undo creates a new revision through CAS.
 

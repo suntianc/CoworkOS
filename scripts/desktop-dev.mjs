@@ -108,18 +108,15 @@ export async function developmentExecutable({ root = projectRoot, toolchain } = 
       );
       await rename(helper, join(framework, `${name}.app`));
     }
-    await brand(
-      contents,
-      "Electron",
-      "CoworkOS Dev",
-      identifier,
-      {
-        NSMicrophoneUsageDescription: "CoworkOS 在你点击语音输入后使用麦克风，将语音转成当前对话的文字草稿。",
-        NSSpeechRecognitionUsageDescription:
-          "CoworkOS 使用 macOS 语音识别生成文字草稿；系统可能通过 Apple 服务处理语音。"
-      },
-      displayName
-    );
+    await brand(contents, "Electron", "CoworkOS Dev", identifier, {}, displayName);
+    // Strip Electron's default microphone description before sealing this runtime.
+    for (const key of ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"]) {
+      try {
+        await run("/usr/libexec/PlistBuddy", ["-c", `Delete :${key}`, join(contents, "Info.plist")]);
+      } catch (error) {
+        if (!error.stderr?.includes("Does Not Exist")) throw error;
+      }
+    }
     await copyFile(icon, join(contents, "Resources/atria.icns"));
     await run("/usr/libexec/PlistBuddy", [
       "-c",
@@ -162,7 +159,7 @@ export async function developmentExecutable({ root = projectRoot, toolchain } = 
       bundle
     ]);
     // Keep nested Electron signatures/entitlements, then sign only our parent
-    // identity with the release entitlements, including microphone audio input.
+    // identity with the release entitlements.
     await run("/usr/bin/codesign", ["--force", "--sign", "-", "--entitlements", entitlements, bundle]);
     await run("/usr/bin/codesign", ["--verify", "--deep", "--strict", bundle]);
     await writeFile(join(staging, "ready"), `${hash}\n`);

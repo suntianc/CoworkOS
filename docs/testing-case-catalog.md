@@ -178,7 +178,7 @@
 | INPUT-03 | 跨 Task upload ID、路径越界、符号链接、显式委派附件 | 拒绝未共享内容；引用/原字节归属准确                      |
 | INPUT-04 | Main/Subagent 图像读取、模型无图像能力、重启        | 图像块送达支持的请求；不支持时说明；无 base64 文本膨胀   |
 
-现有锚点：`input-files.test.js`、`input-files-pi.test.js`、`input-files-http.test.js`、`composer-attachments.test.js`、`voice-input.test.js`、`vision-session.test.js`、`e2e/file-upload.spec.js`。
+现有锚点：`input-files.test.js`、`input-files-pi.test.js`、`input-files-http.test.js`、`composer-attachments.test.js`、`vision-session.test.js`、`e2e/file-upload.spec.js`。
 
 ### 15 产出物交付
 
@@ -341,10 +341,9 @@
 | STREAM-05 | 工具失败、非零退出、waiting、取消、图片大结果       | 展示真实状态和耗时；waiting 不称成功；二进制不塞成大块文本 |
 | HUMAN-03  | 问题草稿+附件，退出/随机端口重启、迟到保存          | 未发送回答保留，保存失败不关闭窗口；不清空后续输入         |
 | INPUT-02  | 附件读取 A→B 切换、移除后迟到读取、同名不同文件     | 只提交捕获 Task/版本的完整附件，不复活被移除项             |
-| INPUT-05  | 语音识别取消/失败/晚返回、用户在识别时改草稿        | 仅追加到原草稿，保持新输入；不自动发送，不跨会话           |
 | PERF-02   | 10 分钟高频流、1 MiB 输出、历史滚动/输入            | 无文本丢失、长输入遮挡或不可用；记录 CPU/内存/长任务       |
 
-复用 `e2e/thinking-display.spec.js`、`execution-display.spec.js`、`message-boundaries.spec.js`、`file-upload.spec.js`、`test/voice-input.test.js`；界面结果与第一环节的真实事件相互核对。
+复用 `e2e/thinking-display.spec.js`、`execution-display.spec.js`、`message-boundaries.spec.js`、`file-upload.spec.js`；界面结果与第一环节的真实事件相互核对。
 
 ### 5 模型设置与用户操作
 

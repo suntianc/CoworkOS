@@ -19,8 +19,9 @@ async function checkToolbar(page, width) {
   const contextVisible = await page.locator("[data-composer-context]").isVisible();
   expect(composer.height).toBeLessThanOrEqual(contextVisible ? 155 : 125);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await expect(page.locator(".mic-button, #i-mic")).toHaveCount(0);
   const centers = [];
-  for (const selector of [".attach-button", "#model-select", ".mic-button", "#send-button"]) {
+  for (const selector of [".attach-button", "#model-select", "#send-button"]) {
     const control = page.locator(selector);
     await expect(control).toBeVisible();
     const box = await control.boundingBox();

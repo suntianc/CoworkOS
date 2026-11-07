@@ -85,6 +85,8 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
     page = await native.firstWindow();
     page.on("pageerror", (error) => errors.push(error.message));
     await expect(page.locator("#composer-input")).toBeAttached();
+    await expect(page.locator(".mic-button, #i-mic")).toHaveCount(0);
+    expect(await page.evaluate(() => "voiceInput" in window.bookmanDesktop)).toBe(false);
     await expect(page.locator("[data-backend-status]")).not.toContainText("正在连接", { timeout: 30_000 });
     await closeModel();
     primary ??= JSON.parse(await readFile(join(profile, "runtime/backend-instance.json"), "utf8"));

@@ -13,6 +13,8 @@ module.exports = {
   files: [
     "desktop/**/*.cjs",
     "dist/src/**/*",
+    "!dist/src/gui/atria-speech-input",
+    "!dist/src/gui/atria-speech-input.sha256",
     "dist/cli-ui-manifest.json",
     "dist/scripts/data-home.cjs",
     "dist/web/assets/agent-names.js",
@@ -74,9 +76,9 @@ module.exports = {
     entitlements: "desktop/entitlements.mac.plist",
     entitlementsInherit: "desktop/entitlements.mac.plist",
     extendInfo: {
-      NSMicrophoneUsageDescription: "CoworkOS 在你点击语音输入后使用麦克风，将语音转成当前对话的文字草稿。",
-      NSSpeechRecognitionUsageDescription:
-        "CoworkOS 使用 macOS 语音识别生成文字草稿；系统可能通过 Apple 服务处理语音。"
+      // Electron ships a microphone description by default; remove it from the packaged App.
+      NSMicrophoneUsageDescription: null,
+      NSSpeechRecognitionUsageDescription: null
     },
     ...(signingConfigured ? {} : { identity: null })
   },

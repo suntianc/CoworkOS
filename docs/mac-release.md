@@ -135,13 +135,9 @@ Mac 钥匙串重试进程沿用主 Electron 可执行文件，保留完整 Chrom
 
 无 Developer ID 签名或未公证的包可能被 Gatekeeper 阻止，测试者使用系统提供的打开/批准流程；不提供关闭系统保护的脚本。公开稳定版须完成 Developer ID 签名、公证、staple 与下载隔离属性验收，签名凭据不进仓库。
 
-## 语音输入的原生资源与权限
+## 原生资源与权限
 
-完整构建编译 [系统语音 helper](../src/gui/macos-speech.swift)，输出 `dist/src/gui/atria-speech-input`；安装包需包含该可执行文件。CLI 构建不需要语音 helper。App 与开发 App 的 `Info.plist` 提供 `NSMicrophoneUsageDescription` 和 `NSSpeechRecognitionUsageDescription`，签名使用 [原生权限文件](../desktop/entitlements.mac.plist) 中的音频输入授权。开发运行时将这些元数据计入缓存身份，变更后重新生成，避免继续使用缺少语音声明的旧运行时。
-
-自动回归以假 helper 验证真实 Electron 按钮、可信 IPC、结果入草稿与清理，不申请系统授权、不录真实声音。
-
-正式候选另需人工验证首次允许、拒绝后重新允许、实际中文识别、停止/切会话/退出后的麦克风释放；绑定最终 App hash，不能把替身测试写成真实录音验收。排查系统能力可运行 `dist/src/gui/atria-speech-input --status`，该命令只查询状态，不请求权限或录音。使用方式见 [语音输入](runtime-reference.md#语音输入)。
+App 与开发运行时不包含语音识别 helper、麦克风或语音识别声明和音频输入 entitlement。打包会排除旧构建残留的语音 helper；签名校验检查实际 entitlement 和 Info.plist。Electron 自带的系统音频捕获描述保持原样，屏幕录制和辅助功能由 Computer Use 独立使用。验证最终 App 的资源、签名与运行行为，并绑定 App hash。
 
 ## 发布验收
 

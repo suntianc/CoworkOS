@@ -76,7 +76,6 @@ html[data-theme] {
   .conversation-item,
   .topbar-actions .topbar-button,
   .attach-button,
-  .mic-button,
   .permission-chip,
   .modal-field,
   .modal-card p,
@@ -253,8 +252,7 @@ html[data-theme] {
   .model-option.active,
   .session-menu button:hover,
   .search-result:hover,
-  .composer .attach-button:hover,
-  .composer .mic-button:hover {
+  .composer .attach-button:hover {
     color: var(--ui-text);
     background: var(--ui-hover);
   }

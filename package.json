@@ -9,7 +9,6 @@
   "scripts": {
     "build": "npm run build:base",
     "build:computer-use": "node scripts/build-computer-use.mjs",
-    "build:speech-input": "node scripts/build-speech-input.mjs",
     "test": "npm run build:full && npm run check:workbench && node scripts/test.mjs",
     "smoke:coding": "npm run build:cli && if [ -x .tools/node-v22.19.0-linux-x64/bin/node ]; then .tools/node-v22.19.0-linux-x64/bin/node dist/src/cli/coding-smoke.js; else node dist/src/cli/coding-smoke.js; fi",
     "smoke:multi-subagent": "npm run build:cli && if [ -x .tools/node-v22.19.0-linux-x64/bin/node ]; then .tools/node-v22.19.0-linux-x64/bin/node dist/src/cli/multi-subagent-smoke.js; else node dist/src/cli/multi-subagent-smoke.js; fi",
@@ -43,7 +42,7 @@
     "check:docs": "node scripts/check-docs.mjs",
     "check:source": "node scripts/check-source.mjs",
     "build:full": "npm run build:base",
-    "build:base": "npm run build:cli && node scripts/build-math.mjs && node scripts/build-computer-use.mjs && node scripts/build-speech-input.mjs && node scripts/build-desktop-icon.mjs",
+    "build:base": "npm run build:cli && node scripts/build-math.mjs && node scripts/build-computer-use.mjs && node scripts/build-desktop-icon.mjs",
     "desktop:prepare": "node scripts/ensure-electron.mjs && npm run build:base",
     "release:publish:public": "node scripts/public-release-publish.mjs",
     "release:local": "node scripts/release-local.mjs",

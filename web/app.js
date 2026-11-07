@@ -8,7 +8,6 @@ import { createComposerClipboard } from "./assets/controllers/composer-clipboard
 import { createComposerSession } from "./assets/controllers/composer-session.js";
 import { createDraftRecovery } from "./assets/controllers/draft-recovery.js";
 import { createComposerLayout } from "./assets/controllers/composer-layout.js";
-import { createVoiceInput } from "./assets/controllers/voice-input.js";
 import { createFileUpload, uploadedFileIds } from "./assets/controllers/file-upload.js";
 import { installAttachmentPreview } from "./assets/controllers/attachment-preview.js";
 import { composePrompt } from "./assets/attachments.js";
@@ -1768,20 +1767,6 @@ function openProfileMenu() {
   profileDialog.open();
 }
 
-const voiceInput = createVoiceInput({
-  button: $(".mic-button"),
-  input: $("#composer-input"),
-  Recognition: window.SpeechRecognition || window.webkitSpeechRecognition,
-  nativeVoice: window.bookmanDesktop?.voiceInput,
-  getContext: () => composerSession.currentToken,
-  onChange: () => {
-    composerSession.save();
-    updateSendButton();
-  },
-  showToast
-});
-window.addEventListener("pagehide", () => voiceInput.cancel());
-
 function renderAttachments() {
   const strip = $("#attachment-strip");
   if (!strip) return;
@@ -2324,7 +2309,6 @@ function isTaskStopping(taskId = state.selected) {
 
 function updateSendButton() {
   messageEdit.sync();
-  voiceInput.syncContext();
   const pendingSubmission = currentSubmission();
   const isSending = Boolean(pendingSubmission);
   state.submittingTaskId = pendingSubmission?.launching ? state.selected : null;

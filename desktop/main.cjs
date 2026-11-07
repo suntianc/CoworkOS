@@ -56,7 +56,6 @@ const {
 const { createSettingsTargetGuard } = require("./settings-target.cjs");
 const { installBundledWeb } = require("./bundled-web.cjs");
 const { desktopProfile } = require("./profile.cjs");
-const { createDesktopSpeechInput } = require("./speech-input.cjs");
 const { migrateLegacyDesktopData } = require("../scripts/data-migration.cjs");
 const {
   managedUpdateLaunch,
@@ -99,13 +98,6 @@ const computerTargets = createComputerTargetCoordinator({
       `x-apple.systempreferences:com.apple.preference.security?${permission === "screenRecording" ? "Privacy_ScreenCapture" : "Privacy_Accessibility"}`
     )
 });
-const speechInput = createDesktopSpeechInput({
-  appRoot: profile.appRoot,
-  development: profile.development,
-  onEvent: (value) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("bookman:voice-event", value);
-  }
-});
 let quitting = false,
   closing = false,
   restarting = false,
@@ -119,7 +111,6 @@ function closeArtifactViewers() {
 const computerNavigation = createComputerNavigationGuard({
   closeViewers: closeArtifactViewers,
   release: () => {
-    void speechInput.cancelActive();
     void computerTargets.releaseForNavigation().catch(() => {});
   }
 });
@@ -244,7 +235,6 @@ function createWindow() {
     }
   });
   const releaseComputerSessions = () => {
-    void speechInput.cancelActive();
     void computerTargets.releaseForNavigation().catch(() => {});
   };
   mainWindow.webContents.on("did-start-navigation", (event) => {
@@ -438,23 +428,9 @@ ipcMain.handle("bookman:computer-use", async (event, input) => {
   if (closing || quitting || restarting || !selectedBackend) throw new Error("本地服务正在关闭或重启");
   return computerTargets.request(input);
 });
-ipcMain.handle("bookman:voice-start", (event, input) => {
-  trust(event);
-  if (closing || quitting || restarting) throw new Error("应用正在关闭或重启，请稍后重试");
-  return speechInput.start(input);
-});
-ipcMain.handle("bookman:voice-stop", (event, input) => {
-  trust(event);
-  return speechInput.stop(input);
-});
-ipcMain.handle("bookman:voice-cancel", (event, input) => {
-  trust(event);
-  return speechInput.cancel(input);
-});
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
   void updates?.dispose().catch(() => {});
-  void speechInput.dispose();
 });
 ipcMain.handle("bookman:documents-ready", (event, requestId, saved) => {
   trust(event);
@@ -472,7 +448,6 @@ async function initializeUpdates(userData) {
       try {
         await computerTargets.beginSwitch();
         updateComputerTransition = true;
-        await speechInput.cancelActive();
         await prepareDesktopChange({ backend, documents, action: "更新 CoworkOS" });
         updateStoppedBackend = true;
         await stopSelectedExecutionHost(backend);
@@ -646,7 +621,6 @@ app.on("before-quit", (event) => {
   if (closing || (updates?.status().mode === "source" && updates.status().applying)) return;
   closing = true;
   void (async () => {
-    await speechInput.cancelActive();
     const saved = await documents.request();
     if (!saved) {
       const choice = await dialog.showMessageBox(mainWindow, {
@@ -667,7 +641,6 @@ app.on("before-quit", (event) => {
     await updates?.dispose();
     // The backend keeps serving, and with it every task it already accepted.
     await computerTargets.dispose().catch(() => {});
-    await speechInput.dispose();
     await credentialStorage.close?.();
     desktopTray?.dispose();
     quitting = true;
