@@ -82,6 +82,417 @@ function migrationStorage(capacity = Infinity) {
 
 const attached = { name: "notes.txt", text: "attachment content", size: 18 };
 
+for (const kind of ["project", "global"]) {
+  test(`P3: an unbound ${kind} draft survives successful close and actual process restart`, async () => {
+    const root = await mkdtemp(join(tmpdir(), "prebind-process-"));
+    const store = join(root, "storage.json");
+    const script = `
+      import { existsSync, readFileSync, writeFileSync } from "node:fs";
+      const { createComposerSession } = await import(process.argv[1]);
+      const file = process.argv[2], stage = process.argv[3], kind = process.argv[4];
+      const records = new Map(existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : []);
+      const persist = () => writeFileSync(file, JSON.stringify([...records]));
+      const storage = {
+        get length() { return records.size; }, key: (i) => [...records.keys()][i] ?? null,
+        getItem: (key) => records.get(key) ?? null,
+        setItem(key, value) { records.set(key, String(value)); persist(); },
+        removeItem(key) { records.delete(key); persist(); }
+      };
+      function fixture() {
+        const input = { value: "", addEventListener() {} }; let files = [];
+        const session = createComposerSession({ input, storage, getAttachments: () => files, setAttachments: (v) => { files = v; } });
+        return { input, session, files: () => files, setFiles: (v) => { files = v; } };
+      }
+      if (stage === "write" && kind === "global") {
+        storage.setItem("atria.composer.v1:new", JSON.stringify({text:"legacy A",attachments:[]}));
+        storage.setItem("atria.composer.v1:backend-a:new", JSON.stringify({text:"existing A",attachments:[]}));
+        const a = fixture(); a.session.activate(null); a.session.setBackend("backend-a"); a.session.activate(null); a.session.prepareClose();
+      }
+      const view = fixture(); view.session.activate(null);
+      if (stage === "write") {
+        if (kind === "project") view.session.activate(null, { projectId: "p1" });
+        view.input.value = "unbound " + kind; view.setFiles([${JSON.stringify(attached)}]); view.session.save();
+        console.log(JSON.stringify({ close: view.session.prepareClose(), records: Object.fromEntries(records) }));
+      } else {
+        view.session.setBackend(kind === "project" ? "backend-a" : "backend-b");
+        view.session.activate(null, kind === "project" ? { projectId: "p1" } : {});
+        const restored = { text: view.input.value, attachments: view.files() };
+        if (stage === "delete") { view.input.value = ""; view.setFiles([]); view.session.save(); }
+        console.log(JSON.stringify({ restored, close: view.session.prepareClose(), records: Object.fromEntries(records) }));
+      }
+    `;
+    const run = (stage) => {
+      const child = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          script,
+          pathToFileURL(resolve("web/assets/controllers/composer-session.js")).href,
+          store,
+          stage,
+          kind
+        ],
+        { encoding: "utf8" }
+      );
+      assert.equal(child.status, 0, child.stderr);
+      const result = JSON.parse(child.stdout);
+      console.log(
+        JSON.stringify({
+          event: "prebind-process",
+          kind,
+          stage,
+          pid: child.pid,
+          exitCode: child.status,
+          result
+        })
+      );
+      return result;
+    };
+    try {
+      assert.equal(run("write").close, true);
+      const recovered = run("delete");
+      assert.deepEqual(recovered.restored, { text: `unbound ${kind}`, attachments: [attached] });
+      assert.equal(recovered.close, true);
+      const deleted = run("restart");
+      assert.deepEqual(deleted.restored, { text: "", attachments: [] });
+      assert.equal(deleted.close, true);
+      if (kind === "global") assert.match(deleted.records["atria.composer.v1:backend-a:new"], /existing A/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("P3: multiple projects in one completed unbound session recover separately", () => {
+  const storage = migrationStorage();
+  const first = draftFixture(storage);
+  first.session.activate(null, { projectId: "p1" });
+  first.input.value = "project one";
+  first.setFiles([attached]);
+  first.session.save();
+  first.session.activate(null, { projectId: "p2" });
+  first.input.value = "project two";
+  first.setFiles([]);
+  first.session.save();
+  assert.equal(first.session.prepareClose(), true);
+  const restarted = draftFixture(storage);
+  restarted.session.activate(null);
+  restarted.session.setBackend("backend-a");
+  restarted.session.activate(null, { projectId: "p1" });
+  assert.equal(restarted.input.value, "project one");
+  assert.deepEqual(restarted.files(), [attached]);
+  restarted.session.activate(null, { projectId: "p2" });
+  assert.equal(restarted.input.value, "project two");
+  assert.deepEqual(restarted.files(), []);
+});
+
+test("P3: another live unbound session is not adopted with a completed session", () => {
+  const storage = migrationStorage();
+  const live = draftFixture(storage);
+  live.session.activate(null, { projectId: "live" });
+  live.input.value = "live A";
+  live.session.save();
+  const closed = draftFixture(storage);
+  closed.session.activate(null, { projectId: "closed" });
+  closed.input.value = "closed B";
+  closed.setFiles([attached]);
+  closed.session.save();
+  assert.equal(closed.session.prepareClose(), true);
+  const next = draftFixture(storage);
+  next.session.activate(null);
+  next.session.setBackend("backend-b");
+  next.session.activate(null, { projectId: "closed" });
+  assert.equal(next.input.value, "closed B");
+  assert.deepEqual(next.files(), [attached]);
+  next.session.activate(null, { projectId: "live" });
+  assert.equal(next.input.value, "");
+  live.session.setBackend("backend-a");
+  live.session.activate(null, { projectId: "live" });
+  assert.equal(live.input.value, "live A");
+});
+
+test("P3: an unindexed prior candidate's single saved prebind project is recoverable", () => {
+  const storage = migrationStorage();
+  const key = "atria.composer.v1:__prebind__:0123456789abcdef0123456789abcdef:new:p1";
+  storage.setItem(key, JSON.stringify({ text: "old saved project", attachments: [attached] }));
+  storage.setItem("atria.composer.v1:active", JSON.stringify("new:p1"));
+  const view = draftFixture(storage);
+  view.session.activate(null);
+  view.session.setBackend("backend-a");
+  view.session.activate(null, { projectId: "p1" });
+  assert.equal(view.input.value, "old saved project");
+  assert.deepEqual(view.files(), [attached]);
+});
+
+test("P3: an unindexed prior global draft survives a legacy ownership conflict", () => {
+  const storage = migrationStorage();
+  storage.setItem("atria.composer.v1:new", JSON.stringify({ text: "legacy A", attachments: [] }));
+  storage.setItem("atria.composer.v1:backend-a:new", JSON.stringify({ text: "existing A", attachments: [] }));
+  storage.setItem("atria.composer.v1:legacy-owner:active", JSON.stringify("backend-a"));
+  storage.setItem("atria.composer.v1:active", JSON.stringify("new"));
+  storage.setItem(
+    "atria.composer.v1:__prebind__:0123456789abcdef0123456789abcdef:new",
+    JSON.stringify({ text: "old B", attachments: [attached] })
+  );
+  const view = draftFixture(storage);
+  view.session.activate(null);
+  view.session.setBackend("backend-b");
+  view.session.activate(null);
+  assert.equal(view.input.value, "old B");
+  assert.deepEqual(view.files(), [attached]);
+  view.session.setBackend("backend-a");
+  view.session.activate(null);
+  assert.equal(view.input.value, "existing A");
+});
+
+test("P3: a conflicting recovered destination stays deleted after restart", () => {
+  const storage = migrationStorage();
+  const first = draftFixture(storage);
+  first.session.activate(null, { projectId: "p1" });
+  first.input.value = "recovery source";
+  first.setFiles([attached]);
+  first.session.save();
+  assert.equal(first.session.prepareClose(), true);
+  storage.setItem(
+    "atria.composer.v1:backend-a:new:p1",
+    JSON.stringify({ text: "existing A", attachments: [] })
+  );
+  const a = draftFixture(storage);
+  a.session.activate(null);
+  a.session.setBackend("backend-a");
+  a.session.activate(null, { projectId: "p1" });
+  assert.equal(a.input.value, "existing A");
+  a.input.value = "";
+  a.session.save();
+  assert.equal(a.session.prepareClose(), true);
+  const restart = draftFixture(storage);
+  restart.session.activate(null);
+  restart.session.setBackend("backend-b");
+  restart.session.activate(null, { projectId: "p1" });
+  assert.equal(restart.input.value, "");
+  restart.session.setBackend("backend-a");
+  restart.session.activate(null, { projectId: "p1" });
+  assert.equal(restart.input.value, "");
+  assert.ok([...storage.records.values()].some((value) => value.includes("recovery source")));
+});
+
+test("P3: a resumed prior owner cannot delete a successor's adopted source", () => {
+  const storage = migrationStorage();
+  const previous = draftFixture(storage);
+  previous.session.activate(null, { projectId: "p1" });
+  previous.input.value = "original content";
+  previous.setFiles([attached]);
+  previous.session.save();
+  assert.equal(previous.session.prepareClose(), true);
+  const successor = draftFixture(storage);
+  successor.session.activate(null);
+  previous.input.value = "";
+  previous.setFiles([]);
+  previous.session.save();
+  successor.session.setBackend("backend-b");
+  successor.session.activate(null, { projectId: "p1" });
+  assert.equal(successor.input.value, "original content");
+  assert.deepEqual(successor.files(), [attached]);
+});
+
+test("P3: a detached former owner cannot remove a successor's live marker", () => {
+  const storage = migrationStorage();
+  const previous = draftFixture(storage);
+  previous.session.activate(null, { projectId: "p1" });
+  previous.input.value = "original";
+  previous.session.save();
+  previous.session.detach();
+  assert.equal(previous.session.prepareClose(), true);
+  const successor = draftFixture(storage);
+  successor.session.activate(null);
+  previous.session.setBackend("backend-a");
+  const other = draftFixture(storage);
+  other.session.activate(null);
+  other.session.setBackend("backend-c");
+  other.session.activate(null, { projectId: "p1" });
+  assert.equal(other.input.value, "");
+  successor.session.setBackend("backend-b");
+  successor.session.activate(null, { projectId: "p1" });
+  assert.equal(successor.input.value, "original");
+});
+
+test("P3: another close preparation cannot release a successor's live marker", () => {
+  const storage = migrationStorage();
+  const prior = draftFixture(storage);
+  prior.session.activate(null, { projectId: "p1" });
+  prior.input.value = "original";
+  prior.session.save();
+  prior.session.detach();
+  assert.equal(prior.session.prepareClose(), true);
+  const successor = draftFixture(storage);
+  successor.session.activate(null);
+  assert.equal(prior.session.prepareClose(), true);
+  const other = draftFixture(storage);
+  other.session.activate(null);
+  other.session.setBackend("backend-c");
+  other.session.activate(null, { projectId: "p1" });
+  successor.session.setBackend("backend-b");
+  successor.session.activate(null, { projectId: "p1" });
+  assert.equal(successor.input.value, "original");
+});
+
+test("P3: ambiguous completed sessions remain separate and are not claimed together", () => {
+  const storage = migrationStorage();
+  const first = draftFixture(storage),
+    second = draftFixture(storage);
+  first.session.activate(null, { projectId: "p1" });
+  first.input.value = "first";
+  first.session.save();
+  second.session.activate(null, { projectId: "p2" });
+  second.input.value = "second";
+  second.session.save();
+  assert.equal(first.session.prepareClose(), true);
+  assert.equal(second.session.prepareClose(), true);
+  const before = [...storage.records.values()];
+  const next = draftFixture(storage);
+  next.session.activate(null);
+  next.session.setBackend("backend-b");
+  next.session.activate(null, { projectId: "p1" });
+  assert.equal(next.input.value, "");
+  next.session.activate(null, { projectId: "p2" });
+  assert.equal(next.input.value, "");
+  assert.ok(
+    before.some((value) => value.includes("first")) &&
+      [...storage.records.values()].some((value) => value.includes("first"))
+  );
+  assert.ok(
+    before.some((value) => value.includes("second")) &&
+      [...storage.records.values()].some((value) => value.includes("second"))
+  );
+});
+
+test("P3: an unbound draft is not published when its ownership marker cannot be stored", () => {
+  const storage = migrationStorage();
+  const setItem = storage.setItem.bind(storage);
+  let fail = true;
+  storage.setItem = (key, value) => {
+    if (fail && key.includes(":__prebind__:") && key.endsWith(":active"))
+      throw new Error("marker unavailable");
+    setItem(key, value);
+  };
+  const view = draftFixture(storage);
+  view.session.activate(null, { projectId: "p1" });
+  view.input.value = "marker protected";
+  view.setFiles([attached]);
+  view.session.save();
+  assert.equal(view.session.prepareClose(), false);
+  assert.equal(
+    [...storage.records.values()].some((value) => value.includes("marker protected")),
+    false
+  );
+  fail = false;
+  assert.equal(view.session.prepareClose(), true);
+  const restarted = draftFixture(storage);
+  restarted.session.activate(null);
+  restarted.session.setBackend("backend-a");
+  restarted.session.activate(null, { projectId: "p1" });
+  assert.equal(restarted.input.value, "marker protected");
+  assert.deepEqual(restarted.files(), [attached]);
+});
+
+test("P3: a failed recovery claim retries and restores the visible draft", () => {
+  const storage = migrationStorage();
+  const first = draftFixture(storage);
+  first.session.activate(null, { projectId: "p1" });
+  first.input.value = "retry recovery";
+  first.setFiles([attached]);
+  first.session.save();
+  assert.equal(first.session.prepareClose(), true);
+  const setItem = storage.setItem.bind(storage);
+  let fail = true;
+  storage.setItem = (key, value) => {
+    if (
+      fail &&
+      key.includes(":__prebind__:") &&
+      key.endsWith(":active") &&
+      JSON.parse(value).startsWith("live:")
+    )
+      throw new Error("claim unavailable");
+    setItem(key, value);
+  };
+  const next = draftFixture(storage);
+  next.session.activate(null);
+  next.session.setBackend("backend-a");
+  next.session.activate(null, { projectId: "p1" });
+  assert.equal(next.session.prepareClose(), false);
+  fail = false;
+  assert.equal(next.session.prepareClose(), true);
+  assert.equal(next.input.value, "retry recovery");
+  assert.deepEqual(next.files(), [attached]);
+  next.session.activate(null);
+  next.session.activate(null, { projectId: "p1" });
+  assert.equal(next.input.value, "retry recovery");
+  assert.deepEqual(next.files(), [attached]);
+});
+
+test("P3: interruption between multiple project migrations retains every project's backend", async () => {
+  const root = await mkdtemp(join(tmpdir(), "prebind-batch-"));
+  const file = join(root, "storage.json");
+  const script = `
+    import { existsSync, readFileSync, writeFileSync } from "node:fs";
+    const { createComposerSession } = await import(process.argv[1]);
+    const file = process.argv[2], stage = process.argv[3];
+    const records = new Map(existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : []);
+    const persist = () => writeFileSync(file, JSON.stringify([...records]));
+    const storage = {
+      get length() { return records.size; }, key: (i) => [...records.keys()][i] ?? null,
+      getItem: (key) => records.get(key) ?? null,
+      setItem(key, value) { records.set(key, String(value)); persist(); },
+      removeItem(key) {
+        records.delete(key); persist();
+        if (stage === "bind" && key === "atria.composer.v1:migration-journal:active") process.exit(79);
+      }
+    };
+    const input = { value: "", addEventListener() {} }; let files = [];
+    const session = createComposerSession({ input, storage, getAttachments: () => files, setAttachments: (next) => { files = next; } });
+    session.activate(null);
+    if (stage === "write") {
+      for (const project of ["p1", "p2"]) {
+        session.activate(null, {projectId:project}); input.value = "draft " + project;
+        files = [${JSON.stringify(attached)}]; session.save();
+      }
+      console.log(JSON.stringify({close:session.prepareClose()}));
+    } else if (stage === "bind") {
+      session.setBackend("backend-a");
+    } else {
+      session.setBackend("backend-b"); session.activate(null,{projectId:"p2"}); const b = input.value;
+      session.setBackend("backend-a"); session.activate(null,{projectId:"p2"});
+      console.log(JSON.stringify({b,text:input.value,attachments:files}));
+    }
+  `;
+  const run = (stage) =>
+    spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        script,
+        pathToFileURL(resolve("web/assets/controllers/composer-session.js")).href,
+        file,
+        stage
+      ],
+      { encoding: "utf8" }
+    );
+  try {
+    const before = run("write");
+    assert.equal(before.status, 0, before.stderr);
+    assert.equal(JSON.parse(before.stdout).close, true);
+    const interrupted = run("bind");
+    assert.equal(interrupted.status, 79, interrupted.stderr);
+    const restarted = run("restart");
+    assert.equal(restarted.status, 0, restarted.stderr);
+    assert.deepEqual(JSON.parse(restarted.stdout), { b: "", text: "draft p2", attachments: [attached] });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a web client can create its draft session without secure-context randomUUID", () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
   Object.defineProperty(globalThis, "crypto", {

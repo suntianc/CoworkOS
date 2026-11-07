@@ -12,10 +12,14 @@ export function createComposerSession({
   const legacyOwnerKey = `${legacyPrefix}legacy-owner:active`;
   // Keep preconnection edits from different launches separate, including when
   // an earlier connection left a conflicting recovery copy behind.
-  const prebindId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
-  const prebindPrefix = `${legacyPrefix}__prebind__:${prebindId}:`;
+  const randomId = () =>
+    Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join(
+      ""
+    );
+  const prebindRoot = `${legacyPrefix}__prebind__:`;
+  const prebindId = randomId();
+  let prebindPrefix = `${prebindRoot}${prebindId}:`;
+  let pendingStageBind = false;
   const journalKey = `${legacyPrefix}migration-journal:active`;
   /**
    * Drafts belong to one backend. The prefix keeps a conversation started
@@ -82,7 +86,16 @@ export function createComposerSession({
     }
   };
   const write = (key, value) => {
-    const destination = keyFor(key);
+    let destination = keyFor(key);
+    if (destination.startsWith(prebindPrefix)) {
+      if (!claimPrebind()) {
+        destination = keyFor(key);
+        memory.set(destination, value);
+        pendingStorage.add(destination);
+        return false;
+      }
+      destination = keyFor(key);
+    }
     const migration = pendingMigrations.get(destination);
     if (migration) migration.expectedDestination = value;
     if (value === null && (protectedDestinations.has(destination) || pendingMigrations.has(destination)))
@@ -208,6 +221,117 @@ export function createComposerSession({
       writeRecord(legacyOwnerKey, null);
     }
   };
+  const prebindEntries = (prefix) => {
+    const keys = new Set(memory.keys());
+    for (let index = 0; index < (storage?.length || 0); index += 1) keys.add(storage.key(index));
+    return [...keys].filter((key) => {
+      if (typeof key !== "string" || !key.startsWith(prefix)) return false;
+      const slot = key.slice(prefix.length);
+      return (slot === "new" || projectDraft(slot)) && hasContent(readRecord(key));
+    });
+  };
+  const claimPrebind = () => {
+    const marker = prebindPrefix + "active";
+    if (pendingStorage.has(marker) && memory.get(marker) === `live:${prebindId}`) return false;
+    let owner;
+    try {
+      owner = JSON.parse(storage?.getItem(marker) || "null");
+    } catch {
+      owner = null;
+    }
+    if (owner && owner !== `live:${prebindId}` && owner !== `ready:${prebindId}`) {
+      // A successor adopted this session after close preparation. Keep the
+      // continuing session's cached work under a fresh identity.
+      const oldPrefix = prebindPrefix;
+      const cached = [...memory].filter(([key, draft]) => key.startsWith(oldPrefix) && hasContent(draft));
+      prebindPrefix = `${prebindRoot}${randomId()}:`;
+      for (const [key, draft] of cached) {
+        const target = prebindPrefix + key.slice(oldPrefix.length);
+        memory.set(target, draft);
+        pendingStorage.add(target);
+      }
+      if (!writeRecord(prebindPrefix + "active", `live:${prebindId}`)) return false;
+      for (const [key, draft] of cached) writeRecord(prebindPrefix + key.slice(oldPrefix.length), draft);
+      return true;
+    }
+    return owner === `live:${prebindId}` || writeRecord(marker, `live:${prebindId}`);
+  };
+  const adoptPrebind = () => {
+    if (!storage) return;
+    const groups = new Map();
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      const match =
+        typeof key === "string" && key.match(/^atria\.composer\.v1:__prebind__:([a-f0-9]{32}):(.*)$/);
+      if (!match) continue;
+      const prefix = `${prebindRoot}${match[1]}:`;
+      if (!groups.has(prefix)) groups.set(prefix, { marker: null, content: false });
+      const group = groups.get(prefix);
+      if (match[2] === "active") group.marker = readRecord(key);
+      else if ((match[2] === "new" || projectDraft(match[2])) && hasContent(readRecord(key)))
+        group.content = true;
+    }
+    const referenced = [...pendingMigrations.values(), ...migrationConflicts.values()].map(
+      (item) => item.sourceKey
+    );
+    const candidates = [...groups].filter(
+      ([prefix, group]) => group.content && !referenced.some((key) => key.startsWith(prefix))
+    );
+    const ready = candidates.filter(
+      ([, group]) => typeof group.marker === "string" && group.marker.startsWith("ready:")
+    );
+    const orphans = candidates.filter(([, group]) => group.marker === null);
+    const chosen =
+      ready.length === 1
+        ? ready[0]
+        : ready.length === 0 && candidates.length === 1 && orphans.length === 1
+          ? orphans[0]
+          : null;
+    if (!chosen) return;
+    prebindPrefix = chosen[0];
+    writeRecord(prebindPrefix + "active", `live:${prebindId}`);
+  };
+  const migratePrebind = (backendId) => {
+    let marker = prebindPrefix + "active";
+    if (pendingStorage.has(marker) || (prebindEntries(prebindPrefix).length && !claimPrebind())) {
+      pendingStageBind = true;
+      return;
+    }
+    marker = prebindPrefix + "active";
+    pendingStageBind = false;
+    const sources = prebindEntries(prebindPrefix);
+    const writes = [];
+    for (const sourceKey of sources) {
+      const slot = sourceKey.slice(prebindPrefix.length);
+      const staged = readRecord(sourceKey);
+      const destination = `${legacyPrefix}${backendId}:${slot}`;
+      const existing = readRecord(destination);
+      if (
+        !hasRecord(destination) ||
+        existing === null ||
+        JSON.stringify(existing) === JSON.stringify(staged)
+      ) {
+        retainedNulls.delete(destination);
+        pendingMigrations.set(destination, { sourceKey, source: staged, expectedDestination: staged });
+        if (JSON.stringify(existing) !== JSON.stringify(staged)) writes.push([destination, staged]);
+      } else {
+        migrationConflicts.set(destination, { sourceKey });
+        protectedDestinations.add(destination);
+      }
+    }
+    // Journal the whole session before consuming any source. A crash between
+    // projects must not leave the remaining entries with an unknown backend.
+    if (sources.length && !persistJournal()) {
+      for (const [destination, staged] of writes) {
+        memory.set(destination, staged);
+        pendingStorage.add(destination);
+      }
+      return;
+    }
+    for (const [destination, staged] of writes) writeRecord(destination, staged);
+    finishMigrations();
+    if (!prebindEntries(prebindPrefix).length && storage?.getItem(marker) !== null) writeRecord(marker, null);
+  };
   const restoreMigrations = () => {
     try {
       if (!storage) return;
@@ -290,7 +414,35 @@ export function createComposerSession({
     draftOwners.set(current, token);
     write("active", current);
   };
+  const showDraft = (draft) => {
+    editing =
+      draft?.editing &&
+      typeof draft.editing.messageId === "string" &&
+      typeof draft.editing.editId === "string" &&
+      typeof draft.editing.original?.text === "string" &&
+      Array.isArray(draft.editing.original?.attachments)
+        ? draft.editing
+        : undefined;
+    const validAttachments = (files) =>
+      Array.isArray(files)
+        ? files.filter(
+            (file) =>
+              typeof file?.name === "string" &&
+              (typeof file?.text === "string" || /^upload-[a-f0-9-]{36}$/.test(file?.uploadId || ""))
+          )
+        : [];
+    editDraft = editing
+      ? {
+          text: typeof draft.text === "string" ? draft.text : "",
+          attachments: validAttachments(draft.attachments)
+        }
+      : undefined;
+    const composerDraft = editing ? editing.original : draft;
+    input.value = typeof composerDraft?.text === "string" ? composerDraft.text : "";
+    setAttachments(validAttachments(composerDraft?.attachments));
+  };
   restoreMigrations();
+  adoptPrebind();
   input.addEventListener("input", save);
   return {
     get editing() {
@@ -378,9 +530,30 @@ export function createComposerSession({
       if (pendingStorage.has(journalKey)) writeRecord(journalKey, memory.get(journalKey));
       for (const key of [...pendingStorage]) {
         if ((invalidJournal || pendingStorage.has(journalKey)) && pendingMigrations.has(key)) continue;
+        if (
+          key.startsWith(prebindPrefix) &&
+          key !== prebindPrefix + "active" &&
+          pendingStorage.has(prebindPrefix + "active")
+        )
+          continue;
         writeRecord(key, memory.get(key));
       }
       finishMigrations();
+      if (namespace && pendingStageBind) {
+        const wasEmpty =
+          current !== undefined && !input.value && !getAttachments().length && !editing && !read(current);
+        migratePrebind(namespace);
+        if (wasEmpty && read(current)) showDraft(read(current));
+      }
+      if (!namespace && !pendingStorage.size && !pendingMigrations.size && !invalidJournal) {
+        const marker = prebindPrefix + "active";
+        if (prebindEntries(prebindPrefix).length) {
+          if (claimPrebind()) writeRecord(prebindPrefix + "active", `ready:${prebindId}`);
+        } else {
+          const owner = JSON.parse(storage?.getItem(marker) || "null");
+          if (owner === `live:${prebindId}` || owner === `ready:${prebindId}`) writeRecord(marker, null);
+        }
+      }
       return !invalidJournal && pendingStorage.size === 0 && pendingMigrations.size === 0;
     },
     /**
@@ -467,32 +640,7 @@ export function createComposerSession({
             if (!hasRecord(destination) && typeof value === "string") writeRecord(destination, value);
             writeRecord(active, null);
           }
-          for (const sourceKey of candidates) {
-            if (typeof sourceKey !== "string" || !sourceKey.startsWith(prebindPrefix)) continue;
-            const slot = sourceKey.slice(prebindPrefix.length);
-            if (slot !== "new" && !projectDraft(slot)) continue;
-            const staged = readRecord(sourceKey);
-            if (!hasContent(staged)) continue;
-            const destination = to + slot;
-            const existing = readRecord(destination);
-            if (
-              !hasRecord(destination) ||
-              existing === null ||
-              JSON.stringify(existing) === JSON.stringify(staged)
-            ) {
-              retainedNulls.delete(destination);
-              registerMigration(
-                destination,
-                { sourceKey, source: staged },
-                JSON.stringify(existing) !== JSON.stringify(staged)
-              );
-              finishMigrations();
-            } else {
-              migrationConflicts.set(destination, { sourceKey });
-              protectedDestinations.add(destination);
-              persistJournal();
-            }
-          }
+          migratePrebind(next);
         } catch {
           /* Keep the original records when their migration cannot be read. */
         }
@@ -536,32 +684,8 @@ export function createComposerSession({
       if (fresh || !draftIdentities.has(key)) draftIdentities.set(key, ++nextDraftIdentity);
       if (fresh) write(key, null);
       const draft = fresh ? null : read(key);
-      editing =
-        draft?.editing &&
-        typeof draft.editing.messageId === "string" &&
-        typeof draft.editing.editId === "string" &&
-        typeof draft.editing.original?.text === "string" &&
-        Array.isArray(draft.editing.original?.attachments)
-          ? draft.editing
-          : undefined;
       draftOwners.set(key, token);
-      const validAttachments = (files) =>
-        Array.isArray(files)
-          ? files.filter(
-              (file) =>
-                typeof file?.name === "string" &&
-                (typeof file?.text === "string" || /^upload-[a-f0-9-]{36}$/.test(file?.uploadId || ""))
-            )
-          : [];
-      editDraft = editing
-        ? {
-            text: typeof draft.text === "string" ? draft.text : "",
-            attachments: validAttachments(draft.attachments)
-          }
-        : undefined;
-      const composerDraft = editing ? editing.original : draft;
-      input.value = typeof composerDraft?.text === "string" ? composerDraft.text : "";
-      setAttachments(validAttachments(composerDraft?.attachments));
+      showDraft(draft);
       write("active", key);
     },
     transfer(
