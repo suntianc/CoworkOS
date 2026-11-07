@@ -96,18 +96,13 @@ export function createFileUpload({
       }
     }
   }
-  return {
-    add,
-    retry: () => add([...retryFiles]),
-    cancel() {
-      controller?.abort();
-      retryFiles = [];
-      onStatus(null);
-    },
-    navigate() {
-      controller?.abort();
-      retryFiles = [];
-      onStatus(null);
-    }
-  };
+  function cancel() {
+    const previous = controller;
+    controller = undefined;
+    previous?.abort();
+    retryFiles = [];
+    if (previous) onBusy(false);
+    onStatus(null);
+  }
+  return { add, retry: () => add([...retryFiles]), cancel, navigate: cancel };
 }

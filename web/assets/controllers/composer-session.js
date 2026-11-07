@@ -9,6 +9,7 @@ export function createComposerSession({
 }) {
   const legacyPrefix = "atria.composer.v1:";
   const NAMESPACES_KEY = "atria.composer.namespaces.v1";
+  const legacyOwnerKey = `${legacyPrefix}legacy-owner:active`;
   /**
    * Drafts belong to one backend. The prefix keeps a conversation started
    * against backend A out of backend B's composer, and a switch back restores
@@ -31,19 +32,20 @@ export function createComposerSession({
   let warned = false;
   const projectDraft = (key) => typeof key === "string" && key.startsWith("new:");
   const read = (key) => {
-    if (memory.has(key)) return memory.get(key);
+    const storageKey = prefix() + key;
+    if (memory.has(storageKey)) return memory.get(storageKey);
     try {
-      return JSON.parse(storage?.getItem(prefix() + key) || "null");
+      return JSON.parse(storage?.getItem(storageKey) || "null");
     } catch {
       return null;
     }
   };
-  const write = (key, value) => {
+  const writeRecord = (key, value) => {
     memory.set(key, value);
     try {
       if (!storage) throw new Error("storage unavailable");
-      if (value === null) storage?.removeItem(prefix() + key);
-      else storage?.setItem(prefix() + key, JSON.stringify(value));
+      if (value === null) storage.removeItem(key);
+      else storage.setItem(key, JSON.stringify(value));
       onPersist?.();
       pendingStorage.delete(key);
       if (!pendingStorage.size) warned = false;
@@ -55,9 +57,10 @@ export function createComposerSession({
       return false;
     }
   };
+  const write = (key, value) => writeRecord(prefix() + key, value);
   const finishMigrations = () => {
     for (const [key, source] of pendingMigrations) {
-      if (pendingStorage.has(key)) continue;
+      if (pendingStorage.has(prefix() + key)) continue;
       pendingMigrations.delete(key);
       // Another window can update storage after this session cached the source.
       // Only remove a source that still matches in both memory and storage.
@@ -65,7 +68,7 @@ export function createComposerSession({
         const stored = JSON.parse(storage?.getItem(prefix() + "new") || "null");
         if (JSON.stringify(read("new")) !== JSON.stringify(source)) continue;
         if (JSON.stringify(stored) === JSON.stringify(source)) write("new", null);
-        else memory.set("new", stored);
+        else memory.set(prefix() + "new", stored);
       } catch {
         // Keep the recovery copy when its durable identity cannot be verified.
       }
@@ -169,7 +172,7 @@ export function createComposerSession({
       save();
       // Retry every failed conversation, including drafts that are no longer
       // selected. A disk mirror of stale localStorage cannot protect memory.
-      for (const key of [...pendingStorage]) write(key, memory.get(key));
+      for (const key of [...pendingStorage]) writeRecord(key, memory.get(key));
       finishMigrations();
       return pendingStorage.size === 0;
     },
@@ -186,30 +189,55 @@ export function createComposerSession({
       if (next === namespace) return;
       save();
       const previous = namespace;
-      if (!previous && next && storage) {
+      if (!previous && next) {
         const from = legacyPrefix;
         const to = `${legacyPrefix}${next}:`;
         try {
-          // A key already written for a backend is not a historical draft.
-          // Without this, every reload would nest the old namespace inside the
-          // new one and the visible draft would be looked up in the wrong slot.
-          const known = new Set(JSON.parse(storage.getItem(NAMESPACES_KEY) || "[]"));
+          const known = new Set(JSON.parse(storage?.getItem(NAMESPACES_KEY) || "[]"));
           known.add(next);
-          storage.setItem(NAMESPACES_KEY, JSON.stringify([...known]));
-          const keys = [];
-          for (let index = 0; index < storage.length; index += 1) {
+          const candidates = new Set(memory.keys());
+          for (let index = 0; index < (storage?.length || 0); index += 1) {
             const key = storage.key(index);
+            if (typeof key !== "string" || !key.startsWith(from)) continue;
+            candidates.add(key);
+            if (key.endsWith(":active")) known.add(key.slice(from.length, -":active".length));
+          }
+          const keys = [];
+          for (const key of candidates) {
             if (typeof key !== "string" || !key.startsWith(from) || key.startsWith(to)) continue;
+            if (key === legacyOwnerKey) continue;
             if (known.has(key.slice(from.length).split(":")[0])) continue;
             keys.push(key);
           }
-          for (const key of keys) {
-            const value = storage.getItem(key);
-            if (storage.getItem(to + key.slice(from.length)) === null)
-              storage.setItem(to + key.slice(from.length), value);
+          let owner = memory.get(legacyOwnerKey) ?? JSON.parse(storage?.getItem(legacyOwnerKey) || "null");
+          if (keys.length && !owner) {
+            owner = next;
+            writeRecord(legacyOwnerKey, owner);
+          }
+          if (owner === next) {
+            let complete = true;
+            for (const key of keys) {
+              const value = memory.has(key) ? memory.get(key) : JSON.parse(storage?.getItem(key) || "null");
+              const destination = to + key.slice(from.length);
+              const existing = memory.has(destination)
+                ? memory.get(destination)
+                : JSON.parse(storage?.getItem(destination) || "null");
+              // Keep a conflicting legacy record as a recovery copy. Only its
+              // original owner may retry the migration on a later launch.
+              if (existing !== null && JSON.stringify(existing) !== JSON.stringify(value)) {
+                complete = false;
+                continue;
+              }
+              if (existing === null && value !== null && !writeRecord(destination, value)) {
+                complete = false;
+                continue;
+              }
+              if (pendingStorage.has(destination) || !writeRecord(key, null)) complete = false;
+            }
+            if (complete) writeRecord(legacyOwnerKey, null);
           }
         } catch {
-          /* a disabled storage keeps drafts in memory only */
+          /* Keep the original records when their migration cannot be read. */
         }
       }
       namespace = next;
@@ -217,12 +245,11 @@ export function createComposerSession({
       // caller activates a conversation to load this backend's own draft.
       input.value = "";
       setAttachments([]);
-      memory.clear();
+      for (const key of memory.keys()) if (!pendingStorage.has(key)) memory.delete(key);
       retainedDrafts.clear();
       draftOwners.clear();
       draftIdentities.clear();
       pendingMigrations.clear();
-      pendingStorage.clear();
       editing = undefined;
       editDraft = undefined;
       current = undefined;
@@ -295,7 +322,7 @@ export function createComposerSession({
         // A catalog can expose the new Task before its creation response.
         // Preserve drafts saved there meanwhile, including an explicit null
         // from clearing the composer; only an untouched target inherits it.
-        if (!background || (!memory.has(taskId) && read(taskId) === null))
+        if (!background || (!memory.has(prefix() + taskId) && read(taskId) === null))
           write(
             taskId,
             (background && sourceDraft) || retainedDrafts.get(sourceToken) || sourceDraft || read(sourceKey)

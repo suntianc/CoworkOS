@@ -9,6 +9,7 @@ export function createManagedMedia({ read, createObjectURL, revokeObjectURL, lim
     const pending = read(path)
       .then(({ blob }) => {
         if (at !== generation) throw new Error("已切换后端，文件读取已取消");
+        if (cache.get(path) !== pending) throw new Error("文件预览已取消");
         const href = createObjectURL(blob);
         cache.set(path, Promise.resolve(href));
         while (cache.size > limit) {

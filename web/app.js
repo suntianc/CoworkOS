@@ -85,6 +85,7 @@ const sending = new Map();
 let attachmentReadVersion = 0;
 let readingAttachments = false;
 let fileUpload;
+let attachmentPreview;
 const creatingTasks = new Map();
 const stoppingTasks = new Set();
 const stopEpochs = new Map();
@@ -224,6 +225,7 @@ const composerSession = createComposerSession({
   getAttachments: () => state.attachments,
   setAttachments: (files) => {
     fileUpload?.navigate();
+    attachmentPreview?.close({ restoreFocus: false });
     // Navigation retires a read belonging to the previous draft immediately.
     attachmentReadVersion += 1;
     readingAttachments = false;
@@ -1926,7 +1928,7 @@ const settingsOverview = {
 };
 $("#user-menu-button").addEventListener("click", openProfileMenu);
 document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
-installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
+attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
   upload: (file, options) => management.upload(file, options),
   getContext: () => composerSession.currentToken,
