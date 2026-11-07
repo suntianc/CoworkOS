@@ -12,6 +12,7 @@ export const maintainedDocumentation = [
   "README.zh-CN.md",
   "AGENTS.md",
   "AGENTS.en.md",
+  "GLOSSARY.md",
   "CONTRIBUTING.md",
   "CONTRIBUTING.en.md",
   "docs/README.md",

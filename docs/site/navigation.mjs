@@ -24,6 +24,7 @@ export const navigation = [
     collapsed: true,
     pages: [
       ["docs/development.md", "开发环境", "Development"],
+      ["GLOSSARY.md", "产品术语", "Product glossary (Chinese)"],
       ["docs/retrospectives.md", "复盘落实", "Retrospectives (Chinese)"],
       ["docs/development-handoffs.md", "开发交接", "Handoffs (Chinese)"],
       ["docs/pitfalls/README.md", "项目坑点", "Pitfalls (Chinese)"],
