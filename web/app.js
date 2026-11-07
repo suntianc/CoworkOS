@@ -538,6 +538,7 @@ const draftRecovery = createDraftRecovery({
   button: $("#recover-drafts"),
   session: composerSession,
   getBackend: () => boundBackendId,
+  getContext: () => backendRevision,
   getProjects: () => state.projects,
   openDraft: (projectId) => beginNewConversation(projectId)
 });
@@ -823,6 +824,7 @@ async function refreshState({ poll = false, isCurrent = () => true } = {}) {
 
 /** The backend the visible catalog belongs to; events from any other are dropped. */
 let boundBackendId = null;
+let backendRevision = 0;
 
 /**
  * Bind the page to one backend identity.
@@ -833,6 +835,7 @@ let boundBackendId = null;
 function adoptBackendIdentity(backendId) {
   if (!backendId || backendId === boundBackendId) return;
   boundBackendId = backendId;
+  backendRevision += 1;
   composerSession.setBackend(backendId);
   void draftRecovery.refresh();
   // The backend's own draft namespace may name a different last conversation
@@ -854,6 +857,7 @@ function resetBackendView() {
   clearManagedMedia();
   connection.close();
   boundBackendId = null;
+  backendRevision += 1;
   void draftRecovery.refresh();
   state.selected = null;
   state.detail = null;

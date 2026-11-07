@@ -26,6 +26,7 @@ export default {
   选择目标项目: "Choose a target project",
   无项目: "No project",
   "后端已切换，请重新选择": "The backend changed. Choose again.",
+  "草稿已保存到原后端，请重新打开查看": "The draft was saved to the previous backend. Reopen it to view it.",
   "目标已有草稿，请选择其他项目": "The target already has a draft. Choose another project.",
   "草稿暂时无法恢复，请重试": "The draft could not be restored. Try again.",
   请输入会话名称: "Enter a conversation name",

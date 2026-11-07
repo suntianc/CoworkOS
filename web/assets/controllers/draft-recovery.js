@@ -2,7 +2,7 @@ import { createModal } from "../ui/modal.js";
 import { ui } from "../ui/language.js";
 
 /** Let the user assign one previously unbound draft to the current backend. */
-export function createDraftRecovery({ button, session, getBackend, getProjects, openDraft }) {
+export function createDraftRecovery({ button, session, getBackend, getContext, getProjects, openDraft }) {
   const panel = document.createElement("div");
   panel.className = "modal-backdrop app-dialog-backdrop";
   panel.hidden = true;
@@ -19,9 +19,9 @@ export function createDraftRecovery({ button, session, getBackend, getProjects, 
   document.body.append(panel);
   const modal = createModal(panel, panel.querySelector("[data-close]"));
   const form = panel.querySelector("form");
-  const source = form.elements.source;
-  const backend = form.elements.backend;
-  const project = form.elements.project;
+  const source = form.querySelector('[name="source"]');
+  const backend = form.querySelector('[name="backend"]');
+  const project = form.querySelector('[name="project"]');
   const error = panel.querySelector('[role="alert"]');
   const option = (select, value, label) => {
     const item = document.createElement("option");
@@ -30,6 +30,7 @@ export function createDraftRecovery({ button, session, getBackend, getProjects, 
     select.append(item);
   };
   let openedBackend;
+  let openedContext;
   let candidates = [];
   const refresh = async () => {
     const currentBackend = getBackend();
@@ -42,6 +43,7 @@ export function createDraftRecovery({ button, session, getBackend, getProjects, 
     await refresh();
     if (!candidates.length || !getBackend()) return;
     openedBackend = getBackend();
+    openedContext = getContext();
     backend.value = openedBackend;
     source.replaceChildren();
     option(source, "", ui("选择草稿"));
@@ -60,7 +62,10 @@ export function createDraftRecovery({ button, session, getBackend, getProjects, 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!source.value || !project.value) return;
-    if (openedBackend !== getBackend()) {
+    const targetBackend = openedBackend;
+    const targetContext = openedContext;
+    const isCurrent = () => targetBackend === getBackend() && targetContext === getContext();
+    if (!isCurrent()) {
       error.textContent = ui("后端已切换，请重新选择");
       error.hidden = false;
       return;
@@ -71,6 +76,12 @@ export function createDraftRecovery({ button, session, getBackend, getProjects, 
       error.textContent =
         result.reason === "conflict" ? ui("目标已有草稿，请选择其他项目") : ui("草稿暂时无法恢复，请重试");
       error.hidden = false;
+      return;
+    }
+    if (!isCurrent()) {
+      error.textContent = ui("草稿已保存到原后端，请重新打开查看");
+      error.hidden = false;
+      await refresh();
       return;
     }
     modal.close();

@@ -598,9 +598,10 @@ export function createComposerSession({
       return drafts;
     },
     async recoverDraft(id, { projectId } = {}) {
-      await ready;
       const backend = namespace;
-      if (!backend) return { ok: false, reason: "backend" };
+      const navigation = token;
+      await ready;
+      if (!backend || namespace !== backend || token !== navigation) return { ok: false, reason: "backend" };
       const candidates = await this.listRecoverableDrafts();
       const selected = candidates.find((candidate) => candidate.id === id);
       if (!selected) return { ok: false, reason: "unavailable" };
@@ -608,7 +609,7 @@ export function createComposerSession({
       const release = group === prebindPrefix ? () => {} : await acquireLease(group);
       if (!release) return { ok: false, reason: "unavailable" };
       try {
-        if (namespace !== backend) return { ok: false, reason: "backend" };
+        if (namespace !== backend || token !== navigation) return { ok: false, reason: "backend" };
         save();
         const slot = projectId ? `new:${encodeURIComponent(projectId)}` : "new";
         const destination = `${legacyPrefix}${backend}:${slot}`;

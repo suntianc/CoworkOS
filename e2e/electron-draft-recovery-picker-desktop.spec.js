@@ -38,7 +38,8 @@ test("desktop lets users recover separate unbound drafts to chosen projects", as
     await expect(page.locator("#composer-input")).toBeAttached();
     await expect(page.locator("[data-backend-status]")).not.toContainText("正在连接", { timeout: 30_000 });
     const model = page.getByRole("dialog", { name: "连接模型" });
-    if (await model.isVisible()) await model.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await expect(model).toBeVisible({ timeout: 30_000 });
+    await model.getByRole("button", { name: "关闭设置", exact: true }).click();
     primary ??= JSON.parse(await readFile(join(profile, "runtime/backend-instance.json"), "utf8"));
     console.log(
       JSON.stringify({

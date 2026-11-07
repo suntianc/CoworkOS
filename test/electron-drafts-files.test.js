@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { createComposerSession } from "../web/assets/controllers/composer-session.js";
+import { createDraftRecovery } from "../web/assets/controllers/draft-recovery.js";
 import { createManagementClient } from "../web/assets/controllers/management-client.js";
 import { createFileUpload } from "../web/assets/controllers/file-upload.js";
 import { createManagedMedia } from "../web/assets/controllers/managed-media.js";
@@ -699,6 +700,88 @@ test("P3: a browser without cross-context locks copies only on explicit selectio
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;
   }
+});
+
+test("P3: a late recovery result cannot navigate after an A-B-A switch", async () => {
+  const { parseHTML } = await import("linkedom");
+  const { document, window } = parseHTML("<html><body><button id='recovery'></button></body></html>");
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  globalThis.document = document;
+  globalThis.window = window;
+  window.HTMLElement.prototype.getClientRects = () => [{}];
+  try {
+    let backend = "backend-a";
+    let context = 1;
+    let finish;
+    const opened = [];
+    const session = {
+      listRecoverableDrafts: async () => [
+        { id: "source-one", projectId: "p1", text: "saved draft", attachments: [] }
+      ],
+      recoverDraft: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    };
+    const button = document.querySelector("#recovery");
+    const controller = createDraftRecovery({
+      button,
+      session,
+      getBackend: () => backend,
+      getContext: () => context,
+      getProjects: () => [{ projectId: "p1", projectName: "Project one" }],
+      openDraft: (projectId) => opened.push({ backend, projectId })
+    });
+    await controller.refresh();
+    button.dispatchEvent(new window.Event("click"));
+    await new Promise((resolve) => setImmediate(resolve));
+    const form = document.querySelector("form");
+    form.querySelector('[name="source"] option[value="source-one"]').selected = true;
+    form.querySelector('[name="project"] option[value="project:p1"]').selected = true;
+    form.dispatchEvent(new window.Event("submit", { cancelable: true }));
+    assert.equal(typeof finish, "function");
+    backend = "backend-b";
+    context += 1;
+    backend = "backend-a";
+    context += 1;
+    finish({ ok: true });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(opened, []);
+    assert.match(document.querySelector('[role="alert"]').textContent, /原后端/);
+  } finally {
+    if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+    else delete globalThis.document;
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else delete globalThis.window;
+  }
+});
+
+test("P3: an A-B-A switch cancels a pending recovery before it writes", async () => {
+  const storage = migrationStorage();
+  const first = draftFixture(storage);
+  const second = draftFixture(storage);
+  for (const [view, projectId] of [
+    [first, "p1"],
+    [second, "p2"]
+  ]) {
+    view.session.activate(null, { projectId });
+    view.input.value = projectId;
+    view.setFiles([attached]);
+    view.session.save();
+  }
+  assert.equal(first.session.prepareClose(), true);
+  assert.equal(second.session.prepareClose(), true);
+  const next = draftFixture(storage);
+  next.session.activate(null);
+  next.session.setBackend("backend-a");
+  const [source] = await next.session.listRecoverableDrafts();
+  const pending = next.session.recoverDraft(source.id, { projectId: "p1" });
+  next.session.setBackend("backend-b");
+  next.session.setBackend("backend-a");
+  assert.deepEqual(await pending, { ok: false, reason: "backend" });
+  assert.ok(storage.getItem(source.id));
+  assert.equal(storage.getItem("atria.composer.v1:backend-a:new:p1"), null);
 });
 
 test("P3: an unbound draft is not published when its ownership marker cannot be stored", () => {
