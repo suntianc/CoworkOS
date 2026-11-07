@@ -73,6 +73,8 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 草稿由 [Composer Session](../web/assets/controllers/composer-session.js) 按 Backend 分区：已有 Task 使用后端内唯一的 Task ID，新建会话使用 `new:<编码后的 Project ID>` 或无项目的 `new`。桌面 [草稿存储](../desktop/composer-drafts.cjs) 镜像这些键并保留删除；迁移前记录来源与目的，失败和重启后重试，来源冲突时保留恢复副本与目的删除标记；无法确认归属的旧键保留。连接前草稿按会话暂存，成功关闭后恢复单一可确定的会话；多个归属不明的会话记录保留，绑定时整组记录迁移责任。上传、查看和下载通过 [管理客户端](../web/assets/controllers/management-client.js) 绑定当前后端。验证 [草稿与文件归属](../test/electron-drafts-files.test.js)。P3 引入 Request 时，应以 Backend、Project 和已确认的 Request 身份建立新键；映射确定后先复制旧 Task/新建草稿并验证落盘，再删除来源，无法确定归属的旧记录保留供恢复。
 
+宿主会话授权与草稿共同使用 [组合回归](../test/merge-drafts-transport.test.js) 检查双后端切换、正文取消及迟到响应；[Electron 组合验证](../e2e/electron-merge-combination-desktop.spec.js) 覆盖连接等待、nonce 与草稿重启。
+
 表中测试是起点；跨层修改同时验证消费者。`npm run test:unit -- --file test/xxx.test.js` 会准备构建；轻量检查用 `npm run verify`，发布或广泛影响的修改用 `npm run verify:full`。浏览器命令与原生验收见 [本地测试说明](testing-local-run.md)。
 
 ### 项目经验与个人记忆
