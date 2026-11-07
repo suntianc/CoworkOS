@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { startConfiguredDashboard as startDashboard } from "../test/dashboard-fixture.mjs";
 
 async function nativeBridge(page) {
   await page.addInitScript(() => {
@@ -10,7 +10,6 @@ async function nativeBridge(page) {
     window.__voiceEvent = (event) => listener?.(event);
     window.bookmanDesktop = {
       platform: "darwin",
-      modelStatus: async () => ({ configured: true, model: "browser-fixture" }),
       onPrepareClose() {},
       voiceInput: {
         supported: true,

@@ -35,20 +35,20 @@ const documentPolicy = [
   "frame-ancestors 'none'"
 ].join("; ");
 
-function createBundledWebHandler({ root, getOrigin, fetch }) {
+function createBundledWebHandler({ root, getOrigin, fetch, authorizeRequest = (request) => request }) {
   return async (request) => {
     const url = new URL(request.url);
     let origin;
     try {
       origin = new URL(getOrigin()).origin;
     } catch {
-      return fetch(request, { bypassCustomProtocolHandlers: true });
+      return fetch(authorizeRequest(request), { bypassCustomProtocolHandlers: true });
     }
     const document = url.pathname === "/" || url.pathname === "/index.html";
     const asset =
       url.pathname === "/app.js" || url.pathname === "/styles.css" || url.pathname.startsWith("/assets/");
     if (url.origin !== origin || (!document && !asset))
-      return fetch(request, { bypassCustomProtocolHandlers: true });
+      return fetch(authorizeRequest(request), { bypassCustomProtocolHandlers: true });
     if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
     let relative;
     try {
@@ -82,8 +82,11 @@ function createBundledWebHandler({ root, getOrigin, fetch }) {
   };
 }
 
-function installBundledWeb({ session, net, root, getOrigin }) {
-  session.protocol.handle("http", createBundledWebHandler({ root, getOrigin, fetch: net.fetch.bind(net) }));
+function installBundledWeb({ session, net, root, getOrigin, authorizeRequest }) {
+  session.protocol.handle(
+    "http",
+    createBundledWebHandler({ root, getOrigin, authorizeRequest, fetch: net.fetch.bind(net) })
+  );
 }
 
 module.exports = { createBundledWebHandler, installBundledWeb };

@@ -4,12 +4,13 @@ const { assertTrustedSender } = require("./trusted-content.cjs");
 const valid = (value) => value === "zh-CN" || value === "en";
 
 /** The backend origin changes on restart; desktop language belongs to the profile. */
-function createLanguageHost({ userData, ipcMain, getWindow, getDashboardUrl }) {
+function createLanguageHost({ userData, ipcMain, getWindow, getDashboardUrl, onChange = () => {} }) {
   const file = path.join(userData, "language.json");
   let language = "zh-CN";
   let writes = Promise.resolve();
   const trust = (event) => assertTrustedSender(event, getWindow(), getDashboardUrl());
   return {
+    get: () => language,
     async load() {
       try {
         const saved = JSON.parse(await fs.readFile(file, "utf8"));
@@ -38,6 +39,7 @@ function createLanguageHost({ userData, ipcMain, getWindow, getDashboardUrl }) {
               await fs.writeFile(`${file}.tmp`, JSON.stringify({ language: value }) + "\n", { mode: 0o600 });
               await fs.rename(`${file}.tmp`, file);
               language = value;
+              onChange(value);
             } catch {
               throw new Error("Could not save language preference");
             }

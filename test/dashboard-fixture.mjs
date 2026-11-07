@@ -8,6 +8,19 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const harnessRoot = resolve(new URL("..", import.meta.url).pathname);
 
+/** Configure a synthetic model for desktop-bridge UI tests without calling a provider. */
+export function startConfiguredDashboard(options = {}) {
+  return startDashboard({
+    ...options,
+    config: {
+      baseUrl: "http://127.0.0.1:1/v1",
+      model: "browser-fixture",
+      apiKey: "local-fixture",
+      ...options.config
+    }
+  });
+}
+
 async function freePort() {
   const probe = createServer();
   probe.listen(0, "127.0.0.1");
@@ -57,6 +70,7 @@ export async function startDashboard({
   supervisorIntervalMs = 1000,
   config = {},
   env = {},
+  port: requestedPort,
   blenderExecutable,
   defaultProject = true,
   science
@@ -66,7 +80,7 @@ export async function startDashboard({
   const workspaceRoot = existingWorkspace ?? join(root, "workspace");
   await mkdir(workspaceRoot, { recursive: true });
   await writeFile(join(root, "config.json"), JSON.stringify(config));
-  let port = await freePort();
+  let port = requestedPort ?? (await freePort());
   const isolatedEnv = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|SERPER_|EXA_)/.test(name))
   );

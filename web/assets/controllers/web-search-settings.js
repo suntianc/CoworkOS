@@ -1,26 +1,30 @@
 import { ui } from "../ui/language.js";
 import { createSettingsModal } from "./settings-modal.js";
 import { icon } from "../ui/icons.js";
+import { createSettingsBackend } from "./settings-backend.js";
 
 /** Search credentials are submitted once. Both hosts use the same choices and status vocabulary. */
-export function installWebSearchSettings({ showToast, overview, api }) {
-  const desktop = window.bookmanDesktop;
+export function installWebSearchSettings({ showToast, overview, api, identity = () => location.origin }) {
+  const transport = async (path, options) => {
+    if (api) return api(path, options);
+    const response = await fetch(path, options);
+    const value = await response.json();
+    if (!response.ok) throw new Error(value.error || ui("搜索设置暂时不可用"));
+    return value;
+  };
+  const settingsBackend = createSettingsBackend({ identity, api: transport });
   const request = async (method, body) => {
     const options = {
       method,
       ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {})
     };
-    if (api) return api("/api/web-search-settings", options);
-    const response = await fetch("/api/web-search-settings", options);
-    const value = await response.json();
-    if (!response.ok) throw new Error(value.error || ui("搜索设置暂时不可用"));
-    return value;
+    return settingsBackend.request("/api/web-search-settings", options);
   };
-  const status = async () => (desktop?.webSearchStatus ? desktop.webSearchStatus() : request("GET"));
-  const save = (input) => (desktop?.saveWebSearch ? desktop.saveWebSearch(input) : request("POST", input));
+  const status = () => request("GET");
+  const save = (input) => request("POST", input);
   const row = document.createElement("div");
   row.className = "profile-setting";
-  row.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("search")}</span><span><strong>联网搜索</strong><small data-search-status>正在读取搜索设置…</small></span></span><button type="button" class="app-button is-secondary" data-search-open aria-label="管理联网搜索">配置${icon("chevron-right")}</button>`;
+  row.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("search")}</span><span><strong>联网搜索</strong><small data-search-status></small></span></span><button type="button" class="app-button is-secondary" data-search-open aria-label="管理联网搜索">配置${icon("chevron-right")}</button>`;
   document.querySelector("#profile-settings-connections").append(row);
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
@@ -35,7 +39,7 @@ export function installWebSearchSettings({ showToast, overview, api }) {
       <details class="settings-advanced"><summary>高级设置 · 可选认证${icon("chevron-down")}</summary><div class="settings-advanced-content">
         <label class="settings-field">自有 Exa API Key<input name="exaApiKey" type="password" autocomplete="off" placeholder="可选；留空保留已有密钥"></label>
         <label class="settings-checkbox"><input name="clearExaApiKey" type="checkbox"><span>清除已有 Exa 密钥，使用匿名模式</span></label>
-        <small class="settings-help">${desktop ? ui("密钥由 macOS 加密保存。") : ui("密钥保存在本机私有配置中。")}自有密钥的额度和计费由 Exa 管理；Serper 沿用已有密钥。</small>
+        <small class="settings-help">${ui("密钥保存在执行主机的私有配置中。")}自有密钥的额度和计费由 Exa 管理；Serper 沿用已有密钥。</small>
       </div></details>
     </div><div class="settings-feedback"><p data-search-error role="alert"></p></div>
     <footer class="modal-actions"><button type="submit" class="app-button is-primary">保存设置</button></footer></form></section>`;
@@ -50,7 +54,10 @@ export function installWebSearchSettings({ showToast, overview, api }) {
     loaded = false,
     dirty = false,
     revision = 0,
-    managed = false;
+    managed = false,
+    target,
+    lastStatus;
+  const drafts = new Map();
   const message = (error) =>
     String(error?.message || ui("搜索设置暂时不可用，请稍后重试")).replace(
       /^Error invoking remote method '[^']+': (?:Error: )?/,
@@ -61,6 +68,7 @@ export function installWebSearchSettings({ showToast, overview, api }) {
       ? ui`已启用 · ${value.provider === "exa" ? "Exa" : "Serper"} · ${value.authenticated ? ui("自有密钥") : value.provider === "exa" ? ui("匿名限额") : ui("需配置 Serper 密钥")}`
       : ui("已关闭");
   const display = (value) => {
+    lastStatus = value;
     row.querySelector("[data-search-status]").textContent = label(value);
     panel.querySelector("[data-search-state]").textContent = label(value);
   };
@@ -70,6 +78,44 @@ export function installWebSearchSettings({ showToast, overview, api }) {
   };
   row.querySelector("[data-search-open]").addEventListener("click", async () => {
     if (!dialog.open()) return;
+    const next = identity();
+    if (target !== next) {
+      if (target && dirty)
+        drafts.set(target, {
+          provider: form.elements.provider.value,
+          exaApiKey: form.elements.exaApiKey.value,
+          clearExaApiKey: form.elements.clearExaApiKey.checked,
+          managed,
+          lastStatus
+        });
+      target = next;
+      revision++;
+      busy = false;
+      loading = false;
+      loaded = false;
+      dirty = false;
+      managed = false;
+      lastStatus = undefined;
+      form.elements.provider.value = "exa";
+      form.elements.exaApiKey.value = "";
+      form.elements.clearExaApiKey.checked = false;
+      panel.querySelector("[data-search-error]").textContent = "";
+      panel.querySelector("[data-search-state]").textContent = "";
+      row.querySelector("[data-search-status]").textContent = "";
+      const draft = next && drafts.get(next);
+      if (draft) {
+        settingsBackend.bind();
+        form.elements.provider.value = draft.provider;
+        form.elements.exaApiKey.value = draft.exaApiKey;
+        form.elements.clearExaApiKey.checked = draft.clearExaApiKey;
+        managed = draft.managed;
+        if (draft.lastStatus) display(draft.lastStatus);
+        loaded = true;
+        dirty = true;
+        lock();
+        return;
+      }
+    }
     if (busy || dirty || loading) return;
     const current = ++revision;
     loading = true;
@@ -77,6 +123,7 @@ export function installWebSearchSettings({ showToast, overview, api }) {
     lock();
     panel.querySelector("[data-search-state]").textContent = ui("正在读取搜索设置…");
     try {
+      settingsBackend.bind();
       const value = await status();
       if (current !== revision || busy || dirty) return;
       display(value);
@@ -90,12 +137,15 @@ export function installWebSearchSettings({ showToast, overview, api }) {
       loaded = true;
       lock();
     } catch (error) {
+      if (current !== revision) return;
       panel.querySelector("[data-search-error]").textContent = message(error);
       panel.querySelector("[data-search-state]").textContent = ui("请返回设置后重新进入，重试读取搜索设置。");
       showToast(message(error));
     } finally {
-      loading = false;
-      lock();
+      if (current === revision) {
+        loading = false;
+        lock();
+      }
     }
   });
   form.addEventListener("input", () => {
@@ -105,6 +155,7 @@ export function installWebSearchSettings({ showToast, overview, api }) {
     event.preventDefault();
     if (busy || !loaded || managed) return;
     busy = true;
+    const current = revision;
     lock();
     panel.querySelector("[data-search-error]").textContent = "";
     try {
@@ -113,22 +164,22 @@ export function installWebSearchSettings({ showToast, overview, api }) {
         exaApiKey: form.elements.exaApiKey.value,
         clearExaApiKey: form.elements.clearExaApiKey.checked
       });
+      if (current !== revision) return;
       display(value);
       form.elements.exaApiKey.value = "";
       form.elements.clearExaApiKey.checked = false;
       dirty = false;
+      drafts.delete(target);
       dialog.close();
       showToast(ui("联网搜索设置已保存，后续运行使用新设置"));
     } catch (error) {
+      if (current !== revision) return;
       panel.querySelector("[data-search-error]").textContent = message(error);
     } finally {
-      busy = false;
-      lock();
+      if (current === revision) {
+        busy = false;
+        lock();
+      }
     }
   });
-  void status()
-    .then(display)
-    .catch((error) => {
-      row.querySelector("[data-search-status]").textContent = message(error);
-    });
 }

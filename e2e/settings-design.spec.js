@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { startConfiguredDashboard as startDashboard } from "../test/dashboard-fixture.mjs";
 
 async function desktopSettingsFixture(page) {
   await page.addInitScript(() => {
@@ -11,8 +11,6 @@ async function desktopSettingsFixture(page) {
     };
     window.bookmanDesktop = {
       onPrepareClose() {},
-      modelStatus: async () => ({ configured: true, model: "fixture" }),
-      webSearchStatus: async () => ({ enabled: true, provider: "exa", authenticated: false }),
       updateStatus: async () => update,
       checkUpdates: async () => update,
       applyUpdate: async () => update

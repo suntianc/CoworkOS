@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "../scripts/desktop-dev.mjs";
 import { desktopSmokeEnvironment } from "../scripts/desktop-smoke-env.mjs";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
 test("fresh Keychain helpers preserve the existing Electron ciphertext format", async () => {
   test.skip(process.platform !== "darwin", "macOS Keychain process acceptance");
@@ -66,12 +67,26 @@ test("fresh Keychain helpers preserve the existing Electron ciphertext format", 
     await expect(dialog).toBeHidden();
     await page.reload();
     await expect
-      .poll(() => page.evaluate(async () => (await window.bookmanDesktop.modelStatus()).configured))
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (
+              await (
+                await fetch("/api/model-settings", {
+                  headers: window.bookmanDesktop?.transportNonce
+                    ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+                    : {}
+                })
+              ).json()
+            ).configured
+        )
+      )
       .toBe(true);
     await expect(dialog).toBeHidden();
     await expect(page.locator("#composer-input")).toBeVisible();
   } finally {
     await native?.close();
+    await stopNativeBackend(data);
     await rm(data, { recursive: true, force: true });
   }
 });

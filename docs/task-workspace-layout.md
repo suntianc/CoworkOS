@@ -231,7 +231,9 @@ COWORK_UI_PORT=3881 npm run ui
 │   └── workbench-tabs.json 全局 Tab 索引
 ├── pi/                     App 与 CLI 的 Pi 可变状态
 ├── config.json             CLI / Web 模型配置，权限 0600
-├── model-config.json       模型配置列表、启用项与每组加密密钥
+├── model-config.json       模型配置列表与启用项
+├── credentials.json        执行主机的模型与搜索密钥，权限 0600
+├── client-sessions.json    桌面客户端按后端加密的会话凭据
 ├── model-secret.bin        旧单组 macOS 加密密钥，迁移后保留用于恢复
 ├── composer-drafts.json     跨端口恢复的对话草稿/文本附件，仅指定前缀
 ├── computer-policy.json     桌面全局窗口授权策略；不保存临时会话/截图
@@ -253,7 +255,7 @@ coworkos data import --from /path/to/checkout/.tmp --kind workspace --name old-s
 
 导入结果位于 `~/.atria/imports/<name>/`，工作区会登记到统一历史索引；重启 App 即可查看。重复名称会拒绝覆盖。用户文档、原始消息和旧绝对路径文本保持原内容；外部项目原文件不会搬移。需要从导入的 CLI 原生会话续聊时，使用返回的 `workspaceRoot` 和 `piAgentDir` 设置 `COWORK_WORKSPACE`、`PI_CODING_AGENT_DIR`，再运行 `coworkos --resume`。未迁移的数据也可用旧目录的这些显式覆盖继续恢复，不必删除或移动原目录。
 
-新版开发与正式桌面显示 CoworkOS / CoworkOS Dev；macOS 钥匙串工作进程继续使用 `Atria` 加密身份，以读取已有凭据。旧开发版的 macOS 加密密钥可能因原身份不同而无法解密；密文和源目录保留，界面仍可打开并重新输入密钥。真实钥匙串迁移与跨版本签名身份兼容需独立原生验收。
+新版开发与正式桌面显示 CoworkOS / CoworkOS Dev；客户端会话使用 `CoworkOS Client` 钥匙串身份，旧模型凭据迁移使用 `Atria`。旧开发版的 macOS 加密密钥可能因原身份不同而无法解密；密文和源目录保留，界面仍可打开并重新输入密钥。真实钥匙串迁移与跨版本签名身份兼容需独立原生验收。
 
 `computer-policy.json` 由可信桌面 IPC 原子写入，权限 600，格式为 `{ "version": 1, "policy": { "enabled": false, "mode": "observe" } }`。设置中的窗口访问按钮始终写入 mode=control；旧版已开启的 control 策略保留，旧版仅观察策略恢复时关闭并提示重新开启，原文件不改写。只有 enabled/mode 跨重启恢复；PID、窗口 ID、sessionId、observationId、截图和临时控制权均不持久化。缺失、损坏或未知版本默认关闭，并保留原文件供恢复；旧五分钟手动会话不迁移为全局授权。详见 [Computer Use](computer-use.md)。
 

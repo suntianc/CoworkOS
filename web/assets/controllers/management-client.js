@@ -112,6 +112,8 @@ export function createManagementClient({
   protocolVersion = CLIENT_PROTOCOL_VERSION,
   fetch: fetchImpl = (...args) => globalThis.fetch(...args),
   authorizeSession,
+  hostManagedSession = false,
+  transportHeaders = {},
   storage = memoryStorage(),
   targetStorage = memoryStorage(),
   events = {},
@@ -120,6 +122,8 @@ export function createManagementClient({
   let state = {
     status: "idle",
     backendId: null,
+    pid: null,
+    startedAt: null,
     baseUrl: "",
     protocol: null,
     capabilities: [],
@@ -133,7 +137,14 @@ export function createManagementClient({
   let epoch = 0;
   let eventsClient;
   const inflight = new Set();
-  const sessions = readJson(storage, SESSION_STORE, {});
+  const sessions = hostManagedSession ? {} : readJson(storage, SESSION_STORE, {});
+  if (hostManagedSession) {
+    try {
+      storage?.removeItem(SESSION_STORE);
+    } catch {
+      // An unavailable session store does not affect the host-owned session.
+    }
+  }
 
   const publicState = () => ({
     ...state,
@@ -158,8 +169,8 @@ export function createManagementClient({
   }
 
   function authHeaders(extra = {}) {
-    const headers = { ...extra };
-    if (token) headers["x-atria-token"] = token;
+    const headers = { ...transportHeaders, ...extra };
+    if (typeof token === "string") headers["x-atria-token"] = token;
     return headers;
   }
 
@@ -259,6 +270,8 @@ export function createManagementClient({
     update({
       status: "connected",
       backendId: backend?.backendId ?? null,
+      pid: backend?.pid ?? null,
+      startedAt: backend?.startedAt ?? null,
       protocol,
       capabilities: [...protocol.capabilities],
       sessionId: session?.sessionId ?? null,
@@ -329,34 +342,49 @@ export function createManagementClient({
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
     inflight.add(controller);
-    try {
-      const response = await fetchImpl(absoluteUrl(path), {
-        ...rest,
-        method,
-        headers: authHeaders({
-          ...(json === undefined ? {} : { "content-type": "application/json" }),
-          ...headers
-        }),
-        ...(json === undefined ? {} : { body: JSON.stringify(json) }),
-        ...(body === undefined ? {} : { body }),
-        signal: controller.signal,
-        // A trusted other local backend authorizes with the host cookie the
-        // browser holds for this machine; same-origin requests are unaffected.
-        credentials: "include",
-        cache: "no-store"
-      });
+    const assertCurrent = () => {
       if (at !== epoch)
         throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
+      if (controller.signal.aborted) throw new DOMException("请求已取消", "AbortError");
+    };
+    try {
+      let response;
+      try {
+        response = await fetchImpl(absoluteUrl(path), {
+          ...rest,
+          method,
+          headers: authHeaders({
+            ...(json === undefined ? {} : { "content-type": "application/json" }),
+            ...headers
+          }),
+          ...(json === undefined ? {} : { body: JSON.stringify(json) }),
+          ...(body === undefined ? {} : { body }),
+          signal: controller.signal,
+          // The selected backend receives its host-managed transport header.
+          credentials: "include",
+          cache: "no-store"
+        });
+      } catch (error) {
+        assertCurrent();
+        if (error?.name === "AbortError") throw error;
+        throw new ManagementClientError("无法联系后端，请确认本机后端仍在运行。", {
+          code: "network",
+          network: true
+        });
+      }
+      assertCurrent();
       if (!response.ok) {
         let payload = {};
         try {
           payload = await parse(response);
-        } catch {
+        } catch (error) {
+          assertCurrent();
+          if (error?.name === "AbortError") throw error;
           /* the status still names the outcome */
         }
-        if (at !== epoch)
-          throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
+        assertCurrent();
         const detail = payload?.error;
         const error = new ManagementClientError(
           typeof detail === "string" ? detail : detail?.message || `请求失败（HTTP ${response.status}）`,
@@ -366,27 +394,26 @@ export function createManagementClient({
           }
         );
         if (typeof detail === "object" && detail) {
-          // The workbench editor branches on these to tell a revision conflict
-          // from a network failure instead of parsing prose.
+          // The editor uses structured revision and retry information.
           if (detail.details !== undefined) error.details = detail.details;
           if (detail.retryable !== undefined) error.retryable = Boolean(detail.retryable);
         }
         if (response.status === 401) rejectCurrentSession(requestToken, error);
         throw error;
       }
-      const result = await parse(response);
-      if (at !== epoch)
-        throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
+      let result;
+      try {
+        result = await parse(response);
+      } catch (error) {
+        assertCurrent();
+        if (error?.name === "AbortError" || error instanceof ManagementClientError) throw error;
+        throw new ManagementClientError("无法联系后端，请确认本机后端仍在运行。", {
+          code: "network",
+          network: true
+        });
+      }
+      assertCurrent();
       return result;
-    } catch (error) {
-      if (at !== epoch)
-        throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
-      if (error?.name === "AbortError" || error instanceof ManagementClientError) throw error;
-      if (controller.signal.aborted) throw error;
-      throw new ManagementClientError("无法联系后端，请确认本机后端仍在运行。", {
-        code: "network",
-        network: true
-      });
     } finally {
       inflight.delete(controller);
       signal?.removeEventListener("abort", abort);
@@ -405,7 +432,7 @@ export function createManagementClient({
    * all. A revoked session is never silently replaced: the person sees the
    * refusal and reauthorizes.
    */
-  async function authorize({ baseUrl: target = state.baseUrl } = {}) {
+  async function authorize({ baseUrl: target = state.baseUrl, reuse = false } = {}) {
     epoch += 1;
     abortInflight();
     stopEvents();
@@ -414,6 +441,8 @@ export function createManagementClient({
       status: "connecting",
       baseUrl: target,
       backendId: null,
+      pid: null,
+      startedAt: null,
       protocol: null,
       capabilities: [],
       sessionId: null,
@@ -423,7 +452,12 @@ export function createManagementClient({
     try {
       const at = epoch;
       const result = authorizeSession
-        ? await authorizeSession({ clientName, protocolVersion, baseUrl: target })
+        ? await authorizeSession({
+            clientName,
+            protocolVersion,
+            baseUrl: target,
+            ...(hostManagedSession ? { reuse } : {})
+          })
         : await send("/api/session", {
             method: "POST",
             json: { clientName, protocolVersion }
@@ -431,17 +465,19 @@ export function createManagementClient({
       if (at !== epoch)
         throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
       const session = result?.session;
-      if (!session?.token || typeof session.token !== "string")
+      if (hostManagedSession ? !session?.sessionId : !session?.token || typeof session.token !== "string")
         throw new ManagementClientError("后端未返回有效的本地会话", { code: "session_invalid" });
-      token = session.token;
-      sessions[sessionKey(target)] = {
-        backendId: result.backend?.backendId,
-        sessionId: session.sessionId,
-        token: session.token,
-        clientName,
-        protocolVersion
-      };
-      writeJson(storage, SESSION_STORE, sessions);
+      token = hostManagedSession ? true : session.token;
+      if (!hostManagedSession) {
+        sessions[sessionKey(target)] = {
+          backendId: result.backend?.backendId,
+          sessionId: session.sessionId,
+          token: session.token,
+          clientName,
+          protocolVersion
+        };
+        writeJson(storage, SESSION_STORE, sessions);
+      }
       return bind(session, result.backend, result.protocol);
     } catch (error) {
       if (error?.stale) return publicState();
@@ -473,6 +509,7 @@ export function createManagementClient({
    */
   async function connect({ baseUrl: next = state.baseUrl, reuse = true } = {}) {
     const target = normalizeBackendUrl(next);
+    if (hostManagedSession) return authorize({ baseUrl: target, reuse });
     const stored = reuse ? sessions[sessionKey(target)] : undefined;
     if (!stored) return authorize({ baseUrl: target });
     epoch += 1;
@@ -483,6 +520,8 @@ export function createManagementClient({
       status: "connecting",
       baseUrl: target,
       backendId: null,
+      pid: null,
+      startedAt: null,
       protocol: null,
       capabilities: [],
       sessionId: null,

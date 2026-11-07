@@ -78,7 +78,7 @@ Finder/Dock 启动的 macOS App 会将存在的 `~/.local/bin`、Homebrew `bin`/
 
 ## 连接存储与兼容
 
-App 使用 Electron safeStorage 的 macOS 加密能力；Web / CLI 通常使用权限为 0600 的本机 JSON。App 的模型、搜索和组件凭据共用钥匙串保存行为：失败或取消时保留表单和旧配置，再次保存重试，不自动改为明文。
+App 使用 Electron safeStorage 加密客户端会话凭据，保存在桌面数据目录的 `client-sessions.json`；系统授权失败时显示错误，重试不会覆盖已保存凭据。模型和搜索密钥属于所选执行主机。
 
 独立执行主机把模型与搜索密钥保存在配置文件旁的 `credentials.json`（0600，可用 `COWORK_CREDENTIALS` 指定路径）。设置接口只返回 `configured`、`credentialUnavailable` 或 `secretUnavailable` 及具体 `credentialError`，不返回密钥；空白密钥保留原值，显式清除搜索密钥会删除保存项。旧桌面密文在迁移前按不可用处理，不会被报告为已配置。
 
@@ -86,7 +86,7 @@ App 使用 Electron safeStorage 的 macOS 加密能力；Web / CLI 通常使用�
 
 旧单组连接显示为“默认配置”。首次保存多组配置前创建 `.before-model-profiles` 备份，并保留旧桌面 `model-secret.bin`；未知版本拒绝覆盖。恢复备份前先退出应用，配置和备份均按私有数据管理。
 
-正式版和开发版通过独立的钥匙串进程使用相同的 `Atria` 加密标识，开发窗口显示 CoworkOS Dev。旧开发标识加密的密钥可能需要重新输入，原密文与源目录保留。原生钥匙串和签名兼容需单独验收。
+客户端会话使用独立钥匙串进程的 `CoworkOS Client` 加密标识；旧模型密文转换仍使用 `Atria` 标识。旧开发标识加密的密钥可能需要重新输入，原密文与源目录保留。原生钥匙串和签名兼容需单独验收。
 
 ## 独立视觉连接
 

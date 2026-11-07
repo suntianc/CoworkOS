@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { startConfiguredDashboard as startDashboard } from "../test/dashboard-fixture.mjs";
 
 async function openSettings(page) {
   await page.locator("#user-menu-button").click();
@@ -56,7 +56,6 @@ async function hostFixture(page) {
         if (input.operation === "policy") window.__lastPolicyResult = result;
         return result;
       },
-      modelStatus: async () => ({ configured: true, supportsImages: true }),
       onPrepareClose() {}
     };
   });

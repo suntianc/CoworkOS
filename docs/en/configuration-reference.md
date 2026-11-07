@@ -78,7 +78,7 @@ On macOS, Finder/Dock launches add existing `~/.local/bin`, Homebrew `bin`/`sbin
 
 ## Connection storage and compatibility
 
-The App uses Electron safeStorage's macOS encryption. Web / CLI typically use local JSON with mode 0600. The App's model, search and component credentials share Keychain save behavior: failure or cancellation preserves the form and previous configuration, and another Save retries without falling back to plaintext.
+The App encrypts client session credentials with Electron safeStorage in `client-sessions.json` in the desktop data directory. A system authorization failure is displayed and a retry preserves the saved credentials. Model and search keys belong to the selected execution host.
 
 The standalone execution host keeps model and search keys in `credentials.json` (mode 0600) beside its configuration; `COWORK_CREDENTIALS` selects another path. Settings responses carry only `configured`, `credentialUnavailable` or `secretUnavailable`, and a concrete `credentialError`; they never return a key. A blank key keeps the stored value, and explicitly clearing the search key removes it. Old desktop ciphertext counts as unavailable until migrated and is never reported as configured.
 
@@ -86,7 +86,7 @@ To convert an old Electron configuration once, stop the backend and run `node sc
 
 Legacy single connections appear as Default configuration. The first multi-profile save creates a `.before-model-profiles` backup and retains the old desktop `model-secret.bin`. Unknown versions cannot be overwritten. Quit before restoring a backup, and treat configurations and backups as private data.
 
-Release and development Apps use the same `Atria` encryption identity through a separate Keychain process; the development window shows CoworkOS Dev. Keys encrypted under the previous development identity may need re-entry. Original ciphertext and source directories remain available. Native Keychain and signing compatibility require separate acceptance checks.
+Client sessions use the `CoworkOS Client` encryption identity through a separate Keychain process; legacy model migration continues to use `Atria`. Keys encrypted under the previous development identity may need re-entry. Original ciphertext and source directories remain available. Native Keychain and signing compatibility require separate acceptance checks.
 
 ## Separate vision connection
 

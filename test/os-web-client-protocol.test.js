@@ -354,6 +354,93 @@ test("a file response whose body finishes after switching backends is discarded"
   await assert.rejects(pending, (error) => error.code === "stale_client");
 });
 
+for (const status of [200, 401])
+  test(`a settings JSON ${status} body finishing after switching A to B and back is discarded`, async (t) => {
+    const first = await createRoot("cowork-settings-body-a-");
+    const second = await createRoot("cowork-settings-body-b-");
+    const a = await startBackend(first);
+    const b = await startBackend(second);
+    t.after(async () => {
+      await stopQuietly(first);
+      await stopQuietly(second);
+      await rm(first.base, { recursive: true, force: true });
+      await rm(second.base, { recursive: true, force: true });
+    });
+    let releaseBody, bodyStarted;
+    const bodyGate = new Promise((resolve) => {
+      releaseBody = resolve;
+    });
+    const started = new Promise((resolve) => {
+      bodyStarted = resolve;
+    });
+    const { client } = clientFor([a, b], {
+      fetch: (url, options) => {
+        if (!String(url).endsWith("/api/model-settings")) return;
+        return fetch(url, options).then((response) => ({
+          ok: status === 200,
+          status,
+          headers: response.headers,
+          async text() {
+            bodyStarted();
+            await bodyGate;
+            const text = await response.text();
+            return status === 200 ? text : JSON.stringify({ error: "old session revoked" });
+          }
+        }));
+      }
+    });
+    t.after(() => client.stop());
+    assert.equal((await client.connect({ baseUrl: a.url })).backendId, a.backendId);
+    const pending = client.request("/api/model-settings");
+    await started;
+    assert.equal((await client.switchBackend({ baseUrl: b.url })).backendId, b.backendId);
+    assert.equal((await client.switchBackend({ baseUrl: a.url })).backendId, a.backendId);
+    releaseBody();
+    await assert.rejects(pending, (error) => error.code === "stale_client");
+    assert.equal(client.state().status, "connected");
+    assert.equal(client.state().backendId, a.backendId);
+  });
+
+test("cancelling an error response body does not revoke the current session", async (t) => {
+  const root = await createRoot("cowork-cancel-error-body-");
+  const backend = await startBackend(root);
+  t.after(async () => {
+    await stopQuietly(root);
+    await rm(root.base, { recursive: true, force: true });
+  });
+  let releaseBody, bodyStarted;
+  const bodyGate = new Promise((resolve) => {
+    releaseBody = resolve;
+  });
+  const started = new Promise((resolve) => {
+    bodyStarted = resolve;
+  });
+  const { client } = clientFor(backend, {
+    fetch: (url, options) => {
+      if (!String(url).endsWith("/api/model-settings")) return;
+      return fetch(url, options).then((response) => ({
+        ok: false,
+        status: 401,
+        headers: response.headers,
+        async text() {
+          bodyStarted();
+          await bodyGate;
+          return response.text();
+        }
+      }));
+    }
+  });
+  t.after(() => client.stop());
+  assert.equal((await client.connect({ baseUrl: backend.url })).status, "connected");
+  const controller = new AbortController();
+  const pending = client.request("/api/model-settings", { signal: controller.signal });
+  await started;
+  controller.abort();
+  releaseBody();
+  await assert.rejects(pending, (error) => error.name === "AbortError");
+  assert.equal(client.state().status, "connected");
+});
+
 test("a browser client authorizes, reads projects, follows Task events and downloads an artifact", async (t) => {
   const root = await createRoot("cowork-web-client-", {
     COWORK_API_TOKEN: HOST_CREDENTIAL

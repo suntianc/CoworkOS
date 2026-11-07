@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { chmod, copyFile, mkdir, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { coworkConfigPath, readCoworkConfig, type CoworkConfig } from "../runtime/config.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { configuredSupportsImages } from "../runtime/runtime-settings.js";
@@ -35,7 +35,11 @@ export function createModelSettings(
   const path = coworkConfigPath(root);
   const store = new HostCredentialStore(options.credentialsPath ?? hostCredentialsPath(path));
   if (!store.error) applyHostCredentials(config, store.value);
-  const credentialError = () => store.error ?? unavailableModelCredential(config);
+  const legacyCredential = () =>
+    !config.modelConnections && !config.apiKey && existsSync(join(dirname(path), "model-secret.bin"))
+      ? "已保存的模型密钥由旧版桌面宿主加密；请重新填写 API Key，或先运行桌面配置迁移工具"
+      : undefined;
+  const credentialError = () => store.error ?? unavailableModelCredential(config) ?? legacyCredential();
   const status = () => {
     const error = credentialError();
     return {
@@ -67,7 +71,7 @@ export function createModelSettings(
         process.env.COWORK_THINKING_FORMAT !== undefined ||
         process.env.COWORK_CONTEXT_WINDOW !== undefined
       ),
-      credentialUnavailable: Boolean(unavailableModelCredential(config)),
+      credentialUnavailable: Boolean(unavailableModelCredential(config) || legacyCredential()),
       ...(error ? { credentialError: error } : {})
     };
   };

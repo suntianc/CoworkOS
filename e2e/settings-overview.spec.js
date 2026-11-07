@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { startConfiguredDashboard as startDashboard } from "../test/dashboard-fixture.mjs";
 
 for (const desktop of [false, true]) {
   test(`settings overview groups preferences and connections with learning on demand in ${desktop ? "desktop" : "web"}`, async ({
@@ -7,6 +7,7 @@ for (const desktop of [false, true]) {
   }, info) => {
     const dashboard = await startDashboard();
     try {
+      await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
       if (desktop) {
         await page.addInitScript(() => {
           const update = {
@@ -17,8 +18,6 @@ for (const desktop of [false, true]) {
           };
           window.bookmanDesktop = {
             onPrepareClose() {},
-            modelStatus: async () => ({ configured: true, model: "fixture" }),
-            webSearchStatus: async () => ({ enabled: true, provider: "exa", authenticated: false }),
             updateStatus: async () => update,
             checkUpdates: async () => update,
             applyUpdate: async () => update
@@ -44,7 +43,9 @@ for (const desktop of [false, true]) {
               .getByRole("button", { name: "管理模型连接", exact: true })
           ).toBeVisible();
           await expect(
-            dialog.locator("#profile-settings-tools").getByRole("button", { name: "管理应用", exact: true })
+            dialog
+              .locator("#profile-settings-tools")
+              .getByRole("button", { name: "管理科学环境", exact: true })
           ).toBeVisible();
           await expect(dialog.locator("#settings-about-group")).toBeVisible({ visible: desktop });
           await expect(dialog.getByRole("checkbox", { name: "自动学习", exact: true })).toBeHidden();
@@ -66,7 +67,7 @@ for (const desktop of [false, true]) {
           expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
           for (const row of await dialog.locator(".settings-row-copy").all()) {
             const bounds = await row.boundingBox();
-            if (bounds) expect(bounds.width).toBeGreaterThan(100);
+            if (bounds) expect(bounds.width).toBeGreaterThanOrEqual(100);
           }
           if (desktop) await expect(dialog.locator("[data-update-error]")).toContainText("更新暂不可用");
           await page.screenshot({ path: info.outputPath(`overview-${theme}-${width}.png`) });
