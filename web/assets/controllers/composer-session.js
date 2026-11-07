@@ -19,7 +19,7 @@ export function createComposerSession({
   const prebindRoot = `${legacyPrefix}__prebind__:`;
   const prebindId = randomId();
   let prebindPrefix = `${prebindRoot}${prebindId}:`;
-  let pendingStageBind = false;
+  let pendingStageBind;
   const journalKey = `${legacyPrefix}migration-journal:active`;
   /**
    * Drafts belong to one backend. The prefix keeps a conversation started
@@ -291,14 +291,19 @@ export function createComposerSession({
     prebindPrefix = chosen[0];
     writeRecord(prebindPrefix + "active", `live:${prebindId}`);
   };
+  const cleanupEmptyPrebind = () => {
+    const marker = prebindPrefix + "active";
+    if (pendingStorage.has(marker) || prebindEntries(prebindPrefix).length) return;
+    const owner = JSON.parse(storage?.getItem(marker) || "null");
+    if (owner === `live:${prebindId}` || owner === `ready:${prebindId}`) writeRecord(marker, null);
+  };
   const migratePrebind = (backendId) => {
-    let marker = prebindPrefix + "active";
+    const marker = prebindPrefix + "active";
     if (pendingStorage.has(marker) || (prebindEntries(prebindPrefix).length && !claimPrebind())) {
-      pendingStageBind = true;
+      pendingStageBind ??= backendId;
       return;
     }
-    marker = prebindPrefix + "active";
-    pendingStageBind = false;
+    pendingStageBind = undefined;
     const sources = prebindEntries(prebindPrefix);
     const writes = [];
     for (const sourceKey of sources) {
@@ -330,7 +335,7 @@ export function createComposerSession({
     }
     for (const [destination, staged] of writes) writeRecord(destination, staged);
     finishMigrations();
-    if (!prebindEntries(prebindPrefix).length && storage?.getItem(marker) !== null) writeRecord(marker, null);
+    cleanupEmptyPrebind();
   };
   const restoreMigrations = () => {
     try {
@@ -540,11 +545,18 @@ export function createComposerSession({
       }
       finishMigrations();
       if (namespace && pendingStageBind) {
+        const target = pendingStageBind;
         const wasEmpty =
-          current !== undefined && !input.value && !getAttachments().length && !editing && !read(current);
-        migratePrebind(namespace);
+          namespace === target &&
+          current !== undefined &&
+          !input.value &&
+          !getAttachments().length &&
+          !editing &&
+          !read(current);
+        migratePrebind(target);
         if (wasEmpty && read(current)) showDraft(read(current));
       }
+      if (namespace && !pendingStageBind) cleanupEmptyPrebind();
       if (!namespace && !pendingStorage.size && !pendingMigrations.size && !invalidJournal) {
         const marker = prebindPrefix + "active";
         if (prebindEntries(prebindPrefix).length) {

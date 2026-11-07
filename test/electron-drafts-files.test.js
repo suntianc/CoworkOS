@@ -431,6 +431,68 @@ test("P3: a failed recovery claim retries and restores the visible draft", () =>
   assert.deepEqual(next.files(), [attached]);
 });
 
+test("P3: a failed claim retains its first backend across another switch", () => {
+  const storage = migrationStorage();
+  const first = draftFixture(storage);
+  first.session.activate(null, { projectId: "p1" });
+  first.input.value = "belongs to B";
+  first.setFiles([attached]);
+  first.session.save();
+  assert.equal(first.session.prepareClose(), true);
+  const setItem = storage.setItem.bind(storage);
+  let fail = true;
+  storage.setItem = (key, value) => {
+    if (
+      fail &&
+      key.includes(":__prebind__:") &&
+      key.endsWith(":active") &&
+      JSON.parse(value).startsWith("live:")
+    )
+      throw new Error("claim unavailable");
+    setItem(key, value);
+  };
+  const next = draftFixture(storage);
+  next.session.activate(null);
+  next.session.setBackend("backend-b");
+  next.session.activate(null, { projectId: "p1" });
+  next.session.setBackend("backend-a");
+  next.session.activate(null, { projectId: "p1" });
+  fail = false;
+  assert.equal(next.session.prepareClose(), true);
+  assert.equal(next.input.value, "");
+  assert.deepEqual(next.files(), []);
+  next.session.setBackend("backend-b");
+  next.session.activate(null, { projectId: "p1" });
+  assert.equal(next.input.value, "belongs to B");
+  assert.deepEqual(next.files(), [attached]);
+});
+
+test("P3: a recovered journal removes the now-empty session marker", () => {
+  const storage = migrationStorage();
+  const view = draftFixture(storage);
+  view.session.activate(null, { projectId: "p1" });
+  view.input.value = "retry journal";
+  view.setFiles([attached]);
+  view.session.save();
+  const setItem = storage.setItem.bind(storage);
+  let fail = true;
+  storage.setItem = (key, value) => {
+    if (fail && key === "atria.composer.v1:migration-journal:active") throw new Error("journal unavailable");
+    setItem(key, value);
+  };
+  view.session.setBackend("backend-a");
+  view.session.activate(null, { projectId: "p1" });
+  assert.equal(view.session.prepareClose(), false);
+  fail = false;
+  assert.equal(view.session.prepareClose(), true);
+  assert.equal(view.input.value, "retry journal");
+  assert.deepEqual(view.files(), [attached]);
+  assert.equal(
+    [...storage.records.keys()].some((key) => key.includes(":__prebind__:")),
+    false
+  );
+});
+
 test("P3: interruption between multiple project migrations retains every project's backend", async () => {
   const root = await mkdtemp(join(tmpdir(), "prebind-batch-"));
   const file = join(root, "storage.json");
