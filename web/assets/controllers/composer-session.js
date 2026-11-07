@@ -433,7 +433,9 @@ export function createComposerSession({
               // Keep a conflicting legacy record as a recovery copy. Only its
               // original owner may retry the migration on a later launch.
               if (hasRecord(destination) && JSON.stringify(existing) !== JSON.stringify(value)) {
+                migrationConflicts.set(destination, { sourceKey: key, legacy: true });
                 protectedDestinations.add(destination);
+                persistJournal();
                 continue;
               }
               registerMigration(

@@ -146,6 +146,40 @@ test("S1: deleting a destination with a conflicting legacy source remains delete
   assert.equal(storage.getItem("atria.composer.v1:new"), source);
 });
 
+test("S1: a conflict remains protected when restarting in B before deleting in A", () => {
+  const storage = migrationStorage();
+  const source = JSON.stringify({ text: "legacy source", attachments: [attached] });
+  storage.setItem("atria.composer.v1:new", source);
+  storage.setItem(
+    "atria.composer.v1:backend-a:new",
+    JSON.stringify({ text: "A destination", attachments: [attached] })
+  );
+  const initial = draftFixture(storage);
+  initial.session.activate(null);
+  initial.session.setBackend("backend-a");
+  initial.session.activate(null);
+  assert.equal(initial.input.value, "A destination");
+  assert.equal(initial.session.prepareClose(), true);
+  const restartedB = draftFixture(storage);
+  restartedB.session.activate(null);
+  restartedB.session.setBackend("backend-b");
+  restartedB.session.activate(null);
+  restartedB.session.setBackend("backend-a");
+  restartedB.session.activate(null);
+  assert.equal(restartedB.input.value, "A destination");
+  restartedB.input.value = "";
+  restartedB.setFiles([]);
+  restartedB.session.save();
+  assert.equal(restartedB.session.prepareClose(), true);
+  const restartedA = draftFixture(storage);
+  restartedA.session.activate(null);
+  restartedA.session.setBackend("backend-a");
+  restartedA.session.activate(null);
+  assert.equal(restartedA.input.value, "");
+  assert.deepEqual(restartedA.files(), []);
+  assert.equal(storage.getItem("atria.composer.v1:new"), source);
+});
+
 test("S2: quota failure cannot move an unmarked backend task into another backend", () => {
   const capacity = 1200;
   const storage = migrationStorage(capacity);
