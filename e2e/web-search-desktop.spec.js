@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { developmentExecutable } from "../scripts/desktop-dev.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 import { exaMcpFixture, sourceConversationFixture } from "../test/exa-mcp-fixture.mjs";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
 test("native App after normal model setup performs anonymous search and source fetch without a search key", async () => {
   test.skip(process.platform !== "darwin", "Native App acceptance requires macOS");
@@ -39,11 +40,18 @@ test("native App after normal model setup performs anonymous search and source f
     await dialog.locator('[name="api"]').selectOption("openai-completions");
     await dialog.locator('[name="model"]').fill("protocol-fixture");
     await dialog.locator('[name="apiKey"]').fill("synthetic-model-key");
-    const oldUrl = page.url();
     await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect.poll(() => page.url()).not.toBe(oldUrl);
+    await expect(dialog).toBeHidden();
     await expect(page.locator("#composer-input")).toBeVisible();
-    const status = await page.evaluate(() => window.bookmanDesktop.webSearchStatus());
+    const status = await page.evaluate(async () =>
+      (
+        await fetch("/api/web-search-settings", {
+          headers: window.bookmanDesktop?.transportNonce
+            ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+            : {}
+        })
+      ).json()
+    );
     expect(status.provider).toBe("exa");
     expect(status.authenticated).toBe(false);
     expect(status).not.toHaveProperty("exaApiKey");
@@ -63,21 +71,31 @@ test("native App after normal model setup performs anonymous search and source f
       const searchDialog = page.getByRole("dialog", { name: "联网搜索", exact: true });
       await searchDialog.locator('[name="provider"]').selectOption(provider);
       if (key || clear) {
-        await searchDialog.getByText("高级设置 · 可选认证", { exact: true }).click();
+        const advanced = searchDialog.locator("details.settings-advanced");
+        if (!(await advanced.evaluate((element) => element.open)))
+          await searchDialog.getByText("高级设置 · 可选认证", { exact: true }).click();
         if (key) await searchDialog.locator('[name="exaApiKey"]').fill(key);
         if (clear) await searchDialog.locator('[name="clearExaApiKey"]').check();
       }
-      const previousUrl = page.url();
       await searchDialog.getByRole("button", { name: "保存设置" }).click();
-      await expect.poll(() => page.url()).not.toBe(previousUrl);
+      await expect(searchDialog).toBeHidden();
       await expect(page.locator("#composer-input")).toBeVisible();
-      return page.evaluate(() => window.bookmanDesktop.webSearchStatus());
+      return page.evaluate(async () =>
+        (
+          await fetch("/api/web-search-settings", {
+            headers: window.bookmanDesktop?.transportNonce
+              ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+              : {}
+          })
+        ).json()
+      );
     };
     expect((await saveSearch("off")).enabled).toBe(false);
     expect((await saveSearch("exa", "synthetic-exa-key")).authenticated).toBe(true);
     expect((await saveSearch("exa", "", true)).authenticated).toBe(false);
   } finally {
     await native?.close();
+    await stopNativeBackend(root);
     await provider.close();
     await exa.close();
     await rm(root, { recursive: true, force: true });

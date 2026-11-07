@@ -1,9 +1,16 @@
 import { ui } from "../ui/language.js";
 import { installWebSearchSettings } from "./web-search-settings.js";
 import { createSettingsModal } from "./settings-modal.js";
+import { createSettingsBackend } from "./settings-backend.js";
 import { icon } from "../ui/icons.js";
 /** Both hosts share one settings UI; keys are submitted once and never read back. */
-export function installDesktopSettings({ showToast, onSaved, overview, api }) {
+export function installDesktopSettings({
+  showToast,
+  onSaved,
+  overview,
+  api,
+  identity = () => location.origin
+}) {
   const desktop = window.bookmanDesktop;
   const errorMessage = (error) => {
     const message = typeof error?.message === "string" ? error.message : ui("模型设置暂时不可用，请稍后重试");
@@ -13,12 +20,15 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
   };
   if (desktop?.onDraftError) desktop.onDraftError((message) => showToast(errorMessage({ message })));
   else if (desktop?.draftWarning) showToast(desktop.draftWarning);
-  const request = async (method, body, path = "/api/model-settings") => {
-    const options = {
-      method,
-      ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {})
-    };
-    // The Web host reads and writes settings through the shared backend client.
+  if (desktop?.capabilities) {
+    const row = document.createElement("div");
+    row.className = "profile-setting";
+    const notice = desktop.capabilities.notifications ? ui("支持") : ui("不可用");
+    const tray = desktop.capabilities.tray ? ui("支持") : ui("不可用");
+    row.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("bell")}</span><span><strong>桌面能力</strong><small>通知：${notice} · 托盘：${tray}</small></span></span>`;
+    document.querySelector("#profile-settings-general").append(row);
+  }
+  const transport = async (path, options) => {
     if (api) return api(path, options);
     const response = await fetch(path, options);
     let result;
@@ -31,10 +41,17 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
       throw new Error(typeof result?.error === "string" ? result.error : ui("模型设置无法读取"));
     return result;
   };
-  const status = () => (desktop ? desktop.modelStatus() : request("GET"));
-  const save = (body) => (desktop ? desktop.saveModel(body) : request("POST", body));
-  const test = (body) =>
-    desktop ? desktop.testModel(body) : request("POST", body, "/api/model-settings/test");
+  const settingsBackend = createSettingsBackend({ identity, api: transport });
+  const request = async (method, body, path = "/api/model-settings") => {
+    const options = {
+      method,
+      ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {})
+    };
+    return settingsBackend.request(path, options);
+  };
+  const status = () => request("GET");
+  const save = (body) => request("POST", body);
+  const test = (body) => request("POST", body, "/api/model-settings/test");
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
   panel.hidden = true;
@@ -47,7 +64,7 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
         <label class="settings-field">模型 ID<input name="model" required placeholder="填写服务商提供的模型 ID"></label>
         <label class="settings-field model-full-width">API 地址<input name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
         <label class="settings-field">消息格式<select name="api"><option value="openai-responses">Responses</option><option value="openai-completions">Chat Completions</option></select></label>
-        <label class="settings-field">API Key<input name="apiKey" type="password" autocomplete="off" aria-label="API Key" aria-describedby="model-key-help"><small class="settings-help" id="model-key-help">${desktop ? ui("密钥由 macOS 加密保存。") : ui("密钥保存在本机私有配置中。")}</small></label>
+        <label class="settings-field">API Key<input name="apiKey" type="password" autocomplete="off" aria-label="API Key" aria-describedby="model-key-help"><small class="settings-help" id="model-key-help">${ui("密钥保存在执行主机的私有配置中。")}</small></label>
       </div>
       <div class="settings-capabilities">
         <label class="settings-toggle"><span><strong>此模型支持图像输入</strong><small>未启用时，历史图片不会发送给模型；原图仍保留。</small></span><input name="supportsImages" type="checkbox" aria-label="此模型支持图像输入"></label>
@@ -78,6 +95,8 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
   let snapshot = {};
   let selectedId = "";
   const drafts = new Map();
+  const backendDrafts = new Map();
+  let target;
   let busy = false;
   let loading = false;
   let loaded = false;
@@ -124,19 +143,76 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
     form.elements.apiKey.required = !value.configured;
     panel.querySelector("[data-model-error]").textContent = managed
       ? ui("当前连接由启动环境管理，请在启动配置中修改。")
-      : "";
+      : snapshot.credentialError || "";
     panel.querySelector("[data-model-result]").textContent = ui("测试连接会消耗模型额度。");
     activateButton.hidden = managed || !snapshot.activeProfileId || selectedId === snapshot.activeProfileId;
     setBusy(false);
   };
   picker.addEventListener("change", () => {
-    drafts.set(selectedId, { ...values(), configured: !form.elements.apiKey.required });
+    drafts.set(selectedId, readDraft());
     selectedId = picker.value;
     fill(drafts.get(selectedId) || snapshot.profiles?.find((p) => p.id === selectedId) || {});
   });
+  const showProfiles = () => {
+    picker.replaceChildren();
+    for (const profile of snapshot.profiles || []) {
+      const option = document.createElement("option");
+      option.value = profile.id;
+      option.textContent = `${profile.name}${profile.id === snapshot.activeProfileId ? ui(" · 当前启用") : ""}`;
+      picker.append(option);
+    }
+    const add = document.createElement("option");
+    add.value = "";
+    add.textContent = ui("＋ 新增配置");
+    picker.append(add);
+    picker.value = selectedId;
+    const active = snapshot.profiles?.find((p) => p.id === snapshot.activeProfileId);
+    panel.querySelector("[data-model-active]").textContent = active
+      ? ui`当前启用：${active.name} · ${snapshot.model}`
+      : ui("尚未启用模型连接");
+  };
   const open = async () => {
     // Reopening a pending operation keeps the same locked form and result target.
     if (!dialog.open()) return;
+    const next = identity();
+    if (target !== next) {
+      if (target && loaded && (dirty || busy))
+        backendDrafts.set(target, {
+          snapshot,
+          selectedId,
+          drafts: new Map(drafts),
+          input: readDraft(),
+          managed
+        });
+      target = next;
+      openRevision++;
+      busy = false;
+      loading = false;
+      loaded = false;
+      dirty = false;
+      managed = false;
+      snapshot = {};
+      selectedId = "";
+      drafts.clear();
+      submitButton.textContent = ui("保存连接");
+      showProfiles();
+      fill({});
+      panel.querySelector("[data-model-error]").textContent = "";
+      panel.querySelector("[data-model-result]").textContent = "";
+      const draft = next && backendDrafts.get(next);
+      if (draft) {
+        settingsBackend.bind();
+        snapshot = draft.snapshot;
+        selectedId = draft.selectedId;
+        for (const [id, value] of draft.drafts) drafts.set(id, value);
+        managed = draft.managed;
+        loaded = true;
+        dirty = true;
+        showProfiles();
+        fill(draft.input);
+        return;
+      }
+    }
     if (busy || dirty || loading) return;
     const revision = ++openRevision;
     loading = true;
@@ -144,37 +220,27 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
     setBusy(false);
     panel.querySelector("[data-model-result]").textContent = ui("正在读取模型连接…");
     try {
+      settingsBackend.bind();
       const value = await status();
       if (revision !== openRevision || busy) return;
       snapshot = value;
       drafts.clear();
       selectedId = value.activeProfileId || "";
       managed = value.managedByEnvironment === true;
-      picker.replaceChildren();
-      for (const profile of value.profiles || []) {
-        const option = document.createElement("option");
-        option.value = profile.id;
-        option.textContent = `${profile.name}${profile.id === value.activeProfileId ? ui(" · 当前启用") : ""}`;
-        picker.append(option);
-      }
-      const add = document.createElement("option");
-      add.value = "";
-      add.textContent = ui("＋ 新增配置");
-      picker.append(add);
-      picker.value = selectedId;
+      showProfiles();
       const active = value.profiles?.find((p) => p.id === value.activeProfileId);
-      panel.querySelector("[data-model-active]").textContent = active
-        ? ui`当前启用：${active.name} · ${value.model}`
-        : ui("尚未启用模型连接");
       loaded = true;
       fill(managed ? value : active || value);
     } catch (error) {
+      if (revision !== openRevision) return;
       panel.querySelector("[data-model-error]").textContent = errorMessage(error);
       panel.querySelector("[data-model-result]").textContent = ui("请返回设置后重新进入，重试读取连接。");
       showToast(errorMessage(error));
     } finally {
-      loading = false;
-      setBusy(busy);
+      if (revision === openRevision) {
+        loading = false;
+        setBusy(busy);
+      }
     }
   };
   const optionalNumber = (name) => {
@@ -182,35 +248,50 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
     return raw === "" ? undefined : Number(raw);
   };
   const values = () => ({
-    ...Object.fromEntries(new FormData(form)),
+    profileName: form.elements.profileName.value,
+    baseUrl: form.elements.baseUrl.value,
+    model: form.elements.model.value,
+    api: form.elements.api.value,
+    apiKey: form.elements.apiKey.value,
     profileId: selectedId,
     supportsImages: form.elements.supportsImages.checked,
     vision: form.elements.vision.checked,
     supportsReasoningEffort: form.elements.supportsReasoningEffort.checked,
     supportsPromptCacheKey: form.elements.supportsPromptCacheKey.checked,
     reasoningEffort: form.elements.reasoningEffort.value,
+    thinkingFormat: form.elements.thinkingFormat.value,
     mainMaxTokens: optionalNumber("mainMaxTokens"),
     subagentMaxTokens: optionalNumber("subagentMaxTokens"),
     contextWindow: optionalNumber("contextWindow")
   });
+  const readDraft = () => ({
+    ...values(),
+    configured: !form.elements.apiKey.required,
+    contextWindow: form.elements.contextWindow.value,
+    mainMaxTokens: form.elements.mainMaxTokens.value,
+    subagentMaxTokens: form.elements.subagentMaxTokens.value
+  });
   testButton.addEventListener("click", async () => {
     if (busy || !loaded || !form.reportValidity()) return;
     const input = values();
+    const revision = openRevision;
     setBusy(true);
     testButton.textContent = ui("测试中…");
     panel.querySelector("[data-model-error]").textContent = "";
     panel.querySelector("[data-model-result]").textContent = ui("正在验证工具调用和已选择的图像能力…");
     try {
       const result = await test(input);
+      if (revision !== openRevision) return;
       if (result?.ok !== true || typeof result.durationMs !== "number" || !Number.isFinite(result.durationMs))
         throw new Error(ui("连接测试未返回有效结果，请重试；当前输入已保留。"));
       panel.querySelector("[data-model-result]").textContent =
         ui`连接通过 · ${result.streaming ? ui("流式响应与") : ""}工具调用可用${result.supportsImages ? ui(" · 图像识别可用") : ""} · ${(result.durationMs / 1000).toFixed(1)} 秒`;
     } catch (error) {
+      if (revision !== openRevision) return;
       panel.querySelector("[data-model-error]").textContent = errorMessage(error);
       panel.querySelector("[data-model-result]").textContent = ui("测试未通过，请调整后重试。");
     } finally {
-      setBusy(false);
+      if (revision === openRevision) setBusy(false);
     }
   });
   form.addEventListener("input", () => {
@@ -230,28 +311,32 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
         !snapshot.activeProfileId ||
         selectedId === snapshot.activeProfileId
     };
+    const revision = openRevision;
     setBusy(true);
     submitButton.textContent = ui("保存中…");
     panel.querySelector("[data-model-error]").textContent = "";
-    panel.querySelector("[data-model-result]").textContent = desktop
-      ? ui("正在保存连接和草稿；如 macOS 弹出钥匙串授权，请先处理系统提示。完成后将刷新本地服务…")
-      : ui("正在保存模型连接…");
+    panel.querySelector("[data-model-result]").textContent = ui("正在保存模型连接…");
     try {
       await save(input);
+      if (revision !== openRevision) return;
       form.elements.apiKey.value = "";
       dirty = false;
+      backendDrafts.delete(target);
       drafts.clear();
       dialog.close();
       showToast(input.activate ? ui("模型连接已保存并启用") : ui("模型连接已保存，当前启用项未改变"));
       onSaved?.();
     } catch (error) {
+      if (revision !== openRevision) return;
       dirty = true;
       panel.querySelector("[data-model-error]").textContent = errorMessage(error);
       panel.querySelector("[data-model-result]").textContent =
         ui("保存未完成，当前输入已保留；请处理上方提示后重试。");
     } finally {
-      setBusy(false);
-      submitButton.textContent = ui("保存连接");
+      if (revision === openRevision) {
+        setBusy(false);
+        submitButton.textContent = ui("保存连接");
+      }
     }
   });
   const button = document.createElement("button");
@@ -268,13 +353,6 @@ export function installDesktopSettings({ showToast, onSaved, overview, api }) {
   connectionRow.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("code")}</span><span><strong>模型连接</strong></span></span>`;
   connectionRow.append(button);
   document.querySelector("#profile-settings-connections").append(connectionRow);
-  installWebSearchSettings({ showToast, overview, api });
-  // An unconfigured Web workspace also exposes a persistent composer action.
-  if (desktop)
-    void status()
-      .then((value) => {
-        if (!value.configured) void open();
-      })
-      .catch((error) => showToast(errorMessage(error)));
+  installWebSearchSettings({ showToast, overview, api, identity });
   return { open };
 }

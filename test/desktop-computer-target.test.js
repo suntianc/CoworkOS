@@ -87,6 +87,99 @@ test("target switch rejects while an operation is in flight and does not move it
   assert.ok(f.calls.some(([target, operation]) => target === "b" && operation === "access"));
 });
 
+test("automatic window recreation waits for navigation cleanup while explicit switching stays guarded", async () => {
+  const f = fixtures(),
+    a = f.control("a");
+  let finishRelease, startedRelease;
+  const releaseGate = new Promise((resolve) => {
+    finishRelease = resolve;
+  });
+  const releaseStarted = new Promise((resolve) => {
+    startedRelease = resolve;
+  });
+  const computer = a.computer;
+  let releases = 0;
+  a.computer = async (input) => {
+    if (input.operation === "release-sessions" && ++releases === 1) {
+      startedRelease();
+      await releaseGate;
+    }
+    return computer(input);
+  };
+  await f.coordinator.beginSwitch();
+  await f.coordinator.activate("/a", a);
+  f.coordinator.endSwitch();
+
+  const cleanup = f.coordinator.releaseForNavigation();
+  await releaseStarted;
+  const duplicateCleanup = f.coordinator.releaseForNavigation();
+  assert.equal(releases, 1);
+  const reopen = f.coordinator.beginSwitch({ waitForNavigationRelease: true });
+  let reopened = false;
+  let settled = false;
+  reopen.then(
+    () => {
+      settled = true;
+      reopened = true;
+    },
+    () => {
+      settled = true;
+    }
+  );
+  await assert.rejects(f.coordinator.beginSwitch(), /正在进行/);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  finishRelease();
+  await cleanup;
+  await duplicateCleanup;
+  await reopen;
+  assert.equal(reopened, true);
+  assert.equal(releases, 2);
+  assert.deepEqual(await f.coordinator.activate("/a", a), { ok: true });
+  f.coordinator.endSwitch();
+});
+
+test("window recreation retries failed cleanup and keeps the target when retry also fails", async () => {
+  const f = fixtures(),
+    a = f.control("a");
+  let finishRelease, startedRelease;
+  const releaseGate = new Promise((resolve) => {
+    finishRelease = resolve;
+  });
+  const releaseStarted = new Promise((resolve) => {
+    startedRelease = resolve;
+  });
+  const computer = a.computer;
+  let attempts = 0;
+  a.computer = async (input) => {
+    if (input.operation === "release-sessions" && ++attempts <= 2) {
+      if (attempts === 1) {
+        startedRelease();
+        await releaseGate;
+      }
+      throw new Error("release failed");
+    }
+    return computer(input);
+  };
+  await f.coordinator.beginSwitch();
+  await f.coordinator.activate("/a", a);
+  f.coordinator.endSwitch();
+
+  const cleanup = f.coordinator.releaseForNavigation();
+  const cleanupFailed = assert.rejects(cleanup, /release failed/);
+  await releaseStarted;
+  const reopen = f.coordinator.beginSwitch({ waitForNavigationRelease: true });
+  const reopenFailed = assert.rejects(reopen, /release failed/);
+  finishRelease();
+  await cleanupFailed;
+  await reopenFailed;
+  assert.equal(attempts, 2);
+  assert.equal(f.coordinator.status().backendId, "a");
+  await f.coordinator.beginSwitch({ waitForNavigationRelease: true });
+  f.coordinator.endSwitch();
+  assert.equal(attempts, 3);
+});
+
 test("failed switch preserves A; committed B restoration failure stays on B and can retry", async () => {
   const f = fixtures(),
     a = f.control("a"),

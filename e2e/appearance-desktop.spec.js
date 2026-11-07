@@ -4,15 +4,16 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "../scripts/desktop-dev.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
-test("desktop appearance applies natively, preserves a live backend and survives normal quit on a new port", async () => {
+test("desktop appearance applies natively and preserves the live backend across normal quit", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
   test.setTimeout(120_000);
   const root = await mkdtemp(join(tmpdir(), "atria-appearance-desktop-"));
   const provider = await modelProtocolFixture("openai-completions", () => ({ text: "外观切换后服务正常" }));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
+      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|SERPER_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
     )
   );
   Object.assign(env, {
@@ -87,7 +88,7 @@ test("desktop appearance applies natively, preserves a live backend and survives
     await native.close();
     native = undefined;
     page = await launch();
-    expect(page.url()).not.toBe(origin);
+    await expect.poll(() => page.url()).toBe(origin);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect.poll(nativeState).toEqual({ source: "dark", dark: true, background: "#0d0d0d" });
     await expect(page.locator("#composer-input")).toHaveValue("退出后保留的外观草稿");
@@ -105,6 +106,7 @@ test("desktop appearance applies natively, preserves a live backend and survives
     page = await launch();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expect.poll(nativeState).toEqual({ source: "light", dark: false, background: "#f7f7f8" });
+    await expect(page.locator("#conversation")).toContainText("外观切换后服务正常");
     await page.locator("#composer-input").fill("切换后继续发送");
     await page.locator("#send-button").click();
     await expect
@@ -136,7 +138,7 @@ test("desktop appearance applies natively, preserves a live backend and survives
     await native.close();
     native = undefined;
     page = await launch();
-    expect(page.url()).not.toBe(systemOrigin);
+    await expect.poll(() => page.url()).toBe(systemOrigin);
     await expectSystemAppearance(page);
     await expect(page.locator("#composer-input")).toHaveValue("跟随系统后保留的外观草稿");
     await page.locator("#user-menu-button").click();
@@ -144,6 +146,7 @@ test("desktop appearance applies natively, preserves a live backend and survives
     expect(JSON.parse(await readFile(join(root, "appearance.json"), "utf8")).preference).toBe("system");
   } finally {
     await native?.close();
+    await stopNativeBackend(root);
     await provider.close();
     await rm(root, { recursive: true, force: true });
   }

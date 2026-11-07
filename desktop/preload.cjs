@@ -131,7 +131,21 @@ try {
 } catch {
   /* Chinese fallback. */
 }
+let capabilities;
+try {
+  capabilities = ipcRenderer.sendSync("bookman:capabilities");
+} catch {
+  capabilities = null;
+}
+let transportNonce;
+try {
+  transportNonce = ipcRenderer.sendSync("bookman:transport-nonce");
+} catch {
+  transportNonce = null;
+}
 contextBridge.exposeInMainWorld("bookmanDesktop", {
+  capabilities,
+  transportNonce,
   language: {
     initial: initialLanguage,
     set: (value) => ipcRenderer.invoke("bookman:set-language", value)
@@ -187,8 +201,6 @@ contextBridge.exposeInMainWorld("bookmanDesktop", {
       return () => ipcRenderer.removeListener("bookman:artifact-viewer-closed", listener);
     }
   },
-  modelStatus: () => ipcRenderer.invoke("bookman:model-status"),
-  testModel: (settings) => ipcRenderer.invoke("bookman:test-model", settings),
   // Global policy mutation and human resume stay on the trusted main-frame IPC surface.
   computerUse: (input) => ipcRenderer.invoke("bookman:computer-use", input),
   voiceInput: {
@@ -203,9 +215,6 @@ contextBridge.exposeInMainWorld("bookmanDesktop", {
       return () => ipcRenderer.removeListener("bookman:voice-event", listener);
     }
   },
-  webSearchStatus: () => ipcRenderer.invoke("bookman:web-search-status"),
-  saveWebSearch: (settings) => ipcRenderer.invoke("bookman:save-web-search", settings),
-  saveModel: (settings) => ipcRenderer.invoke("bookman:save-model", settings),
   updateStatus: () => ipcRenderer.invoke("bookman:update-status"),
   checkUpdates: (options = {}) => ipcRenderer.invoke("bookman:check-updates", options),
   applyUpdate: () => ipcRenderer.invoke("bookman:apply-update"),
@@ -219,5 +228,5 @@ contextBridge.exposeInMainWorld("bookmanDesktop", {
   pathForFile: (file) => webUtils.getPathForFile(file),
   chooseProject: () => ipcRenderer.invoke("bookman:choose-project"),
   openPath: (path) => ipcRenderer.invoke("bookman:open-path", path),
-  notify: (title, body) => ipcRenderer.invoke("bookman:notify", { title, body })
+  notify: (notice) => ipcRenderer.invoke("bookman:notify", notice)
 });

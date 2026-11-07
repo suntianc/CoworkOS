@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { startConfiguredDashboard as startDashboard } from "../test/dashboard-fixture.mjs";
 
 test("window access keeps desktop-only controls behind its settings row and preserves the draft", async ({
   page
@@ -62,8 +62,6 @@ test("native window permission actions remain available on demand without granti
       window.computerOperations = [];
       window.bookmanDesktop = {
         onPrepareClose() {},
-        modelStatus: async () => ({ configured: true, model: "fixture" }),
-        webSearchStatus: async () => ({ enabled: false, provider: "off" }),
         computerUse: async (request) => {
           window.computerOperations.push(request.operation);
           return { enabled: false };

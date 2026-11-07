@@ -9,7 +9,7 @@ const storageError = () =>
   new Error("系统密钥存储访问失败，密钥尚未保存。请再次点击保存重试；如系统显示授权请求，请完成授权。");
 
 /** Keep OS failures outside the UI process; only explicit saves reset a failed attempt. */
-function createRetryableStorage({ executable, args = [], env = process.env, timeout = 120000 }) {
+function createRetryableStorage({ executable, args = [], env = process.env, timeout = 120000, appName }) {
   let current;
   let closed = false;
   let sequence = 0;
@@ -45,7 +45,11 @@ function createRetryableStorage({ executable, args = [], env = process.env, time
       )
     );
     const child = spawn(executable, [...args, workerFlag], {
-      env: { ...cleanEnv, ATRIA_KEYCHAIN_WORKER_DATA: data },
+      env: {
+        ...cleanEnv,
+        ATRIA_KEYCHAIN_WORKER_DATA: data,
+        ...(appName ? { ATRIA_KEYCHAIN_WORKER_NAME: appName } : {})
+      },
       stdio: ["pipe", "pipe", "ignore"]
     });
     const worker = { child, data, failed: false };

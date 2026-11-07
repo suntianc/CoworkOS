@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { developmentExecutable } from "../scripts/desktop-dev.mjs";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
 for (const native of [false, true]) {
   test(`${native ? "desktop" : "web"}: saved connections switch protocols and continue the same conversation`, async ({
@@ -47,9 +48,13 @@ for (const native of [false, true]) {
     };
     const status = () =>
       page.evaluate(async () =>
-        window.bookmanDesktop
-          ? window.bookmanDesktop.modelStatus()
-          : (await fetch("/api/model-settings")).json()
+        (
+          await fetch("/api/model-settings", {
+            headers: window.bookmanDesktop?.transportNonce
+              ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+              : {}
+          })
+        ).json()
       );
     const open = async () => {
       await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -60,15 +65,19 @@ for (const native of [false, true]) {
       expect
         .poll(() =>
           page.evaluate(async (id) => {
-            const detail = await (await fetch(`/api/tasks/${encodeURIComponent(id)}`)).json();
+            const detail = await (
+              await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+                headers: window.bookmanDesktop?.transportNonce
+                  ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+                  : {}
+              })
+            ).json();
             return detail.runtime?.active;
           }, taskId)
         )
         .toBe(false);
     const save = async (activate = false) => {
-      const oldUrl = page.url();
       await page.getByRole("button", { name: activate ? "保存并启用" : "保存连接", exact: true }).click();
-      if (native) await expect.poll(() => page.url(), { timeout: 30_000 }).not.toBe(oldUrl);
       await expect(page.getByRole("dialog", { name: "连接模型" })).toBeHidden();
       await expect(page.locator("#composer-input")).toBeVisible();
     };
@@ -180,6 +189,7 @@ for (const native of [false, true]) {
       await dashboard?.stop();
       await first.close();
       await second.close();
+      if (native) await stopNativeBackend(root);
       await rm(root, { recursive: true, force: true });
     }
   });

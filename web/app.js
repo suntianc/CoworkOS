@@ -32,6 +32,7 @@ import { createConversationView } from "./assets/controllers/conversation-view.j
 import { createConversationLayout } from "./assets/controllers/conversation-layout.js";
 import { createConnectionController } from "./assets/controllers/connection-controller.js";
 import { createManagementClient } from "./assets/controllers/management-client.js";
+import { createTaskNotifications } from "./assets/controllers/task-notifications.js";
 import { createBackendConnection } from "./assets/controllers/backend-connection.js";
 import { createProjectExperienceController } from "./assets/controllers/project-experience.js";
 import { createProjectController } from "./assets/controllers/project-controller.js";
@@ -117,6 +118,7 @@ let initialConversationTaskId = conversationTaskId(location.href);
 let linkedConversationNavigation;
 let lastReadSelection;
 let backendConnection;
+const taskNotifications = createTaskNotifications({ notify: window.bookmanDesktop?.notify });
 /**
  * The one client every business call goes through.
  *
@@ -127,6 +129,8 @@ let backendConnection;
 const management = createManagementClient({
   ...(window.bookmanDesktop?.backend
     ? {
+        hostManagedSession: true,
+        transportHeaders: { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce },
         authorizeSession: async (input) => {
           const result = await window.bookmanDesktop.backend.authorize(input);
           if (result.error) {
@@ -175,9 +179,14 @@ window.addEventListener(
   () => {
     artifactViewer.dispose();
     clearManagedMedia();
+    management.stop();
   },
   { once: true }
 );
+window.addEventListener("pagehide", () => management.stop());
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) void bootBackend();
+});
 
 // The last model a person picked stays as the default for the next new
 // conversation, so switching once is enough instead of re-picking each time.
@@ -869,6 +878,7 @@ function resetBackendView() {
 /** The client's catalog snapshot: same payload as `/api/tasks`, plus its cursor. */
 function adoptCatalogSnapshot(snapshot) {
   if (!snapshot || snapshot.backendId !== management.state().backendId) return;
+  taskNotifications.snapshot(snapshot);
   if (snapshot.backendId !== boundBackendId) resetBackendView();
   adoptBackendIdentity(snapshot.backendId);
   // The snapshot is a catalog read: accept it exactly like `/api/tasks` before
@@ -880,6 +890,7 @@ function adoptCatalogSnapshot(snapshot) {
 /** Apply one live catalog event without waiting for a poll. */
 function applyCatalogEvent(record) {
   if (!record || record.backendId !== boundBackendId) return;
+  taskNotifications.event(record);
   if (record.scope === "task") {
     const index = state.tasks.findIndex((task) => task.taskId === record.objectId);
     if (record.type === "task.deleted") {
@@ -2546,6 +2557,7 @@ async function bootBackend() {
   await loadModels();
   await refresh();
   updateSendButton();
+  if (window.bookmanDesktop && state.modelConfigured === false) void modelSettings.open();
 }
 void bootBackend();
 // Reserve initial navigation before starting reads that can restore a tab.
@@ -2595,6 +2607,12 @@ const modelSettings = installDesktopSettings({
   overview: settingsOverview,
   showToast,
   api,
+  identity: () => {
+    const current = management.state();
+    return current.status === "connected"
+      ? JSON.stringify([current.backendId, current.baseUrl, current.pid, current.startedAt])
+      : null;
+  },
   onSaved: () => {
     state.modelByTask.clear();
     state.model = null;
