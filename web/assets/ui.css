@@ -669,21 +669,15 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   outline: 1px solid var(--ui-border-hover);
   outline-offset: -1px;
 }
-.composer .attach-button,
-.composer .mic-button {
+.composer .attach-button {
   width: 30px;
   height: 30px;
   padding: 0;
   border-radius: 7px;
 }
-.composer .attach-button:hover,
-.composer .mic-button:hover {
+.composer .attach-button:hover {
   color: light-dark(var(--ui-text), #ececf1);
   background: light-dark(#24242c0a, #ffffff0a);
-}
-.composer .mic-button[data-voice-state="listening"] {
-  color: var(--ui-danger);
-  background: light-dark(#f7e8e6, #dea5a21a);
 }
 .composer .send-button {
   width: 32px;
@@ -1239,11 +1233,8 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
     min-width: 0;
     overflow: hidden;
   }
-  .is-collaborating .mic-button {
-    margin-left: auto;
-  }
   .is-collaborating .send-button,
-  .is-collaborating .mic-button {
+  .is-collaborating .stop-button {
     flex-shrink: 0;
   }
 }
@@ -1296,7 +1287,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   flex: 0 0 auto;
 }
 .composer-left .attach-button,
-.composer-right .mic-button,
 .composer-right .stop-button,
 .composer-right .send-button {
   flex-shrink: 0;
@@ -1412,7 +1402,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   .composer .model-select {
     flex: 1 1 100px;
   }
-  .composer .mic-button,
   .composer .attach-button {
     width: 28px;
     min-width: 28px;
@@ -1463,8 +1452,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
     gap: 3px;
   }
   .composer:has(#stop-button:not([hidden])) .attach-button,
-  .composer:has(#stop-button:not([hidden])) .app-bind-select,
-  .composer:has(#stop-button:not([hidden])) .mic-button {
+  .composer:has(#stop-button:not([hidden])) .app-bind-select {
     width: 24px;
     min-width: 24px;
     flex: 0 0 24px;
@@ -2145,8 +2133,7 @@ textarea {
     .output-file-icon,
     .prompt-icon,
     .app-tile-icon,
-    .attach-button,
-    .mic-button
+    .attach-button
   )
   .ui-icon {
   width: var(--ui-icon-size);
@@ -2461,15 +2448,13 @@ body {
   scroll-padding-bottom: 26px;
 }
 /* Composer controls share an open surface instead of individual boxes. */
-.composer
-  :is(.model-select, .reasoning-select, .app-bind-select, .attach-button, .mic-button, .attachment-chip),
+.composer :is(.model-select, .reasoning-select, .app-bind-select, .attach-button, .attachment-chip),
 .composer #model-setup-button {
   border: 0;
   background: transparent;
   box-shadow: none;
 }
-.composer
-  :is(.model-select, .reasoning-select, .app-bind-select, .attach-button, .mic-button):hover:not(:disabled),
+.composer :is(.model-select, .reasoning-select, .app-bind-select, .attach-button):hover:not(:disabled),
 .composer #model-setup-button:hover:not(:disabled),
 .composer :is(.model-select, .reasoning-select, .app-bind-select)[aria-expanded="true"] {
   background: light-dark(#24242c0a, #ffffff0a);

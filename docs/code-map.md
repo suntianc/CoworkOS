@@ -75,7 +75,7 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 宿主会话授权与草稿共同使用 [组合回归](../test/merge-drafts-transport.test.js) 检查双后端切换、正文取消及迟到响应；[Electron 组合验证](../e2e/electron-merge-combination-desktop.spec.js) 覆盖连接等待、nonce 与草稿重启。
 
-表中测试是起点；跨层修改同时验证消费者。`npm run test:unit -- --file test/xxx.test.js` 会准备构建；轻量检查用 `npm run verify`，发布或广泛影响的修改用 `npm run verify:full`。浏览器命令与原生验收见 [本地测试说明](testing-local-run.md)。
+表中测试是起点；跨层修改同时验证消费者。`npm run test:unit -- --file test/xxx.test.js` 会准备构建；轻量检查用 `npm run verify`，发布或广泛影响的修改用 `npm run verify:full`。轻量 [验证编排](../scripts/verify.mjs) 构建 CLI 及 [Web 资源](../scripts/build-math.mjs)，仓库检查见 [验证回归](../test/repository-checks.test.js)。浏览器命令与原生验收见 [本地测试说明](testing-local-run.md)。
 
 ### 项目经验与个人记忆
 
@@ -205,7 +205,7 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 补充指令的显示分段在 [会话分组](../web/assets/conversation.js) 与 [会话视图](../web/assets/controllers/conversation-view.js)；实际送达消息和旧 Inbox 时间回退由 [历史恢复](../src/runtime/conversation-history.ts)、[消息归一化](../src/runtime/conversation-view.ts) 负责。先验证 [分组与恢复](../test/conversation.test.js)、[视图](../test/conversation-view.test.js) 和使用真实 Pi 投递的 [浏览器消息流程](../e2e/message-delivery.spec.js)，同步 [运行时参考](runtime-reference.md#会话与消息)。
 
-语音输入由 [共用控制器](../web/assets/controllers/voice-input.js) 管理草稿归属和取消；Mac App 使用 [可信桌面宿主](../desktop/speech-input.cjs) 与 [系统 Speech helper](../src/gui/macos-speech.swift)，由 [构建脚本](../scripts/build-speech-input.mjs) 编译。先运行 [控制器回归](../test/voice-input.test.js)、[桌面生命周期](../test/desktop-speech-input.test.js)、[浏览器交互](../e2e/voice-input.spec.js) 与 [Electron 接入](../e2e/voice-input-desktop.spec.js)，同步 [语音输入参考](runtime-reference.md#语音输入)。真实系统录音、授权和识别质量须另行验收。
+输入区移除语音链路的契约及文字、草稿和附件回归见 [输入移除测试](../test/voice-input-removal.test.js)；原生屏幕与辅助功能由 Computer Use 独立管理。
 
 输入框粘贴由 [剪贴板控制器](../web/assets/controllers/composer-clipboard.js) 处理文字/图片优先级与 HTML 文字回退；桌面原生编辑菜单在 [编辑菜单宿主](../desktop/edit-context-menu.cjs)。回归见 [剪贴板边界](../test/composer-clipboard.test.js)、[菜单信任边界](../test/desktop-edit-context-menu.test.js)、[真实浏览器快捷键](../e2e/composer-clipboard.spec.js) 和 [Electron 右键/原生编辑](../e2e/composer-clipboard-desktop.spec.js)，同步 [会话契约](runtime-reference.md#会话与消息)。
 

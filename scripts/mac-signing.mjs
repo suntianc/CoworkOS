@@ -60,7 +60,8 @@ export async function verifyMacApplication({ appPath, version, mode, commandRunn
     const entitlements = outputOf(
       await commandRunner("/usr/bin/codesign", ["--display", "--entitlements", "-", target])
     );
-    if (!hasAudioInput(entitlements)) throw new Error("Mac signature is missing audio-input entitlement");
+    if (hasAudioInput(entitlements))
+      throw new Error("Mac signature unexpectedly enables audio-input entitlement");
     const cdHash = property(display, "CDHash");
     if (!cdHash || !/^[a-f0-9]{40,64}$/.test(cdHash)) throw new Error("Mac signature has no valid CDHash");
     return {
@@ -69,20 +70,12 @@ export async function verifyMacApplication({ appPath, version, mode, commandRunn
       cdHash,
       teamIdentifier: property(display, "TeamIdentifier") || null,
       hardenedRuntime: true,
-      audioInput: true
+      audioInput: false
     };
   };
   const parent = await inspect(appPath, "org.atria.cowork");
-  const helperPath = join(appPath, "Contents/Resources/app/dist/src/gui/atria-speech-input");
-  await commandRunner("/usr/bin/codesign", ["--verify", "--strict", helperPath]);
-  const speechHelper = await inspect(helperPath, "org.atria.cowork.speech-input");
-  if (
-    mode === "developer-id" &&
-    (!parent.teamIdentifier ||
-      parent.teamIdentifier === "not set" ||
-      parent.teamIdentifier !== speechHelper.teamIdentifier)
-  )
-    throw new Error("Mac App and speech helper must use the same Developer ID team");
+  if (mode === "developer-id" && (!parent.teamIdentifier || parent.teamIdentifier === "not set"))
+    throw new Error("Mac App must have a Developer ID team");
   const info = JSON.parse(
     (
       await commandRunner("/usr/bin/plutil", [
@@ -102,13 +95,8 @@ export async function verifyMacApplication({ appPath, version, mode, commandRunn
   )
     throw new Error("Mac package, Info.plist and release versions/identity disagree");
   if (info.LSMinimumSystemVersion !== "14.0") throw new Error("Mac beta requires minimum macOS 14.0");
-  if (
-    typeof info.NSMicrophoneUsageDescription !== "string" ||
-    !info.NSMicrophoneUsageDescription.trim() ||
-    typeof info.NSSpeechRecognitionUsageDescription !== "string" ||
-    !info.NSSpeechRecognitionUsageDescription.trim()
-  )
-    throw new Error("Mac App is missing microphone/speech recognition privacy descriptions");
+  if ("NSMicrophoneUsageDescription" in info || "NSSpeechRecognitionUsageDescription" in info)
+    throw new Error("Mac App unexpectedly declares microphone or speech recognition privacy descriptions");
   return {
     version,
     mode,
@@ -117,7 +105,6 @@ export async function verifyMacApplication({ appPath, version, mode, commandRunn
     strictVerified: true,
     minimumSystemVersion: info.LSMinimumSystemVersion,
     bundleVersion: info.CFBundleVersion,
-    parent,
-    speechHelper
+    parent
   };
 }

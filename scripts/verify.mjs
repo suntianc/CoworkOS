@@ -4,6 +4,7 @@ import { repositoryRoot, runCommand } from "./test.mjs";
 
 export const verificationScripts = [
   "build:cli",
+  "build:web-assets",
   "lint",
   "check:workbench",
   "check:extensions",
@@ -12,7 +13,7 @@ export const verificationScripts = [
   "check:source"
 ];
 
-export const fullVerificationScripts = ["build:full", ...verificationScripts.slice(1), "test:release:runner"];
+export const fullVerificationScripts = ["build:full", ...verificationScripts.slice(2), "test:release:runner"];
 
 export async function verify(args = process.argv.slice(2), run = runCommand) {
   if (args.some((argument) => !["--full", "--list", "--help", "-h"].includes(argument)))
@@ -30,7 +31,7 @@ export async function verify(args = process.argv.slice(2), run = runCommand) {
     console.log(
       full
         ? "Full verification builds all assets once, runs static checks, release-runner self-tests and all deterministic Node tests."
-        : "Quick verification builds the CLI and runs static checks. Run focused tests for changed behavior; use npm run verify:full for the full suite."
+        : "Quick verification builds the CLI and web assets, then runs static checks. Run focused tests for changed behavior; use npm run verify:full for the full suite."
     );
     for (const step of steps) console.log(`${step.command} ${step.args.join(" ")}`);
     console.log(

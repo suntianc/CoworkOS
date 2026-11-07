@@ -203,18 +203,6 @@ contextBridge.exposeInMainWorld("bookmanDesktop", {
   },
   // Global policy mutation and human resume stay on the trusted main-frame IPC surface.
   computerUse: (input) => ipcRenderer.invoke("bookman:computer-use", input),
-  voiceInput: {
-    supported: process.platform === "darwin",
-    start: (input) => ipcRenderer.invoke("bookman:voice-start", input),
-    stop: (input) => ipcRenderer.invoke("bookman:voice-stop", input),
-    cancel: (input) => ipcRenderer.invoke("bookman:voice-cancel", input),
-    onEvent: (handler) => {
-      if (typeof handler !== "function") return () => {};
-      const listener = (_event, value) => handler(value);
-      ipcRenderer.on("bookman:voice-event", listener);
-      return () => ipcRenderer.removeListener("bookman:voice-event", listener);
-    }
-  },
   updateStatus: () => ipcRenderer.invoke("bookman:update-status"),
   checkUpdates: (options = {}) => ipcRenderer.invoke("bookman:check-updates", options),
   applyUpdate: () => ipcRenderer.invoke("bookman:apply-update"),

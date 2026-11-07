@@ -99,7 +99,7 @@ async function addSigningReport(f, changes = {}) {
     cdHash: "a".repeat(40),
     teamIdentifier: null,
     hardenedRuntime: true,
-    audioInput: true
+    audioInput: false
   });
   const report = {
     version,
@@ -110,7 +110,6 @@ async function addSigningReport(f, changes = {}) {
     minimumSystemVersion: "14.0",
     bundleVersion: "0.1.2",
     parent: signature("org.atria.cowork"),
-    speechHelper: signature("org.atria.cowork.speech-input"),
     ...changes
   };
   const name = "CoworkOS-" + version + "-mac-arm64.signing.json";

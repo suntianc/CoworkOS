@@ -449,35 +449,6 @@ export default {
     "A new reply has started. Further edits are retained. Cancel editing to restore the original draft.",
   "修改重发失败：": "Could not resend edit: ",
   "。编辑内容和原草稿已保留。": ". Your edits and original draft are retained.",
-  "没有检测到声音，请再试一次": "No speech detected. Try again.",
-  "无法读取麦克风，请检查输入设备和系统麦克风权限":
-    "Cannot access the microphone. Check the device and system permissions.",
-  "麦克风访问被拒绝，请在浏览器或系统设置中允许麦克风":
-    "Microphone access denied. Allow it in browser or system settings.",
-  "当前浏览器的语音识别服务不可用，可使用 Mac App 的系统语音输入":
-    "Browser speech recognition unavailable. Use system speech input in the Mac App.",
-  "无法连接浏览器语音识别服务，请检查网络，或使用 Mac App 的系统语音输入":
-    "Cannot reach speech recognition. Check the network or use system speech input in the Mac App.",
-  "当前语音识别服务不支持中文，请使用系统听写或 Mac App":
-    "This recognition service does not support Chinese. Use system dictation or the Mac App.",
-  停止语音输入: "Stop speech input",
-  语音输入: "Speech input",
-  "正在准备语音输入，点击停止": "Preparing speech input. Click to stop.",
-  正在完成语音识别: "Finishing recognition",
-  停止聆听: "Stop listening",
-  "语音输入（macOS 系统识别）": "Speech input (macOS recognition)",
-  "语音输入（浏览器识别，需识别服务可用）": "Speech input (browser recognition)",
-  "当前浏览器不支持语音输入，可使用系统听写": "Speech input unsupported. Use system dictation.",
-  语音已加入草稿: "Speech added to draft",
-  "正在聆听…说完后点击麦克风": "Listening… Click the microphone when done.",
-  "系统语音识别暂不可用，请稍后重试": "System recognition unavailable. Try again later.",
-  "无法结束语音识别，请重新尝试": "Could not finish recognition. Retry.",
-  "正在准备系统语音输入，首次使用请允许麦克风和语音识别权限":
-    "Preparing system speech input. Allow microphone and speech recognition permissions on first use.",
-  "无法启动系统语音识别，请重试": "Could not start system recognition. Retry.",
-  "浏览器语音识别暂不可用，请稍后重试": "Browser recognition unavailable. Try again later.",
-  "无法启动语音输入，请检查麦克风权限和识别服务":
-    "Cannot start speech input. Check microphone permissions and recognition service.",
   附件上传响应无效: "Invalid attachment upload response",
   附件上传失败: "Attachment upload failed",
   "附件上传连接中断，请重试": "Upload disconnected. Retry.",

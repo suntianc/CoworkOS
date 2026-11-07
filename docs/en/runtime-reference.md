@@ -18,10 +18,6 @@ Editing the latest accepted message runs again from the preceding conversation h
 
 Web/App support inline `\(...\)` and `$...$`, and display math with `\[...\]` and `$$...$$`. Code and unsupported formulas retain their source. The terminal does not render formulas.
 
-### Voice input
-
-Mac App recognition appends text to the draft without sending it. It requires microphone and speech-recognition permission, but no model connection. Recordings last at most 60 seconds; raw audio is not saved. On-device recognition is preferred when supported; otherwise Apple's network service is used. Switching projects or conversations cancels recognition. Web support depends on the browser's Web Speech service, permissions and network.
-
 ## General and optional tools
 
 Terminal and App Main share the Cowork extension and capability rules. The lower-level `single` command uses an explicit single-agent tool factory and does not automatically receive Main's delegation or application tools. Coordinator accepts an external `capabilityProvider`.
