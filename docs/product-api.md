@@ -30,9 +30,6 @@ POST /api/model-settings
 POST /api/model-settings/test
 GET  /api/web-search-settings
 POST /api/web-search-settings
-GET  /api/science-settings
-POST /api/science-settings
-POST /api/science-settings/check
 POST /api/workspace/choose
 POST /api/projects
 PATCH /api/projects/:projectId
@@ -602,32 +599,6 @@ Uploads stay local until an agent reads them during the user's model run. Readin
 `GET /api/web-search-settings` returns `{ enabled, provider, authenticated, managedByEnvironment }` and any secret-unavailable status without credentials. `POST` accepts `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }` and returns updated status. A blank key retains the existing value; explicit clearing restores anonymous use. Active runs and search environment management reject writes. Existing local authentication, Host/Origin, JSON-size and error boundaries apply.
 
 Desktop and Web use the same interface, and the search key belongs to the selected execution host. Desktop client session credentials are host-managed. Saving does not restart the backend; new or resumed runs use the updated configuration. See [web search](en/configuration.md#web-search).
-
-## Scientific environment settings
-
-`GET /api/science-settings/environments` returns `{general, chemistry}` without running Python or network requests. Each status has `target`, `specVersion`, and `state` (`absent`, `installing`, `ready`, `failed`, `cancelled`, or `interrupted`), plus optional `installedPython`, `operationId`, timestamps, installation `phase`, and `error`. Only a published, verified environment provides `installedPython`; an unsuccessful replacement may still expose the previous ready interpreter.
-
-`POST /api/science-settings/install` accepts `{target: "general" | "chemistry", pythonExecutable?: string, reinstall?: boolean}` and returns HTTP 202 with the current target status. Installation continues independently of that HTTP connection.
-
-The supplied interpreter creates a dedicated venv, installs fixed PyPI wheels, and checks exact versions and representative calculations. Same-source/spec installations reuse a published environment; explicit `reinstall` creates a new generation. Arbitrary packages, indexes, and pip options are rejected. Installation never saves settings, enables science, or modifies existing interpreter packages or Run pins.
-
-`POST /api/science-settings/cancel` accepts `{target}` and returns status after process cleanup; a remote owner still stopping may return 409 `cancellation_pending`. Application shutdown stops its owned installations. New installation checks allow up to 60 seconds per probe within a total 15-minute deadline. Cancelled, failed, and interrupted candidates are not published, and previous ready generations are retained.
-
-Selecting an installed path uses the existing settings-save endpoint. These endpoints share the same authentication, origin, and request-size boundaries as other scientific settings.
-
-`GET /api/science-settings` returns effective `enabled`, `pythonExecutable`, `chemistryPythonExecutable`, `chemistryInheritsGeneral`, `managedByEnvironment`, per-field `managedFields`, `catalogVersion`, `appliesTo: "new-runs"`, `enablementAppliesTo: "next-process-start"`, and an optional `configurationError`. It reads metadata without running Python. Malformed optional science configuration disables science without blocking ordinary Agent startup.
-
-`POST /api/science-settings` accepts a nonempty subset of `{ enabled?: boolean, pythonExecutable?: string, chemistryPythonExecutable?: string }` and returns the updated status. Unknown fields and invalid interpreter strings are rejected; an empty interpreter string clears that override. A submitted environment-managed field returns HTTP 409 `managed_by_environment`, while other fields can still be saved.
-
-Writes lock and atomically update the existing private configuration with mode 0600, retaining unrelated settings. Saving is allowed during active Runs: paths apply to new Runs; enablement applies to later process starts. Existing pins and delegation payloads retain their selected catalog and both interpreters.
-
-`POST /api/science-settings/check` accepts `{ target: "general" | "chemistry", pythonExecutable?: string }`. An unpersisted draft interpreter can be checked; a target explicitly managed by its own environment variable keeps the managed interpreter. The response contains `ok`, `target`, `pythonExecutable`, `python: { available, version? }`, `packages: { numpy, scipy, rdkit }` with availability/version and optional RDKit `selfTestPassed`, `scalarFunctionsAvailable`, and optional `error: { code, message }`. General array readiness requires Python 3.10+ plus NumPy/SciPy; standard-library scalar functions can remain available with Python 3.9+. Chemistry requires Python 3.10+, RDKit `2026.09.1`, and a fixed ethanol descriptor self-test. Missing dependencies, incompatible versions and subprocess failures return a failed check rather than an execution result. Checks never save drafts or install packages.
-
-These endpoints use the normal local authentication and Host/Origin checks. JSON bodies are limited to 16 KiB; unsupported methods return 405, and more than two simultaneous checks return 429 `check_busy`.
-
-Each check runs a fixed isolated Python script with a minimal environment, a 10-second deadline and a combined 64 KiB output budget; client disconnect cancels its process group. No arbitrary script, package list or installation command is accepted. The scientific tool executor remains a separate bounded service.
-
-科学设置读取、保存不启动 Python；仅显式检查运行固定探测脚本。路径修改用于新任务，开关作用于后续启动的会话进程，旧任务的目录与两套解释器保留；关闭后恢复的科学任务保留接口但计算不可用。Web 与 App 使用相同本机 API；使用方式见 [配置](configuration.md#科学计算环境) 与 [科学工具](scientific-tools.md)。
 
 ## Long-term goals
 

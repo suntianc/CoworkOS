@@ -1,5 +1,4 @@
 import { configuredWebTools } from "../runtime/web-search-config.js";
-import { scienceToolsForRun } from "../runtime/science-config.js";
 import { applyProxyEnvironment } from "../runtime/http-transport.js";
 import { atriaRoleIdentity } from "../domain/agent-identity.js";
 import { join } from "node:path";
@@ -534,7 +533,6 @@ async function main() {
   if (command === "single") {
     const prompt = parsed.positionals.join(" ");
     if (!prompt) fail("single 命令需要一个 prompt");
-    const science = await scienceToolsForRun({ workspaceRoot, taskId, runId }, process.env, config);
     const commandEnv = await businessCommandEnvironment(process.env);
     const result = await new RunService(workspaceRoot).runPi({
       taskId,
@@ -555,7 +553,6 @@ async function main() {
           artifactDirectory,
           commandEnv,
           web,
-          science,
           supportsImages: configuredSupportsImages(runtimeEnv),
           visionModel
         })
@@ -578,15 +575,6 @@ async function main() {
     const workerTask = parsed.options.task;
     const workerRun = parsed.options.run;
     if (!workerTask || !workerRun) fail("worker 命令需要 --task 和 --run");
-    const science = await scienceToolsForRun(
-      {
-        workspaceRoot,
-        taskId: workerTask,
-        runId: workerRun
-      },
-      process.env,
-      config
-    );
     const controller = new AbortController();
     const commandEnv = await businessCommandEnvironment(process.env);
     const worker = new CoordinatorWorker();
@@ -614,7 +602,6 @@ async function main() {
       pollMs: numberOption(parsed.options["poll-ms"], 2_000),
       once: parsed.options.once === "true",
       web,
-      science,
       signal: controller.signal,
       onCycle: async (results) => {
         if (results.length > 0)

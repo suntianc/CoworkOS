@@ -91,7 +91,6 @@ Test again after fixing the error. In the App, save after the test passes. In th
 - [Interface language](configuration-reference.md#interface-language)
 - <a id="appearance"></a>[Appearance](configuration-reference.md#appearance-storage)
 - <a id="web-search"></a>[Web search](configuration-reference.md#web-search)
-- <a id="scientific-environments"></a>[Scientific environments](scientific-tools.md)
 - <a id="network-proxies"></a>[Network proxies](configuration-reference.md#network-proxies)
 - <a id="paths-and-common-environment-variables"></a>[Paths and environment variables](configuration-reference.md#paths-and-environment-variables)
 - <a id="advanced-limits"></a>[Runtime limits](configuration-reference.md#advanced-limits)

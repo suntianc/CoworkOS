@@ -30,35 +30,6 @@ async function freePort() {
   return port;
 }
 
-function scienceEnvironment(science) {
-  if (science === undefined) return {};
-  if (
-    !science ||
-    typeof science !== "object" ||
-    Array.isArray(science) ||
-    Object.keys(science).some(
-      (key) => !["enabled", "pythonExecutable", "chemistryPythonExecutable"].includes(key)
-    ) ||
-    typeof science.enabled !== "boolean" ||
-    (science.pythonExecutable !== undefined &&
-      (typeof science.pythonExecutable !== "string" ||
-        !science.pythonExecutable.trim() ||
-        /[\0\r\n]/u.test(science.pythonExecutable))) ||
-    (science.chemistryPythonExecutable !== undefined &&
-      (typeof science.chemistryPythonExecutable !== "string" ||
-        !science.chemistryPythonExecutable.trim() ||
-        /[\0\r\n]/u.test(science.chemistryPythonExecutable)))
-  )
-    throw new Error("Dashboard science fixture accepts only enabled and an optional Python executable");
-  return {
-    COWORK_SCIENCE_TOOLS: science.enabled ? "1" : "0",
-    ...(science.pythonExecutable ? { COWORK_SCIENCE_PYTHON: science.pythonExecutable } : {}),
-    ...(science.chemistryPythonExecutable
-      ? { COWORK_SCIENCE_CHEMISTRY_PYTHON: science.chemistryPythonExecutable }
-      : {})
-  };
-}
-
 /** A fresh real Dashboard; model connections, when supplied, are local test fixtures. */
 export async function startDashboard({
   modelEndpoint,
@@ -72,10 +43,8 @@ export async function startDashboard({
   env = {},
   port: requestedPort,
   blenderExecutable,
-  defaultProject = true,
-  science
+  defaultProject = true
 } = {}) {
-  const scienceEnv = scienceEnvironment(science);
   const root = await mkdtemp(join(tmpdir(), "atria-dashboard-test-"));
   const workspaceRoot = existingWorkspace ?? join(root, "workspace");
   await mkdir(workspaceRoot, { recursive: true });
@@ -104,7 +73,6 @@ export async function startDashboard({
       COWORK_SUPERVISOR_INTERVAL_MS: String(supervisorIntervalMs),
       ...(blenderExecutable ? { COWORK_BLENDER_EXECUTABLE: blenderExecutable } : {}),
       ...(webSearchEndpoint ? { COWORK_EXA_MCP_ENDPOINT: webSearchEndpoint } : {}),
-      ...scienceEnv,
       COWORK_API_BASE: modelEndpoint ?? "",
       COWORK_API_KEY: modelEndpoint ? "local-fixture" : "",
       COWORK_SUPPORTS_IMAGES: modelEndpoint ? (supportsImages ? "1" : "0") : undefined,
@@ -191,18 +159,12 @@ export async function startDashboard({
       project,
       projectId: project?.projectId,
       stop,
-      async restart({ newPort = false, science: nextScience } = {}) {
-        const nextScienceEnv = nextScience === undefined ? undefined : scienceEnvironment(nextScience);
+      async restart({ newPort = false } = {}) {
         await stopChild();
         if (newPort) {
           port = await freePort();
           base = `http://127.0.0.1:${port}`;
           launchOptions.env.COWORK_UI_PORT = String(port);
-        }
-        if (nextScienceEnv) {
-          delete launchOptions.env.COWORK_SCIENCE_TOOLS;
-          delete launchOptions.env.COWORK_SCIENCE_PYTHON;
-          Object.assign(launchOptions.env, nextScienceEnv);
         }
         output = "";
         child = launch();

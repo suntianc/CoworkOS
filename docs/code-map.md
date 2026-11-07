@@ -97,23 +97,11 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 [原请求重放](../src/runtime/main-request-retry.ts)只刷新记忆投影并保留其他归档字段，验证[记忆撤销与重试](../test/user-memory-retry.test.js)。
 
-### 联网搜索与科学计算
+### 联网搜索
 
 联网搜索默认与兼容选择在 [搜索配置](../src/runtime/web-search-config.ts)，Main 首轮装配在 [.pi Web 工具](../.pi/runtime/tools/web-search.ts)，供应商归一化在 [Web 工具](../src/tools/web-tools.ts) 与 [Exa MCP Adapter](../src/tools/exa-search-provider.ts)，状态/保存由 [搜索设置服务](../src/dashboard/web-search-settings.ts) 和 [共用控制器](../web/assets/controllers/web-search-settings.js) 管理。先验证 [配置](../test/web-search-config.test.js)、[MCP JSON/SSE/代理/取消](../test/exa-search-provider.test.js)、[真实 Pi 委派与恢复](../test/web-search-pi.test.js) 、[设置与对话浏览器](../e2e/web-search-settings.spec.js) 和 [原生匿名搜索与设置重启](../e2e/web-search-desktop.spec.js)；同步 [配置](configuration.md#联网搜索)。
 
-可选科学工具的版本目录与执行服务在 [science](../src/tools/science/)，实验分析目录在 [analysis-catalog](../src/tools/science/analysis-catalog.ts)，天文目录在 [astronomy-catalog](../src/tools/science/astronomy-catalog.ts)，三个 RuntimeTool 在 [科学工具](../src/tools/science-tools.ts)，Run 启用、版本固定和重试继承在 [配置](../src/runtime/science-config.ts)，Main 薄包装在 [.pi 工具](../.pi/runtime/tools/science.ts)。Main 可选分组和委派共享同一服务，默认关闭不改变普通工具或技能目录；先验证 [首批数值](../test/science-kernels.test.js)、[实验分析](../test/science-analysis.test.js)、[天文计算](../test/science-astronomy.test.js)、[执行生命周期](../test/science-tools.test.js)、[配置](../test/science-config.test.js)、[真实 Pi](../test/science-pi.test.js)、[Dashboard 重试与数据流程](../test/science-main-retry.test.js) 和 [构建闭包](../test/science-packaging.test.js)，同步 [使用说明](scientific-tools.md)。
-
-科学环境设置与显式自检由 [环境模块](../src/runtime/science-environment.ts)、[HTTP 路由](../src/dashboard/science-settings-routes.ts) 和 [设置控制器](../web/assets/controllers/science-settings.js) 管理；不在读取/保存时探测 Python。v4 原生分子包装在 [分子目录](../src/tools/science/chemistry-catalog.ts) 与 [内核](../src/tools/science/chemistry.py)，使用固定版本的独立 RDKit 环境；验证 [RDKit 数值](../test/science-chemistry.test.js) 与 [真实浏览器设置](../e2e/science-settings.spec.js)，保留 v1–v3 的来源与 Run 选择。
-
-v5 的晶体几何与 Scherrer 工具在 [材料目录](../src/tools/science/materials-catalog.ts) 和 [材料内核](../src/tools/science/materials.py)，用基础 Python 标准库执行；验证 [材料数值](../test/science-materials.test.js)。度规要求正定且非病态，Scherrer 采用 Gaussian 仪器展宽修正与 nm 单位，不能把结果宣传为颗粒尺寸实测；旧 v1–v4 目录与记录保持原选择。
-
-v6 的质谱峰与 Cl/C 名义同位素工具在 [质谱目录](../src/tools/science/mass-spectrometry-catalog.ts) 和 [标准库内核](../src/tools/science/mass_spectrometry.py)，精确质量/分子式原生包装在 [mass-chemistry](../src/tools/science/mass-chemistry.py)，复用未修改的 v4 分子解析限制与独立 RDKit 环境。验证 [质谱数值](../test/science-mass-spectrometry.test.js) 和 [原生质量/分子式](../test/science-mass-chemistry.test.js)；保留 v1–v5 选择，不把最大 m/z、名义同位素箱或中性质量解释为分子离子身份。
-
-v7 原生统计在 [统计目录](../src/tools/science/statistics-catalog.ts) 与 [数值内核](../src/tools/science/statistics.py)，复用基础 NumPy/SciPy；验证 [已知答案与数值边界](../test/science-statistics.test.js)。保持 v1–v6 元数据、schema 和内核不变，拒绝近常数推断及不可表示结果，明确独立性、正态模型与 p 值限制。
-
-科学发现的双语任务排序在 [discovery](../src/tools/science/discovery.ts)，可选技能根与固定解释器说明在 [guidance](../src/runtime/science-guidance.ts)，两项工作流随 [.pi runtime](../.pi/runtime/science-skills/) 交付。仅启用科学能力的 scope 增加技能；验证 [发现](../test/science-discovery.test.js)、[指导](../test/science-guidance.test.js)、真实 Pi 与恢复回归，旧目录和入口 schema 保持固定。
-
-独立环境安装/复用/取消由 [science-installation](../src/runtime/science-installation.ts) 负责，设置服务与路由仅装配，共用 [CLI](../scripts/science.mjs) 和 [安装控制器](../web/assets/controllers/science-installation.js)。新 venv 验证后才发布，不改系统和已有 Run；验证 [安装生命周期](../test/science-installation.test.js)、[CLI](../test/science-cli.test.js) 及 [浏览器草稿/进度/取消](../e2e/science-installation-settings.spec.js)，真实 PyPI 安装单独记录。
+科学能力移除及旧配置隔离由[回归](../test/science-removal.test.js)验证。通用项目命令和文件交付仍沿现有工具执行。
 
 公共 Web 工具由 [工具装配](../src/tools/web-tools.ts)、[有界请求](../src/tools/web-request.ts) 和 [凭据池](../src/tools/web-key-pool.ts) 管理；先验证 [取消、代理、Reader 与轮换](../test/web-tools.test.js)。程序化 RuntimeTool 的文本限额在 [工具输出](../src/runtime/tool-output.ts)，回归 [协议/图片/取消](../test/tool-output.test.js)。
 

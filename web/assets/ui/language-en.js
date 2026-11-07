@@ -284,47 +284,7 @@ export default {
   "记忆读取失败，请重试": "Could not load memory. Retry.",
   "旧版记忆超过 2000 个字符，内容已保留，请精简后保存。":
     "Legacy memory exceeds 2,000 characters. Content is retained. Shorten it before saving.",
-  "科学环境服务未返回有效响应，请稍后重试": "Invalid science settings response. Try again later.",
-  科学环境设置暂时不可用: "Science settings are unavailable",
-  科学计算: "Scientific computing",
-  "正在读取科学设置…": "Loading science settings…",
-  管理科学环境: "Manage science environment",
-  启用科学工具: "Enable science tools",
-  "路径用于新任务，开关在下次启动会话时生效。已有任务保留原环境；关闭后，恢复旧任务时科学计算不可用。":
-    "Paths apply to new tasks; the switch applies when a conversation starts. Existing tasks keep their environment. Disabling makes science tools unavailable when resuming old tasks.",
-  "基础 Python": "Base Python",
-  "留空使用 python3；数组分析需要 NumPy 和 SciPy。":
-    "Leave blank for python3. Array analysis requires NumPy and SciPy.",
-  检查基础环境: "Check base environment",
-  "不保存当前设置。": "Does not save current settings.",
-  "留空使用基础 Python": "Leave blank to use base Python",
-  "检查 RDKit 环境": "Check RDKit environment",
-  "安装指引 · 手动操作": "Manual installation",
-  "使用 Python 3.10+ 创建环境，再填写解释器绝对路径。":
-    "Create a Python 3.10+ environment and enter the interpreter's absolute path.",
-  "基础数组分析（可选）": "Array analysis (optional)",
-  "独立 RDKit 环境": "Separate RDKit environment",
-  "以上为 macOS/Linux 命令示例；Windows 使用环境内 Scripts/python.exe。RDKit 固定为 2026.9.1；该版未提供 Intel Mac wheel，可在受支持环境运行，不能直接替换为旧版。":
-    "Commands are for macOS/Linux. On Windows use Scripts/python.exe. RDKit requires 2026.9.1; no Intel Mac wheel is available. Use a supported environment rather than an older version.",
-  "科学环境设置暂时不可用，请稍后重试": "Science settings are unavailable. Try again later.",
   已启用: "Enabled",
-  "部分设置由启动环境管理，已锁定相应字段；请在启动配置中修改。":
-    "Some settings are managed by the launch environment. Edit locked fields in the launch configuration.",
-  "环境路径已填入，保存设置后供新任务使用": "Environment path selected. Save to use it for new tasks.",
-  "请返回设置后重新进入，重试读取科学设置。": "Return to settings and reopen this page to retry.",
-  "正在检查环境…": "Checking environment…",
-  环境可用: "Environment ready",
-  "Python 可用 · 依赖缺失或版本不兼容": "Python available · Dependencies missing or incompatible",
-  "Python 不可用": "Python unavailable",
-  版本未知: "Unknown version",
-  "请检查解释器路径和安装情况。": "Check the interpreter path and installation.",
-  可用: "Available",
-  未安装或无法导入: "Not installed or cannot be imported",
-  "缺少数组依赖时，标准库标量计算仍可使用。请参照下方指引手动安装。":
-    "Standard-library scalar calculations remain available. Follow the installation instructions below for array dependencies.",
-  "请在独立环境安装所需 RDKit 版本，并重新检查。":
-    "Install the required RDKit version in a separate environment and check again.",
-  "科学环境设置已保存，后续启动会话时生效": "Science settings saved for subsequently started conversations",
   应用与组件: "Apps and components",
   管理应用: "Manage apps",
   管理: "Manage",

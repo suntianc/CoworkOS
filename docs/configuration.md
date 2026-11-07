@@ -91,7 +91,6 @@ coworkos doctor --test-connection
 - [界面语言](configuration-reference.md#界面语言)
 - <a id="外观"></a>[外观](configuration-reference.md#外观存储)
 - <a id="联网搜索"></a>[联网搜索](configuration-reference.md#联网搜索)
-- <a id="科学计算环境"></a>[科学计算环境](scientific-tools.md)
 - <a id="网络代理"></a>[网络代理](configuration-reference.md#网络代理)
 - <a id="路径与常用环境变量"></a>[路径与环境变量](configuration-reference.md#路径与环境变量)
 - <a id="高级运行限制"></a>[运行限制](configuration-reference.md#高级运行限制)

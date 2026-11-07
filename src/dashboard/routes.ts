@@ -49,8 +49,6 @@ import type { createGoalService } from "./goal-service.js";
 import type { createWatchService } from "./watch-service.js";
 import type { WatchCreation } from "../runtime/watch-management.js";
 import type { createWebSearchSettings } from "./web-search-settings.js";
-import type { createScienceSettings } from "./science-settings.js";
-import { handleScienceSettingsRequest } from "./science-settings-routes.js";
 import type { createModelSettings } from "./model-settings.js";
 import type { createDashboardRunService, RunServicePorts } from "./run-service.js";
 import type { createWorkspaceDirectory } from "./workspace-directory.js";
@@ -77,7 +75,6 @@ export interface DashboardRoutePorts {
   dashboardUrl: string;
   uiRoot: string;
   webSearchSettings: ReturnType<typeof createWebSearchSettings>;
-  scienceSettings: ReturnType<typeof createScienceSettings>;
   modelSettings: ReturnType<typeof createModelSettings>;
   tabStorePath: string;
   workspaceRoot(): string;
@@ -551,7 +548,6 @@ export function createDashboardHandler(
         })
       )
         return;
-      if (await handleScienceSettingsRequest(request, response, url, ports.scienceSettings)) return;
       if (url.pathname === "/api/web-search-settings") {
         if (request.method === "GET") sendJson(response, 200, ports.webSearchSettings.status());
         else if (request.method === "POST")

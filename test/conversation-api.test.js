@@ -157,7 +157,7 @@ test(
       assert.ok(system.includes(join(workspaceRoot, "conversation", "agents", "main", "work")));
       assert.ok(system.includes(join(workspaceRoot, "conversation", "artifacts")));
       assert.ok(
-        system.includes("office-documents"),
+        system.includes("virtual-agent-authoring"),
         "bundled skills remain available outside the harness directory"
       );
       assert.equal(detail.messages.at(-1).content.at(-1).text, "First request complete.");

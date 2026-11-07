@@ -15,10 +15,8 @@ import { emptyCompaction, readAgentCheckpoint } from "./agent-checkpoint.js";
 import type { RuntimeTool } from "./tool.js";
 import { addCapabilityTools, type CapabilityGrant, type CapabilityProvider } from "./capability-provider.js";
 import type { WebToolOptions } from "../tools/web-tools.js";
-import type { ScienceToolOptions } from "../tools/science-tools.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createLoadSkillTool, discoverSkills, skillCatalogPrompt } from "./skill-registry.js";
-import { scienceEnvironmentGuidance, scienceSkillRoots } from "./science-guidance.js";
 import { listAgentOutputFiles } from "./progress.js";
 import { agentDisplayName } from "./agent-identity.js";
 import { clearSleep } from "./main-sleep.js";
@@ -96,8 +94,6 @@ export interface SubagentDispatchInput extends DelegatedModelSettings {
   capabilityGrants?: CapabilityGrant[];
   /** Optional public web tools for the fallback built-in tool factory. */
   web?: WebToolOptions;
-  /** Explicit opt-in snapshot, persisted with the work item. */
-  science?: ScienceToolOptions;
   /** Project skill roots. Only skill metadata is put in the prompt; content is loaded on demand. */
   skillRoots?: string[];
   /** Application skill scope captured when Main dispatches this call. */
@@ -250,7 +246,6 @@ export interface CoordinatorRecoveryInput extends DelegatedModelSettings {
   toolFactory?: (workingDirectory: string, workspaceDirectory: string) => ReadonlyMap<string, RuntimeTool>;
   capabilityProvider?: CapabilityProvider;
   web?: WebToolOptions;
-  science?: ScienceToolOptions;
   skillRoots?: string[];
   skillApplications?: string[];
   questionTimeoutMs?: number;
@@ -641,14 +636,6 @@ export class CoordinatorRuntime {
           capabilityProvider: input.capabilityProvider,
           capabilityGrants: (item.payload as { capabilityGrants?: CapabilityGrant[] })?.capabilityGrants,
           web: input.web,
-          science: (item.payload as { science?: ScienceToolOptions })?.science
-            ? {
-                ...(item.payload as { science: ScienceToolOptions }).science,
-                enabled:
-                  (item.payload as { science: ScienceToolOptions }).science.enabled &&
-                  input.science?.enabled === true
-              }
-            : undefined,
           skillRoots: (item.payload as { skillRoots?: string[] })?.skillRoots ?? input.skillRoots,
           skillApplications:
             (item.payload as { skillApplications?: string[] })?.skillApplications ?? input.skillApplications,
@@ -729,8 +716,7 @@ export class CoordinatorRuntime {
         experimentRef: input.experimentRef,
         capabilityGrants: input.capabilityGrants ?? [],
         skillRoots: input.skillRoots,
-        skillApplications: input.skillApplications,
-        ...(input.science ? { science: input.science } : {})
+        skillApplications: input.skillApplications
       },
       // A Task expecting expensive jobs grants one attempt, so a diverged
       // training run surfaces as evidence instead of being repeated silently.
@@ -791,11 +777,7 @@ export class CoordinatorRuntime {
           })
         : undefined;
       const skills = await discoverSkills(
-        [
-          ...(provided?.skillRoots ?? []),
-          ...(input.skillRoots ?? [join(process.cwd(), ".pi", "skills")]),
-          ...scienceSkillRoots(input.science)
-        ],
+        [...(provided?.skillRoots ?? []), ...(input.skillRoots ?? [join(process.cwd(), ".pi", "skills")])],
         { applications: [...(input.skillApplications ?? []), ...(provided?.skillApplications ?? [])] }
       );
       // Capabilities are granted on the Task, so a Subagent inherits exactly
@@ -813,8 +795,7 @@ export class CoordinatorRuntime {
             commandEnv: { COWORK_API_TOKEN: undefined, ...input.commandEnv },
             supportsImages,
             visionModel: input.visionModel,
-            web: input.web,
-            science: input.science
+            web: input.web
           });
       const tools = new Map(baseTools);
       if (skills.length > 0) tools.set("load_skill", createLoadSkillTool(skills));
@@ -885,7 +866,6 @@ export class CoordinatorRuntime {
             "Return a concise natural-language or simple Markdown summary of the completed work, including the conclusion and useful evidence such as file paths, line numbers, commands or test results.",
             "Only write a file under deliverables/ when the task produces a substantial report, script or other reusable output; do not create files just to repeat a short message. Keep temporary files and intermediate logs in work/ or logs/ in your own directory. Do not write to Task artifacts/.",
             "The final response must be the complete conclusion, not progress narration. Do not claim work you did not perform.",
-            ...(input.science?.enabled === true ? [scienceEnvironmentGuidance(input.science)] : []),
             provided?.prompt ?? "",
             skillCatalogPrompt(skills)
           ].join("\n\n"),

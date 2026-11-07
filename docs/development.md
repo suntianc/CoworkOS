@@ -16,7 +16,7 @@
 | Computer Use  | Mac、Xcode Command Line Tools；截图需 macOS 14+、系统权限                  | 编译随 `npm run build`；动作验收需解锁桌面      |
 | Mac 安装包    | macOS 14+、Apple Silicon Mac；离线完整包另需 uv                            | `npm run desktop:pack` / `npm run desktop:dist` |
 
-`build:cli` 编译共享运行时并准备 CLI 和科学工具；`build`、`build:base` 和 `build:full` 准备文本工作台、数学排版与桌面宿主资源。非 Mac 环境跳过原生辅助程序和图标构建。
+`build:cli` 编译共享运行时并准备 CLI；`build`、`build:base` 和 `build:full` 准备文本工作台、数学排版与桌面宿主资源。非 Mac 环境跳过原生辅助程序和图标构建。
 
 文档附件测试需要 Python 3.11 和 PDF/Office 解析依赖，缺库应修环境，不能把跳过当成通过。使用独立环境，并让夹具和读取器共用 `COWORK_PYTHON`：
 
