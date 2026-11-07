@@ -20,6 +20,8 @@ Computer Use 在同一个 CoworkOS 桌面宿主内提供全局授权策略，以
 
 已有、新建和恢复的对话均按任务需要自行发现、选择窗口。桌面重开时沿用仍在运行的后端实际策略；后端重启后，保存的期望设置显示“等待本机确认”，不会自动开启。审批会话只保存在桌面和后端内存中，有效期为 30 分钟；会话过期、桌面重启或切换后，下一次显式开启、授权或恢复需重新完成本机身份确认。审批会话过期不会自动关闭已经开启的策略。打开应用和查看任务不会触发身份确认。网页和独立 CLI/Web 服务不能自行开启、扩权或恢复此策略。
 
+网页设置读取所选执行主机的权限和桌面状态；需要授权时到该执行主机的桌面版处理，网页不会申请客户端设备权限。无图形桌面或系统权限不可用时，状态接口返回原因；代码任务仍可运行。
+
 观察要求 macOS 14+ 和屏幕录制权限；控制还需要辅助功能、输入事件发送权限及解锁桌面。安全键盘输入开启时拒绝控制。窗口访问按钮不能替代系统确认，也不能绕过锁屏。开发 App 使用 ad-hoc 签名，构建身份改变可能再次要求系统授权；稳定签名及升级后的系统权限保留需要独立验收，不承诺永久保留。
 
 全局策略与临时会话分开。Agent 消费策略选择窗口，服务校验 Task、PID、窗口 ID、bundle ID、模式及系统权限，创建新的任务会话。五分钟临时有效期在有效策略范围内自动续期；续期后的操作重新验证系统权限及窗口身份，旧观察凭据失效。重启不恢复 PID、windowId、sessionId、observationId 或截图。
@@ -90,7 +92,7 @@ POST /api/tasks/:taskId/computer/end      {}
 
 状态查询返回可用性、系统权限、controlAvailable、secureInput、postEventAccess 和原因及可见普通应用窗口；会话查询返回 `{ session, access }`，session 含 source、taskId、previewCapturedAt。GET access 只返回策略和所有权元数据，不截图或续建会话；select 只消费已开启策略，不修改持久授权。预览返回 `{ preview }`（最近 PNG、capturedAt、目标和 sessionId，无 observationId），无当前活跃授权则为 null；GET 查询不调用驱动；POST 预览刷新消费已有窗口会话，在串行队列中抓屏，但不发放或替换 observationId。两者均不影响 Agent 动作凭据。观察响应包含 base64 PNG，HTTP 图片用于 UI，模型工具把它转成原生图片块并从文字/details 中移除。缺少授权为 403，旧观察/窗口变化为 409，非法输入为 400，驱动尺寸或 PNG 内容无效为 502；Agent 重新观察失败后旧 observationId 也失效，不能继续按旧图操作。普通驱动调用最长 15 秒，HTTP 断连会取消；旧 Task 授权的有效期可以进一步缩短操作时间。可信宿主可等待系统授权申请至多 5 分钟，供用户处理系统提示；等待期间仍可关闭或暂停。
 
-业务会话 HTTP 和 Agent 不提供 authorize/resume 接口。内部宿主控制接口仅接受实例记录中的宿主凭据和匹配的后端身份，并拒绝带浏览器 Origin 的请求；详情见 [产品 API](product-api.md)。
+业务会话 HTTP 和 Agent 不提供 authorize/resume 接口。系统权限申请、本机确认及开启或恢复控制要求宿主凭据和匹配的后端身份；内部宿主接口拒绝带浏览器 Origin 的请求。业务会话仍可读取状态及执行暂停、释放或关闭等安全操作；详情见 [产品 API](product-api.md)。后端为 Main 和委派进程提供只驻留当前后端内存的业务凭据，不向其环境传递宿主凭据；后端重启后该凭据失效。
 
 主窗口主 frame 通过 preload `bookmanDesktop.computerUse` 发可信 IPC；宿主在所选后端数据根的私有 computer-policy.json（version=1，0600）中原子保存 enabled/mode，再经实例身份绑定的内部宿主接口请求 policy/status/resume/permissions/authorize/pause/end/release-sessions。切换后端前释放旧会话，新目标只恢复自身策略；操作在途时切换被拒绝。损坏、未知版本或不可读设置默认关闭并展示恢复提示，原文件保留；设置写入失败不会扩大服务权限。authorize 显式传 taskId、pid、windowId、mode，服务再次验证 Task 和当前系统窗口。系统权限请求必须指定 permission=screenRecording 或 accessibility，驱动和宿主均验证该值，不提供申请全部权限的操作。宿主在请求后重新查询实际状态；未获准时只打开该项系统设置。开启或恢复策略只读取最新系统状态，两项权限及必要输入事件未齐全则拒绝，不能通过可信 IPC 绕过界面禁用状态；该操作不会申请系统权限。暂停/退出的意图优先于尚未完成的授权，延迟回包不会重新赋权。
 
@@ -99,6 +101,8 @@ POST /api/tasks/:taskId/computer/end      {}
 窗口选择和发现请求在 HTTP 接入时固定当前控制版本。即使请求体尚未收完，期间发生任务停止、人工暂停或策略关闭，旧请求也不能因随后恢复访问而重新生效；需在恢复后重新发起请求。拒绝发生在原生驱动调用前，不改变恢复后的会话。
 
 `test/computer-policy-races.test.js` 使用真实 Dashboard HTTP 和隔离驱动，覆盖重复关闭时取消旧单窗口在途/排队输入、迟到授权拒绝、关闭策略下的显式单窗口恢复，以及首次选择校验延迟时持有任务继续选窗、其他任务按 FIFO 接续。
+
+`test/os-native-host-capabilities.test.js` 覆盖业务凭据拒绝申请与扩权、宿主权限失败后恢复、暂停和实例变化后的旧凭据拒绝、网页主机状态归属，以及注入无图形驱动时独立后端在客户端退出后完成真实 Pi 代码任务和重启。真实 macOS 系统权限与前台窗口另行验收。
 
 - [持久策略](../desktop/computer-policy.cjs)、[可信宿主](../desktop/main.cjs)：默认关闭、私有原子存储、IPC 和迟到意图保护。
 - [会话与队列](../src/gui/computer-use.ts)：任务独占、全局续期、暂停/取消、单次观察及活动记录。

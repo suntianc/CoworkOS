@@ -210,6 +210,7 @@ export function createDashboardApplication(
     projectRoot,
     tabStorePath,
     dashboardUrl,
+    runCredential: access.runCredential(),
     coordinator,
     locateTask,
     withTaskProjectLock: workspaces.withTaskProjectLock,
