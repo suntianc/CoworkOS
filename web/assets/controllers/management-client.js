@@ -342,10 +342,12 @@ export function createManagementClient({
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
     inflight.add(controller);
     const assertCurrent = () => {
       if (at !== epoch)
         throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
+      if (controller.signal.aborted) throw new DOMException("请求已取消", "AbortError");
     };
     try {
       let response;
@@ -360,8 +362,7 @@ export function createManagementClient({
           ...(json === undefined ? {} : { body: JSON.stringify(json) }),
           ...(body === undefined ? {} : { body }),
           signal: controller.signal,
-          // A trusted other local backend authorizes with the host cookie the
-          // browser holds for this machine; same-origin requests are unaffected.
+          // The selected backend receives its host-managed transport header.
           credentials: "include",
           cache: "no-store"
         });
@@ -393,8 +394,7 @@ export function createManagementClient({
           }
         );
         if (typeof detail === "object" && detail) {
-          // The workbench editor branches on these to tell a revision conflict
-          // from a network failure instead of parsing prose.
+          // The editor uses structured revision and retry information.
           if (detail.details !== undefined) error.details = detail.details;
           if (detail.retryable !== undefined) error.retryable = Boolean(detail.retryable);
         }
@@ -406,7 +406,11 @@ export function createManagementClient({
         result = await parse(response);
       } catch (error) {
         assertCurrent();
-        throw error;
+        if (error?.name === "AbortError" || error instanceof ManagementClientError) throw error;
+        throw new ManagementClientError("无法联系后端，请确认本机后端仍在运行。", {
+          code: "network",
+          network: true
+        });
       }
       assertCurrent();
       return result;

@@ -6,6 +6,7 @@ import { createWatchController } from "./assets/controllers/watch-controller.js"
 import { createMessageEditController } from "./assets/controllers/message-edit.js";
 import { createComposerClipboard } from "./assets/controllers/composer-clipboard.js";
 import { createComposerSession } from "./assets/controllers/composer-session.js";
+import { createDraftRecovery } from "./assets/controllers/draft-recovery.js";
 import { createComposerLayout } from "./assets/controllers/composer-layout.js";
 import { createVoiceInput } from "./assets/controllers/voice-input.js";
 import { createFileUpload, uploadedFileIds } from "./assets/controllers/file-upload.js";
@@ -86,6 +87,7 @@ const sending = new Map();
 let attachmentReadVersion = 0;
 let readingAttachments = false;
 let fileUpload;
+let attachmentPreview;
 const creatingTasks = new Map();
 const stoppingTasks = new Set();
 const stopEpochs = new Map();
@@ -233,6 +235,7 @@ const composerSession = createComposerSession({
   getAttachments: () => state.attachments,
   setAttachments: (files) => {
     fileUpload?.navigate();
+    attachmentPreview?.close({ restoreFocus: false });
     // Navigation retires a read belonging to the previous draft immediately.
     attachmentReadVersion += 1;
     readingAttachments = false;
@@ -242,6 +245,7 @@ const composerSession = createComposerSession({
   onError: showToast,
   onPersist: () => window.bookmanDesktop?.saveComposerDrafts?.()
 });
+await composerSession.ready;
 const messageEdit = createMessageEditController({
   composerSession,
   input: $("#composer-input"),
@@ -530,6 +534,14 @@ const projectController = createProjectController({
     ]),
   onUpdated: () => void refresh()
 });
+const draftRecovery = createDraftRecovery({
+  button: $("#recover-drafts"),
+  session: composerSession,
+  getBackend: () => boundBackendId,
+  getContext: () => backendRevision,
+  getProjects: () => state.projects,
+  openDraft: (projectId) => beginNewConversation(projectId)
+});
 function conversationTitle(task) {
   return task?.title || truncate(String(task?.goal || task?.taskId || ui("新的对话")).split("\n")[0], 48);
 }
@@ -812,6 +824,7 @@ async function refreshState({ poll = false, isCurrent = () => true } = {}) {
 
 /** The backend the visible catalog belongs to; events from any other are dropped. */
 let boundBackendId = null;
+let backendRevision = 0;
 
 /**
  * Bind the page to one backend identity.
@@ -822,7 +835,9 @@ let boundBackendId = null;
 function adoptBackendIdentity(backendId) {
   if (!backendId || backendId === boundBackendId) return;
   boundBackendId = backendId;
+  backendRevision += 1;
   composerSession.setBackend(backendId);
+  void draftRecovery.refresh();
   // The backend's own draft namespace may name a different last conversation
   // than the page had before the session bound. A conversation link keeps its
   // choice; otherwise the stored slot is what "the last conversation" means.
@@ -842,6 +857,8 @@ function resetBackendView() {
   clearManagedMedia();
   connection.close();
   boundBackendId = null;
+  backendRevision += 1;
+  void draftRecovery.refresh();
   state.selected = null;
   state.detail = null;
   state.tasks = [];
@@ -1937,7 +1954,7 @@ const settingsOverview = {
 };
 $("#user-menu-button").addEventListener("click", openProfileMenu);
 document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
-installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
+attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
   upload: (file, options) => management.upload(file, options),
   getContext: () => composerSession.currentToken,
@@ -2556,6 +2573,7 @@ async function bootBackend() {
   adoptBackendIdentity(connected.backendId);
   await loadModels();
   await refresh();
+  await draftRecovery.refresh();
   updateSendButton();
   if (window.bookmanDesktop && state.modelConfigured === false) void modelSettings.open();
 }
