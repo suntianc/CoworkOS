@@ -25,6 +25,7 @@ function fixtures() {
     pid: name === "a" ? 101 : 202,
     async computer(input) {
       calls.push([name, input.operation, input.enabled]);
+      if (input.operation === "access") return { policy: { enabled: name === "a", mode: "control" } };
       if (input.operation === "status" && hold) {
         began();
         await hold;
@@ -83,11 +84,7 @@ test("target switch rejects while an operation is in flight and does not move it
   f.coordinator.endSwitch();
   assert.equal(f.coordinator.status().backendId, "b");
   assert.ok(f.calls.some(([target, operation]) => target === "a" && operation === "release-sessions"));
-  assert.ok(
-    f.calls.some(
-      ([target, operation, enabled]) => target === "b" && operation === "policy" && enabled === false
-    )
-  );
+  assert.ok(f.calls.some(([target, operation]) => target === "b" && operation === "access"));
 });
 
 test("failed switch preserves A; committed B restoration failure stays on B and can retry", async () => {
@@ -104,7 +101,7 @@ test("failed switch preserves A; committed B restoration failure stays on B and 
   let fail = true;
   const computer = b.computer;
   b.computer = async (input) => {
-    if (fail && input.operation === "policy") throw new Error("B unavailable");
+    if (fail && input.operation === "access") throw new Error("B unavailable");
     return computer(input);
   };
   await f.coordinator.beginSwitch();

@@ -29,7 +29,7 @@ applyProxyEnvironment(readCoworkConfig());
  */
 const paths = backendPaths(atriaHome());
 const enforcedToken = process.env.COWORK_API_TOKEN?.trim() || undefined;
-const computerHostToken = enforcedToken ?? randomBytes(32).toString("hex");
+const localAccessToken = enforcedToken ?? randomBytes(32).toString("hex");
 const served = await claimBackendServing(paths, randomBytes(32).toString("hex"));
 if (served.kind === "existing") {
   console.log(`Cowork dashboard already served on ${served.instance.url}`);
@@ -40,23 +40,7 @@ if (served.kind === "existing") {
   const startedAt = new Date().toISOString();
   const dashboard = createDashboardApplication({
     backendIdentity: { backendId: identity.value.backendId, startedAt },
-    computerHostToken
-  });
-  // This IPC channel belongs to the Electron parent, not the HTTP/Agent surface.
-  process.on("message", (value) => {
-    if (!value || typeof value !== "object" || !("type" in value)) return;
-    if (value.type !== "computer.host") return;
-    const message = value as { requestId?: unknown; input?: unknown };
-    if (typeof message.requestId !== "string") return;
-    void dashboard.computerHostRequest(message.input).then(
-      (result) => process.send?.({ type: "computer.reply", requestId: message.requestId, result }),
-      (error) =>
-        process.send?.({
-          type: "computer.reply",
-          requestId: message.requestId,
-          error: error instanceof Error ? error.message : "Computer Use 请求失败"
-        })
-    );
+    localAccessToken
   });
   const port = Number(process.env.COWORK_UI_PORT ?? 3880);
   await new Promise<void>((resolveListen, reject) => {
@@ -79,7 +63,7 @@ if (served.kind === "existing") {
     pid: process.pid,
     port,
     url: dashboard.dashboardUrl,
-    token: computerHostToken,
+    token: localAccessToken,
     startedAt
   };
   await publishBackendServing(paths, claimToken, instance).catch(async (error) => {

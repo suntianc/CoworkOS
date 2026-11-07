@@ -77,20 +77,25 @@ function systemPermissionsReady(status) {
 /** Sender trust is checked by main before entering this host-only controller. */
 function createComputerPolicyController({ store, getBackend, registerTakeover, openPermissionSettings }) {
   let intent = 0;
+  let approvalRequired = false;
   return {
     async initialize(backend) {
       const version = ++intent;
-      // OS permission loss blocks driver operations, not the saved human preference.
-      const { enabled, mode } = store.snapshot();
+      const live = await backend.computer({ operation: "access" });
       if (version !== intent || backend !== getBackend()) return;
-      await backend.computer({ operation: "policy", enabled, mode });
-      if (version !== intent || backend !== getBackend()) return;
+      const enabled = live?.policy?.enabled === true;
+      approvalRequired = store.snapshot().enabled && !enabled;
       registerTakeover(enabled);
     },
     async request(input) {
       const current = getBackend();
       if (!current) throw new Error("Computer Use 本地服务不可用");
-      if (input?.operation === "policy-status") return store.snapshot();
+      if (input?.operation === "policy-status") {
+        const live = await current.computer({ operation: "access" });
+        if (current !== getBackend()) return { ...store.snapshot(), cancelled: true };
+        approvalRequired = store.snapshot().enabled && live?.policy?.enabled !== true;
+        return { ...store.snapshot(), ...(approvalRequired ? { approvalRequired: true } : {}) };
+      }
       if (input?.operation === "permissions") {
         const permission = input.permission;
         if (!["screenRecording", "accessibility"].includes(permission)) throw new Error("无效系统权限请求");
@@ -126,8 +131,10 @@ function createComputerPolicyController({ store, getBackend, registerTakeover, o
         }
         await store.save(next);
         if (version !== intent || current !== getBackend()) return { ...store.snapshot(), cancelled: true };
+        approvalRequired = next.enabled;
         await current.computer({ operation: "policy", ...next });
         if (version !== intent || current !== getBackend()) return { ...store.snapshot(), cancelled: true };
+        approvalRequired = false;
         return {
           ...store.snapshot(),
           takeoverShortcut: registerTakeover(next.enabled)

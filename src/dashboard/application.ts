@@ -70,7 +70,9 @@ import { createWorkspaceDirectory } from "./workspace-directory.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
 import { MacComputerDriver } from "../gui/macos-driver.js";
+import { createMacComputerApproval } from "../gui/macos-approval.js";
 import { HttpError } from "./http.js";
+import { ComputerApproval, type ComputerApprovalAuthentication } from "./computer-approval.js";
 
 /** Assemble one local Dashboard; importing this module never opens a port or installs signals. */
 export function createDashboardApplication(
@@ -79,8 +81,11 @@ export function createDashboardApplication(
     port?: number;
     computerDriver?: ComputerDriver;
     computerClock?: () => number;
-    /** Secret held by the execution host for privileged Computer Use control. */
-    computerHostToken?: string;
+    /** Local management credential used by the optional open development dashboard. */
+    localAccessToken?: string;
+    computerApprovalAuthenticate?: ComputerApprovalAuthentication;
+    computerApprovalClock?: () => number;
+    computerApprovalTtlMs?: number;
     /** Supplied by a host that persists identity; otherwise this process is the identity. */
     backendIdentity?: { backendId: string; startedAt: string };
   } = {}
@@ -132,7 +137,12 @@ export function createDashboardApplication(
   const access = new LocalAccess(
     dirname(globalIndexPath),
     () => process.env.COWORK_API_TOKEN,
-    () => options.computerHostToken ?? process.env.COWORK_API_TOKEN
+    () => options.localAccessToken ?? process.env.COWORK_API_TOKEN
+  );
+  const computerApproval = new ComputerApproval(
+    options.computerApprovalAuthenticate ?? createMacComputerApproval(projectRoot),
+    options.computerApprovalClock,
+    options.computerApprovalTtlMs
   );
   /**
    * Durable receipts for idempotent change commands, beside the sessions and
@@ -653,6 +663,7 @@ export function createDashboardApplication(
       computer.close();
       return null;
     }
+    if (input.operation === "access" && exact("operation")) return computer.access();
     if (input.operation === "status" && exact("operation"))
       return (options.computerDriver ?? computerDriver).status();
     if (input.operation === "permissions") {
@@ -668,7 +679,10 @@ export function createDashboardApplication(
     }
     if (
       input.operation !== "authorize" ||
-      !exact("operation", "taskId", "pid", "windowId", "mode") ||
+      !exact("operation", "taskId", "pid", "windowId", "mode", "bundleId", "application", "title") ||
+      [input.bundleId, input.application, input.title].some(
+        (value) => value !== undefined && (typeof value !== "string" || value.length > 1024)
+      ) ||
       typeof input.taskId !== "string" ||
       input.taskId.length === 0 ||
       input.taskId.length > 200 ||
@@ -706,7 +720,7 @@ export function createDashboardApplication(
     uploads,
     computer,
     computerHostRequest,
-    computerHostToken: options.computerHostToken ?? process.env.COWORK_API_TOKEN,
+    computerApproval,
     dashboardUrl,
     uiRoot,
     webSearchSettings: createWebSearchSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
@@ -768,6 +782,7 @@ export function createDashboardApplication(
     routePorts: routes,
     computerHostRequest,
     async stop() {
+      await computerApproval.close();
       await catalogEvents.close();
       await memoryLearning.stop();
       await projectLearning.stop();

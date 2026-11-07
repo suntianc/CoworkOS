@@ -4,6 +4,8 @@ import { startDashboard } from "../test/dashboard-fixture.mjs";
 async function openSettings(page) {
   await page.locator("#user-menu-button").click();
   await expect(page.getByRole("dialog", { name: "设置", exact: true })).toBeVisible();
+  const section = page.locator('details[aria-label="窗口访问"]');
+  if (!(await section.evaluate((element) => element.open))) await section.locator("summary").click();
 }
 
 async function hostFixture(page) {
@@ -19,10 +21,15 @@ async function hostFixture(page) {
   };
   await page.exposeFunction("__computerHost", async (input) => {
     state.operations.push(input);
-    if (input.operation === "policy-status") return state.policy;
+    if (input.operation === "policy-status")
+      return {
+        ...(state.savedPolicy ?? state.policy),
+        ...(state.approvalRequired ? { approvalRequired: true } : {})
+      };
     if (input.operation === "policy") {
       if (state.save) return state.save(input);
       state.policy = { enabled: input.enabled, mode: input.mode };
+      state.approvalRequired = false;
       state.session = null;
       state.paused = false;
       state.blocked = false;
@@ -116,6 +123,26 @@ test("three settings buttons gate full access for all conversations and persists
     await toggle.click();
     await expect.poll(() => host.policy.enabled).toBe(false);
     await expect(page.locator("[data-computer-state]")).toContainText("已关闭");
+  } finally {
+    await dashboard.stop();
+  }
+});
+
+test("saved window access waits for an explicit local confirmation", async ({ page }) => {
+  const dashboard = await startDashboard();
+  const host = await hostFixture(page);
+  host.savedPolicy = { enabled: true, mode: "control" };
+  host.approvalRequired = true;
+  try {
+    await page.goto(dashboard.base);
+    await openSettings(page);
+    await expect(page.locator("[data-computer-state]")).toHaveText("等待本机确认");
+    const toggle = page.locator("#computer-access-enabled");
+    await expect(toggle).toHaveText("确认并开启窗口访问");
+    expect(host.operations.some((input) => input.operation === "policy")).toBe(false);
+    await toggle.click();
+    await expect.poll(() => host.policy.enabled).toBe(true);
+    await expect(page.locator("[data-computer-state]")).toHaveText("已开启");
   } finally {
     await dashboard.stop();
   }

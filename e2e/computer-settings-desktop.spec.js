@@ -1,9 +1,78 @@
 import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { once } from "node:events";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "../scripts/desktop-dev.mjs";
 import { desktopSmokeEnvironment } from "../scripts/desktop-smoke-env.mjs";
+import { createDashboardApplication } from "../dist/src/dashboard/application.js";
+import {
+  backendPaths,
+  ensureBackendIdentity,
+  removeBackendInstance,
+  writeBackendInstance
+} from "../dist/src/dashboard/backend-instance.js";
+
+// Exercise the production routes and desktop IPC with an in-process native-auth dependency.
+// No production environment switch or HTTP endpoint grants approval.
+async function isolatedBackend(data, helper) {
+  const saved = { ...process.env };
+  for (const name of Object.keys(process.env))
+    if (/^(COWORK_|ATRIA_|PI_|ELECTRON_)/.test(name)) delete process.env[name];
+  Object.assign(process.env, {
+    ATRIA_HOME: data,
+    COWORK_HARNESS_ROOT: resolve("."),
+    COWORK_CONFIG: join(data, "config.json"),
+    COWORK_WORKSPACE: join(data, "workspace"),
+    COWORK_API_TOKEN: "isolated-settings-fixture",
+    COWORK_COMPUTER_USE_EXECUTABLE: helper,
+    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    PI_OFFLINE: "1"
+  });
+  await writeFile(process.env.COWORK_CONFIG, "{}\n");
+  const probe = createServer();
+  probe.listen(0, "127.0.0.1");
+  await once(probe, "listening");
+  const port = probe.address().port;
+  await new Promise((done) => probe.close(done));
+  const paths = backendPaths(data);
+  const identity = await ensureBackendIdentity(paths);
+  const startedAt = new Date().toISOString();
+  let approvals = 0;
+  const application = createDashboardApplication({
+    projectRoot: resolve("."),
+    port,
+    backendIdentity: { backendId: identity.backendId, startedAt },
+    computerApprovalAuthenticate: async () => (++approvals, true)
+  });
+  application.server.listen(port, "127.0.0.1");
+  await once(application.server, "listening");
+  await writeBackendInstance(paths, {
+    ...identity,
+    pid: process.pid,
+    port,
+    url: application.dashboardUrl,
+    token: process.env.COWORK_API_TOKEN,
+    startedAt
+  });
+  return {
+    approvals: () => approvals,
+    async close() {
+      await application.stop();
+      await removeBackendInstance(paths, { pid: process.pid });
+      for (const name of Object.keys(process.env))
+        if (/^(COWORK_|ATRIA_|PI_|ELECTRON_)/.test(name)) delete process.env[name];
+      Object.assign(process.env, saved);
+    }
+  };
+}
+
+async function openWindowSettings(page) {
+  await page.locator("#user-menu-button").click();
+  const section = page.locator("#profile-modal .computer-setting");
+  if (!(await section.evaluate((element) => element.open))) await section.locator("summary").click();
+}
 
 async function isolatedDriver(data, windows, grant = true, confirmationDelay = 0) {
   const helper = join(data, "isolated-driver.cjs");
@@ -74,6 +143,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     true,
     21_000
   );
+  const backend = await isolatedBackend(data, helper);
   const env = { ...desktopSmokeEnvironment({ data }), COWORK_COMPUTER_USE_EXECUTABLE: helper };
   const packagedApp = process.env.ATRIA_DESKTOP_APP;
   const executablePath = packagedApp
@@ -109,8 +179,12 @@ test("native three-button settings grant both windows to new tasks, persists acr
         const response = await fetch(
           path,
           body === undefined
-            ? {}
-            : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
+            ? { headers: { "x-atria-token": "isolated-settings-fixture" } }
+            : {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-atria-token": "isolated-settings-fixture" },
+                body: JSON.stringify(body)
+              }
         );
         return { status: response.status, value: await response.json() };
       },
@@ -118,7 +192,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     );
   try {
     let page = await launch();
-    await page.locator("#user-menu-button").click();
+    await openWindowSettings(page);
     const toggle = () => page.locator("#computer-access-enabled");
     await expect(toggle()).toHaveAttribute("aria-pressed", "false");
     expect((await call(page, "/api/computer/access")).value.policy.enabled).toBe(false);
@@ -151,8 +225,10 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await expect(accessibility).toBeDisabled();
     await expect(toggle()).toBeEnabled();
     expect((await call(page, "/api/computer/access")).value.policy.enabled).toBe(false);
+    expect(backend.approvals()).toBe(0);
     await toggle().click();
     await expect(page.locator("[data-computer-state]")).toContainText("已开启");
+    expect(backend.approvals()).toBe(1);
     await expect(page.locator("[data-computer-permissions]")).toContainText("权限已开启");
     expect(await native.evaluate(() => globalThis.__permissionSettingsUrls)).toEqual([]);
     expect(
@@ -227,8 +303,9 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await native.close();
     native = undefined;
     page = await launch();
-    expect(page.url()).not.toBe(firstOrigin);
-    await page.locator("#user-menu-button").click();
+    expect(page.url()).toBe(firstOrigin);
+    await openWindowSettings(page);
+    expect(backend.approvals()).toBe(1);
     await expect(toggle()).toHaveAttribute("aria-pressed", "true");
     expect((await readFile(requests, "utf8")).trim().split("\n")).toHaveLength(2);
     const restored = (await call(page, "/api/computer/access")).value;
@@ -271,13 +348,14 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await native.close();
     native = undefined;
     page = await launch();
-    await page.locator("#user-menu-button").click();
+    await openWindowSettings(page);
     await expect(toggle()).toHaveAttribute("aria-pressed", "false");
     expect((await call(page, "/api/computer/access")).value.policy.enabled).toBe(false);
     expect((await readFile(effects, "utf8")).trim().split("\n")).toHaveLength(2);
     expect((await readFile(requests, "utf8")).trim().split("\n")).toHaveLength(2);
     await toggle().click();
     await expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => backend.approvals()).toBe(2);
     await expect
       .poll(async () => JSON.parse(await readFile(join(data, "computer-policy.json"), "utf8")).policy.enabled)
       .toBe(true);
@@ -289,7 +367,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await native.close();
     native = undefined;
     page = await launch();
-    await page.locator("#user-menu-button").click();
+    await openWindowSettings(page);
     await expect(toggle()).toHaveAttribute("aria-pressed", "true");
     await expect(toggle()).toBeEnabled();
     expect((await call(page, "/api/computer/access")).value.policy.enabled).toBe(true);
@@ -297,6 +375,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     expect((await readFile(requests, "utf8")).trim().split("\n")).toHaveLength(2);
   } finally {
     await native?.close();
+    await backend.close();
     await rm(data, { recursive: true, force: true });
   }
 });
@@ -305,9 +384,10 @@ test("denying either system permission keeps access disabled and opens only its 
   test.skip(process.platform !== "darwin", "Native settings acceptance requires macOS");
   test.setTimeout(90_000);
   const data = await mkdtemp(join(tmpdir(), "atria-computer-permission-denied-"));
-  let native;
+  let native, backend;
   try {
     const { helper, requests } = await isolatedDriver(data, [], false);
+    backend = await isolatedBackend(data, helper);
     const packagedApp = process.env.ATRIA_DESKTOP_APP;
     native = await electron.launch({
       executablePath: packagedApp
@@ -329,7 +409,7 @@ test("denying either system permission keeps access disabled and opens only its 
     const model = page.getByRole("dialog", { name: "连接模型", exact: true });
     await expect(model).toBeVisible();
     await model.getByRole("button", { name: "关闭设置", exact: true }).click();
-    await page.locator("#user-menu-button").click();
+    await openWindowSettings(page);
     const toggle = page.locator("#computer-access-enabled");
     const screen = page.locator('[data-computer-permission="screenRecording"]');
     const accessibility = page.locator('[data-computer-permission="accessibility"]');
@@ -354,7 +434,7 @@ test("denying either system permission keeps access disabled and opens only its 
       const post = (path, body) =>
         fetch(path, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "x-atria-token": "isolated-settings-fixture" },
           body: JSON.stringify(body)
         });
       await post("/api/tasks", { taskId: "denied-task", goal: "Isolated denied permission" });
@@ -364,8 +444,10 @@ test("denying either system permission keeps access disabled and opens only its 
     });
     expect(selectedStatus).toBe(403);
     expect((await readFile(requests, "utf8")).trim().split("\n")).toHaveLength(2);
+    expect(backend.approvals()).toBe(0);
   } finally {
     await native?.close();
+    await backend?.close();
     await rm(data, { recursive: true, force: true });
   }
 });

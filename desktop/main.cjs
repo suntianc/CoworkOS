@@ -704,6 +704,7 @@ app.on("before-quit", (event) => {
     await restartPromise;
     await updates?.dispose();
     // The backend keeps serving, and with it every task it already accepted.
+    await computerTargets.dispose().catch(() => {});
     await speechInput.dispose();
     await credentialStorage.close?.();
     quitting = true;

@@ -9,6 +9,7 @@ const { createComputerPolicyController } = createRequire(import.meta.url)("../de
 
 function permissionFixture(options = {}) {
   let policy = { enabled: false, mode: "control" };
+  let livePolicy = { enabled: false, mode: "control" };
   const calls = [],
     shortcuts = [],
     opened = [];
@@ -16,6 +17,8 @@ function permissionFixture(options = {}) {
   const backend = {
     async computer(input) {
       calls.push(input);
+      if (input.operation === "access") return { policy: { ...livePolicy } };
+      if (input.operation === "policy") livePolicy = { enabled: input.enabled, mode: input.mode };
       if (input.operation === "status") return options.status ? options.status() : { ...status };
       if (input.operation === "permissions")
         return options.request ? options.request(input) : { requested: true };
@@ -246,7 +249,7 @@ test("desktop policy controller rejects late enable after takeover and explicit 
     }
   });
   await controller.initialize(backend);
-  assert.deepEqual(calls, [{ operation: "policy", enabled: false, mode: "observe" }]);
+  assert.deepEqual(calls, [{ operation: "access" }]);
   const enabling = controller.request({ operation: "policy", enabled: true, mode: "control" });
   await began;
   await controller.request({ operation: "pause" });
@@ -363,5 +366,5 @@ test("renderer session cleanup leaves the saved policy and takeover shortcut ena
     mode: "control"
   });
   await controller.initialize(backend);
-  assert.equal(calls.at(-1).enabled, true);
+  assert.equal(calls.at(-1).operation, "access");
 });

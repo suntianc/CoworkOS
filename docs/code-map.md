@@ -249,7 +249,7 @@ CUA 业务确认复用 Main memory/会话压缩和恢复机制，由 [CUA skill]
 
 真实模型 Browser 验收用 [opt-in runner](../scripts/validate-cua-live.mjs) 和 [随机像素页面](../test/cua-live-fixture.mjs)，通过生产 settings/keychain/backend 读取当前默认多模态连接，仅运行独立 Task；命令与证据边界见 [实测指南](cua-live-validation.md)。
 
-窗口访问的持久开关由 [桌面策略](../desktop/computer-policy.cjs) 按所选后端数据根管理；[目标协调器](../desktop/computer-target.cjs) 互斥切换和控制，在操作进行时拒绝切换；[宿主桥](../desktop/computer-host.cjs) 核验实例身份并调用受限控制接口。[桌面生命周期](../desktop/main.cjs) 只释放 [操作会话](../src/gui/computer-use.ts)，不自动暂停全局访问。验证 [目标切换](../test/desktop-computer-target.test.js)、[真实后端桥](../test/desktop-computer-host.test.js)、[会话释放](../test/computer-global.test.js) 与 [重启策略](../test/desktop-computer-policy.test.js)。
+窗口访问的期望策略由 [桌面策略](../desktop/computer-policy.cjs) 按所选后端数据根管理；[目标协调器](../desktop/computer-target.cjs) 互斥切换和控制，[宿主桥](../desktop/computer-host.cjs) 核验实例身份。[审批服务](../src/dashboard/computer-approval.ts) 通过 [Mac 身份确认](../src/gui/macos-approval.ts) 签发内存中的短期审批，业务凭据不能开启或恢复访问。[桌面生命周期](../desktop/main.cjs) 退出时释放审批，后端继续运行。验证 [审批边界](../test/computer-host-approval.test.js)、[桌面审批](../test/desktop-computer-approval.test.js)、[目标切换](../test/desktop-computer-target.test.js) 与 [真实后端桥](../test/desktop-computer-host.test.js)。
 
 ### CLI、桌面与分发
 

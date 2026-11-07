@@ -5,6 +5,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import Carbon
 import CryptoKit
+import LocalAuthentication
 
 struct Failure: Error { let message: String; let code: String; let dispatchStatus: String }
 // The helper executes one request, so this status cannot leak between requests.
@@ -219,6 +220,23 @@ func postKey(_ code: CGKeyCode, _ flags: CGEventFlags, _ pid: pid_t, text: Strin
         }
     }
     static func execute(_ request: [String: Any]) async throws -> [String: Any] {
+        if request["operation"] as? String == "host-approval" {
+            guard let backend = request["backendId"] as? String, !backend.isEmpty, backend.count <= 80,
+                  backend.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else {
+                try fail("无效的后端身份")
+            }
+            let context = LAContext()
+            defer { context.invalidate() }
+            do {
+                let reason = "允许 CoworkOS 后端 \(backend) 启用或恢复对所有应用窗口的控制"
+                if try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) {
+                    return ["approved": true]
+                }
+            } catch {
+                try fail("本机身份验证未通过或已取消", "approval_denied")
+            }
+            try fail("本机身份验证未通过或已取消", "approval_denied")
+        }
         if request["operation"] as? String == "status" {
             let supported: Bool
             if #available(macOS 14.0, *) { supported = true } else { supported = false }

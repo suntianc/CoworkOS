@@ -20,7 +20,12 @@ async function call(instance, operation, credential = instance.token, headers = 
       ...(credential ? { "x-atria-token": credential } : {}),
       ...headers
     },
-    body: JSON.stringify({ backendId: instance.backendId, pid: instance.pid, input: operation }),
+    body: JSON.stringify({
+      backendId: instance.backendId,
+      pid: instance.pid,
+      startedAt: instance.startedAt,
+      input: operation
+    }),
     signal: AbortSignal.timeout(10000)
   });
   return { status: response.status, body: await response.json() };
@@ -60,12 +65,8 @@ test(
     assert.equal(typeof backend.computer, "function");
     const status = await backend.computer({ operation: "status" });
     assert.equal(typeof status.available, "boolean");
-    await backend.computer({ operation: "policy", enabled: true, mode: "control" });
-    assert.equal((await access(backend)).policy.enabled, true);
     await backend.computer({ operation: "pause" });
     assert.equal((await access(backend)).paused, true);
-    await backend.computer({ operation: "resume" });
-    assert.equal((await access(backend)).paused, false);
     await backend.computer({ operation: "policy", enabled: false, mode: "control" });
     assert.equal((await access(backend)).policy.enabled, false);
     assert.equal(
@@ -78,7 +79,7 @@ test(
       body: JSON.stringify({ clientName: "test", protocolVersion: "1.0" })
     });
     const session = (await authorization.json()).session.token;
-    assert.equal((await call(backend, { operation: "pause" }, session)).status, 403);
+    assert.equal((await call(backend, { operation: "resume" }, session)).status, 403);
     assert.equal(
       (await call(backend, { operation: "pause" }, null, { cookie: `atria-session=${backend.token}` }))
         .status,
@@ -137,20 +138,19 @@ test(
     const candidate = await authorization.prepare(join(base, "b"));
     assert.equal((await authorization.verifySelected(a)).backendId, a.backendId);
     const staleCandidate = await authorization.prepare(join(base, "b"));
-    await aHandle.computer({ operation: "policy", enabled: true, mode: "control" });
-    assert.equal((await access(hosts[0])).policy.enabled, true);
-    assert.equal((await access(hosts[1])).policy.enabled, false);
+    await aHandle.computer({ operation: "pause" });
+    assert.equal((await access(hosts[0])).paused, true);
+    assert.equal((await access(hosts[1])).paused, false);
     const b = authorization.commit(candidate);
     assert.throws(() => authorization.commit(staleCandidate), /切换/);
     const bHandle = authorization.computerBackend(b);
     await assert.rejects(aHandle.computer({ operation: "policy", enabled: false, mode: "control" }), /切换/);
-    await bHandle.computer({ operation: "policy", enabled: true, mode: "control" });
-    assert.equal((await access(hosts[1])).policy.enabled, true);
-    await bHandle.computer({ operation: "policy", enabled: false, mode: "control" });
-    assert.equal((await access(hosts[0])).policy.enabled, true);
+    await bHandle.computer({ operation: "pause" });
+    assert.equal((await access(hosts[1])).paused, true);
+    assert.equal((await access(hosts[0])).paused, true);
     await aHandle.pauseRetired();
     assert.equal((await access(hosts[0])).paused, true);
-    assert.equal((await access(hosts[1])).paused, false);
+    assert.equal((await access(hosts[1])).paused, true);
     await assert.rejects(authorization.verifySelected(a), /身份/);
 
     let release, started;
@@ -263,7 +263,7 @@ test(
 );
 
 test(
-  "host HTTP bridge dispatches named permission requests and restores persisted policy",
+  "host HTTP bridge keeps a saved policy pending until explicit local approval",
   { timeout: 90000 },
   async (t) => {
     const base = await mkdtemp(join(tmpdir(), "cowork-computer-permission-"));
@@ -314,6 +314,7 @@ test(
     const app = createDashboardApplication({
       port,
       computerDriver: driver,
+      computerApprovalAuthenticate: async () => true,
       backendIdentity: { backendId: "backend_permission_fixture", startedAt: "2026-01-01T00:00:00.000Z" }
     });
     await new Promise((done, fail) => {
@@ -331,7 +332,8 @@ test(
       url: `http://127.0.0.1:${port}`,
       token: "synthetic-host-token",
       pid: process.pid,
-      backendId: "backend_permission_fixture"
+      backendId: "backend_permission_fixture",
+      startedAt: "2026-01-01T00:00:00.000Z"
     };
     const {
       createComputerPolicyStore,
@@ -340,23 +342,20 @@ test(
     const store = createComputerPolicyStore(base);
     await store.load();
     await store.save({ enabled: true, mode: "control" });
-    const backend = {
-      async computer(input) {
-        const r = await call(instance, input);
-        if (r.status !== 200) throw new Error(JSON.stringify(r.body));
-        return r.body.result;
-      }
-    };
+    const { createComputerHost } = require("../desktop/computer-host.cjs");
+    const backend = { computer: createComputerHost({ expected: instance, inspect: async () => instance }) };
     const controller = createComputerPolicyController({
       store,
       getBackend: () => backend,
       registerTakeover: () => null
     });
     await controller.initialize(backend);
-    assert.equal((await access(instance)).policy.enabled, true);
+    assert.equal((await access(instance)).policy.enabled, false);
     const permission = await controller.request({ operation: "permissions", permission: "screenRecording" });
     assert.equal(permission.screenRecording, true);
     assert.deepEqual(calls, ["status", "screenRecording", "status"]);
+    await controller.request({ operation: "policy", enabled: true, mode: "control" });
+    assert.equal((await access(instance)).policy.enabled, true);
     await controller.request({ operation: "pause" });
     assert.equal((await access(instance)).paused, true);
     await controller.request({ operation: "resume" });

@@ -50,7 +50,10 @@ function createComputerTargetCoordinator({
       const change = { old: current, shortcutEnabled, paused: false };
       transition = change;
       try {
-        if (change.old?.ready) await change.old.controller.request({ operation: "release-sessions" });
+        if (change.old?.ready) {
+          await change.old.controller.request({ operation: "release-sessions" });
+          await change.old.backend.computer.revoke?.();
+        }
         register(false);
       } catch (error) {
         transition = undefined;
@@ -104,6 +107,9 @@ function createComputerTargetCoordinator({
         return transition.old?.backend.pauseRetired();
       }
       return this.request({ operation: "pause" });
+    },
+    async dispose() {
+      await current?.backend.computer.revoke?.();
     },
     status() {
       return current

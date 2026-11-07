@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { HttpError, readJsonBody, sendJson } from "./http.js";
 import { ComputerUse, ComputerUseError } from "../gui/computer-use.js";
 
-/** Grants deliberately have no HTTP endpoint; they arrive on trusted desktop IPC. */
+/** Business clients consume existing grants and can pause or release them. */
 export async function handleComputerRequest(
   request: IncomingMessage,
   response: ServerResponse,
