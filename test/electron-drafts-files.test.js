@@ -365,6 +365,35 @@ test("P1: a changed source is kept while its older migrated copy is recovered", 
   assert.equal(view.input.value, "new independent source");
 });
 
+test("P1: a destination changed by another window cannot consume its unchanged source", () => {
+  const storage = migrationStorage();
+  const remove = storage.removeItem.bind(storage);
+  let failCleanup = false;
+  storage.removeItem = (key) => {
+    if (failCleanup && key === "atria.composer.v1:backend-a:new") throw new Error("cleanup unavailable");
+    remove(key);
+  };
+  const view = draftFixture(storage);
+  view.session.setBackend("backend-a");
+  view.session.activate(null);
+  view.input.value = "original source";
+  view.setFiles([attached]);
+  view.session.save();
+  failCleanup = true;
+  view.session.activate(null, { projectId: "p1" });
+  view.session.setBackend("backend-b");
+  view.session.activate(null);
+  const changed = JSON.stringify({ text: "other window", attachments: [] });
+  storage.setItem("atria.composer.v1:backend-a:new:p1", changed);
+  failCleanup = false;
+  assert.equal(view.session.prepareClose(), true);
+  assert.deepEqual(JSON.parse(storage.getItem("atria.composer.v1:backend-a:new")), {
+    text: "original source",
+    attachments: [attached]
+  });
+  assert.equal(storage.getItem("atria.composer.v1:backend-a:new:p1"), changed);
+});
+
 test("P1: a failed source cleanup blocks close and can be retried after a backend switch", () => {
   const storage = migrationStorage();
   const remove = storage.removeItem.bind(storage);

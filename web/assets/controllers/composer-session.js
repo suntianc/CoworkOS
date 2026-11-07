@@ -83,6 +83,8 @@ export function createComposerSession({
   };
   const write = (key, value) => {
     const destination = keyFor(key);
+    const migration = pendingMigrations.get(destination);
+    if (migration) migration.expectedDestination = value;
     if (value === null && (protectedDestinations.has(destination) || pendingMigrations.has(destination)))
       retainedNulls.add(destination);
     else retainedNulls.delete(destination);
@@ -115,7 +117,7 @@ export function createComposerSession({
     return saved;
   };
   const registerMigration = (destination, entry, needsWrite = true) => {
-    pendingMigrations.set(destination, entry);
+    pendingMigrations.set(destination, { ...entry, expectedDestination: entry.source });
     if (!persistJournal()) {
       if (needsWrite) {
         memory.set(destination, entry.source);
@@ -128,13 +130,21 @@ export function createComposerSession({
   const finishMigrations = () => {
     if (pendingStorage.has(journalKey) || invalidJournal) return;
     let journalChanged = false;
-    for (const [destination, { sourceKey, source, legacy }] of pendingMigrations) {
+    for (const [destination, { sourceKey, source, legacy, expectedDestination }] of pendingMigrations) {
       if (pendingStorage.has(destination) || pendingStorage.has(sourceKey)) continue;
       // Another window can update storage after this session cached the source.
       // Only remove a source that still matches in both memory and storage.
       try {
         if (!storage) throw new Error("storage unavailable");
         const stored = JSON.parse(storage.getItem(sourceKey) || "null");
+        const storedDestination = JSON.parse(storage.getItem(destination) || "null");
+        if (JSON.stringify(storedDestination) !== JSON.stringify(expectedDestination)) {
+          migrationConflicts.set(destination, { sourceKey, legacy });
+          protectedDestinations.add(destination);
+          pendingMigrations.delete(destination);
+          journalChanged = true;
+          continue;
+        }
         if (JSON.stringify(readRecord(sourceKey)) !== JSON.stringify(source)) {
           migrationConflicts.set(destination, { sourceKey, legacy });
           protectedDestinations.add(destination);
@@ -233,7 +243,7 @@ export function createComposerSession({
           continue;
         }
         if (rawDestination === null && !conflict) {
-          pendingMigrations.set(destination, { sourceKey, source, legacy });
+          pendingMigrations.set(destination, { sourceKey, source, legacy, expectedDestination: source });
           memory.set(destination, source);
           pendingStorage.add(destination);
           if (legacy) {
@@ -247,7 +257,7 @@ export function createComposerSession({
           protectedDestinations.add(destination);
           if (!conflict) changed = true;
         } else {
-          pendingMigrations.set(destination, { sourceKey, source, legacy });
+          pendingMigrations.set(destination, { sourceKey, source, legacy, expectedDestination: source });
           if (legacy) {
             legacySources.add(sourceKey);
             trackingLegacyOwner = true;
