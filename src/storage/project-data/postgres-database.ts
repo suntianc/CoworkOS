@@ -36,6 +36,8 @@ export function postgresTargetLabel(target: PostgresTarget): string {
     }
   };
   const url = parse();
+  // A key=value DSN has no parseable target; never echo it back, it may hold a password.
+  if (!url && target.connectionString) return "postgresql://(configured connection string)";
   const host = url?.hostname || target.host || "localhost";
   const port = url?.port || String(target.port ?? 5432);
   const database = url?.pathname.replace(/^\/+/, "") || target.database || "";
@@ -51,7 +53,11 @@ export class PostgresDatabase implements SqlDatabase {
 
   constructor(private readonly target: PostgresTarget) {
     this.label = postgresTargetLabel(target);
-    const url = target.connectionString ? new URL(target.connectionString) : undefined;
+    // `pg` also accepts a key=value DSN; only a URL carries a parseable password.
+    const url =
+      target.connectionString && /^postgres(ql)?:\/\//i.test(target.connectionString)
+        ? new URL(target.connectionString)
+        : undefined;
     this.secret = url?.password || target.password;
     this.pool = new pg.Pool({
       ...(target.connectionString
