@@ -26,6 +26,7 @@ export const navigation = [
     pages: [
       ["docs/development.md", "开发环境", "Development"],
       ["docs/p1-retrospective.md", "P1 复盘", "P1 retrospective (Chinese)"],
+      ["docs/p2-retrospective.md", "P2 复盘", "P2 retrospective (Chinese)"],
       ["docs/code-map.md", "代码地图", "Code map"],
       ["docs/architecture.md", "架构", "Architecture"],
       ["docs/product-api.md", "HTTP / SSE API", "HTTP / SSE API"],

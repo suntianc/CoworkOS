@@ -38,6 +38,7 @@ export const maintainedDocumentation = [
   "docs/cli-ui-adapter.md",
   "docs/development.md",
   "docs/p1-retrospective.md",
+  "docs/p2-retrospective.md",
   "docs/code-map.md",
   "docs/architecture.md",
   "docs/module-ownership.md",
