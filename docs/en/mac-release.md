@@ -36,13 +36,13 @@ npm may accept an upload before the version becomes publicly visible. Registry v
 
 ## App updates and signing
 
-Settings → Updates supports installed and development Apps. Startup checks once; downloading/applying an App update requires an explicit user action. Running tasks and unsaved drafts pass the desktop save/exit gates. Source updates require a clean fast-forward checkout; see [development](development.md#updating-a-source-checkout).
+Settings → Updates in the installed App points to a local manual upgrade and performs no remote update check. Back up data, finish tasks and stop the standalone backend, retain the old App, then install a local DMG; see [installation](installation-reference.md#updates). Source updates require a clean fast-forward checkout; see [development](development.md#updating-a-source-checkout). Production signing, notarization and automatic updates belong to P6.
 
-Newly built Apps query the npm registry dist-tag (`latest` or `beta`) for `coworkos-desktop-darwin-arm64`, download its tarball, then verify registry SRI, the package file list and the DMG SHA-256. The App, platform package and DMG manifest versions must match; updates never downgrade. The CLI installer uses the same platform package, so desktop installation, in-App updates and CLI updates all use npm.
+The CLI first installer can use an npm platform package and verifies registry SRI, the file list and DMG SHA-256. It does not replace an existing App. The release and update modules below remain for legacy clients and later acceptance; they are not the installed App update path for this candidate.
 
 Older Apps have their GitHub update URL fixed in the old binary. Publishing an npm package does not change that URL. Keep the legacy GitHub update flow for historical Apps that can still reach it; users who cannot use the old source must migrate once using the [installation guide](../getting-started.md). Do not describe this migration as an automatic update.
 
-The App offers “Check for updates”, “Download update”, then “Restart and install”; a sidebar reminder opens update details when an update exists. Downloading leaves editing available. For ad-hoc packages in user-writable locations, the installer verifies the DMG and App identity/version/architecture/strict signature, prepares a sibling candidate, saves drafts and checks running tasks, then replaces the App only after exit. It retains a previous-App backup and restores it on installation failure. Unwritable locations require system installation without automatic elevation. System security and quarantine are not disabled. Developer ID builds with a signed feed retain Electron native updates.
+The historical managed updater implements candidate verification, replacement after exit and rollback; this installed App does not enable that entry.
 
 Prepare and publish the next npm installer/App update in this order. The platform tarball contains only the matching DMG, license and version/checksum manifest; the CLI tarball contains the installer code. Complete candidate regressions, DMG acceptance and isolated npm installation first. Publish the desktop package, read its registry metadata anonymously and verify a complete install, then publish the CLI package:
 
@@ -54,7 +54,7 @@ npm publish ".tmp/npm-release/coworkos-desktop-darwin-arm64-${VERSION}.tgz" --ac
 npm publish ".tmp/npm-release/coworkos-app-${VERSION}.tgz" --access public
 ```
 
-Published versions are immutable. Package `publishConfig` selects the `latest` or `beta` tag; after publication, use anonymous `npm view` to verify the version, platform restrictions, dist-tag and integrity metadata. Before publishing the CLI, exercise the real npm transport through both the installer and App update provider. An npm release does not rewrite the URL inside an older GitHub-update client; build a compatible bridge release or follow the one-time migration guide.
+Published versions are immutable. Package `publishConfig` selects the `latest` or `beta` tag; after publication, use anonymous `npm view` to verify the version, platform restrictions, dist-tag and integrity metadata. Before publishing the CLI, exercise the real npm transport through the installer; App update provider acceptance belongs to P6. An npm release does not rewrite the URL inside an older GitHub-update client; build a compatible bridge release or follow the one-time migration guide.
 
 GitHub DMG/CLI Releases and the static update pointer remain for legacy clients and explicit manual archives. For a reviewed clean tag, generate provenance with `node scripts/release-artifacts.mjs` and run `npm run release:publish:public`; the publisher compare-and-swaps `updates/coworkos-latest.json` and never replaces published assets or moves the pointer backwards.
 

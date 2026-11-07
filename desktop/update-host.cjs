@@ -5,6 +5,32 @@ const { createDesktopUpdates } = require("./updates.cjs");
 const { isSignedMacApplication } = require("./update-signature.cjs");
 const { createManagedUpdateInstaller } = require("./update-install.cjs");
 
+/** Installed builds use a local installer; source builds retain their development updater. */
+async function createApplicationUpdateHost(options) {
+  if (options.profile.development) return createDesktopUpdateHost(options);
+  const manifest = JSON.parse(await fs.readFile(path.join(options.profile.appRoot, "package.json"), "utf8"));
+  const state = {
+    mode: "release",
+    phase: "manual",
+    installMethod: "manual",
+    currentVersion: manifest.version,
+    busy: false,
+    available: false
+  };
+  return {
+    status: () => ({ ...state }),
+    async check(input = {}) {
+      if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length)
+        throw new Error("更新检查不接受配置参数");
+      return { ...state };
+    },
+    async apply() {
+      throw new Error("请使用本地安装包手动升级 CoworkOS");
+    },
+    async dispose() {}
+  };
+}
+
 /** The host owns preferences and installation side effects; the coordinator owns update state. */
 async function createDesktopUpdateHost(options) {
   const {
@@ -208,4 +234,4 @@ async function scheduleDevelopmentRestart({ root, userData, executable, env: env
   }
 }
 
-module.exports = { createDesktopUpdateHost };
+module.exports = { createApplicationUpdateHost, createDesktopUpdateHost };

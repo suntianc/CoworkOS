@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 
 for (const width of [1440, 900, 640])
   test(`local originals, previews and attachment-only messages at ${width}px`, async ({ page }) => {
@@ -62,6 +63,36 @@ for (const width of [1440, 900, 640])
       await dashboard.stop();
     }
   });
+
+test("a sent image is hydrated from the bound session without exposing upload metadata", async ({ page }) => {
+  const model = await modelProtocolFixture("openai-completions");
+  let dashboard;
+  try {
+    dashboard = await startDashboard({ modelEndpoint: model.baseUrl });
+    await page.goto(dashboard.base);
+    await page.locator("#new-conversation").click();
+    await page.locator("#composer-input").fill("查看图片");
+    await page.locator("#file-input").setInputFiles({
+      name: "截图.png",
+      mimeType: "image/png",
+      buffer: await readFile("web/assets/atria-symbol.png")
+    });
+    await expect(page.locator("#attachment-strip")).toContainText("截图.png");
+    await page.locator("#send-button").click();
+    const attachment = page.locator(".chat-message.user .message-attachments").first();
+    const thumbnail = attachment.locator("img[data-upload-src]");
+    await expect(attachment).toContainText("截图.png", { timeout: 30_000 });
+    await expect(thumbnail).toHaveAttribute("src", /^blob:/);
+    await expect.poll(() => thumbnail.evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+    await expect(page.locator(".chat-message.user").first()).not.toContainText("atria_uploaded_files");
+    await expect(page.locator('[data-answer-kind="final"]')).toContainText("协议会话验证成功", {
+      timeout: 30_000
+    });
+  } finally {
+    await dashboard?.stop();
+    await model.close();
+  }
+});
 
 test("drop, paste, retry, cancel and navigation keep files with their own draft", async ({ page }) => {
   const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });

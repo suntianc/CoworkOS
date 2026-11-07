@@ -141,7 +141,7 @@ Main 自动压缩与 `clear_context` 共用原生近期尾部；Main 与子智�
 
 模型请求级归档由 [provider 边界装饰器](../src/runtime/model-request-recording.ts) 和 [JSONL 记录器](../src/storage/model-request-recorder.ts) 负责；[Main 扩展](../.pi/runtime/extension.ts) 与 [PiSession](../src/runtime/pi-session.ts) 共用该装饰器。producer 从源码包 `coworkos` 或安装包 `atria-cowork-cli` 读取产品与 Pi 版本，兼容旧身份。先运行 [实际协议请求归档](../test/model-request-recording.test.js)、[Main 真实 Pi 归档](../test/main-request-recording-pi.test.js) 和 [压缩恢复](../test/pi-session-context.test.js)，格式与保留边界见 [运行时参考](runtime-reference.md)。
 
-客户端会话由 [宿主授权](../desktop/backend-authorization.cjs)、[加密存储](../desktop/session-credentials.cjs) 与 [请求注入](../desktop/session-transport.cjs) 管理；[可重试钥匙串进程](../desktop/retryable-storage.cjs) 使用独立客户端标识。任务完成通知复用 [目录事件](../web/assets/controllers/management-events.js)，由 [通知控制器](../web/assets/controllers/task-notifications.js) 与 [桌面去重](../desktop/notifications.cjs) 按后端和完成身份处理。[桌面能力回归](../test/electron-desktop-features.test.js) 覆盖设置、双后端、凭据、托盘和通知；真实系统授权单独验收。
+客户端会话由 [宿主授权](../desktop/backend-authorization.cjs)、[加密存储](../desktop/session-credentials.cjs) 与 [请求注入](../desktop/session-transport.cjs) 管理；[可重试钥匙串进程](../desktop/retryable-storage.cjs) 使用独立客户端标识，凭据成功读写后退出，失败后保留显式重试语义。任务完成通知复用 [目录事件](../web/assets/controllers/management-events.js)，由 [通知控制器](../web/assets/controllers/task-notifications.js) 与 [桌面去重](../desktop/notifications.cjs) 按后端和完成身份处理。[桌面能力回归](../test/electron-desktop-features.test.js) 覆盖设置、双后端、凭据、托盘和通知；真实系统授权单独验收。
 
 缓存能力、实际请求键和 usage 数字白名单诊断由 [provider 缓存装饰器](../src/runtime/model-cache.ts) 负责，装配在请求归档内部；复核 [真实 Pi 缓存/HTTP](../test/model-cache.test.js)、[SDK 消费/SSE 边界](../test/model-cache-boundaries.test.js)、[Main 进程恢复](../test/model-cache-main-pi.test.js)、[用量聚合](../test/run-statistics.test.js) 和 [浏览器设置/概览](../e2e/model-cache.spec.js)，同步 [配置](configuration.md) 与 [运行诊断](runtime-reference.md)。
 
@@ -275,7 +275,7 @@ CLI tgz 随包携带锁文件对应的可移植生产依赖与依赖记录，不
 
 侧栏显示后台准备进度和失败入口，普通会话继续可用。设置布局沿 [settings CSS](../web/assets/settings.css)，卡片共用 [workbench CSS](../web/assets/workbench.css)。
 
-新安装版 App 更新从 npm 平台包读取版本并校验 tarball、DMG，旧客户端仍由[旧版发行下载](../scripts/update-release.mjs)与[公开分发脚本](../scripts/public-release-publish.mjs)维护兼容源；[受管安装器](../desktop/update-install.cjs)负责 DMG 准备、退出后替换与恢复。[更新控制器](../web/assets/controllers/desktop-updates.js)统一管理单一按钮与侧栏提醒，源码更新保持独立生命周期。行为与发行验收见 [Mac 发布](mac-release.md)。
+安装版 App 的[更新宿主](../desktop/update-host.cjs)提供本地手动升级状态，[更新控制器](../web/assets/controllers/desktop-updates.js)展示对应入口；源码更新保持独立生命周期。[包合同回归](../test/electron-package-contract.test.js)覆盖手动升级门槛与数据恢复，旧版下载及受管安装模块保留供历史流程。行为与发行验收见 [Mac 发布](mac-release.md)。
 
 ### 测试
 

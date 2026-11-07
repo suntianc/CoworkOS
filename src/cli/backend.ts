@@ -10,7 +10,6 @@ import { atriaHome } from "../../scripts/data-home.cjs";
 import { readCoworkConfig } from "../runtime/config.js";
 import { applyProxyEnvironment } from "../runtime/http-transport.js";
 import { withFileLock } from "../storage/file-lock.js";
-import { createDashboardApplication } from "../dashboard/application.js";
 import {
   BackendInstanceConflict,
   backendPaths,
@@ -464,6 +463,9 @@ export async function releaseBackendServing(paths: BackendPaths, claimToken: str
  * that sees the process gone knows the record outcome is final.
  */
 export async function serveBackend(claimToken?: string, executable = process.execPath): Promise<void> {
+  // Management clients only need lifecycle operations; load the server graph
+  // inside the process that actually serves requests, before claiming a root.
+  const { createDashboardApplication } = await import("../dashboard/application.js");
   const env = process.env;
   const paths = backendPaths(atriaHome(env));
   applyProxyEnvironment(readCoworkConfig());

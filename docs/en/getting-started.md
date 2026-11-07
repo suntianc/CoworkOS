@@ -19,7 +19,7 @@ npx coworkos-app@latest desktop install
 
 The installer downloads the Apple Silicon desktop package from npm and verifies the npm tarball integrity, DMG SHA-256, application identity and signature before installing it in `~/Applications/CoworkOS.app` without administrator access. It preserves macOS security checks. Node.js and npm are needed only for installation; the App includes its own runtime. If macOS blocks the first launch, follow [Apple's guidance](https://support.apple.com/en-us/102445) in System Settings → Privacy & Security.
 
-New App versions also check for and download updates from npm. Apps predating the npm update channel keep their old update source, and the installer will not overwrite them. To migrate, quit CoworkOS, rename `~/Applications/CoworkOS.app` to `CoworkOS-legacy.app`, then run the command above. After confirming the new App starts correctly, remove the old App in Finder. User data remains in `~/.atria/` and this process does not delete it. Use `--directory /absolute/path` for another writable installation directory.
+Upgrade an installed App manually with a local DMG. Back up user data and external projects, finish tasks and stop the standalone backend, then quit the App. Retain the old App, copy the new one into the installation directory and verify your data after launch. See [installation and upgrades](installation-reference.md#updates). The npm first installer does not overwrite an existing App; use `--directory /absolute/path` for another writable installation directory.
 
 Updating or uninstalling the npm CLI affects only the CLI/installer; it does not remove the independent App or user data. This beta has not been notarized by Apple.
 

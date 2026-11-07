@@ -59,6 +59,8 @@ try:
         os.write(master, action["text"].encode("utf8"))
         matched = drain(action.get("seconds", 1), action.get("waitFor"), offset)
         actions.append({"text": action["text"], "matched": matched})
+        if action.get("required") and not matched:
+            break
     drain(spec.get("finishSeconds", 1))
 finally:
     # A PTY EOF can arrive just before waitpid sees the exit. Reap first; never

@@ -19,7 +19,7 @@ npx coworkos-app@latest desktop install
 
 安装器从 npm 获取 Apple Silicon 桌面包，校验 npm tarball 完整性、DMG SHA-256、应用身份和签名后安装到 `~/Applications/CoworkOS.app`，无需管理员权限，并保留 macOS 安全检查。Node.js 和 npm 仅用于安装，App 自带运行时。首次打开若被 macOS 阻止，按 [Apple 安装说明](https://support.apple.com/zh-cn/102445)，在“系统设置 → 隐私与安全性”中允许打开。
 
-新版本的 App 检查更新和下载更新也都使用 npm。早于 npm 更新渠道的 App 仍保留旧更新地址；安装器不会覆盖它。迁移时先退出 CoworkOS，将 `~/Applications/CoworkOS.app` 改名为 `CoworkOS-legacy.app`，再运行上面的安装命令。确认新版本可正常启动后，再从 Finder 删除旧 App。用户数据仍在 `~/.atria/`，此流程不会删除它。其他可写安装目录可通过 `--directory /absolute/path` 指定。
+已安装的 App 使用本地 DMG 手动升级。先备份数据和外部项目，结束任务并停止独立后端，再退出 App；保留旧 App，将新包拖入安装目录，启动后核对数据。步骤见 [安装与升级](installation-reference.md#更新)。npm 首次安装器不会覆盖已有 App，其他可写安装目录可通过 `--directory /absolute/path` 指定。
 
 npm 更新或卸载 CLI 仅影响 CLI/安装器，不会卸载独立 App 或删除用户数据。当前 beta 尚未通过 Apple 公证。
 
