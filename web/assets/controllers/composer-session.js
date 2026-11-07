@@ -10,6 +10,10 @@ export function createComposerSession({
   const legacyPrefix = "atria.composer.v1:";
   const NAMESPACES_KEY = "atria.composer.namespaces.v1";
   const legacyOwnerKey = `${legacyPrefix}legacy-owner:active`;
+  // Keep preconnection edits from different launches separate, including when
+  // an earlier connection left a conflicting recovery copy behind.
+  const prebindPrefix = `${legacyPrefix}__prebind__:${crypto.randomUUID()}:`;
+  const journalKey = `${legacyPrefix}migration-journal:active`;
   /**
    * Drafts belong to one backend. The prefix keeps a conversation started
    * against backend A out of backend B's composer, and a switch back restores
@@ -24,6 +28,13 @@ export function createComposerSession({
   const draftOwners = new Map();
   const draftIdentities = new Map();
   const pendingMigrations = new Map();
+  const migrationConflicts = new Map();
+  const protectedDestinations = new Set();
+  const retainedNulls = new Set();
+  const legacySources = new Set();
+  let trackingLegacyOwner = false;
+  let journalPresent = false;
+  let invalidJournal = false;
   let current;
   let editing;
   let editDraft;
@@ -31,8 +42,9 @@ export function createComposerSession({
   let nextDraftIdentity = 0;
   let warned = false;
   const projectDraft = (key) => typeof key === "string" && key.startsWith("new:");
-  const read = (key) => {
-    const storageKey = prefix() + key;
+  const hasContent = (draft) =>
+    Boolean(draft && typeof draft === "object" && (draft.text || draft.attachments?.length || draft.editing));
+  const readRecord = (storageKey) => {
     if (memory.has(storageKey)) return memory.get(storageKey);
     try {
       return JSON.parse(storage?.getItem(storageKey) || "null");
@@ -40,11 +52,20 @@ export function createComposerSession({
       return null;
     }
   };
+  const keyFor = (key) =>
+    !namespace && (projectDraft(key) || (key === "new" && readRecord(legacyOwnerKey)))
+      ? prebindPrefix + key
+      : prefix() + key;
+  const read = (key) => readRecord(keyFor(key));
+  const hasRecord = (key) => {
+    if (memory.has(key)) return memory.get(key) !== null || retainedNulls.has(key);
+    return storage?.getItem(key) != null;
+  };
   const writeRecord = (key, value) => {
     memory.set(key, value);
     try {
       if (!storage) throw new Error("storage unavailable");
-      if (value === null) storage.removeItem(key);
+      if (value === null && !retainedNulls.has(key)) storage.removeItem(key);
       else storage.setItem(key, JSON.stringify(value));
       onPersist?.();
       pendingStorage.delete(key);
@@ -57,21 +78,189 @@ export function createComposerSession({
       return false;
     }
   };
-  const write = (key, value) => writeRecord(prefix() + key, value);
+  const write = (key, value) => {
+    const destination = keyFor(key);
+    if (value === null && (protectedDestinations.has(destination) || pendingMigrations.has(destination)))
+      retainedNulls.add(destination);
+    else retainedNulls.delete(destination);
+    if (pendingMigrations.has(destination) && (invalidJournal || pendingStorage.has(journalKey))) {
+      memory.set(destination, value);
+      pendingStorage.add(destination);
+      return false;
+    }
+    return writeRecord(destination, value);
+  };
+  const persistJournal = () => {
+    if (invalidJournal) return false;
+    const entries = [
+      ...[...pendingMigrations].map(([destination, { sourceKey, legacy }]) => ({
+        sourceKey,
+        destination,
+        ...(legacy ? { legacy: true } : {})
+      })),
+      ...[...migrationConflicts].map(([destination, { sourceKey, legacy }]) => ({
+        sourceKey,
+        destination,
+        conflict: true,
+        ...(legacy ? { legacy: true } : {})
+      }))
+    ];
+    if (!entries.length && !journalPresent && !pendingStorage.has(journalKey)) return true;
+    const value = entries.length ? JSON.stringify(entries) : null;
+    const saved = writeRecord(journalKey, value);
+    journalPresent = Boolean(entries.length) || !saved;
+    return saved;
+  };
+  const registerMigration = (destination, entry, needsWrite = true) => {
+    pendingMigrations.set(destination, entry);
+    if (!persistJournal()) {
+      if (needsWrite) {
+        memory.set(destination, entry.source);
+        pendingStorage.add(destination);
+      }
+      return;
+    }
+    if (needsWrite) writeRecord(destination, entry.source);
+  };
   const finishMigrations = () => {
-    for (const [key, source] of pendingMigrations) {
-      if (pendingStorage.has(prefix() + key)) continue;
-      pendingMigrations.delete(key);
+    if (pendingStorage.has(journalKey) || invalidJournal) return;
+    let journalChanged = false;
+    for (const [destination, { sourceKey, source, legacy }] of pendingMigrations) {
+      if (pendingStorage.has(destination) || pendingStorage.has(sourceKey)) continue;
       // Another window can update storage after this session cached the source.
       // Only remove a source that still matches in both memory and storage.
       try {
-        const stored = JSON.parse(storage?.getItem(prefix() + "new") || "null");
-        if (JSON.stringify(read("new")) !== JSON.stringify(source)) continue;
-        if (JSON.stringify(stored) === JSON.stringify(source)) write("new", null);
-        else memory.set(prefix() + "new", stored);
+        if (!storage) throw new Error("storage unavailable");
+        const stored = JSON.parse(storage.getItem(sourceKey) || "null");
+        if (JSON.stringify(readRecord(sourceKey)) !== JSON.stringify(source)) {
+          migrationConflicts.set(destination, { sourceKey, legacy });
+          protectedDestinations.add(destination);
+          pendingMigrations.delete(destination);
+          journalChanged = true;
+          continue;
+        }
+        if (JSON.stringify(stored) !== JSON.stringify(source)) {
+          memory.set(sourceKey, stored);
+          if (legacy && stored === null) legacySources.delete(sourceKey);
+          if (stored !== null) {
+            migrationConflicts.set(destination, { sourceKey, legacy });
+            protectedDestinations.add(destination);
+          }
+          pendingMigrations.delete(destination);
+          journalChanged = true;
+          continue;
+        }
+        storage.removeItem(sourceKey);
+        onPersist?.();
+        memory.set(sourceKey, null);
+        retainedNulls.delete(sourceKey);
+        if (legacy) legacySources.delete(sourceKey);
+        pendingMigrations.delete(destination);
+        journalChanged = true;
       } catch {
-        // Keep the recovery copy when its durable identity cannot be verified.
+        if (!warned) onError?.("草稿暂时无法保存到本机，请保留当前窗口");
+        warned = true;
       }
+    }
+    for (const [destination, { sourceKey, legacy }] of migrationConflicts) {
+      if (pendingStorage.has(sourceKey) || pendingStorage.has(destination)) continue;
+      try {
+        if (
+          !storage ||
+          storage.getItem(sourceKey) !== null ||
+          (memory.has(sourceKey) && readRecord(sourceKey) !== null)
+        )
+          continue;
+        migrationConflicts.delete(destination);
+        protectedDestinations.delete(destination);
+        if (legacy) legacySources.delete(sourceKey);
+        if (storage.getItem(destination) === "null") {
+          retainedNulls.delete(destination);
+          writeRecord(destination, null);
+        }
+        journalChanged = true;
+      } catch {
+        if (!warned) onError?.("草稿暂时无法保存到本机，请保留当前窗口");
+        warned = true;
+      }
+    }
+    if (journalChanged) persistJournal();
+    if (
+      trackingLegacyOwner &&
+      !legacySources.size &&
+      ![...pendingMigrations.values()].some((entry) => entry.legacy)
+    ) {
+      trackingLegacyOwner = false;
+      retainedNulls.delete(legacyOwnerKey);
+      writeRecord(legacyOwnerKey, null);
+    }
+  };
+  const restoreMigrations = () => {
+    try {
+      if (!storage) return;
+      const raw = storage.getItem(journalKey);
+      if (raw == null) return;
+      const saved = JSON.parse(raw);
+      if (typeof saved !== "string") throw new Error("invalid migration journal");
+      const entries = JSON.parse(saved);
+      if (
+        !Array.isArray(entries) ||
+        entries.some(
+          (entry) =>
+            !entry ||
+            typeof entry.sourceKey !== "string" ||
+            typeof entry.destination !== "string" ||
+            !entry.sourceKey.startsWith(legacyPrefix) ||
+            !entry.destination.startsWith(legacyPrefix) ||
+            entry.sourceKey === entry.destination ||
+            entry.sourceKey === journalKey ||
+            entry.destination === journalKey ||
+            entry.destination.endsWith(":active")
+        )
+      )
+        throw new Error("invalid migration journal");
+      journalPresent = true;
+      let changed = false;
+      for (const { sourceKey, destination, legacy, conflict } of entries) {
+        const source = JSON.parse(storage.getItem(sourceKey) || "null");
+        const rawDestination = storage.getItem(destination);
+        const target = JSON.parse(rawDestination || "null");
+        if (source === null) {
+          changed = true;
+          continue;
+        }
+        if (rawDestination === null && !conflict) {
+          pendingMigrations.set(destination, { sourceKey, source, legacy });
+          memory.set(destination, source);
+          pendingStorage.add(destination);
+          if (legacy) {
+            legacySources.add(sourceKey);
+            trackingLegacyOwner = true;
+          }
+          continue;
+        }
+        if (conflict || JSON.stringify(source) !== JSON.stringify(target)) {
+          migrationConflicts.set(destination, { sourceKey, legacy });
+          protectedDestinations.add(destination);
+          if (!conflict) changed = true;
+        } else {
+          pendingMigrations.set(destination, { sourceKey, source, legacy });
+          if (legacy) {
+            legacySources.add(sourceKey);
+            trackingLegacyOwner = true;
+          }
+        }
+      }
+      if (changed) persistJournal();
+      if (!pendingStorage.has(journalKey)) {
+        for (const destination of pendingMigrations.keys()) {
+          if (pendingStorage.has(destination)) writeRecord(destination, memory.get(destination));
+        }
+      }
+      finishMigrations();
+    } catch {
+      invalidJournal = true;
+      onError?.("草稿迁移记录无法读取，请保留当前窗口并检查本机存储");
     }
   };
   const save = () => {
@@ -88,6 +277,7 @@ export function createComposerSession({
     draftOwners.set(current, token);
     write("active", current);
   };
+  restoreMigrations();
   input.addEventListener("input", save);
   return {
     get editing() {
@@ -172,9 +362,13 @@ export function createComposerSession({
       save();
       // Retry every failed conversation, including drafts that are no longer
       // selected. A disk mirror of stale localStorage cannot protect memory.
-      for (const key of [...pendingStorage]) writeRecord(key, memory.get(key));
+      if (pendingStorage.has(journalKey)) writeRecord(journalKey, memory.get(journalKey));
+      for (const key of [...pendingStorage]) {
+        if ((invalidJournal || pendingStorage.has(journalKey)) && pendingMigrations.has(key)) continue;
+        writeRecord(key, memory.get(key));
+      }
       finishMigrations();
-      return pendingStorage.size === 0;
+      return !invalidJournal && pendingStorage.size === 0 && pendingMigrations.size === 0;
     },
     /**
      * Bind drafts to one backend.
@@ -205,36 +399,84 @@ export function createComposerSession({
           const keys = [];
           for (const key of candidates) {
             if (typeof key !== "string" || !key.startsWith(from) || key.startsWith(to)) continue;
-            if (key === legacyOwnerKey) continue;
-            if (known.has(key.slice(from.length).split(":")[0])) continue;
+            if (key === legacyOwnerKey || key === journalKey) continue;
+            const slot = key.slice(from.length);
+            if (known.has(slot.split(":")[0])) continue;
+            // A colon can identify an existing backend even when its marker
+            // failed. Unbound project edits use separate prebind keys.
+            if (slot.includes(":")) continue;
             keys.push(key);
           }
-          let owner = memory.get(legacyOwnerKey) ?? JSON.parse(storage?.getItem(legacyOwnerKey) || "null");
-          if (keys.length && !owner) {
+          const contentKeys = keys.filter((key) => key !== from + "active" && hasContent(readRecord(key)));
+          const ambiguousContent = [...candidates].some(
+            (key) =>
+              typeof key === "string" &&
+              key.startsWith(from + "new:") &&
+              !keys.includes(key) &&
+              hasContent(readRecord(key))
+          );
+          let owner = readRecord(legacyOwnerKey);
+          if (contentKeys.length && !owner) {
             owner = next;
             writeRecord(legacyOwnerKey, owner);
           }
           if (owner === next) {
-            let complete = true;
-            for (const key of keys) {
-              const value = memory.has(key) ? memory.get(key) : JSON.parse(storage?.getItem(key) || "null");
+            trackingLegacyOwner = true;
+            for (const key of contentKeys) {
+              const value = readRecord(key);
               const destination = to + key.slice(from.length);
-              const existing = memory.has(destination)
-                ? memory.get(destination)
-                : JSON.parse(storage?.getItem(destination) || "null");
+              legacySources.add(key);
+              const existing = readRecord(destination);
               // Keep a conflicting legacy record as a recovery copy. Only its
               // original owner may retry the migration on a later launch.
-              if (existing !== null && JSON.stringify(existing) !== JSON.stringify(value)) {
-                complete = false;
+              if (hasRecord(destination) && JSON.stringify(existing) !== JSON.stringify(value)) {
+                protectedDestinations.add(destination);
                 continue;
               }
-              if (existing === null && value !== null && !writeRecord(destination, value)) {
-                complete = false;
-                continue;
-              }
-              if (pendingStorage.has(destination) || !writeRecord(key, null)) complete = false;
+              registerMigration(
+                destination,
+                { sourceKey: key, source: value, legacy: true },
+                !hasRecord(destination)
+              );
             }
-            if (complete) writeRecord(legacyOwnerKey, null);
+            finishMigrations();
+          } else if (owner && !contentKeys.length && !ambiguousContent) {
+            // An old version could retain an owner for an `active` conflict.
+            // Navigation alone cannot claim text typed for a later backend.
+            writeRecord(legacyOwnerKey, null);
+          }
+          const active = from + "active";
+          if (keys.includes(active) && (!contentKeys.length || owner === next)) {
+            const destination = to + "active";
+            const value = readRecord(active);
+            if (!hasRecord(destination) && typeof value === "string") writeRecord(destination, value);
+            writeRecord(active, null);
+          }
+          for (const sourceKey of candidates) {
+            if (typeof sourceKey !== "string" || !sourceKey.startsWith(prebindPrefix)) continue;
+            const slot = sourceKey.slice(prebindPrefix.length);
+            if (slot !== "new" && !projectDraft(slot)) continue;
+            const staged = readRecord(sourceKey);
+            if (!hasContent(staged)) continue;
+            const destination = to + slot;
+            const existing = readRecord(destination);
+            if (
+              !hasRecord(destination) ||
+              existing === null ||
+              JSON.stringify(existing) === JSON.stringify(staged)
+            ) {
+              retainedNulls.delete(destination);
+              registerMigration(
+                destination,
+                { sourceKey, source: staged },
+                JSON.stringify(existing) !== JSON.stringify(staged)
+              );
+              finishMigrations();
+            } else {
+              migrationConflicts.set(destination, { sourceKey });
+              protectedDestinations.add(destination);
+              persistJournal();
+            }
           }
         } catch {
           /* Keep the original records when their migration cannot be read. */
@@ -249,7 +491,6 @@ export function createComposerSession({
       retainedDrafts.clear();
       draftOwners.clear();
       draftIdentities.clear();
-      pendingMigrations.clear();
       editing = undefined;
       editDraft = undefined;
       current = undefined;
@@ -267,13 +508,12 @@ export function createComposerSession({
         !fresh &&
         projectDraft(key) &&
         (current === "new" || current === undefined) &&
-        !pendingMigrations.size &&
-        !read(key) &&
+        ![...pendingMigrations.values()].some(({ sourceKey }) => sourceKey === keyFor("new")) &&
+        !hasRecord(keyFor(key)) &&
         read("new")
       ) {
         const source = read("new");
-        pendingMigrations.set(key, source);
-        write(key, source);
+        registerMigration(keyFor(key), { sourceKey: keyFor("new"), source });
         finishMigrations();
       }
       current = key;
