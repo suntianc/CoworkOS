@@ -255,6 +255,8 @@ CUA 业务确认复用 Main memory/会话压缩和恢复机制，由 [CUA skill]
 
 系统权限申请和本机确认由执行主机处理；[本地访问](../src/dashboard/local-access.ts) 给 Main 进程提供内存中的业务凭据，[共用界面](../web/assets/controllers/computer-use.js) 展示所选后端的权限状态。验证 [原生主机能力与无图形任务](../test/os-native-host-capabilities.test.js)，真实系统权限另行验收。
 
+后台 Watch 经 [服务装配](../src/dashboard/watch-service.ts) 将业务凭据和后端地址传给 [Coordinator](../src/runtime/coordinator-runtime.ts) 的命令环境；[会话核验](../src/runtime/command-environment.ts) 供独立 CLI 和 Main 委派复用。前台命令、测试命令及后台 job 共用上下文，不持久化凭据。回归见 [原生主机能力](../test/os-native-host-capabilities.test.js)。
+
 ### CLI、桌面与分发
 
 产物打开沿 [产物查看器](../web/assets/controllers/artifact-viewer.js) 和 [媒体请求](../web/assets/controllers/managed-media.js) 使用共用管理会话读取所选后端的内容；桌面 [隔离查看器](../desktop/artifact-viewer.cjs) 限制窗口来源与 PDF 会话。复核 [真实后端与浏览器](../e2e/artifact-open.spec.js) 和 [桌面查看器](../test/desktop-artifact-viewer.test.js)。

@@ -15,6 +15,7 @@ import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import { WatchProgramStore } from "../runtime/watch-program-store.js";
 import { ResearchPollingWatcher } from "../runtime/research-watcher.js";
 import { CoordinatorRuntime } from "../runtime/coordinator-runtime.js";
+import { businessCommandEnvironment } from "../runtime/command-environment.js";
 import { InboxStore } from "../runtime/scheduler.js";
 import { WatchSupervisor, WatchSupervisorLoop } from "../runtime/watch-supervisor.js";
 import { MainSupervisor, MainSupervisorLoop, spawnMainProcess } from "../runtime/main-supervisor.js";
@@ -377,6 +378,7 @@ async function main() {
       `外部事件：${JSON.stringify(eventPayload)}`
     ].join("\n");
     const coordinator = new CoordinatorRuntime();
+    const commandEnv = await businessCommandEnvironment(process.env);
     const result = await runWatchEvent({
       taskId,
       programId,
@@ -396,6 +398,7 @@ async function main() {
           task,
           mode: "sync",
           workspaceRoot,
+          commandEnv,
           baseUrl,
           apiKey,
           model,
@@ -422,6 +425,7 @@ async function main() {
 
   if (command === "watch-supervisor") {
     if (!apiKey || !baseUrl) fail("watch-supervisor 需要 COWORK_API_BASE 和 COWORK_API_KEY");
+    const commandEnv = await businessCommandEnvironment(process.env);
     const controller = new AbortController();
     const supervisor = new WatchSupervisor({
       workspaceRoot,
@@ -432,6 +436,7 @@ async function main() {
       visionModel,
       ...reasoningOptions(),
       runtimeEnv,
+      commandEnv,
       supportsPromptCacheKey: configuredSupportsPromptCacheKey(runtimeEnv),
       maxTurns: numberOption(parsed.options["max-turns"], configuredMainMaxTurns(runtimeEnv)),
       maxTokens: numberOption(parsed.options["max-tokens"], configuredMainMaxTokens(runtimeEnv)),
@@ -458,7 +463,8 @@ async function main() {
                 taskId: resumeTask,
                 runId: resumeRun,
                 harnessRoot: process.env.COWORK_HARNESS_ROOT ?? atriaInstallRoot(),
-                workspaceRoot
+                workspaceRoot,
+                env: commandEnv
               })
           })
         : undefined;
@@ -488,11 +494,18 @@ async function main() {
     // reports what it would resume, which is also how to check its judgment
     // before letting it act.
     const spawnAllowed = parsed.options.spawn === "true";
+    const commandEnv = spawnAllowed ? await businessCommandEnvironment(process.env) : undefined;
     const supervisor = new MainSupervisor({
       workspaceRoot,
       launch: ({ taskId: resumeTask, runId: resumeRun }) => {
         if (!spawnAllowed) return;
-        spawnMainProcess({ taskId: resumeTask, runId: resumeRun, harnessRoot, workspaceRoot });
+        spawnMainProcess({
+          taskId: resumeTask,
+          runId: resumeRun,
+          harnessRoot,
+          workspaceRoot,
+          env: commandEnv
+        });
       }
     });
     const loop = new MainSupervisorLoop();
@@ -522,6 +535,7 @@ async function main() {
     const prompt = parsed.positionals.join(" ");
     if (!prompt) fail("single 命令需要一个 prompt");
     const science = await scienceToolsForRun({ workspaceRoot, taskId, runId }, process.env, config);
+    const commandEnv = await businessCommandEnvironment(process.env);
     const result = await new RunService(workspaceRoot).runPi({
       taskId,
       runId,
@@ -539,6 +553,7 @@ async function main() {
           rootDirectory: workingDirectory,
           workspaceDirectory,
           artifactDirectory,
+          commandEnv,
           web,
           science,
           supportsImages: configuredSupportsImages(runtimeEnv),
@@ -573,6 +588,7 @@ async function main() {
       config
     );
     const controller = new AbortController();
+    const commandEnv = await businessCommandEnvironment(process.env);
     const worker = new CoordinatorWorker();
     const stop = () => {
       worker.stop();
@@ -584,6 +600,7 @@ async function main() {
       taskId: workerTask,
       runId: workerRun,
       workspaceRoot,
+      commandEnv,
       baseUrl,
       apiKey,
       model,

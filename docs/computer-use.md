@@ -92,7 +92,7 @@ POST /api/tasks/:taskId/computer/end      {}
 
 状态查询返回可用性、系统权限、controlAvailable、secureInput、postEventAccess 和原因及可见普通应用窗口；会话查询返回 `{ session, access }`，session 含 source、taskId、previewCapturedAt。GET access 只返回策略和所有权元数据，不截图或续建会话；select 只消费已开启策略，不修改持久授权。预览返回 `{ preview }`（最近 PNG、capturedAt、目标和 sessionId，无 observationId），无当前活跃授权则为 null；GET 查询不调用驱动；POST 预览刷新消费已有窗口会话，在串行队列中抓屏，但不发放或替换 observationId。两者均不影响 Agent 动作凭据。观察响应包含 base64 PNG，HTTP 图片用于 UI，模型工具把它转成原生图片块并从文字/details 中移除。缺少授权为 403，旧观察/窗口变化为 409，非法输入为 400，驱动尺寸或 PNG 内容无效为 502；Agent 重新观察失败后旧 observationId 也失效，不能继续按旧图操作。普通驱动调用最长 15 秒，HTTP 断连会取消；旧 Task 授权的有效期可以进一步缩短操作时间。可信宿主可等待系统授权申请至多 5 分钟，供用户处理系统提示；等待期间仍可关闭或暂停。
 
-业务会话 HTTP 和 Agent 不提供 authorize/resume 接口。系统权限申请、本机确认及开启或恢复控制要求宿主凭据和匹配的后端身份；内部宿主接口拒绝带浏览器 Origin 的请求。业务会话仍可读取状态及执行暂停、释放或关闭等安全操作；详情见 [产品 API](product-api.md)。后端为 Main 和委派进程提供只驻留当前后端内存的业务凭据，不向其环境传递宿主凭据；后端重启后该凭据失效。
+业务会话 HTTP 和 Agent 不提供 authorize/resume 接口。系统权限申请、本机确认及开启或恢复控制要求宿主凭据和匹配的后端身份；内部宿主接口拒绝带浏览器 Origin 的请求。业务会话仍可读取状态及执行暂停、释放或关闭等安全操作；详情见 [产品 API](product-api.md)。后端为 Main 和后台 Watch 命令提供只驻留当前后端内存的业务凭据，不向这些模型命令传递宿主凭据；后端重启后该凭据失效。Coordinator 将运行上下文传给前台命令、测试命令和后台 job，不将凭据写入持久队列。独立 CLI 和 Main 委派先通过后端会话接口核验已有凭据：只有业务会话会传给模型命令，无法核验时普通命令仍可运行，后端调用需重新取得有效会话。
 
 主窗口主 frame 通过 preload `bookmanDesktop.computerUse` 发可信 IPC；宿主在所选后端数据根的私有 computer-policy.json（version=1，0600）中原子保存 enabled/mode，再经实例身份绑定的内部宿主接口请求 policy/status/resume/permissions/authorize/pause/end/release-sessions。切换后端前释放旧会话，新目标只恢复自身策略；操作在途时切换被拒绝。损坏、未知版本或不可读设置默认关闭并展示恢复提示，原文件保留；设置写入失败不会扩大服务权限。authorize 显式传 taskId、pid、windowId、mode，服务再次验证 Task 和当前系统窗口。系统权限请求必须指定 permission=screenRecording 或 accessibility，驱动和宿主均验证该值，不提供申请全部权限的操作。宿主在请求后重新查询实际状态；未获准时只打开该项系统设置。开启或恢复策略只读取最新系统状态，两项权限及必要输入事件未齐全则拒绝，不能通过可信 IPC 绕过界面禁用状态；该操作不会申请系统权限。暂停/退出的意图优先于尚未完成的授权，延迟回包不会重新赋权。
 
@@ -102,7 +102,7 @@ POST /api/tasks/:taskId/computer/end      {}
 
 `test/computer-policy-races.test.js` 使用真实 Dashboard HTTP 和隔离驱动，覆盖重复关闭时取消旧单窗口在途/排队输入、迟到授权拒绝、关闭策略下的显式单窗口恢复，以及首次选择校验延迟时持有任务继续选窗、其他任务按 FIFO 接续。
 
-`test/os-native-host-capabilities.test.js` 覆盖业务凭据拒绝申请与扩权、宿主权限失败后恢复、暂停和实例变化后的旧凭据拒绝、网页主机状态归属，以及注入无图形驱动时独立后端在客户端退出后完成真实 Pi 代码任务和重启。真实 macOS 系统权限与前台窗口另行验收。
+`test/os-native-host-capabilities.test.js` 覆盖业务凭据拒绝申请与扩权、Dashboard Watch 的真实 Coordinator 和命令子进程、CLI Watch 与 Main 委派、并发环境隔离与队列恢复、宿主权限失败后恢复、暂停和实例变化后的旧凭据拒绝、网页主机状态归属，以及注入无图形驱动时独立后端在客户端退出后完成真实 Pi 代码任务和重启。真实 macOS 系统权限与前台窗口另行验收。
 
 - [持久策略](../desktop/computer-policy.cjs)、[可信宿主](../desktop/main.cjs)：默认关闭、私有原子存储、IPC 和迟到意图保护。
 - [会话与队列](../src/gui/computer-use.ts)：任务独占、全局续期、暂停/取消、单次观察及活动记录。

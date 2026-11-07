@@ -53,6 +53,8 @@ export interface BuiltinToolOptions {
   commandMaxLogBytes?: number;
   /** Per-stream UTF-8 preview budget, including any omission marker. */
   commandPreviewBytes?: number;
+  /** Environment overrides for commands started by this tool set. */
+  commandEnv?: NodeJS.ProcessEnv;
   supportsImages?: boolean;
   visionModel?: VisionModelConfig;
   /** Optional public web tools. Omit for coding/benchmark profiles that should not access the web. */
@@ -271,6 +273,7 @@ export function createBuiltinTools(options: BuiltinToolOptions): ReadonlyMap<str
           maxOutputBytes: commandMaxLogBytes,
           previewBytes: commandPreviewBytes,
           outputLogDirectory: join(agentRoot, "logs", "commands"),
+          env: options.commandEnv,
           // A pipeline this agent edits supports pipes and redirection. Work
           // that must survive this foreground call uses start_job. This widens what a command
           // string can do, which is the same latitude the file tools already
@@ -357,6 +360,7 @@ export function createBuiltinTools(options: BuiltinToolOptions): ReadonlyMap<str
           command: value.command,
           cwd: value.cwd !== undefined ? await fileTarget(safePath(value.cwd)) : jobCwd(),
           directory,
+          env: options.commandEnv,
           shell: true
         });
       }

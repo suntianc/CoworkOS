@@ -88,6 +88,8 @@ export interface SubagentDispatchInput extends DelegatedModelSettings {
   maxAttempts?: number;
   leaseMs?: number;
   signal?: AbortSignal;
+  /** Runtime-only command environment; never persisted with the work item. */
+  commandEnv?: NodeJS.ProcessEnv;
   /** Optional in-process tool factory for benchmark/external environments. */
   toolFactory?: (workingDirectory: string, workspaceDirectory: string) => ReadonlyMap<string, RuntimeTool>;
   capabilityProvider?: CapabilityProvider;
@@ -253,6 +255,8 @@ export interface CoordinatorRecoveryInput extends DelegatedModelSettings {
   skillApplications?: string[];
   questionTimeoutMs?: number;
   maxQuestions?: number;
+  /** Runtime-only command environment supplied by the recovering host. */
+  commandEnv?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -633,6 +637,7 @@ export class CoordinatorRuntime {
           questionTimeoutMs: input.questionTimeoutMs,
           maxQuestions: input.maxQuestions,
           toolFactory: input.toolFactory,
+          commandEnv: input.commandEnv,
           capabilityProvider: input.capabilityProvider,
           capabilityGrants: (item.payload as { capabilityGrants?: CapabilityGrant[] })?.capabilityGrants,
           web: input.web,
@@ -805,6 +810,7 @@ export class CoordinatorRuntime {
             workspaceDirectory: join(input.workspaceRoot, input.taskId),
             projectDirectory: input.projectDirectory,
             capabilities,
+            commandEnv: { COWORK_API_TOKEN: undefined, ...input.commandEnv },
             supportsImages,
             visionModel: input.visionModel,
             web: input.web,
