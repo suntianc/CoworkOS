@@ -37,7 +37,7 @@ export const navigation = [
       ["CONTRIBUTING.md", "参与贡献", "Contributing"],
       ["docs/mac-release.md", "Mac 发布", "Mac releases"],
       ["docs/beta-release-process.md", "Beta 发布", "Beta releases"],
-      ["ROADMAP.md", "路线图", "Roadmap"],
+      ["docs/development-phases.md", "阶段规划草案", "Phase plan draft (Chinese)"],
       ["docs/documentation.md", "文档维护", "Documentation policy"]
     ]
   }

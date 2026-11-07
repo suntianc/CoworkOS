@@ -23,7 +23,7 @@
 | 路径、revision、备份和恢复   | task-workspace-layout                                            |
 | 应用/软件/GUI 接口           | software-integration 及领域指南                                  |
 | PR 和审阅职责                | CONTRIBUTING、module-ownership                                   |
-| 待开发工作与验收标准         | ROADMAP                                                          |
+| 待开发工作与验收标准         | development-phases                                               |
 | 打包、升级、签名和发布       | mac-release                                                      |
 
 ## 同步规则
@@ -37,7 +37,7 @@
 
 ## 双语入口
 
-根 README 使用英文，中文版本为 `README.zh-CN.md`；CONTRIBUTING、ROADMAP 和 AGENTS 的英文文件使用 `.en.md`，核心指南的英文版本位于 `docs/en/`。修改命令、字段、支持范围、依赖方向和验收条件时同步语言对。专项接口尚未翻译时，英文索引注明语言。
+根 README 使用英文，中文版本为 `README.zh-CN.md`；CONTRIBUTING 和 AGENTS 的英文文件使用 `.en.md`，核心指南的英文版本位于 `docs/en/`。修改命令、字段、支持范围、依赖方向和验收条件时同步语言对。专项接口和阶段规划尚未翻译时，英文索引注明语言。
 
 源码和本地文档使用真实 Markdown 相对链接。`npm run check:docs` 检查纳入范围的本地文件与标题锚点，不检查远程 URL 或产品行为。下载和 npm 安装命令必须指向实际可用的分发渠道。
 

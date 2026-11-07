@@ -8,4 +8,4 @@ English | [简体中文](../README.md)
 
 ## Development
 
-[Setup](development.md) · [Product glossary (Chinese)](../../GLOSSARY.md) · [Architecture](architecture.md) · [API](../product-api.md) · [Contribute](../../CONTRIBUTING.en.md) · [Retrospective follow-through (Chinese)](../retrospectives.md) · [Project pitfalls (Chinese)](../pitfalls/README.md)
+[Setup](development.md) · [Product glossary (Chinese)](../../GLOSSARY.md) · [Phase plan draft (Chinese)](../development-phases.md) · [Architecture](architecture.md) · [API](../product-api.md) · [Contribute](../../CONTRIBUTING.en.md) · [Retrospective follow-through (Chinese)](../retrospectives.md) · [Project pitfalls (Chinese)](../pitfalls/README.md)
