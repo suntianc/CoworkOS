@@ -49,6 +49,7 @@ function createSessionCredentialStore({ userData, storage }) {
           if (!(await storage.isEncryptionAvailable())) throw new Error();
           const token = await storage.decryptString(Buffer.from(entry.ciphertext, "base64"));
           if (typeof token !== "string" || !token) throw new Error();
+          await storage.release?.();
           return { sessionId: entry.sessionId, token };
         } catch {
           throw new Error("系统密钥存储无法读取客户端凭据，请检查系统授权后重试");
@@ -72,6 +73,7 @@ function createSessionCredentialStore({ userData, storage }) {
         try {
           if (!(await storage.isEncryptionAvailable())) throw new Error();
           ciphertext = (await storage.encryptString(session.token)).toString("base64");
+          await storage.release?.();
         } catch {
           throw new Error("系统密钥存储无法保存客户端凭据，请检查系统授权后重试");
         }

@@ -127,3 +127,84 @@ test("packaged backend selects the accessory runtime and refuses a missing helpe
   await chmod(helper, 0o700);
   assert.equal(backendExecutable(executable, "darwin", appRoot), helper);
 });
+
+test("client credentials release the private keychain worker and remain readable after restart", async (t) => {
+  const { createRetryableStorage } = require("../desktop/retryable-storage.cjs");
+  const { createSessionCredentialStore } = require("../desktop/session-credentials.cjs");
+  const root = await mkdtemp(join(tmpdir(), "cowork-package-keychain-"));
+  const worker = join(root, "worker.cjs");
+  const attempts = join(root, "attempts");
+  await writeFile(
+    worker,
+    `const fs = require('node:fs');
+const readline = require('node:readline');
+fs.appendFileSync(${JSON.stringify(attempts)}, process.pid + '\\n');
+readline.createInterface({input:process.stdin}).on('line', line => {
+  const request = JSON.parse(line);
+  let value;
+  if (request.operation === 'available') value = true;
+  if (request.operation === 'encrypt') value = Buffer.from('fixture:' + request.value).toString('base64');
+  if (request.operation === 'decrypt') value = Buffer.from(request.value, 'base64').toString().slice(8);
+  process.stdout.write('atria-keychain:' + JSON.stringify({id:request.id,ok:true,value}) + '\\n');
+});`
+  );
+  const storage = createRetryableStorage({ executable: process.execPath, args: [worker], timeout: 5000 });
+  t.after(async () => {
+    await storage.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createSessionCredentialStore({ userData: root, storage });
+  const session = { sessionId: "session-fixture", token: "private-fixture-token" };
+  const stopped = (pid) => {
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch (error) {
+      if (error.code === "ESRCH") return true;
+      throw error;
+    }
+  };
+  await store.write("backend-fixture", session);
+  const first = (await readFile(attempts, "utf8")).trim().split("\n").map(Number);
+  assert.equal(first.length, 1);
+  assert.equal(stopped(first[0]), true, "the encryption helper exits after the credential is saved");
+  assert.doesNotMatch(await readFile(join(root, "client-sessions.json"), "utf8"), /private-fixture-token/);
+  assert.deepEqual(await store.read("backend-fixture"), session);
+  const second = (await readFile(attempts, "utf8")).trim().split("\n").map(Number);
+  assert.equal(second.length, 2, "reading starts a fresh helper");
+  assert.equal(stopped(second[1]), true, "the decryption helper exits after the credential is read");
+});
+
+test("failed client credential access retains its retry state until the user retries", async (t) => {
+  const { createRetryableStorage } = require("../desktop/retryable-storage.cjs");
+  const { createSessionCredentialStore } = require("../desktop/session-credentials.cjs");
+  const root = await mkdtemp(join(tmpdir(), "cowork-package-keychain-failure-"));
+  const worker = join(root, "worker.cjs");
+  const attempts = join(root, "attempts");
+  await writeFile(
+    worker,
+    `const fs = require('node:fs');
+const readline = require('node:readline');
+const path = ${JSON.stringify(attempts)};
+const attempt = Number(fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : 0) + 1;
+fs.writeFileSync(path, String(attempt));
+readline.createInterface({input:process.stdin}).on('line', line => {
+  const request = JSON.parse(line);
+  const value = request.operation === 'available' ? attempt > 1 : Buffer.from('encrypted').toString('base64');
+  process.stdout.write('atria-keychain:' + JSON.stringify({id:request.id,ok:true,value}) + '\\n');
+});`
+  );
+  const storage = createRetryableStorage({ executable: process.execPath, args: [worker], timeout: 5000 });
+  t.after(async () => {
+    await storage.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createSessionCredentialStore({ userData: root, storage });
+  const session = { sessionId: "session-fixture", token: "private-fixture-token" };
+  await assert.rejects(store.write("backend-fixture", session), /系统密钥存储/);
+  await assert.rejects(store.write("backend-fixture", session), /系统密钥存储/);
+  assert.equal(await readFile(attempts, "utf8"), "1", "failed access does not automatically retry");
+  await storage.retry();
+  await store.write("backend-fixture", session);
+  assert.equal(await readFile(attempts, "utf8"), "2", "an explicit retry starts a fresh worker");
+});

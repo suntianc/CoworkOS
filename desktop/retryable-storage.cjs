@@ -103,6 +103,10 @@ function createRetryableStorage({ executable, args = [], env = process.env, time
     });
   return {
     retry: () => serial(stop),
+    release: () =>
+      serial(async () => {
+        if (current && !current.failed) await stop();
+      }),
     close() {
       closed = true;
       return stop();
