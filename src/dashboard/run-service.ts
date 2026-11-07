@@ -170,6 +170,12 @@ export function createDashboardRunService({
       thinkingLevel?: PiThinkingLevel;
       onPrepared?: (rollback: () => Promise<void>) => void;
       onAcceptedInput?: (messageId: string) => void;
+      /**
+       * Called once this request is admitted and its Run id is fixed, before any
+       * durable Run write or process start. It is the only place a caller may
+       * record ownership: a refused request never reaches it.
+       */
+      onRunAccepted?: (location: TaskLocation, runId: string) => Promise<void>;
       source?: "composer" | "human" | "inbox";
     }
   ): Promise<{ taskId: string; runId: string; status: string; model: string }> {
@@ -294,6 +300,10 @@ export function createDashboardRunService({
           savedVersions
         )
       : undefined;
+    // Every check that can refuse this request has passed and the Run id it will
+    // launch is fixed. Ownership is recorded only now, so a refused request
+    // cannot rewrite a Run another process owns.
+    if (submission?.onRunAccepted) await submission.onRunAccepted(location, runId);
     const inputPath = mainInputPath(taskWorkspace, taskId, runId);
     const input = continuation
       ? await readMainInput(mainInputPath(taskWorkspace, taskId, task.activeRunId!))

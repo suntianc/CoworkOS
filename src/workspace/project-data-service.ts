@@ -877,8 +877,10 @@ export class ProjectDataRepository {
     if (requirementId) await this.requireRequirement(projectId, requirementId);
     const state = input.state === undefined ? "running" : mainSessionRunState(input.state);
     const timestamp = now();
+    // A re-record carries the requirement only when the caller names one; an
+    // ordinary retry or continuation must keep the link it already has.
     const changed = await this.transaction.execute(
-      "UPDATE project_data_main_session_runs SET requirement_id = ?, state = ?, updated_at = ? WHERE project_id = ? AND session_id = ? AND run_id = ?",
+      "UPDATE project_data_main_session_runs SET requirement_id = COALESCE(?, requirement_id), state = ?, updated_at = ? WHERE project_id = ? AND session_id = ? AND run_id = ?",
       [requirementId ?? null, state, timestamp, projectId, session.sessionId, runId]
     );
     if (!changed)

@@ -56,7 +56,7 @@ import type { WatchCreation } from "../runtime/watch-management.js";
 import type { createWebSearchSettings } from "./web-search-settings.js";
 import type { createModelSettings } from "./model-settings.js";
 import type { createDashboardRunService, RunServicePorts } from "./run-service.js";
-import type { createWorkspaceDirectory } from "./workspace-directory.js";
+import type { createWorkspaceDirectory, TaskLocation } from "./workspace-directory.js";
 import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
 
 type WorkspaceDirectory = ReturnType<typeof createWorkspaceDirectory>;
@@ -817,64 +817,65 @@ export function createDashboardHandler(
           body.thinkingLevel === undefined
             ? undefined
             : normalizeReasoningEffort(body.thinkingLevel, "thinkingLevel");
+        const mainSessions = ports.mainSessions;
+        const location = mainSessions ? await locateTask(taskId) : undefined;
+        if (body.mainSessionId !== undefined && location && !location.projectId)
+          throw new HttpError(400, "临时会话不属于项目，不能选择 Main 会话");
+        // A session is a continuing conversation: resume its Pi transcript
+        // whenever one exists, even if the Task snapshot lost its Run id.
+        const resumeSession =
+          body.resume === true ||
+          (location && mainSessions ? await mainSessions.hasHistory(location) : false);
+        // Only the Run this request is actually admitted to launch may be
+        // recorded or settled. `onRunAccepted` runs inside the RunService's
+        // per-task serialization after every refusal check, so a rejected start
+        // never rewrites another process's ownership record.
+        const claimed: { runId?: string; projectId?: string; sessionId?: string } = {};
         const submission = {
           body: typeof body.body === "string" ? body.body : undefined,
-          ...(thinkingLevel ? { thinkingLevel } : {})
+          ...(thinkingLevel ? { thinkingLevel } : {}),
+          ...(mainSessions && location
+            ? {
+                onRunAccepted: async (acceptedLocation: TaskLocation, acceptedRunId: string) => {
+                  const binding = await mainSessions.beginRun(acceptedLocation, {
+                    runId: acceptedRunId,
+                    mainSessionId: body.mainSessionId,
+                    requirementId: body.requirementId
+                  });
+                  claimed.runId = acceptedRunId;
+                  claimed.projectId = acceptedLocation.projectId;
+                  claimed.sessionId = binding?.sessionId;
+                }
+              }
+            : {})
         };
-        // A session owns the Run before the process starts, so the ledger knows
-        // which requirement it is working on and a late response keeps its owner.
-        // A retry or a pure continuation (no new words) keeps an existing Run.
-        const claimsRun =
-          body.retryRequestId === undefined && !(body.resume === true && !String(body.prompt ?? "").trim());
-        if (ports.mainSessions && claimsRun) {
-          const location = await locateTask(taskId);
-          if (body.mainSessionId !== undefined && !location.projectId)
-            throw new HttpError(400, "临时会话不属于项目，不能选择 Main 会话");
-          const current = location.task;
-          const sessionRunId =
-            runId?.trim() ||
-            (["running", "waiting"].includes(current.status) && current.activeRunId
-              ? current.activeRunId
-              : `main-${Date.now()}`);
-          const binding = await ports.mainSessions.beginRun(location, {
-            runId: sessionRunId,
-            mainSessionId: body.mainSessionId,
-            requirementId: body.requirementId
-          });
-          try {
-            // A session is a continuing conversation: resume its Pi transcript
-            // whenever one exists, even if the Task snapshot lost its Run id.
-            const resumeSession = body.resume === true || (await ports.mainSessions.hasHistory(location));
-            const result = await startMainRun(
-              taskId,
-              prompt,
-              sessionRunId,
-              resumeSession,
-              model,
-              undefined,
-              submission
-            );
-            sendJson(response, 202, binding ? { ...result, sessionId: binding.sessionId } : result);
-          } catch (error) {
-            if (location.projectId)
-              await ports.mainSessions.settle(location.projectId, taskId, sessionRunId, "failed");
-            throw error;
-          }
-          return;
-        }
-        sendJson(
-          response,
-          202,
-          await startMainRun(
+        try {
+          const result = await startMainRun(
             taskId,
             prompt,
             runId,
-            body.resume === true,
+            resumeSession,
             model,
             body.retryRequestId as string | undefined,
             submission
-          )
-        );
+          );
+          sendJson(response, 202, claimed.sessionId ? { ...result, sessionId: claimed.sessionId } : result);
+        } catch (error) {
+          // A claimed Run that never spawned is settled here. A request that was
+          // refused before acceptance claimed nothing, so it must not settle a
+          // different Run; a failed compensation write keeps the launch error.
+          if (claimed.runId && claimed.projectId)
+            await mainSessions
+              ?.settle(claimed.projectId, taskId, claimed.runId, "failed")
+              .catch((settleError) =>
+                console.error(
+                  `[cowork] session run settlement failed: ${
+                    settleError instanceof Error ? settleError.message : String(settleError)
+                  }`
+                )
+              );
+          throw error;
+        }
         return;
       }
       const versionMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/message-versions\/([^/]+)$/);

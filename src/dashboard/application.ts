@@ -226,13 +226,21 @@ export function createDashboardApplication(
     },
     onRunFinalized: async (location, runId) => {
       if (!location.projectId) return;
-      // A Run keeps the session that owned it after it settles.
-      await mainSessions.settle(
-        location.projectId,
-        location.task.taskId,
-        runId,
-        location.task.status === "failed" ? "failed" : "completed"
-      );
+      // A Run keeps the session that owned it after it settles. The shared write
+      // is best-effort here: the local experience record below is an independent
+      // finalization step, and an unreachable authority must not suppress it.
+      try {
+        await mainSessions.settle(
+          location.projectId,
+          location.task.taskId,
+          runId,
+          location.task.status === "failed" ? "failed" : "completed"
+        );
+      } catch (error) {
+        console.error(
+          `[cowork] session run settlement failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       const store = await projectExperienceStore(location.projectId);
       if (store)
         await enqueueProjectExperienceRun({
