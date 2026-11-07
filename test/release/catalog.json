@@ -49,6 +49,11 @@
   "nativeBrowserPattern": "-desktop\\.spec\\.js$",
   "nativeVariants": [
     {
+      "file": "e2e/science-removal.spec.js",
+      "kind": "browser",
+      "pattern": "Electron removes science controls"
+    },
+    {
       "file": "e2e/model-profiles.spec.js",
       "kind": "browser",
       "pattern": "desktop: saved connections"

@@ -1,8 +1,9 @@
 import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { PNG } from "pngjs";
+import { developmentExecutable } from "../scripts/desktop-dev.mjs";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
@@ -57,10 +58,10 @@ test("browser settings omit retired science controls with old configuration", as
   }
 });
 
-test("packaged Electron removes science controls and opens and downloads deliveries", async ({}, testInfo) => {
+test("Electron removes science controls and opens and downloads deliveries", async ({}, testInfo) => {
   test.skip(process.platform !== "darwin", "Packaged Electron acceptance requires macOS");
   test.setTimeout(120_000);
-  if (!process.env.ATRIA_DESKTOP_APP) throw new Error("ATRIA_DESKTOP_APP must name the candidate app");
+  const packaged = process.env.ATRIA_DESKTOP_APP;
   const root = await mkdtemp(join(tmpdir(), "cowork-prune-desktop-"));
   const provider = await modelProtocolFixture("openai-completions", () => ({ text: "fixture" }));
   const env = Object.fromEntries(
@@ -79,8 +80,10 @@ test("packaged Electron removes science controls and opens and downloads deliver
   let app;
   try {
     app = await electron.launch({
-      executablePath: join(process.env.ATRIA_DESKTOP_APP, "Contents", "MacOS", "CoworkOS"),
-      args: ["--use-mock-keychain"],
+      executablePath: packaged
+        ? join(packaged, "Contents", "MacOS", "CoworkOS")
+        : await developmentExecutable(),
+      args: packaged ? ["--use-mock-keychain"] : ["--use-mock-keychain", resolve(".")],
       env
     });
     console.log(JSON.stringify({ desktopPid: app.process().pid }));

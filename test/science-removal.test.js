@@ -342,3 +342,32 @@ test("one-time cleanup previews owned assets, protects active and external data,
     ["active-task", "job-task"]
   );
 });
+
+test("cleanup preserves a shared tab when another workspace may own the same task ID", async (t) => {
+  const root = await mkdtemp(join(await realpath(tmpdir()), "cowork-prune-shared-tab-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const data = join(root, "home");
+  const workspace = join(data, "workspace");
+  const runtime = join(data, "runtime");
+  const external = join(root, "other-workspace");
+  await mkdir(runtime, { recursive: true });
+  await new LocalWorkspaceStore(workspace).createTask("shared-task");
+  await new LocalWorkspaceStore(external).createTask("shared-task");
+  const catalog = new GlobalWorkspaceCatalog(join(runtime, "workspaces.json"));
+  await catalog.register(workspace);
+  await catalog.register(external);
+  const tabs = new WorkbenchTabStore(join(runtime, "workbench-tabs.json"));
+  await tabs.open({ kind: "conversation", taskId: "shared-task" });
+  const result = spawnSync(
+    process.execPath,
+    [resolve("scripts/prune-legacy-data.mjs"), "--root", data, "--task", "shared-task", "--apply"],
+    { encoding: "utf8" }
+  );
+  assert.equal(result.status, 0, result.stderr);
+  await assert.rejects(access(join(workspace, "shared-task")));
+  await access(join(external, "shared-task", "task.json"));
+  assert.deepEqual(
+    (await tabs.read()).tabs.map((tab) => tab.taskId),
+    ["shared-task"]
+  );
+});

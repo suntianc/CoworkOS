@@ -369,7 +369,8 @@ async function pruneTabs(plan, removedTasks, pruneOrphans, dryRun = false) {
     (tab) =>
       (tab.kind === "conversation" &&
         tab.taskId &&
-        (removedTasks.has(tab.taskId) || (pruneOrphans && complete && !names.has(tab.taskId)))) ||
+        complete &&
+        (removedTasks.has(tab.taskId) || (pruneOrphans && !names.has(tab.taskId)))) ||
       (tab.kind === "application" &&
         tab.appInstanceId &&
         validInstances &&
