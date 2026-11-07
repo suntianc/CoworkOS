@@ -12,7 +12,10 @@ export function createComposerSession({
   const legacyOwnerKey = `${legacyPrefix}legacy-owner:active`;
   // Keep preconnection edits from different launches separate, including when
   // an earlier connection left a conflicting recovery copy behind.
-  const prebindPrefix = `${legacyPrefix}__prebind__:${crypto.randomUUID()}:`;
+  const prebindId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  const prebindPrefix = `${legacyPrefix}__prebind__:${prebindId}:`;
   const journalKey = `${legacyPrefix}migration-journal:active`;
   /**
    * Drafts belong to one backend. The prefix keeps a conversation started

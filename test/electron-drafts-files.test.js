@@ -80,6 +80,23 @@ function migrationStorage(capacity = Infinity) {
 
 const attached = { name: "notes.txt", text: "attachment content", size: 18 };
 
+test("a web client can create its draft session without secure-context randomUUID", () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: { getRandomValues: (values) => values.fill(1) }
+  });
+  try {
+    const view = draftFixture();
+    view.session.activate(null);
+    view.input.value = "remote browser draft";
+    view.session.save();
+    assert.equal(view.session.prepareClose(), true);
+  } finally {
+    Object.defineProperty(globalThis, "crypto", original);
+  }
+});
+
 test("S1: recovered preconnection migration does not resurrect deleted text or attachments", () => {
   const storage = migrationStorage();
   const first = draftFixture(storage);
