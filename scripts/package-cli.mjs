@@ -31,7 +31,6 @@ try {
     ".pi/prompts",
     ".pi/skills",
     "scripts/atria.mjs",
-    "scripts/science.mjs",
     "scripts/data-home.cjs",
     "scripts/data-migration.cjs",
     "scripts/file-search.mjs",
@@ -70,7 +69,6 @@ try {
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "licenses",
-    "vendor/sciagentgym",
     "docs",
     "ROADMAP.md",
     "ROADMAP.en.md",
@@ -90,6 +88,9 @@ try {
       recursive: true,
       filter: (path) =>
         !relative(process.cwd(), path).split(sep).includes("node_modules") &&
+        !/^dist\/src\/(?:tools\/science(?:\/|\.|-|$)|runtime\/science-|dashboard\/science-settings)/.test(
+          relative(process.cwd(), path).split(sep).join("/")
+        ) &&
         !path.endsWith(".map") &&
         !path.endsWith(".DS_Store") &&
         !path.endsWith("atria-computer-use") &&
@@ -179,7 +180,6 @@ try {
       "LICENSE",
       "THIRD_PARTY_NOTICES.md",
       "licenses",
-      "vendor/sciagentgym",
       "config.example.json",
       "npm-shrinkwrap.json",
       "build-info.json",

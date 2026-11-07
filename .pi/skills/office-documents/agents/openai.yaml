@@ -1,4 +1,0 @@
-interface:
-  display_name: "Office Documents"
-  short_description: "Create, inspect, edit, render, and validate Office documents"
-  default_prompt: "Use $office-documents when the task involves DOCX or XLSX files."

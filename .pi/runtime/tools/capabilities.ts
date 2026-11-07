@@ -208,10 +208,7 @@ export function registerCapabilityTools(
     name: "enable_tools",
     label: "Load Task Tools",
     description:
-      "Discover and enable optional tool groups for the current task. Omit groups to list availability. Applications, attachments, delivery, jobs, monitors, computer, browser and cua are loaded only when needed. Enabling is not authorization: job grants and desktop grants remain enforced. Scripts need their underlying browser/computer tools enabled. CLI and App share all non-host-specific groups." +
-      (Object.hasOwn(groups, "science")
-        ? " The science group provides reviewed offline physics, experimental-data, molecular/RDKit, astronomy, materials/XRD and mass-spectrum calculations, subject to this Run's pinned catalog. Enable science, search by the task in English or Chinese, describe units/assumptions, then run a matching function. Simple conversions need no workflow skill."
-        : ""),
+      "Discover and enable optional tool groups for the current task. Omit groups to list availability. Applications, attachments, delivery, jobs, monitors, computer, browser and cua are loaded only when needed. Enabling is not authorization: job grants and desktop grants remain enforced. Scripts need their underlying browser/computer tools enabled. CLI and App share all non-host-specific groups.",
     parameters: Type.Object({
       groups: Type.Optional(
         Type.Array(Type.Union(Object.keys(groups).map((name) => Type.Literal(name))), { uniqueItems: true })

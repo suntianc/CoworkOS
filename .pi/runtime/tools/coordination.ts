@@ -404,7 +404,6 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         questionTimeoutMs: configuredSubagentQuestionTimeout(context.runtimeEnv),
         maxQuestions: configuredSubagentMaxQuestions(context.runtimeEnv),
         web: context.web,
-        science: context.science,
         ...context.skillScopeNow(),
         capabilityGrants,
         capabilityProvider: context.capabilityProvider,

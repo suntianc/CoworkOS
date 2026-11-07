@@ -5,7 +5,6 @@ import { readInputDocument } from "../../../dist/src/workspace/input-reader.js";
 import { publishTaskArtifact } from "../../../dist/src/workspace/artifact-store.js";
 import { browseWorkspace } from "../../../dist/src/tools/builtin.js";
 import { discoverSkills, createLoadSkillTool } from "../../../dist/src/runtime/skill-registry.js";
-import { scienceSkillRoots } from "../../../dist/src/runtime/science-guidance.js";
 import type { CoworkToolContext } from "../extension.ts";
 import type { RuntimeToolResult } from "../helpers.ts";
 
@@ -99,10 +98,7 @@ export function registerWorkspaceTools(pi: ExtensionAPI, context: CoworkToolCont
     async execute(_toolCallId, params): Promise<RuntimeToolResult> {
       const scope = context.skillScopeNow();
       const tool = createLoadSkillTool(
-        await discoverSkills(
-          [...scope.skillRoots, ...scienceSkillRoots(context.science, context.harnessRoot)],
-          { applications: scope.skillApplications }
-        )
+        await discoverSkills(scope.skillRoots, { applications: scope.skillApplications })
       );
       const result = await tool.execute(params);
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };

@@ -58,28 +58,6 @@ CoworkOS 使用原始 Pi coding agent 0.87.1，在交互子进程加载时应用
 
 CoworkOS uses the original Pi coding agent 0.87.1 with six bounded UI differences applied at load time in the interactive subprocess and three shell identity/output-path differences across CLI modes. New commands use `AI_AGENT=atria` and `atria-bash-*.log` for full output. Dependency files, licenses, historical content, recovery formats and RPC protocol structure remain intact; model/tool records retain actual content and real output paths. Source, pinned hashes, differences and upgrade gates are documented in the [terminal adapter guide](docs/en/cli-ui-adapter.md).
 
-## SciAgentGYM scientific tools
-
-科学计算函数改编自 [CMarsRover/SciAgentGYM e9dbbea4369d67694e38bf8be67bedbcaf9e9300](https://github.com/CMarsRover/SciAgentGYM/tree/e9dbbea4369d67694e38bf8be67bedbcaf9e9300)，适用 Apache-2.0。CLI/App 保留上游完整 [LICENSE](vendor/sciagentgym/LICENSE) 和 CoworkOS 的来源与修改 [NOTICE](vendor/sciagentgym/NOTICE)。v1 保留原 12 个离线函数，v2 加入 6 个实验数据分析、衍射与电化学函数，v3 再加入 8 个离线天文函数，共 26 个；旧目录保持各自范围。改编移除了绘图、文件副作用和全量依赖导入，并新增参数验证、稳定数值计算和 JSON 输出。天文函数仅用标准库；数组分析使用用户单独配置的可选 NumPy/SciPy 环境。范围见 [科学工具](docs/scientific-tools.md)。
-
-The scientific tools adapt offline functions from the pinned SciAgentGYM commit under Apache-2.0. CLI/App retain the complete upstream license and the linked provenance/modification notice. The v1 catalog retains its original 12 functions; v2 adds six experimental-data, diffraction and electrochemistry functions, and v3 adds eight offline astronomy functions for a total of 26. Older catalogs retain their own scope. Adaptations remove plotting, file side effects and eager full dependencies and add validation, stable arithmetic and JSON output. Astronomy uses only the standard library; array analysis uses a separately configured optional NumPy/SciPy environment. See the [guide](docs/en/scientific-tools.md).
-
-v4 另加 3 个 CoworkOS 原生 RDKit 包装函数，总计 29 个，来源类型为 `atria-native`；它们未复制 SciAgentGYM 或 RDKit 源码。原生包装使用仓库 MIT 许可，用户手动配置的外部 RDKit `2026.9.1` 依赖适用其 [BSD-3-Clause 许可证](https://github.com/rdkit/rdkit/blob/Release_2026_09_1/license.txt)。CLI/App 不随包分发 RDKit 二进制或该独立 Python 环境；NumPy、Pillow 等外部环境依赖保留各自许可。
-
-The v4 catalog adds three CoworkOS-native RDKit wrappers for 29 functions in total, with `atria-native` provenance and no copied SciAgentGYM or RDKit source. Native wrappers use the repository's MIT license; the manually configured external RDKit `2026.9.1` dependency retains its linked BSD-3-Clause license. CLI/App do not bundle RDKit binaries or this separate Python environment. External NumPy, Pillow and other environment dependencies retain their own licenses.
-
-v5 在上述范围上加入 4 个 SciAgentGYM 材料函数改编，共 33 个工具，其中 30 个为 Apache-2.0 上游改编、3 个为 CoworkOS 原生 RDKit 包装。材料函数只用标准库；来源、文件哈希及 Gaussian 仪器展宽修正见同一 [NOTICE](vendor/sciagentgym/NOTICE)。v1–v4 保留各自目录与实现。
-
-The v5 catalog adds four SciAgentGYM materials adaptations, for 33 tools: 30 Apache-2.0 upstream adaptations and three CoworkOS-native RDKit wrappers. Materials require only the standard library. The same notice records source hashes and the explicit Gaussian instrumental-broadening correction. The v1–v4 catalogs and implementations are preserved.
-
-v6 增加 3 个 SciAgentGYM 质谱工具改编和 1 个 CoworkOS 原生精确质量/分子式包装，总计 37 个（33 个上游改编、4 个原生包装）。前者仅用标准库；后者复用用户选择的既有 RDKit 环境，代码为 MIT、来源为 `atria-native`，不计入上游改编。两个上游文件的固定哈希与归一化、Cl/C 卷积及候选峰匹配改动见 [NOTICE](vendor/sciagentgym/NOTICE)。旧 v1–v5 保持原范围；无新增库或 RDKit 二进制随包分发。
-
-The v6 catalog adds three SciAgentGYM mass-spectrum adaptations and one CoworkOS-native exact-mass/formula wrapper, for 37 tools: 33 upstream adaptations and four native wrappers. The former use only the standard library; the latter reuses the selected external RDKit environment under its existing license. Native code is MIT with `atria-native` provenance, separate from the upstream adaptations. The notice records both source hashes and normalization, Cl/C convolution and candidate-matching changes. The v1–v5 catalogs retain their scope; no additional library or RDKit binary is bundled.
-
-v7 增加 3 个 CoworkOS 原生统计函数，总计 40 个（33 个上游改编、7 个原生实现）。统计代码使用仓库 MIT 许可，通过公开 NumPy/SciPy API 计算，未复制这些库或 SciAgentGYM 源码；来源为 `atria-native`。复用外部 NumPy 2.2.6 / SciPy 1.15.3 环境，依赖仍保留各自许可。显式安装器从 PyPI 安装固定 wheel 及其许可文件到独立用户环境；CLI/App 不随包分发科学 Python 或这些库的二进制，旧 v1–v6 保留原实现。
-
-The v7 catalog adds three MIT-licensed CoworkOS-native statistics functions, for 40 tools: 33 upstream adaptations and seven native implementations. They call public NumPy/SciPy APIs without copying those libraries or SciAgentGYM source, with `atria-native` provenance. They reuse external NumPy 2.2.6 / SciPy 1.15.3 under their own licenses. The explicit installer obtains fixed wheels and their license files from PyPI into a separate user environment; CLI/App do not bundle scientific Python or those library binaries. Existing v1–v6 implementations are preserved.
-
 ## React Bits README hero / README 动画头图
 
 当前头图的 TechText 是独立实现的 React/SVG 场景，不导入下述旧版 ElectricLogo；旧源码与许可继续保留。The current TechText hero is an independent React/SVG implementation and does not import the legacy ElectricLogo below; its sources and licenses remain preserved.

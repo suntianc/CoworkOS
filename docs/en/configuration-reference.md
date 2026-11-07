@@ -114,14 +114,6 @@ The default [official Exa MCP](https://exa.ai/docs/get-started/exa-mcp) endpoint
 
 Tools preserve source titles, URLs, bodies and available dates without inventing missing dates. A single-URL fetch needs a valid source and nonempty body, preserving redirects; multiple sources must match the requested URL. Invalid sources, empty structures, metadata-only results or unrelated bodies fail. Provider JSON envelopes are not page evidence. Only a genuine empty result list counts as zero results. Network, proxy, protocol, timeout and cancellation errors are failures.
 
-## Scientific environments
-
-`science.enabled`, `science.pythonExecutable` and `science.chemistryPythonExecutable` control the switch, base Python and RDKit Python. `COWORK_SCIENCE_TOOLS`, `COWORK_SCIENCE_PYTHON` and `COWORK_SCIENCE_CHEMISTRY_PYTHON` override individual fields; environment-managed fields are locked in the UI.
-
-Interpreter values accept absolute paths or command names. Clearing the base path restores `python3`; clearing the RDKit path inherits the base environment. Explicit checks validate the draft interpreter, dependency versions and a fixed RDKit sample. Saving does not run the check.
-
-Tasks retain their selected directory and interpreter. Changes apply to new tasks; enabling or disabling takes effect when the next session process starts. Recovered tasks retain their historical interfaces after disabling, but computation returns unavailable. Installation supports cancellation and reuse. Success fills the draft; failure preserves existing configuration and environments. See [scientific tools](scientific-tools.md) for installation and dependencies, and [Product API](../product-api.md#scientific-environment-settings) for HTTP contracts.
-
 ## Network proxies
 
 | JSON field   | Environment variable          |

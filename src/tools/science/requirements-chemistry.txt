@@ -1,6 +1,0 @@
-# Optional, separate chemistry environment; Python >=3.10 and a supported wheel platform.
-# RDKit 2026.9.1 supplies macOS arm64 wheels; this release has no macOS Intel wheel.
-# Keep v4 canonicalization and molecular descriptor results tied to this exact version.
-rdkit==2026.9.1
-numpy==2.2.6
-Pillow==11.3.0

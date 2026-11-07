@@ -131,7 +131,7 @@ async function put(root, file, content) {
   await writeFile(join(root, file), typeof content === "string" ? content : JSON.stringify(content));
 }
 
-test("the actual CLI packer excludes retained Mac helpers and tolerates optional source resources", async (t) => {
+test("the actual CLI packer excludes retained Mac helpers and tolerates optional source resources", async () => {
   const root = await mkdtemp(join(tmpdir(), "atria-cli-content-"));
   try {
     // Copy only public source directories used by the actual packer. No build,
@@ -203,26 +203,7 @@ test("the actual CLI packer excludes retained Mac helpers and tolerates optional
       "dist/web/assets/agent-names.js"
     ])
       await put(root, file, "// portable source fixture\n");
-    const scienceAssets = [
-      "runner.py",
-      "pilot.py",
-      "analysis.py",
-      "astronomy.py",
-      "chemistry.py",
-      "materials.py",
-      "mass_spectrometry.py",
-      "mass-chemistry.py",
-      "statistics.py",
-      "environment-probe.py",
-      "requirements.txt",
-      "requirements-chemistry.txt"
-    ];
-    await mkdir(join(root, "dist", "src", "tools", "science"), { recursive: true });
-    for (const name of scienceAssets)
-      await cp(
-        new URL(`../src/tools/science/${name}`, import.meta.url),
-        join(root, "dist", "src", "tools", "science", name)
-      );
+    await put(root, "dist/src/tools/science/runner.py", "retired runtime sentinel");
     for (const name of ["npmrc", "global-npmrc"]) await put(root, name, "");
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([key]) => !/^(?:npm_config_|COWORK_|PI_|ATRIA_|SERPER_)/i.test(key))
@@ -322,9 +303,8 @@ test("the actual CLI packer excludes retained Mac helpers and tolerates optional
       "CLI archive excludes editor implementations and contract fixtures"
     );
     assert.ok(files.includes("package/dist/src/gui/driver.js"));
-    assert.ok(files.includes("package/vendor/sciagentgym/LICENSE"));
-    assert.ok(files.includes("package/vendor/sciagentgym/NOTICE"));
-    for (const name of scienceAssets) assert.ok(files.includes(`package/dist/src/tools/science/${name}`));
+    assert.ok(!files.some((file) => file.startsWith("package/vendor/sciagentgym/")));
+    assert.ok(!files.some((file) => file.startsWith("package/dist/src/tools/science/")));
     for (const name of [
       "creative-design",
       "frontend-design",
@@ -350,174 +330,6 @@ test("the actual CLI packer excludes retained Mac helpers and tolerates optional
     );
     const license = "licenses/pi-0.87.1-LICENSE.txt";
     assert.equal(files.includes(`package/${license}`), false);
-    const unpacked = join(root, "unpacked");
-    await mkdir(unpacked);
-    execFileSync("tar", [
-      "-xzf",
-      archive,
-      "-C",
-      unpacked,
-      ...scienceAssets.map((name) => `package/dist/src/tools/science/${name}`)
-    ]);
-    const packagedScience = join(unpacked, "package", "dist", "src", "tools", "science");
-    for (const name of scienceAssets)
-      assert.deepEqual(
-        await readFile(join(packagedScience, name)),
-        await readFile(new URL(`../src/tools/science/${name}`, import.meta.url))
-      );
-    await rm(join(root, "dist"), { recursive: true });
-    const runPackaged = (executable, request, noSite = true) =>
-      JSON.parse(
-        execFileSync(
-          executable,
-          ["-I", "-B", ...(noSite ? ["-S"] : []), join(packagedScience, "runner.py")],
-          {
-            cwd: unpacked,
-            input: JSON.stringify(request),
-            encoding: "utf8",
-            timeout: 30_000,
-            env: {
-              LANG: "C.UTF-8",
-              OMP_NUM_THREADS: "1",
-              OPENBLAS_NUM_THREADS: "1",
-              ...(process.platform === "win32" ? { SystemRoot: process.env.SystemRoot } : {})
-            }
-          }
-        )
-      );
-    const generalPython = process.env.COWORK_SCIENCE_TEST_PYTHON || "python3";
-    const general = runPackaged(generalPython, {
-      version: "atria-rdkit-chemistry-v4",
-      tool: "distance_from_modulus",
-      arguments: { mu: 10 }
-    });
-    assert.equal(general.ok, true, JSON.stringify(general));
-    assert.equal(general.result, 1000);
-    const materials = runPackaged(generalPython, {
-      version: "sciagentgym-e9dbbea-materials-v5",
-      tool: "cubic_lattice_parameter",
-      arguments: { d_spacing: 2, hkl: [1, 1, 1] }
-    });
-    assert.equal(materials.ok, true, JSON.stringify(materials));
-    assert.ok(Math.abs(materials.result - Math.sqrt(12)) < 1e-12);
-    assert.equal(materials.units, "angstrom");
-    const massSpectrometry = runPackaged(generalPython, {
-      version: "sciagentgym-e9dbbea-mass-spec-v6",
-      tool: "calculate_theoretical_isotope_pattern",
-      arguments: { num_chlorine: 2 }
-    });
-    assert.equal(massSpectrometry.ok, true, JSON.stringify(massSpectrometry));
-    assert.ok(Math.abs(massSpectrometry.result.M_plus_2_ratio - 0.6399155227032735) < 1e-12);
-    for (const version of [
-      "sciagentgym-e9dbbea-pilot-v1",
-      "sciagentgym-e9dbbea-analysis-v2",
-      "sciagentgym-e9dbbea-astronomy-v3",
-      "atria-rdkit-chemistry-v4",
-      "sciagentgym-e9dbbea-materials-v5"
-    ]) {
-      for (const tool of [
-        "parse_mass_spectrum_peaks",
-        "calculate_theoretical_isotope_pattern",
-        "find_isotope_cluster",
-        "rdkit_exact_mass_and_formula"
-      ]) {
-        const rejected = runPackaged(generalPython, { version, tool, arguments: {} });
-        assert.equal(rejected.error.code, "unknown_tool", "archived v1-v5 reject the new mass functions");
-      }
-    }
-    const withoutRdkit = runPackaged(generalPython, {
-      version: "atria-rdkit-chemistry-v4",
-      tool: "rdkit_validate_smiles",
-      arguments: { smiles: "CCO" }
-    });
-    assert.equal(withoutRdkit.error.code, "dependency_unavailable");
-    const v5WithoutRdkit = runPackaged(generalPython, {
-      version: "sciagentgym-e9dbbea-materials-v5",
-      tool: "rdkit_validate_smiles",
-      arguments: { smiles: "CCO" }
-    });
-    assert.equal(v5WithoutRdkit.error.code, "dependency_unavailable");
-    const v6WithoutRdkit = runPackaged(generalPython, {
-      version: "sciagentgym-e9dbbea-mass-spec-v6",
-      tool: "rdkit_exact_mass_and_formula",
-      arguments: { smiles: "CCO" }
-    });
-    assert.equal(v6WithoutRdkit.error.code, "dependency_unavailable");
-    for (const version of [
-      "atria-rdkit-chemistry-v4",
-      "sciagentgym-e9dbbea-materials-v5",
-      "sciagentgym-e9dbbea-mass-spec-v6"
-    ]) {
-      await t.test(
-        `archived ${version} runs native chemistry without source or a bundled RDKit installation`,
-        { skip: !process.env.COWORK_SCIENCE_CHEMISTRY_TEST_PYTHON },
-        () => {
-          const chemistry = runPackaged(
-            process.env.COWORK_SCIENCE_CHEMISTRY_TEST_PYTHON,
-            {
-              version,
-              tool: "rdkit_molecular_descriptors",
-              arguments: { smiles: "CCO" }
-            },
-            false
-          );
-          assert.equal(chemistry.ok, true, JSON.stringify(chemistry));
-          assert.equal(chemistry.result.canonical_smiles, "CCO");
-          assert.ok(Math.abs(chemistry.result.molecular_weight - 46.069) < 1e-9);
-          assert.equal(chemistry.result.rdkit_version, "2026.09.1");
-        }
-      );
-    }
-    await t.test(
-      "archived v6 executes exact molecular mass in the separate RDKit environment",
-      { skip: !process.env.COWORK_SCIENCE_CHEMISTRY_TEST_PYTHON },
-      () => {
-        const value = runPackaged(
-          process.env.COWORK_SCIENCE_CHEMISTRY_TEST_PYTHON,
-          {
-            version: "sciagentgym-e9dbbea-mass-spec-v6",
-            tool: "rdkit_exact_mass_and_formula",
-            arguments: { smiles: "CCO" }
-          },
-          false
-        );
-        assert.equal(value.ok, true, JSON.stringify(value));
-        assert.equal(value.result.canonical_smiles, "CCO");
-        assert.equal(value.result.formula, "C2H6O");
-        assert.ok(Math.abs(value.result.exact_mass_da - 46.041864812) < 1e-9);
-        assert.equal(value.result.rdkit_version, "2026.09.1");
-        assert.equal(value.units.exact_mass_da, "Da");
-      }
-    );
-    await rm(join(packagedScience, "mass_spectrometry.py"));
-    await rm(join(packagedScience, "mass-chemistry.py"));
-    const retainedMaterials = runPackaged(generalPython, {
-      version: "sciagentgym-e9dbbea-mass-spec-v6",
-      tool: "cubic_lattice_parameter",
-      arguments: { d_spacing: 2, hkl: [1, 1, 1] }
-    });
-    assert.equal(retainedMaterials.ok, true, "v6 retained functions do not load either mass module");
-    assert.ok(Math.abs(retainedMaterials.result - Math.sqrt(12)) < 1e-12);
-    await rm(join(packagedScience, "materials.py"));
-    for (const version of ["atria-rdkit-chemistry-v4", "sciagentgym-e9dbbea-materials-v5"]) {
-      const retained = runPackaged(generalPython, {
-        version,
-        tool: "distance_from_modulus",
-        arguments: { mu: 10 }
-      });
-      assert.equal(retained.ok, true, JSON.stringify(retained));
-      assert.equal(retained.result, 1000);
-    }
-    await rm(join(packagedScience, "chemistry.py"));
-    for (const [version, tool, args, expected] of [
-      ["sciagentgym-e9dbbea-pilot-v1", "eV_to_nm", { energy_eV: 2 }, 619.9209921660013],
-      ["sciagentgym-e9dbbea-analysis-v2", "bragg_law_d_spacing", { two_theta: 60 }, 1.5406],
-      ["sciagentgym-e9dbbea-astronomy-v3", "distance_from_modulus", { mu: 10 }, 1000]
-    ]) {
-      const retained = runPackaged(generalPython, { version, tool, arguments: args });
-      assert.equal(retained.ok, true, JSON.stringify(retained));
-      assert.ok(Math.abs(retained.result - expected) < 1e-9);
-    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

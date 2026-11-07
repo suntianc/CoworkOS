@@ -19,7 +19,6 @@ import { createMenu } from "./assets/ui/menu.js";
 import { createModal } from "./assets/ui/modal.js";
 import { createVisiblePoll } from "./assets/ui/visible-poll.js";
 import { installDesktopSettings } from "./assets/controllers/desktop-settings.js";
-import { installScienceSettings } from "./assets/controllers/science-settings.js";
 import { installUserMemorySettings } from "./assets/controllers/user-memory-settings.js";
 import { installDesktopUpdates } from "./assets/controllers/desktop-updates.js";
 import { presentToolCall } from "./assets/tool-presentation.js";
@@ -2625,5 +2624,4 @@ const modelSettings = installDesktopSettings({
   }
 });
 $("#model-setup-button").addEventListener("click", () => void modelSettings.open());
-installScienceSettings({ overview: settingsOverview, showToast, api });
 installUserMemorySettings({ overview: settingsOverview, showToast, api });

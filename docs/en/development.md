@@ -16,7 +16,7 @@ Use Node.js >=22.19.0, npm and Git. Install locked dependencies with `npm ci`. I
 | Computer Use | Mac, Xcode Command Line Tools; screenshots need macOS 14+ and system permissions | Built by `npm run build`; input needs an unlocked desktop |
 | Mac package  | Apple Silicon Mac; offline full archives also need uv                            | `npm run desktop:pack` / `npm run desktop:dist`           |
 
-`build:cli` compiles the shared runtime and prepares CLI and science assets. `build`, `build:base` and `build:full` prepare the text workbench, math rendering and desktop host assets. Non-Mac builds skip native helpers and icons.
+`build:cli` compiles the shared runtime and prepares CLI assets. `build`, `build:base` and `build:full` prepare the text workbench, math rendering and desktop host assets. Non-Mac builds skip native helpers and icons.
 
 Document attachment tests need Python 3.11 and PDF/Office parsing dependencies. Missing libraries must be fixed, not counted as passing skips. Fixtures/readers share `COWORK_PYTHON`:
 
