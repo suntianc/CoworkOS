@@ -7,7 +7,7 @@ This guide is for contributors and coding agents. Users start with [README](READ
 ## Start a change
 
 1. Use the [code map](docs/en/code-map.md) to find the implementation owner, consumers and tests before adding branches to entrypoints.
-2. Read the target directory's `AGENTS.md`; read both sides when crossing directories.
+2. Read the target directory's `AGENTS.md`; read both sides when crossing directories. Consult entries matching the current tools, paths or interfaces in the [pitfall index (Chinese)](docs/pitfalls/README.md).
 3. Code, tests and [architecture](docs/en/architecture.md) define current behavior. Choose work from current issues and acceptance criteria.
 4. Reproduce the problem, edit the owning module, run relevant behavior tests and local verification, then report commands, failures and skips actually observed.
 
@@ -61,7 +61,7 @@ Use Node >=22.19.0 and `npm ci`. Match validation to the change: documentation-o
 
 Routine GitHub checks are manual-only and do not run automatically on pushes or PRs. They execute the lightweight static checks in `npm run check:ci`. Run complete regressions and release acceptance locally and record evidence. The manually triggered Mac workflow builds and uploads to a draft Release; see the [Mac release guide](docs/mac-release.md). CI passing does not mean the complete test suite passed; do not add browser, native or cross-platform test matrices by default.
 
-Change descriptions include the problem and resulting behavior, affected modules/interfaces, checks run and unverified scope. Update the relevant guide and code map when changing commands, features, paths or interfaces. The roadmap records status, next work and acceptance criteria.
+Change descriptions include the problem and resulting behavior, affected modules/interfaces, checks run and unverified scope. For delegation, rework, independent review and archival, use the [handoff guide (Chinese)](docs/development-handoffs.md) to identify the current delta, validation owners and evidence. Update the relevant guide and code map when changing commands, features, paths or interfaces. The roadmap records status, next work and acceptance criteria.
 
 `config.json`, `.cowork/`, `.tmp/`, `applications/`, `workspace/`, `task-*/`, supervisor locks and user data are not source. Do not read real secrets, delete running data, clean user tasks or include them in packages. Tests use their own temporary directories and local fake model servers.
 

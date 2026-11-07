@@ -20,7 +20,7 @@ npm run verify:full -- --list
 
 `verify` 按顺序执行 `build:cli`、`build:web-assets`、`lint`、`check:workbench`、`check:extensions`、`format:check`、`check:docs` 和 `check:source`，不运行行为测试。`build:web-assets` 准备 KaTeX 和 Markdown 依赖；它不构建原生桌面资源。`verify:full`（等价于 `verify -- --full`）改用一次 `build:full`，静态检查后再运行 `test:release:runner` 和全量 Node 测试。两种模式均在第一次失败时停止，并保留原始退出码。轻量检查通过不代表相关行为或全量回归通过。
 
-`format:check` 检查当前变更文件；手动 CI 使用 `FORMAT_BASE=HEAD^` 比较上一提交；其他基线可在本地通过 `FORMAT_BASE` 指定。
+`format:check` 默认检查未提交变更。审查已提交差异时先用 `git rev-parse --verify '<基线>^{commit}'` 确认基线，再执行 `FORMAT_BASE=<基线> npm run format:check`，选择范围为 `<基线>...HEAD`；手动 CI 使用 `HEAD^`。默认命令在 clean 工作树可能输出 `No changed files to format`，见 [空选择陷阱](pitfalls/testing.md#提交后格式检查没有选中文件)。
 
 `check:docs` 检查现行中英文文档和模块 AGENTS 的仓库内文件链接、Markdown 标题锚点，代码示例和外部 URL 不做请求。已移除的文档不再列为必需文件；删除文档时须更新引用，残留死链仍会失败。第三方许可链接指向版本固定的上游来源，发行包内许可另按实际产物检查。
 

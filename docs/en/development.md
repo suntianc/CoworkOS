@@ -23,6 +23,7 @@ Document attachment tests need Python 3.11 and PDF/Office parsing dependencies. 
 ```sh
 python3.11 -m venv .tmp/document-python
 .tmp/document-python/bin/python -m pip install -r scripts/document-requirements.txt
+.tmp/document-python/bin/python -c 'import sys; print(sys.executable, sys.version); import fitz, docx, pptx, openpyxl'
 COWORK_PYTHON="$PWD/.tmp/document-python/bin/python" npm run verify:full
 ```
 
@@ -90,6 +91,8 @@ The development App uses a separate [restart helper](../../scripts/restart-devel
 The update implementations are [source transaction](../../scripts/update-source.mjs), [CLI dispatcher](../../scripts/update.mjs), [npm desktop package transport](../../scripts/update-npm-desktop.mjs), [legacy Release download/install](../../scripts/update-release.mjs), [desktop lifecycle](../../desktop/updates.cjs) and [UI](../../web/assets/controllers/desktop-updates.js). Start with `test/source-update.test.js`, `test/development-restart.test.js`, `test/update-npm-desktop.test.js`, `test/package-desktop-npm.test.js`, `test/update-release.test.js`, `test/desktop-updates.test.js` and `e2e/desktop-updates.spec.js`, then run relevant verification. Release feed generation and signing guards are covered by `scripts/update-feed.mjs` and `test/update-feed.test.js`. CLI packages must ship their imported update scripts; desktop-only dependencies do not belong in the CLI bundle.
 
 ## Daily change workflow
+
+For delegation, rework, independent review and archival, use the [handoff and evidence guide (Chinese)](../development-handoffs.md). Consult matching [environment pitfalls (Chinese)](../pitfalls/README.md); the [retrospective index (Chinese)](../retrospectives.md) maps earlier findings to current guidance and fixes.
 
 1. Find the behavior owner, consumers and tests in the code map; read target-directory `AGENTS.md`.
 2. Reproduce in a temporary workspace and run relevant tests. Fix the owning service/adapter/controller; entrypoints compose dependencies.

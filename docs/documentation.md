@@ -17,6 +17,8 @@
 | 依赖方向、状态与进程生命周期 | architecture                                                     |
 | 环境、构建、启动和 UI 约定   | development                                                      |
 | 本地验证、用例发现和跳过范围 | testing-local-run 及测试指南                                     |
+| 委派、返修与验证证据交接     | development-handoffs                                             |
+| 复盘落实状态与仍可触发的陷阱 | retrospectives、pitfalls/README                                  |
 | HTTP/SSE、字段、错误和消费者 | product-api                                                      |
 | 路径、revision、备份和恢复   | task-workspace-layout                                            |
 | 应用/软件/GUI 接口           | software-integration 及领域指南                                  |

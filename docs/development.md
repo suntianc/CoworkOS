@@ -23,6 +23,7 @@
 ```sh
 python3.11 -m venv .tmp/document-python
 .tmp/document-python/bin/python -m pip install -r scripts/document-requirements.txt
+.tmp/document-python/bin/python -c 'import sys; print(sys.executable, sys.version); import fitz, docx, pptx, openpyxl'
 COWORK_PYTHON="$PWD/.tmp/document-python/bin/python" npm run verify:full
 ```
 
@@ -90,6 +91,8 @@ App 启动后检查一次，用户主动执行才更新。草稿保存与运行�
 更新实现分别位于 [源码事务](../scripts/update-source.mjs)、[CLI 调度](../scripts/update.mjs)、[发行下载/安装](../scripts/update-release.mjs)、[桌面生命周期](../desktop/updates.cjs) 和 [UI](../web/assets/controllers/desktop-updates.js)。先跑 `test/source-update.test.js`、`test/development-restart.test.js`、`test/update-release.test.js`、`test/desktop-updates.test.js`、`e2e/desktop-updates.spec.js`，再运行对应验证。发布 feed 生成与签名守卫见 `scripts/update-feed.mjs`、`test/update-feed.test.js`。CLI 包必须携带所 import 的更新脚本，桌面专用依赖不进入 CLI 包。
 
 ## 日常修改闭环
+
+委派、返修、独立审查和归档使用 [开发交接与验证记录](development-handoffs.md)，并按 [坑点索引](pitfalls/README.md) 查阅匹配的环境问题。历次建议的落实位置见 [复盘索引](retrospectives.md)。
 
 1. 从 [代码地图](code-map.md) 找到行为负责人、消费者和测试，读取目标目录的 `AGENTS.md`。
 2. 在临时工作区复现，先运行已有相关测试；修复所属服务/Adapter/控制器，入口只装配。

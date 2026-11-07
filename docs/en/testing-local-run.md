@@ -20,7 +20,7 @@ npm run verify:full -- --list
 
 `verify` runs `build:cli`, `build:web-assets`, `lint`, `check:workbench`, `check:extensions`, `format:check`, `check:docs` and `check:source`, without behavioral tests. `build:web-assets` prepares KaTeX and Markdown dependencies, but not native desktop resources. `verify:full` (equivalent to `verify -- --full`) uses one `build:full`, then static checks, `test:release:runner` and the complete Node suite. Both modes stop at the first failure and preserve its exit code. Quick checks do not certify related behavior or the full suite.
 
-`format:check` checks changed files; Manual CI uses `FORMAT_BASE=HEAD^` to compare the previous commit; set `FORMAT_BASE` locally for a different baseline.
+`format:check` defaults to uncommitted changes. For committed changes, verify the baseline with `git rev-parse --verify '<base>^{commit}'`, then run `FORMAT_BASE=<base> npm run format:check` to select `<base>...HEAD`; manual CI uses `HEAD^`. On a clean worktree the default command may print `No changed files to format`; see the [empty-selection pitfall (Chinese)](../pitfalls/testing.md#提交后格式检查没有选中文件).
 
 `check:docs` checks local file links and Markdown heading anchors in maintained Chinese/English documentation and module AGENTS files. It ignores code examples and does not request external URLs. Retired documents are no longer required sources; removing a document also requires updating its consumers, and stale links still fail. Third-party license links use versioned upstream sources; license retention inside release artifacts is checked separately.
 

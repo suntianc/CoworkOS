@@ -119,7 +119,7 @@ CLI/DMG 下载通过发行 helper 验证版本、资产来源、大小及 SHA-25
 
 ## 安装、数据与升级
 
-用户从 DMG 拖入 Applications 并启动，按安装指南配置自己的模型连接。模型密钥由 Electron safeStorage 加密保存，renderer 不读回密钥，加密不可用时拒绝保存。未配置模型也可编辑和保存支持的本地文档。
+用户从 DMG 拖入 Applications 并启动，按安装指南配置自己的模型连接。模型与搜索密钥由所选执行主机保存在配置旁的 `credentials.json`（0600），设置接口返回脱敏状态；Electron safeStorage 加密保存客户端会话凭据，renderer 通过受信宿主访问所选后端。存储边界与迁移见 [连接存储](configuration-reference.md#连接存储与兼容)。未配置模型也可编辑和保存支持的本地文档。
 
 用户数据默认位于与 CLI / Web 共用的 `~/.atria/`，包含工作空间、Pi 状态、连接、加密密钥和日志；`ATRIA_HOME` 整体覆盖，外部项目与显式覆盖目录按实际原文件一起备份。默认布局与旧桌面目录复制/导入见 [持久化说明](task-workspace-layout.md)。
 
