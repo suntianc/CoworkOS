@@ -54,8 +54,11 @@ The backend keeps running after the client that started it exits. It never insta
   if (topic === "data") {
     console.log(`Usage: coworkos data paths
        coworkos data import --from PATH [--kind desktop|workspace] [--name NAME]
+       coworkos data backup --to PATH
+       coworkos data restore --from PATH
   -h, --help  Show help without importing or changing user data
-Import copies legacy data and preserves its original directory.`);
+Import copies legacy data and preserves its original directory. Backup writes one
+logical snapshot of the project ledger; restore replaces it from the same engine.`);
     return;
   }
   if (topic) {
@@ -226,9 +229,20 @@ function cliDataPaths(config = {}) {
 
 async function dataCommand() {
   const action = args.shift() || "paths";
-  const options = flags(args, action === "import" ? ["--from", "--kind", "--name"] : []);
-  if (!["paths", "import"].includes(action))
-    throw new Error("Usage: coworkos data paths|import --from PATH [--kind desktop|workspace]");
+  const options = flags(
+    args,
+    action === "import"
+      ? ["--from", "--kind", "--name"]
+      : action === "backup"
+        ? ["--to"]
+        : action === "restore"
+          ? ["--from"]
+          : []
+  );
+  if (!["paths", "import", "backup", "restore"].includes(action))
+    throw new Error(
+      "Usage: coworkos data paths|import --from PATH [--kind desktop|workspace]|backup --to PATH|restore --from PATH"
+    );
   if (action === "import" && typeof options["--from"] !== "string")
     throw new Error("data import 需要 --from <旧数据目录>");
   if (options["--kind"] && !["desktop", "workspace"].includes(options["--kind"]))
@@ -251,6 +265,30 @@ async function dataCommand() {
       join(harness, ".tmp")
     ].filter((path) => path !== paths.home && existsSync(path));
     console.log(JSON.stringify({ ...paths, configPath, legacyCandidates }, null, 2));
+    return;
+  }
+  if (action === "backup" || action === "restore") {
+    const option = action === "backup" ? "--to" : "--from";
+    const file = options[option];
+    if (typeof file !== "string" || !file.trim())
+      throw new Error(`data ${action} 需要 ${option} <备份文件路径>`);
+    const { ProjectDataRuntime } = await import("../dist/src/workspace/project-data-service.js");
+    const runtime = new ProjectDataRuntime({
+      config: config.projectData,
+      env: process.env,
+      configPath,
+      dataRoot: dirname(paths.globalIndex)
+    });
+    try {
+      const service = await runtime.service();
+      const result =
+        action === "backup"
+          ? await service.backupTo(resolve(file))
+          : await service.restoreFrom(resolve(file));
+      console.log(JSON.stringify({ engine: service.description.engine, ...result }, null, 2));
+    } finally {
+      await runtime.close();
+    }
     return;
   }
   const { importLegacyData } = await import("./data-migration.cjs");

@@ -35,6 +35,7 @@ import { createTaskNotifications } from "./assets/controllers/task-notifications
 import { createBackendConnection } from "./assets/controllers/backend-connection.js";
 import { createProjectExperienceController } from "./assets/controllers/project-experience.js";
 import { createProjectController } from "./assets/controllers/project-controller.js";
+import { createProjectLedgerController } from "./assets/controllers/project-ledger.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
 import { createConversationReadState, conversationTaskId } from "./assets/conversation-actions.js";
@@ -532,6 +533,8 @@ const projectController = createProjectController({
     ]),
   onUpdated: () => void refresh()
 });
+const ledgerController = createProjectLedgerController({ api, state, showToast });
+$("#ledger-nav").addEventListener("click", () => ledgerController.open());
 const draftRecovery = createDraftRecovery({
   button: $("#recover-drafts"),
   session: composerSession,
@@ -1040,6 +1043,7 @@ function renderConversationList() {
   }
   syncNavigationHistory();
   projectController.render();
+  ledgerController.render();
 }
 
 function selectConversation(taskId) {

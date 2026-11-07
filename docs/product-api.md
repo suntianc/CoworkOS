@@ -164,6 +164,33 @@ All successes return the latest GET shape. Conflicting revisions return 409 with
 
 Only active formal items enter the current project's optional context/catalog. Automatic promotion requires opt-in, three distinct verified Task sources and host-side evidence checks; it never overwrites manual/pinned content. See [Project experience](en/project-experience.md) for capacities, provenance, scheduling, model usage and the distinction between reviewing saved checks and executing new validation.
 
+## Project ledger
+
+The ledger is the authoritative shared record of what a project needs, its revisions, its effective decisions and the sources it came from. It is stored by the [project data service](configuration-reference.md#项目数据存储); the HTTP shape is identical on SQLite and PostgreSQL.
+
+```text
+GET  /api/project-data
+GET  /api/projects/:projectId/ledger?q=<text>&status=open|delivered|withdrawn&limit=1..200
+GET  /api/projects/:projectId/ledger/:requirementId
+POST /api/projects/:projectId/ledger
+GET  /api/tasks/:taskId/ledger
+POST /api/tasks/:taskId/ledger
+```
+
+`GET /api/project-data` returns `{ engine, target, serverVersion, schemaVersion, source }` and carries no credential. Project routes resolve the project through the local catalog; a request cannot choose a storage directory, and a shared project's directory is never used as a local execution directory.
+
+POST bodies carry `action`:
+
+- `query` (`q`, `status`, `limit`) and `get` (`requirementId`) read.
+- `create` (`title`, `content`, optional `source` `{ kind: internal|external|legacy, reference? }`, optional `references` `[{ kind: task|session|delivery, value }]`) returns 201 with revision 1. An internal requirement stays ledger-only and creates no board entry.
+- `update` (`requirementId`, `expectedRevision`, optional `title`, `content`, `status`, `note`, `taskId`) appends the next revision.
+- `decide` (`requirementId`, `expectedRevision`, `text`, optional `effective`, `source`) records a decision at the revision the caller read.
+- `set_decision_effective` (`requirementId`, `decisionId`, `expectedRevision`, `effective`) retracts or restores a recorded decision without deleting it.
+
+A requirement returns `projectId`, `requirementId`, `title`, `content`, `source`, `status`, `revision`, timestamps, `decisions` and `references`; reading one requirement also returns every `revisions` entry. A stale `expectedRevision` returns 409 with `code:"revision_conflict"` and `currentRevision`, and never overwrites the newer revision. Unknown requirements return 404; invalid fields return 400.
+
+The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project from its local catalog, so a tool argument cannot select another project. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project.
+
 ## Task APIs
 
 ```text

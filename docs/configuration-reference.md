@@ -126,6 +126,34 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 
 设置适用于 CLI Main、headless CLI、子智能体、模型发现、连接测试和独立视觉请求，支持两种模型协议。会话、视觉分析和测试在结束或取消后释放自己的代理连接。交互 Pi 使用 SDK 环境代理；没有模型或视觉专用代理变量。带认证的代理地址属于私有配置。
 
+## 项目数据存储
+
+项目台账与共享项目身份保存在独立的项目数据服务中：个人部署默认使用本机 SQLite，也可显式选择 PostgreSQL。两种模式共用同一领域服务、HTTP 接口和 Main 工具，业务行为不随引擎变化。引擎在服务启动时确定；配置无效、数据库不可达或认证失败会直接报错并指出引擎与目标，不切换到另一引擎，也不以空库继续运行。
+
+```json
+{
+  "projectData": {
+    "engine": "postgres",
+    "postgres": { "connectionString": "postgresql://coworkos@db.example:5432/coworkos" }
+  }
+}
+```
+
+SQLite 的默认文件是数据根下的 `project-data.sqlite`（`ATRIA_HOME/runtime/project-data.sqlite`，默认 `~/.atria/runtime/project-data.sqlite`）；`projectData.sqlite.path` 可指定文件，相对路径按数据根解析。PostgreSQL 也可用 `host`、`port`、`database`、`user`、`password`、`ssl` 分开填写。连接凭据只保存在服务端配置或 `COWORK_PROJECT_DATA_URL`，不进入界面、工具参数或错误文本。
+
+选择引擎与既有数据迁移是两件事：更换引擎不会移动已有项目目录索引、Task/Run、附件或 Pi 历史，本阶段也不做跨引擎自动搬迁、双写或运行中热切换。既有项目目录索引继续提供稳定 `projectId`；共享项目记录只保存身份，本机目录作为当前后端的绑定单独保存，共享记录中的目录不会被当作本机执行目录。
+
+### 备份与恢复
+
+服务启动时按版本执行 schema 迁移。`GET /api/project-data` 报告当前引擎、服务端版本和已应用的 schema 版本；`target` 是文件路径或 `postgresql://host:port/database`，不含凭据。备份与恢复使用同一服务，按当前引擎读取和写入：
+
+```sh
+coworkos data backup --to ~/backups/project-data.json
+coworkos data restore --from ~/backups/project-data.json
+```
+
+备份是本机逻辑快照（文件权限 0600），包含共享项目、本机目录绑定、需求、修订、决定和引用；恢复在一个事务里整体替换这些记录，并拒绝来自另一引擎的备份文件。恢复前先停止写入该数据根的后端，恢复后重启后端读取。
+
 ## 路径与环境变量
 
 | 环境变量                                              | 用途                                                                  |
@@ -145,6 +173,9 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 | `PI_CODING_AGENT_DIR`                                 | Pi 状态目录，默认 `~/.atria/pi`                                       |
 | `COWORK_TASK_ID`                                      | 固定 Main Task，恢复时配合原 Pi 会话                                  |
 | `COWORK_UI_PORT`                                      | 源码 Web 端口，默认 3880                                              |
+| `COWORK_PROJECT_DATA_ENGINE`                          | 项目数据引擎：`sqlite`（默认）或 `postgres`                           |
+| `COWORK_PROJECT_DATA_SQLITE`                          | SQLite 数据文件路径                                                   |
+| `COWORK_PROJECT_DATA_URL`                             | PostgreSQL 连接地址，覆盖配置文件中的 `projectData.postgres`          |
 | `COWORK_TRUSTED_CLIENT_ORIGINS`                       | 受信本机页面来源，逗号分隔的精确 `http://127.0.0.1:<port>` 等回环地址 |
 
 `COWORK_TRUSTED_CLIENT_ORIGINS` 只接受精确的本机 `http://` 来源，不接受通配符；命名的来源可以跨端口读取该后端的响应并出现在其页面 `connect-src` 中。真实请求仍走凭据校验，监听地址仍为 `127.0.0.1`。浏览器页面管理另一个本机后端时，两者需要互相命名对方来源。详见 [Product API](product-api.md#trusted-local-client-origins)。

@@ -15,7 +15,7 @@ import { applicationServiceForTask } from "../applications/task-service.js";
 import { ResourceMappingStore } from "../applications/mapping-store.js";
 import { McpSupervisor } from "../applications/mcp-supervisor.js";
 import { id, now } from "../domain/types.js";
-import { readHostCoworkConfig } from "../runtime/config.js";
+import { coworkConfigPath, readHostCoworkConfig } from "../runtime/config.js";
 import {
   runtimeSettingsEnv,
   configuredContextWindow,
@@ -65,6 +65,7 @@ import { FileCommandRunner } from "./management-commands.js";
 import { createCatalogEvents } from "./catalog-events.js";
 import { EventLedger } from "./event-ledger.js";
 import { createWorkspaceDirectory } from "./workspace-directory.js";
+import { ProjectDataRuntime } from "../workspace/project-data-service.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
 import { MacComputerDriver } from "../gui/macos-driver.js";
@@ -148,6 +149,19 @@ export function createDashboardApplication(
    */
   const commands = new FileCommandRunner(join(dirname(globalIndexPath), "operations"));
   const workspaces = createWorkspaceDirectory(workspaceRoot, globalIndexPath, runtimeValue);
+  /**
+   * The shared project ledger's one authority.
+   *
+   * Opened from the resolved configuration and reported through `ready`: an
+   * explicit PostgreSQL choice that cannot be reached refuses to start rather
+   * than falling back to a local SQLite database.
+   */
+  const projectData = new ProjectDataRuntime({
+    config: runtimeConfig.projectData,
+    env: process.env,
+    configPath: coworkConfigPath(projectRoot),
+    dataRoot: dirname(globalIndexPath)
+  });
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
   /**
    * The durable catalog event log, beside the sessions and receipts.
@@ -698,6 +712,7 @@ export function createDashboardApplication(
   }
   const routes: DashboardRoutePorts = {
     userMemory,
+    projectData,
     access,
     commands,
     events: catalogEvents,
@@ -779,6 +794,8 @@ export function createDashboardApplication(
     dashboardUrl,
     routePorts: routes,
     computerHostRequest,
+    /** Resolves when the project data service is migrated and reachable. */
+    ready: projectData.ready,
     async stop() {
       await computerApproval.close();
       await catalogEvents.close();
@@ -790,6 +807,8 @@ export function createDashboardApplication(
       await runs.stop();
       await mcpSupervisor.stopAll();
       await new Promise<void>((done) => server.close(() => done()));
+      // After the listener is closed, so no in-flight ledger request loses its database.
+      await projectData.close();
     }
   };
 }

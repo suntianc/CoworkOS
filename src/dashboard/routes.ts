@@ -35,6 +35,9 @@ import { SubagentQuestionStore } from "../runtime/subagent-questions.js";
 import { WatcherRuntime } from "../runtime/watcher.js";
 import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import { ProjectCatalogError } from "../workspace/project-catalog.js";
+import { ProjectDataConflictError, ProjectDataError } from "../domain/project-ledger.js";
+import { handleProjectDataRequest } from "./project-data-routes.js";
+import type { ProjectDataRuntime } from "../workspace/project-data-service.js";
 import { MainRequestConflictError } from "../runtime/main-request-retry.js";
 import { MainRequestSnapshotError } from "../storage/main-request-store.js";
 import { readJsonFile, streamRunEvents } from "./event-stream.js";
@@ -66,6 +69,8 @@ export interface DashboardRoutePorts {
   /** Snapshot and resumable catalog events; absent in partial handlers. */
   events?: CatalogEvents;
   projectExperienceStore?: (projectId: string) => Promise<ProjectExperienceStore | undefined>;
+  /** Shared project ledger; absent only in partial handlers that serve one router. */
+  projectData?: ProjectDataRuntime;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
   uploads?: InputStore;
@@ -320,6 +325,36 @@ export function createDashboardHandler(
       // Bind desktop request epochs before any awaited router can cross a
       // stop/revoke/resume boundary while this request is still being admitted.
       if (await handleComputerRequest(request, response, url, ports.computer, locateTask)) return;
+      if (
+        ports.projectData &&
+        (await handleProjectDataRequest(request, response, url, {
+          runtime: ports.projectData,
+          backendId: ports.backendInfo().backendId,
+          project: async (projectId) => {
+            const project = await ports.applicationProjectForId(projectId);
+            return project
+              ? {
+                  projectId: project.projectId,
+                  projectName: project.projectName,
+                  projectDirectory: project.projectDirectory
+                }
+              : undefined;
+          },
+          taskProject: async (taskId) => {
+            const location = await ports.locateTask(taskId);
+            if (!location.projectId) return undefined;
+            const project = await ports.applicationProjectForId(location.projectId);
+            return project
+              ? {
+                  projectId: project.projectId,
+                  projectName: project.projectName,
+                  projectDirectory: project.projectDirectory
+                }
+              : undefined;
+          }
+        }))
+      )
+        return;
       if (
         ports.projectExperienceStore &&
         (await handleProjectExperienceRequest(request, response, url, ports.projectExperienceStore))
@@ -1032,6 +1067,7 @@ export function createDashboardHandler(
           error instanceof MainMessageEditConflict ||
             error instanceof HttpError ||
             error instanceof ProjectCatalogError ||
+            error instanceof ProjectDataError ||
             error instanceof MainRequestConflictError ||
             error instanceof MainRequestSnapshotError
             ? error.status
@@ -1039,6 +1075,10 @@ export function createDashboardHandler(
           {
             error: error instanceof Error ? error.message : String(error),
             ...(error instanceof HttpError && error.code ? { code: error.code } : {}),
+            ...(error instanceof ProjectDataError && error.code ? { code: error.code } : {}),
+            ...(error instanceof ProjectDataConflictError && error.currentRevision !== undefined
+              ? { currentRevision: error.currentRevision }
+              : {}),
             ...(error instanceof MainMessageEditConflict ||
             error instanceof MainRequestConflictError ||
             error instanceof MainRequestSnapshotError

@@ -32,6 +32,10 @@ Web/App math uses pinned [KaTeX 0.19.0](https://github.com/KaTeX/KaTeX/tree/v0.1
 
 PNG cropping and resizing use the pure JavaScript `pngjs` `7.0.0` package, distributed as a CLI/App production dependency with its complete [MIT license](https://registry.npmjs.org/pngjs/-/pngjs-7.0.0.tgz). Source: [pngjs v7.0.0](https://github.com/pngjs/pngjs/tree/v7.0.0). `@types/pngjs` `6.0.5` is a development-only type dependency.
 
+项目数据的 PostgreSQL 适配器使用 `pg`（node-postgres）`8.23.1`，随 CLI/App 生产依赖分发，保留其 [MIT 许可证](https://registry.npmjs.org/pg/-/pg-8.23.1.tgz)。来源为 [node-postgres v8.23.1](https://github.com/brianc/node-postgres/tree/v8.23.1)。数据库连接属于运行配置，源码和发行包不包含真实数据库凭据。
+
+The project data PostgreSQL adapter uses `pg` (node-postgres) `8.23.1`, distributed as a CLI/App production dependency with its [MIT license](https://registry.npmjs.org/pg/-/pg-8.23.1.tgz). Source: [node-postgres v8.23.1](https://github.com/brianc/node-postgres/tree/v8.23.1). Database connections are runtime configuration; the source and released packages carry no real database credential.
+
 Browser Use 使用 `playwright-core` `1.63.0`，保留 [Apache-2.0 许可证](https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz)与 [NOTICE](https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz)。来源为 [Playwright v1.63.0](https://github.com/microsoft/playwright/tree/v1.63.0)。浏览器二进制单独安装，未加入 CLI/App 安装包；实际浏览器分发许可与安装验收单独核对。
 
 Browser Use uses `playwright-core` `1.63.0` with its [Apache-2.0 license](https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz) and [NOTICE](https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz), from [Playwright v1.63.0](https://github.com/microsoft/playwright/tree/v1.63.0). Browser binaries are installed separately and are absent from the CLI/App archive; their distribution licenses and installation checks are independent.

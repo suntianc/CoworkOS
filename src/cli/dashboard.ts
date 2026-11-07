@@ -43,6 +43,14 @@ if (served.kind === "existing") {
     localAccessToken
   });
   const port = Number(process.env.COWORK_UI_PORT ?? 3880);
+  try {
+    // A refused project database must stop the service before it answers.
+    await dashboard.ready;
+  } catch (error) {
+    dashboard.server.close();
+    await releaseBackendServing(paths, claimToken);
+    throw error;
+  }
   await new Promise<void>((resolveListen, reject) => {
     dashboard.server.once("error", reject);
     dashboard.server.listen(port, "127.0.0.1", () => {
