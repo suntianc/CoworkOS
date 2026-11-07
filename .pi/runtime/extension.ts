@@ -4,7 +4,6 @@ import { readQueuedUserTurn } from "../../dist/src/runtime/queued-user-turn.js";
 import type { ExtensionAPI, ExtensionContext, SessionEntry, Skill } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { CoordinatorRuntime } from "../../dist/src/runtime/coordinator-runtime.js";
@@ -131,10 +130,6 @@ import { createCliPresentation } from "./cli-ui.ts";
 import { registerCliCommands } from "./cli-commands.ts";
 import { recordCliSessionBinding } from "../../scripts/cli-session.mjs";
 import { registerWebSearchTools } from "./tools/web-search.ts";
-import { registerScienceTools } from "./tools/science.ts";
-import { configuredScienceTools, scienceToolsForRun } from "../../dist/src/runtime/science-config.js";
-import { scienceEnvironmentGuidance, scienceSkillRoots } from "../../dist/src/runtime/science-guidance.js";
-import { discoverSkills, skillCatalogPrompt } from "../../dist/src/runtime/skill-registry.js";
 import { registerSearchTools } from "./tools/file-search.ts";
 import { registerImageTools } from "./tools/images.ts";
 import { visionModelConfig } from "../../dist/src/runtime/vision-config.js";
@@ -156,15 +151,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   // Override either value when deliberately starting a fresh run.
   const mainRunId = process.env.COWORK_RUN_ID ?? `main-${taskId}`;
   const taskWorkspace = resolve(workspaceRoot, taskId);
-  // Keep ordinary extension registration synchronous. Only opted-in or previously
-  // pinned Runs need asynchronous science selection before registering their schemas.
-  const sciencePinPresent =
-    [taskId, mainRunId].every((id) => /^[A-Za-z0-9._-]+$/.test(id) && id !== "." && id !== "..") &&
-    existsSync(join(taskWorkspace, "runs", mainRunId, "science-tools.json"));
-  const science =
-    configuredScienceTools(process.env, config) || sciencePinPresent
-      ? await scienceToolsForRun({ workspaceRoot, taskId, runId: mainRunId }, process.env, config)
-      : undefined;
   const projectDirectory = resolve(process.env.COWORK_PROJECT_DIR ?? process.cwd());
   const harnessRoot = process.env.COWORK_HARNESS_ROOT ?? process.cwd();
   const cliPresentation = createCliPresentation(pi, { harnessRoot, projectDirectory });
@@ -188,8 +174,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   const baseSkillRoots = [
     ...new Set([join(harnessRoot, ".pi", "skills"), join(projectDirectory, ".pi", "skills")])
   ];
-  const scientificSkillRoots = scienceSkillRoots(science, harnessRoot);
-  const scientificSkills = scientificSkillRoots.length ? await discoverSkills(scientificSkillRoots) : [];
   /**
    * Skill roots for this turn, including the bound application's own.
    *
@@ -224,8 +208,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       harnessRoot,
       sdkSkills?.filter((skill) => !seenLearnedPaths.has(skill.filePath))
     );
-    // Scientific workflows follow the pinned science capability separately;
-    // persisting them as general roots would bypass revocation on recovery.
     return { ...scope, skillRoots: [...scope.skillRoots, ...learnedSkillPaths] };
   };
   let currentSkillsSection: string | undefined;
@@ -401,7 +383,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         maxQuestions: configuredSubagentMaxQuestions(runtimeEnv),
         skillRoots: baseSkillRoots,
         skillApplications: [],
-        science,
         capabilityProvider: applicationBridge.capabilityProvider
       });
       if (results.length) {
@@ -648,15 +629,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     // freezes snippets when enable_tools changes the active loadout mid-turn.
     return {
       current_workspace: `<current_workspace>\n${workspace}\n</current_workspace>${goals ? `\n\n${goals}` : ""}`,
-      application_context: application,
-      ...(science?.enabled === true
-        ? {
-            scientific_context: [
-              scienceEnvironmentGuidance(science),
-              ...(scientificSkills.length ? [skillCatalogPrompt(scientificSkills)] : [])
-            ].join("\n\n")
-          }
-        : {})
+      application_context: application
     };
   };
 
@@ -714,7 +687,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     }
     // Compatibility with older extension callers lacking structured options.
     return {
-      systemPrompt: `${event.systemPrompt}\n${sections.current_workspace}${sections.application_context}${sections.scientific_context ? `\n\n${sections.scientific_context}` : ""}`
+      systemPrompt: `${event.systemPrompt}\n${sections.current_workspace}${sections.application_context}`
     };
   });
 
@@ -1369,9 +1342,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     get web() {
       return web;
     },
-    get science() {
-      return science;
-    },
     get workspaceRoot() {
       return workspaceRoot;
     }
@@ -1399,7 +1369,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   registerImageTools(cuaBridge.capturePi, toolContext);
   registerSearchTools(pi, projectDirectory);
   registerWebSearchTools(pi, web);
-  registerScienceTools(pi, science, join(taskWorkspace, "agents", "main"));
   registerComputerTools(cuaBridge.capturePi, taskId, taskWorkspace);
   const browserTools = registerBrowserTools(cuaBridge.capturePi, toolContext);
   const cuaScripts = registerCuaScriptTools(cuaBridge.capturePi, cuaBridge.dispatch);
@@ -1411,18 +1380,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     workspaceRoot,
     taskId,
     mainRunId,
-    hasResources: async () => (await applicationBridge.workbench.listResources(taskId)).length > 0,
-    ...(science
-      ? {
-          additionalGroups: {
-            science: {
-              description:
-                "Discover reviewed offline scientific calculations. Search, inspect units and assumptions, then run only when the task needs calculation. Python starts only for execution.",
-              tools: ["science_search", "science_describe", "science_run"]
-            }
-          }
-        }
-      : {})
+    hasResources: async () => (await applicationBridge.workbench.listResources(taskId)).length > 0
   });
   pi.registerCommand("cowork-status", {
     description: "Show Cowork workspace and active Coordinator jobs",

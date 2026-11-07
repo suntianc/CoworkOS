@@ -19,7 +19,6 @@ import { InputStore, inputPrompt, readTaskInput } from "../workspace/input-store
 import { queuedUserTurn, readQueuedUserTurn } from "../runtime/queued-user-turn.js";
 import { MainInboxDelivery } from "../runtime/main-inbox-delivery.js";
 import { mainContextPaths } from "../runtime/main-context.js";
-import { inheritScienceToolsForRun } from "../runtime/science-config.js";
 import {
   MAIN_CONTINUATION_COMMAND,
   mainInputPath,
@@ -74,7 +73,6 @@ export interface RunServicePorts {
   locateTask(taskId: string): Promise<TaskLocation>;
   runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
   activeConnection?: () => boolean;
-  scienceEnvironment?: () => Record<string, string>;
   onRunStarting?: () => void;
   onRunExit?: (taskId: string) => void;
   onRunFinalized?: (location: TaskLocation, runId: string) => Promise<void>;
@@ -100,7 +98,6 @@ export function createDashboardRunService({
   locateTask,
   runtimeValue,
   activeConnection = () => false,
-  scienceEnvironment,
   onRunStarting = () => {},
   onRunExit = () => {},
   onRunFinalized = async () => {},
@@ -316,16 +313,6 @@ export function createDashboardRunService({
           source:
             submission?.source ?? (readQueuedUserTurn(prompt) ? ("inbox" as const) : ("composer" as const))
         };
-    if (retryRequest) {
-      try {
-        await inheritScienceToolsForRun({ workspaceRoot: taskWorkspace, taskId, runId }, retryRequest.runId);
-      } catch (error) {
-        throw new MainRequestConflictError(
-          "原请求的科学工具配置无法继承，已有请求与输入仍保留。请检查运行记录后重试，或发送新消息。",
-          { cause: error }
-        );
-      }
-    }
     if (input) await saveMainInput(inputPath, input);
     if (input && !continuation) {
       await saveAcceptedMainMessage(taskWorkspace, taskId, input);
@@ -394,7 +381,6 @@ export function createDashboardRunService({
         cwd: projectRoot,
         env: {
           ...process.env,
-          ...(scienceEnvironment?.() ?? {}),
           COWORK_API_TOKEN: runCredential,
           ...mainRunEnv({
             baseUrl,

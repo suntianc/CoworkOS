@@ -25,11 +25,6 @@ async function help(topic) {
     await runDesktop({ args: ["--help"] });
     return;
   }
-  if (topic === "science") {
-    const { runScience } = await import("./science.mjs");
-    await runScience(["--help"]);
-    return;
-  }
   if (topic === "init") {
     console.log(`Usage: coworkos init [--base-url URL] [--model ID] [--api-key-env NAME]
   --images                   Enable image input
@@ -487,9 +482,6 @@ try {
     requireNode();
     const { runDesktop } = await import("./desktop.mjs");
     await runDesktop({ root: harness, args });
-  } else if (command === "science") {
-    const { runScience } = await import("./science.mjs");
-    await runScience(args);
   } else if (command === "backend") {
     requireNode();
     const { runBackendCommand } = await import("../dist/src/cli/backend.js");

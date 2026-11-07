@@ -186,7 +186,7 @@ test("activity renders readable Markdown and clickable evidence without marking 
   }
 });
 
-test("goal navigation preserves modern project menus, scientific settings and a separate conversation draft", async ({
+test("goal navigation preserves project menus, settings and a separate conversation draft", async ({
   page
 }) => {
   const app = await startDashboard();
@@ -206,10 +206,7 @@ test("goal navigation preserves modern project menus, scientific settings and a 
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const overview = page.getByRole("dialog", { name: "设置", exact: true });
     await expect(overview.getByRole("button", { name: "管理模型连接", exact: true })).toBeVisible();
-    await overview.getByRole("button", { name: "管理科学环境", exact: true }).click();
-    const science = page.getByRole("dialog", { name: "科学计算", exact: true });
-    await expect(science.getByRole("checkbox", { name: "启用科学工具" })).not.toBeChecked();
-    await science.getByRole("button", { name: "返回设置", exact: true }).click();
+    await expect(overview.getByRole("button", { name: "管理科学环境", exact: true })).toHaveCount(0);
     await overview.getByRole("button", { name: "关闭设置", exact: true }).click();
     await expect(page.locator(".goal-workspace")).toBeVisible();
     await page.locator(".goal-item").filter({ hasText: "集成中的后台目标" }).click();
@@ -217,6 +214,8 @@ test("goal navigation preserves modern project menus, scientific settings and a 
     await expect(page.locator(".goal-workspace")).toBeHidden();
     await expect(page.locator(`#project-list [data-task="${goal.taskId}"]`)).toBeVisible();
     await expect(page.locator(`#project-list [data-session-menu="${goal.taskId}"]`)).toBeVisible();
+    if (!(await page.locator("#agent-pane").isVisible()))
+      await page.getByRole("button", { name: "切换任务面板", exact: true }).click();
     await expect(page.locator("#monitor-section")).toBeVisible();
     await expect(page.locator("#detail-body")).toHaveCount(1);
     await expect(page.locator("#run-statistics-status")).toHaveCount(1);

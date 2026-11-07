@@ -48,8 +48,7 @@ test("the runtime catalogue is empty, rejects retired apps, and has no component
 test("retired domain workflows cannot be discovered or loaded even with an application scope", async () => {
   const skills = await discoverSkills([resolve(".pi/skills")], { applications: removed });
   const loader = createLoadSkillTool(skills);
-  for (const name of [...removed, "parametric-cad", "presentations", "make-a-deck"])
+  for (const name of [...removed, "parametric-cad", "presentations", "make-a-deck", "office-documents"])
     await assert.rejects(loader.execute({ name }), /unknown skill/);
-  assert.ok(skills.some((skill) => skill.name === "office-documents"));
   assert.ok(skills.some((skill) => skill.name === "virtual-agent-authoring"));
 });

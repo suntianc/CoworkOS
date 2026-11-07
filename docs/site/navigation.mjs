@@ -15,8 +15,7 @@ export const navigation = [
     collapsed: true,
     pages: [
       ["docs/project-experience.md", "项目经验与技能", "Experience & skills"],
-      ["docs/user-memory.md", "用户记忆", "User memory"],
-      ["docs/scientific-tools.md", "科学计算", "Scientific tools"]
+      ["docs/user-memory.md", "用户记忆", "User memory"]
     ]
   },
   {

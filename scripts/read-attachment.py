@@ -67,5 +67,5 @@ try:
     excerpt = text[offset:offset+limit]
     print(json.dumps({'text':excerpt, 'offset':offset, 'nextOffset':offset+len(excerpt) if offset+len(excerpt)<len(text) else None, 'page':page or None}, ensure_ascii=False))
 except Exception as error:
-    print(json.dumps({'error':'文档读取失败：'+str(error)+'。缺少解析工具时可用 load_skill 加载 office-documents，原文件已保留。'}, ensure_ascii=False))
+    print(json.dumps({'error':'文档读取失败：'+str(error)+'。请检查本机文档解析依赖，原文件已保留。'}, ensure_ascii=False))
     sys.exit(1)

@@ -25,7 +25,6 @@ import {
   DEFAULT_COMMAND_MAX_LOG_BYTES,
   DEFAULT_COMMAND_PREVIEW_BYTES
 } from "./command-receipt.js";
-import { createScienceTools, type ScienceToolOptions } from "./science-tools.js";
 
 export interface BuiltinToolOptions {
   rootDirectory: string;
@@ -59,8 +58,6 @@ export interface BuiltinToolOptions {
   visionModel?: VisionModelConfig;
   /** Optional public web tools. Omit for coding/benchmark profiles that should not access the web. */
   web?: WebToolOptions;
-  /** Optional pinned scientific tools; absent preserves the default tool set. */
-  science?: ScienceToolOptions;
 }
 
 /** P1 local tools. All file paths are constrained to rootDirectory. */
@@ -387,12 +384,6 @@ export function createBuiltinTools(options: BuiltinToolOptions): ReadonlyMap<str
   }
   if (options.web) {
     for (const [name, tool] of createWebTools(options.web)) tools.set(name, tool);
-  }
-  if (options.science) {
-    for (const [name, tool] of createScienceTools(options.science, {
-      workingDirectory: options.rootDirectory
-    }))
-      tools.set(name, tool);
   }
   return tools;
 }

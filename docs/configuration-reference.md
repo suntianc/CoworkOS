@@ -114,14 +114,6 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 
 工具保留来源的标题、URL、正文和可用日期，缺失日期不补造。单 URL 读取需有效来源及非空正文，并保留重定向后的 URL；多来源需匹配请求 URL。无效来源、空结构、仅元数据或无法关联的正文均算工具失败，供应商 JSON 包装不作为网页证据。只有服务返回真实空列表才算零结果；网络、代理、协议、超时及取消均为失败。
 
-## 科学环境
-
-`science.enabled`、`science.pythonExecutable` 和 `science.chemistryPythonExecutable` 分别控制开关、基础 Python 和 RDKit Python。`COWORK_SCIENCE_TOOLS`、`COWORK_SCIENCE_PYTHON`、`COWORK_SCIENCE_CHEMISTRY_PYTHON` 逐字段覆盖，界面锁定环境管理的字段。
-
-解释器可用绝对路径或单独命令名。清空基础路径恢复 `python3`，清空 RDKit 路径继承基础环境。显式检查验证草稿解释器、依赖版本和固定 RDKit 样例；保存不执行检查。
-
-任务固定已选目录和解释器。修改供新任务使用，开关在下次启动会话进程时生效；关闭后恢复旧任务会保留历史接口，但计算返回不可用。安装可取消并复用已有环境，成功后仅填入草稿，失败保留原配置与环境。安装和依赖见 [科学工具](scientific-tools.md)，HTTP 契约见 [Product API](product-api.md#scientific-environment-settings)。
-
 ## 网络代理
 
 | JSON 字段    | 环境变量                      |

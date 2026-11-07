@@ -1,5 +1,4 @@
 import { validateWebSearchConfig, type WebSearchConfig } from "./web-search-config.js";
-import type { ScienceEnvironmentConfig } from "./science-environment.js";
 import { proxyEnvironment } from "./http-transport.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -17,7 +16,7 @@ import {
   readHostCredentials
 } from "../security/host-credentials.js";
 
-export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig, ScienceEnvironmentConfig {
+export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig {
   modelConnections?: ModelConnections;
   baseUrl?: string;
   apiBase?: string;

@@ -31,8 +31,6 @@ import { configuredWebTools } from "../runtime/web-search-config.js";
 import { visionModelConfig } from "../runtime/vision-config.js";
 import { availableModelIds } from "../runtime/model-catalog.js";
 import { atriaDataPaths } from "../../scripts/data-home.cjs";
-import { scienceEnvironmentEnv } from "../runtime/science-environment.js";
-import { createScienceSettings } from "./science-settings.js";
 import { messagesWithRuntimeHistory, readTaskRuntimeEvents } from "../runtime/conversation-history.js";
 import { conversationMessages } from "../runtime/conversation-view.js";
 import { MainRequestStore, mainRequestPath } from "../storage/main-request-store.js";
@@ -216,7 +214,6 @@ export function createDashboardApplication(
     withTaskProjectLock: workspaces.withTaskProjectLock,
     runtimeValue,
     activeConnection: () => Boolean(runtimeConfig.modelConnections?.activeId),
-    scienceEnvironment: () => scienceEnvironmentEnv(runtimeConfig),
     onRunExit: (taskId) => computer.finishTask(taskId),
     normalizeModel,
     appendRunEvent,
@@ -726,7 +723,6 @@ export function createDashboardApplication(
     dashboardUrl,
     uiRoot,
     webSearchSettings: createWebSearchSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
-    scienceSettings: createScienceSettings(projectRoot, runtimeConfig),
     modelSettings: createModelSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
     globalTaskPayload,
     locateTask,
@@ -791,7 +787,7 @@ export function createDashboardApplication(
       computer.close();
       await watchers.stop();
       server.closeAllConnections();
-      await Promise.all([runs.stop(), routes.scienceSettings.stop()]);
+      await runs.stop();
       await mcpSupervisor.stopAll();
       await new Promise<void>((done) => server.close(() => done()));
     }

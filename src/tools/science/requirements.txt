@@ -1,4 +1,0 @@
-# Optional array-analysis dependencies; this pinned environment needs Python >=3.10.
-# The 28 standard-library functions require only Python >=3.9 and do not import these packages.
-numpy==2.2.6
-scipy==1.15.3
