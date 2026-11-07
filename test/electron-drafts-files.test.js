@@ -410,6 +410,9 @@ test("P1: project migration cleanup survives switching backends and later deleti
   restarted.session.setBackend("backend-a");
   restarted.session.activate(null, { projectId: "p1" });
   assert.equal(restarted.input.value, "");
+  restarted.session.activate(null);
+  assert.equal(restarted.input.value, "");
+  assert.deepEqual(restarted.files(), []);
   restarted.session.activate(null, { projectId: "p2" });
   assert.equal(restarted.input.value, "");
   assert.deepEqual(restarted.files(), []);
