@@ -69,6 +69,7 @@ export interface RunServicePorts {
   projectRoot: string;
   tabStorePath: string;
   dashboardUrl: string;
+  runCredential: string;
   coordinator: CoordinatorRuntime;
   locateTask(taskId: string): Promise<TaskLocation>;
   runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
@@ -94,6 +95,7 @@ export function createDashboardRunService({
   uploads,
   tabStorePath,
   dashboardUrl,
+  runCredential,
   coordinator,
   locateTask,
   runtimeValue,
@@ -393,6 +395,7 @@ export function createDashboardRunService({
         env: {
           ...process.env,
           ...(scienceEnvironment?.() ?? {}),
+          COWORK_API_TOKEN: runCredential,
           ...mainRunEnv({
             baseUrl,
             apiKey,

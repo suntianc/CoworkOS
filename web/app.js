@@ -852,6 +852,7 @@ function adoptBackendIdentity(backendId) {
 
 /** Drop everything that belonged to the backend being left. */
 function resetBackendView() {
+  computerUse.reset();
   artifactViewer.reset();
   artifacts.resetMedia();
   clearManagedMedia();
@@ -2571,6 +2572,7 @@ async function bootBackend() {
   // Bind drafts to the backend before the first conversation is activated, or
   // the composer would read the pre-connection namespace.
   adoptBackendIdentity(connected.backendId);
+  void computerUse.refresh();
   await loadModels();
   await refresh();
   await draftRecovery.refresh();
@@ -2613,6 +2615,7 @@ backendConnection = createBackendConnection({
   showToast,
   onReady: async ({ backendId }) => {
     adoptBackendIdentity(backendId);
+    void computerUse.refresh();
     await loadModels();
     await refresh();
     updateSendButton();

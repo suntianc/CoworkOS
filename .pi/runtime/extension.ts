@@ -122,6 +122,7 @@ import {
 } from "../../dist/src/runtime/project-experience-learning.js";
 import { createUserMemoryLearningService } from "../../dist/src/runtime/user-memory-learning.js";
 import { registerComputerTools } from "./tools/computer-use.ts";
+import { businessCommandEnvironment } from "../../dist/src/runtime/command-environment.js";
 import { registerBrowserTools } from "./tools/browser-use.ts";
 import { createCuaDispatcher } from "./tools/cua-dispatch.ts";
 import { registerCuaScriptTools } from "./tools/cua-script.ts";
@@ -376,10 +377,12 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     if (recoveryActive || !baseUrl || !apiKey) return;
     recoveryActive = true;
     try {
+      const commandEnv = await businessCommandEnvironment(runtimeEnv);
       const results = await coordinator.recoverRun({
         taskId,
         runId: mainRunId,
         workspaceRoot,
+        commandEnv,
         baseUrl,
         apiKey,
         model: modelId,

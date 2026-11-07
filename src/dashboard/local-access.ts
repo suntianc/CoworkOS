@@ -104,7 +104,14 @@ export class LocalAccess {
   readonly sessionsPath: string;
   private readonly directory: string;
   private readonly sessions = new Map<string, SessionRecord>();
+  private readonly runToken = `run_${randomBytes(32).toString("hex")}`;
+  private readonly runSessionId = `run_${randomBytes(9).toString("hex")}`;
   private persisting: Promise<void> = Promise.resolve();
+
+  /** In-memory business credential for child runs; never a host credential. */
+  runCredential(): string {
+    return this.runToken;
+  }
 
   /**
    * @param directory runtime directory of the data root (beside the backend identity)
@@ -255,6 +262,7 @@ export class LocalAccess {
         if (expected && sameSecret(presented, expected)) return;
         const localHost = this.localHostToken();
         if (localHost && sameSecret(presented, localHost)) return;
+        if (sameSecret(presented, this.runToken)) return;
         const record = this.findPresented(presented);
         if (!record) throw new HttpError(401, "本地会话未授权", "unauthorized");
         if (record.revokedAt)
@@ -270,6 +278,8 @@ export class LocalAccess {
     if (expected && sameSecret(presented, expected)) return HOST_PRINCIPAL;
     const localHost = this.localHostToken();
     if (localHost && sameSecret(presented, localHost)) return HOST_PRINCIPAL;
+    if (sameSecret(presented, this.runToken))
+      return { kind: "session", principalId: `session:${this.runSessionId}`, sessionId: this.runSessionId };
     const record = this.findPresented(presented);
     return record
       ? { kind: "session", principalId: `session:${record.sessionId}`, sessionId: record.sessionId }

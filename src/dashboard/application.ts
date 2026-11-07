@@ -210,6 +210,7 @@ export function createDashboardApplication(
     projectRoot,
     tabStorePath,
     dashboardUrl,
+    runCredential: access.runCredential(),
     coordinator,
     locateTask,
     withTaskProjectLock: workspaces.withTaskProjectLock,
@@ -235,6 +236,7 @@ export function createDashboardApplication(
       const env = runtimeSettingsEnv(runtimeConfig);
       return {
         runtimeEnv: env,
+        commandEnv: { COWORK_API_TOKEN: access.runCredential(), COWORK_DASHBOARD_URL: dashboardUrl },
         api: configuredModelApi(env),
         thinkingFormat: configuredThinkingFormat(env),
         contextWindow: configuredContextWindow(env),

@@ -179,7 +179,7 @@ export function createDashboardHandler(
           !ports.access
         )
           throw new HttpError(403, "需要本地连接凭据", "host_credential_required");
-        ports.access.admit(request, dashboardUrl);
+        const { principal } = ports.access.admit(request, dashboardUrl);
         if (!ports.computerHostRequest || !ports.computerApproval) throw new HttpError(404, "窗口访问不可用");
         const body = await readJsonBody(request, 16 * 1024);
         const identity = ports.backendInfo();
@@ -190,6 +190,8 @@ export function createDashboardHandler(
         )
           throw new HttpError(409, "后端身份已改变，请重新连接", "backend_identity_changed");
         if (request.url === "/api/host/computer/approve") {
+          if (principal.kind !== "host")
+            throw new HttpError(403, "只有执行主机可以请求本机确认", "host_credential_required");
           if (Object.keys(body).some((key) => !["backendId", "pid", "startedAt"].includes(key)))
             throw new HttpError(400, "无效的本机身份验证请求");
           const controller = new AbortController();
@@ -228,6 +230,11 @@ export function createDashboardHandler(
           input?.operation === "end" ||
           input?.operation === "release-sessions" ||
           (input?.operation === "policy" && input.enabled === false);
+        if (
+          principal.kind !== "host" &&
+          (input?.operation === "permissions" || (!safe && input?.operation !== "revoke-approval"))
+        )
+          throw new HttpError(403, "请在执行主机处理窗口访问权限", "host_credential_required");
         if (
           !safe &&
           !ports.computerApproval.valid(request.headers["x-computer-approval"] as string | undefined)
