@@ -343,64 +343,77 @@ export function createManagementClient({
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
     inflight.add(controller);
-    let response;
+    const assertCurrent = () => {
+      if (at !== epoch)
+        throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
+    };
     try {
-      response = await fetchImpl(absoluteUrl(path), {
-        ...rest,
-        method,
-        headers: authHeaders({
-          ...(json === undefined ? {} : { "content-type": "application/json" }),
-          ...headers
-        }),
-        ...(json === undefined ? {} : { body: JSON.stringify(json) }),
-        ...(body === undefined ? {} : { body }),
-        signal: controller.signal,
-        // A trusted other local backend authorizes with the host cookie the
-        // browser holds for this machine; same-origin requests are unaffected.
-        credentials: "include",
-        cache: "no-store"
-      });
-    } catch (error) {
-      if (at !== epoch || error?.name === "AbortError") {
-        if (at !== epoch)
-          throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
+      let response;
+      try {
+        response = await fetchImpl(absoluteUrl(path), {
+          ...rest,
+          method,
+          headers: authHeaders({
+            ...(json === undefined ? {} : { "content-type": "application/json" }),
+            ...headers
+          }),
+          ...(json === undefined ? {} : { body: JSON.stringify(json) }),
+          ...(body === undefined ? {} : { body }),
+          signal: controller.signal,
+          // A trusted other local backend authorizes with the host cookie the
+          // browser holds for this machine; same-origin requests are unaffected.
+          credentials: "include",
+          cache: "no-store"
+        });
+      } catch (error) {
+        assertCurrent();
+        if (error?.name === "AbortError") throw error;
+        throw new ManagementClientError("无法联系后端，请确认本机后端仍在运行。", {
+          code: "network",
+          network: true
+        });
+      }
+      assertCurrent();
+      if (!response.ok) {
+        let payload = {};
+        try {
+          payload = await parse(response);
+        } catch (error) {
+          assertCurrent();
+          if (error?.name === "AbortError") throw error;
+          /* the status still names the outcome */
+        }
+        assertCurrent();
+        const detail = payload?.error;
+        const error = new ManagementClientError(
+          typeof detail === "string" ? detail : detail?.message || `请求失败（HTTP ${response.status}）`,
+          {
+            code: (typeof detail === "object" && detail?.code) || payload?.code || `http_${response.status}`,
+            status: response.status
+          }
+        );
+        if (typeof detail === "object" && detail) {
+          // The workbench editor branches on these to tell a revision conflict
+          // from a network failure instead of parsing prose.
+          if (detail.details !== undefined) error.details = detail.details;
+          if (detail.retryable !== undefined) error.retryable = Boolean(detail.retryable);
+        }
+        if (response.status === 401) rejectCurrentSession(requestToken, error);
         throw error;
       }
-      throw new ManagementClientError("无法联系后端，请确认本机后端仍在运行。", {
-        code: "network",
-        network: true
-      });
+      let result;
+      try {
+        result = await parse(response);
+      } catch (error) {
+        assertCurrent();
+        throw error;
+      }
+      assertCurrent();
+      return result;
     } finally {
       inflight.delete(controller);
       signal?.removeEventListener("abort", abort);
     }
-    if (at !== epoch)
-      throw new ManagementClientError("已切换后端，旧请求已作废", { code: "stale_client", stale: true });
-    if (!response.ok) {
-      let payload = {};
-      try {
-        payload = await parse(response);
-      } catch {
-        /* the status still names the outcome */
-      }
-      const detail = payload?.error;
-      const error = new ManagementClientError(
-        typeof detail === "string" ? detail : detail?.message || `请求失败（HTTP ${response.status}）`,
-        {
-          code: (typeof detail === "object" && detail?.code) || payload?.code || `http_${response.status}`,
-          status: response.status
-        }
-      );
-      if (typeof detail === "object" && detail) {
-        // The workbench editor branches on these to tell a revision conflict
-        // from a network failure instead of parsing prose.
-        if (detail.details !== undefined) error.details = detail.details;
-        if (detail.retryable !== undefined) error.retryable = Boolean(detail.retryable);
-      }
-      if (response.status === 401) rejectCurrentSession(requestToken, error);
-      throw error;
-    }
-    return parse(response);
   }
 
   async function readBackend() {

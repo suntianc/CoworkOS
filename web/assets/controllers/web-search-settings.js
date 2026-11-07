@@ -54,7 +54,10 @@ export function installWebSearchSettings({ showToast, overview, api, identity = 
     loaded = false,
     dirty = false,
     revision = 0,
-    managed = false;
+    managed = false,
+    target,
+    lastStatus;
+  const drafts = new Map();
   const message = (error) =>
     String(error?.message || ui("搜索设置暂时不可用，请稍后重试")).replace(
       /^Error invoking remote method '[^']+': (?:Error: )?/,
@@ -65,6 +68,7 @@ export function installWebSearchSettings({ showToast, overview, api, identity = 
       ? ui`已启用 · ${value.provider === "exa" ? "Exa" : "Serper"} · ${value.authenticated ? ui("自有密钥") : value.provider === "exa" ? ui("匿名限额") : ui("需配置 Serper 密钥")}`
       : ui("已关闭");
   const display = (value) => {
+    lastStatus = value;
     row.querySelector("[data-search-status]").textContent = label(value);
     panel.querySelector("[data-search-state]").textContent = label(value);
   };
@@ -74,6 +78,44 @@ export function installWebSearchSettings({ showToast, overview, api, identity = 
   };
   row.querySelector("[data-search-open]").addEventListener("click", async () => {
     if (!dialog.open()) return;
+    const next = identity();
+    if (target !== next) {
+      if (target && dirty)
+        drafts.set(target, {
+          provider: form.elements.provider.value,
+          exaApiKey: form.elements.exaApiKey.value,
+          clearExaApiKey: form.elements.clearExaApiKey.checked,
+          managed,
+          lastStatus
+        });
+      target = next;
+      revision++;
+      busy = false;
+      loading = false;
+      loaded = false;
+      dirty = false;
+      managed = false;
+      lastStatus = undefined;
+      form.elements.provider.value = "exa";
+      form.elements.exaApiKey.value = "";
+      form.elements.clearExaApiKey.checked = false;
+      panel.querySelector("[data-search-error]").textContent = "";
+      panel.querySelector("[data-search-state]").textContent = "";
+      row.querySelector("[data-search-status]").textContent = "";
+      const draft = next && drafts.get(next);
+      if (draft) {
+        settingsBackend.bind();
+        form.elements.provider.value = draft.provider;
+        form.elements.exaApiKey.value = draft.exaApiKey;
+        form.elements.clearExaApiKey.checked = draft.clearExaApiKey;
+        managed = draft.managed;
+        if (draft.lastStatus) display(draft.lastStatus);
+        loaded = true;
+        dirty = true;
+        lock();
+        return;
+      }
+    }
     if (busy || dirty || loading) return;
     const current = ++revision;
     loading = true;
@@ -95,12 +137,15 @@ export function installWebSearchSettings({ showToast, overview, api, identity = 
       loaded = true;
       lock();
     } catch (error) {
+      if (current !== revision) return;
       panel.querySelector("[data-search-error]").textContent = message(error);
       panel.querySelector("[data-search-state]").textContent = ui("请返回设置后重新进入，重试读取搜索设置。");
       showToast(message(error));
     } finally {
-      loading = false;
-      lock();
+      if (current === revision) {
+        loading = false;
+        lock();
+      }
     }
   });
   form.addEventListener("input", () => {
@@ -110,6 +155,7 @@ export function installWebSearchSettings({ showToast, overview, api, identity = 
     event.preventDefault();
     if (busy || !loaded || managed) return;
     busy = true;
+    const current = revision;
     lock();
     panel.querySelector("[data-search-error]").textContent = "";
     try {
@@ -118,17 +164,22 @@ export function installWebSearchSettings({ showToast, overview, api, identity = 
         exaApiKey: form.elements.exaApiKey.value,
         clearExaApiKey: form.elements.clearExaApiKey.checked
       });
+      if (current !== revision) return;
       display(value);
       form.elements.exaApiKey.value = "";
       form.elements.clearExaApiKey.checked = false;
       dirty = false;
+      drafts.delete(target);
       dialog.close();
       showToast(ui("联网搜索设置已保存，后续运行使用新设置"));
     } catch (error) {
+      if (current !== revision) return;
       panel.querySelector("[data-search-error]").textContent = message(error);
     } finally {
-      busy = false;
-      lock();
+      if (current === revision) {
+        busy = false;
+        lock();
+      }
     }
   });
 }

@@ -11,6 +11,8 @@ import { desktopSmokeEnvironment } from "./desktop-smoke-env.mjs";
 import { signAsync } from "@electron/osx-sign";
 
 import { HumanRequestStore } from "../dist/src/runtime/human.js";
+import { stopBackend } from "../dist/src/cli/backend.js";
+const settingsOnly = process.argv.includes("--settings-only");
 const appPath = resolve(process.env.ATRIA_DESKTOP_APP || ".tmp/release/mac-arm64/CoworkOS.app");
 const executablePath = join(appPath, "Contents/MacOS/CoworkOS");
 const packagedMetadata = JSON.parse(
@@ -157,6 +159,21 @@ model.listen(0, "127.0.0.1");
 await once(model, "listening");
 const endpoint = `http://127.0.0.1:${model.address().port}/v1`;
 let native;
+async function desktopRequest(page, path, options = {}) {
+  return page.evaluate(
+    async ({ path, options }) => {
+      const response = await fetch(path, {
+        ...options,
+        headers: { ...options.headers, "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+      });
+      const text = await response.text();
+      let body = text;
+      if (response.headers.get("content-type")?.includes("application/json")) body = JSON.parse(text);
+      return { status: response.status, body };
+    },
+    { path, options }
+  );
+}
 const launch = async (app = executablePath) => {
   const env = desktopSmokeEnvironment({ data });
   native = await electron.launch({
@@ -169,9 +186,10 @@ const launch = async (app = executablePath) => {
   native.process().stderr.on("data", (chunk) => console.error(String(chunk).trim().slice(-2000)));
   const page = await native.firstWindow();
   await expect(page.locator(".app-topbar")).toBeVisible({ timeout: 30_000 });
-  // Application recovery may intentionally keep navigation behind the task
-  // panel. Wait for initialization without changing the restored sidebar view.
-  await expect(page.locator("#apps-nav")).toHaveJSProperty("hidden", false, { timeout: 30_000 });
+  // Wait for the selected host session, including a first-install model dialog.
+  await expect
+    .poll(async () => (await desktopRequest(page, "/api/backend")).status, { timeout: 30_000 })
+    .toBe(200);
   // Renderer errors fail the GUI check even if its first paint happened.
   page.on("pageerror", (error) => {
     throw error;
@@ -214,6 +232,7 @@ const quit = async () => {
   const process = current.process();
   const page = current.windows()[0];
   const origin = new URL(page.url()).origin;
+  const identity = (await desktopRequest(page, "/api/backend")).body;
   const exited = process.exitCode === null ? once(process, "exit") : Promise.resolve();
   await current
     .evaluate(({ app }) => {
@@ -226,16 +245,13 @@ const quit = async () => {
   ]);
   await current.close();
   native = undefined;
-  await expect
-    .poll(async () => {
-      try {
-        await fetch(`${origin}/api/tasks`, { signal: AbortSignal.timeout(500) });
-        return false;
-      } catch {
-        return true;
-      }
-    })
-    .toBe(true);
+  // The execution host stays alive when the client exits.
+  await expect.poll(async () => (await fetch(`${origin}/api/tasks`)).status).toBe(401);
+  const instance = JSON.parse(await readFile(join(data, "runtime/backend-instance.json"), "utf8"));
+  expect({ backendId: instance.backendId, pid: instance.pid }).toEqual({
+    backendId: identity.backendId,
+    pid: identity.pid
+  });
 };
 async function showNavigation(page) {
   if (await page.locator("body").evaluate((node) => node.classList.contains("sidebar-collapsed")))
@@ -344,7 +360,7 @@ async function verifyNativeChrome(page) {
     ({ BrowserWindow }, bounds) => BrowserWindow.getAllWindows()[0].setBounds(bounds),
     geometry.bounds
   );
-  const desktopState = await page.evaluate(async () => (await fetch("/api/computer/status")).json());
+  const desktopState = (await desktopRequest(page, "/api/computer/status")).body;
   if (desktopState.controlAvailable === false && /锁定/.test(desktopState.reason || "")) {
     console.log(`Desktop smoke: fullscreen/minimize/restore SKIPPED (${desktopState.reason})`);
     return;
@@ -371,7 +387,63 @@ async function verifyNativeChrome(page) {
     .poll(() => native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized()))
     .toBe(false);
 }
-try {
+async function createProject(page) {
+  await page.locator("#new-project").click();
+  const projectDialog = page.getByRole("dialog", { name: "新建项目", exact: true });
+  await expect(projectDialog).toBeVisible();
+  await projectDialog.getByRole("textbox", { name: "项目名称", exact: true }).fill("桌面验收项目");
+  await projectDialog.getByRole("textbox", { name: "工作文件夹", exact: true }).fill(projectDirectory);
+  await projectDialog.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(projectDialog).toBeHidden();
+}
+async function verifySettingsDuringRun(page, expectedBackend) {
+  await createProject(page);
+  hold = true;
+  await page.locator("#composer-input").fill("保持模型运行以检查设置保护");
+  await page.locator("#send-button").click();
+  await expect.poll(() => held.length, { timeout: 30_000 }).toBeGreaterThan(0);
+  const identity = (await desktopRequest(page, "/api/backend")).body;
+  expect(identity.backendId).toBe(expectedBackend.backendId);
+  expect(identity.pid).toBe(expectedBackend.pid);
+  const modelSave = await desktopRequest(page, "/api/model-settings", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ baseUrl: "https://invalid.example", model: "other" })
+  });
+  const searchSave = await desktopRequest(page, "/api/web-search-settings", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ provider: "off" })
+  });
+  expect(modelSave.status).toBe(400);
+  expect(modelSave.body.error).toContain("运行中");
+  expect(searchSave.status).toBe(400);
+  expect(searchSave.body.error).toContain("运行中");
+  const status = await desktopRequest(page, "/api/model-settings");
+  expect(status.body.model).toBe("desktop-fixture");
+  const tasks = (await desktopRequest(page, "/api/tasks")).body.tasks;
+  const active = tasks.find((task) => task.activeRunId && task.status === "running");
+  expect(active).toBeTruthy();
+  const cancelled = await desktopRequest(page, `/api/tasks/${active.taskId}/action`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "cancel" })
+  });
+  expect(cancelled.status).toBe(200);
+  hold = false;
+  for (const response of held) response.destroy();
+  console.log(
+    "Desktop settings smoke: running-task rejection PASS",
+    JSON.stringify({
+      backendId: identity.backendId,
+      pid: identity.pid,
+      taskId: active.taskId,
+      modelStatus: modelSave.status,
+      searchStatus: searchSave.status
+    })
+  );
+}
+async function runSmoke() {
   applicationMonitor = await startNativeApplicationMonitor(root, {
     moduleCacheDirectory: process.env.ATRIA_SWIFT_MODULE_CACHE || undefined
   });
@@ -384,17 +456,35 @@ try {
   const setupDraft = "连接模型之前准备的任务草稿 😀";
   await page.locator("#composer-input").fill(setupDraft);
   await page.locator("#model-setup-button").click();
-  await page.locator('[name="baseUrl"]').fill(endpoint);
-  await page.locator('[name="model"]').fill("desktop-fixture");
-  await page.locator('[name="apiKey"]').fill("desktop-fake-key");
-  await page.locator('[name="api"]').selectOption("openai-completions");
-  const oldUrl = page.url();
+  const modelDialog = page.getByRole("dialog", { name: "连接模型", exact: true });
+  await modelDialog.locator('[name="baseUrl"]').fill(endpoint);
+  await modelDialog.locator('[name="model"]').fill("desktop-fixture");
+  await modelDialog.locator('[name="apiKey"]').fill("desktop-fake-key");
+  await modelDialog.locator('[name="api"]').selectOption("openai-completions");
+  const saving = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/model-settings" && response.request().method() === "POST"
+  );
   await page.getByRole("button", { name: "保存连接" }).click();
-  await expect.poll(() => page.url(), { timeout: 30_000 }).not.toBe(oldUrl);
+  const saved = await saving;
+  expect(saved.status()).toBe(200);
   await expect(page.locator("#apps-nav")).toBeHidden();
   await expect(page.getByRole("heading", { name: "连接模型" })).not.toBeVisible();
   await expect(page.locator("#composer-input")).toHaveValue(setupDraft);
-  const modelStatus = await page.evaluate(() => window.bookmanDesktop.modelStatus());
+  const response = await desktopRequest(page, "/api/model-settings");
+  expect(response.status).toBe(200);
+  const modelStatus = response.body;
+  expect(JSON.stringify(modelStatus)).not.toContain("desktop-fake-key");
+  const selectedBackend = (await desktopRequest(page, "/api/backend")).body;
+  const instance = JSON.parse(await readFile(join(data, "runtime/backend-instance.json"), "utf8"));
+  expect({ backendId: selectedBackend.backendId, pid: selectedBackend.pid }).toEqual({
+    backendId: instance.backendId,
+    pid: instance.pid
+  });
+  console.log(
+    "Desktop settings smoke: selected backend",
+    JSON.stringify({ backendId: selectedBackend.backendId, pid: selectedBackend.pid })
+  );
   const expectedConnection = {
     api: "openai-completions",
     baseUrl: endpoint,
@@ -409,7 +499,7 @@ try {
     mainMaxTokens: 8192,
     subagentMaxTokens: 8192
   };
-  expect(modelStatus).toEqual({
+  expect(modelStatus).toMatchObject({
     ...expectedConnection,
     activeProfileId: expect.any(String),
     visionProfileId: "",
@@ -423,16 +513,17 @@ try {
       }
     ]
   });
+  if (settingsOnly) {
+    await verifySettingsDuringRun(page, selectedBackend);
+    console.log(
+      "Desktop settings smoke PASS: first save, redacted read, and active-run rejection; other smoke stages were skipped."
+    );
+    return;
+  }
   await verifyNativeChrome(page);
   // Fresh installs require an explicit project and application destination.
   // Create the project through the UI and register its own application workspace.
-  await page.locator("#new-project").click();
-  const projectDialog = page.getByRole("dialog", { name: "新建项目", exact: true });
-  await expect(projectDialog).toBeVisible();
-  await projectDialog.getByRole("textbox", { name: "项目名称", exact: true }).fill("桌面验收项目");
-  await projectDialog.getByRole("textbox", { name: "工作文件夹", exact: true }).fill(projectDirectory);
-  await projectDialog.getByRole("button", { name: "创建", exact: true }).click();
-  await expect(projectDialog).toBeHidden();
+  await createProject(page);
   await writeFile(join(projectDirectory, "desktop-input.txt"), "桌面内测内容\n中文与 Emoji 😀\n");
   await page.locator("#composer-input").fill("请读取 desktop-input.txt 并确认内容。");
   await page.locator("#send-button").click();
@@ -449,20 +540,18 @@ try {
   expect(JSON.stringify(requests)).toContain("桌面内测内容");
   await expect
     .poll(
-      () =>
-        page.evaluate(async () =>
-          (await (await fetch("/api/tasks")).json()).tasks
-            .filter((task) => task.taskId !== "workspace")
-            .map((task) => task.status)
-        ),
+      async () =>
+        (await desktopRequest(page, "/api/tasks")).body.tasks
+          .filter((task) => task.taskId !== "workspace")
+          .map((task) => task.status),
       { timeout: 20_000 }
     )
     .toEqual(["completed"]);
-  const tasks = await page.evaluate(async () => (await (await fetch("/api/tasks")).json()).tasks);
+  const tasks = (await desktopRequest(page, "/api/tasks")).body.tasks;
   const taskId = tasks.find((task) => task.taskId !== "workspace").taskId;
   console.log("Desktop smoke: Computer Use trusted IPC and real Pi observation");
   expect(await page.evaluate(() => typeof window.bookmanDesktop.computerUse)).toBe("function");
-  const computerStatus = await page.evaluate(async () => (await fetch("/api/computer/status")).json());
+  const computerStatus = (await desktopRequest(page, "/api/computer/status")).body;
   const ownWindow = computerStatus.windows.find((window) => window.pid === native.process().pid);
   if (
     computerStatus.available &&
@@ -489,9 +578,10 @@ try {
     await windowAccess.click();
     await expect(windowAccess).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("[data-computer-state]")).toContainText("已开启");
-    expect(
-      await page.evaluate(async () => (await (await fetch("/api/computer/access")).json()).policy)
-    ).toEqual({ enabled: true, mode: "control" });
+    expect((await desktopRequest(page, "/api/computer/access")).body.policy).toEqual({
+      enabled: true,
+      mode: "control"
+    });
     await closeWindowSettings();
     await page.locator("#composer-input").fill("检查电脑操作");
     await page.locator("#send-button").click();
@@ -499,19 +589,17 @@ try {
       timeout: 40_000
     });
     await expect
-      .poll(() =>
-        page.evaluate(async (id) => {
-          const session = (await (await fetch(`/api/tasks/${id}/computer`)).json()).session;
-          return {
-            taskId: session?.taskId,
-            source: session?.source,
-            state: session?.state,
-            observed: session?.activity.some(
-              (event) => event.operation === "observe" && event.outcome === "completed"
-            )
-          };
-        }, taskId)
-      )
+      .poll(async () => {
+        const session = (await desktopRequest(page, `/api/tasks/${taskId}/computer`)).body.session;
+        return {
+          taskId: session?.taskId,
+          source: session?.source,
+          state: session?.state,
+          observed: session?.activity.some(
+            (event) => event.operation === "observe" && event.outcome === "completed"
+          )
+        };
+      })
       .toEqual({ taskId, source: "global", state: "ended", observed: true });
     const selectOwnWindow = async () => {
       // macOS may replace a window ID across native transitions. Rediscover
@@ -520,33 +608,22 @@ try {
       await expect
         .poll(
           async () => {
-            target = await page.evaluate(
-              async (pid) =>
-                (await (await fetch("/api/computer/status")).json()).windows.find(
-                  (window) => window.pid === pid
-                ),
-              native.process().pid
+            target = (await desktopRequest(page, "/api/computer/status")).body.windows.find(
+              (window) => window.pid === native.process().pid
             );
             return Boolean(target);
           },
           { timeout: 15000 }
         )
         .toBe(true);
-      return page.evaluate(
-        async ({ id, target }) => {
-          const response = await fetch(`/api/tasks/${id}/computer/select`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ pid: target.pid, windowId: target.windowId, mode: "control" })
-          });
-          if (!response.ok)
-            throw new Error(
-              `Select own window failed: ${response.status} ${JSON.stringify(await response.json())}`
-            );
-          return response.json();
-        },
-        { id: taskId, target }
-      );
+      const response = await desktopRequest(page, `/api/tasks/${taskId}/computer/select`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pid: target.pid, windowId: target.windowId, mode: "control" })
+      });
+      if (response.status !== 200)
+        throw new Error(`Select own window failed: ${response.status} ${JSON.stringify(response.body)}`);
+      return response.body;
     };
     await selectOwnWindow();
     await page.locator("[data-computer-pause]").click();
@@ -565,15 +642,13 @@ try {
     await selectOwnWindow();
     await page.reload();
     await expect
-      .poll(() =>
-        page.evaluate(async () => {
-          const access = await (await fetch("/api/computer/access")).json();
-          return { enabled: access.policy.enabled, paused: access.paused, owner: access.owner };
-        })
-      )
+      .poll(async () => {
+        const access = (await desktopRequest(page, "/api/computer/access")).body;
+        return { enabled: access.policy.enabled, paused: access.paused, owner: access.owner };
+      })
       .toEqual({ enabled: true, paused: false, owner: null });
     await expect(page.locator(".computer-control-bar")).toBeHidden();
-    expect((await page.evaluate(() => window.bookmanDesktop.modelStatus())).configured).toBe(true);
+    expect((await desktopRequest(page, "/api/model-settings")).body.configured).toBe(true);
     await openWindowSettings();
     await expect(windowAccess).toHaveText("关闭窗口访问");
     await expect(page.locator("[data-computer-state]")).toContainText("已开启");
@@ -611,16 +686,11 @@ try {
   });
   const restoredUpload = restoredDraft.attachments[0].uploadId;
   expect(restoredUpload).toMatch(/^upload-[a-f0-9-]{36}$/);
-  expect(await page.evaluate(async (id) => (await fetch(`/api/uploads/${id}`)).text(), restoredUpload)).toBe(
-    draftAttachment
-  );
+  expect((await desktopRequest(page, `/api/uploads/${restoredUpload}`)).body).toBe(draftAttachment);
   // A real pending request is rendered by the packaged UI, then retained by
   // the native close handshake across a changed localhost origin.
   const humanTask = taskId;
-  const humanDetail = await page.evaluate(
-    async (taskId) => (await fetch(`/api/tasks/${taskId}`)).json(),
-    humanTask
-  );
+  const humanDetail = (await desktopRequest(page, `/api/tasks/${humanTask}`)).body;
   expect(humanDetail.workspaceRoot.startsWith(root)).toBe(true);
   expect(humanDetail.storageRoot.startsWith(root)).toBe(true);
   expect(humanDetail.task.activeRunId).toBeTruthy();
@@ -660,14 +730,9 @@ try {
     `PDF\n\n补充说明：${humanReply}`
   );
   await expect
-    .poll(
-      () =>
-        page.evaluate(
-          async (taskId) => (await (await fetch(`/api/tasks/${taskId}`)).json()).task.status,
-          humanTask
-        ),
-      { timeout: 40_000 }
-    )
+    .poll(async () => (await desktopRequest(page, `/api/tasks/${humanTask}`)).body.task.status, {
+      timeout: 40_000
+    })
     .toBe("completed");
   await expect(page.locator("#human-questions")).toBeHidden();
   await expect
@@ -716,42 +781,37 @@ try {
     createdWith: originalVersion,
     lastOpenedWith: pkg.version
   });
-  // Quit while a real Pi model request is active; restart should expose a resumable task.
+  // Quit while a real Pi model request is active; the execution host keeps it running.
   hold = true;
   await focusConversation(page, taskId);
   await page.locator("#composer-input").fill("等待退出恢复验证");
   await page.locator("#send-button").click();
   await expect.poll(() => held.length, { timeout: 30_000 }).toBeGreaterThan(0);
-  const configError = await page.evaluate(async () => {
-    try {
-      await window.bookmanDesktop.saveModel({ baseUrl: "https://invalid.example", model: "other" });
-      return "unexpected success";
-    } catch (error) {
-      return error.message;
-    }
+  const configError = await desktopRequest(page, "/api/model-settings", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ baseUrl: "https://invalid.example", model: "other" })
   });
-  expect(configError).toContain("正在运行");
+  expect(configError.status).toBe(400);
+  expect(configError.body.error).toContain("运行中");
   await quit();
-  for (const response of held) response.destroy();
-  hold = false;
-  console.log("Desktop smoke: upgraded/recovered launch");
+  console.log("Desktop smoke: upgraded/reconnected launch");
   page = await launch(join(next, "Contents/MacOS/CoworkOS"));
-  const restored = await page.evaluate(
-    async (id) => (await (await fetch("/api/tasks")).json()).tasks.find((task) => task.taskId === id),
-    taskId
+  const restored = (await desktopRequest(page, "/api/tasks")).body.tasks.find(
+    (task) => task.taskId === taskId
   );
-  expect(restored.status).toBe("waiting");
-  await focusConversation(page, taskId);
-  await page.locator("#composer-input").fill("继续已保存的任务");
-  await page.locator("#send-button").click();
+  expect(restored.status).toBe("running");
+  hold = false;
+  for (const response of held) {
+    response.write(
+      `data: ${JSON.stringify({ id: "desktop-continued", object: "chat.completion.chunk", created: 1, model: "desktop-fixture", choices: [{ index: 0, delta: { role: "assistant", content: "后端继续运行" }, finish_reason: "stop" }] })}\n\n`
+    );
+    response.end("data: [DONE]\n\n");
+  }
   await expect
     .poll(
-      () =>
-        page.evaluate(
-          async (id) =>
-            (await (await fetch("/api/tasks")).json()).tasks.find((task) => task.taskId === id)?.status,
-          taskId
-        ),
+      async () =>
+        (await desktopRequest(page, "/api/tasks")).body.tasks.find((task) => task.taskId === taskId)?.status,
       { timeout: 40_000 }
     )
     .toBe("completed");
@@ -764,7 +824,7 @@ try {
   const proof = process.env.ATRIA_DESKTOP_PROOF;
   if (proof) await page.screenshot({ path: resolve(proof) });
   await quit();
-  const log = await readFile(join(data, "logs/dashboard.log"), "utf8");
+  const log = await readFile(join(data, "logs/backend.log"), "utf8");
   // All launches and their descendants remain under observation through file reads,
   // ordinary prompts, Computer Use and relocated restarts.
   expect(unexpectedApplications(), "no unexpected background application registrations").toEqual([]);
@@ -774,8 +834,11 @@ try {
   );
   expect(log).not.toContain("desktop-fake-key");
   console.log(
-    "Packaged Mac smoke PASS: app icon, native chrome, configuration, authenticated API, real Pi with a local model fixture, text editing and export, graceful quit, restart, upgrade and interrupted run recovery. No system Node used."
+    "Packaged Mac smoke PASS: app icon, native chrome, configuration, authenticated API, real Pi with a local model fixture, text editing and export, graceful quit, restart, upgrade and an active run continuing after client exit. No system Node used."
   );
+}
+try {
+  await runSmoke();
 } catch (error) {
   console.error("Packaged Mac smoke failed:", (error.stack || error.message).slice(0, 3500));
   if (error.code !== undefined || error.signal !== undefined || error.killed !== undefined)
@@ -804,7 +867,7 @@ try {
     await page.screenshot({ path: join(root, "failure.png") }).catch(() => {});
   }
   console.error(
-    (await readFile(join(data, "logs/dashboard.log"), "utf8").catch(() => "No backend log")).slice(-4000)
+    (await readFile(join(data, "logs/backend.log"), "utf8").catch(() => "No backend log")).slice(-4000)
   );
   process.exitCode = 1;
 } finally {
@@ -814,7 +877,27 @@ try {
   for (const response of held) response.destroy();
   model.closeAllConnections();
   await new Promise((done) => model.close(done));
-  if (process.env.ATRIA_KEEP_SMOKE_DATA) console.log("Smoke data:", root);
+  let cleanupComplete = true;
+  try {
+    const instance = JSON.parse(await readFile(join(data, "runtime/backend-instance.json"), "utf8"));
+    const stopped = await stopBackend({ ATRIA_HOME: data }, instance);
+    if (stopped.state !== "stopped") {
+      cleanupComplete = false;
+      process.exitCode = 1;
+      console.error(`Desktop smoke backend cleanup returned ${stopped.state}`);
+    } else
+      console.log(
+        "Desktop smoke: stopped isolated backend",
+        JSON.stringify({ backendId: instance.backendId, pid: instance.pid })
+      );
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      cleanupComplete = false;
+      process.exitCode = 1;
+      console.error("Desktop smoke backend cleanup failed:", error.message);
+    }
+  }
+  if (process.env.ATRIA_KEEP_SMOKE_DATA || !cleanupComplete) console.log("Smoke data:", root);
   else {
     // Native launches register relocated test apps even after their bundles are removed.
     await promisify(execFile)(

@@ -45,7 +45,7 @@ Models returns `{ current, models, configured }`. `GET /api/tasks` returns the g
 
 `GET /api/backend` returns `{ backendId, pid, startedAt, protocol }` for the process serving this data root. `protocol` is `{ version, minClientVersion, capabilities }`. The standalone backend keeps `backendId` across restarts, so a client can tell a restarted process from a different backend, and `pid` lets a host stop only the process it recorded. The route is local and credential-checked like the other `/api/*` routes and exposes no configuration.
 
-Desktop model settings use the trusted preload/IPC interface, not these HTTP routes.
+Desktop and Web use the same model and search HTTP routes. Desktop keeps its client session credential in the host and authorizes the selected backend's requests through the host-managed session.
 
 Model and search credentials belong to the execution host. `GET /api/model-settings` never returns a key: it returns the connection list plus `configured` and `credentialUnavailable`/`credentialError` when a saved key cannot be read here. `POST /api/model-settings` writes the submitted key to the host credential file (`credentials.json`, mode 0600, beside the configuration; `COWORK_CREDENTIALS` overrides the path) and returns the same redacted status. A blank key keeps the stored one. Old Electron ciphertext is reported as unavailable instead of configured, `POST /api/model-settings/test` rejects it with the same message, and submitting a key replaces it. `GET /api/web-search-settings` follows the same rule with `secretUnavailable`; `POST` stores or clears the Exa key in that file. Use `node scripts/migrate-desktop-settings.mjs --config <config path>` while the backend is stopped to convert old ciphertext once; it backs up the original as `<config>.before-host-credentials` and reports `already-migrated` on a rerun. See [connection storage](configuration-reference.md#连接存储与兼容).
 
@@ -63,7 +63,7 @@ The legacy global `POST /api/workspace/choose` still accepts `{ workspaceRoot }`
 
 Model connection testing accepts `{ baseUrl, model, api?, apiKey?, supportsImages? }` without saving. An omitted or blank key uses the existing local secret; environment-managed connections test the effective configuration. `api` accepts `openai-completions` (default for legacy configurations) or `openai-responses`; unknown values are rejected before saving or requesting. Omitted values preserve the saved format. GET settings returns the effective format; `COWORK_MODEL_API` overrides local configuration and makes Web settings environment-managed.
 
-The service verifies a function call in the selected protocol and, when enabled, a synthetic image challenge. Success returns `{ ok: true, model, supportsImages, durationMs }`; errors contain only local diagnostics and never provider response bodies or credentials. Desktop uses trusted `bookman:test-model` IPC with the same probe. This is a connection check, not a general quality benchmark or a guarantee of arbitrary tool compatibility.
+The service verifies a function call in the selected protocol and, when enabled, a synthetic image challenge. Success returns `{ ok: true, model, supportsImages, durationMs }`; errors contain only local diagnostics and never provider response bodies or credentials. Desktop and Web both call `POST /api/model-settings/test`. This is a connection check, not a general quality benchmark or a guarantee of arbitrary tool compatibility.
 
 ## Local sessions and management commands
 
@@ -575,7 +575,7 @@ Application tools return operations for the platform to commit through revision 
 
 - `PATCH /api/tasks/:taskId` 接受 optional `title`（1–100 字符）、`pinned`、`archived`。原有 goal 与 Task 身份保持不变；旧记录缺省为未置顶、未归档。运行中的任务需先停止才能归档；搜索可重新打开已归档会话并恢复。
 - `POST /api/tasks/:taskId/action` 的 cancel 通过 Run 服务终止对应 Pi 进程组、取消未完成委派并等待输出落盘，再返回。其他任务和后续运行不受影响。Detail 的 `runtime.stopping` 为停止中的 optional 标志。
-- Web 的 `GET /api/model-settings` 返回当前连接状态以及 `activeProfileId`、`visionProfileId`、`profiles`（`id`、`name`、`active`、`vision`、`configured` 和非密钥参数），不返回明文或加密密钥。POST 接受 `baseUrl`、`model`、`apiKey`、`api`、`supportsImages`、`contextWindow`（上下文容量，默认 256000 token，正的安全整数）、推理/输出参数，新增 `profileId`、`profileName`、`activate` 和 `vision`；`profileId: ""` 新建，非空编辑指定组，省略则兼容原单组调用、修改当前组。`activate: true` 保存并启用；首组自动启用。`vision: true` 将图像配置用于 `read_image` 的纯文本模型兜底，保存为 `modelConnections.visionId`；`vision: false` 只在该组当前承担此用途时取消，不切换聊天连接。空密钥只保留指定组原密钥，新组必须提供密钥。测试接口按 `profileId` 查找该组密钥，不修改当前启用项。环境管理的连接和运行中的任务拒绝保存。配置列表使用 `modelConnections.version: 1`，首次写入前保留 `.before-model-profiles` 备份，配置与备份权限为 0600。桌面使用相同 DTO 的加密 IPC 设置，全部加密密钥和启用项原子写入一个文件。
+- Web 和桌面共用 `GET /api/model-settings`：返回当前连接状态以及 `activeProfileId`、`visionProfileId`、`profiles`（`id`、`name`、`active`、`vision`、`configured` 和非密钥参数），不返回明文或加密密钥。POST 接受 `baseUrl`、`model`、`apiKey`、`api`、`supportsImages`、`contextWindow`（上下文容量，默认 256000 token，正的安全整数）、推理/输出参数，以及 `profileId`、`profileName`、`activate` 和 `vision`；`profileId: ""` 新建，非空编辑指定组，省略则兼容原单组调用、修改当前组。`activate: true` 保存并启用；首组自动启用。`vision: true` 将图像配置用于 `read_image` 的纯文本模型兜底，保存为 `modelConnections.visionId`；`vision: false` 只在该组当前承担此用途时取消，不切换聊天连接。空密钥只保留指定组原密钥，新组必须提供密钥。测试接口按 `profileId` 查找该组密钥，不修改当前启用项。环境管理的连接和运行中的任务拒绝保存。配置列表使用 `modelConnections.version: 1`，首次写入前保留 `.before-model-profiles` 备份，配置与备份权限为 0600。模型密钥保存在所选执行主机的凭据文件中，保存设置不重启后端。
 - `GET /api/models` 新增 `connectionProfileId`，配置切换后前端清除旧服务的会话模型选择；已有会话历史保留，后续请求使用新启用的模型配置。
 - 本地附件通过下方 [Local input uploads](#local-input-uploads) 的上传、预览与引用接口读取；现有文本草稿附件的限制不代表上传接口的文件能力。Run prompt 通过 stdin 传给 Pi，服务边界仍拒绝 NUL 和超限消息。
 - interject 的 Inbox 投递不变；响应增加 `messageId`，事件保存完整消息用于跨 Run 的对话投影。`steer` 在界面显示为补充指令；`followUp` 排队时显示等待状态，消费后按新请求分组，保留前一请求的最终回复。
@@ -593,15 +593,15 @@ Uploads stay local until an agent reads them during the user's model run. Readin
 
 ## 联网搜索设置
 
-`GET /api/web-search-settings` 返回 `{ enabled, provider, authenticated, managedByEnvironment }`，不返回凭据。`POST /api/web-search-settings` 接收 `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }`，返回更新后的状态；密钥留空保留原值，显式清除回到匿名。运行中、由搜索环境变量管理或桌面加密配置拒绝通过 Web 修改。沿用本机 Host/Origin、认证、JSON 大小与错误边界。
+`GET /api/web-search-settings` 返回 `{ enabled, provider, authenticated, managedByEnvironment }` 及可能的密钥不可用状态，不返回凭据。`POST /api/web-search-settings` 接收 `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }`，返回更新后的状态；密钥留空保留原值，显式清除回到匿名。任务运行中或由搜索环境变量管理时拒绝修改。沿用本机 Host/Origin、认证、JSON 大小与错误边界。
 
-桌面使用可信主 frame 的 `bookman:web-search-status` / `bookman:save-web-search` IPC，密钥加密保存并在保存草稿后重启后端；不会解密到 renderer。新运行/恢复使用新配置。默认与兼容规则见 [联网搜索](configuration.md#联网搜索)。
+桌面和 Web 使用同一接口，搜索密钥保存在所选执行主机；桌面客户端会话凭据由宿主管理。保存不重启后端，新运行/恢复使用新配置。默认与兼容规则见 [联网搜索](configuration.md#联网搜索)。
 
 ### Web search settings (English)
 
-`GET /api/web-search-settings` returns `{ enabled, provider, authenticated, managedByEnvironment }` without credentials. `POST` accepts `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }` and returns updated status. A blank key retains the existing value; explicit clearing restores anonymous use. Active runs, search environment management and desktop encrypted settings reject Web writes. Existing local authentication, Host/Origin, JSON-size and error boundaries apply.
+`GET /api/web-search-settings` returns `{ enabled, provider, authenticated, managedByEnvironment }` and any secret-unavailable status without credentials. `POST` accepts `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }` and returns updated status. A blank key retains the existing value; explicit clearing restores anonymous use. Active runs and search environment management reject writes. Existing local authentication, Host/Origin, JSON-size and error boundaries apply.
 
-Desktop uses trusted-main-frame `bookman:web-search-status` / `bookman:save-web-search` IPC, encrypts the key and restarts the backend after saving drafts. Decrypted keys never enter the renderer. New/resumed processes use the updated configuration. See [web search](en/configuration.md#web-search).
+Desktop and Web use the same interface, and the search key belongs to the selected execution host. Desktop client session credentials are host-managed. Saving does not restart the backend; new or resumed runs use the updated configuration. See [web search](en/configuration.md#web-search).
 
 ## Scientific environment settings
 

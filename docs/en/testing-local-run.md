@@ -93,7 +93,9 @@ Browser checks build and run Playwright; native variants follow the tests and re
 
 `npm run test:desktop` verifies TXT, Pi/local-model tasks, save/recovery, quit/restart and relocated upgrades. With a current candidate, run `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs` to avoid rebuilding.
 
-The development-entry relaunch, composer and model-connection native tests use a temporary App, isolated data and Chromium's test keychain to verify encrypted settings, drafts and native process lifecycle without prompting for real keychain access under temporary signatures. This isolation applies only to tests. The product uses the system keychain; actual permission prompts, signed packages and upgrades between versions need separate acceptance.
+For the settings stage on an existing candidate package, run `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs --settings-only`. It checks the first save, redacted read and rejection of model/search changes during a run; the other desktop smoke stages are skipped.
+
+The development-entry relaunch, composer and model-connection native tests use a temporary App, isolated data and Chromium's test keychain to verify encrypted client credentials, ciphertext compatibility, drafts and native process lifecycle without prompting for real keychain access under temporary signatures. This isolation applies only to tests. The product uses the system keychain; actual permission prompts, signed packages and upgrades between versions need separate acceptance.
 
 ## Five-stage release acceptance
 

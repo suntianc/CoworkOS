@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { startConfiguredDashboard as startDashboard } from "../test/dashboard-fixture.mjs";
 
 async function bridge(page, mode, installMethod, options = {}) {
   await page.addInitScript(
@@ -20,7 +20,6 @@ async function bridge(page, mode, installMethod, options = {}) {
       };
       window.bookmanDesktop = {
         onPrepareClose: () => {},
-        modelStatus: async () => ({ configured: true }),
         updateStatus: async () => state,
         onUpdateStatus: (callback) => {
           listener = callback;
@@ -99,7 +98,7 @@ test("source App checks once and updates with progress while keeping saved draft
     for (const [entry, title] of [
       ["管理模型连接", "连接模型"],
       ["管理联网搜索", "联网搜索"],
-      ["管理应用", "应用与组件"]
+      ["管理科学环境", "科学计算"]
     ]) {
       await overview.getByRole("button", { name: entry, exact: true }).click();
       await expect(overview).toBeVisible();

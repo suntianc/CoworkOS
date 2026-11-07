@@ -167,6 +167,8 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 设置总览、模型连接和联网搜索共用 [settings.css](../web/assets/settings.css) 的中性表面、单层细边框、标题、表单与固定操作栏；内容独立滚动，颜色消费共用浅深色 token，表面始终为实色。界面装配保留在 [模型设置](../web/assets/controllers/desktop-settings.js)、[搜索设置](../web/assets/controllers/web-search-settings.js) 与 [更新设置](../web/assets/controllers/desktop-updates.js)，设置行按总览中的连接/更新区域归属装配。验证 [外观、窄屏、键盘与透明度偏好](../e2e/settings-design.spec.js) 及现有设置保存/恢复验收。
 
+模型和搜索的未保存设置按后端身份恢复，迟到请求受 [设置后端绑定](../web/assets/controllers/settings-backend.js) 保护。验证 [控制器并发与恢复](../test/desktop-settings-backend-switch.test.js)、[真实浏览器双后端切换](../e2e/settings-backend-switch.spec.js) 和 [打包桌面设置 smoke](../scripts/desktop-smoke.mjs) 的聚焦入口。
+
 短表单与轻量列表共用 [dialogs.css](../web/assets/dialogs.css) 的 `.app-dialog`，覆盖会话命名/最近活动、项目表单和工作台弹窗；工作台专用布局归 [workbench/dialogs.css](../web/assets/workbench/dialogs.css)，附件预览归 [预览控制器](../web/assets/controllers/attachment-preview.js) 与 [专用样式](../web/assets/styles/attachment-preview.css)。验证 [会话弹窗](../e2e/dialog-design.spec.js)、[工作台命名/另存/修订](../e2e/workbench-dialog-design.spec.js)、[项目/经验确认/附件](../e2e/secondary-surfaces.spec.js) 和 [人工回复/监控表单](../e2e/ui-surface-design.spec.js) 的主题、窄屏、忙碌/错误和焦点状态。
 
 执行行、失败摘要与折叠详情归 [会话视图](../web/assets/controllers/conversation-view.js)，工具名称和可读结果归 [工具展示](../web/assets/tool-presentation.js)，错误归类与脱敏归 [请求错误](../web/assets/request-error.js)。样式消费 [共用主题](../web/assets/system-theme.css) 的中性表面与状态颜色，成功状态保持低强调，技术细节和长日志默认折叠。验证 [执行展示、展开状态与日志阅读](../e2e/execution-display.spec.js)、[错误恢复与内容保留](../e2e/conversation-integrity.spec.js) 和 [主题与文字对比度](../e2e/system-theme.spec.js)，同步 [UI 约定](development.md#应用-ui-约定)。

@@ -93,7 +93,9 @@ npm run test:release -- --native --stage app,applications
 
 打包 App 使用 `npm run test:desktop` 验证文本、Pi/本地模型、保存恢复、退出/重启与搬移升级。已有当前候选时可用 `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs` 避免重复构建。
 
-开发入口重启、输入框与模型连接原生测试使用临时 App、独立数据目录和 Chromium 测试钥匙串，验证配置加密读写、草稿与原生进程生命周期，避免临时签名触发真实钥匙串授权。此隔离仅用于测试；产品继续使用系统钥匙串，实际授权、签名安装包和跨版本升级需要单独验收。
+聚焦模型设置时可在已有候选包上运行 `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs --settings-only`。该入口验证首次保存、脱敏读取及任务运行时模型/搜索设置拒绝修改；其他桌面 smoke 阶段不执行。
+
+开发入口重启、输入框与模型连接原生测试使用临时 App、独立数据目录和 Chromium 测试钥匙串，验证客户端凭据加密、密文兼容、草稿与原生进程生命周期，避免临时签名触发真实钥匙串授权。此隔离仅用于测试；产品继续使用系统钥匙串，实际授权、签名安装包和跨版本升级需要单独验收。
 
 ## 五环节发布验收入口
 
