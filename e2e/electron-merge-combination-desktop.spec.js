@@ -46,7 +46,8 @@ test("host authorization recovery preserves drafts through backend switches and 
   const errors = [];
   const closeModel = async () => {
     const model = page.getByRole("dialog", { name: "连接模型" });
-    if (await model.isVisible()) await model.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await expect(model).toBeVisible({ timeout: 30_000 });
+    await model.getByRole("button", { name: "关闭设置", exact: true }).click();
   };
   const launch = async () => {
     native = await electron.launch({
