@@ -228,6 +228,17 @@ export function createDashboardApplication(
         projectName: project.projectName
       })),
     sessions: async (projectId) => await (await projectData.service()).listMainSessions(projectId),
+    ...(process.env.COWORK_MAIN_CAPACITY_RETRY_MS
+      ? { retryBaseMs: Number(process.env.COWORK_MAIN_CAPACITY_RETRY_MS) }
+      : {}),
+    taskState: async (taskId) => {
+      const location = await locateTask(taskId).catch(() => undefined);
+      if (!location) return undefined;
+      return {
+        status: location.task.status,
+        ...(location.task.activeRunId ? { activeRunId: location.task.activeRunId } : {})
+      };
+    },
     heartbeat: async (taskId) => {
       const location = await locateTask(taskId).catch(() => undefined);
       if (!location) return undefined;
@@ -350,6 +361,7 @@ export function createDashboardApplication(
             thinkingLevel: normalizeReasoningEffort(entry.submission.thinkingLevel, "thinkingLevel")
           }
         : {}),
+      ...(entry.submission?.attachmentIds ? { attachmentIds: entry.submission.attachmentIds } : {}),
       ...(entry.submission?.textAttachments ? { textAttachments: entry.submission.textAttachments } : {}),
       ...(entry.submission?.source ? { source: entry.submission.source } : {}),
       admittedRequestId: entry.requestId,

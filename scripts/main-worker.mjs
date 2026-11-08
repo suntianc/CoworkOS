@@ -43,19 +43,37 @@ try {
     if (wake.shouldWake) {
       const runId = wake.runId ?? process.env.COWORK_RUN_ID ?? `main-${taskId}`;
       const external = capacity?.external;
-      const admission = external
-        ? await capacity.admit({
-            projectId: external.projectId,
-            sessionId: external.sessionId,
+      let admission;
+      try {
+        admission = external
+          ? await capacity.admit({
+              projectId: external.projectId,
+              sessionId: external.sessionId,
+              taskId,
+              kind: external.kind,
+              runId,
+              resume: true,
+              prompt: WAKE_PROMPT,
+              origin: "worker",
+              queueWhenFull: true
+            })
+          : undefined;
+      } catch (error) {
+        // A different input already owns this Task: report it instead of
+        // starting a second Main or crashing the worker.
+        if (error?.code !== "main_capacity_conflict") throw error;
+        console.log(
+          JSON.stringify({
+            started: false,
             taskId,
-            kind: external.kind,
-            runId,
-            resume: true,
-            prompt: WAKE_PROMPT,
-            origin: "worker",
-            queueWhenFull: true
+            reason: "main_capacity_conflict",
+            error: error.message
           })
-        : undefined;
+        );
+        if (once) break;
+        await wait(pollMs);
+        continue;
+      }
       if (admission && admission.state !== "running") {
         console.log(JSON.stringify({ reason: wake.reason, ...capacityReceipt(taskId, admission, runId) }));
         if (once) break;

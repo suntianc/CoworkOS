@@ -50,6 +50,7 @@ function slotOf(value: unknown): MainCapacitySlot {
     ...(typeof entry.pid === "number" && Number.isSafeInteger(entry.pid) && entry.pid > 0
       ? { pid: entry.pid }
       : {}),
+    ...(text(entry.inputHash) ? { inputHash: String(entry.inputHash) } : {}),
     startedAt: String(entry.startedAt)
   };
 }
@@ -100,7 +101,7 @@ function queuedOf(value: unknown): MainCapacityQueueEntry {
     throw new MainCapacityStateError("容量记录中的排队项缺少归属字段");
   if (entry.kind !== "regular" && entry.kind !== "continuation")
     throw new MainCapacityStateError("容量记录中的排队类型无效");
-  if (entry.state !== "queued" && entry.state !== "starting")
+  if (entry.state !== "queued" && entry.state !== "starting" && entry.state !== "failed")
     throw new MainCapacityStateError("容量记录中的排队状态无效");
   return {
     requestId: String(entry.requestId),
@@ -121,7 +122,13 @@ function queuedOf(value: unknown): MainCapacityQueueEntry {
         ? entry.origin
         : "http",
     enqueuedAt: String(entry.enqueuedAt),
-    state: entry.state
+    state: entry.state,
+    ...(text(entry.inputHash) ? { inputHash: String(entry.inputHash) } : {}),
+    ...(typeof entry.attempts === "number" && Number.isSafeInteger(entry.attempts) && entry.attempts >= 0
+      ? { attempts: entry.attempts }
+      : {}),
+    ...(text(entry.lastError) ? { lastError: String(entry.lastError) } : {}),
+    ...(text(entry.retryAt) ? { retryAt: String(entry.retryAt) } : {})
   };
 }
 

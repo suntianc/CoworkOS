@@ -61,6 +61,18 @@
   color: var(--ui-secondary);
   font-size: 12px;
 }
+.main-capacity-retry {
+  padding: 2px 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.main-capacity-retry:hover {
+  background: var(--ui-raised);
+}
 .main-capacity-empty {
   color: var(--ui-secondary);
   font-size: 12px;

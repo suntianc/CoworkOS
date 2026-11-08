@@ -54,6 +54,8 @@ export interface MainCapacitySlot {
   host: string;
   /** The process this backend started; absent until the spawn returns. */
   pid?: number;
+  /** Identity of the accepted input, so only the same demand is idempotent. */
+  inputHash?: string;
   startedAt: string;
 }
 
@@ -77,7 +79,16 @@ export interface MainCapacityQueueEntry extends Omit<MainCapacitySlot, "pid" | "
   submission?: MainCapacitySubmission;
   origin: "http" | "worker" | "cli" | "internal";
   enqueuedAt: string;
-  state: "queued" | "starting";
+  /** `failed` keeps the accepted input visible after bounded retries. */
+  state: "queued" | "starting" | "failed";
+  /** Identity of the accepted input, so only the same demand is idempotent. */
+  inputHash?: string;
+  /** Dispatch attempts already spent on this demand. */
+  attempts?: number;
+  /** The last dispatch failure, safe to show. */
+  lastError?: string;
+  /** A queued demand is not retried before this instant. */
+  retryAt?: string;
 }
 
 /** One demand for an external Main Run, as every entry point describes it. */

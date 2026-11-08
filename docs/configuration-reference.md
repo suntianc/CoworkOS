@@ -196,7 +196,7 @@ external 服务的外部 Main 配额写在本机配置中；未配置时保持�
 
 `resident` 限制同时运行的外部常规 Main，`continuation` 保留给接续 Main，二者不能互相借用；内部 Main 不占外部配额。每个项目可保存的外部常规会话数等于 `resident`，保存但未运行不占运行名额，接续会话不计入项目常规上限。降低配额若低于正在运行的数量或任何项目已保存的常规会话数会被拒绝并说明原因，已有运行不会被终止。
 
-配额与容量状态经 `GET /api/main-capacity` 读取、`POST /api/main-capacity` 修改；运行与排队事实保存在数据根的 `main-capacity/state.json`（默认 `~/.atria/runtime/main-capacity/state.json`），随本机后端身份，不写入共享项目数据。程序按到达顺序占用空闲名额，进程结束、启动失败、取消、崩溃和重启对账都会释放名额并推进队列；重启只核对本机自有进程，不终止无关进程。CLI 与 main-worker 启动 external Main 时读取同一文件并写入同一队列；排队中的需求只保留显式 profile/model/推理选择，默认连接在真正获得名额时按角色配置解析，因此在等待期间修改的 host/项目默认作用于这次 Run。
+配额与容量状态经 `GET /api/main-capacity` 读取、`POST /api/main-capacity` 修改；运行与排队事实保存在数据根的 `main-capacity/state.json`（默认 `~/.atria/runtime/main-capacity/state.json`），随本机后端身份，不写入共享项目数据。程序按到达顺序占用空闲名额，进程结束、启动失败、取消、崩溃和重启对账都会释放名额并推进队列；重启只核对本机自有进程，不终止无关进程。共享服务暂时不可达等可恢复故障会释放名额但保留已接受的需求，按退避重试并在容量视图显示等待/失败状态与最近错误；失败的需求仍保留输入，可由 `POST /api/main-capacity` 的 `retry` 操作重新排队。CLI 与 main-worker 启动 external Main 时读取同一文件并写入同一队列；排队中的需求只保留显式 profile/model/推理选择，默认连接在真正获得名额时按角色配置解析，因此在等待期间修改的 host/项目默认作用于这次 Run。
 
 接口说明见 [Product API](product-api.md#external-main-capacity)。
 

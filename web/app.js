@@ -2306,6 +2306,13 @@ async function launchPrompt(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ prompt, body, resume, model, thinkingLevel, attachmentIds, retryRequestId })
     });
+    // A queued demand is accepted but not running: keeping the optimistic
+    // running state would route the next message into interject instead of
+    // letting the server refuse a different input.
+    if (run.status === "queued") {
+      showToast(ui`已排队第 ${run.queuePosition ?? 1} 位`);
+      return run;
+    }
     if (run.model) {
       state.modelByTask.set(taskId, run.model);
       if (state.selected === taskId) {

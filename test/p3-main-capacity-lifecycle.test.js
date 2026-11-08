@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
@@ -1025,16 +1026,10 @@ test(
       mainSessionId: blockerSession.sessionId
     });
     assert.equal(blockingAgain.body.status, "running", JSON.stringify(blockingAgain.body));
-    let latestWake = {};
-    const wakeDeadline = Date.now() + 20_000;
-    while (Date.now() < wakeDeadline) {
-      latestWake = (await capacity(request)).body;
-      if (latestWake.running.some((entry) => entry.taskId === blockerSession.taskId)) break;
-      await delay(50);
-    }
-    assert.ok(
-      latestWake.running.some((entry) => entry.taskId === blockerSession.taskId),
-      `the second blocking Main did not take the slot: ${JSON.stringify(latestWake)} tags=${JSON.stringify(local.tags())} task=${JSON.stringify((await taskDetail(request, blockerSession.taskId)).body.task)}`
+    await waitFor(
+      async () =>
+        (await capacity(request)).body.running.some((entry) => entry.taskId === blockerSession.taskId),
+      "the second blocking Main did not take the slot"
     );
     const woken = await request(`/api/tasks/${encodeURIComponent(answerSession.taskId)}/events`, {
       type: "external.event",
@@ -1134,5 +1129,566 @@ test(
       afterRestart.externalTasks.map((entry) => entry.taskId),
       [session.taskId]
     );
+  }
+);
+
+/**
+ * A shared authority that the secondary reaches through the remote client.
+ * Reused by the outage tests so the capacity state and the shared session rows
+ * are the real thing on both sides.
+ */
+async function authorityPair(t, { env = {}, config = {} } = {}) {
+  const authority = await startDashboard({ defaultProject: false });
+  t.after(() => authority.stop());
+  const instance = await readBackendInstance(backendPaths(join(authority.root, "home")));
+  assert.ok(instance.value?.token, "the authority published its local credential");
+  const secondary = await startDashboard({
+    defaultProject: false,
+    env,
+    config: {
+      projectData: { authority: { url: authority.base, token: instance.value.token } },
+      mainCapacity: { resident: 1, continuation: 0 },
+      ...config
+    }
+  });
+  t.after(() => secondary.stop());
+  return { authority, secondary, request: client(secondary) };
+}
+
+/**
+ * A switchable authority endpoint.
+ *
+ * The real remote client talks to this proxy; flipping it to 503 reproduces a
+ * transient shared-service outage through the same error mapping as an
+ * unreachable authority, without depending on sockets a stopped process leaves
+ * half-open.
+ */
+async function outageProxy(t, authority) {
+  const state = { down: false };
+  const server = createServer(async (request, response) => {
+    if (state.down) {
+      // Drain the request before answering, or a client sending a body can
+      // wait on a half-finished exchange.
+      for await (const _chunk of request) {
+        /* discard the request body */
+      }
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "fixture shared-service outage" }));
+      return;
+    }
+    try {
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const headers = {};
+      for (const [name, value] of Object.entries(request.headers)) {
+        if (
+          typeof value === "string" &&
+          !["host", "content-length", "connection", "transfer-encoding"].includes(name)
+        )
+          headers[name] = value;
+      }
+      const upstream = await fetch(new URL(request.url, authority.base), {
+        method: request.method,
+        headers,
+        ...(chunks.length ? { body: Buffer.concat(chunks) } : {})
+      });
+      response.writeHead(upstream.status, {
+        "content-type": upstream.headers.get("content-type") ?? "application/json"
+      });
+      response.end(Buffer.from(await upstream.arrayBuffer()));
+    } catch (error) {
+      response.destroy(error);
+    }
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  return { url: `http://127.0.0.1:${server.address().port}`, state };
+}
+
+const statePath = (dashboard) => join(dashboard.root, "main-capacity", "state.json");
+
+test(
+  "an accepted queued demand survives a shared-service outage and runs once after recovery",
+  { timeout: 240_000 },
+  async (t) => {
+    const local = await provider(t);
+    const authority = await startDashboard({ defaultProject: false });
+    t.after(() => authority.stop());
+    const instance = await readBackendInstance(backendPaths(join(authority.root, "home")));
+    const outage = await outageProxy(t, authority);
+    const secondary = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      config: {
+        projectData: { authority: { url: outage.url, token: instance.value.token } },
+        mainCapacity: { resident: 1, continuation: 0 }
+      }
+    });
+    t.after(() => secondary.stop());
+    const request = client(secondary);
+    const blocker = await createProject(request, secondary, "survive-a");
+    const waiting = await createProject(request, secondary, "survive-b");
+    const blockerSession = await externalSession(request, blocker.projectId, "survive-a");
+    const waitingSession = await externalSession(request, waiting.projectId, "survive-b");
+
+    local.hold("survive-a");
+    const running = await runTask(request, blockerSession.taskId, {
+      prompt: "[tag:survive-a] 占住名额。",
+      mainSessionId: blockerSession.sessionId
+    });
+    assert.equal(running.body.status, "running", JSON.stringify(running.body));
+    const queued = await runTask(request, waitingSession.taskId, {
+      prompt: "[tag:survive-b] 这条已接受的消息必须存活。",
+      mainSessionId: waitingSession.sessionId
+    });
+    assert.equal(queued.body.status, "queued", JSON.stringify(queued.body));
+    const queuedRunId = queued.body.runId;
+
+    // The shared service goes away between acceptance and dispatch.
+    outage.state.down = true;
+    local.release("survive-a");
+    await settle(request, blockerSession.taskId, "completed");
+
+    // The dispatch fails, but the accepted input stays durable and visible.
+    let failedView = {};
+    let attemptsDeadline = Date.now() + 45_000;
+    while (Date.now() < attemptsDeadline) {
+      failedView = (await capacity(request)).body;
+      const entry = failedView.queued.find((item) => item.taskId === waitingSession.taskId);
+      if (entry && entry.attempts >= 1) break;
+      await delay(100);
+    }
+    assert.ok(
+      failedView.queued.some((item) => item.taskId === waitingSession.taskId && item.attempts >= 1),
+      `the failed dispatch left no visible demand: ${JSON.stringify(failedView)}`
+    );
+    const preserved = failedView.queued.find((item) => item.taskId === waitingSession.taskId);
+    assert.match(String(preserved.lastError), /outage|共享|连接|storage|不可达/i);
+    assert.ok(preserved.attempts >= 1);
+    const stored = JSON.parse(await readFile(statePath(secondary), "utf8"));
+    const storedEntry = stored.queue.find((entry) => entry.taskId === waitingSession.taskId);
+    assert.ok(storedEntry, "the accepted demand must stay in the durable queue");
+    assert.match(storedEntry.prompt, /survive-b/);
+    assert.equal(storedEntry.runId, queuedRunId);
+    // Continuing failure does not turn into a busy retry loop.
+    const attemptsNow = storedEntry.attempts;
+    await delay(800);
+    const still = JSON.parse(await readFile(statePath(secondary), "utf8"));
+    const sameEntry = still.queue.find((entry) => entry.taskId === waitingSession.taskId);
+    assert.ok(sameEntry, "the demand disappeared during the outage");
+    assert.ok(sameEntry.attempts <= attemptsNow + 1, `busy retry: ${sameEntry.attempts}`);
+    // Nothing pretends the Run exists.
+    const waitingDetail = await taskDetail(request, waitingSession.taskId);
+    assert.equal(waitingDetail.body.runtime.active, false);
+    assert.equal(waitingDetail.body.task.activeRunId ?? null, null);
+    assert.deepEqual(await ownProcesses(secondary.workspaceRoot, waitingSession.taskId), []);
+
+    // Restore the shared service: the queued demand runs exactly once.
+    outage.state.down = false;
+    await waitFor(() => local.tags().includes("survive-b"), "the preserved demand never ran", 45_000);
+    await settle(request, waitingSession.taskId, "completed");
+    assert.equal(local.tags().filter((tag) => tag === "survive-b").length, 1);
+    assert.deepEqual((await capacity(request)).body.queued, []);
+    const input = JSON.parse(
+      await readFile(
+        join(secondary.workspaceRoot, waitingSession.taskId, "runs", queuedRunId, "main-input.json"),
+        "utf8"
+      )
+    );
+    assert.match(input.prompt, /survive-b/);
+    assert.deepEqual(local.failures, []);
+  }
+);
+
+test(
+  "an exhausted dispatch keeps the accepted input visible and runs once through the retry action",
+  { timeout: 240_000 },
+  async (t) => {
+    const local = await provider(t);
+    const authority = await startDashboard({ defaultProject: false });
+    t.after(() => authority.stop());
+    const instance = await readBackendInstance(backendPaths(join(authority.root, "home")));
+    const outage = await outageProxy(t, authority);
+    const secondary = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      env: {
+        COWORK_MAIN_CAPACITY_TICK_MS: "120",
+        COWORK_MAIN_CAPACITY_RETRY_MS: "120"
+      },
+      config: {
+        projectData: { authority: { url: outage.url, token: instance.value.token } },
+        mainCapacity: { resident: 1, continuation: 0 }
+      }
+    });
+    t.after(() => secondary.stop());
+    const request = client(secondary);
+    const blocker = await createProject(request, secondary, "exhaust-a");
+    const waiting = await createProject(request, secondary, "exhaust-b");
+    const blockerSession = await externalSession(request, blocker.projectId, "exhaust-a");
+    const waitingSession = await externalSession(request, waiting.projectId, "exhaust-b");
+    local.hold("exhaust-a");
+    await runTask(request, blockerSession.taskId, {
+      prompt: "[tag:exhaust-a] 占住名额。",
+      mainSessionId: blockerSession.sessionId
+    });
+    const queued = await runTask(request, waitingSession.taskId, {
+      prompt: "[tag:exhaust-b] 失败的请求也不能丢。",
+      mainSessionId: waitingSession.sessionId
+    });
+    assert.equal(queued.body.status, "queued", JSON.stringify(queued.body));
+    outage.state.down = true;
+    local.release("exhaust-a");
+    await settle(request, blockerSession.taskId, "completed");
+
+    let failed;
+    await waitFor(
+      async () => {
+        const view = await capacity(request);
+        failed = view.body.queued.find((entry) => entry.taskId === waitingSession.taskId);
+        return failed?.state === "failed";
+      },
+      "the demand never reached the visible failed state",
+      45_000
+    );
+    assert.match(String(failed.lastError), /outage|共享|连接|storage|不可达/i);
+    const stored = JSON.parse(await readFile(statePath(secondary), "utf8"));
+    const storedEntry = stored.queue.find((entry) => entry.taskId === waitingSession.taskId);
+    assert.ok(storedEntry, "the failed demand lost its durable input");
+    assert.match(storedEntry.prompt, /exhaust-b/);
+    assert.deepEqual(stored.slots, []);
+
+    outage.state.down = false;
+    const retried = await request("/api/main-capacity", { action: "retry", requestId: failed.requestId });
+    assert.equal(retried.status, 200, JSON.stringify(retried.body));
+    await waitFor(() => local.tags().includes("exhaust-b"), "the retried demand never ran", 45_000);
+    await settle(request, waitingSession.taskId, "completed");
+    assert.equal(local.tags().filter((tag) => tag === "exhaust-b").length, 1);
+    assert.deepEqual((await capacity(request)).body.queued, []);
+    assert.deepEqual(local.failures, []);
+  }
+);
+
+test(
+  "a dispatch interrupted before its process exists is re-queued after restart",
+  { timeout: 180_000 },
+  async (t) => {
+    const local = await provider(t);
+    const dashboard = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      config: { mainCapacity: { resident: 1, continuation: 0 } }
+    });
+    t.after(() => dashboard.stop());
+    const request = client(dashboard);
+    const project = await createProject(request, dashboard, "interrupted");
+    const session = await externalSession(request, project.projectId, "interrupted");
+    const runId = `main-${Date.now()}`;
+    const requestId = "request-interrupted";
+    const stamp = new Date().toISOString();
+    // The exact durable shape a crash between reservation and spawn leaves.
+    const state = JSON.parse(await readFile(statePath(dashboard), "utf8"));
+    await writeFile(
+      statePath(dashboard),
+      JSON.stringify(
+        {
+          ...state,
+          slots: [
+            {
+              requestId,
+              projectId: project.projectId,
+              sessionId: session.sessionId,
+              taskId: session.taskId,
+              runId,
+              kind: "regular",
+              host: hostname(),
+              startedAt: stamp
+            }
+          ],
+          queue: [
+            {
+              requestId,
+              projectId: project.projectId,
+              sessionId: session.sessionId,
+              taskId: session.taskId,
+              runId,
+              kind: "regular",
+              host: hostname(),
+              resume: false,
+              prompt: "[tag:interrupted] 启动中断后必须重来一次。",
+              origin: "http",
+              enqueuedAt: stamp,
+              state: "starting"
+            }
+          ],
+          updatedAt: stamp
+        },
+        null,
+        2
+      )
+    );
+
+    await dashboard.restart();
+    await waitFor(
+      () => local.tags().includes("interrupted"),
+      "the interrupted demand was not retried",
+      45_000
+    );
+    await settle(request, session.taskId, "completed");
+    assert.equal(local.tags().filter((tag) => tag === "interrupted").length, 1);
+    const after = JSON.parse(await readFile(statePath(dashboard), "utf8"));
+    assert.deepEqual(after.slots, []);
+    assert.deepEqual(after.queue, []);
+    assert.deepEqual(local.failures, []);
+  }
+);
+
+test(
+  "a dispatch interrupted after the Run was recorded is not started twice",
+  { timeout: 180_000 },
+  async (t) => {
+    const local = await provider(t);
+    const dashboard = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      config: { mainCapacity: { resident: 1, continuation: 0 } }
+    });
+    t.after(() => dashboard.stop());
+    const request = client(dashboard);
+    const project = await createProject(request, dashboard, "started");
+    const session = await externalSession(request, project.projectId, "started");
+    const first = await runTask(request, session.taskId, {
+      prompt: "[tag:started-once] 已经启动过。",
+      mainSessionId: session.sessionId
+    });
+    assert.equal(first.body.status, "running", JSON.stringify(first.body));
+    await settle(request, session.taskId, "completed");
+    const activeRunId = (await taskDetail(request, session.taskId)).body.task.activeRunId;
+    assert.ok(activeRunId);
+    const requestId = "request-already-started";
+    const stamp = new Date().toISOString();
+    const state = JSON.parse(await readFile(statePath(dashboard), "utf8"));
+    // The crash happened after the Run was recorded; its process is gone.
+    await writeFile(
+      statePath(dashboard),
+      JSON.stringify(
+        {
+          ...state,
+          slots: [
+            {
+              requestId,
+              projectId: project.projectId,
+              sessionId: session.sessionId,
+              taskId: session.taskId,
+              runId: activeRunId,
+              kind: "regular",
+              host: hostname(),
+              startedAt: stamp
+            }
+          ],
+          queue: [
+            {
+              requestId,
+              projectId: project.projectId,
+              sessionId: session.sessionId,
+              taskId: session.taskId,
+              runId: activeRunId,
+              kind: "regular",
+              host: hostname(),
+              resume: true,
+              prompt: "[tag:started-twice] 不能重复启动同一请求。",
+              origin: "internal",
+              enqueuedAt: stamp,
+              state: "starting"
+            }
+          ],
+          updatedAt: stamp
+        },
+        null,
+        2
+      )
+    );
+
+    await dashboard.restart();
+    await delay(2_500);
+    assert.equal(local.tags().includes("started-twice"), false);
+    const after = JSON.parse(await readFile(statePath(dashboard), "utf8"));
+    assert.deepEqual(after.slots, []);
+    assert.deepEqual(after.queue, []);
+    assert.deepEqual(local.failures, []);
+  }
+);
+
+test(
+  "a queued demand keeps its attachment identity in the durable input",
+  { timeout: 180_000 },
+  async (t) => {
+    const local = await provider(t);
+    const dashboard = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      config: { mainCapacity: { resident: 1, continuation: 0 } }
+    });
+    t.after(() => dashboard.stop());
+    const request = client(dashboard);
+    const blocker = await createProject(request, dashboard, "att-a");
+    const waiting = await createProject(request, dashboard, "att-b");
+    const blockerSession = await externalSession(request, blocker.projectId, "att-a");
+    const waitingSession = await externalSession(request, waiting.projectId, "att-b");
+    const upload = await fetch(`${dashboard.base}/api/uploads?name=${encodeURIComponent("材料.txt")}`, {
+      method: "POST",
+      body: Buffer.from("附件正文 😀"),
+      headers: { "content-type": "application/octet-stream" }
+    });
+    assert.equal(upload.status, 201);
+    const { uploadId } = await upload.json();
+
+    local.hold("att-a");
+    await runTask(request, blockerSession.taskId, {
+      prompt: "[tag:att-a] 占住名额。",
+      mainSessionId: blockerSession.sessionId
+    });
+    const queued = await runTask(request, waitingSession.taskId, {
+      prompt: "[tag:att-b] 带附件排队。",
+      mainSessionId: waitingSession.sessionId,
+      attachmentIds: [uploadId]
+    });
+    assert.equal(queued.body.status, "queued", JSON.stringify(queued.body));
+    const runId = queued.body.runId;
+    const stored = JSON.parse(await readFile(statePath(dashboard), "utf8"));
+    assert.deepEqual(stored.queue[0].submission.attachmentIds, [uploadId]);
+    local.release("att-a");
+    await settle(request, blockerSession.taskId, "completed");
+    await waitFor(() => local.tags().includes("att-b"), "the queued run never started");
+    await settle(request, waitingSession.taskId, "completed");
+
+    const input = JSON.parse(
+      await readFile(
+        join(dashboard.workspaceRoot, waitingSession.taskId, "runs", runId, "main-input.json"),
+        "utf8"
+      )
+    );
+    assert.deepEqual(input.attachmentIds, [uploadId], "the input lost its attachment identity");
+    const accepted = await readFile(
+      join(
+        dashboard.workspaceRoot,
+        waitingSession.taskId,
+        "sessions",
+        "main",
+        "user-inputs",
+        `${input.messageId}.json`
+      ),
+      "utf8"
+    );
+    assert.deepEqual(JSON.parse(accepted).attachmentIds, [uploadId]);
+    assert.deepEqual(local.failures, []);
+  }
+);
+
+test(
+  "a different message on a queued or running Task is refused instead of reported as duplicate",
+  { timeout: 180_000 },
+  async (t) => {
+    const local = await provider(t);
+    const dashboard = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      config: { mainCapacity: { resident: 1, continuation: 0 } }
+    });
+    t.after(() => dashboard.stop());
+    const request = client(dashboard);
+    const blocker = await createProject(request, dashboard, "p2-a");
+    const queuedProject = await createProject(request, dashboard, "p2-q");
+    const blockerSession = await externalSession(request, blocker.projectId, "p2-a");
+    const queuedSession = await externalSession(request, queuedProject.projectId, "p2-q");
+    local.hold("p2-a", "p2-q1");
+    await runTask(request, blockerSession.taskId, {
+      prompt: "[tag:p2-a] 占住名额。",
+      mainSessionId: blockerSession.sessionId
+    });
+    const base = {
+      prompt: "[tag:p2-q1] 排队的第一条。",
+      body: "q1 body",
+      thinkingLevel: "low",
+      mainSessionId: queuedSession.sessionId
+    };
+    const first = await runTask(request, queuedSession.taskId, base);
+    assert.equal(first.body.status, "queued", JSON.stringify(first.body));
+
+    // The identical resubmission stays idempotent.
+    const repeated = await runTask(request, queuedSession.taskId, base);
+    assert.equal(repeated.status, 202, JSON.stringify(repeated.body));
+    assert.equal(repeated.body.status, "duplicate", JSON.stringify(repeated.body));
+    assert.equal(repeated.body.runId, first.body.runId);
+
+    // A different message is a different demand, not a duplicate success.
+    const other = await runTask(request, queuedSession.taskId, {
+      ...base,
+      prompt: "[tag:p2-q2] 不同的第二条消息。"
+    });
+    assert.equal(other.status, 409, JSON.stringify(other.body));
+    assert.equal(other.body.code, "main_capacity_conflict", JSON.stringify(other.body));
+    // A different explicit selection is also different input.
+    const replanned = await runTask(request, queuedSession.taskId, { ...base, thinkingLevel: "high" });
+    assert.equal(replanned.status, 409, JSON.stringify(replanned.body));
+    assert.equal(replanned.body.code, "main_capacity_conflict");
+    // A different attachment set is different input.
+    const uploadA = await fetch(`${dashboard.base}/api/uploads?name=${encodeURIComponent("a.txt")}`, {
+      method: "POST",
+      body: Buffer.from("附件甲"),
+      headers: { "content-type": "application/octet-stream" }
+    });
+    const uploadB = await fetch(`${dashboard.base}/api/uploads?name=${encodeURIComponent("b.txt")}`, {
+      method: "POST",
+      body: Buffer.from("附件乙"),
+      headers: { "content-type": "application/octet-stream" }
+    });
+    assert.equal(uploadA.status, 201);
+    assert.equal(uploadB.status, 201);
+    const attachmentId = (await uploadA.json()).uploadId;
+    const otherAttachment = (await uploadB.json()).uploadId;
+    const withAttachment = await runTask(request, queuedSession.taskId, {
+      ...base,
+      attachmentIds: [attachmentId]
+    });
+    assert.equal(withAttachment.status, 409, JSON.stringify(withAttachment.body));
+    const state = JSON.parse(await readFile(statePath(dashboard), "utf8"));
+    assert.deepEqual(
+      state.queue.map((entry) => entry.prompt),
+      ["[tag:p2-q1] 排队的第一条。"]
+    );
+    assert.equal(JSON.stringify(state).includes("p2-q2"), false);
+    assert.equal(JSON.stringify(state).includes("high"), false);
+    assert.equal(JSON.stringify(state).includes(otherAttachment), false);
+
+    // Freeing the slot runs exactly the accepted demand.
+    local.release("p2-a");
+    await settle(request, blockerSession.taskId, "completed");
+    await waitFor(() => local.tags().includes("p2-q1"), "the accepted queued demand never ran");
+
+    // While it runs, a direct second message is refused (not a duplicate 202);
+    // the running Main's own interject path remains the way to add input.
+    const duringRunOther = await runTask(request, queuedSession.taskId, {
+      ...base,
+      prompt: "[tag:p2-q3] 运行中的另一条。"
+    });
+    assert.ok(duringRunOther.status >= 400, JSON.stringify(duringRunOther.body));
+    assert.notEqual(duringRunOther.body.status, "duplicate");
+    local.release("p2-q1");
+    await settle(request, queuedSession.taskId, "completed");
+    assert.equal(local.tags().filter((tag) => tag === "p2-q1").length, 1);
+    assert.equal(local.tags().includes("p2-q2"), false);
+    assert.equal(local.tags().includes("p2-q3"), false);
+    assert.deepEqual(local.failures, []);
   }
 );

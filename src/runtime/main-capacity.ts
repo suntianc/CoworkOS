@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   MAIN_CAPACITY_QUEUE_LIMIT,
   type MainCapacityDecision,
@@ -33,12 +33,16 @@ export function createMainCapacityLedger({
   store,
   host,
   settings,
-  now = () => new Date().toISOString()
+  now = () => new Date().toISOString(),
+  retryBaseMs = 2_000,
+  maxAttempts = 5
 }: {
   store: MainCapacityStore;
   host: string;
   settings: () => MainCapacitySettings | undefined;
   now?: () => string;
+  retryBaseMs?: number;
+  maxAttempts?: number;
 }) {
   function required(): MainCapacitySettings {
     const value = settings();
@@ -83,6 +87,42 @@ export function createMainCapacityLedger({
     return Object.keys(submission).length ? submission : undefined;
   }
 
+  /**
+   * The identity of an accepted input.
+   *
+   * A resubmission is idempotent only when everything the user chose matches:
+   * the text, the body, the attachments, the explicit connection/model/thinking
+   * choice and whether the request continues or retries. A second message with
+   * different content is a different demand and must not be reported as sent.
+   */
+  function inputHashOf(fields: {
+    prompt: string;
+    submission?: MainCapacitySubmission;
+    model?: string;
+    resume?: boolean;
+    retryRequestId?: string;
+  }): string {
+    const submission = fields.submission ?? {};
+    const identity = JSON.stringify([
+      fields.prompt,
+      submission.body ?? "",
+      [...(submission.attachmentIds ?? [])].sort(),
+      (submission.textAttachments ?? []).map((file) => [file.name, file.text, file.size]),
+      submission.profileId ?? "",
+      submission.thinkingLevel ?? "",
+      fields.model ?? "",
+      fields.resume === true,
+      fields.retryRequestId ?? "",
+      submission.source ?? ""
+    ]);
+    return createHash("sha256").update(identity).digest("hex");
+  }
+
+  function retryDelayMs(attempts: number): number {
+    const base = Math.max(50, retryBaseMs);
+    return Math.min(60_000, base * 2 ** Math.max(0, attempts - 1));
+  }
+
   function queuedEntry(
     request: MainCapacityRequest,
     requestId: string,
@@ -104,38 +144,70 @@ export function createMainCapacityLedger({
       ...(submissionOf(request.submission) ? { submission: submissionOf(request.submission) } : {}),
       origin: request.origin,
       enqueuedAt: timestamp,
-      state: "queued"
+      state: "queued",
+      inputHash: inputHashOf(request),
+      attempts: 0
     };
   }
 
+  /**
+   * The demand that already owns this Task or requirement.
+   *
+   * Identical input is an idempotent resubmission; different input must not be
+   * swallowed under a success status, so it is refused for the caller to keep
+   * (the UI keeps the draft, the worker/CLI report the conflict).
+   */
   function duplicateOf(
     state: MainCapacityState,
-    request: MainCapacityRequest
+    request: MainCapacityRequest,
+    requestHash: string
   ): MainCapacityDecision | undefined {
     const requirementId = request.requirementId;
-    const slot = state.slots.find(
-      (entry) =>
-        entry.taskId === request.taskId ||
-        (requirementId !== undefined &&
-          entry.projectId === request.projectId &&
-          entry.requirementId === requirementId)
-    );
-    if (slot) return { state: "duplicate", requestId: slot.requestId, runId: slot.runId, reason: "running" };
-    const queue = state.queue.find(
-      (entry) =>
-        entry.taskId === request.taskId ||
-        (requirementId !== undefined &&
-          entry.projectId === request.projectId &&
-          entry.requirementId === requirementId)
-    );
-    if (queue)
+    const matches = (entry: { taskId: string; projectId: string; requirementId?: string }) =>
+      entry.taskId === request.taskId ||
+      (requirementId !== undefined &&
+        entry.projectId === request.projectId &&
+        entry.requirementId === requirementId);
+    const slot = state.slots.find(matches);
+    if (slot) {
+      if (slot.inputHash !== requestHash)
+        throw new ProjectDataConflictError(
+          "该任务已有运行中的 Main 消息；请使用补充消息，或等待本次运行结束后再发送",
+          undefined,
+          "main_capacity_conflict"
+        );
+      return {
+        state: "duplicate",
+        requestId: slot.requestId,
+        runId: slot.runId,
+        reason: "running"
+      };
+    }
+    const queue = state.queue.find(matches);
+    if (queue) {
+      if (queue.inputHash !== requestHash)
+        throw new ProjectDataConflictError(
+          "该任务已有排队中的其他输入；请等待它开始运行后再发送，草稿已保留",
+          undefined,
+          "main_capacity_conflict"
+        );
       return {
         state: "duplicate",
         requestId: queue.requestId,
+        runId: queue.runId,
         position: positionOf(state, queue.requestId),
         reason: "queued"
       };
+    }
     return undefined;
+  }
+
+  function dropSlot(requestId: string): Promise<boolean> {
+    return store.update((state) => {
+      const index = state.slots.findIndex((entry) => entry.requestId === requestId);
+      if (index >= 0) state.slots.splice(index, 1);
+      return index >= 0;
+    });
   }
 
   function positionOf(state: MainCapacityState, requestId: string): number {
@@ -150,8 +222,9 @@ export function createMainCapacityLedger({
     async admit(request: MainCapacityRequest): Promise<MainCapacityDecision> {
       const current = required();
       const requestId = validate(request);
+      const requestHash = inputHashOf(request);
       return store.update((state) => {
-        const duplicate = duplicateOf(state, request);
+        const duplicate = duplicateOf(state, request, requestHash);
         if (duplicate) return duplicate;
         if (used(state, request.kind) < limitOf(current, request.kind)) {
           state.slots.push({
@@ -163,6 +236,7 @@ export function createMainCapacityLedger({
             kind: request.kind,
             ...(request.requirementId ? { requirementId: identifier(request.requirementId, "需求 ID") } : {}),
             host,
+            inputHash: requestHash,
             startedAt: now()
           });
           return { state: "running" as const, requestId };
@@ -194,16 +268,14 @@ export function createMainCapacityLedger({
       });
     },
 
-    /** Remove the claim for one request; a missing claim is not an error. */
-    release(requestId: string): Promise<boolean> {
-      return store.update((state) => {
-        const index = state.slots.findIndex((entry) => entry.requestId === requestId);
-        if (index >= 0) state.slots.splice(index, 1);
-        const queued = state.queue.findIndex((entry) => entry.requestId === requestId);
-        if (queued >= 0) state.queue.splice(queued, 1);
-        return index >= 0 || queued >= 0;
-      });
-    },
+    /**
+     * Remove the running claim for one request; a missing claim is not an error.
+     *
+     * The accepted demand is not touched here: a Run that never spawned must
+     * keep its input for the dispatch retry, and a Run that ran already removed
+     * its own queue entry when it started.
+     */
+    release: dropSlot,
 
     /** Drop every waiting demand for one Task; a cancelled demand never starts. */
     cancelTask(taskId: string): Promise<number> {
@@ -211,16 +283,6 @@ export function createMainCapacityLedger({
         const before = state.queue.length;
         state.queue = state.queue.filter((entry) => entry.taskId !== taskId);
         return before - state.queue.length;
-      });
-    },
-
-    /** Drop a queued or starting demand without starting it. */
-    abandon(requestId: string): Promise<void> {
-      return store.update((state) => {
-        const index = state.slots.findIndex((entry) => entry.requestId === requestId);
-        if (index >= 0) state.slots.splice(index, 1);
-        const queued = state.queue.findIndex((entry) => entry.requestId === requestId);
-        if (queued >= 0) state.queue.splice(queued, 1);
       });
     },
 
@@ -236,8 +298,12 @@ export function createMainCapacityLedger({
               Date.parse(left.entry.enqueuedAt) - Date.parse(right.entry.enqueuedAt) ||
               left.index - right.index
           );
+        const at = Date.parse(now());
         const next = ordered.find(
-          ({ entry }) => entry.state === "queued" && used(state, entry.kind) < limitOf(current, entry.kind)
+          ({ entry }) =>
+            entry.state === "queued" &&
+            !(entry.retryAt && Date.parse(entry.retryAt) > at) &&
+            used(state, entry.kind) < limitOf(current, entry.kind)
         );
         if (!next) return undefined;
         const { entry } = next;
@@ -251,6 +317,7 @@ export function createMainCapacityLedger({
           kind: entry.kind,
           ...(entry.requirementId ? { requirementId: entry.requirementId } : {}),
           host,
+          ...(entry.inputHash ? { inputHash: entry.inputHash } : {}),
           startedAt: now()
         });
         return { ...entry };
@@ -265,13 +332,53 @@ export function createMainCapacityLedger({
       });
     },
 
-    /** The start callback failed: the demand owns nothing and the queue moves on. */
+    /** The start callback failed permanently: the demand owns nothing and the queue moves on. */
     failStart(requestId: string): Promise<void> {
       return store.update((state) => {
         const slot = state.slots.findIndex((entry) => entry.requestId === requestId);
         if (slot >= 0) state.slots.splice(slot, 1);
         const queued = state.queue.findIndex((entry) => entry.requestId === requestId);
         if (queued >= 0) state.queue.splice(queued, 1);
+      });
+    },
+
+    /** Remove one slot but keep its accepted demand where it is. */
+    releaseSlot: dropSlot,
+
+    /**
+     * A recoverable dispatch failure: release the unused slot and keep the
+     * accepted input, retried with backoff until bounded attempts run out.
+     * After that the demand stays visible as `failed` with its input intact.
+     */
+    retryStart(requestId: string, error: string): Promise<void> {
+      return store.update((state) => {
+        const slot = state.slots.findIndex((entry) => entry.requestId === requestId);
+        if (slot >= 0) state.slots.splice(slot, 1);
+        const entry = state.queue.find((item) => item.requestId === requestId);
+        if (!entry) return;
+        const attempts = (entry.attempts ?? 0) + 1;
+        entry.attempts = attempts;
+        entry.lastError = error.slice(0, 500);
+        if (attempts >= maxAttempts) {
+          entry.state = "failed";
+          delete entry.retryAt;
+          return;
+        }
+        entry.state = "queued";
+        entry.retryAt = new Date(Date.parse(now()) + retryDelayMs(attempts)).toISOString();
+      });
+    },
+
+    /** Put a failed accepted demand back in line. Returns false when it is not retryable. */
+    retry(requestId: string): Promise<boolean> {
+      return store.update((state) => {
+        const entry = state.queue.find((item) => item.requestId === requestId);
+        if (!entry || entry.state !== "failed") return false;
+        entry.state = "queued";
+        entry.attempts = 0;
+        delete entry.lastError;
+        delete entry.retryAt;
+        return true;
       });
     },
 

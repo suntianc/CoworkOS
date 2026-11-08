@@ -25,6 +25,12 @@ export async function handleMainCapacityRequest(
   }
   if (request.method !== "POST") throw new HttpError(405, "method not allowed");
   const body = await readJsonBody(request, 64 * 1024);
+  if (body.action === "retry") {
+    if (typeof body.requestId !== "string" || !body.requestId.trim() || body.requestId.length > 200)
+      throw new HttpError(400, "retry 需要有效的 requestId");
+    sendJson(response, 200, await service.retry(body.requestId.trim()));
+    return true;
+  }
   if (body.action !== undefined && body.action !== "configure") throw new HttpError(400, "未知的容量操作");
   sendJson(
     response,

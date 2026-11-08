@@ -64,7 +64,7 @@ App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，
 
 ## 外部 Main 容量
 
-外部 Main 的运行名额与排队是执行主机的本机事实，保存在数据根的 `main-capacity/state.json`（默认 `~/.atria/runtime/main-capacity/state.json`，权限 0600）：本机 external 会话的 Task 索引、正在占用名额的 Run 与进程、以及等待中的需求。它不进入共享项目数据，也不在项目数据库备份快照内；进程结束后由程序释放名额并推进队列，重启时只核对本机自有进程。运行记录与 Main 会话归属仍以共享会话和 Task 为准。
+外部 Main 的运行名额与排队是执行主机的本机事实，保存在数据根的 `main-capacity/state.json`（默认 `~/.atria/runtime/main-capacity/state.json`，权限 0600）：本机 external 会话的 Task 索引、正在占用名额的 Run 与进程、以及等待中的需求（含已接受输入、尝试次数、退避时间与最近失败原因）。它不进入共享项目数据，也不在项目数据库备份快照内；进程结束后由程序释放名额并推进队列，重启时只核对本机自有进程。运行记录与 Main 会话归属仍以共享会话和 Task 为准。
 
 ## 项目经验数据
 

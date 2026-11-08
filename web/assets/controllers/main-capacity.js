@@ -62,6 +62,10 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
       event.preventDefault();
       void save();
     });
+    queuedNode.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-retry]");
+      if (button) void retry(button.dataset.retry);
+    });
   }
 
   function projectName(projectId) {
@@ -108,14 +112,21 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
       return;
     }
     queuedNode.innerHTML = queued
-      .map(
-        (entry) => `<li>
+      .map((entry) => {
+        const state = entry.state === "failed" ? "启动失败" : entry.state === "starting" ? "启动中" : "等待";
+        return `<li${entry.lastError ? ` title="${esc(entry.lastError)}"` : ""}>
           <strong>${esc(projectName(entry.projectId))}</strong>
           <span class="main-capacity-tags"><span>第 ${entry.position} 位</span><span>${esc(
             kindLabel[entry.kind] ?? entry.kind
-          )}</span><span>${esc(originLabel[entry.origin] ?? entry.origin)}</span></span>
-        </li>`
-      )
+          )}</span><span>${esc(state)}</span><span>${esc(originLabel[entry.origin] ?? entry.origin)}</span>${
+            entry.state === "failed"
+              ? `<button type="button" class="main-capacity-retry" data-retry="${esc(
+                  entry.requestId
+                )}">${ui("重试")}</button>`
+              : ""
+          }</span>
+        </li>`;
+      })
       .join("");
   }
 
@@ -158,6 +169,26 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
       if (view.projectsComplete === false) fail(new Error(view.projectsError || "项目会话数暂时无法读取"));
       else clearError();
       renderView();
+    } catch (error) {
+      fail(error);
+    } finally {
+      loading = false;
+      renderView();
+    }
+  }
+
+  async function retry(requestId) {
+    if (loading) return;
+    loading = true;
+    renderView();
+    try {
+      view = await api("/api/main-capacity", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "retry", requestId })
+      });
+      clearError();
+      showToast?.("已重新排队");
     } catch (error) {
       fail(error);
     } finally {

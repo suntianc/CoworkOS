@@ -9,7 +9,12 @@ import {
   type MainCapacityRequest,
   type MainCapacitySettings
 } from "../domain/main-capacity.js";
-import { ProjectDataConflictError, ProjectDataInvalidError } from "../domain/project-ledger.js";
+import {
+  ProjectDataAuthError,
+  ProjectDataConflictError,
+  ProjectDataInvalidError,
+  ProjectDataUnavailableError
+} from "../domain/project-ledger.js";
 import { createMainCapacityLedger } from "../runtime/main-capacity.js";
 import type { MainSessionRecord } from "../workspace/project-data-service.js";
 import type { MainCapacityStore } from "../storage/main-capacity-store.js";
@@ -30,8 +35,12 @@ export interface MainCapacityServicePorts {
   sessions(projectId: string): Promise<MainSessionRecord[]>;
   /** The Main heartbeat of one local Task, when one is running. */
   heartbeat(taskId: string): Promise<{ pid: number; host: string; runId: string } | undefined>;
+  /** The local Task snapshot, for reconciling a dispatch interrupted by a restart. */
+  taskState(taskId: string): Promise<{ status: string; activeRunId?: string } | undefined>;
   host?: string;
   tickMs?: number;
+  /** Base backoff for a recoverable dispatch failure (tests use a small one). */
+  retryBaseMs?: number;
   now?: () => string;
 }
 
@@ -66,6 +75,10 @@ export interface MainCapacityView {
     position: number;
     origin: MainCapacityQueueEntry["origin"];
     enqueuedAt: string;
+    /** `failed` means bounded retries are spent; the input stays here to retry. */
+    state: "queued" | "starting" | "failed";
+    attempts: number;
+    lastError?: string;
   }>;
   projects: MainCapacityProjectUsage[];
   /**
@@ -78,6 +91,16 @@ export interface MainCapacityView {
 
 /** A reservation whose launch has not produced a process yet still owns its slot. */
 const DISPATCH_GRACE_MS = 120_000;
+
+/** A failure the same accepted demand can survive by waiting for the service again. */
+function transientDispatchFailure(error: unknown): boolean {
+  return (
+    error instanceof ProjectDataUnavailableError ||
+    error instanceof ProjectDataAuthError ||
+    (error instanceof Error &&
+      ["storage_unavailable", "shared_auth_failed"].includes((error as Error & { code?: string }).code ?? ""))
+  );
+}
 
 function pidAlive(pid: number): boolean {
   try {
@@ -101,7 +124,13 @@ function pidAlive(pid: number): boolean {
 export function createMainCapacityService(ports: MainCapacityServicePorts) {
   const host = ports.host ?? hostname();
   const now = ports.now ?? (() => new Date().toISOString());
-  const ledger = createMainCapacityLedger({ store: ports.store, host, settings: ports.settings, now });
+  const ledger = createMainCapacityLedger({
+    store: ports.store,
+    host,
+    settings: ports.settings,
+    now,
+    ...(ports.retryBaseMs ? { retryBaseMs: ports.retryBaseMs } : {})
+  });
   let starter: ((entry: MainCapacityQueueEntry) => Promise<void>) | undefined;
   let stopping = false;
   let started = false;
@@ -181,13 +210,10 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
     return failures.map((failure) => `${failure.projectId}（${failure.message}）`).join("；");
   }
 
-  async function slotAlive(slot: {
-    taskId: string;
-    runId: string;
-    host: string;
-    pid?: number;
-    startedAt: string;
-  }): Promise<boolean> {
+  async function slotAlive(
+    slot: { taskId: string; runId: string; host: string; pid?: number; startedAt: string },
+    ignoreFreshReservations = false
+  ): Promise<boolean> {
     // A heartbeat for another Run of the same Task is stale evidence about an
     // earlier process, not proof that this slot has no process.
     const beat = await ports.heartbeat(slot.taskId).catch(() => undefined);
@@ -195,36 +221,58 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
     if (slot.host !== host) return false;
     if (slot.pid !== undefined) return pidAlive(slot.pid);
     // A dispatch reserves its slot before the spawn returns; a concurrent read
-    // must not reclaim that claim as stale in the middle of the launch.
+    // must not reclaim that claim as stale in the middle of the launch. At
+    // startup no launch of this process is in flight, so such a reservation is
+    // the leftover of a crashed dispatch.
+    if (ignoreFreshReservations) return false;
     const age = Date.now() - Date.parse(slot.startedAt);
     return Number.isFinite(age) && age < DISPATCH_GRACE_MS;
   }
 
   /**
-   * Release every claim this backend cannot back with its own process.
+   * Reconcile this backend's own claims against its records.
    *
    * Only a process this host started may keep a slot: another host's pid is
-   * never probed, and nothing is killed here.
+   * never probed, and nothing is killed here. A dispatch interrupted by a
+   * restart either already recorded its Run (do not start it again) or never
+   * did (put the accepted demand back in line).
    */
-  async function reconcile(): Promise<void> {
+  async function reconcile(ignoreFreshReservations = false): Promise<void> {
     const state = await ledger.state();
-    for (const slot of state.slots) {
-      if (await slotAlive(slot)) continue;
-      await ledger.abandon(slot.requestId);
-    }
-    for (const entry of state.queue) {
+    if (state.queue.length || state.slots.length)
+      for (const slot of state.slots) {
+        if (await slotAlive(slot, ignoreFreshReservations)) continue;
+        await ledger.releaseSlot(slot.requestId);
+      }
+    // Only startup judges an interrupted `starting` entry: during normal
+    // operation an in-flight dispatch owns it, and its own failure handler
+    // decides between a retry and a permanent drop.
+    if (!ignoreFreshReservations) return;
+    const after = await ledger.state();
+    for (const entry of after.queue) {
       if (entry.state !== "starting") continue;
-      if (state.slots.some((slot) => slot.requestId === entry.requestId)) continue;
-      // A dispatch interrupted before a process existed: the demand is gone,
-      // and starting it again could run the same request twice.
-      await ledger.abandon(entry.requestId);
+      if (after.slots.some((slot) => slot.requestId === entry.requestId)) {
+        // The dispatch completed before the restart: the demand is running.
+        await ledger.completeStart(entry.requestId);
+        continue;
+      }
+      const task = await ports.taskState(entry.taskId).catch(() => undefined);
+      if (task?.activeRunId === entry.runId) {
+        // A Run was recorded before the interruption: never start it twice.
+        await ledger.completeStart(entry.requestId);
+        continue;
+      }
+      // The accepted input never became a Run: keep it and try again.
+      await ledger.retryStart(entry.requestId, "启动被中断，等待重试");
     }
   }
 
   async function dispatch(): Promise<void> {
     if (dispatching) {
+      // Called from inside a running dispatch (or while it settles): ask that
+      // pass to look again instead of awaiting itself.
       repeat = true;
-      return dispatching;
+      return;
     }
     dispatching = (async () => {
       do {
@@ -237,7 +285,13 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
             await ledger.completeStart(next.requestId);
           } catch (error) {
             log(error);
-            await ledger.failStart(next.requestId);
+            if (transientDispatchFailure(error)) {
+              // The accepted input outlives the outage; the demand waits with
+              // backoff and stays visible instead of being dropped.
+              await ledger.retryStart(next.requestId, error instanceof Error ? error.message : String(error));
+            } else {
+              await ledger.failStart(next.requestId);
+            }
           }
         }
       } while (repeat && !stopping);
@@ -322,18 +376,25 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
         ...(slot.pid ? { pid: slot.pid } : {}),
         startedAt: slot.startedAt
       })),
-      queued: state.queue.map((entry, index) => ({
-        requestId: entry.requestId,
-        projectId: entry.projectId,
-        ...(names.has(entry.projectId) ? { projectName: names.get(entry.projectId)! } : {}),
-        sessionId: entry.sessionId,
-        taskId: entry.taskId,
-        kind: entry.kind,
-        ...(entry.requirementId ? { requirementId: entry.requirementId } : {}),
-        position: index + 1,
-        origin: entry.origin,
-        enqueuedAt: entry.enqueuedAt
-      })),
+      // A demand being dispatched already owns a slot and is listed there; the
+      // queue shows the ones still waiting or waiting to be retried.
+      queued: state.queue
+        .filter((entry) => entry.state !== "starting")
+        .map((entry, index) => ({
+          requestId: entry.requestId,
+          projectId: entry.projectId,
+          ...(names.has(entry.projectId) ? { projectName: names.get(entry.projectId)! } : {}),
+          sessionId: entry.sessionId,
+          taskId: entry.taskId,
+          kind: entry.kind,
+          ...(entry.requirementId ? { requirementId: entry.requirementId } : {}),
+          position: index + 1,
+          origin: entry.origin,
+          enqueuedAt: entry.enqueuedAt,
+          state: entry.state,
+          attempts: entry.attempts ?? 0,
+          ...(entry.lastError ? { lastError: entry.lastError } : {})
+        })),
       projects: usage,
       projectsComplete: read.failures.length === 0,
       ...(read.failures.length ? { projectsError: failureMessage(read.failures) } : {})
@@ -414,7 +475,10 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
 
     async release(requestId: string): Promise<void> {
       if (!(await ledger.release(requestId))) return;
-      if (!stopping) await dispatch();
+      // Never block the caller on the next dispatch: this runs from inside the
+      // launch that failed (whose dispatch pass is still in flight) as well as
+      // from a process close.
+      if (!stopping) void dispatch().catch(log);
     },
 
     bindProcess(requestId: string, pid: number): Promise<void> {
@@ -432,9 +496,23 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
 
     /** Reconcile this backend's claims and start what fits; safe to call repeatedly. */
     async recover(): Promise<void> {
-      await reconcile();
+      // Startup: a reservation without a process is the leftover of a crashed
+      // dispatch, not a launch this process has in flight.
+      await reconcile(true);
       await refreshExternalSessions();
       await dispatch();
+    },
+
+    /** Put a failed accepted demand back in line and start what fits. */
+    async retry(requestId: string): Promise<MainCapacityView> {
+      if (!(await ledger.retry(requestId)))
+        throw new ProjectDataConflictError(
+          "该需求不在可重试状态；草稿或附件如有需要请重新发送",
+          undefined,
+          "main_capacity_not_retryable"
+        );
+      if (!stopping) await dispatch();
+      return describe();
     },
 
     async start(): Promise<void> {
