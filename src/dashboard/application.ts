@@ -75,6 +75,7 @@ import { createMainRunLauncher } from "./main-run-launch.js";
 import { MainCapacityStore, mainCapacityStatePath } from "../storage/main-capacity-store.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { ProjectDataRuntime } from "../workspace/project-data-service.js";
+import { createProjectDevelopmentService } from "./project-development-service.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
 import { MacComputerDriver } from "../gui/macos-driver.js";
@@ -244,6 +245,37 @@ export function createDashboardApplication(
       if (!location) return undefined;
       const beat = await readHeartbeat(location.workspaceRoot, taskId);
       return beat ? { pid: beat.pid, host: beat.host, runId: beat.runId } : undefined;
+    }
+  });
+  /**
+   * Requirement development records: the shared goal/baseline through the
+   * ledger gateway, and an isolated `git worktree` under the data root.
+   */
+  const developments = createProjectDevelopmentService({
+    runtime: projectData,
+    backendId: backendIdentity.backendId,
+    developmentRoot: join(dirname(globalIndexPath), "development-workspaces"),
+    project: async (projectId) => {
+      const project = await workspaces.applicationProjectForId(projectId);
+      return project
+        ? {
+            projectId: project.projectId,
+            projectName: project.projectName,
+            projectDirectory: project.projectDirectory
+          }
+        : undefined;
+    },
+    taskProject: async (taskId) => {
+      const location = await workspaces.locateTask(taskId).catch(() => undefined);
+      if (!location?.projectId) return undefined;
+      const project = await workspaces.applicationProjectForId(location.projectId);
+      return project
+        ? {
+            projectId: project.projectId,
+            projectName: project.projectName,
+            projectDirectory: project.projectDirectory
+          }
+        : undefined;
     }
   });
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
@@ -848,6 +880,7 @@ export function createDashboardApplication(
     userMemory,
     projectData,
     mainSessions,
+    developments,
     mainCapacity,
     launchMainRun,
     access,

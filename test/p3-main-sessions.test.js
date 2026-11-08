@@ -447,7 +447,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     const b = await createProject(request, f, `other-${engine}`);
     const info = await request("/api/project-data");
     assert.equal(info.status, 200);
-    assert.equal(info.body.schemaVersion, 3);
+    assert.equal(info.body.schemaVersion, 4);
     const opened = await openService(f, engine, info.body);
     t.after(() => opened.close());
 
@@ -641,7 +641,7 @@ test("a v2 database upgrades to v3 and keeps its board and ledger records", asyn
   });
   const service = await runtime.service();
   t.after(() => runtime.close());
-  assert.equal(service.description.schemaVersion, 3);
+  assert.equal(service.description.schemaVersion, 4);
   assert.deepEqual(
     (await service.queryRequirements("project_upgrade")).map((requirement) => requirement.title),
     ["旧需求"]
@@ -691,7 +691,7 @@ test("a v1+v3 database applies the missing v2 instead of skipping it", async (t)
   });
   const service = await runtime.service();
   t.after(() => runtime.close());
-  assert.equal(service.description.schemaVersion, 3);
+  assert.equal(service.description.schemaVersion, 4);
   const sessions = await service.listMainSessions("project_upgrade");
   assert.equal(sessions.length, 1);
   assert.equal(sessions[0].session.sessionId, "session_legacy");

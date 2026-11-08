@@ -223,6 +223,40 @@ The session must belong to this backend and name that Task; a mismatch is refuse
 
 A secondary backend with `projectData.authority` reads and writes these same session records through its authenticated client, as business requests only: it never sends SQL or a transaction callback, and the authority keeps the token, the shared records and each backend's directory binding. Session records cross backends; the Task, Pi transcript and process ownership do not. A request recording or settling a Run for a session owned by another backend is refused with `session_backend_mismatch` instead of writing a second owner.
 
+## Development records
+
+A requirement's development record is the agreed goal, completion criteria, suggested route and code baseline, plus the isolated Git checkout a backend prepared for it. The record is shared project data and goes through the same unified gateway and HTTP surface on SQLite and PostgreSQL; the checkout directory is a per-backend execution fact, like a directory binding. This ticket records the work start only: `status` is `active` and delivery stays with later tickets.
+
+```text
+GET  /api/projects/:projectId/merge-config
+POST /api/projects/:projectId/merge-config
+GET  /api/projects/:projectId/developments
+GET  /api/projects/:projectId/developments/:developmentId
+POST /api/projects/:projectId/developments
+GET  /api/tasks/:taskId/developments
+POST /api/tasks/:taskId/developments
+```
+
+The merge configuration is the project's single update entry and is reserved for the later shared merge queue:
+
+```json
+{ "repository": "/absolute/path/to/repository", "targetBranch": "main", "executionBackendId": "backend_…" }
+```
+
+`repository` must be a local, non-bare Git repository and `targetBranch` a local branch; the execution backend checks both when the configuration is written and again when a workspace is prepared, and the data authority only stores the shared entry. `executionBackendId` defaults to the serving backend and names the backend that owns checkouts and later merges. A secondary backend with `projectData.authority` validates the repository on its own host, writes the shared entry and development record through its authenticated client, and prepares the checkout itself; on the authority a declared `create`/merge-config request only records the shared fact, and `ensure_workspace` is refused with 403 `development_workspace_owner_only` instead of running Git against another host's repository. Missing configuration returns 409 `project_git_missing` and names all three fields; an unusable repository, branch or bare repository returns 400 `project_git_invalid` naming the path or branch; a backend other than the execution owner returns 409 `project_git_owner_mismatch`.
+
+A development returns `projectId`, `developmentId`, `requirementId`, `requirementTitle`, `goal`, `completionCriteria`, `route` (`quick`/`direct`/`full`), `status` (`active`), `revision`, `baseline` (`{ branch, commit }`), optional `sessionId`/`taskId`, optional `workspace`, timestamps. `workspace` is `{ workspaceId, backendId, directory, branch, baseCommit, state, error? }`, where `state` is `ready` or `failed`; a failed attempt keeps the record, its directory, branch and baseline, so the requirement and workspace stay findable. The checkout is a real `git worktree` under `ATRIA_HOME/runtime/development-workspaces/<developmentId>` on branch `coworkos/development/<developmentId>` at the recorded commit; the user's own working copy, staged reservation and untracked files are never changed.
+
+POST bodies carry `action`:
+
+- `create` (`requirementId`, `goal`, `completionCriteria` 1–20 strings, `route`; optional `sessionId` on the project route) records the baseline from the configured target branch and prepares the checkout. One record exists per requirement; a second create returns 409 `development_exists` with the existing `developmentId`.
+- `update` (`developmentId`, `expectedRevision`, optional `goal`, `completionCriteria`, `route`) appends the next revision. A stale `expectedRevision` returns 409 `revision_conflict` with `currentRevision`.
+- `ensure_workspace` (`developmentId`) returns the existing checkout when it is still the recorded worktree, otherwise prepares it again at the recorded baseline. A failure is written to `workspace.state:"failed"` with a locatable `error` instead of deleting the record.
+- `get` (`developmentId`), `query` and `find_by_requirement` (`requirementId`) read; an unknown record returns 404.
+- `record_workspace` records the authenticated backend's own checkout (`developmentId`, `workspace`); it is used by a secondary backend's client and refuses a workspace for another backend with 403 `development_workspace_backend_mismatch`.
+
+The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project and Main session, so a tool argument cannot select another project or session. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project. The production tool is `project_development` with actions `create`, `get`, `query`, `find_by_requirement`, `update` and `ensure_workspace`.
+
 ## External Main capacity
 
 External Main capacity is a per-backend execution fact, so it is configured and served by the host that runs the processes. The quotas live in that host's public configuration; the slots, the queue and the index of the host's external sessions live beside the backend identity (`ATRIA_HOME/runtime/main-capacity/state.json`), never in shared project data.

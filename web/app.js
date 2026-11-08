@@ -36,6 +36,7 @@ import { createBackendConnection } from "./assets/controllers/backend-connection
 import { createProjectExperienceController } from "./assets/controllers/project-experience.js";
 import { createProjectController } from "./assets/controllers/project-controller.js";
 import { createProjectLedgerController } from "./assets/controllers/project-ledger.js";
+import { createProjectDevelopmentController } from "./assets/controllers/project-development.js";
 import { createMainSessionsController } from "./assets/controllers/main-sessions.js";
 import { createMainCapacityController } from "./assets/controllers/main-capacity.js";
 import { createProjectBoardController } from "./assets/controllers/project-board.js";
@@ -538,6 +539,8 @@ const projectController = createProjectController({
 });
 const ledgerController = createProjectLedgerController({ api, state, showToast });
 $("#ledger-nav").addEventListener("click", () => ledgerController.open());
+const developmentController = createProjectDevelopmentController({ api, state, showToast });
+$("#development-nav").addEventListener("click", () => developmentController.open());
 const mainSessionsController = createMainSessionsController({
   api,
   state,
@@ -1066,6 +1069,7 @@ function renderConversationList() {
   syncNavigationHistory();
   projectController.render();
   ledgerController.render();
+  developmentController.render();
   mainSessionsController.render();
   mainCapacityController.render();
   boardController.render();

@@ -42,6 +42,8 @@ import type { MainRunLauncher } from "./main-run-launch.js";
 import type { MainCapacityService } from "./main-capacity-service.js";
 import { handleMainCapacityRequest } from "./main-capacity-routes.js";
 import { handleMainSessionRequest } from "./main-session-routes.js";
+import { handleDevelopmentRequest } from "./project-development-routes.js";
+import type { ProjectDevelopmentService } from "./project-development-service.js";
 import type { createMainSessionService } from "./main-session-service.js";
 import { MainRequestConflictError } from "../runtime/main-request-retry.js";
 import { MainRequestSnapshotError } from "../storage/main-request-store.js";
@@ -78,6 +80,8 @@ export interface DashboardRoutePorts {
   projectData?: ProjectDataRuntime;
   /** Persistent project Main sessions; absent only in partial handlers that serve one router. */
   mainSessions?: ReturnType<typeof createMainSessionService>;
+  /** Requirement development records and their isolated Git checkouts. */
+  developments?: ProjectDevelopmentService;
   mainCapacity?: MainCapacityService;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
@@ -351,6 +355,26 @@ export function createDashboardHandler(
                 }
               : undefined;
           },
+          taskProject: async (taskId) => {
+            const location = await ports.locateTask(taskId);
+            if (!location.projectId) return undefined;
+            const project = await ports.applicationProjectForId(location.projectId);
+            return project
+              ? {
+                  projectId: project.projectId,
+                  projectName: project.projectName,
+                  projectDirectory: project.projectDirectory
+                }
+              : undefined;
+          }
+        }))
+      )
+        return;
+      if (
+        ports.developments &&
+        (await handleDevelopmentRequest(request, response, url, {
+          service: ports.developments,
+          backendId: ports.backendInfo().backendId,
           taskProject: async (taskId) => {
             const location = await ports.locateTask(taskId);
             if (!location.projectId) return undefined;

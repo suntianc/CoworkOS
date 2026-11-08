@@ -1,6 +1,6 @@
 # CoworkOS 后续开发阶段规划
 
-状态：2026-11-08。阶段划分、推进顺序与阶段目标已确认。P1、P2、科学工具剪枝和 P3 均已完成归档；P3 交付 `11f0f42c`，支持默认 SQLite / 可选 PostgreSQL，结果见 [P3 复盘](p3-retrospective.md)。P4 及后续阶段均未启动。
+状态：2026-11-08。阶段划分、推进顺序与阶段目标已确认。P1、P2、科学工具剪枝和 P3 均已完成归档；P3 交付 `11f0f42c`，支持默认 SQLite / 可选 PostgreSQL，结果见 [P3 复盘](p3-retrospective.md)。P4 进行中；P4.5、P5、P6、P7、P8 均未启动。
 
 本规划以 [产品术语](../GLOSSARY.md) 和已确认产品决定为基础，替代旧 P3–P7 阶段划分。旧草案票据在各阶段启动前重新拆分，不沿用旧票数和“项目唯一 Main”约束。现行能力见 [能力范围](builtin-capabilities.md)，历史交付与经验见 [复盘落实](retrospectives.md)。
 

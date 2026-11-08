@@ -25,10 +25,15 @@ import type {
   ProjectDataDescription,
   ProjectDataGateway,
   ProjectDataRestore,
+  DevelopmentCreate,
+  DevelopmentUpdate,
+  MergeConfigInput,
   RequirementCreate,
   RequirementQuery,
   RequirementUpdate
 } from "./project-data-service.js";
+import { DevelopmentExistsError } from "../domain/project-development.js";
+import type { DevelopmentRecord, MergeConfig } from "../domain/project-development.js";
 import type { MainSessionRun } from "../domain/main-session.js";
 import type { RequirementDetail, RequirementSummary, SharedProject } from "../domain/project-ledger.js";
 
@@ -347,6 +352,94 @@ export class RemoteProjectDataService implements ProjectDataGateway {
     return Number(result.settled ?? 0);
   }
 
+  /**
+   * The merge entry and development records travel through the same
+   * authenticated surface. The authority derives this backend from the session,
+   * so the checkout directory a remote backend reports stays its own fact.
+   */
+  async mergeConfig(projectId: unknown): Promise<MergeConfig | undefined> {
+    const result = await this.request(projectPath(projectId, "/merge-config"));
+    return (result.mergeConfig as MergeConfig | null) ?? undefined;
+  }
+
+  async setMergeConfig(
+    projectId: unknown,
+    input: MergeConfigInput,
+    _backendId: string
+  ): Promise<MergeConfig> {
+    const result = await this.request(projectPath(projectId, "/merge-config"), {
+      body: {
+        repository: input.repository,
+        targetBranch: input.targetBranch,
+        executionBackendId: input.executionBackendId
+      }
+    });
+    return result.mergeConfig as MergeConfig;
+  }
+
+  async createDevelopment(projectId: unknown, input: DevelopmentCreate): Promise<DevelopmentRecord> {
+    const result = await this.request(projectPath(projectId, "/developments"), {
+      body: { action: "create", ...input }
+    });
+    return result.development as DevelopmentRecord;
+  }
+
+  async updateDevelopment(
+    projectId: unknown,
+    developmentId: unknown,
+    input: DevelopmentUpdate,
+    _backendId?: string
+  ): Promise<DevelopmentRecord> {
+    const result = await this.request(projectPath(projectId, "/developments"), {
+      body: { action: "update", developmentId, ...input }
+    });
+    return result.development as DevelopmentRecord;
+  }
+
+  async getDevelopment(
+    projectId: unknown,
+    developmentId: unknown,
+    _backendId?: string
+  ): Promise<DevelopmentRecord> {
+    const result = await this.request(
+      projectPath(projectId, `/developments/${encodeURIComponent(String(developmentId))}`)
+    );
+    return result.development as DevelopmentRecord;
+  }
+
+  async queryDevelopments(projectId: unknown, _backendId?: string): Promise<DevelopmentRecord[]> {
+    const result = await this.request(projectPath(projectId, "/developments"));
+    return (result.developments as DevelopmentRecord[]) ?? [];
+  }
+
+  async findDevelopmentByRequirement(
+    projectId: unknown,
+    requirementId: unknown,
+    _backendId?: string
+  ): Promise<DevelopmentRecord | undefined> {
+    try {
+      const result = await this.request(projectPath(projectId, "/developments"), {
+        body: { action: "find_by_requirement", requirementId }
+      });
+      return result.development as DevelopmentRecord;
+    } catch (error) {
+      // The lookup is explicitly optional: no record for this requirement is not a failure.
+      if (error instanceof ProjectDataNotFoundError) return undefined;
+      throw error;
+    }
+  }
+
+  async recordDevelopmentWorkspace(
+    projectId: unknown,
+    developmentId: unknown,
+    workspace: unknown
+  ): Promise<DevelopmentRecord> {
+    const result = await this.request(projectPath(projectId, "/developments"), {
+      body: { action: "record_workspace", developmentId, workspace }
+    });
+    return result.development as DevelopmentRecord;
+  }
+
   async boardEntries(projectId: unknown): Promise<BoardEntry[]> {
     const result = await this.request(projectPath(projectId, "/board"));
     return (result.entries as BoardEntry[]) ?? [];
@@ -441,12 +534,18 @@ async function call(
       : `共享项目数据服务请求失败（HTTP ${response.status}）`;
   if (response.status === 401) throw new ProjectDataAuthError(`共享项目数据服务认证已失效：${message}`);
   if (response.status === 404) throw new ProjectDataNotFoundError(message);
-  if (response.status === 409)
+  if (response.status === 409) {
+    const code = typeof body.code === "string" ? body.code : "revision_conflict";
+    // The existing record is part of the conflict contract: a create retry can
+    // continue that record instead of guessing a new one.
+    if (code === "development_exists" && typeof body.developmentId === "string")
+      throw new DevelopmentExistsError(message, body.developmentId);
     throw new ProjectDataConflictError(
       message,
       typeof body.currentRevision === "number" ? body.currentRevision : undefined,
-      typeof body.code === "string" ? body.code : "revision_conflict"
+      code
     );
+  }
   if (response.status === 503) throw new ProjectDataUnavailableError(message);
   if (!response.ok)
     throw new ProjectDataError(
