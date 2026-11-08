@@ -17,6 +17,7 @@ import {
   runtimeSettingsEnv
 } from "../dist/src/runtime/runtime-settings.js";
 import { ensurePiRetryDefaults } from "../dist/src/runtime/model-retry.js";
+import { resolveModelRole, roleConnectionEnv } from "../dist/src/runtime/role-models.js";
 import { resolveCliSession } from "./cli-session.mjs";
 import { ensureCliBranding, ensureCliStartupSettings } from "./cli-branding.mjs";
 import { installSearchToolAdapters } from "./search-tool-adapter.mjs";
@@ -135,7 +136,7 @@ export async function startPi({ uiCompatibility } = {}) {
     }
     const data = atriaDataPaths(process.env, launchConfig);
     const workspaceRoot = data.workspaceRoot;
-    const configuredModel = process.env.COWORK_MODEL ?? launchConfig.model ?? "glm-5.3";
+    let configuredModel = process.env.COWORK_MODEL ?? launchConfig.model ?? "glm-5.3";
     const agentDir = data.piAgentDir;
     mkdirSync(agentDir, { recursive: true });
     await ensurePiRetryDefaults(agentDir);
@@ -171,11 +172,13 @@ export async function startPi({ uiCompatibility } = {}) {
     if (selectedSession.cancelled) process.exit(0);
     const taskId = explicitTaskId ?? selectedSession.taskId ?? `task-${randomUUID()}`;
     projectDirectory = selectedSession.projectDirectory ?? projectDirectory;
+    let taskProjectId;
     try {
       const task = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId).catch((error) => {
         if (error.message === `unknown task: ${taskId}`) return undefined;
         throw error;
       });
+      taskProjectId = task?.projectId;
       if (task?.projectId && task.projectCatalogPath) {
         const { GlobalProjectCatalog } = await import("../dist/src/workspace/project-catalog.js");
         const { beginProjectExecution } = await import("../dist/src/workspace/project-execution.js");
@@ -234,6 +237,36 @@ export async function startPi({ uiCompatibility } = {}) {
         console.error(error.message);
         process.exit(1);
       }
+    // The CLI reads the same execution-host role defaults as the Dashboard. An
+    // explicit --model or a model forced by the launch environment still wins;
+    // a role-selected connection supplies its key, endpoint and profile. This
+    // runs after admission, so a default changed while the host was full is the
+    // default this launch actually gets.
+    const roleBinding =
+      launchConfig.roleModels?.host?.main ??
+      (taskProjectId ? launchConfig.roleModels?.projects?.[taskProjectId]?.main : undefined);
+    let mainRole;
+    if (roleBinding && !process.env.COWORK_API_BASE && !process.env.COWORK_MODEL) {
+      const modelIndex = userFlags.get("--model")?.index ?? -1;
+      const requestedModel = modelIndex >= 0 ? optionArgs[modelIndex + 1] : undefined;
+      try {
+        mainRole = resolveModelRole(launchConfig, {
+          ...(taskProjectId ? { projectId: taskProjectId } : {}),
+          ...(requestedModel ? { model: requestedModel } : {}),
+          ...(thinkingIndex >= 0 ? { thinkingLevel } : {})
+        });
+      } catch (error) {
+        await capacityExecution?.capacity.release(capacityExecution.requestId).catch(() => {});
+        console.error(error.message);
+        process.exit(1);
+      }
+      configuredModel = mainRole.model;
+      if (thinkingIndex < 0) thinkingLevel = mainRole.thinkingLevel;
+      supportsReasoningEffort = mainRole.profile.supportsReasoningEffort;
+      thinkingFormat = mainRole.profile.thinkingFormat ?? "auto";
+      supportsPromptCacheKey = mainRole.profile.supportsPromptCacheKey;
+    }
+
     const sessionDirectoryArg = optionArgs.lastIndexOf("--session-dir");
     if (
       !cliLaunch &&
@@ -311,11 +344,23 @@ export async function startPi({ uiCompatibility } = {}) {
     const activeConnection = launchConfig.modelConnections?.profiles.find(
       (profile) => profile.id === launchConfig.modelConnections.activeId
     );
-    const connectionId = activeConnection?.contextId || activeConnection?.id || "";
+    const roleEnv = mainRole ? roleConnectionEnv(mainRole) : {};
+    // A Dashboard run already resolved its connection and passes its identity;
+    // a CLI launch without one falls back to the active connection as before.
+    const connectionId =
+      roleEnv.COWORK_CONNECTION_ID ??
+      process.env.COWORK_CONNECTION_ID ??
+      activeConnection?.contextId ??
+      activeConnection?.id ??
+      "";
     const providerId = process.env.COWORK_MAIN_RETRY_MODEL
       ? parseMainRequestModel(process.env.COWORK_MAIN_RETRY_MODEL).provider
       : coworkProviderId(
-          process.env.COWORK_API_BASE || launchConfig.baseUrl || launchConfig.apiBase || "",
+          roleEnv.COWORK_API_BASE ||
+            process.env.COWORK_API_BASE ||
+            launchConfig.baseUrl ||
+            launchConfig.apiBase ||
+            "",
           connectionId
         );
     const args = [
@@ -354,6 +399,7 @@ export async function startPi({ uiCompatibility } = {}) {
     const childEnv = {
       ...process.env,
       ...runtimeEnv,
+      ...roleEnv,
       ...visionModelEnv(launchConfig),
       ...brandingEnv,
       ...(process.env.COWORK_CONFIG || existsSync(launchConfigPath)
@@ -362,12 +408,16 @@ export async function startPi({ uiCompatibility } = {}) {
       COWORK_HARNESS_ROOT: harnessRoot,
       COWORK_CONFIG_ROOT: process.cwd(),
       COWORK_PROJECT_DIR: projectDirectory,
-      COWORK_API_KEY: process.env.COWORK_API_KEY ?? launchConfig.apiKey,
-      COWORK_API_BASE: process.env.COWORK_API_BASE ?? launchConfig.baseUrl ?? launchConfig.apiBase,
+      COWORK_API_KEY: roleEnv.COWORK_API_KEY ?? process.env.COWORK_API_KEY ?? launchConfig.apiKey,
+      COWORK_API_BASE:
+        roleEnv.COWORK_API_BASE ??
+        process.env.COWORK_API_BASE ??
+        launchConfig.baseUrl ??
+        launchConfig.apiBase,
       COWORK_MODEL: configuredModel,
-      COWORK_CONNECTION_ID: connectionId,
+      COWORK_CONNECTION_ID: roleEnv.COWORK_CONNECTION_ID ?? connectionId,
       COWORK_REASONING_EFFORT: thinkingLevel,
-      COWORK_THINKING_FORMAT: thinkingFormat,
+      COWORK_THINKING_FORMAT: roleEnv.COWORK_THINKING_FORMAT ?? thinkingFormat,
       COWORK_SUPPORTS_REASONING_EFFORT: supportsReasoningEffort ? "1" : "0",
       COWORK_SUPPORTS_PROMPT_CACHE_KEY: supportsPromptCacheKey ? "1" : "0",
       COWORK_WORKSPACE: workspaceRoot,

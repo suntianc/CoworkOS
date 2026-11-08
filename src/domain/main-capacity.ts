@@ -59,6 +59,8 @@ export interface MainCapacitySlot {
 
 export interface MainCapacitySubmission {
   body?: string;
+  /** An explicit one-off connection is a user choice and survives the wait. */
+  profileId?: string;
   thinkingLevel?: string;
   attachmentIds?: string[];
   textAttachments?: Array<{ name: string; text: string; size: number }>;

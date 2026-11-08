@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { dirname, join } from "node:path";
 import {
   MAIN_CAPACITY_LIMIT,
   mainCapacityCount,
@@ -12,6 +13,7 @@ import { ProjectDataConflictError, ProjectDataInvalidError } from "../domain/pro
 import { createMainCapacityLedger } from "../runtime/main-capacity.js";
 import type { MainSessionRecord } from "../workspace/project-data-service.js";
 import type { MainCapacityStore } from "../storage/main-capacity-store.js";
+import { withFileLock } from "../storage/file-lock.js";
 
 export interface MainCapacityProject {
   projectId: string;
@@ -66,6 +68,12 @@ export interface MainCapacityView {
     enqueuedAt: string;
   }>;
   projects: MainCapacityProjectUsage[];
+  /**
+   * False when a shared session read failed: `projects` is then partial and
+   * the saved-session counts are unknown, not zero.
+   */
+  projectsComplete: boolean;
+  projectsError?: string;
 }
 
 /** A reservation whose launch has not produced a process yet still owns its slot. */
@@ -111,14 +119,22 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
   async function externalSessions(): Promise<{
     tasks: MainCapacityExternalTask[];
     usage: MainCapacityProjectUsage[];
+    failures: Array<{ projectId: string; message: string }>;
   }> {
     const tasks: MainCapacityExternalTask[] = [];
     const usage: MainCapacityProjectUsage[] = [];
+    const failures: Array<{ projectId: string; message: string }> = [];
     for (const project of await ports.projects()) {
       let records: MainSessionRecord[];
       try {
         records = await ports.sessions(project.projectId);
-      } catch {
+      } catch (error) {
+        // An unreadable project is unknown, never an empty one: keeping the
+        // failure lets quota checks refuse instead of counting it as zero.
+        failures.push({
+          projectId: project.projectId,
+          message: error instanceof Error ? error.message : String(error)
+        });
         continue;
       }
       const mine = records.filter(
@@ -138,16 +154,31 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
         continuation: mine.filter((record) => record.session.kind === "continuation").length
       });
     }
-    return { tasks, usage };
+    return { tasks, usage, failures };
   }
 
-  /** Re-read the shared sessions into the local index the CLI and worker consult. */
+  /**
+   * Re-read the shared sessions into the local index the CLI and worker consult.
+   *
+   * A partial read merges instead of replacing, so a shared-service outage can
+   * never make this backend's own external Tasks look internal to its CLI.
+   */
   async function refreshExternalSessions(): Promise<void> {
-    await ledger.setExternalTasks((await externalSessions()).tasks);
+    const read = await externalSessions();
+    if (!read.failures.length) {
+      await ledger.setExternalTasks(read.tasks);
+      return;
+    }
+    await ledger.mergeExternalTasks(read.tasks);
+    console.error(
+      `[cowork] 外部会话索引刷新不完整，已保留已知身份：${read.failures
+        .map((failure) => `${failure.projectId}（${failure.message}）`)
+        .join("；")}`
+    );
   }
 
-  async function projectUsage(): Promise<MainCapacityProjectUsage[]> {
-    return (await externalSessions()).usage;
+  function failureMessage(failures: Array<{ projectId: string; message: string }>): string {
+    return failures.map((failure) => `${failure.projectId}（${failure.message}）`).join("；");
   }
 
   async function slotAlive(slot: {
@@ -244,11 +275,36 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
       );
   }
 
+  /**
+   * One critical section for saving an external session.
+   *
+   * The limit is computed from shared session rows, so the check and the create
+   * must not interleave with another save of the last free place. This is a
+   * local, per-backend lock: another backend has its own quota and its own count.
+   */
+  function withSessionCreateLock<T>(action: () => Promise<T>): Promise<T> {
+    return withFileLock(join(dirname(ports.store.path), "session-create"), action, {
+      timeoutMs: 15_000
+    });
+  }
+
   /** Settings, running claims and waiting demands as the page and the tool read them. */
   async function describe(): Promise<MainCapacityView> {
     await reconcile();
     const state = await ledger.state();
-    const usage = await projectUsage();
+    // A shared read may fail; the local running and waiting facts stay
+    // readable, but the saved-session counts are reported as unknown.
+    const read = await externalSessions().catch((error: unknown) => ({
+      tasks: [],
+      usage: [],
+      failures: [
+        {
+          projectId: "*",
+          message: error instanceof Error ? error.message : String(error)
+        }
+      ]
+    }));
+    const usage = read.usage;
     const names = new Map(usage.map((project) => [project.projectId, project.projectName]));
     return {
       configured: Boolean(ports.settings()),
@@ -277,7 +333,9 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
         origin: entry.origin,
         enqueuedAt: entry.enqueuedAt
       })),
-      projects: usage
+      projects: usage,
+      projectsComplete: read.failures.length === 0,
+      ...(read.failures.length ? { projectsError: failureMessage(read.failures) } : {})
     };
   }
 
@@ -295,9 +353,22 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
     if (next.resident > MAIN_CAPACITY_LIMIT || next.continuation > MAIN_CAPACITY_LIMIT)
       throw new ProjectDataInvalidError(`配额不能超过 ${MAIN_CAPACITY_LIMIT}`);
     if (current?.resident !== next.resident || current?.continuation !== next.continuation) {
-      const state = await ledger.state();
-      if (current) assertReductionAllowed(next, state, await projectUsage());
-      await ports.persistSettings(next);
+      // Serialize with session creation: a newly saved session must count
+      // toward the quota this check is about to accept.
+      await withSessionCreateLock(async () => {
+        const state = await ledger.state();
+        if (current) {
+          const read = await externalSessions();
+          if (read.failures.length)
+            throw new ProjectDataConflictError(
+              `无法读取全部项目会话，暂不能修改配额：${failureMessage(read.failures)}`,
+              undefined,
+              "main_capacity_unavailable"
+            );
+          assertReductionAllowed(next, state, read.usage);
+        }
+        await ports.persistSettings(next);
+      });
     }
     return describe();
   }
@@ -309,8 +380,20 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
 
     enabled: () => Boolean(ports.settings()),
 
-    sessionUsage(projectId: string): Promise<MainCapacityProjectUsage | undefined> {
-      return projectUsage().then((usage) => usage.find((project) => project.projectId === projectId));
+    /** Same critical section the quota write uses, for session creation. */
+    withCreateLock: withSessionCreateLock,
+
+    async sessionUsage(projectId: string): Promise<MainCapacityProjectUsage | undefined> {
+      const read = await externalSessions();
+      const failure = read.failures.find((entry) => entry.projectId === projectId);
+      // Unknown is not zero: a create must not pass the limit it cannot count.
+      if (failure)
+        throw new ProjectDataConflictError(
+          `无法读取该项目的会话数，暂不能确认外部会话上限：${failure.message}`,
+          undefined,
+          "main_capacity_unavailable"
+        );
+      return read.usage.find((project) => project.projectId === projectId);
     },
 
     /** Record an external session so this host's CLI and worker can find it. */

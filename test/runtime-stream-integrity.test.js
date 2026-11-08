@@ -9,6 +9,7 @@ import { streamRunEvents, readJsonFile } from "../dist/src/dashboard/event-strea
 import { createDashboardRunService } from "../dist/src/dashboard/run-service.js";
 import { readTaskRuntimeEvents } from "../dist/src/runtime/conversation-history.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+import { singleConnectionMainModel } from "./role-model-fixture.mjs";
 
 const delta = (text) => ({
   type: "message_update",
@@ -160,12 +161,7 @@ test("a real child's stderr cannot split stdout JSON events and remains availabl
     dashboardUrl: "http://127.0.0.1:1",
     coordinator: {},
     locateTask: async () => ({ workspaceRoot, store, task: await store.readTask("task") }),
-    runtimeValue: (name) =>
-      ({
-        COWORK_API_BASE: "http://127.0.0.1:1",
-        COWORK_API_KEY: "synthetic-only",
-        COWORK_MODEL: "synthetic"
-      })[name],
+    resolveMainModel: singleConnectionMainModel({ apiKey: "synthetic-only", model: "synthetic" }),
     normalizeModel: (value) => value,
     appendRunEvent: async () => {},
     readJsonFile

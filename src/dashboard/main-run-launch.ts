@@ -13,6 +13,10 @@ export interface MainRunLaunchRequest {
   model?: string;
   retryRequestId?: string;
   body?: string;
+  /** Uploads this request already attached; a queued Run records the same ids. */
+  attachmentIds?: string[];
+  /** Explicit one-off connection; an unknown id refuses instead of falling back. */
+  profileId?: string;
   thinkingLevel?: PiThinkingLevel;
   textAttachments?: EditTextFile[];
   source?: "composer" | "human" | "inbox";
@@ -59,6 +63,8 @@ export function createMainRunLauncher({ locateTask, mainSessions, startMainRun }
     const claimed: { runId?: string; projectId?: string; sessionId?: string } = {};
     const submission = {
       ...(request.body === undefined ? {} : { body: request.body }),
+      ...(request.attachmentIds?.length ? { attachmentIds: request.attachmentIds } : {}),
+      ...(request.profileId ? { profileId: request.profileId } : {}),
       ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {}),
       ...(request.textAttachments ? { textAttachments: request.textAttachments } : {}),
       ...(request.source ? { source: request.source } : {}),

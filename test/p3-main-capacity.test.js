@@ -374,3 +374,38 @@ test(
     assert.deepEqual(local.failures, []);
   }
 );
+
+/**
+ * The project limit is a hard bound, not a policy hint: two pages saving the
+ * last free place must not both succeed. The check and the creation of an
+ * external session are one critical section.
+ */
+test("concurrent external session saves never exceed the project limit", { timeout: 120_000 }, async (t) => {
+  const dashboard = await startDashboard({
+    defaultProject: false,
+    config: { mainCapacity: { resident: 2, continuation: 0 } }
+  });
+  t.after(() => dashboard.stop());
+  const request = client(dashboard);
+  const project = await createProject(request, dashboard, "race");
+  const first = await createSession(request, project.projectId, { title: "已保存", entryKind: "external" });
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+
+  const results = await Promise.all([
+    createSession(request, project.projectId, { title: "并发一", entryKind: "external" }),
+    createSession(request, project.projectId, { title: "并发二", entryKind: "external" })
+  ]);
+  assert.deepEqual(
+    results.map((result) => result.status).sort(),
+    [201, 409],
+    JSON.stringify(results.map((result) => result.body))
+  );
+  const refused = results.find((result) => result.status === 409);
+  assert.match(refused.body.error, /上限/);
+  const listed = await request(`/api/projects/${encodeURIComponent(project.projectId)}/main-sessions`);
+  assert.deepEqual(listed.body.sessions.map((session) => session.title).sort(), ["并发一", "已保存"].sort());
+  // The saved sessions still count for the quota check.
+  const reduced = await setCapacity(request, { resident: 1 });
+  assert.equal(reduced.status, 409, JSON.stringify(reduced.body));
+  assert.match(reduced.body.error, /已有 2 个外部常规会话/);
+});

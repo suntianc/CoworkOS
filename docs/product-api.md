@@ -25,9 +25,10 @@ GET  /api/operations/:operationId
 GET  /api/events/snapshot
 GET  /api/events/stream?cursor=<seq>
 GET  /api/models
-GET  /api/model-settings
+GET  /api/model-settings?projectId=<stable project id>
 POST /api/model-settings
 POST /api/model-settings/test
+POST /api/model-settings/roles
 GET  /api/web-search-settings
 POST /api/web-search-settings
 POST /api/workspace/choose
@@ -43,6 +44,8 @@ Models returns `{ current, models, configured }`. `GET /api/tasks` returns the g
 `GET /api/backend` returns `{ backendId, pid, startedAt, protocol }` for the process serving this data root. `protocol` is `{ version, minClientVersion, capabilities }`. The standalone backend keeps `backendId` across restarts, so a client can tell a restarted process from a different backend, and `pid` lets a host stop only the process it recorded. The route is local and credential-checked like the other `/api/*` routes and exposes no configuration.
 
 Desktop and Web use the same model and search HTTP routes. Desktop keeps its client session credential in the host and authorizes the selected backend's requests through the host-managed session.
+
+`GET /api/model-settings` also returns `modelRoles` for the requested project: each known role with `wired`, its host and project binding, and — for Main — the effective `source`, `connectionName`, `model` and reasoning level. Only Main is wired in P3; the other keys are listed with `wired: false` and no effective connection. `POST /api/model-settings/roles { role, profileId, projectId? }` saves a host default (no `projectId`) or a project override and returns the same redacted status; `profileId: ""` clears the binding. A binding that names a missing connection is refused here, and a stored reference that has disappeared is reported through `modelRoles.roles[].error` and refuses the next Run instead of using another account. Project overrides are local to the execution host and indexed by the shared project id, so they never carry a key or follow a project to a remote host. Role changes apply to the next Run; an active Run keeps its admitted snapshot.
 
 Model and search credentials belong to the execution host. `GET /api/model-settings` never returns a key: it returns the connection list plus `configured` and `credentialUnavailable`/`credentialError` when a saved key cannot be read here. `POST /api/model-settings` writes the submitted key to the host credential file (`credentials.json`, mode 0600, beside the configuration; `COWORK_CREDENTIALS` overrides the path) and returns the same redacted status. A blank key keeps the stored one. Old Electron ciphertext is reported as unavailable instead of configured, `POST /api/model-settings/test` rejects it with the same message, and submitting a key replaces it. `GET /api/web-search-settings` follows the same rule with `secretUnavailable`; `POST` stores or clears the Exa key in that file. Use `node scripts/migrate-desktop-settings.mjs --config <config path>` while the backend is stopped to convert old ciphertext once; it backs up the original as `<config>.before-host-credentials` and reports `already-migrated` on a rerun. See [connection storage](configuration-reference.md#连接存储与兼容).
 
@@ -235,7 +238,7 @@ GET  /api/main-capacity
 POST /api/main-capacity   { action: "configure", resident?, continuation? }
 ```
 
-`GET` returns `configured`, `settings` (`resident`, `continuation` or null), `running` (`requestId`, `projectId`, `projectName?`, `sessionId`, `taskId`, `runId`, `kind`, `requirementId?`, `pid?`, `startedAt`), `queued` (`requestId`, project and session identity, `kind`, `requirementId?`, `position`, `origin` = `http|worker|cli|internal`, `enqueuedAt`) and per-project `projects` with the external `regular` and `continuation` session counts this backend owns. `POST` validates and commits the quotas; a reduction below a running kind or below any project's saved regular sessions is refused with 409 `main_capacity_in_use` and a message naming the reason, which never ends running work.
+`GET` returns `configured`, `settings` (`resident`, `continuation` or null), `running` (`requestId`, `projectId`, `projectName?`, `sessionId`, `taskId`, `runId`, `kind`, `requirementId?`, `pid?`, `startedAt`), `queued` (`requestId`, project and session identity, `kind`, `requirementId?`, `position`, `origin` = `http|worker|cli|internal`, `enqueuedAt`), per-project `projects` with the external `regular` and `continuation` session counts this backend owns, and `projectsComplete` (`false` plus `projectsError` when a shared session read failed — the counts are then unknown, never zero). `POST` validates and commits the quotas; a reduction below a running kind or below any project's saved regular sessions is refused with 409 `main_capacity_in_use` and a message naming the reason, which never ends running work.
 
 A regular external Run occupies one `resident` slot and a continuation Run one `continuation` slot; a slot is never borrowed from the other kind. An internal Main spends no external capacity. The number of external regular sessions a project may save equals `resident`; saved sessions do not occupy a running slot, and continuation sessions do not count toward the project limit. Both limits are computed from the shared Main session rows, so every backend and every engine sees the same saved sessions.
 
@@ -248,7 +251,9 @@ POST /api/tasks/:taskId/run   → 202 { status: "running" } | { status: "queued"
 
 `POST /api/tasks/:taskId/run` admits an external session through this budget before recording anything. When no slot is free the response is `202` with `status:"queued"` and a position; no Run row is written, no process starts and the Task keeps its previous status. A demand for a Task or requirement that already owns a slot or a waiting position returns `status:"duplicate"` with the existing identity instead of running twice. `cancel` on a queued Task drops its waiting demand. The Main worker and the interactive CLI reserve from the same file and lock before starting a Main; when the budget is full the worker reports `main_capacity_queued` and leaves the demand to the program's queue, and an interactive launch refuses with the reason.
 
-`pendingHumanAnswers`, watch wakeups and other in-process retries are not queued: an exhausted budget refuses them with the same reason, and their durable state lets the next attempt proceed.
+A submitted human answer or a watch wake is a durable demand too: when the budget is full it joins the same queue (`origin:"internal"`) instead of being lost, and the program resumes it when a slot frees. `POST /api/tasks/:taskId/human/resume` reports `status:"queued"` in that case.
+
+A queued demand keeps the request's identity — Task, session, requirement, `retryRequestId`, explicit `profileId`/`model`/thinking level and attachment ids — but no resolved model default and no credential. The default connection, model and reasoning profile are resolved by the host role resolver at the moment the demand actually gets a slot, so a host or project default changed while it waited applies to that Run; an explicit choice stays the user's and a retry keeps its saved request snapshot. Saving two external sessions at the same time is serialized, so a project can never exceed its `resident` saved regular sessions.
 
 ## Demand board
 
@@ -682,7 +687,7 @@ Application tools return operations for the platform to commit through revision 
 
 - `PATCH /api/tasks/:taskId` 接受 optional `title`（1–100 字符）、`pinned`、`archived`。原有 goal 与 Task 身份保持不变；旧记录缺省为未置顶、未归档。运行中的任务需先停止才能归档；搜索可重新打开已归档会话并恢复。
 - `POST /api/tasks/:taskId/action` 的 cancel 通过 Run 服务终止对应 Pi 进程组、取消未完成委派并等待输出落盘，再返回。其他任务和后续运行不受影响。Detail 的 `runtime.stopping` 为停止中的 optional 标志。
-- Web 和桌面共用 `GET /api/model-settings`：返回当前连接状态以及 `activeProfileId`、`visionProfileId`、`profiles`（`id`、`name`、`active`、`vision`、`configured` 和非密钥参数），不返回明文或加密密钥。POST 接受 `baseUrl`、`model`、`apiKey`、`api`、`supportsImages`、`contextWindow`（上下文容量，默认 256000 token，正的安全整数）、推理/输出参数，以及 `profileId`、`profileName`、`activate` 和 `vision`；`profileId: ""` 新建，非空编辑指定组，省略则兼容原单组调用、修改当前组。`activate: true` 保存并启用；首组自动启用。`vision: true` 将图像配置用于 `read_image` 的纯文本模型兜底，保存为 `modelConnections.visionId`；`vision: false` 只在该组当前承担此用途时取消，不切换聊天连接。空密钥只保留指定组原密钥，新组必须提供密钥。测试接口按 `profileId` 查找该组密钥，不修改当前启用项。环境管理的连接和运行中的任务拒绝保存。配置列表使用 `modelConnections.version: 1`，首次写入前保留 `.before-model-profiles` 备份，配置与备份权限为 0600。模型密钥保存在所选执行主机的凭据文件中，保存设置不重启后端。
+- Web 和桌面共用 `GET /api/model-settings`：返回当前连接状态以及 `activeProfileId`、`visionProfileId`、`profiles`（`id`、`name`、`active`、`vision`、`configured` 和非密钥参数），不返回明文或加密密钥。POST 接受 `baseUrl`、`model`、`apiKey`、`api`、`supportsImages`、`contextWindow`（上下文容量，默认 256000 token，正的安全整数）、推理/输出参数，以及 `profileId`、`profileName`、`activate` 和 `vision`；`profileId: ""` 新建，非空编辑指定组，省略则兼容原单组调用、修改当前组。`activate: true` 保存并启用；首组自动启用。`vision: true` 将图像配置用于 `read_image` 的纯文本模型兜底，保存为 `modelConnections.visionId`；`vision: false` 只在该组当前承担此用途时取消，不切换聊天连接。空密钥只保留指定组原密钥，新组必须提供密钥。测试接口按 `profileId` 查找该组密钥，不修改当前启用项。环境管理的连接和运行中的任务拒绝保存。配置列表使用 `modelConnections.version: 1`，首次写入前保留 `.before-model-profiles` 备份，配置与备份权限为 0600。模型密钥保存在所选执行主机的凭据文件中，保存设置不重启后端。`GET /api/model-settings?projectId=<项目 ID>` 额外返回 `modelRoles`：Main 的有效来源（项目覆盖、主机默认、当前启用连接或启动环境）、连接名称、模型和推理强度；Executor、Reviewer、Router 以 `wired: false` 列出，不表示已运行生效。`POST /api/model-settings/roles` 以 `{ role, profileId, projectId? }` 保存主机默认或项目覆盖，`profileId: ""` 清除；引用的连接不存在时拒绝保存，已保存的失效引用在状态中给出可定位错误并拒绝下一次 Run，不会改用其他账号。项目覆盖按共享项目 ID 保存在执行主机本机配置中，不随项目进入共享数据或远端主机。角色变更对下一次 Run 生效，在途 Run 保持启动时的快照。
 - `GET /api/models` 新增 `connectionProfileId`，配置切换后前端清除旧服务的会话模型选择；已有会话历史保留，后续请求使用新启用的模型配置。
 - 本地附件通过下方 [Local input uploads](#local-input-uploads) 的上传、预览与引用接口读取；现有文本草稿附件的限制不代表上传接口的文件能力。Run prompt 通过 stdin 传给 Pi，服务边界仍拒绝 NUL 和超限消息。
 - interject 的 Inbox 投递不变；响应增加 `messageId`，事件保存完整消息用于跨 Run 的对话投影。`steer` 在界面显示为补充指令；`followUp` 排队时显示等待状态，消费后按新请求分组，保留前一请求的最终回复。

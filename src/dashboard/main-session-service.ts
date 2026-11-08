@@ -64,6 +64,11 @@ export interface MainSessionServicePorts {
     settings(): { resident: number; continuation: number } | undefined;
     sessionUsage(projectId: string): Promise<{ regular: number; continuation: number } | undefined>;
     noteSession(record: MainSessionRecord): Promise<void>;
+    /**
+     * Serialize an external session's limit check and its creation. Two pages
+     * saving at once must not each pass the last free place.
+     */
+    withCreateLock?<T>(action: () => Promise<T>): Promise<T>;
   };
   project(projectId: string): Promise<MainSessionProject | undefined>;
   projectTasks(projectId: string): Promise<MainSessionTask[]>;
@@ -206,24 +211,6 @@ export function createMainSessionService(ports: MainSessionServicePorts) {
       const service = await ports.runtime.service();
       const entryKind: MainSessionEntryKind = mainSessionEntryKind(input.entryKind);
       const kind: MainSessionKind = mainSessionKind(input.kind);
-      if (entryKind === "external") {
-        const settings = ports.capacity?.settings();
-        if (!settings)
-          throw new ProjectDataConflictError(
-            "外部 Main 尚未启用：请先在外部服务配置 resident 与 continuation",
-            undefined,
-            "main_capacity_unconfigured"
-          );
-        if (kind === "regular") {
-          const usage = await ports.capacity?.sessionUsage(project.projectId);
-          if ((usage?.regular ?? 0) >= settings.resident)
-            throw new ProjectDataConflictError(
-              `项目外部常规会话已达上限（resident=${settings.resident}）；接续会话不计入项目上限`,
-              undefined,
-              "main_session_limit"
-            );
-        }
-      }
       const requirementId =
         input.requirementId === undefined || input.requirementId === null
           ? undefined
@@ -232,35 +219,60 @@ export function createMainSessionService(ports: MainSessionServicePorts) {
             : undefined;
       if (input.requirementId !== undefined && input.requirementId !== null && !requirementId)
         throw new ProjectDataInvalidError("需求 ID 必须是字符串");
-      const requirementTitle = requirementId
-        ? (await service.getRequirement(projectId, requirementId)).title
-        : undefined;
-      const title =
-        typeof input.title === "string" && input.title.trim()
-          ? input.title.trim()
-          : (requirementTitle ?? "新会话");
-      const taskId = `task-${randomUUID()}`;
-      await ports.createProjectTask(taskId, projectId, { goal: title });
-      const record = await service.createMainSession(projectId, {
-        title,
-        entryKind,
-        kind,
-        backendId: ports.backendId,
-        taskId,
-        ...(requirementId ? { requirementId } : {})
-      });
-      // The CLI and worker find this backend's external Mains through this
-      // local index, so it is written with the session before it is listed.
-      await ports.capacity
-        ?.noteSession(record)
-        .catch((error) =>
-          console.error(
-            `[cowork] external session index failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          )
-        );
-      return view(record, project, new Map([[taskId, { taskId, status: "created" }]]));
+      const create = async (): Promise<MainSessionView> => {
+        // The check and the creation of one external session are one step: a
+        // concurrent save of the last free place must see this count.
+        if (entryKind === "external") {
+          const settings = ports.capacity?.settings();
+          if (!settings)
+            throw new ProjectDataConflictError(
+              "外部 Main 尚未启用：请先在外部服务配置 resident 与 continuation",
+              undefined,
+              "main_capacity_unconfigured"
+            );
+          if (kind === "regular") {
+            const usage = await ports.capacity?.sessionUsage(project.projectId);
+            if ((usage?.regular ?? 0) >= settings.resident)
+              throw new ProjectDataConflictError(
+                `项目外部常规会话已达上限（resident=${settings.resident}）；接续会话不计入项目上限`,
+                undefined,
+                "main_session_limit"
+              );
+          }
+        }
+        const requirementTitle = requirementId
+          ? (await service.getRequirement(projectId, requirementId)).title
+          : undefined;
+        const title =
+          typeof input.title === "string" && input.title.trim()
+            ? input.title.trim()
+            : (requirementTitle ?? "新会话");
+        const taskId = `task-${randomUUID()}`;
+        await ports.createProjectTask(taskId, projectId, { goal: title });
+        const record = await service.createMainSession(projectId, {
+          title,
+          entryKind,
+          kind,
+          backendId: ports.backendId,
+          taskId,
+          ...(requirementId ? { requirementId } : {})
+        });
+        // The CLI and worker find this backend's external Mains through this
+        // local index, so it is written with the session before it is listed.
+        await ports.capacity
+          ?.noteSession(record)
+          .catch((error) =>
+            console.error(
+              `[cowork] external session index failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            )
+          );
+        return view(record, project, new Map([[taskId, { taskId, status: "created" }]]));
+      };
+      return entryKind === "external" && ports.capacity?.withCreateLock
+        ? ports.capacity.withCreateLock(create)
+        : create();
     },
 
     async selectRequirement(

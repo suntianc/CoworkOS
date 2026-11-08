@@ -2640,6 +2640,7 @@ const modelSettings = installDesktopSettings({
   overview: settingsOverview,
   showToast,
   api,
+  projectId: () => state.selectedProjectId ?? "",
   identity: () => {
     const current = management.state();
     return current.status === "connected"

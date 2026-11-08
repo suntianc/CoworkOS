@@ -88,6 +88,26 @@ App 使用 Electron safeStorage 加密客户端会话凭据，保存在桌面数
 
 客户端会话使用独立钥匙串进程的 `CoworkOS Client` 加密标识；旧模型密文转换仍使用 `Atria` 标识。旧开发标识加密的密钥可能需要重新输入，原密文与源目录保留。原生钥匙串和签名兼容需单独验收。
 
+## 角色模型
+
+`roleModels` 只在执行主机的本地配置中保存角色绑定；连接和密钥仍由 `modelConnections` 与主机凭据管理。
+
+```json
+{
+  "roleModels": {
+    "version": 1,
+    "host": { "main": { "profileId": "<连接 ID>" } },
+    "projects": { "project_<uuid>": { "main": { "profileId": "<连接 ID>" } } }
+  }
+}
+```
+
+- `host` 是本机所有项目的角色默认；`projects` 是按共享项目稳定 ID 索引的本机覆盖。两者都不进入共享项目数据，其他后端不会继承。
+- 解析优先级为单次/会话显式选择、当前执行主机的项目覆盖、主机角色默认、现有启用连接。旧 Task 的显式 `model` 仍在没有连接组时作为回退，连接切换与推理参数语义不变。
+- 每次 Run 在准入时固定连接、模型、消息格式与推理参数，并把非敏感来源记录为 `main.run_spawned.modelSelection`；之后修改设置只影响下一次 Run，在途 Run 和原请求重试继续使用已保存的执行归属。
+- 已保存的角色引用找不到连接时给出包含角色、范围和连接 ID 的错误，并拒绝启动，不会改用其他账号。保存接口拒绝新建失效引用。
+- P3 只接通 Main；`executor`、`reviewer`、`router` 是可复用配置键，但不会由运行路径读取，UI 也不显示为已生效。
+
 ## 独立视觉连接
 
 `modelConnections.visionId` 指向已保存且启用 `supportsImages` 的连接。原生图像模型直接接收像素；只有纯文本模型调用 `read_image` 时使用独立视觉连接。界面操作见 [模型连接](configuration.md#app-与-web-模型连接)。
@@ -176,7 +196,7 @@ external 服务的外部 Main 配额写在本机配置中；未配置时保持�
 
 `resident` 限制同时运行的外部常规 Main，`continuation` 保留给接续 Main，二者不能互相借用；内部 Main 不占外部配额。每个项目可保存的外部常规会话数等于 `resident`，保存但未运行不占运行名额，接续会话不计入项目常规上限。降低配额若低于正在运行的数量或任何项目已保存的常规会话数会被拒绝并说明原因，已有运行不会被终止。
 
-配额与容量状态经 `GET /api/main-capacity` 读取、`POST /api/main-capacity` 修改；运行与排队事实保存在数据根的 `main-capacity/state.json`（默认 `~/.atria/runtime/main-capacity/state.json`），随本机后端身份，不写入共享项目数据。程序按到达顺序占用空闲名额，进程结束、启动失败、取消、崩溃和重启对账都会释放名额并推进队列；重启只核对本机自有进程，不终止无关进程。CLI 与 main-worker 启动 external Main 时读取同一文件并写入同一队列。
+配额与容量状态经 `GET /api/main-capacity` 读取、`POST /api/main-capacity` 修改；运行与排队事实保存在数据根的 `main-capacity/state.json`（默认 `~/.atria/runtime/main-capacity/state.json`），随本机后端身份，不写入共享项目数据。程序按到达顺序占用空闲名额，进程结束、启动失败、取消、崩溃和重启对账都会释放名额并推进队列；重启只核对本机自有进程，不终止无关进程。CLI 与 main-worker 启动 external Main 时读取同一文件并写入同一队列；排队中的需求只保留显式 profile/model/推理选择，默认连接在真正获得名额时按角色配置解析，因此在等待期间修改的 host/项目默认作用于这次 Run。
 
 接口说明见 [Product API](product-api.md#external-main-capacity)。
 

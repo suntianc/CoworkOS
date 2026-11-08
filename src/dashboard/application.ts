@@ -51,6 +51,7 @@ import { createGoalService } from "./goal-service.js";
 import { createWatchService } from "./watch-service.js";
 import { mainIsAlive, readHeartbeat } from "../runtime/main-heartbeat.js";
 import { createModelSettings } from "./model-settings.js";
+import { resolveModelRole } from "../runtime/role-models.js";
 import { createDashboardHandler, type DashboardRoutePorts } from "./routes.js";
 import { UserMemoryStore } from "../runtime/user-memory-store.js";
 import {
@@ -194,7 +195,8 @@ export function createDashboardApplication(
           .then((usage) =>
             usage ? { regular: usage.regular, continuation: usage.continuation } : undefined
           ),
-      noteSession: (record) => mainCapacity.noteSession(record)
+      noteSession: (record) => mainCapacity.noteSession(record),
+      withCreateLock: (action) => mainCapacity.withCreateLock(action)
     }
   });
   /**
@@ -316,8 +318,7 @@ export function createDashboardApplication(
     },
     mainCapacity,
     withTaskProjectLock: workspaces.withTaskProjectLock,
-    runtimeValue,
-    activeConnection: () => Boolean(runtimeConfig.modelConnections?.activeId),
+    resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
     onRunExit: (taskId) => computer.finishTask(taskId),
     normalizeModel,
     appendRunEvent,
@@ -343,6 +344,7 @@ export function createDashboardApplication(
       mainSessionId: entry.sessionId,
       ...(entry.requirementId ? { requirementId: entry.requirementId } : {}),
       ...(entry.submission?.body === undefined ? {} : { body: entry.submission.body }),
+      ...(entry.submission?.profileId ? { profileId: entry.submission.profileId } : {}),
       ...(entry.submission?.thinkingLevel
         ? {
             thinkingLevel: normalizeReasoningEffort(entry.submission.thinkingLevel, "thinkingLevel")

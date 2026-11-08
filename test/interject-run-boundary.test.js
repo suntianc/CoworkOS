@@ -10,6 +10,7 @@ import { createDashboardRunService } from "../dist/src/dashboard/run-service.js"
 import { readJsonFile } from "../dist/src/dashboard/event-stream.js";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+import { singleConnectionMainModel } from "./role-model-fixture.mjs";
 
 function deferred() {
   let resolve;
@@ -57,8 +58,7 @@ async function fixture(t) {
     dashboardUrl: "http://127.0.0.1:1",
     coordinator: { waitForSubagents: async () => ({ pending: [], callbackPending: [] }) },
     locateTask,
-    runtimeValue: (name) =>
-      ({ COWORK_API_BASE: "http://127.0.0.1:1", COWORK_API_KEY: "fixture", COWORK_MODEL: "fixture" })[name],
+    resolveMainModel: singleConnectionMainModel(),
     normalizeModel: (value) => (typeof value === "string" ? value : undefined),
     appendRunEvent,
     readJsonFile

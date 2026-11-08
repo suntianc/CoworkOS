@@ -154,7 +154,9 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
     loading = true;
     try {
       view = await api("/api/main-capacity");
-      clearError();
+      // A partial shared read is shown as unknown, never as no sessions.
+      if (view.projectsComplete === false) fail(new Error(view.projectsError || "项目会话数暂时无法读取"));
+      else clearError();
       renderView();
     } catch (error) {
       fail(error);

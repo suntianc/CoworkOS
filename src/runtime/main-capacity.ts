@@ -75,6 +75,7 @@ export function createMainCapacityLedger({
     if (!value) return undefined;
     const submission: MainCapacitySubmission = {};
     if (typeof value.body === "string") submission.body = value.body;
+    if (typeof value.profileId === "string" && value.profileId) submission.profileId = value.profileId;
     if (typeof value.thinkingLevel === "string") submission.thinkingLevel = value.thinkingLevel;
     if (Array.isArray(value.attachmentIds)) submission.attachmentIds = [...value.attachmentIds];
     if (Array.isArray(value.textAttachments)) submission.textAttachments = [...value.textAttachments];
@@ -283,6 +284,18 @@ export function createMainCapacityLedger({
         const index = state.externalTasks.findIndex((item) => item.taskId === entry.taskId);
         if (index >= 0) state.externalTasks[index] = entry;
         else state.externalTasks.push(entry);
+      });
+    },
+
+    /** Keep every identity already known and add the ones just read. */
+    mergeExternalTasks(entries: MainCapacityExternalTask[]): Promise<void> {
+      return store.update((state) => {
+        for (const entry of entries) {
+          const index = state.externalTasks.findIndex((item) => item.taskId === entry.taskId);
+          if (index >= 0) state.externalTasks[index] = entry;
+          else state.externalTasks.push(entry);
+        }
+        state.externalTasks.sort((left, right) => left.taskId.localeCompare(right.taskId));
       });
     },
 

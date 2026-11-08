@@ -59,6 +59,7 @@ function submissionOf(value: unknown): MainCapacityQueueEntry["submission"] {
   const input = value as Record<string, unknown>;
   const submission: NonNullable<MainCapacityQueueEntry["submission"]> = {};
   if (typeof input.body === "string") submission.body = input.body;
+  if (typeof input.profileId === "string" && input.profileId) submission.profileId = input.profileId;
   if (typeof input.thinkingLevel === "string") submission.thinkingLevel = input.thinkingLevel;
   if (Array.isArray(input.attachmentIds))
     submission.attachmentIds = input.attachmentIds.filter((item): item is string => typeof item === "string");

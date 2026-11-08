@@ -14,6 +14,7 @@ import { startDashboard } from "./dashboard-fixture.mjs";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 import { createMainCapacityController } from "../web/assets/controllers/main-capacity.js";
+import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 
 const run = promisify(execFile);
 
@@ -38,7 +39,8 @@ async function provider(t) {
         typeof message.content === "string" ? message.content : JSON.stringify(message.content)
       )
       .join("\n");
-    return /\[tag:([a-z0-9-]+)\]/.exec(text)?.[1];
+    // A resumed session carries earlier tagged turns, so the newest tag wins.
+    return [...text.matchAll(/\[tag:([a-z0-9-]+)\]/g)].at(-1)?.[1];
   };
   const server = createServer(async (request, response) => {
     try {
@@ -676,5 +678,415 @@ test(
     await settle(request, session.taskId, "completed");
     controller.close();
     assert.deepEqual(local.failures, []);
+  }
+);
+
+/**
+ * A strict local provider per account: what the Main process was actually asked
+ * (path, Authorization, model) is the only evidence that a role resolution
+ * really switched connection.
+ */
+async function accountProvider(t, label, api = "openai-completions") {
+  const requests = [];
+  const failures = [];
+  const held = new Set();
+  const waiters = new Map();
+  const expectedPath = api === "openai-responses" ? "/v1/responses" : "/v1/chat/completions";
+  const server = createServer(async (request, response) => {
+    try {
+      if (request.method === "GET") return response.end(JSON.stringify({ data: [{ id: label }] }));
+      let raw = "";
+      for await (const chunk of request) raw += chunk;
+      const body = JSON.parse(raw);
+      const text = (body.messages ?? body.input ?? [])
+        .filter((message) => message.role === "user")
+        .map((message) =>
+          typeof message.content === "string" ? message.content : JSON.stringify(message.content)
+        )
+        .join("\n");
+      const tag = [...text.matchAll(/\[tag:([a-z0-9-]+)\]/g)].at(-1)?.[1];
+      requests.push({ tag, authorization: request.headers.authorization, body, path: request.url, api });
+      if (tag && held.has(tag))
+        await new Promise((resolve) => {
+          const list = waiters.get(tag) ?? [];
+          list.push(resolve);
+          waiters.set(tag, list);
+        });
+      if (response.destroyed) return;
+      if (request.url !== expectedPath) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end('{"error":{"message":"unexpected path"}}');
+        return;
+      }
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(protocolStream(api, { text: `${label} 已完成` }));
+    } catch (error) {
+      failures.push(error.stack ?? error.message);
+      response.destroy(error);
+    }
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise((done) => server.close(done));
+  });
+  return {
+    label,
+    base: `http://127.0.0.1:${server.address().port}/v1`,
+    requests,
+    failures,
+    hold(tag) {
+      held.add(tag);
+    },
+    release(tag) {
+      held.delete(tag);
+      for (const resolve of waiters.get(tag) ?? []) resolve();
+      waiters.delete(tag);
+    },
+    tags: () => requests.map((entry) => entry.tag)
+  };
+}
+
+async function saveConnection(request, value) {
+  const saved = await request("/api/model-settings", {
+    api: "openai-completions",
+    supportsImages: false,
+    supportsReasoningEffort: true,
+    ...value
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  return saved.body;
+}
+
+async function spawnPayload(dashboard, taskId, runId) {
+  const lines = (
+    await readFile(join(dashboard.workspaceRoot, taskId, "runs", runId, "run_events.jsonl"), "utf8")
+  )
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const spawned = lines.filter((event) => event.type === "main.run_spawned");
+  assert.equal(spawned.length, 1);
+  return spawned[0].payload;
+}
+
+test(
+  "a queued external Main fixes host and project defaults when it gets a slot and keeps explicit choices",
+  { timeout: 240_000 },
+  async (t) => {
+    const a = await accountProvider(t, "连接A", "openai-completions");
+    const b = await accountProvider(t, "连接B", "openai-responses");
+    const dashboard = await startDashboard({
+      defaultProject: false,
+      config: { mainCapacity: { resident: 1, continuation: 0 } }
+    });
+    t.after(() => dashboard.stop());
+    const request = client(dashboard);
+    const keyA = "{{SECRET_qa94md1s}}";
+    const keyB = "{{SECRET_z7h2k4pc}}";
+    await saveConnection(request, {
+      profileName: "连接 A",
+      baseUrl: a.base,
+      model: "model-a",
+      apiKey: keyA,
+      reasoningEffort: "low"
+    });
+    const withB = await saveConnection(request, {
+      profileId: "",
+      profileName: "连接 B",
+      baseUrl: b.base,
+      model: "model-b",
+      api: "openai-responses",
+      apiKey: keyB,
+      reasoningEffort: "high"
+    });
+    const profileA = withB.profiles.find((profile) => profile.name === "连接 A");
+    const profileB = withB.profiles.find((profile) => profile.name === "连接 B");
+    assert.ok(profileA && profileB);
+    await saveConnection(request, {
+      profileId: profileA.id,
+      profileName: "连接 A",
+      baseUrl: a.base,
+      model: "model-a",
+      apiKey: "",
+      reasoningEffort: "low",
+      activate: true
+    });
+    const hosted = await request("/api/model-settings/roles", { role: "main", profileId: profileA.id });
+    assert.equal(hosted.status, 200, JSON.stringify(hosted.body));
+
+    const projects = {};
+    const sessions = {};
+    for (const name of ["inflight", "queued", "explicit"]) {
+      projects[name] = await createProject(request, dashboard, `model-${name}`);
+      sessions[name] = await externalSession(request, projects[name].projectId, name);
+    }
+
+    // One Main is already running on connection A while the default changes.
+    a.hold("inflight");
+    const inflight = await runTask(request, sessions.inflight.taskId, {
+      prompt: "[tag:inflight] 在途运行。",
+      mainSessionId: sessions.inflight.sessionId
+    });
+    assert.equal(inflight.body.status, "running", JSON.stringify(inflight.body));
+    await waitFor(() => a.tags().includes("inflight"), "the in-flight Run never reached connection A");
+
+    // Two demands wait without resolving a default yet.
+    const queued = await runTask(request, sessions.queued.taskId, {
+      prompt: "[tag:queued] 排队需求。",
+      mainSessionId: sessions.queued.sessionId
+    });
+    assert.equal(queued.body.status, "queued", JSON.stringify(queued.body));
+    const explicit = await runTask(request, sessions.explicit.taskId, {
+      prompt: "[tag:explicit] 显式选择。",
+      mainSessionId: sessions.explicit.sessionId,
+      profileId: profileB.id,
+      model: "model-explicit"
+    });
+    assert.equal(explicit.body.status, "queued", JSON.stringify(explicit.body));
+    assert.equal(b.requests.length, 0, "a queued demand must not call any account yet");
+    // Nothing secret enters the public capacity state while the demands wait.
+    const queuedState = await readFile(join(dashboard.root, "main-capacity", "state.json"), "utf8");
+    assert.equal(queuedState.includes(keyA) || queuedState.includes(keyB), false);
+    assert.match(queuedState, /model-explicit/, "the explicit model is kept with the demand");
+    assert.match(queuedState, /profileId/, "the explicit connection is kept with the demand");
+
+    // While they wait, the host default and the project default both move to B.
+    const hostSwitch = await request("/api/model-settings/roles", {
+      role: "main",
+      profileId: profileB.id
+    });
+    assert.equal(hostSwitch.status, 200, JSON.stringify(hostSwitch.body));
+    const projectSwitch = await request("/api/model-settings/roles", {
+      role: "main",
+      projectId: projects.queued.projectId,
+      profileId: profileB.id
+    });
+    assert.equal(projectSwitch.status, 200, JSON.stringify(projectSwitch.body));
+    assert.equal(a.requests.length, 1, "the in-flight Run is untouched by the role change");
+    assert.equal(b.requests.length, 0);
+
+    a.release("inflight");
+    await settle(request, sessions.inflight.taskId, "completed");
+    await waitFor(() => b.tags().includes("queued"), "the queued demand did not start");
+    await settle(request, sessions.queued.taskId, "completed");
+    await waitFor(() => b.tags().includes("explicit"), "the explicit demand did not start");
+    await settle(request, sessions.explicit.taskId, "completed");
+
+    // The in-flight Run kept connection A; both waiting demands reached B.
+    const inflightRequest = a.requests.find((entry) => entry.tag === "inflight");
+    assert.equal(inflightRequest.authorization, `Bearer ${keyA}`);
+    assert.equal(inflightRequest.body.model, "model-a");
+    const queuedRequest = b.requests.find((entry) => entry.tag === "queued");
+    assert.equal(queuedRequest.authorization, `Bearer ${keyB}`, "the new host/project default is used");
+    assert.equal(queuedRequest.path, "/v1/responses", "the role profile is pinned");
+    assert.equal(queuedRequest.body.model, "model-b");
+    const explicitRequest = b.requests.find((entry) => entry.tag === "explicit");
+    assert.equal(explicitRequest.authorization, `Bearer ${keyB}`);
+    assert.equal(explicitRequest.body.model, "model-explicit", "the explicit model survives the wait");
+    assert.equal(a.requests.length, 1);
+
+    // The recorded snapshots agree with what was actually called.
+    const storedProfiles = JSON.parse(await readFile(join(dashboard.root, "config.json"), "utf8"))
+      .modelConnections.profiles;
+    const contextA = storedProfiles.find((profile) => profile.id === profileA.id).contextId;
+    const inflightSnapshot = await spawnPayload(dashboard, sessions.inflight.taskId, inflight.body.runId);
+    assert.equal(inflightSnapshot.modelSelection.connectionId, contextA);
+    const queuedSnapshot = await spawnPayload(dashboard, sessions.queued.taskId, queued.body.runId);
+    assert.equal(queuedSnapshot.modelSelection.source, "project");
+    assert.equal(queuedSnapshot.modelSelection.model, "model-b");
+    const explicitSnapshot = await spawnPayload(dashboard, sessions.explicit.taskId, explicit.body.runId);
+    assert.equal(explicitSnapshot.modelSelection.source, "explicit");
+    assert.equal(explicitSnapshot.modelSelection.model, "model-explicit");
+    for (const snapshot of [inflightSnapshot, queuedSnapshot, explicitSnapshot])
+      assert.equal(JSON.stringify(snapshot).includes(keyA) || JSON.stringify(snapshot).includes(keyB), false);
+
+    // Two config writers interleaved: both settings survive.
+    const [roleSave, quotaSave] = await Promise.all([
+      request("/api/model-settings/roles", { role: "main", profileId: profileA.id }),
+      request("/api/main-capacity", { action: "configure", resident: 2, continuation: 0 })
+    ]);
+    assert.equal(roleSave.status, 200, JSON.stringify(roleSave.body));
+    assert.equal(quotaSave.status, 200, JSON.stringify(quotaSave.body));
+    const configText = await readFile(join(dashboard.root, "config.json"), "utf8");
+    const config = JSON.parse(configText);
+    assert.equal(config.mainCapacity.resident, 2, configText);
+    assert.equal(config.roleModels?.host?.main?.profileId, profileA.id, configText);
+    assert.equal(config.modelConnections.profiles.length, 2, configText);
+    const settings = await request("/api/model-settings");
+    assert.equal(settings.status, 200);
+    assert.equal(
+      settings.body.modelRoles.roles.find((role) => role.role === "main").host.profileId,
+      profileA.id
+    );
+    assert.equal((await capacity(request)).body.settings.resident, 2);
+    assert.deepEqual(a.failures, []);
+    assert.deepEqual(b.failures, []);
+  }
+);
+
+test(
+  "a durable human answer waits in the queue when the budget is full and continues after release",
+  { timeout: 180_000 },
+  async (t) => {
+    const local = await provider(t);
+    const dashboard = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      config: { mainCapacity: { resident: 1, continuation: 0 } }
+    });
+    t.after(() => dashboard.stop());
+    const request = client(dashboard);
+    const blocker = await createProject(request, dashboard, "answer-blocker");
+    const answerProject = await createProject(request, dashboard, "answer-project");
+    const blockerSession = await externalSession(request, blocker.projectId, "blocker");
+    const answerSession = await externalSession(request, answerProject.projectId, "answer");
+
+    // A completed conversation is the history container the answer resumes.
+    const first = await runTask(request, answerSession.taskId, {
+      prompt: "[tag:first-turn] 先完成一轮。",
+      mainSessionId: answerSession.sessionId
+    });
+    assert.equal(first.body.status, "running", JSON.stringify(first.body));
+    await settle(request, answerSession.taskId, "completed");
+    const answerRunId = (await taskDetail(request, answerSession.taskId)).body.task.activeRunId;
+    assert.ok(answerRunId);
+    // Persist the answer where the askhuman flow leaves it.
+    const inbox = join(dashboard.workspaceRoot, answerSession.taskId, "runs", answerRunId, "agents", "main");
+    await mkdir(inbox, { recursive: true });
+    await writeFile(
+      join(inbox, "inbox-store.json"),
+      JSON.stringify([
+        {
+          messageId: "human-answer-1",
+          recipientAgentId: "main",
+          kind: "human_command",
+          eventId: "human-answer-event-1",
+          priority: 120,
+          state: "ready",
+          payload: {
+            type: "human.answer",
+            question: "部署到哪个环境？",
+            answer: "[tag:answer-turn] 只在预发布验证。"
+          },
+          createdAt: new Date().toISOString()
+        }
+      ])
+    );
+
+    local.hold("blocker");
+    const blocking = await runTask(request, blockerSession.taskId, {
+      prompt: "[tag:blocker] 占住唯一名额。",
+      mainSessionId: blockerSession.sessionId
+    });
+    assert.equal(blocking.body.status, "running", JSON.stringify(blocking.body));
+    await waitFor(
+      async () => (await capacity(request)).body.running.length === 1,
+      "the blocking Main did not take the slot"
+    );
+
+    // The answer arrives while the budget is full: it must wait, not be lost.
+    const resumed = await request(`/api/tasks/${encodeURIComponent(answerSession.taskId)}/human/resume`, {});
+    assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
+    assert.equal(resumed.body.status, "queued", JSON.stringify(resumed.body));
+    const queuedView = await capacity(request);
+    assert.deepEqual(
+      queuedView.body.queued.map((entry) => [entry.taskId, entry.origin]),
+      [[answerSession.taskId, "internal"]]
+    );
+    const waiting = await taskDetail(request, answerSession.taskId);
+    assert.equal(waiting.body.runtime.active, false);
+    assert.equal(waiting.body.task.status, "completed");
+
+    // Freeing the slot resumes the durable answer through the program's queue.
+    local.release("blocker");
+    await settle(request, blockerSession.taskId, "completed");
+    await waitFor(
+      async () =>
+        (await capacity(request)).body.running.some((entry) => entry.taskId === answerSession.taskId),
+      "the queued answer did not resume after the slot was released"
+    );
+    await waitFor(() => local.tags().includes("answer-turn"), "the answer never reached the model");
+    await settle(request, answerSession.taskId, "completed");
+    assert.deepEqual((await capacity(request)).body.queued, []);
+    assert.deepEqual(local.failures, []);
+  }
+);
+
+test(
+  "a shared session outage never drops a known external Task or counts it as zero",
+  { timeout: 180_000 },
+  async (t) => {
+    const authority = await startDashboard({ defaultProject: false });
+    t.after(() => authority.stop());
+    const instance = await readBackendInstance(backendPaths(join(authority.root, "home")));
+    assert.ok(instance.value?.token, "the authority published its local credential");
+    const secondary = await startDashboard({
+      defaultProject: false,
+      config: {
+        projectData: { authority: { url: authority.base, token: instance.value.token } },
+        mainCapacity: { resident: 1, continuation: 0 }
+      }
+    });
+    t.after(() => secondary.stop());
+    const request = client(secondary);
+    const project = await createProject(request, secondary, "outage");
+    const session = await externalSession(request, project.projectId, "outage");
+    const statePath = join(secondary.root, "main-capacity", "state.json");
+    const known = JSON.parse(await readFile(statePath, "utf8"));
+    assert.deepEqual(
+      known.externalTasks.map((entry) => entry.taskId),
+      [session.taskId]
+    );
+
+    await authority.stop();
+
+    // A read degrades visibly instead of reporting zero saved sessions.
+    const view = await capacity(request);
+    assert.equal(view.status, 200, JSON.stringify(view.body));
+    assert.equal(view.body.settings.resident, 1);
+    assert.equal(view.body.projectsComplete, false, JSON.stringify(view.body));
+    assert.match(String(view.body.projectsError), /不可达|共享|storage|fetch/i);
+    // A create cannot pass a limit it cannot count.
+    const refused = await request(`/api/projects/${encodeURIComponent(project.projectId)}/main-sessions`, {
+      action: "create",
+      title: "blocked",
+      entryKind: "external"
+    });
+    assert.notEqual(refused.status, 201, JSON.stringify(refused.body));
+    assert.match(String(refused.body.error), /不可达|共享|storage|fetch|无法读取/i);
+    // The CLI and worker still see this backend's external identity, so they
+    // cannot mistake the Task for an internal conversation and bypass the cap.
+    const { openMainCapacityGate } = await import("../scripts/main-capacity-gate.mjs");
+    const gate = await openMainCapacityGate({
+      taskId: session.taskId,
+      cwd: process.cwd(),
+      env: secondary.env
+    });
+    assert.deepEqual(gate?.external, {
+      taskId: session.taskId,
+      projectId: project.projectId,
+      sessionId: session.sessionId,
+      kind: "regular"
+    });
+    const afterRead = JSON.parse(await readFile(statePath, "utf8"));
+    assert.deepEqual(
+      afterRead.externalTasks.map((entry) => entry.taskId),
+      [session.taskId]
+    );
+
+    // Restarting while the authority is unreachable fails explicitly and does
+    // not rewrite the local index with an empty list.
+    await assert.rejects(secondary.restart(), (error) => {
+      assert.doesNotMatch(String(error), new RegExp(instance.value.token));
+      return true;
+    });
+    const afterRestart = JSON.parse(await readFile(statePath, "utf8"));
+    assert.deepEqual(
+      afterRestart.externalTasks.map((entry) => entry.taskId),
+      [session.taskId]
+    );
   }
 );
