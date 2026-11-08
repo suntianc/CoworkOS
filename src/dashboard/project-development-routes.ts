@@ -17,8 +17,9 @@ export interface ProjectDevelopmentRoutePorts {
   taskProject(taskId: string): Promise<DevelopmentProject | undefined>;
 }
 
-const PROJECT_PATH = /^\/api\/projects\/([^/]+)\/(developments|merge-config|reviews|merges)(?:\/([^/]+))?$/;
-const TASK_PATH = /^\/api\/tasks\/([^/]+)\/(developments|reviews|merges)(?:\/([^/]+))?$/;
+const PROJECT_PATH =
+  /^\/api\/projects\/([^/]+)\/(developments|merge-config|reviews|merges|deliveries)(?:\/([^/]+))?$/;
+const TASK_PATH = /^\/api\/tasks\/([^/]+)\/(developments|reviews|merges|deliveries)(?:\/([^/]+))?$/;
 const BACKEND_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,200}$/;
 
 function declaredBackend(request: IncomingMessage): string | undefined {
@@ -269,6 +270,88 @@ async function handleMergeRequest(
 }
 
 /**
+ * Delivery reads and synchronization.
+ *
+ * A reader gets the persisted delivery receipt and its pending/synced state,
+ * including the error that stopped the last attempt, so a sync failure is
+ * visible instead of disappearing. A retry re-applies that persisted row; only
+ * the configured execution backend may record a new receipt, and the authority
+ * still verifies it against its own merged operation.
+ */
+async function handleDeliveryRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+  ports: ProjectDevelopmentRoutePorts,
+  scope: {
+    projectId: string;
+    taskId?: string;
+    scopedTaskId?: string;
+    itemId?: string;
+    declared?: string;
+  }
+): Promise<boolean> {
+  const service = ports.service;
+  const task = scope.taskId ?? scope.scopedTaskId;
+  const list = async (developmentId?: string) => ({
+    projectId: scope.projectId,
+    deliveries: task
+      ? await service.deliveriesForTask(task, developmentId)
+      : await service.deliveries(scope.projectId, developmentId)
+  });
+  const one = async (deliveryId: string) =>
+    task ? service.getDeliveryForTask(task, deliveryId) : service.getDelivery(scope.projectId, deliveryId);
+
+  if (request.method === "GET") {
+    if (scope.itemId !== undefined) return reply(response, 200, { delivery: await one(scope.itemId) });
+    return reply(response, 200, await list(url.searchParams.get("developmentId") ?? undefined));
+  }
+  if (request.method !== "POST") throw new HttpError(405, "method not allowed");
+  const body = await readJsonBody(request);
+  switch (body.action) {
+    case "query":
+      return reply(
+        response,
+        200,
+        await list(typeof body.developmentId === "string" ? body.developmentId : undefined)
+      );
+    case "get": {
+      if (typeof body.deliveryId !== "string") throw new HttpError(400, "get 需要 deliveryId");
+      return reply(response, 200, { delivery: await one(body.deliveryId) });
+    }
+    case "view": {
+      const view = task
+        ? await service.deliveryViewForTask(task, body)
+        : await service.deliveryView(scope.projectId, body);
+      return reply(response, 200, { view });
+    }
+    case "retry": {
+      if (typeof body.deliveryId === "string") {
+        const delivery = task
+          ? await service.retryDeliveryForTask(task, body.deliveryId)
+          : await service.retryDelivery(scope.projectId, body.deliveryId);
+        return reply(response, 200, { delivery });
+      }
+      if (typeof body.developmentId === "string") {
+        const delivery = task
+          ? await service.retryDevelopmentDeliveryForTask(task, body.developmentId)
+          : await service.retryDevelopmentDelivery(scope.projectId, body.developmentId);
+        return reply(response, 200, { delivery });
+      }
+      throw new HttpError(400, "retry 需要 deliveryId 或 developmentId");
+    }
+    case "sync": {
+      if (!scope.declared) throw new HttpError(403, "交付同步须由执行后端记录", "delivery_owner_only");
+      return reply(response, 200, {
+        delivery: await service.recordDelivery(scope.projectId, body.receipt, scope.declared)
+      });
+    }
+    default:
+      throw new HttpError(400, "未知的交付操作");
+  }
+}
+
+/**
  * The development-record HTTP surface.
  *
  * Two shapes reach the same service: the UI/API names a project, while the Main
@@ -316,7 +399,17 @@ export async function handleDevelopmentRequest(
         ? decodeURIComponent(taskMatch[3])
         : undefined;
   const kind = (projectMatch?.[2] ?? taskMatch?.[2] ?? "developments") as
-    "developments" | "merge-config" | "reviews" | "merges";
+    "developments" | "merge-config" | "reviews" | "merges" | "deliveries";
+
+  if (kind === "deliveries") {
+    return handleDeliveryRequest(request, response, url, ports, {
+      projectId,
+      taskId,
+      scopedTaskId,
+      itemId,
+      declared
+    });
+  }
 
   if (kind === "reviews") {
     return handleReviewRequest(request, response, url, ports, {

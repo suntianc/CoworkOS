@@ -40,6 +40,9 @@ interface BoardRow {
   handler_project_id: string | null;
   handler_task_id: string | null;
   assigned_at: string | null;
+  delivery_merge_id: string | null;
+  delivery_commit: string | null;
+  delivered_at: string | null;
   created_at: string;
   updated_at: string;
   title: string;
@@ -120,6 +123,14 @@ function sourceOf(row: BoardRow): LedgerSource {
 
 function entryOf(row: BoardRow): BoardEntry {
   const assignment = assignmentOf(row);
+  const delivery =
+    row.delivery_merge_id && row.delivery_commit && row.delivered_at
+      ? {
+          mergeId: row.delivery_merge_id,
+          mergedCommit: row.delivery_commit,
+          mergedAt: row.delivered_at
+        }
+      : undefined;
   return {
     projectId: row.project_id,
     boardId: row.board_id,
@@ -132,6 +143,7 @@ function entryOf(row: BoardRow): BoardEntry {
     revision: Number(row.revision),
     backendId: row.backend_id,
     ...(assignment ? { assignment } : {}),
+    ...(delivery ? { delivery } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -316,6 +328,75 @@ export class ProjectBoardRepository {
       createdAt: timestamp
     });
     return this.get(projectId, boardId);
+  }
+
+  /**
+   * Mark the board projection of a delivered requirement as pending release.
+   *
+   * The owner and the handling Main are kept: a merge finishes the development,
+   * it does not release the claim. The actual merge commit travels with the
+   * state so a reader can tie the board item to the Git fact. Repeating the same
+   * receipt is a no-op; a later merge of a new candidate advances the commit.
+   */
+  async markPendingRelease(
+    projectId: string,
+    requirementIdValue: unknown,
+    input: {
+      mergeId: string;
+      mergedCommit: string;
+      mergedAt: string;
+      backendId: string;
+      actorId: string;
+    }
+  ): Promise<BoardEntry | undefined> {
+    const requirementId = boardIdentifier(requirementIdValue, "需求 ID");
+    const current = await this.requireBoardByRequirement(projectId, requirementId, true);
+    if (!current) return undefined;
+    if (current.state === "cancelled") return entryOf(current);
+    if (
+      current.state === "pending_release" &&
+      current.delivery_merge_id === input.mergeId &&
+      current.delivery_commit === input.mergedCommit
+    )
+      return entryOf(current);
+    const expectedRevision = Number(current.revision);
+    const revision = expectedRevision + 1;
+    const timestamp = now();
+    const changed = await this.transaction.execute(
+      `UPDATE project_data_board_entries
+          SET state = 'pending_release', revision = ?, delivery_merge_id = ?, delivery_commit = ?,
+              delivered_at = ?, updated_at = ?
+        WHERE project_id = ? AND board_id = ? AND revision = ? AND state = ?`,
+      [
+        revision,
+        input.mergeId,
+        input.mergedCommit,
+        timestamp,
+        timestamp,
+        projectId,
+        current.board_id,
+        expectedRevision,
+        current.state
+      ]
+    );
+    if (changed !== 1) throw this.stale(current);
+    const handler = handlerOf(current);
+    await this.insertEvent({
+      projectId,
+      boardId: current.board_id,
+      kind: "delivered",
+      requestId: `delivery-${input.mergeId}`,
+      context: {
+        backendId: input.backendId,
+        actor: { id: boardActorId(input.actorId), host: true }
+      },
+      ...(handler ? { handler } : {}),
+      fromState: current.state as BoardState,
+      toState: "pending_release",
+      revision,
+      createdAt: timestamp
+    });
+    return this.get(projectId, current.board_id);
   }
 
   async pause(
@@ -504,6 +585,27 @@ export class ProjectBoardRepository {
       [projectId]
     );
     if (!rows.length) throw new ProjectDataNotFoundError("找不到该项目的共享记录");
+  }
+
+  private async requireBoardByRequirement(
+    projectId: string,
+    requirementId: string,
+    lock: boolean
+  ): Promise<BoardRow | undefined> {
+    if (lock && this.lockRows)
+      await this.transaction.query<{ board_id: string }>(
+        "SELECT board_id FROM project_data_board_entries WHERE project_id = ? AND requirement_id = ? FOR UPDATE",
+        [projectId, requirementId]
+      );
+    const rows = await this.rows(
+      `SELECT b.*, r.title, r.content, r.source_kind, r.source_reference
+         FROM project_data_board_entries b
+         JOIN project_data_requirements r
+           ON r.project_id = b.project_id AND r.requirement_id = b.requirement_id
+        WHERE b.project_id = ? AND b.requirement_id = ?`,
+      [projectId, requirementId]
+    );
+    return rows[0];
   }
 
   private async requireBoard(projectId: string, boardIdValue: unknown, lock?: boolean): Promise<BoardRow> {

@@ -16,10 +16,21 @@ import {
  * arrives with a later ticket as an extra handler field, not as a second
  * claim model.
  */
-export type BoardState = "pending" | "claimed" | "in_progress" | "paused" | "cancelled";
+export type BoardState =
+  | "pending"
+  | "claimed"
+  | "in_progress"
+  | "paused"
+  | "cancelled"
+  /**
+   * The requirement's candidate was actually merged. The owner and the handling
+   * Main stay recorded and the merged commit is attached; publishing is a later
+   * phase and never advances from here in P4.
+   */
+  | "pending_release";
 export type BoardEntryKind = "external";
 export type BoardAssignmentKind = "user" | "main";
-export type BoardEventKind = "published" | "claimed" | "paused" | "released" | "cancelled";
+export type BoardEventKind = "published" | "claimed" | "paused" | "released" | "cancelled" | "delivered";
 export type BoardTransitionAction = "pause" | "release" | "cancel";
 export type BoardAction = "claim" | BoardTransitionAction;
 
@@ -28,14 +39,16 @@ export const BOARD_STATES: readonly BoardState[] = [
   "claimed",
   "in_progress",
   "paused",
-  "cancelled"
+  "cancelled",
+  "pending_release"
 ];
 export const BOARD_EVENT_KINDS: readonly BoardEventKind[] = [
   "published",
   "claimed",
   "paused",
   "released",
-  "cancelled"
+  "cancelled",
+  "delivered"
 ];
 
 /**
@@ -73,8 +86,17 @@ export interface BoardEntry {
   /** The backend that published the entry; a claim records its own actor/handler. */
   backendId: string;
   assignment?: BoardAssignment;
+  /** Present once a real merge delivered this board need; the commit is the actual merge SHA. */
+  delivery?: BoardDelivery;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The merged operation a board need was delivered by. */
+export interface BoardDelivery {
+  mergeId: string;
+  mergedCommit: string;
+  mergedAt: string;
 }
 
 export interface BoardEvent {

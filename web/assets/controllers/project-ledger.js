@@ -3,6 +3,7 @@ import { icon } from "../ui/icons.js";
 import { escapeHtml as esc } from "../workbench/html.js";
 
 const sourceLabel = { internal: "内部", external: "外部", legacy: "历史" };
+const shortCommit = (value) => (typeof value === "string" ? value.slice(0, 8) : "");
 const statusLabel = { open: "进行中", delivered: "已交付", withdrawn: "已撤回" };
 const DECISION_RETRACT = "撤回";
 const DECISION_RESTORE = "恢复";
@@ -203,6 +204,14 @@ export function createProjectLedgerController({ api, state, showToast = () => {}
           : ""
       }
       <p class="ledger-content">${esc(requirement.content)}</p>
+      ${
+        (requirement.references ?? []).some((reference) => reference.kind === "delivery")
+          ? `<h3>交付</h3><p class="ledger-source" data-delivery>${(requirement.references ?? [])
+              .filter((reference) => reference.kind === "delivery")
+              .map((reference) => esc(shortCommit(reference.value)))
+              .join(" · ")}</p>`
+          : ""
+      }
       <h3>决定</h3>
       <ul class="ledger-decisions">${
         decisions.length

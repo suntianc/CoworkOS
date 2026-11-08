@@ -21,6 +21,15 @@ import {
   type MergeCheck
 } from "../domain/development-merge.js";
 import {
+  deliveryFromMerge,
+  deliveryReceipt,
+  type DeliveryDiff,
+  type DeliveryRoleProgress,
+  type DeliveryStage,
+  type DeliveryView,
+  type DevelopmentDelivery
+} from "../domain/development-delivery.js";
+import {
   DevelopmentExistsError,
   developmentIdentifier,
   mergeExecutionBackendId,
@@ -44,6 +53,7 @@ import {
   prepareDevelopmentWorkspace,
   resolveDevelopmentBaseline
 } from "../workspace/development-workspace.js";
+import { DeliveryOutbox, type DeliveryIntent } from "../workspace/delivery-outbox.js";
 import {
   isAncestor,
   mergeCandidate,
@@ -82,6 +92,8 @@ export interface ProjectDevelopmentPorts {
   startedAt?: string;
   /** Where isolated checkouts live, outside every user working copy. */
   developmentRoot: string;
+  /** Where this host keeps the delivery facts it published but has not synced yet. */
+  deliveryRoot?: string;
   /**
    * Test-only crash injection: `crash:<mergeId|*>@after-apply` kills the process
    * between the target update and its record, reproducing that recovery window.
@@ -105,6 +117,9 @@ export interface ProjectDevelopmentPorts {
  */
 export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) {
   const gateway = () => ports.runtime.service();
+  const deliveryOutbox = new DeliveryOutbox(
+    ports.deliveryRoot ?? join(ports.developmentRoot, "delivery-sync")
+  );
 
   async function bind(project: DevelopmentProject) {
     if (!project.projectDirectory) return;
@@ -1099,9 +1114,25 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
             detail: published.detail
           });
         }
+        // The target now contains this commit. Keep the local fact before any
+        // shared write: if the shared store is unreachable, the delivery and
+        // the merged record are completed later from this entry and Git.
+        const intent = intentOf(current);
+        if (intent) await deliveryOutbox.put(intent).catch(() => undefined);
         afterApply(current);
         await removeMergeSite(config.repository, mergeSite(merge.mergeId));
-        return await update({ state: "merged", reasons: [], detail: null });
+        let merged: DevelopmentMerge;
+        try {
+          merged = await update({ state: "merged", reasons: [], detail: null });
+        } catch {
+          // The real Git update is done and the staged row still names it, so
+          // the Run is not blocked by a record that cannot be written now.
+          return current;
+        }
+        // The ledger/board are a separate shared write; a failure leaves the
+        // delivery pending and visible instead of turning the merge failed.
+        await syncDelivery(projectId, merged).catch(() => undefined);
+        return merged;
       }
       return await update({
         state: "failed",
@@ -1200,6 +1231,191 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     }
   }
 
+  // ---- delivery synchronization ------------------------------------------------
+  // A merge is done when the target branch contains its commit; delivery is a
+  // separate shared write. The outbox below keeps that write retryable on the
+  // host that published it, so a shared-store outage or restart completes it
+  // later without a second development or merge.
+
+  const deliveryReplays = new Map<string, Promise<DevelopmentMerge[]>>();
+
+  /** Apply one merged operation's receipt to the ledger and board. */
+  async function syncDelivery(
+    projectId: string,
+    merge: DevelopmentMerge
+  ): Promise<DevelopmentDelivery | undefined> {
+    const receipt = deliveryFromMerge(merge);
+    if (!receipt) return undefined;
+    try {
+      const delivery = await (await gateway()).syncDelivery(projectId, receipt);
+      if (delivery.state === "synced")
+        await deliveryOutbox.remove(projectId, merge.mergeId).catch(() => undefined);
+      return delivery;
+    } catch (error) {
+      await deliveryOutbox
+        .fail(projectId, merge.mergeId, error instanceof Error ? error.message : String(error))
+        .catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** Retry the latest merged operation of one development from its persisted receipt. */
+  async function retryDevelopmentDelivery(
+    projectId: string,
+    developmentIdValue: unknown
+  ): Promise<DevelopmentDelivery> {
+    await project(projectId);
+    const developmentId = developmentIdentifier(developmentIdValue, "开发记录 ID");
+    await replayDeliveries(projectId);
+    const service = await gateway();
+    const merge = [...(await service.queryMerges(projectId, developmentId))]
+      .reverse()
+      .find((entry) => entry.state === "merged" || entry.state === "applying" || entry.state === "waiting");
+    if (!merge || merge.state !== "merged")
+      throw conflict("合入尚未完成，稍后重试交付同步", "delivery_not_merged");
+    const delivery = await syncDelivery(projectId, merge);
+    if (!delivery) throw conflict("该合入没有可同步的回执", "delivery_not_merged");
+    return delivery;
+  }
+
+  function intentOf(merge: DevelopmentMerge): DeliveryIntent | undefined {
+    if (!merge.mergeCommit) return undefined;
+    const timestamp = now();
+    return {
+      projectId: merge.projectId,
+      mergeId: merge.mergeId,
+      developmentId: merge.developmentId,
+      requirementId: merge.requirementId,
+      candidateCommit: merge.candidate.commit,
+      mergedCommit: merge.mergeCommit,
+      targetBranch: merge.targetBranch,
+      mergedAt: timestamp,
+      ...(merge.expectedTarget ? { expectedTarget: merge.expectedTarget } : {}),
+      ...(merge.combinedBase ? { combinedBase: merge.combinedBase } : {}),
+      publishedAt: timestamp
+    };
+  }
+
+  /**
+   * Resolve one locally published operation against the shared row and Git.
+   *
+   * The outbox entry exists only after the target accepted this commit, so a
+   * row still `applying` (even when its owner is this process) can be completed
+   * from the local fact instead of waiting for a restart. A row that no longer
+   * matches is dropped rather than applied to another operation.
+   */
+  async function resumeDeliveryIntent(
+    projectId: string,
+    config: MergeConfig | undefined,
+    intent: DeliveryIntent
+  ): Promise<DevelopmentMerge | undefined> {
+    const service = await gateway();
+    let merge = await service.getMerge(projectId, intent.mergeId).catch(() => undefined);
+    if (!merge) return undefined;
+    // The outbox belongs to the backend that published the operation; another
+    // backend reading the same data root must not complete or drop it.
+    if (merge.executionBackendId !== ports.backendId) return undefined;
+    if (merge.state === "merged") {
+      await syncDelivery(projectId, merge).catch(() => undefined);
+      return merge;
+    }
+    if (merge.state === "applying") {
+      if (!config) return undefined;
+      let applying: DevelopmentMerge = merge;
+      if (!applying.mergeCommit) {
+        const updated = await service
+          .updateMerge(projectId, applying.mergeId, {
+            expectedRevision: applying.revision,
+            mergeCommit: intent.mergedCommit,
+            expectedTarget: intent.expectedTarget ?? applying.combinedBase ?? null,
+            ...(intent.combinedBase && !applying.combinedBase ? { combinedBase: intent.combinedBase } : {})
+          })
+          .catch(() => undefined);
+        if (updated) applying = updated;
+      }
+      const reconciled = await reconcileApplying(projectId, config, applying);
+      if (reconciled.state === "merged") {
+        await syncDelivery(projectId, reconciled).catch(() => undefined);
+        return reconciled;
+      }
+      if (
+        reconciled.state === "waiting" ||
+        (reconciled.state === "failed" && reconciled.reasons.includes("target_missing"))
+      )
+        await deliveryOutbox.remove(projectId, intent.mergeId).catch(() => undefined);
+      return reconciled.state === "waiting" ? undefined : reconciled;
+    }
+    // Any other state means the record did not finish as `merged`. The actual
+    // branch still decides: a later failure can have overwritten a staged
+    // attempt even though the commit reached the target. Without the merge
+    // configuration the repository is unknown, so keep the local fact for a
+    // later read instead of dropping it.
+    if (!config) return undefined;
+    const tip = await targetTip(config.repository, merge.targetBranch).catch(() => undefined);
+    if (tip && (await isAncestor(config.repository, intent.mergedCommit, tip).catch(() => false))) {
+      const updated = await service
+        .updateMerge(projectId, merge.mergeId, {
+          expectedRevision: merge.revision,
+          state: "merged",
+          reasons: [],
+          detail: null,
+          mergeCommit: intent.mergedCommit
+        })
+        .catch(() => undefined);
+      if (updated) {
+        await syncDelivery(projectId, updated).catch(() => undefined);
+        return updated;
+      }
+      return undefined;
+    }
+    // The commit is not on the target: this outbox entry is stale and must not
+    // turn into a delivery.
+    await deliveryOutbox.remove(projectId, intent.mergeId).catch(() => undefined);
+    return undefined;
+  }
+
+  /**
+   * Complete locally published deliveries and any merged row still missing its
+   * delivery. Called before reads and applies, so a recovered shared service is
+   * caught up automatically on the next access; failures stay pending instead
+   * of breaking the read.
+   */
+  async function replayDeliveries(projectId: string): Promise<DevelopmentMerge[]> {
+    const running = deliveryReplays.get(projectId);
+    if (running) return running;
+    const resolved = new Map<string, DevelopmentMerge>();
+    const task = (async () => {
+      try {
+        const service = await gateway();
+        const config = await service.mergeConfig(projectId).catch(() => undefined);
+        for (const intent of await deliveryOutbox.list(projectId)) {
+          const resumed = await resumeDeliveryIntent(projectId, config, intent).catch(() => undefined);
+          if (resumed) resolved.set(resumed.mergeId, resumed);
+        }
+        // Only the backend that published an operation completes its merged
+        // row: the pending fact and the checkout belong to that host, and
+        // another backend's read must not claim its delivery on its behalf.
+        for (const merge of await service.queryMerges(projectId)) {
+          if (merge.state !== "merged" || merge.executionBackendId !== ports.backendId) continue;
+          if (resolved.has(merge.mergeId)) continue;
+          const deliveries = await service.queryDeliveries(projectId, merge.developmentId);
+          if (deliveries.some((entry) => entry.mergeId === merge.mergeId && entry.state === "synced"))
+            continue;
+          const delivery = await syncDelivery(projectId, merge).catch(() => undefined);
+          if (delivery?.state === "synced") resolved.set(merge.mergeId, merge);
+        }
+      } catch {
+        // An unreachable shared store leaves the outbox and merged rows intact;
+        // the next read or apply retries them.
+      } finally {
+        deliveryReplays.delete(projectId);
+      }
+      return [...resolved.values()];
+    })();
+    deliveryReplays.set(projectId, task);
+    return task;
+  }
+
   async function applyMerges(projectId: string): Promise<DevelopmentMerge[]> {
     await project(projectId);
     const config = await requiredMergeConfig(projectId);
@@ -1210,20 +1426,43 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       );
     return serialized(projectId, async () => {
       const service = await gateway();
-      const processed: DevelopmentMerge[] = [];
-      // Reconcile first: a previous process of this backend may have died
-      // between the Git update and its record.
-      for (const entry of await service.queryMerges(projectId)) {
+      // This host's own published operations come first: an interrupted or
+      // unreachable shared record is completed from the local fact, including
+      // when the interruption happened in this same process.
+      const processed: DevelopmentMerge[] = await replayDeliveries(projectId);
+      const recorded = new Set(processed.map((entry) => entry.mergeId));
+      const remember = (entry: DevelopmentMerge) => {
+        if (recorded.has(entry.mergeId)) return;
+        recorded.add(entry.mergeId);
+        processed.push(entry);
+      };
+      // Reconcile next: a previous process of this backend may have died
+      // between the Git update and its record. A shared read that fails after
+      // an operation already ran returns that result instead of hiding it.
+      let known: DevelopmentMerge[];
+      try {
+        known = await service.queryMerges(projectId);
+      } catch (error) {
+        if (processed.length) return processed;
+        throw error;
+      }
+      for (const entry of known) {
         if (entry.state !== "applying") continue;
         if (entry.executionBackendId !== ports.backendId) continue;
         if (entry.ownerStartedAt === startedAt) continue;
         const reconciled = await reconcileApplying(projectId, config, entry);
         // A requeued operation is claimed below; only a terminal reconciliation
         // is its result for this call.
-        if (reconciled.state !== "waiting") processed.push(reconciled);
+        if (reconciled.state !== "waiting") remember(reconciled);
       }
       for (;;) {
-        const waiting = (await service.queryMerges(projectId)).filter((entry) => entry.state === "waiting");
+        let waiting: DevelopmentMerge[];
+        try {
+          waiting = (await service.queryMerges(projectId)).filter((entry) => entry.state === "waiting");
+        } catch (error) {
+          if (processed.length) break;
+          throw error;
+        }
         const next = waiting[0];
         if (!next) break;
         let claimed: DevelopmentMerge;
@@ -1242,10 +1481,175 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
             break;
           throw error;
         }
-        processed.push(await executeMerge(projectId, config, claimed));
+        remember(await executeMerge(projectId, config, claimed));
       }
       return processed;
     });
+  }
+
+  // ---- delivery read model -----------------------------------------------------
+
+  /** The committed change between the baseline and the candidate this host holds. */
+  async function deliveryDiff(record: DevelopmentRecord): Promise<DeliveryDiff | undefined> {
+    const workspace = record.workspace;
+    if (!workspace || workspace.state !== "ready") return undefined;
+    try {
+      const head = await git(workspace.directory, ["rev-parse", "HEAD"]);
+      const raw = await git(workspace.directory, ["diff", "--numstat", `${record.baseline.commit}..${head}`]);
+      const files = raw
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const [additions, deletions, ...path] = line.split("\t");
+          return {
+            path: path.join("\t"),
+            additions: /^\d+$/.test(additions ?? "") ? Number(additions) : 0,
+            deletions: /^\d+$/.test(deletions ?? "") ? Number(deletions) : 0
+          };
+        })
+        .filter((file) => Boolean(file.path));
+      return { base: record.baseline.commit, head, files };
+    } catch {
+      // A checkout this host no longer has cannot produce a diff; the shared
+      // commits and checks above remain readable without pretending otherwise.
+      return undefined;
+    }
+  }
+
+  /**
+   * Role progress from the durable work item and its review facts.
+   *
+   * A role is read from the recorded Executor author / Reviewer binding, never
+   * from a model report. The work item's own status is used when this host still
+   * has it; otherwise the recorded review state is the fallback.
+   */
+  async function deliveryRoles(
+    record: DevelopmentRecord,
+    reviews: DevelopmentReview[]
+  ): Promise<DeliveryRoleProgress[]> {
+    const known = async (callId: string): Promise<string | undefined> => {
+      if (!record.taskId || !ports.call) return undefined;
+      const fact = await ports.call(record.taskId, callId).catch(() => undefined);
+      return fact?.status;
+    };
+    const roles: DeliveryRoleProgress[] = [];
+    const seen = new Set<string>();
+    const push = async (input: Omit<DeliveryRoleProgress, "state">, fallback: string) => {
+      if (!input.callId || seen.has(`${input.role}:${input.callId}`)) return;
+      seen.add(`${input.role}:${input.callId}`);
+      roles.push({ ...input, state: (await known(input.callId)) ?? fallback });
+    };
+    const author = [...reviews].reverse().find((review) => review.author)?.author;
+    if (author)
+      await push(
+        { role: "executor", callId: author.callId, agentId: author.agentId, workspace: author.workspace },
+        "candidate_frozen"
+      );
+    for (const review of reviews)
+      for (const rework of review.reworks)
+        await push(
+          {
+            role: "executor",
+            callId: rework.continuationCallId,
+            agentId: rework.agentId,
+            ...(rework.workspace ? { workspace: rework.workspace } : {})
+          },
+          "rework_recorded"
+        );
+    const latest = reviews.at(-1);
+    if (latest?.reviewer)
+      await push(
+        {
+          role: "reviewer",
+          callId: latest.reviewer.callId,
+          agentId: latest.reviewer.agentId,
+          workspace: latest.reviewer.workspace
+        },
+        latest.state
+      );
+    return roles;
+  }
+
+  function deliveryStage(
+    merges: DevelopmentMerge[],
+    reviews: DevelopmentReview[],
+    delivery: DevelopmentDelivery | undefined
+  ): DeliveryStage {
+    if (delivery?.state === "synced") return "delivered";
+    if (delivery?.state === "pending" || merges.some((merge) => merge.state === "merged")) return "merged";
+    if (merges.some((merge) => merge.state === "waiting" || merge.state === "applying"))
+      return "merge_pending";
+    if (reviews.at(-1)?.state === "in_review") return "reviewing";
+    return "developing";
+  }
+
+  /**
+   * The delivery view one project, Task or requirement can read.
+   *
+   * It reuses the authoritative records and only adds what a reader needs to
+   * follow the delivery: the phase, role progress, the committed diff this host
+   * can read, the merge receipt and its synchronization state, and the board
+   * projection (present only for an external demand).
+   */
+  async function deliveryView(
+    projectId: string,
+    input: { developmentId?: unknown; requirementId?: unknown }
+  ): Promise<DeliveryView> {
+    await project(projectId);
+    const developmentId =
+      input.developmentId === undefined || input.developmentId === null
+        ? undefined
+        : developmentIdentifier(input.developmentId, "开发记录 ID");
+    const requirementId =
+      input.requirementId === undefined || input.requirementId === null
+        ? undefined
+        : developmentIdentifier(input.requirementId, "需求 ID");
+    if (!developmentId && !requirementId)
+      throw conflict("交付视图需要 developmentId 或 requirementId", "delivery_view_target_missing");
+    await replayDeliveries(projectId).catch(() => undefined);
+    const service = await gateway();
+    const record = developmentId
+      ? await service.getDevelopment(projectId, developmentId, ports.backendId)
+      : await service.findDevelopmentByRequirement(projectId, requirementId!, ports.backendId);
+    if (!record) throw new ProjectDataNotFoundError("该需求还没有开发记录");
+    const [plan, reviews, merges, deliveries, boardEntries] = await Promise.all([
+      service.reviewPlan(projectId, record.developmentId),
+      service.queryReviews(projectId, record.developmentId),
+      service.queryMerges(projectId, record.developmentId),
+      service.queryDeliveries(projectId, record.developmentId),
+      service.boardEntries(projectId)
+    ]);
+    const delivery = deliveries.at(-1);
+    const board = boardEntries.find((entry) => entry.requirementId === record.requirementId);
+    const qualification = await deliveryQualification(projectId, record.developmentId).catch(() => undefined);
+    const diff = await deliveryDiff(record);
+    const roles = await deliveryRoles(record, reviews);
+    const pending = [...(await deliveryOutbox.list(projectId).catch(() => []))]
+      .reverse()
+      .find((intent) => intent.developmentId === record.developmentId);
+    const latestMerged = [...merges].reverse().find((merge) => merge.state === "merged");
+    const waitingSync = pending
+      ? {
+          mergeId: pending.mergeId,
+          ...(pending.error ? { error: pending.error } : {})
+        }
+      : !delivery && latestMerged
+        ? { mergeId: latestMerged.mergeId }
+        : undefined;
+    return {
+      projectId,
+      development: record,
+      stage: deliveryStage(merges, reviews, delivery),
+      ...(plan ? { plan } : {}),
+      reviews,
+      ...(qualification ? { qualification } : {}),
+      merges,
+      ...(delivery ? { delivery } : {}),
+      ...(board ? { board } : {}),
+      ...(diff ? { diff } : {}),
+      roles,
+      ...(waitingSync ? { pendingSync: waitingSync } : {})
+    };
   }
 
   return {
@@ -1272,32 +1676,113 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
 
     async list(projectId: string, backendId = ports.backendId) {
       await project(projectId);
+      await replayDeliveries(projectId).catch(() => undefined);
       return (await gateway()).queryDevelopments(projectId, backendId);
     },
 
     async listForTask(taskId: string, backendId = ports.backendId) {
       const found = await taskProject(taskId);
+      await replayDeliveries(found.projectId).catch(() => undefined);
       return (await gateway()).queryDevelopments(found.projectId, backendId);
     },
 
     async get(projectId: string, developmentId: string, backendId = ports.backendId) {
       await project(projectId);
+      await replayDeliveries(projectId).catch(() => undefined);
       return (await gateway()).getDevelopment(projectId, developmentId, backendId);
     },
 
     async getForTask(taskId: string, developmentId: string, backendId = ports.backendId) {
       const found = await taskProject(taskId);
+      await replayDeliveries(found.projectId).catch(() => undefined);
       return (await gateway()).getDevelopment(found.projectId, developmentId, backendId);
     },
 
     async find(projectId: string, requirementId: unknown, backendId = ports.backendId) {
       await project(projectId);
+      await replayDeliveries(projectId).catch(() => undefined);
       return (await gateway()).findDevelopmentByRequirement(projectId, requirementId, backendId);
     },
 
     async findForTask(taskId: string, requirementId: unknown, backendId = ports.backendId) {
       const found = await taskProject(taskId);
+      await replayDeliveries(found.projectId).catch(() => undefined);
       return (await gateway()).findDevelopmentByRequirement(found.projectId, requirementId, backendId);
+    },
+
+    /** Delivery rows for a project or one development; a pending row is readable with its error. */
+    async deliveries(projectId: string, developmentId?: unknown) {
+      await project(projectId);
+      await replayDeliveries(projectId).catch(() => undefined);
+      return (await gateway()).queryDeliveries(
+        projectId,
+        developmentId === undefined ? undefined : developmentIdentifier(developmentId, "开发记录 ID")
+      );
+    },
+
+    async deliveriesForTask(taskId: string, developmentId?: unknown) {
+      const found = await taskProject(taskId);
+      await replayDeliveries(found.projectId).catch(() => undefined);
+      return (await gateway()).queryDeliveries(
+        found.projectId,
+        developmentId === undefined ? undefined : developmentIdentifier(developmentId, "开发记录 ID")
+      );
+    },
+
+    async getDelivery(projectId: string, deliveryId: string) {
+      await project(projectId);
+      return (await gateway()).getDelivery(projectId, deliveryId);
+    },
+
+    async getDeliveryForTask(taskId: string, deliveryId: string) {
+      const found = await taskProject(taskId);
+      return (await gateway()).getDelivery(found.projectId, deliveryId);
+    },
+
+    /** Retry a pending delivery from its persisted receipt; safe to click repeatedly. */
+    async retryDelivery(projectId: string, deliveryId: string) {
+      await project(projectId);
+      return (await gateway()).retryDelivery(projectId, deliveryId);
+    },
+
+    async retryDeliveryForTask(taskId: string, deliveryId: string) {
+      const found = await taskProject(taskId);
+      return (await gateway()).retryDelivery(found.projectId, deliveryId);
+    },
+
+    /** Retry by development, for a local fact that never reached the shared row. */
+    async retryDevelopmentDelivery(projectId: string, developmentId: string) {
+      return retryDevelopmentDelivery(projectId, developmentId);
+    },
+
+    async retryDevelopmentDeliveryForTask(taskId: string, developmentId: string) {
+      const found = await taskProject(taskId);
+      return retryDevelopmentDelivery(found.projectId, developmentId);
+    },
+
+    /** One startup pass over this host's persisted facts; failures stay pending. */
+    async resumeDeliveries() {
+      for (const projectId of await deliveryOutbox.projects().catch(() => []))
+        await replayDeliveries(projectId).catch(() => undefined);
+    },
+
+    async deliveryView(projectId: string, input: Record<string, unknown>) {
+      return deliveryView(projectId, input);
+    },
+
+    async deliveryViewForTask(taskId: string, input: Record<string, unknown>) {
+      const found = await taskProject(taskId);
+      return deliveryView(found.projectId, input);
+    },
+
+    /** Record the receipt a remote execution backend produced for a real merge. */
+    async recordDelivery(projectId: string, receipt: unknown, backendId: string) {
+      await project(projectId);
+      const value = deliveryReceipt(receipt);
+      const merge = await (await gateway()).getMerge(projectId, value.mergeId);
+      if (merge.executionBackendId !== backendId)
+        throw conflict(`合入操作归属后端 ${merge.executionBackendId}`, "delivery_owner_mismatch");
+      return (await gateway()).syncDelivery(projectId, value);
     },
 
     async recordWorkspace(projectId: string, developmentId: string, workspace: unknown) {
@@ -1480,11 +1965,13 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
 
     async queryMerges(projectId: string, developmentId?: string) {
       await project(projectId);
+      await replayDeliveries(projectId).catch(() => undefined);
       return (await gateway()).queryMerges(projectId, developmentId);
     },
 
     async queryMergesForTask(taskId: string, developmentId?: string) {
       const found = await taskProject(taskId);
+      await replayDeliveries(found.projectId).catch(() => undefined);
       return (await gateway()).queryMerges(found.projectId, developmentId);
     },
 

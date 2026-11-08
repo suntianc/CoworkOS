@@ -540,7 +540,12 @@ const projectController = createProjectController({
 });
 const ledgerController = createProjectLedgerController({ api, state, showToast });
 $("#ledger-nav").addEventListener("click", () => ledgerController.open());
-const developmentController = createProjectDevelopmentController({ api, state, showToast });
+const developmentController = createProjectDevelopmentController({
+  api,
+  state,
+  getBackend: () => boundBackendId,
+  showToast
+});
 $("#development-nav").addEventListener("click", () => developmentController.open());
 const mainSessionsController = createMainSessionsController({
   api,

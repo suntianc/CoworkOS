@@ -52,7 +52,7 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
     name: "project_development",
     label: "Project Development",
     description:
-      "The current project's requirement development records, fixed-candidate reviews and shared merge entry. create records the goal, completion criteria, suggested route and the code baseline, then prepares this backend's isolated Git checkout for the requirement; one record exists per requirement, so read it before creating. get/query read records back, find_by_requirement looks one up for a requirement, update appends a new revision (carry the revision you last read), and ensure_workspace continues or repairs the existing checkout at its recorded baseline. Review actions record the channel decision and the version its self-checks ran on (review_plan), freeze the integration checkout's current commit as a candidate and open a review (freeze_candidate), bind one independent Reviewer call (attach_reviewer), keep its findings and Main's rulings (record_finding/rule_finding), record a rework that continued the original Executor session (record_rework), read or finish a review (get_review/complete_review), and read delivery qualification (delivery_check). A passed review settles its linked fixes; failed or drifted reviews keep their findings rulable so a repair or reasoned dismissal can still settle them. Merge actions apply an accepted candidate to the project's configured target through the shared entry: request_merge queues it (and the execution location applies its queue when this backend owns it), apply_merge asks the execution location to reconcile interrupted attempts and process waiting operations in order, and merge_status reads operations and their idempotent merged receipts. The current project and Task come from this conversation, so no project id or path is accepted.",
+      "The current project's requirement development records, fixed-candidate reviews and shared merge entry. create records the goal, completion criteria, suggested route and the code baseline, then prepares this backend's isolated Git checkout for the requirement; one record exists per requirement, so read it before creating. get/query read records back, find_by_requirement looks one up for a requirement, update appends a new revision (carry the revision you last read), and ensure_workspace continues or repairs the existing checkout at its recorded baseline. Review actions record the channel decision and the version its self-checks ran on (review_plan), freeze the integration checkout's current commit as a candidate and open a review (freeze_candidate), bind one independent Reviewer call (attach_reviewer), keep its findings and Main's rulings (record_finding/rule_finding), record a rework that continued the original Executor session (record_rework), read or finish a review (get_review/complete_review), and read delivery qualification (delivery_check). A passed review settles its linked fixes; failed or drifted reviews keep their findings rulable so a repair or reasoned dismissal can still settle them. Merge actions apply an accepted candidate to the project's configured target through the shared entry: request_merge queues it (and the execution location applies its queue when this backend owns it), apply_merge asks the execution location to reconcile interrupted attempts and process waiting operations in order, and merge_status reads operations and their idempotent merged receipts. Delivery is recorded automatically after a real merge; delivery_status reads its phase, role progress, committed diff, checks, findings and the ledger/board synchronization receipt (pending rows keep their last error and retry automatically). The current project and Task come from this conversation, so no project id or path is accepted.",
     parameters: {
       type: "object",
       properties: {
@@ -66,11 +66,18 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
             "update",
             "ensure_workspace",
             ...REVIEW_ACTIONS,
-            ...MERGE_ACTIONS
+            ...MERGE_ACTIONS,
+            "delivery_status"
           ]
         },
-        requirementId: { ...ID, description: "create/find_by_requirement target requirement." },
-        developmentId: { ...ID, description: "get/update/ensure_workspace/review target." },
+        requirementId: {
+          ...ID,
+          description: "create/find_by_requirement/delivery_status target requirement."
+        },
+        developmentId: {
+          ...ID,
+          description: "get/update/ensure_workspace/review/merge/delivery_status target."
+        },
         goal: {
           type: "string",
           maxLength: 4000,
@@ -295,6 +302,12 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
         return merges({
           action: "query",
           ...(input.developmentId === undefined ? {} : { developmentId: input.developmentId })
+        });
+      if (action === "delivery_status")
+        return request.deliveries({
+          action: "view",
+          ...(input.developmentId === undefined ? {} : { developmentId: input.developmentId }),
+          ...(input.requirementId === undefined ? {} : { requirementId: input.requirementId })
         });
       throw new Error(`未知的开发记录操作：${String(action)}`);
     }

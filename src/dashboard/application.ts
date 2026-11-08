@@ -256,6 +256,9 @@ export function createDashboardApplication(
     backendId: backendIdentity.backendId,
     startedAt: backendIdentity.startedAt,
     developmentRoot: join(dirname(globalIndexPath), "development-workspaces"),
+    // A published merge that the shared store has not accepted yet is kept on
+    // this host until its ledger/board delivery is written.
+    deliveryRoot: join(dirname(globalIndexPath), "delivery-sync"),
     // Test-only crash window: kill this process between the target update and
     // its record so recovery has to reconcile against real Git facts.
     ...(process.env.COWORK_MERGE_FAULT_INJECT
@@ -290,6 +293,9 @@ export function createDashboardApplication(
         : undefined;
     }
   });
+  // Resume any delivery this host published but could not record before its
+  // last shutdown; the same facts are retried on the next read or apply.
+  void developments.resumeDeliveries().catch(() => undefined);
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
   /**
    * The durable catalog event log, beside the sessions and receipts.

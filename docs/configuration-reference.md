@@ -171,7 +171,7 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 
 `authority` 与 `engine`、`sqlite`、`postgres` 互斥。客户端启动时用主机凭据换取一个本地会话，之后只出示该会话；凭据保存在服务端配置或 `COWORK_PROJECT_DATA_TOKEN`，不进入界面、工具参数或错误文本。权威服务不可达返回 `storage_unavailable`，会话被撤销返回 `shared_auth_failed`；两者都不伪造认领成功，也不自动转移归属。主会话记录、需求开发记录、审查记录与看板一样经该客户端共享；Task、Pi 历史、现场检出目录与执行归属仍留在创建它的后端，另一个后端不能为不属于自己的会话记录或结算 Run，也只能读取自己准备的现场。项目合入配置中的仓库与目标分支由配置的执行后端在自己的主机上校验；权威只保存验证后的共享事实，不对远端路径执行 Git。共享项目沿用同一 `projectId`，每个后端只登记自己的本机目录绑定；远端绝对路径不会成为本机执行目录。备份与恢复在权威服务所在后端执行，远程客户端会明确拒绝。
 
-需求现场是目标仓库之外的独立 `git worktree`，按数据根放在 `ATRIA_HOME/runtime/development-workspaces/<developmentId>`（默认 `~/.atria/runtime/development-workspaces`）；它不会放进共享记录，也不会写进用户自己的工作目录。绑定需求的工作项在同一层级的 `work-items/<callId>` 分出各自现场，恢复时复用原目录与分支。合入在 `merges/<mergeId>` 建立自己的临时组合现场，目标更新后或失败时删除；它不覆盖用户现场、先前合入或未合入分支。
+需求现场是目标仓库之外的独立 `git worktree`，按数据根放在 `ATRIA_HOME/runtime/development-workspaces/<developmentId>`（默认 `~/.atria/runtime/development-workspaces`）；它不会放进共享记录，也不会写进用户自己的工作目录。绑定需求的工作项在同一层级的 `work-items/<callId>` 分出各自现场，恢复时复用原目录与分支。合入在 `merges/<mergeId>` 建立自己的临时组合现场，目标更新后或失败时删除；它不覆盖用户现场、先前合入或未合入分支。目标已更新、共享记录尚未写入的交付事实按项目保存在 `ATRIA_HOME/runtime/delivery-sync/<项目哈希>.json`（0600、原子替换）：它只含合入身份、目标、提交和最近错误，属于执行主机的本机恢复事实，不进入共享记录或项目数据库备份；读取、`apply_merge`、重试或重启会从该事实和真实分支补齐同一次交付。
 
 SQLite 的默认文件是数据根下的 `project-data.sqlite`（`ATRIA_HOME/runtime/project-data.sqlite`，默认 `~/.atria/runtime/project-data.sqlite`）；`projectData.sqlite.path` 可指定文件，相对路径按数据根解析。PostgreSQL 也可用 `host`、`port`、`database`、`user`、`password`、`ssl` 分开填写。连接凭据只保存在服务端配置或 `COWORK_PROJECT_DATA_URL`，不进入界面、工具参数或错误文本。
 
@@ -181,7 +181,7 @@ SQLite 的默认文件是数据根下的 `project-data.sqlite`（`ATRIA_HOME/run
 
 ### 备份与恢复
 
-服务启动时按版本执行 schema 迁移。`GET /api/project-data` 报告当前引擎、服务端版本和已应用的 schema 版本；`target` 是文件路径或 `postgresql://host:port/database`，不含凭据。备份与恢复使用同一服务，按当前引擎读取和写入：
+服务启动时按版本执行 schema 迁移。`GET /api/project-data` 报告当前引擎、服务端版本和已应用的 schema 版本；`target` 是文件路径或 `postgresql://host:port/database`，不含凭据。当前 schema 为 v7：v6 增加项目合入操作，v7 增加交付记录与看板上的实际合入提交列；迁移只追加，旧数据继续可读。备份与恢复使用同一服务，按当前引擎读取和写入：
 
 ```sh
 coworkos data backup --to ~/backups/project-data.json

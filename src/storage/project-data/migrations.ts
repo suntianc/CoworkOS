@@ -334,6 +334,44 @@ export const PROJECT_DATA_MIGRATIONS: readonly ProjectDataMigration[] = [
       `CREATE INDEX IF NOT EXISTS project_data_development_merges_project
          ON project_data_development_merges(project_id, development_id, created_at)`
     ]
+  },
+  {
+    // v7: the delivery a merged operation produces. One row per real merge is
+    // the idempotent identity for the ledger/board synchronization: `pending`
+    // means the target already carries `merged_commit` but the shared records
+    // have not accepted it yet, `synced` means both did. The board columns keep
+    // the actual merged commit beside the pending-release state, so an external
+    // demand never appears released before its release phase.
+    version: 7,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS project_data_deliveries (
+         project_id TEXT NOT NULL,
+         delivery_id TEXT NOT NULL,
+         development_id TEXT NOT NULL,
+         requirement_id TEXT NOT NULL,
+         merge_id TEXT NOT NULL,
+         candidate_commit TEXT NOT NULL,
+         merged_commit TEXT NOT NULL,
+         target_branch TEXT NOT NULL,
+         merged_at TEXT NOT NULL,
+         board_id TEXT,
+         state TEXT NOT NULL,
+         attempts INTEGER NOT NULL,
+         error TEXT,
+         synced_at TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, delivery_id),
+         UNIQUE (project_id, merge_id),
+         FOREIGN KEY (project_id, development_id)
+           REFERENCES project_data_developments(project_id, development_id) ON DELETE CASCADE
+       )`,
+      `CREATE INDEX IF NOT EXISTS project_data_deliveries_project
+         ON project_data_deliveries(project_id, development_id, created_at)`,
+      `ALTER TABLE project_data_board_entries ADD COLUMN delivery_merge_id TEXT`,
+      `ALTER TABLE project_data_board_entries ADD COLUMN delivery_commit TEXT`,
+      `ALTER TABLE project_data_board_entries ADD COLUMN delivered_at TEXT`
+    ]
   }
 ];
 

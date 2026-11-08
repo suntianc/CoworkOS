@@ -36,6 +36,7 @@ import { DevelopmentExistsError } from "../domain/project-development.js";
 import type { DevelopmentRecord, MergeConfig } from "../domain/project-development.js";
 import type { DevelopmentReview, ReviewPlan } from "../domain/development-review.js";
 import type { DevelopmentMerge, MergeCreate } from "../domain/development-merge.js";
+import type { DevelopmentDelivery } from "../domain/development-delivery.js";
 import type { MainSessionRun } from "../domain/main-session.js";
 import type { RequirementDetail, RequirementSummary, SharedProject } from "../domain/project-ledger.js";
 
@@ -555,6 +556,40 @@ export class RemoteProjectDataService implements ProjectDataGateway {
 
   private mergeRequest(projectId: unknown, body: Record<string, unknown>) {
     return this.request(projectPath(projectId, "/merges"), { body });
+  }
+
+  /**
+   * Delivery rows are shared facts. A remote execution backend reports the
+   * receipt of a merge it actually performed; the authority verifies it against
+   * its merged row before writing the ledger and board.
+   */
+  async syncDelivery(projectId: unknown, receipt: unknown): Promise<DevelopmentDelivery> {
+    const result = await this.deliveryRequest(projectId, { action: "sync", receipt });
+    return result.delivery as DevelopmentDelivery;
+  }
+
+  async queryDeliveries(projectId: unknown, developmentId?: unknown): Promise<DevelopmentDelivery[]> {
+    const result = await this.deliveryRequest(projectId, {
+      action: "query",
+      ...(developmentId === undefined ? {} : { developmentId })
+    });
+    return (result.deliveries as DevelopmentDelivery[]) ?? [];
+  }
+
+  async getDelivery(projectId: unknown, deliveryId: unknown): Promise<DevelopmentDelivery> {
+    const result = await this.request(
+      projectPath(projectId, `/deliveries/${encodeURIComponent(String(deliveryId))}`)
+    );
+    return result.delivery as DevelopmentDelivery;
+  }
+
+  async retryDelivery(projectId: unknown, deliveryId: unknown): Promise<DevelopmentDelivery> {
+    const result = await this.deliveryRequest(projectId, { action: "retry", deliveryId });
+    return result.delivery as DevelopmentDelivery;
+  }
+
+  private deliveryRequest(projectId: unknown, body: Record<string, unknown>) {
+    return this.request(projectPath(projectId, "/deliveries"), { body });
   }
 
   async boardEntries(projectId: unknown): Promise<BoardEntry[]> {

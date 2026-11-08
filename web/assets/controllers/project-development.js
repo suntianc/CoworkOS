@@ -15,6 +15,36 @@ const mergeStateLabel = {
   check_failed: "检查未通过",
   failed: "合入失败"
 };
+const stageLabel = {
+  developing: "开发中",
+  reviewing: "审查中",
+  merge_pending: "等待合入",
+  merged: "已合入",
+  delivered: "已交付"
+};
+const deliveryStateLabel = { pending: "同步待处理", synced: "已记录交付" };
+const boardStateLabel = {
+  pending: "待认领",
+  claimed: "已认领",
+  in_progress: "处理中",
+  paused: "暂停",
+  cancelled: "已取消",
+  pending_release: "待发布"
+};
+const roleLabel = { executor: "Executor", reviewer: "Reviewer" };
+const roleStateLabel = {
+  completed: "已完成",
+  succeeded: "已完成",
+  running: "进行中",
+  queued: "排队中",
+  leased: "已领取",
+  waiting: "等待中",
+  failed: "失败",
+  cancelled: "已取消",
+  timed_out: "超时",
+  candidate_frozen: "候选已冻结",
+  rework_recorded: "已返修"
+};
 const findingStateLabel = { open: "待裁定", fix_claimed: "待修复", fixed: "已修复", dismissed: "不采纳" };
 const dismissalLabel = { false_positive: "误报", out_of_scope: "范围外", other: "其他" };
 const reasonLabel = {
@@ -40,30 +70,41 @@ const shortCall = (callId) => (typeof callId === "string" ? callId.slice(-8) : "
  *
  * It names a project in the URL and reads one project at a time; the Main tool
  * uses a Task-scoped path instead, so the two clients never share a project
- * parameter. A late load keeps its project and is dropped after a switch.
+ * parameter. Selection belongs to one backend and one project, so a switch or a
+ * late response never moves the detail, the draft or the attachments.
  */
-export function createProjectDevelopmentController({ api, state, showToast = () => {} }) {
+export function createProjectDevelopmentController({
+  api,
+  state,
+  getBackend = () => "",
+  showToast = () => {}
+}) {
   let panel, modal, list, detail, errorNode, projectSelect;
   let epoch = 0;
   let activeProject = null;
   let activeDevelopment = null;
   let developments = [];
-  let activeReview = { plan: null, reviews: [], qualification: null, merges: [] };
+  let activeReview = {
+    plan: null,
+    reviews: [],
+    qualification: null,
+    merges: [],
+    delivery: null,
+    board: null,
+    diff: null,
+    roles: [],
+    stage: undefined
+  };
   let projectsSignature = "";
+  let currentKey = null;
 
+  const keyFor = (projectId) => `${getBackend() || "default"}\u0000${projectId ?? ""}`;
   const endpoint = (projectId, developmentId) =>
     `/api/projects/${encodeURIComponent(projectId)}/developments${
       developmentId ? `/${encodeURIComponent(developmentId)}` : ""
     }`;
-  const reviewEndpoint = (projectId, developmentId) =>
-    `/api/projects/${encodeURIComponent(projectId)}/reviews?developmentId=${encodeURIComponent(
-      developmentId
-    )}`;
-  const mergeEndpoint = (projectId, developmentId) =>
-    `/api/projects/${encodeURIComponent(projectId)}/merges?developmentId=${encodeURIComponent(
-      developmentId
-    )}`;
-  const visible = (projectId) => panel && !panel.hidden && activeProject?.projectId === projectId;
+  const deliveryEndpoint = (projectId) => `/api/projects/${encodeURIComponent(projectId)}/deliveries`;
+  const visible = (key) => Boolean(panel && !panel.hidden && currentKey === key);
 
   function install() {
     if (panel) return;
@@ -99,6 +140,7 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
       activeProject = state.projects?.find((project) => project.projectId === projectSelect.value) ?? null;
       activeDevelopment = null;
       detail.hidden = true;
+      enterKey(keyFor(activeProject?.projectId));
       void load();
     });
     list.addEventListener("click", (event) => {
@@ -107,6 +149,8 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
     });
     detail.addEventListener("click", (event) => {
       if (event.target.closest("[data-continue]")) void continueWorkspace();
+      const retry = event.target.closest("[data-retry-sync]");
+      if (retry) void retryDelivery(retry.dataset.retrySync);
     });
   }
 
@@ -140,6 +184,13 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
     projectSelect.disabled = projects.length === 0;
   }
 
+  function enterKey(key) {
+    if (key === currentKey) return;
+    currentKey = key;
+    activeDevelopment = null;
+    detail.hidden = true;
+  }
+
   function fail(error) {
     errorNode.textContent = error?.message || "开发记录请求失败";
     errorNode.hidden = false;
@@ -152,17 +203,18 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
 
   async function load() {
     if (!activeProject) return;
+    const key = currentKey;
     const projectId = activeProject.projectId;
     const current = ++epoch;
     clearError();
     try {
       const result = await api(endpoint(projectId));
-      if (current !== epoch || !visible(projectId)) return;
+      if (current !== epoch || key !== currentKey || !visible(key)) return;
       developments = result.developments ?? [];
       renderList();
-      if (activeDevelopment) await select(activeDevelopment);
+      if (activeDevelopment) await select(activeDevelopment, current);
     } catch (error) {
-      if (current === epoch && visible(projectId)) fail(error);
+      if (current === epoch && key === currentKey && visible(key)) fail(error);
     }
   }
 
@@ -187,28 +239,36 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
       .join("");
   }
 
-  async function select(developmentId) {
+  async function select(developmentId, parentEpoch) {
     if (!activeProject) return;
+    const key = currentKey;
     const projectId = activeProject.projectId;
-    const current = ++epoch;
+    const current = parentEpoch ?? ++epoch;
     try {
-      const result = await api(endpoint(projectId, developmentId));
-      if (current !== epoch || !visible(projectId)) return;
-      const reviews = await api(reviewEndpoint(projectId, developmentId)).catch(() => ({}));
-      if (current !== epoch || !visible(projectId)) return;
-      const merges = await api(mergeEndpoint(projectId, developmentId)).catch(() => ({}));
-      if (current !== epoch || !visible(projectId)) return;
+      const result = await api(deliveryEndpoint(projectId), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "view", developmentId })
+      });
+      if (current !== epoch || key !== currentKey || !visible(key)) return;
+      const view = result.view ?? {};
       activeDevelopment = developmentId;
       activeReview = {
-        plan: reviews.plan ?? null,
-        reviews: reviews.reviews ?? [],
-        qualification: reviews.qualification ?? null,
-        merges: merges.merges ?? []
+        plan: view.plan ?? null,
+        reviews: view.reviews ?? [],
+        qualification: view.qualification ?? null,
+        merges: view.merges ?? [],
+        delivery: view.delivery ?? null,
+        board: view.board ?? null,
+        diff: view.diff ?? null,
+        roles: view.roles ?? [],
+        pendingSync: view.pendingSync ?? null,
+        stage: view.stage
       };
-      renderDetail(result.development, activeReview);
+      renderDetail(view.development, activeReview);
       renderList();
     } catch (error) {
-      if (current === epoch && visible(projectId)) fail(error);
+      if (current === epoch && key === currentKey && visible(key)) fail(error);
     }
   }
 
@@ -299,6 +359,59 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
     </article>`;
   }
 
+  function rolesHtml(roles) {
+    if (!roles?.length) return `<p class="ledger-source">本次没有委派子 Agent</p>`;
+    return `<ul class="development-roles" aria-label="协作者进度">${roles
+      .map(
+        (role) => `<li data-role="${esc(role.role)}" data-call="${esc(role.callId)}">
+          <strong>${esc(roleLabel[role.role] ?? role.role)}</strong>
+          <span class="ledger-tags"><span>${esc(role.agentId)}</span><span>${esc(
+            roleStateLabel[role.state] ?? role.state
+          )}</span></span>
+        </li>`
+      )
+      .join("")}</ul>`;
+  }
+
+  function diffHtml(diff) {
+    if (!diff) return `<p class="ledger-source">本次现场无法读取改动</p>`;
+    return `<p class="ledger-source" data-diff>${esc(shortCommit(diff.base))} → ${esc(
+      shortCommit(diff.head)
+    )} · ${esc(diff.files?.length ?? 0)} 个文件</p>
+    <ul class="development-checks" aria-label="候选改动">${(diff.files ?? [])
+      .map(
+        (file) =>
+          `<li><span>${esc(file.path)}</span><span>+${esc(file.additions)} −${esc(file.deletions)}</span></li>`
+      )
+      .join("")}</ul>`;
+  }
+
+  function deliveryHtml(delivery, board, pending, merge, developmentId) {
+    if (!delivery && !pending) return `<p class="ledger-source">合入后自动记录交付</p>`;
+    const state = delivery?.state ?? "pending";
+    const error = delivery?.lastError ?? pending?.error;
+    const branch = delivery?.targetBranch ?? merge?.targetBranch ?? "";
+    const commit = delivery?.mergedCommit ?? merge?.mergeCommit;
+    return `<article class="development-delivery" ${
+      delivery ? `data-delivery="${esc(delivery.deliveryId)}"` : ""
+    } data-state="${esc(state)}">
+      <header><strong>${esc(deliveryStateLabel[state] ?? state)}</strong><span class="ledger-tags"><span>${esc(
+        branch
+      )}</span><span>${esc(shortCommit(commit))}</span></span></header>
+      ${error ? `<p class="development-error" role="alert">${esc(error)}</p>` : ""}
+      <p class="ledger-source">${esc(
+        board ? `看板需求 ${boardStateLabel[board.state] ?? board.state}` : "内部需求，只写台账"
+      )}</p>
+      ${
+        state === "synced"
+          ? ""
+          : `<div class="ledger-actions"><button type="button" class="app-button" data-retry-sync="${esc(
+              developmentId
+            )}">重试同步</button></div>`
+      }
+    </article>`;
+  }
+
   function renderDetail(development, review = activeReview) {
     if (!development) {
       detail.hidden = true;
@@ -314,9 +427,11 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
       development.requirementTitle || development.goal
     )}</strong><span class="ledger-tags"><span>${esc(
       routeLabel[development.route] ?? development.route
-    )}</span><span>${esc(statusLabel[development.status] ?? development.status)}</span><span>v${esc(
-      development.revision
-    )}</span></span></header>
+    )}</span><span>${esc(statusLabel[development.status] ?? development.status)}</span>${
+      review?.stage
+        ? `<span data-stage="${esc(review.stage)}">${esc(stageLabel[review.stage] ?? review.stage)}</span>`
+        : ""
+    }<span>v${esc(development.revision)}</span></span></header>
       <p class="ledger-content">${esc(development.goal)}</p>
       <h3>完成标准</h3>
       <ul class="development-criteria">${(development.completionCriteria ?? [])
@@ -336,6 +451,10 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
             }`
           : `<p class="ledger-source">尚未准备</p>`
       }
+      <h3>协作</h3>
+      ${rolesHtml(review?.roles)}
+      <h3>改动</h3>
+      ${diffHtml(review?.diff)}
       <h3>自检</h3>
       ${
         plan
@@ -357,6 +476,13 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
                 .join(" · ")
           : "尚不可判定"
       }</p>
+      ${deliveryHtml(
+        review?.delivery,
+        review?.board,
+        review?.pendingSync,
+        (review?.merges ?? []).at(-1),
+        development.developmentId
+      )}
       <h3>合入</h3>
       ${mergeHtml((review?.merges ?? []).at(-1))}
       <div class="ledger-actions"><button type="button" class="app-button" data-continue>继续现场</button></div>`;
@@ -364,6 +490,7 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
 
   async function continueWorkspace() {
     if (!activeProject || !activeDevelopment) return;
+    const key = currentKey;
     const projectId = activeProject.projectId;
     const developmentId = activeDevelopment;
     const current = ++epoch;
@@ -374,25 +501,45 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "ensure_workspace", developmentId })
       });
-      if (current !== epoch || !visible(projectId)) return;
-      renderDetail(result.development);
+      if (current !== epoch || key !== currentKey || !visible(key)) return;
+      showToast(result.development.workspace?.state === "ready" ? "现场已就绪" : "现场未就绪");
       developments = developments.map((entry) =>
         entry.developmentId === result.development.developmentId ? result.development : entry
       );
-      renderList();
-      showToast(result.development.workspace?.state === "ready" ? "现场已就绪" : "现场未就绪");
+      await load();
     } catch (error) {
-      if (current === epoch && visible(projectId)) fail(error);
+      if (current === epoch && key === currentKey && visible(key)) fail(error);
+    }
+  }
+
+  async function retryDelivery(developmentId) {
+    if (!activeProject || !developmentId) return;
+    const key = currentKey;
+    const projectId = activeProject.projectId;
+    const current = ++epoch;
+    clearError();
+    try {
+      await api(deliveryEndpoint(projectId), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "retry", developmentId })
+      });
+      if (current !== epoch || key !== currentKey || !visible(key)) return;
+      showToast("交付已同步");
+      await load();
+    } catch (error) {
+      if (current === epoch && key === currentKey && visible(key)) fail(error);
     }
   }
 
   return {
-    /** Keep the project options in step; a project that disappeared reloads the view. */
+    /** Keep the project options in step; a backend or project change reloads the view. */
     render() {
       if (!panel) return;
-      const previous = activeProject?.projectId;
+      const previous = currentKey;
       renderProjects();
-      if (!panel.hidden && activeProject && activeProject.projectId !== previous) void load();
+      enterKey(keyFor(activeProject?.projectId));
+      if (!panel.hidden && activeProject && currentKey !== previous) void load();
     },
     open(projectId) {
       install();
@@ -404,6 +551,7 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
           pickProject(project.projectId);
         }
       }
+      enterKey(keyFor(activeProject?.projectId));
       activeDevelopment = null;
       detail.hidden = true;
       modal.open();
