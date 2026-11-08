@@ -169,7 +169,9 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 }
 ```
 
-`authority` 与 `engine`、`sqlite`、`postgres` 互斥。客户端启动时用主机凭据换取一个本地会话，之后只出示该会话；凭据保存在服务端配置或 `COWORK_PROJECT_DATA_TOKEN`，不进入界面、工具参数或错误文本。权威服务不可达返回 `storage_unavailable`，会话被撤销返回 `shared_auth_failed`；两者都不伪造认领成功，也不自动转移归属。主会话记录与看板一样经该客户端共享；Task、Pi 历史与执行归属仍留在创建它的后端，另一个后端不能为不属于自己的会话记录或结算 Run。共享项目沿用同一 `projectId`，每个后端只登记自己的本机目录绑定；远端绝对路径不会成为本机执行目录。备份与恢复在权威服务所在后端执行，远程客户端会明确拒绝。
+`authority` 与 `engine`、`sqlite`、`postgres` 互斥。客户端启动时用主机凭据换取一个本地会话，之后只出示该会话；凭据保存在服务端配置或 `COWORK_PROJECT_DATA_TOKEN`，不进入界面、工具参数或错误文本。权威服务不可达返回 `storage_unavailable`，会话被撤销返回 `shared_auth_failed`；两者都不伪造认领成功，也不自动转移归属。主会话记录、需求开发记录与看板一样经该客户端共享；Task、Pi 历史、现场检出目录与执行归属仍留在创建它的后端，另一个后端不能为不属于自己的会话记录或结算 Run，也只能读取自己准备的现场。共享项目沿用同一 `projectId`，每个后端只登记自己的本机目录绑定；远端绝对路径不会成为本机执行目录。备份与恢复在权威服务所在后端执行，远程客户端会明确拒绝。
+
+需求现场是目标仓库之外的独立 `git worktree`，按数据根放在 `ATRIA_HOME/runtime/development-workspaces/<developmentId>`（默认 `~/.atria/runtime/development-workspaces`）；它不会放进共享记录，也不会写进用户自己的工作目录。
 
 SQLite 的默认文件是数据根下的 `project-data.sqlite`（`ATRIA_HOME/runtime/project-data.sqlite`，默认 `~/.atria/runtime/project-data.sqlite`）；`projectData.sqlite.path` 可指定文件，相对路径按数据根解析。PostgreSQL 也可用 `host`、`port`、`database`、`user`、`password`、`ssl` 分开填写。连接凭据只保存在服务端配置或 `COWORK_PROJECT_DATA_URL`，不进入界面、工具参数或错误文本。
 
@@ -186,7 +188,7 @@ coworkos data backup --to ~/backups/project-data.json
 coworkos data restore --from ~/backups/project-data.json
 ```
 
-备份是本机逻辑快照（文件权限 0600），包含共享项目、本机目录绑定、需求、修订、决定、引用、看板条目与事件、Main 会话与运行归属；Pi 历史不在快照里，仍由执行后端本地保管。恢复在一个事务里按外键顺序整体替换这些记录，并拒绝来自另一引擎或旧 schema 的备份文件。恢复前先停止写入该数据根的后端，恢复后重启后端读取。使用 `projectData.authority` 的后端没有本地数据库，备份和恢复在权威服务所在后端执行。
+备份是本机逻辑快照（文件权限 0600），包含共享项目、本机目录绑定、需求、修订、决定、引用、看板条目与事件、Main 会话与运行归属、需求开发记录、各后端的现场绑定与项目合入配置；Pi 历史和现场目录中的检出文件不在快照里，仍由执行后端本地保管。恢复在一个事务里按外键顺序整体替换这些记录，并拒绝来自另一引擎或旧 schema 的备份文件。恢复前先停止写入该数据根的后端，恢复后重启后端读取。使用 `projectData.authority` 的后端没有本地数据库，备份和恢复在权威服务所在后端执行。
 
 ## 外部 Main 容量
 

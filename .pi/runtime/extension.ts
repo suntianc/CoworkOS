@@ -99,6 +99,7 @@ import { registerJobsTools } from "./tools/jobs.ts";
 import { registerMonitorsTools } from "./tools/monitors.ts";
 import { registerGoalTools } from "./tools/goals.ts";
 import { registerProjectLedgerTool } from "./tools/project-ledger.ts";
+import { registerProjectDevelopmentTool } from "./tools/project-development.ts";
 import { goalContext } from "../../dist/src/runtime/goal-context.js";
 import { registerWorkspaceTools } from "./tools/workspace.ts";
 import { registerUserMemoryTool } from "./tools/user-memory.ts";
@@ -1352,6 +1353,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   registerMonitorsTools(pi, toolContext);
   registerGoalTools(pi, toolContext);
   registerProjectLedgerTool(pi, toolContext);
+  registerProjectDevelopmentTool(pi, toolContext);
   registerWorkspaceTools(pi, toolContext);
   registerUserMemoryTool(pi, {
     store: userMemoryStore,

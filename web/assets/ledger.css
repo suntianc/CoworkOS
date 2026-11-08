@@ -154,3 +154,15 @@
     border-left: 0;
   }
 }
+.development-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+.development-error {
+  margin: 0;
+  color: var(--ui-danger);
+  font-size: 12px;
+}

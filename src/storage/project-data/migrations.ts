@@ -181,6 +181,60 @@ export const PROJECT_DATA_MIGRATIONS: readonly ProjectDataMigration[] = [
       `CREATE INDEX IF NOT EXISTS project_data_main_session_runs_task
          ON project_data_main_session_runs(task_id, run_id)`
     ]
+  },
+  {
+    // v4: a requirement's development record and its per-backend Git checkout.
+    // The merge configuration is the project's single update entry; the
+    // checkout directory stays a per-backend fact like a directory binding.
+    version: 4,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS project_data_developments (
+         project_id TEXT NOT NULL,
+         development_id TEXT NOT NULL,
+         requirement_id TEXT NOT NULL,
+         goal TEXT NOT NULL,
+         completion_criteria TEXT NOT NULL,
+         route TEXT NOT NULL,
+         status TEXT NOT NULL,
+         revision INTEGER NOT NULL,
+         baseline_branch TEXT NOT NULL,
+         baseline_commit TEXT NOT NULL,
+         session_id TEXT,
+         task_id TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, development_id),
+         UNIQUE (project_id, requirement_id),
+         FOREIGN KEY (project_id, requirement_id)
+           REFERENCES project_data_requirements(project_id, requirement_id) ON DELETE CASCADE
+       )`,
+      `CREATE TABLE IF NOT EXISTS project_data_development_workspaces (
+         project_id TEXT NOT NULL,
+         development_id TEXT NOT NULL,
+         backend_id TEXT NOT NULL,
+         workspace_id TEXT NOT NULL,
+         directory TEXT NOT NULL,
+         branch TEXT NOT NULL,
+         base_commit TEXT NOT NULL,
+         state TEXT NOT NULL,
+         error TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, development_id, backend_id),
+         FOREIGN KEY (project_id, development_id)
+           REFERENCES project_data_developments(project_id, development_id) ON DELETE CASCADE
+       )`,
+      `CREATE TABLE IF NOT EXISTS project_data_merge_configs (
+         project_id TEXT PRIMARY KEY REFERENCES project_data_projects(project_id) ON DELETE CASCADE,
+         repository TEXT NOT NULL,
+         target_branch TEXT NOT NULL,
+         execution_backend_id TEXT NOT NULL,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL
+       )`,
+      `CREATE INDEX IF NOT EXISTS project_data_developments_project
+         ON project_data_developments(project_id, updated_at)`
+    ]
   }
 ];
 

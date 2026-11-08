@@ -39,6 +39,25 @@ import {
   type MainSessionRunState
 } from "../domain/main-session.js";
 import {
+  DevelopmentExistsError,
+  developmentBaseline,
+  developmentCommit,
+  developmentCompletionCriteria,
+  developmentGoal,
+  developmentIdentifier,
+  developmentRoute,
+  developmentStatus,
+  developmentWorkspace,
+  mergeExecutionBackendId,
+  mergeRepository,
+  mergeTargetBranch,
+  type DevelopmentBaseline,
+  type DevelopmentRecord,
+  type DevelopmentStatus,
+  type DevelopmentWorkspace,
+  type MergeConfig
+} from "../domain/project-development.js";
+import {
   type BoardAction,
   type BoardActionContext,
   type BoardActionInput,
@@ -125,6 +144,44 @@ interface MainSessionRunRow {
   created_at: string;
   updated_at: string;
 }
+interface DevelopmentRow {
+  project_id: string;
+  development_id: string;
+  requirement_id: string;
+  goal: string;
+  completion_criteria: string;
+  route: string;
+  status: string;
+  revision: number;
+  baseline_branch: string;
+  baseline_commit: string;
+  session_id: string | null;
+  task_id: string | null;
+  created_at: string;
+  updated_at: string;
+  requirement_title?: string | null;
+}
+interface DevelopmentWorkspaceRow {
+  project_id: string;
+  development_id: string;
+  backend_id: string;
+  workspace_id: string;
+  directory: string;
+  branch: string;
+  base_commit: string;
+  state: string;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+interface MergeConfigRow {
+  project_id: string;
+  repository: string;
+  target_branch: string;
+  execution_backend_id: string;
+  created_at: string;
+  updated_at: string;
+}
 
 /** One session with the requirement it is on and the Runs it already owns. */
 export interface MainSessionRecord {
@@ -153,6 +210,29 @@ export interface RequirementUpdate {
   status?: unknown;
   note?: unknown;
   taskId?: unknown;
+}
+
+export interface DevelopmentCreate {
+  requirementId?: unknown;
+  goal?: unknown;
+  completionCriteria?: unknown;
+  route?: unknown;
+  baseline?: unknown;
+  sessionId?: unknown;
+  taskId?: unknown;
+}
+
+export interface DevelopmentUpdate {
+  expectedRevision?: unknown;
+  goal?: unknown;
+  completionCriteria?: unknown;
+  route?: unknown;
+}
+
+export interface MergeConfigInput {
+  repository?: unknown;
+  targetBranch?: unknown;
+  executionBackendId?: unknown;
 }
 
 export interface ProjectDataDescription {
@@ -236,6 +316,29 @@ export interface ProjectDataGateway {
     input: Parameters<ProjectDataRepository["recordMainSessionRun"]>[2]
   ): Promise<MainSessionRun>;
   settleMainSessionRun(projectId: unknown, taskId: unknown, runId: unknown, state: unknown): Promise<number>;
+  // Development records go through this same surface: the shared goal/baseline
+  // and each backend's own checkout are written as business facts.
+  mergeConfig(projectId: unknown): Promise<MergeConfig | undefined>;
+  setMergeConfig(projectId: unknown, input: MergeConfigInput, backendId: string): Promise<MergeConfig>;
+  createDevelopment(projectId: unknown, input: DevelopmentCreate): Promise<DevelopmentRecord>;
+  updateDevelopment(
+    projectId: unknown,
+    developmentId: unknown,
+    input: DevelopmentUpdate,
+    backendId?: string
+  ): Promise<DevelopmentRecord>;
+  getDevelopment(projectId: unknown, developmentId: unknown, backendId?: string): Promise<DevelopmentRecord>;
+  queryDevelopments(projectId: unknown, backendId?: string): Promise<DevelopmentRecord[]>;
+  findDevelopmentByRequirement(
+    projectId: unknown,
+    requirementId: unknown,
+    backendId?: string
+  ): Promise<DevelopmentRecord | undefined>;
+  recordDevelopmentWorkspace(
+    projectId: unknown,
+    developmentId: unknown,
+    workspace: unknown
+  ): Promise<DevelopmentRecord>;
   boardEntries(projectId: unknown): Promise<BoardEntry[]>;
   boardEntry(projectId: unknown, boardId: unknown): Promise<BoardEntry>;
   boardEvents(projectId: unknown, boardId: unknown): Promise<BoardEvent[]>;
@@ -256,7 +359,7 @@ export interface ProjectDataGateway {
   close(): Promise<void>;
 }
 
-const SNAPSHOT_VERSION = 2;
+const SNAPSHOT_VERSION = 3;
 const TABLES = [
   "project_data_projects",
   "project_data_bindings",
@@ -267,7 +370,10 @@ const TABLES = [
   "project_data_board_entries",
   "project_data_board_events",
   "project_data_main_sessions",
-  "project_data_main_session_runs"
+  "project_data_main_session_runs",
+  "project_data_developments",
+  "project_data_development_workspaces",
+  "project_data_merge_configs"
 ] as const;
 type SnapshotTable = (typeof TABLES)[number];
 
@@ -366,6 +472,43 @@ const TABLE_COLUMNS: Record<SnapshotTable, readonly string[]> = {
     "state",
     "created_at",
     "updated_at"
+  ],
+  project_data_developments: [
+    "project_id",
+    "development_id",
+    "requirement_id",
+    "goal",
+    "completion_criteria",
+    "route",
+    "status",
+    "revision",
+    "baseline_branch",
+    "baseline_commit",
+    "session_id",
+    "task_id",
+    "created_at",
+    "updated_at"
+  ],
+  project_data_development_workspaces: [
+    "project_id",
+    "development_id",
+    "backend_id",
+    "workspace_id",
+    "directory",
+    "branch",
+    "base_commit",
+    "state",
+    "error",
+    "created_at",
+    "updated_at"
+  ],
+  project_data_merge_configs: [
+    "project_id",
+    "repository",
+    "target_branch",
+    "execution_backend_id",
+    "created_at",
+    "updated_at"
   ]
 };
 
@@ -422,6 +565,59 @@ function runOf(row: MainSessionRunRow): MainSessionRun {
     taskId: row.task_id,
     ...(row.requirement_id ? { requirementId: row.requirement_id } : {}),
     state: row.state as MainSessionRunState,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function criteriaOf(raw: string): string[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new ProjectDataInvalidError("开发记录的完成标准已损坏");
+  }
+  return developmentCompletionCriteria(value);
+}
+
+function developmentOf(row: DevelopmentRow, workspace?: DevelopmentWorkspace): DevelopmentRecord {
+  return {
+    projectId: row.project_id,
+    developmentId: row.development_id,
+    requirementId: row.requirement_id,
+    requirementTitle: row.requirement_title ?? "",
+    goal: row.goal,
+    completionCriteria: criteriaOf(row.completion_criteria),
+    route: developmentRoute(row.route),
+    status: developmentStatus(row.status),
+    revision: Number(row.revision),
+    baseline: developmentBaseline({ branch: row.baseline_branch, commit: row.baseline_commit }),
+    ...(row.session_id ? { sessionId: row.session_id } : {}),
+    ...(row.task_id ? { taskId: row.task_id } : {}),
+    ...(workspace ? { workspace } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function workspaceOf(row: DevelopmentWorkspaceRow): DevelopmentWorkspace {
+  return {
+    workspaceId: row.workspace_id,
+    backendId: row.backend_id,
+    directory: row.directory,
+    branch: row.branch,
+    baseCommit: row.base_commit,
+    state: row.state as DevelopmentWorkspace["state"],
+    ...(row.error ? { error: row.error } : {})
+  };
+}
+
+function mergeConfigOf(row: MergeConfigRow): MergeConfig {
+  return {
+    projectId: row.project_id,
+    repository: row.repository,
+    targetBranch: row.target_branch,
+    executionBackendId: row.execution_backend_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -926,6 +1122,251 @@ export class ProjectDataRepository {
     );
   }
 
+  /**
+   * The project's single merge entry. It is shared configuration, while the
+   * checkout each backend prepares from it stays that backend's own fact.
+   */
+  async mergeConfig(projectIdValue: unknown): Promise<MergeConfig | undefined> {
+    const projectId = ledgerProjectId(projectIdValue);
+    const rows = await this.transaction.query<MergeConfigRow>(
+      "SELECT * FROM project_data_merge_configs WHERE project_id = ?",
+      [projectId]
+    );
+    return rows.length ? mergeConfigOf(rows[0]!) : undefined;
+  }
+
+  async setMergeConfig(
+    projectIdValue: unknown,
+    input: MergeConfigInput,
+    backendIdValue: unknown
+  ): Promise<MergeConfig> {
+    const projectId = ledgerProjectId(projectIdValue);
+    await this.requireProject(projectId);
+    const repository = mergeRepository(input.repository);
+    const targetBranch = mergeTargetBranch(input.targetBranch);
+    const executionBackendId =
+      input.executionBackendId === undefined
+        ? ledgerIdentifier(backendIdValue, "后端 ID")
+        : mergeExecutionBackendId(input.executionBackendId);
+    const timestamp = now();
+    const changed = await this.transaction.execute(
+      `UPDATE project_data_merge_configs
+          SET repository = ?, target_branch = ?, execution_backend_id = ?, updated_at = ?
+        WHERE project_id = ?`,
+      [repository, targetBranch, executionBackendId, timestamp, projectId]
+    );
+    if (!changed)
+      await this.transaction.execute(
+        `INSERT INTO project_data_merge_configs
+           (project_id, repository, target_branch, execution_backend_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [projectId, repository, targetBranch, executionBackendId, timestamp, timestamp]
+      );
+    return (await this.mergeConfig(projectId))!;
+  }
+
+  /**
+   * One development record per requirement: the goal, criteria, route and
+   * baseline the Main agreed before any checkout exists.
+   */
+  async createDevelopment(projectIdValue: unknown, input: DevelopmentCreate): Promise<DevelopmentRecord> {
+    const projectId = ledgerProjectId(projectIdValue);
+    await this.requireProject(projectId);
+    const requirementId = ledgerIdentifier(input.requirementId, "需求 ID");
+    await this.requireRequirement(projectId, requirementId);
+    const existing = await this.developmentByRequirement(projectId, requirementId);
+    if (existing)
+      throw new DevelopmentExistsError(
+        `该需求已有开发记录（${existing.development_id}）；请读取后更新，不要重复创建`,
+        existing.development_id
+      );
+    const goal = developmentGoal(input.goal);
+    const completionCriteria = developmentCompletionCriteria(input.completionCriteria);
+    const route = developmentRoute(input.route);
+    const baseline = developmentBaseline(input.baseline);
+    const sessionId =
+      input.sessionId === undefined || input.sessionId === null
+        ? undefined
+        : ledgerIdentifier(input.sessionId, "会话 ID");
+    const taskId =
+      input.taskId === undefined || input.taskId === null
+        ? undefined
+        : ledgerIdentifier(input.taskId, "Task ID");
+    const timestamp = now();
+    await this.transaction.execute(
+      `INSERT INTO project_data_developments
+         (project_id, development_id, requirement_id, goal, completion_criteria, route, status, revision,
+          baseline_branch, baseline_commit, session_id, task_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        projectId,
+        id("development"),
+        requirementId,
+        goal,
+        JSON.stringify(completionCriteria),
+        route,
+        "active",
+        1,
+        baseline.branch,
+        baseline.commit,
+        sessionId ?? null,
+        taskId ?? null,
+        timestamp,
+        timestamp
+      ]
+    );
+    const created = await this.developmentByRequirement(projectId, requirementId);
+    return developmentOf(created!);
+  }
+
+  /** A newer revision replaces goal, criteria or route; a stale one is refused. */
+  async updateDevelopment(
+    projectIdValue: unknown,
+    developmentIdValue: unknown,
+    input: DevelopmentUpdate,
+    backendIdValue?: unknown
+  ): Promise<DevelopmentRecord> {
+    const projectId = ledgerProjectId(projectIdValue);
+    const developmentId = developmentIdentifier(developmentIdValue, "开发记录 ID");
+    const expectedRevision = ledgerRevision(input.expectedRevision);
+    const current = await this.requireDevelopment(projectId, developmentId);
+    if (Number(current.revision) !== expectedRevision)
+      throw new ProjectDataConflictError(
+        "开发记录已更新，请基于最新修订重试",
+        Number(current.revision),
+        "revision_conflict"
+      );
+    const goal = input.goal === undefined ? current.goal : developmentGoal(input.goal);
+    const completionCriteria =
+      input.completionCriteria === undefined
+        ? criteriaOf(current.completion_criteria)
+        : developmentCompletionCriteria(input.completionCriteria);
+    const route = input.route === undefined ? developmentRoute(current.route) : developmentRoute(input.route);
+    const revision = expectedRevision + 1;
+    const timestamp = now();
+    const changed = await this.transaction.execute(
+      `UPDATE project_data_developments
+          SET goal = ?, completion_criteria = ?, route = ?, revision = ?, updated_at = ?
+        WHERE project_id = ? AND development_id = ? AND revision = ?`,
+      [
+        goal,
+        JSON.stringify(completionCriteria),
+        route,
+        revision,
+        timestamp,
+        projectId,
+        developmentId,
+        expectedRevision
+      ]
+    );
+    if (changed !== 1)
+      throw new ProjectDataConflictError(
+        "开发记录已被另一写入更新，请重新读取",
+        undefined,
+        "revision_conflict"
+      );
+    return this.getDevelopment(projectId, developmentId, backendIdValue);
+  }
+
+  async getDevelopment(
+    projectIdValue: unknown,
+    developmentIdValue: unknown,
+    backendIdValue?: unknown
+  ): Promise<DevelopmentRecord> {
+    const projectId = ledgerProjectId(projectIdValue);
+    const developmentId = developmentIdentifier(developmentIdValue, "开发记录 ID");
+    const row = await this.requireDevelopment(projectId, developmentId);
+    const workspace = await this.developmentWorkspaceFor(projectId, developmentId, backendIdValue);
+    return developmentOf(row, workspace);
+  }
+
+  async queryDevelopments(projectIdValue: unknown, backendIdValue?: unknown): Promise<DevelopmentRecord[]> {
+    const projectId = ledgerProjectId(projectIdValue);
+    await this.requireProject(projectId);
+    const rows = await this.transaction.query<DevelopmentRow>(
+      `SELECT d.*, r.title AS requirement_title
+         FROM project_data_developments d
+         LEFT JOIN project_data_requirements r
+           ON r.project_id = d.project_id AND r.requirement_id = d.requirement_id
+        WHERE d.project_id = ?
+        ORDER BY d.updated_at DESC, d.development_id ASC`,
+      [projectId]
+    );
+    const workspaces = await this.developmentWorkspaces(
+      projectId,
+      rows.map((row) => row.development_id),
+      backendIdValue
+    );
+    return rows.map((row) => developmentOf(row, workspaces.get(row.development_id)));
+  }
+
+  async findDevelopmentByRequirement(
+    projectIdValue: unknown,
+    requirementIdValue: unknown,
+    backendIdValue?: unknown
+  ): Promise<DevelopmentRecord | undefined> {
+    const projectId = ledgerProjectId(projectIdValue);
+    const requirementId = ledgerIdentifier(requirementIdValue, "需求 ID");
+    const row = await this.developmentByRequirement(projectId, requirementId);
+    if (!row) return undefined;
+    const workspace = await this.developmentWorkspaceFor(projectId, row.development_id, backendIdValue);
+    return developmentOf(row, workspace);
+  }
+
+  /**
+   * Record the checkout this backend prepared (or failed to prepare). A failed
+   * attempt keeps the identity and directory it last had, so the requirement
+   * and its workspace remain findable instead of disappearing.
+   */
+  async recordDevelopmentWorkspace(
+    projectIdValue: unknown,
+    developmentIdValue: unknown,
+    workspaceValue: unknown
+  ): Promise<DevelopmentRecord> {
+    const projectId = ledgerProjectId(projectIdValue);
+    const developmentId = developmentIdentifier(developmentIdValue, "开发记录 ID");
+    await this.requireDevelopment(projectId, developmentId);
+    const workspace = developmentWorkspace(workspaceValue);
+    const timestamp = now();
+    const changed = await this.transaction.execute(
+      `UPDATE project_data_development_workspaces
+          SET workspace_id = ?, directory = ?, branch = ?, base_commit = ?, state = ?, error = ?, updated_at = ?
+        WHERE project_id = ? AND development_id = ? AND backend_id = ?`,
+      [
+        workspace.workspaceId,
+        workspace.directory,
+        workspace.branch,
+        workspace.baseCommit,
+        workspace.state,
+        workspace.error ?? null,
+        timestamp,
+        projectId,
+        developmentId,
+        workspace.backendId
+      ]
+    );
+    if (!changed)
+      await this.transaction.execute(
+        `INSERT INTO project_data_development_workspaces
+           (project_id, development_id, backend_id, workspace_id, directory, branch, base_commit, state, error, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          projectId,
+          developmentId,
+          workspace.backendId,
+          workspace.workspaceId,
+          workspace.directory,
+          workspace.branch,
+          workspace.baseCommit,
+          workspace.state,
+          workspace.error ?? null,
+          timestamp,
+          timestamp
+        ]
+      );
+    return this.getDevelopment(projectId, developmentId, workspace.backendId);
+  }
+
   async mainSessionRuns(
     projectIdValue: unknown,
     sessionIds: string[]
@@ -944,6 +1385,70 @@ export class ProjectDataRepository {
       if (list.length < 50) list.push(runOf(row));
       grouped.set(row.session_id, list);
     }
+    return grouped;
+  }
+
+  private async developmentByRequirement(
+    projectId: string,
+    requirementId: string
+  ): Promise<DevelopmentRow | undefined> {
+    const rows = await this.transaction.query<DevelopmentRow>(
+      `SELECT d.*, r.title AS requirement_title
+         FROM project_data_developments d
+         LEFT JOIN project_data_requirements r
+           ON r.project_id = d.project_id AND r.requirement_id = d.requirement_id
+        WHERE d.project_id = ? AND d.requirement_id = ?`,
+      [projectId, requirementId]
+    );
+    return rows[0];
+  }
+
+  private async requireDevelopment(projectId: string, developmentId: string): Promise<DevelopmentRow> {
+    // PostgreSQL cannot lock the nullable side of an outer join, so the row is
+    // locked on its own table and the requirement title is read separately.
+    const rows = await this.transaction.query<DevelopmentRow>(
+      `SELECT * FROM project_data_developments
+        WHERE project_id = ? AND development_id = ?${this.lockRows ? " FOR UPDATE" : ""}`,
+      [projectId, developmentId]
+    );
+    if (!rows.length) throw new ProjectDataNotFoundError("找不到该需求的开发记录");
+    const titles = await this.transaction.query<{ title: string }>(
+      "SELECT title FROM project_data_requirements WHERE project_id = ? AND requirement_id = ?",
+      [projectId, rows[0]!.requirement_id]
+    );
+    return { ...rows[0]!, requirement_title: titles[0]?.title ?? null };
+  }
+
+  private async developmentWorkspaceFor(
+    projectId: string,
+    developmentId: string,
+    backendIdValue?: unknown
+  ): Promise<DevelopmentWorkspace | undefined> {
+    if (backendIdValue === undefined || backendIdValue === null) return undefined;
+    const backendId = ledgerIdentifier(backendIdValue, "后端 ID");
+    const rows = await this.transaction.query<DevelopmentWorkspaceRow>(
+      "SELECT * FROM project_data_development_workspaces WHERE project_id = ? AND development_id = ? AND backend_id = ?",
+      [projectId, developmentId, backendId]
+    );
+    return rows.length ? workspaceOf(rows[0]!) : undefined;
+  }
+
+  private async developmentWorkspaces(
+    projectId: string,
+    developmentIds: string[],
+    backendIdValue?: unknown
+  ): Promise<Map<string, DevelopmentWorkspace>> {
+    const grouped = new Map<string, DevelopmentWorkspace>();
+    if (!developmentIds.length || backendIdValue === undefined || backendIdValue === null) return grouped;
+    const backendId = ledgerIdentifier(backendIdValue, "后端 ID");
+    const rows = await this.transaction.query<DevelopmentWorkspaceRow>(
+      `SELECT * FROM project_data_development_workspaces
+        WHERE project_id = ? AND backend_id = ? AND development_id IN (${developmentIds
+          .map(() => "?")
+          .join(", ")})`,
+      [projectId, backendId, ...developmentIds]
+    );
+    for (const row of rows) grouped.set(row.development_id, workspaceOf(row));
     return grouped;
   }
 
@@ -1220,6 +1725,42 @@ export class ProjectDataService implements ProjectDataGateway {
     return this.transaction((repository) => repository.settleMainSessionRun(projectId, taskId, runId, state));
   }
 
+  mergeConfig(projectId: unknown) {
+    return this.transaction((repository) => repository.mergeConfig(projectId));
+  }
+  setMergeConfig(projectId: unknown, input: MergeConfigInput, backendId: string) {
+    return this.transaction((repository) => repository.setMergeConfig(projectId, input, backendId));
+  }
+  createDevelopment(projectId: unknown, input: DevelopmentCreate) {
+    return this.transaction((repository) => repository.createDevelopment(projectId, input));
+  }
+  updateDevelopment(
+    projectId: unknown,
+    developmentId: unknown,
+    input: DevelopmentUpdate,
+    backendId?: string
+  ) {
+    return this.transaction((repository) =>
+      repository.updateDevelopment(projectId, developmentId, input, backendId)
+    );
+  }
+  getDevelopment(projectId: unknown, developmentId: unknown, backendId?: string) {
+    return this.transaction((repository) => repository.getDevelopment(projectId, developmentId, backendId));
+  }
+  queryDevelopments(projectId: unknown, backendId?: string) {
+    return this.transaction((repository) => repository.queryDevelopments(projectId, backendId));
+  }
+  findDevelopmentByRequirement(projectId: unknown, requirementId: unknown, backendId?: string) {
+    return this.transaction((repository) =>
+      repository.findDevelopmentByRequirement(projectId, requirementId, backendId)
+    );
+  }
+  recordDevelopmentWorkspace(projectId: unknown, developmentId: unknown, workspace: unknown) {
+    return this.transaction((repository) =>
+      repository.recordDevelopmentWorkspace(projectId, developmentId, workspace)
+    );
+  }
+
   boardEntries(projectId: unknown) {
     const sharedProjectId = ledgerProjectId(projectId);
     return this.transaction((repository) => repository.board().list(sharedProjectId));
@@ -1339,6 +1880,10 @@ function parseSnapshot(raw: string): ProjectDataSnapshot {
   const snapshot = value as Partial<ProjectDataSnapshot>;
   if (snapshot && typeof snapshot === "object" && snapshot.version === 1)
     throw new ProjectDataInvalidError("备份文件是旧版本（1），不含看板数据；请用对应版本恢复或重新备份");
+  if (snapshot && typeof snapshot === "object" && snapshot.version === 2)
+    throw new ProjectDataInvalidError(
+      "备份文件是旧版本（2），不含需求开发记录；请重新备份或使用对应版本恢复"
+    );
   if (
     !snapshot ||
     typeof snapshot !== "object" ||
