@@ -2,7 +2,7 @@ import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { metricSeries } from "../../../dist/src/domain/experiment.js";
-import { reserveSubagentIdentity } from "../../../dist/src/runtime/agent-identity.js";
+import { agentDisplayName, reserveSubagentIdentity } from "../../../dist/src/runtime/agent-identity.js";
 import { clearSleep, readSleep, writeSleep } from "../../../dist/src/runtime/main-sleep.js";
 import { readSubagentProgress } from "../../../dist/src/runtime/progress.js";
 import {
@@ -312,7 +312,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     name: "call_subagent",
     label: "Call Subagent",
     description:
-      "Delegate one concrete work item to a Subagent. sync waits for the result; async returns a callId and delivers the result by callback. Both modes execute the task once. role names the job (executor implements, reviewer examines an independent session); dependsOn holds the item until earlier callIds finish; developmentId runs it in that requirement's isolated checkout. Optional resources explicitly grant application read access or private candidate editing; no bound application is inherited automatically. Task wording never creates a persistent monitor or experiment program.",
+      "Delegate one concrete work item to a Subagent. sync waits for the result; async returns a callId and delivers the result by callback. Both modes execute the task once. role names the job (executor implements, reviewer examines an independent session); dependsOn holds the item until earlier callIds finish; developmentId runs it in that requirement's isolated checkout; continueCallId reworks a finding as the next turn of a finished Executor's own session and checkout. Optional resources explicitly grant application read access or private candidate editing; no bound application is inherited automatically. Task wording never creates a persistent monitor or experiment program.",
     promptSnippet: "Delegate a concrete task",
     promptGuidelines: [
       "Use call_subagent when an independent analysis, implementation or validation task is likely to improve the result.",
@@ -323,7 +323,8 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       "The Subagent returns a concise summary with evidence, candidate outputFiles, diagnostic paths and validation results. Candidate files remain in the Subagent's directory until Main accepts and copies selected files into the Task artifacts directory.",
       "Use role=reviewer for an independent check of a result; it starts its own session, so it must be given the candidate and evidence to examine rather than asked to trust the Executor's summary.",
       "Pass dependsOn only for work that genuinely needs an earlier item's result: a dependent item does not start until those calls finish, and does not run at all when one of them failed or was cancelled. Independent work should be dispatched without dependsOn so it can proceed at once.",
-      "Pass developmentId when the work belongs to a requirement with an isolated checkout. ensure_workspace first; the checkout — not the user's working tree — is then the delegate's project directory."
+      "Pass developmentId when the work belongs to a requirement with an isolated checkout. ensure_workspace first; the checkout — not the user's working tree — is then the delegate's project directory.",
+      "To rework a review finding in the original context, pass continueCallId with the finished Executor callId (and reviewId). It appends one turn to that agent's own session and checkout; do not dispatch a fresh Agent and paste a summary of the first attempt."
     ],
     parameters: Type.Object(
       {
@@ -375,7 +376,19 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         developmentId: Type.Optional(
           Type.String({
             description:
-              "Run this work item in the isolated requirement checkout recorded for this development. Its directory, not the user's working tree, becomes the delegate's project directory; ensure_workspace must have made it ready."
+              "Run this work item in its own checkout forked from the recorded requirement checkout. Its directory, not the user's working tree, becomes the delegate's project directory; ensure_workspace must have made it ready."
+          })
+        ),
+        continueCallId: Type.Optional(
+          Type.String({
+            description:
+              "Rework by continuing this Run's finished Executor call: same agent identity, checkpoint history and checkout, with this task appended as the next turn. The finished call stays finished; this creates one new call instead of repeating it."
+          })
+        ),
+        reviewId: Type.Optional(
+          Type.String({
+            description:
+              "With continueCallId: the review whose finding this rework answers, recorded on the new call."
           })
         ),
         profileId: Type.Optional(
@@ -413,13 +426,23 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
             )
           ]
         : [];
+      const continueCallId = typeof params.continueCallId === "string" ? params.continueCallId.trim() : "";
+      const requestedReview = typeof params.reviewId === "string" ? params.reviewId.trim() : "";
+      if (requestedReview && !continueCallId)
+        throw new Error("reviewId 只能与 continueCallId 一起使用：发现由返修续接回答");
+      // The durable queue is the only source of a work item's identity. One
+      // read serves both the dependency check and an explicit continuation.
+      const queue =
+        dependsOn.length > 0 || continueCallId
+          ? new DurableScheduler(
+              join(context.workspaceRoot, context.taskId, "runs", context.mainRunId, "queue.json")
+            )
+          : undefined;
+      const queuedItems = queue ? await queue.list() : [];
       if (dependsOn.length > 0) {
         // Refuse an unusable dependency before this call owns a name or an
         // experiment row: a refusal here must leave no durable trace behind.
-        const queue = new DurableScheduler(
-          join(context.workspaceRoot, context.taskId, "runs", context.mainRunId, "queue.json")
-        );
-        const known = new Set((await queue.list()).map((item) => item.stepId));
+        const known = new Set(queuedItems.map((item) => item.stepId));
         const unknown = dependsOn.filter((stepId) => !known.has(stepId));
         if (unknown.length > 0)
           throw new Error(
@@ -432,22 +455,74 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       // arbitrary path from the model is never accepted as a working root.
       const requestedDevelopment =
         typeof params.developmentId === "string" ? params.developmentId.trim() : "";
-      const developmentWorkspace = requestedDevelopment
-        ? await developmentWorkspaceDirectory(context, requestedDevelopment)
-        : undefined;
+      const terminalCall = (status: string) =>
+        status === "completed" || status === "failed" || status === "cancelled";
+      // A rework continues the original Executor: same agent, same checkpoint
+      // history and same checkout. Main names the finished call; it cannot
+      // choose a different identity or site for the continuation.
+      let continued:
+        | {
+            agentId: string;
+            workItemSite: { developmentDirectory: string; directory: string; branch: string };
+            developmentId: string;
+          }
+        | undefined;
+      if (continueCallId) {
+        if (role !== "executor")
+          throw new Error("continueCallId 只能续接 Executor 工作项，Reviewer 不能以原上下文返修");
+        const original = queuedItems.find((item) => item.stepId === continueCallId);
+        if (!original) throw new Error(`continueCallId 引用了本 Run 中不存在的工作项：${continueCallId}`);
+        const payload = (original.payload ?? {}) as {
+          delegation?: { role?: string };
+          workItemSite?: { developmentDirectory: string; directory: string; branch: string };
+          developmentId?: string;
+        };
+        if ((payload.delegation?.role ?? "executor") !== "executor")
+          throw new Error(`工作项 ${continueCallId} 不是 Executor，不能以原上下文返修`);
+        if (!terminalCall(original.status))
+          throw new Error(
+            `工作项 ${continueCallId} 还没有结束（${original.status}）；不能重复执行正在运行的工作项`
+          );
+        const inFlight = queuedItems.find(
+          (item) =>
+            (item.payload as { continuation?: { fromCallId?: string } } | undefined)?.continuation
+              ?.fromCallId === continueCallId && !terminalCall(item.status)
+        );
+        if (inFlight)
+          throw new Error(`工作项 ${continueCallId} 已有一个续接工作项在运行（${inFlight.stepId}）`);
+        if (requestedDevelopment && payload.developmentId !== requestedDevelopment)
+          throw new Error(`工作项 ${continueCallId} 不属于需求 ${requestedDevelopment}`);
+        if (!payload.workItemSite?.directory || !payload.developmentId)
+          throw new Error(`工作项 ${continueCallId} 没有可续接的独立需求现场`);
+        continued = {
+          agentId: original.agentId,
+          workItemSite: payload.workItemSite,
+          developmentId: payload.developmentId
+        };
+      }
+      const developmentWorkspace =
+        !continued && requestedDevelopment
+          ? await developmentWorkspaceDirectory(context, requestedDevelopment)
+          : undefined;
       const capabilityGrants = await context.delegationGrants(params.resources, params.attachments);
       const commandEnv = await businessCommandEnvironment(context.runtimeEnv, signal);
-      const { agentId, name } = await reserveSubagentIdentity(context.taskWorkspace);
+      const { agentId, name } = continued
+        ? { agentId: continued.agentId, name: agentDisplayName(continued.agentId) }
+        : await reserveSubagentIdentity(context.taskWorkspace);
       const callId = `call-${randomUUID()}`;
       // A bound item gets its own checkout beside the integration site, forked
       // at its actual start; the item never writes the integration site itself.
-      const workItemSite = developmentWorkspace
-        ? {
-            developmentDirectory: developmentWorkspace.directory,
-            directory: join(dirname(developmentWorkspace.directory), "work-items", callId),
-            branch: `coworkos/work/${callId}`
-          }
-        : undefined;
+      // A continuation reuses the authoring item's checkout exactly as it was.
+      const workItemSite = continued
+        ? continued.workItemSite
+        : developmentWorkspace
+          ? {
+              developmentDirectory: developmentWorkspace.directory,
+              directory: join(dirname(developmentWorkspace.directory), "work-items", callId),
+              branch: `coworkos/work/${callId}`
+            }
+          : undefined;
+      const effectiveDevelopment = continued?.developmentId ?? requestedDevelopment;
       // An open experiment absorbs this delegation automatically. Attribution
       // follows the program Main opened, never the wording of the task, so a
       // Task with no open program still records nothing.
@@ -476,7 +551,15 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         commandEnv,
         projectDirectory: workItemSite?.directory ?? context.projectDirectory,
         delegation,
-        ...(workItemSite ? { workItemSite, developmentId: requestedDevelopment } : {}),
+        ...(workItemSite ? { workItemSite, developmentId: effectiveDevelopment } : {}),
+        ...(continued
+          ? {
+              continuation: {
+                fromCallId: continueCallId,
+                ...(requestedReview ? { reviewId: requestedReview } : {})
+              }
+            }
+          : {}),
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
         baseUrl: context.baseUrl,
         apiKey: context.apiKey,
@@ -558,7 +641,8 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           agentId,
           name,
           role,
-          ...(workItemSite ? { developmentId: requestedDevelopment, workspace: workItemSite.directory } : {}),
+          ...(workItemSite ? { developmentId: effectiveDevelopment, workspace: workItemSite.directory } : {}),
+          ...(continued ? { continuedFrom: continueCallId } : {}),
           ...(dependsOn.length > 0 ? { dependsOn } : {})
         };
         return { content: [{ type: "text", text: JSON.stringify(payload) }], details: payload };
@@ -575,7 +659,8 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           agentId: result.agentId,
           name,
           role,
-          ...(workItemSite ? { developmentId: requestedDevelopment, workspace: workItemSite.directory } : {}),
+          ...(workItemSite ? { developmentId: effectiveDevelopment, workspace: workItemSite.directory } : {}),
+          ...(continued ? { continuedFrom: continueCallId } : {}),
           ...(dependsOn.length > 0 ? { dependsOn } : {}),
           status: result.status,
           response: result.response,

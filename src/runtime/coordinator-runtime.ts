@@ -103,6 +103,12 @@ export interface SubagentDispatchInput extends DelegatedModelSettings {
   skillApplications?: string[];
   /** Resume a running/failed Subagent checkpoint when explicitly requested. */
   resume?: boolean;
+  /**
+   * Explicitly continue an earlier call's session and checkout as a new work
+   * item. The earlier call stays terminal: this appends one turn to the same
+   * transcript instead of re-running work it already finished.
+   */
+  continuation?: { fromCallId: string; reviewId?: string };
   /** Extra durable fields for Main's callback (for example experiment ids). */
   callbackMetadata?: Record<string, unknown>;
   /** Ledger row this dispatch belongs to. Runtime settles it at the terminal state; it never opens one. */
@@ -619,6 +625,8 @@ export class CoordinatorRuntime {
             dependsOn: (item.payload as { dependsOn?: string[] })?.dependsOn,
             workItemSite: (item.payload as { workItemSite?: WorkItemSite })?.workItemSite,
             developmentId: (item.payload as { developmentId?: string })?.developmentId,
+            continuation: (item.payload as { continuation?: { fromCallId: string; reviewId?: string } })
+              ?.continuation,
             systemPrompt: (item.payload as { systemPrompt?: string })?.systemPrompt,
             disableTools: (item.payload as { disableTools?: boolean })?.disableTools,
             agentId: item.agentId,
@@ -765,10 +773,24 @@ export class CoordinatorRuntime {
     const checkpointStore = new CheckpointStore(checkpointPath);
     const previous = await checkpointStore.load(input.runId);
     const restored = readAgentCheckpoint(previous?.state);
-    if (restored?.status === "succeeded") {
+    if (restored?.status === "succeeded" && !input.continuation) {
       throw new Error(`subagent call ${callId} already completed; choose a new call id`);
     }
-    const shouldResume = input.resume ?? Boolean(restored && restored.status === "running");
+    // A continuation is the one deliberate way to add a turn to a finished
+    // session: it needs the earlier transcript, and without one it would be a
+    // fresh Agent wearing the same name, which this contract refuses.
+    if (input.continuation && !restored)
+      throw new Error(
+        `工作项 ${input.continuation.fromCallId} 没有可续接的会话记录；不能新建 Agent 冒充原上下文`
+      );
+    const shouldResume = input.continuation
+      ? true
+      : (input.resume ?? Boolean(restored && restored.status === "running"));
+    // Append the rework instruction only when the restored transcript is a
+    // finished attempt. A continuation interrupted mid-run is recovered from
+    // its checkpoint like any other running session, so the instruction is not
+    // appended twice.
+    const appendsContinuation = Boolean(input.continuation && restored?.status !== "running");
     let checkpointSequence = previous?.sequence ?? 0;
     const saveCheckpoint = async (
       state: Parameters<NonNullable<PiSessionOptions["onCheckpoint"]>>[0]
@@ -848,6 +870,7 @@ export class CoordinatorRuntime {
           delegation: input.delegation,
           workItemSite: input.workItemSite,
           developmentId: input.developmentId,
+          continuation: input.continuation,
           dependsOn: dependsOn.length > 0 ? dependsOn : undefined,
           experimentRef: input.experimentRef,
           capabilityGrants: input.capabilityGrants ?? [],
@@ -898,6 +921,16 @@ export class CoordinatorRuntime {
           event(input, callId, "call.model_selected", input.agentId, {
             callId,
             modelSelection: execution.snapshot
+          })
+        );
+      if (input.continuation)
+        await this.append(
+          events,
+          event(input, callId, "call.continued", input.agentId, {
+            callId,
+            fromCallId: input.continuation.fromCallId,
+            ...(input.continuation.reviewId ? { reviewId: input.continuation.reviewId } : {}),
+            agentId: input.agentId
           })
         );
       const projectDirectory = input.workItemSite
@@ -1133,7 +1166,7 @@ export class CoordinatorRuntime {
           `Main 的相关上下文（仅作背景，不要当作已验证事实）：${JSON.stringify(contextSummary(input.context))}`,
           "完成后请返回完整结论；如果创建了 deliverables/ 文件，请列出路径。证据直接写在总结中；不要返回‘正在处理’之类的过程叙述，也不要声称没有执行过的操作。"
         ].join("\n"),
-        { resume: shouldResume }
+        { resume: shouldResume, continueConversation: appendsContinuation }
       ));
       const rawResponse = result.assistant ? contentText(result.assistant.content).trim() : "";
       await saveSessionResult(join(input.workspaceRoot, input.taskId, diagnostics.resultPath), result);

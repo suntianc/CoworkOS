@@ -330,7 +330,10 @@ export class PiSession {
     return this.compaction.state;
   }
 
-  async run(prompt: string, options: { resume?: boolean } = {}): Promise<PiSessionResult> {
+  async run(
+    prompt: string,
+    options: { resume?: boolean; continueConversation?: boolean } = {}
+  ): Promise<PiSessionResult> {
     // Agent.abort() only affects an active loop. Calling it before prompt()
     // would still start inference with a fresh signal and execute tools.
     if (this.signal?.aborted) {
@@ -346,7 +349,11 @@ export class PiSession {
         continuations: { providerErrors: 0, outputLimits: 0 }
       };
     }
-    if (options.resume && hasCompletedAssistantResponse(this.agent.state.messages)) {
+    if (
+      options.resume &&
+      !options.continueConversation &&
+      hasCompletedAssistantResponse(this.agent.state.messages)
+    ) {
       const messages = this.agent.state.messages;
       return {
         messages,
@@ -372,7 +379,12 @@ export class PiSession {
       }, this.timeoutMs);
     try {
       for (;;) {
-        if (firstRequest && options.resume && this.agent.state.messages.length > 0) {
+        if (firstRequest && options.continueConversation && this.agent.state.messages.length > 0) {
+          // An explicit continuation adds one turn to a finished transcript.
+          // The earlier answers stay in context; only the new instruction is
+          // appended, so a rework cannot be mistaken for a fresh Agent.
+          await this.agent.prompt(prompt);
+        } else if (firstRequest && options.resume && this.agent.state.messages.length > 0) {
           const last = this.agent.state.messages.at(-1);
           if (last?.role === "user" || last?.role === "toolResult") await this.agent.continue();
           else

@@ -40,7 +40,7 @@ import { MainRequestStore, mainRequestPath } from "../storage/main-request-store
 import { CoordinatorRuntime } from "../runtime/coordinator-runtime.js";
 import { listJobs } from "../tools/jobs.js";
 import { HumanRequestStore } from "../runtime/human.js";
-import { readSubagentProgress } from "../runtime/progress.js";
+import { findSubagentCall, readSubagentProgress } from "../runtime/progress.js";
 import { readRunStatistics } from "../runtime/run-statistics.js";
 import { JsonlEventStore } from "../storage/event-store.js";
 import { InputStore } from "../workspace/input-store.js";
@@ -255,6 +255,12 @@ export function createDashboardApplication(
     runtime: projectData,
     backendId: backendIdentity.backendId,
     developmentRoot: join(dirname(globalIndexPath), "development-workspaces"),
+    // Review identity comes from this Task's own durable queue, never a body.
+    call: async (taskId, callId) => {
+      const location = await workspaces.locateTask(taskId).catch(() => undefined);
+      if (!location) return undefined;
+      return findSubagentCall({ workspaceRoot: location.workspaceRoot, taskId, callId });
+    },
     project: async (projectId) => {
       const project = await workspaces.applicationProjectForId(projectId);
       return project

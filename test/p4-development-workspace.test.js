@@ -620,7 +620,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     assert.equal(crossProject.status, 404, JSON.stringify(crossProject.body));
   });
 
-  test(`${engine}: a v3 database upgrades to v4 and keeps its records usable`, async (t) => {
+  test(`${engine}: a v3 database upgrades to the current schema and keeps its records usable`, async (t) => {
     const directory = await mkdtemp(join(tmpdir(), `coworkos-p4-upgrade-${engine}-`));
     const moved = await migrateDirectory(t, directory, engine);
     const repository = await makeRepository(join(directory, "repository"));
@@ -632,7 +632,8 @@ for (const engine of PROJECT_DATA_ENGINES) {
     });
     try {
       const service = await runtime.service();
-      assert.equal(service.description.schemaVersion, 4);
+      // v5 appends candidate reviews; an older database still upgrades in order.
+      assert.equal(service.description.schemaVersion, 5);
       assert.deepEqual(
         (await service.queryRequirements("project_legacy")).map((requirement) => requirement.title),
         ["旧需求"]

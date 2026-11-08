@@ -7,9 +7,33 @@ export interface ProjectDevelopmentToolOptions {
 }
 
 const ID = { type: "string", minLength: 1, maxLength: 300 };
+const CHECK = {
+  type: "object",
+  properties: {
+    name: { type: "string", minLength: 1, maxLength: 200 },
+    command: { type: "string", maxLength: 4000 },
+    exitCode: { type: "integer", minimum: 0, maximum: 255 },
+    output: { type: "string", maxLength: 8000 }
+  },
+  required: ["name", "exitCode"],
+  additionalProperties: false
+} as const;
+
+const REVIEW_ACTIONS = [
+  "review_plan",
+  "freeze_candidate",
+  "attach_reviewer",
+  "record_finding",
+  "rule_finding",
+  "record_rework",
+  "complete_review",
+  "delivery_check",
+  "query_reviews",
+  "get_review"
+] as const;
 
 /**
- * The Main tool over requirement development records.
+ * The Main tool over requirement development records and their reviews.
  *
  * Kept out of the Pi extension so the production path — this executor and its
  * real HTTP bridge — can be exercised without a model. The extension only
@@ -26,16 +50,24 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
     name: "project_development",
     label: "Project Development",
     description:
-      "The current project's requirement development records. create records the goal, completion criteria, suggested route and the code baseline, then prepares this backend's isolated Git checkout for the requirement; one record exists per requirement, so read it before creating. get/query read records back, find_by_requirement looks one up for a requirement, update appends a new revision (carry the revision you last read), and ensure_workspace continues or repairs the existing checkout at its recorded baseline. The current project and Task come from this conversation, so no project id or path is accepted.",
+      "The current project's requirement development records and fixed-candidate reviews. create records the goal, completion criteria, suggested route and the code baseline, then prepares this backend's isolated Git checkout for the requirement; one record exists per requirement, so read it before creating. get/query read records back, find_by_requirement looks one up for a requirement, update appends a new revision (carry the revision you last read), and ensure_workspace continues or repairs the existing checkout at its recorded baseline. Review actions record the channel decision and the version its self-checks ran on (review_plan), freeze the integration checkout's current commit as a candidate and open a review (freeze_candidate), bind one independent Reviewer call (attach_reviewer), keep its findings and Main's rulings (record_finding/rule_finding), record a rework that continued the original Executor session (record_rework), read or finish a review (get_review/complete_review), and read delivery qualification (delivery_check). A passed review settles its linked fixes; failed or drifted reviews keep their findings rulable so a repair or reasoned dismissal can still settle them. The current project and Task come from this conversation, so no project id or path is accepted.",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["create", "get", "query", "find_by_requirement", "update", "ensure_workspace"]
+          enum: [
+            "create",
+            "get",
+            "query",
+            "find_by_requirement",
+            "update",
+            "ensure_workspace",
+            ...REVIEW_ACTIONS
+          ]
         },
         requirementId: { ...ID, description: "create/find_by_requirement target requirement." },
-        developmentId: { ...ID, description: "get/update/ensure_workspace target." },
+        developmentId: { ...ID, description: "get/update/ensure_workspace/review target." },
         goal: {
           type: "string",
           maxLength: 4000,
@@ -57,6 +89,89 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
           type: "integer",
           minimum: 1,
           description: "update: the revision returned by the last read; a stale value is refused."
+        },
+        channel: {
+          type: "string",
+          enum: ["self", "independent", "combined"],
+          description:
+            "review_plan: self (Main verified a small change), independent, or combined for a final version. self checks bind to the current commit/tree; record them again after the checkout moves."
+        },
+        basis: {
+          type: "string",
+          maxLength: 2000,
+          description: "review_plan/rule_finding: why this channel or ruling is justified."
+        },
+        checks: {
+          type: "array",
+          maxItems: 20,
+          items: CHECK,
+          description: "review_plan/record_finding/complete_review: command, exit code and captured output."
+        },
+        kind: {
+          type: "string",
+          enum: ["independent", "combined"],
+          description:
+            "freeze_candidate: independent review, or combined (which requires a combined plan) for the final version."
+        },
+        previousReviewId: {
+          ...ID,
+          description: "freeze_candidate: the review whose findings and new changes this re-review covers."
+        },
+        authorCallId: {
+          ...ID,
+          description:
+            "freeze_candidate: the Executor work item that produced the candidate; its identity must differ from the Reviewer's."
+        },
+        reviewId: { ...ID, description: "attach_reviewer/record/rule/complete/get_review target." },
+        callId: {
+          ...ID,
+          description:
+            "attach_reviewer: the Reviewer work item returned by call_subagent. The first Reviewer owns the review; retrying the same call is safe and another call is refused."
+        },
+        title: { type: "string", maxLength: 300, description: "record_finding: short finding title." },
+        detail: { type: "string", maxLength: 4000, description: "record_finding: what is wrong and why." },
+        location: { type: "string", maxLength: 1000, description: "record_finding: file or symbol." },
+        rawFailure: {
+          type: "string",
+          maxLength: 8000,
+          description: "record_finding: the Reviewer's verbatim failing output, kept for later reading."
+        },
+        findingId: { ...ID, description: "rule_finding: the finding to rule on." },
+        decision: {
+          type: "string",
+          enum: ["fix", "dismiss"],
+          description:
+            "rule_finding: fix it, or dismiss it with a recorded basis. Findings of failed or drifted reviews stay rulable; a passed review is closed."
+        },
+        category: {
+          type: "string",
+          enum: ["false_positive", "out_of_scope", "other"],
+          description: "rule_finding with dismiss: why the finding does not stand."
+        },
+        findingIds: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: { type: "string", minLength: 1, maxLength: 300 },
+          description: "record_rework: findings this continuation fixed."
+        },
+        fromCallId: {
+          ...ID,
+          description: "record_rework: the original Executor call whose session and checkout continued."
+        },
+        continuationCallId: {
+          ...ID,
+          description: "record_rework: the continuation call returned by call_subagent continueCallId."
+        },
+        verdict: {
+          type: "string",
+          enum: ["passed", "failed"],
+          description: "complete_review: whether the fixed candidate satisfies the completion criteria."
+        },
+        summary: {
+          type: "string",
+          maxLength: 2000,
+          description: "complete_review: the Reviewer's conclusion."
         }
       },
       required: ["action"],
@@ -86,6 +201,69 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
           ...(input.route === undefined ? {} : { route: input.route })
         });
       if (action === "ensure_workspace") return request({ action, developmentId: input.developmentId });
+
+      const review = request.reviews;
+      if (action === "review_plan")
+        return review({
+          action: "plan",
+          developmentId: input.developmentId,
+          channel: input.channel,
+          basis: input.basis,
+          checks: input.checks
+        });
+      if (action === "freeze_candidate")
+        return review({
+          action: "start",
+          developmentId: input.developmentId,
+          kind: input.kind,
+          ...(input.previousReviewId === undefined ? {} : { previousReviewId: input.previousReviewId }),
+          ...(input.authorCallId === undefined ? {} : { authorCallId: input.authorCallId })
+        });
+      if (action === "attach_reviewer")
+        return review({ action: "attach_reviewer", reviewId: input.reviewId, callId: input.callId });
+      if (action === "record_finding")
+        return review({
+          action: "record_finding",
+          reviewId: input.reviewId,
+          title: input.title,
+          detail: input.detail,
+          ...(input.location === undefined ? {} : { location: input.location }),
+          ...(input.checks === undefined ? {} : { checks: input.checks }),
+          ...(input.rawFailure === undefined ? {} : { rawFailure: input.rawFailure })
+        });
+      if (action === "rule_finding")
+        return review({
+          action: "rule_finding",
+          reviewId: input.reviewId,
+          findingId: input.findingId,
+          decision: input.decision,
+          ...(input.category === undefined ? {} : { category: input.category }),
+          basis: input.basis
+        });
+      if (action === "record_rework")
+        return review({
+          action: "record_rework",
+          reviewId: input.reviewId,
+          findingIds: input.findingIds,
+          fromCallId: input.fromCallId,
+          continuationCallId: input.continuationCallId
+        });
+      if (action === "complete_review")
+        return review({
+          action: "complete",
+          reviewId: input.reviewId,
+          verdict: input.verdict,
+          summary: input.summary,
+          checks: input.checks
+        });
+      if (action === "delivery_check")
+        return review({ action: "delivery", developmentId: input.developmentId });
+      if (action === "query_reviews")
+        return review({
+          action: "query",
+          ...(input.developmentId === undefined ? {} : { developmentId: input.developmentId })
+        });
+      if (action === "get_review") return review({ action: "get", reviewId: input.reviewId });
       throw new Error(`未知的开发记录操作：${String(action)}`);
     }
   };
