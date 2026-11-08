@@ -11,6 +11,17 @@ export interface SubagentProgress {
   name: string;
   task: string;
   mode?: "sync" | "async" | "auto";
+  /** Role this work item runs as; omitted for a delegation with no role request. */
+  role?: "executor" | "reviewer";
+  /** Model and connection the latest attempt actually selected (no endpoint or key). */
+  model?: string;
+  connectionName?: string | null;
+  /** The project directory this item runs against: its development checkout when bound. */
+  workspace?: string;
+  /** Work items this one waits for. */
+  dependsOn?: string[];
+  /** True while a prerequisite has not finished; the item has not started work. */
+  blocked?: boolean;
   status: "queued" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled" | "unknown";
   updatedAt?: string;
   latestEvent?: string;
@@ -81,11 +92,19 @@ export async function readSubagentProgress(input: {
       stepId: string;
       agentId: string;
       status: string;
-      payload?: { task?: string };
+      payload?: {
+        task?: string;
+        delegation?: { role?: string };
+        modelSelection?: { role?: string; model?: string; connectionName?: string | null };
+        projectDirectory?: string;
+        dependsOn?: string[];
+      };
       createdAt?: string;
       updatedAt?: string;
     }>
   >(join(runRoot, "queue.json"), []);
+  const terminalCall = (status: string | undefined) =>
+    status === "completed" || status === "failed" || status === "cancelled";
   const events = await readJsonLines(join(runRoot, "run_events.jsonl"));
   const inbox = await readJson<Array<{ callId?: string; state: string }>>(
     join(runRoot, "agents", "main", "inbox-store.json"),
@@ -126,13 +145,28 @@ export async function readSubagentProgress(input: {
                 Date.parse(item.createdAt)
             )
           : undefined;
+        const dependsOn = item.payload?.dependsOn ?? [];
+        const blocked = dependsOn.some(
+          (stepId) => !terminalCall(queue.find((candidate) => candidate.stepId === stepId)?.status)
+        );
+        const selected = related.filter((event) => event.type === "call.model_selected").at(-1)?.payload as
+          { modelSelection?: { role?: string; model?: string; connectionName?: string | null } } | undefined;
+        const selection = selected?.modelSelection ?? item.payload?.modelSelection;
+        const role = selection?.role ?? item.payload?.delegation?.role;
         return {
           callId: item.stepId,
           agentId: item.agentId,
           name: agentDisplayName(item.agentId),
           task: item.payload?.task ?? "",
           mode: call?.call?.mode,
-          status: normalizeStatus(item.status),
+          // A blocked item is waiting, not working: it must not read as running.
+          status: blocked ? "queued" : normalizeStatus(item.status),
+          ...(role === "executor" || role === "reviewer" ? { role } : {}),
+          ...(selection?.model ? { model: selection.model } : {}),
+          ...(selection?.connectionName ? { connectionName: selection.connectionName } : {}),
+          ...(item.payload?.projectDirectory ? { workspace: item.payload.projectDirectory } : {}),
+          ...(dependsOn.length > 0 ? { dependsOn } : {}),
+          ...(blocked ? { blocked: true } : {}),
           updatedAt: item.updatedAt,
           latestEvent: latest?.type,
           lastActivity: trace.lastActivity,

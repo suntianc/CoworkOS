@@ -111,10 +111,18 @@ test("host defaults and project overrides persist, keep their source and never t
   assert.equal(roleMain(initial.body).project, null);
   assert.equal(
     initial.body.modelRoles.roles.find((role) => role.role === "executor").wired,
-    false,
-    "later roles are listed as configuration-only"
+    true,
+    "executor and reviewer read their binding when a work item starts"
   );
+  // With no binding a delegation keeps the launching Run's own connection, so
+  // the role has no fixed effective connection to report.
   assert.equal(initial.body.modelRoles.roles.find((role) => role.role === "executor").effective, null);
+  assert.equal(initial.body.modelRoles.roles.find((role) => role.role === "reviewer").wired, true);
+  assert.equal(
+    initial.body.modelRoles.roles.find((role) => role.role === "router").wired,
+    false,
+    "router stays a later path's configuration key"
+  );
 
   const host = await request("/api/model-settings/roles", { role: "main", profileId: profileB.id });
   assert.equal(host.status, 200, JSON.stringify(host.body));
@@ -285,7 +293,7 @@ test("resolution prefers an explicit choice, then the project, the host and the 
     const publicView = publicModelRoles(scoped, "project-1");
     assert.equal(JSON.stringify(publicView).includes("key-a"), false);
     assert.equal(JSON.stringify(publicView).includes("key-b"), false);
-    assert.equal(publicView.roles.filter((role) => role.wired).length, 1);
+    assert.equal(publicView.roles.filter((role) => role.wired).length, 3);
 
     // A legacy single connection still follows the Task's last explicit model.
     const legacy = { baseUrl: "http://legacy/v1", apiKey: "key-legacy", model: "model-active" };

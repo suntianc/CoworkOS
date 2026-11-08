@@ -88,6 +88,12 @@ Legacy single connections appear as Default configuration. The first multi-profi
 
 Client sessions use the `CoworkOS Client` encryption identity through a separate Keychain process; legacy model migration continues to use `Atria`. Keys encrypted under the previous development identity may need re-entry. Original ciphertext and source directories remain available. Native Keychain and signing compatibility require separate acceptance checks.
 
+## Model roles
+
+`roleModels` in the execution host's configuration names one saved connection per role: `host` defaults for every project on the machine, and `projects` overrides indexed by the shared project's stable id. Neither travels with shared project data, so another backend never inherits them. Resolution prefers an explicit per-launch selection, then the project override, then the host default, then the deployment's active connection.
+
+Main reads its role when a Run is admitted and records the non-sensitive source as `main.run_spawned.modelSelection`; a later settings change affects the next Run while an in-flight Run and a saved request retry keep their recorded selection. `executor` and `reviewer` are read each time a delegated work item actually starts, so a binding changed mid-run applies to later work items; with no binding the item keeps the launching Run's connection, which is why the settings view reports no fixed effective connection for them. `router` remains a later path's configuration key. A saved role referencing a missing connection reports the role, scope and connection id and is refused rather than falling back to another account.
+
 ## Separate vision connection
 
 `modelConnections.visionId` references a saved connection with `supportsImages` enabled. Native image models receive pixels directly; the separate vision connection is used when a text-only model calls `read_image`. See [model connections](configuration.md#app-and-web-model-connections) for the UI.

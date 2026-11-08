@@ -9,14 +9,17 @@ import { configuredSupportsImages, runtimeSettingsEnv, type PiThinkingLevel } fr
  * A connection and its key belong to the host that runs the request. A role
  * only names one of that host's connections: the host default is local to the
  * machine, and a project override is indexed by the shared project id without
- * copying any identity or secret into shared data. P3 wires `main`; the other
- * keys exist so later tickets can reuse the same resolution without a second
- * mechanism.
+ * copying any identity or secret into shared data. `main` and the delegated
+ * Executor/Reviewer roles read their binding at launch; `router` is a later
+ * path's key and stays configuration only.
  */
 export const MODEL_ROLE_KEYS = ["main", "executor", "reviewer", "router"] as const;
 export type ModelRoleKey = (typeof MODEL_ROLE_KEYS)[number];
 /** Roles an actual execution path reads today. Others are configuration only. */
-export const WIRED_MODEL_ROLES: readonly ModelRoleKey[] = ["main"];
+export const WIRED_MODEL_ROLES: readonly ModelRoleKey[] = ["main", "executor", "reviewer"];
+/** Roles a delegated work item can run as. */
+export const DELEGATED_MODEL_ROLES = ["executor", "reviewer"] as const;
+export type DelegatedModelRole = (typeof DELEGATED_MODEL_ROLES)[number];
 export const DEFAULT_MODEL = "glm-5.3";
 
 const ROLE_LABELS: Record<ModelRoleKey, string> = {
@@ -53,6 +56,22 @@ export interface ModelRoleRequest {
   /** The Task's last model, kept for legacy single-connection deployments. */
   taskModel?: string;
   thinkingLevel?: PiThinkingLevel;
+}
+
+/**
+ * What one delegated work item asks for beyond its role.
+ *
+ * Only these non-sensitive values are persisted with the work item, so a
+ * recovered call re-reads the host's configuration instead of copying a key
+ * into shared data.
+ */
+export interface DelegatedModelRequest {
+  role: DelegatedModelRole;
+  projectId?: string | null;
+  /** One-off connection for this work item; never saved as a role binding. */
+  profileId?: string;
+  /** One-off model on the connection the role resolves to. */
+  model?: string;
 }
 
 export interface ResolvedModelRole {
@@ -160,8 +179,17 @@ function connectionFor(
  * missing connection raises instead of silently using another account. The
  * result is fixed when the launch is admitted; later settings changes only
  * affect the next Run.
+ *
+ * `env` is the environment the launch belongs to. A delegated work item passes
+ * its own empty environment: the Main Run's pinned connection is the parent's
+ * choice, not the child's, so reading it here would silently pin every
+ * delegation to Main's account.
  */
-export function resolveModelRole(config: CoworkConfig, request: ModelRoleRequest = {}): ResolvedModelRole {
+export function resolveModelRole(
+  config: CoworkConfig,
+  request: ModelRoleRequest = {},
+  env: NodeJS.ProcessEnv = process.env
+): ResolvedModelRole {
   const role = request.role ?? "main";
   if (!isRoleKey(role)) throw new Error(`未知的模型角色：${String(request.role)}`);
   const registry = modelConnections(config);
@@ -170,7 +198,7 @@ export function resolveModelRole(config: CoworkConfig, request: ModelRoleRequest
   const explicitProfileId = request.profileId?.trim() || undefined;
   // A model forced by the launch environment is an explicit choice, as it was
   // before roles existed; it still uses the connection resolved for this Run.
-  const explicitModel = request.model?.trim() || process.env.COWORK_MODEL?.trim() || undefined;
+  const explicitModel = request.model?.trim() || env.COWORK_MODEL?.trim() || undefined;
   const retryModel = request.retryModel?.trim() || undefined;
   const sourceModel = (fallback: string) => retryModel ?? explicitModel ?? fallback;
   const sourceName = (base: RoleModelSource): RoleModelSource => (retryModel ? "retry" : base);
@@ -185,7 +213,7 @@ export function resolveModelRole(config: CoworkConfig, request: ModelRoleRequest
     // An environment key belongs to the forced endpoint, so only the active
     // connection may fall back to it; a role connection must keep its own key.
     const apiKey = active
-      ? process.env.COWORK_API_KEY || connection.apiKey || config.apiKey || ""
+      ? env.COWORK_API_KEY || connection.apiKey || config.apiKey || ""
       : connection.apiKey || "";
     if (!apiKey)
       throw new Error(
@@ -210,16 +238,16 @@ export function resolveModelRole(config: CoworkConfig, request: ModelRoleRequest
     return fromConnection("explicit", connectionFor(registry, explicitProfileId, "指定的模型连接"));
   }
 
-  const forcedBase = process.env.COWORK_API_BASE;
+  const forcedBase = env.COWORK_API_BASE;
   if (forcedBase) {
     const profile = connectionProfile(config);
     return {
       role,
       source: sourceName("environment"),
       baseUrl: forcedBase,
-      apiKey: process.env.COWORK_API_KEY || config.apiKey || "",
+      apiKey: env.COWORK_API_KEY || config.apiKey || "",
       model: sourceModel(
-        process.env.COWORK_MODEL ||
+        env.COWORK_MODEL ||
           (realRegistry?.activeId ? config.model : request.taskModel) ||
           config.model ||
           DEFAULT_MODEL
@@ -252,8 +280,8 @@ export function resolveModelRole(config: CoworkConfig, request: ModelRoleRequest
     role,
     source: sourceName("active"),
     baseUrl: config.baseUrl || config.apiBase || "",
-    apiKey: process.env.COWORK_API_KEY || config.apiKey || "",
-    model: sourceModel(request.taskModel || process.env.COWORK_MODEL || config.model || DEFAULT_MODEL),
+    apiKey: env.COWORK_API_KEY || config.apiKey || "",
+    model: sourceModel(request.taskModel || env.COWORK_MODEL || config.model || DEFAULT_MODEL),
     profile,
     thinkingLevel: request.thinkingLevel ?? profile.reasoningEffort,
     supportsImages: configuredSupportsImages(runtimeSettingsEnv(config))
@@ -277,6 +305,45 @@ export function roleConnectionEnv(selection: ResolvedModelRole): Record<string, 
     COWORK_MAIN_MAX_TOKENS: String(selection.profile.mainMaxTokens),
     COWORK_MAX_TOKENS: String(selection.profile.subagentMaxTokens)
   };
+}
+
+export function isDelegatedModelRole(value: unknown): value is DelegatedModelRole {
+  return typeof value === "string" && (DELEGATED_MODEL_ROLES as readonly string[]).includes(value);
+}
+
+/** The binding a delegated role would read, project override first. */
+export function delegatedRoleBinding(
+  config: CoworkConfig,
+  role: DelegatedModelRole,
+  projectId?: string | null
+): RoleModelBinding | undefined {
+  const project = projectId?.trim();
+  return (
+    (project ? config.roleModels?.projects?.[project]?.[role] : undefined) ?? config.roleModels?.host?.[role]
+  );
+}
+
+/**
+ * Resolve the connection and model one delegated work item runs with.
+ *
+ * Returns `undefined` when this host has no binding for the role and the caller
+ * named no one-off selection: an ordinary delegation then keeps inheriting the
+ * Main Run's own connection, exactly as it did before roles reached this path.
+ * A binding is read from the execution host's saved configuration with an empty
+ * environment, so the Main Run's pinned connection never masquerades as the
+ * child's environment choice and every secret stays on this host.
+ */
+export function resolveDelegatedModelRole(
+  config: CoworkConfig,
+  request: DelegatedModelRequest,
+  env: NodeJS.ProcessEnv = {}
+): ResolvedModelRole | undefined {
+  if (!isDelegatedModelRole(request.role)) throw new Error(`未知的委派角色：${String(request.role)}`);
+  const explicitProfileId = request.profileId?.trim() || undefined;
+  const explicitModel = request.model?.trim() || undefined;
+  if (!explicitProfileId && !explicitModel && !delegatedRoleBinding(config, request.role, request.projectId))
+    return undefined;
+  return resolveModelRole(config, { ...request, projectId: request.projectId ?? undefined }, env);
 }
 
 /** Nothing here identifies an account or carries a secret. */
@@ -317,7 +384,13 @@ export function publicModelRoles(config: CoworkConfig, projectId?: string): Publ
     const wired = WIRED_MODEL_ROLES.includes(role);
     if (!wired) return { role, wired, host, project, effective: null };
     try {
-      const selection = resolveModelRole(config, { role, projectId: selectedProject });
+      // A delegated role is resolved the same way its launch resolves it: with
+      // the host's saved configuration only. With no binding it has no fixed
+      // effective connection — delegations inherit the launching Run's.
+      const selection = isDelegatedModelRole(role)
+        ? resolveDelegatedModelRole(config, { role, projectId: selectedProject })
+        : resolveModelRole(config, { role, projectId: selectedProject });
+      if (!selection) return { role, wired, host, project, effective: null };
       return {
         role,
         wired,

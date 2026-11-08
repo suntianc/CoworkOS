@@ -55,6 +55,14 @@ Candidate edits return `saved:false` and `candidatePath`, accumulating consecuti
 
 Recovered queues retain their original grants independently of Main's current binding. Resource grants do not expand Task file or command permissions. Missing capability providers fail explicitly. A successful subagent or its summary does not replace candidate acceptance.
 
+### Execution roles, work-item dependencies and the requirement checkout
+
+A delegation runs as `executor` by default; use `role: "reviewer"` for an independent review session. Both roles read the execution host's role configuration each time a work item actually starts: an explicit `profileId`/`model` wins, then the project override, then the host default; with none of them the item keeps the launching Main Run's connection, so ordinary `call_subagent({task,mode})` behaves as before. The selection is fixed at that start and recorded as a non-sensitive snapshot in `call.model_selected` and the work item, so a later binding change applies to later starts while an in-flight request keeps its connection. A binding that names a missing connection or lacks a key fails with an error naming the role, scope and connection id, and the work item does not start on another account. Keys stay on the execution host and never enter work-item records, callbacks or interface responses.
+
+`dependsOn: ["<callId>", …]` names prerequisites. Until all of them are terminal the item stays queued (shown as waiting for a prerequisite) without a model request or checkpoint; it continues once they finish, and a failed or cancelled prerequisite ends it unexecuted with the reason. Cancelling one item ends only that item — other work items, Main and callbacks are unaffected — and a restart restores dependencies and role requests from the durable queue.
+
+Passing `developmentId` runs the item in the requirement's isolated checkout: the ready workspace recorded for this backend by `project_development` becomes the Subagent's project directory instead of the user's working tree. A checkout that is not ready is refused with a prompt to run `ensure_workspace` first. `get_subagent_status`, Task detail and the interface's work-item entries report each item's callId, name, role, model, working directory, dependencies and progress.
+
 ### One-way Subagent peer messages
 
 An active Subagent can call `send_peer_message({targetCallId, message, priority?})` to send a non-blocking message to another Subagent in the same Task/Run. Main must provide `targetCallId` in the delegated brief or later guidance. Messages are limited to 8,000 characters and are intended for short questions, corrections, findings, or file/artifact paths.

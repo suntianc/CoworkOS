@@ -37,6 +37,16 @@ export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig {
   mainCapacity?: MainCapacitySettings;
 }
 
+/**
+ * The configuration root a process that reads the host file itself starts from.
+ *
+ * The Dashboard, a Main process and a delegated launch all name the same root,
+ * so a role binding written by one is the binding the next launch reads.
+ */
+export function hostConfigRoot(env: NodeJS.ProcessEnv = process.env): string {
+  return env.COWORK_CONFIG_ROOT ?? env.COWORK_HARNESS_ROOT ?? process.cwd();
+}
+
 /** Explicit and project paths win; all installed hosts share the user fallback. */
 export function coworkConfigPath(root = process.cwd(), env: NodeJS.ProcessEnv = process.env): string {
   return env.COWORK_CONFIG

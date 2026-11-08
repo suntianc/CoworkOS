@@ -22,6 +22,8 @@ import { assessTaskCompletion } from "../../../dist/src/runtime/task-completion.
 import { LocalWorkspaceStore } from "../../../dist/src/workspace/workspace-store.js";
 import { businessCommandEnvironment } from "../../../dist/src/runtime/command-environment.js";
 import { WatchManagement } from "../../../dist/src/runtime/watch-management.js";
+import type { DelegatedModelRequest } from "../../../dist/src/runtime/role-models.js";
+import { createProjectDevelopmentClient } from "../../../dist/src/runtime/project-development-client.js";
 import { goalOwnsTaskClock } from "../../../dist/src/runtime/goal-routing.js";
 import type { CoworkToolContext } from "../extension.ts";
 import type { RuntimeToolResult } from "../helpers.ts";
@@ -308,7 +310,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     name: "call_subagent",
     label: "Call Subagent",
     description:
-      "Delegate one concrete task to a Subagent. sync waits for the result; async returns a callId and delivers the result by callback. Both modes execute the task once. Optional resources explicitly grant application read access or private candidate editing; no bound application is inherited automatically. Task wording never creates a persistent monitor or experiment program.",
+      "Delegate one concrete work item to a Subagent. sync waits for the result; async returns a callId and delivers the result by callback. Both modes execute the task once. role names the job (executor implements, reviewer examines an independent session); dependsOn holds the item until earlier callIds finish; developmentId runs it in that requirement's isolated checkout. Optional resources explicitly grant application read access or private candidate editing; no bound application is inherited automatically. Task wording never creates a persistent monitor or experiment program.",
     promptSnippet: "Delegate a concrete task",
     promptGuidelines: [
       "Use call_subagent when an independent analysis, implementation or validation task is likely to improve the result.",
@@ -316,7 +318,10 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       "Set mode=sync to wait for the result; set mode=async to continue independent work and receive a callback. Wait for any result needed for acceptance before completing the parent task.",
       "The task must state a concrete objective and expected evidence; ask for a deliverables/ file only when the result is a substantial reusable artifact. Main may issue multiple independent calls in one turn.",
       "A request to research monitoring, design a Virtual Agent or run an experiment is still an ordinary task. This tool does not register or activate persistent programs.",
-      "The Subagent returns a concise summary with evidence, candidate outputFiles, diagnostic paths and validation results. Candidate files remain in the Subagent's directory until Main accepts and copies selected files into the Task artifacts directory."
+      "The Subagent returns a concise summary with evidence, candidate outputFiles, diagnostic paths and validation results. Candidate files remain in the Subagent's directory until Main accepts and copies selected files into the Task artifacts directory.",
+      "Use role=reviewer for an independent check of a result; it starts its own session, so it must be given the candidate and evidence to examine rather than asked to trust the Executor's summary.",
+      "Pass dependsOn only for work that genuinely needs an earlier item's result: a dependent item does not start until those calls finish, and does not run at all when one of them failed or was cancelled. Independent work should be dispatched without dependsOn so it can proceed at once.",
+      "Pass developmentId when the work belongs to a requirement with an isolated checkout. ensure_workspace first; the checkout — not the user's working tree — is then the delegate's project directory."
     ],
     parameters: Type.Object(
       {
@@ -350,7 +355,38 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         mode: Type.Union([Type.Literal("sync"), Type.Literal("async")], {
           description:
             "sync waits for the Subagent result; async returns immediately and delivers a later callback. Both execute once; async does not mean persistent."
-        })
+        }),
+        role: Type.Optional(
+          Type.Union([Type.Literal("executor"), Type.Literal("reviewer")], {
+            description:
+              "Which role this work item runs as. executor implements and verifies; reviewer runs an independent session over the result. Omit for executor. The role's connection is read on this host when the item starts."
+          })
+        ),
+        dependsOn: Type.Optional(
+          Type.Array(Type.String(), {
+            maxItems: 16,
+            uniqueItems: true,
+            description:
+              "callIds from this Run that must finish first. A work item with unfinished prerequisites does not start until they are terminal, and does not run at all when one of them failed or was cancelled."
+          })
+        ),
+        developmentId: Type.Optional(
+          Type.String({
+            description:
+              "Run this work item in the isolated requirement checkout recorded for this development. Its directory, not the user's working tree, becomes the delegate's project directory; ensure_workspace must have made it ready."
+          })
+        ),
+        profileId: Type.Optional(
+          Type.String({
+            description:
+              "One-off model connection for this work item only; not saved as a role binding. A missing id is an error, never a fallback."
+          })
+        ),
+        model: Type.Optional(
+          Type.String({
+            description: "One-off model on the connection the role resolves to, for this work item only."
+          })
+        )
       },
       { additionalProperties: false }
     ),
@@ -363,6 +399,27 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       if (!goal) throw new Error("call_subagent requires task");
       if (params.mode !== "sync" && params.mode !== "async")
         throw new Error("call_subagent mode must be sync or async");
+      const role = params.role ?? "executor";
+      if (role !== "executor" && role !== "reviewer")
+        throw new Error("call_subagent role must be executor or reviewer");
+      const dependsOn = Array.isArray(params.dependsOn)
+        ? [
+            ...new Set(
+              params.dependsOn.filter(
+                (stepId): stepId is string => typeof stepId === "string" && stepId.trim().length > 0
+              )
+            )
+          ]
+        : [];
+      const explicitProfileId = typeof params.profileId === "string" ? params.profileId.trim() : "";
+      const explicitModel = typeof params.model === "string" ? params.model.trim() : "";
+      // The requirement checkout is read from this backend's own record: an
+      // arbitrary path from the model is never accepted as a working root.
+      const requestedDevelopment =
+        typeof params.developmentId === "string" ? params.developmentId.trim() : "";
+      const delegatedWorkspace = requestedDevelopment
+        ? await developmentWorkspaceDirectory(context, requestedDevelopment)
+        : undefined;
       const capabilityGrants = await context.delegationGrants(params.resources, params.attachments);
       const commandEnv = await businessCommandEnvironment(context.runtimeEnv, signal);
       const { agentId, name } = await reserveSubagentIdentity(context.taskWorkspace);
@@ -371,6 +428,15 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       // follows the program Main opened, never the wording of the task, so a
       // Task with no open program still records nothing.
       const experimentRef = await context.openExperimentRun({ callId, agentId, objective: goal });
+      // A role binding is resolved on this host when the item starts, so only
+      // the non-sensitive request travels with the work item.
+      const projectId = await projectIdForTask(context);
+      const delegation = {
+        role,
+        ...(projectId ? { projectId } : {}),
+        ...(explicitProfileId ? { profileId: explicitProfileId } : {}),
+        ...(explicitModel ? { model: explicitModel } : {})
+      } satisfies DelegatedModelRequest;
       let markQueued!: () => void;
       const queued = new Promise<void>((resolve) => {
         markQueued = resolve;
@@ -384,7 +450,10 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         mode: params.mode,
         workspaceRoot: context.workspaceRoot,
         commandEnv,
-        projectDirectory: context.projectDirectory,
+        projectDirectory: delegatedWorkspace?.directory ?? context.projectDirectory,
+        delegation,
+        ...(delegatedWorkspace ? { developmentId: requestedDevelopment } : {}),
+        ...(dependsOn.length > 0 ? { dependsOn } : {}),
         baseUrl: context.baseUrl,
         apiKey: context.apiKey,
         model: context.modelId,
@@ -441,7 +510,19 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           runtimeRouting: { strategy: "async", reason: goal.slice(0, 240) },
           runtimeLastEvent: { type: "subagent_accepted", summary: `${callId}: ${goal.slice(0, 180)}` }
         });
-        const payload = { accepted: true, mode: "async", callId, runId: context.mainRunId, agentId, name };
+        const payload = {
+          accepted: true,
+          mode: "async",
+          callId,
+          runId: context.mainRunId,
+          agentId,
+          name,
+          role,
+          ...(delegatedWorkspace
+            ? { developmentId: requestedDevelopment, workspace: delegatedWorkspace.directory }
+            : {}),
+          ...(dependsOn.length > 0 ? { dependsOn } : {})
+        };
         return { content: [{ type: "text", text: JSON.stringify(payload) }], details: payload };
       }
       try {
@@ -455,6 +536,11 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           runId: result.runId,
           agentId: result.agentId,
           name,
+          role,
+          ...(delegatedWorkspace
+            ? { developmentId: requestedDevelopment, workspace: delegatedWorkspace.directory }
+            : {}),
+          ...(dependsOn.length > 0 ? { dependsOn } : {}),
           status: result.status,
           response: result.response,
           artifacts: result.artifacts.map((artifact) => artifact.relativePath),
@@ -868,4 +954,35 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     }
   });
+}
+
+/** The project this conversation belongs to, used only for a role's project override. */
+async function projectIdForTask(context: CoworkToolContext): Promise<string | undefined> {
+  return (await new LocalWorkspaceStore(context.workspaceRoot).readTask(context.taskId)).projectId;
+}
+
+/**
+ * The isolated checkout this backend recorded for one development.
+ *
+ * Read back through the same Task-scoped service the development tool uses, so
+ * the directory is this backend's own workspace row instead of a path the model
+ * named. A workspace that is not ready is refused here rather than handed to a
+ * delegate as a working tree.
+ */
+async function developmentWorkspaceDirectory(
+  context: CoworkToolContext,
+  developmentId: string
+): Promise<{ directory: string }> {
+  const dashboardUrl = process.env.COWORK_DASHBOARD_URL;
+  if (!dashboardUrl) throw new Error("需求现场不可用：本次运行没有本地服务地址");
+  const request = createProjectDevelopmentClient({ dashboardUrl, taskId: context.taskId });
+  const body = await request({ action: "get", developmentId });
+  const workspace = (body.development as { workspace?: { directory?: unknown; state?: unknown } } | undefined)
+    ?.workspace;
+  const directory = typeof workspace?.directory === "string" ? workspace.directory : "";
+  if (!directory || workspace?.state !== "ready")
+    throw new Error(
+      `需求现场尚未就绪（${developmentId}）；先调用 project_development ensure_workspace 恢复现场后再委派`
+    );
+  return { directory };
 }

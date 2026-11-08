@@ -557,6 +557,15 @@ body {
   color: var(--workbench-muted);
   font-size: var(--workbench-type-caption);
 }
+.trace-workspace {
+  margin: -8px 0 14px;
+  overflow: hidden;
+  color: var(--workbench-faint);
+  font-family: var(--ui-mono);
+  font-size: var(--workbench-type-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .trace-task {
   margin: 6px 0 15px;
   color: var(--workbench-muted);

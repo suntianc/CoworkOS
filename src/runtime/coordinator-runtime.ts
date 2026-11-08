@@ -41,6 +41,8 @@ import type { ExperimentRunStatus } from "../domain/experiment.js";
 import type { VisionModelConfig } from "../tools/vision-model.js";
 import { subagentRecoverySummary } from "./subagent-recovery-summary.js";
 import { subagentCallStatuses, type SubagentCallStatus } from "./subagent-call-status.js";
+import { delegationModelSelection, delegationRoleGuidance } from "./delegation-model.js";
+import { DEFAULT_MODEL, type DelegatedModelRequest, type ModelRoleSnapshot } from "./role-models.js";
 
 type DelegatedModelSettings = Pick<
   PiSessionOptions,
@@ -108,6 +110,14 @@ export interface SubagentDispatchInput extends DelegatedModelSettings {
   questionTimeoutMs?: number;
   /** Questions this call may raise. Defaults to the configured value. */
   maxQuestions?: number;
+  /**
+   * Role this work item runs as. Its connection and model are resolved on this
+   * host when the item starts, so a changed binding applies to later starts.
+   * Omitted keeps the caller's connection: ordinary delegations are unchanged.
+   */
+  delegation?: DelegatedModelRequest;
+  /** Work items in this Run that must finish before this one starts. */
+  dependsOn?: string[];
 }
 
 /** Identifies the ledger row a delegated call was opened against. */
@@ -594,6 +604,8 @@ export class CoordinatorRuntime {
           runId: input.runId,
           activateRun: (item.payload as { activateRun?: boolean })?.activateRun,
           callId: item.stepId,
+          delegation: (item.payload as { delegation?: DelegatedModelRequest })?.delegation,
+          dependsOn: (item.payload as { dependsOn?: string[] })?.dependsOn,
           systemPrompt: (item.payload as { systemPrompt?: string })?.systemPrompt,
           disableTools: (item.payload as { disableTools?: boolean })?.disableTools,
           agentId: item.agentId,
@@ -647,12 +659,53 @@ export class CoordinatorRuntime {
   }
 
   async dispatch(input: SubagentDispatchInput): Promise<SubagentDispatchResult> {
-    const thinkingLevel = normalizeReasoningEffort(input.thinkingLevel ?? configuredReasoningEffort());
-    const api = input.api ?? configuredModelApi();
-    const thinkingFormat = input.thinkingFormat ?? configuredThinkingFormat();
-    const supportsReasoningEffort = input.supportsReasoningEffort ?? configuredSupportsReasoningEffort();
-    const supportsPromptCacheKey = input.supportsPromptCacheKey ?? configuredSupportsPromptCacheKey();
-    const supportsImages = input.supportsImages ?? configuredSupportsImages();
+    // A role-bound work item is resolved here, at the start, from this host's
+    // configuration; the selection is fixed for this attempt and only the
+    // non-sensitive snapshot is persisted. Recovery re-enters the same path, so
+    // it reads the configuration again rather than carrying a secret in shared data.
+    const delegated = input.delegation === undefined ? undefined : delegationModelSelection(input.delegation);
+    const delegatedProfile = delegated?.selection.profile;
+    const thinkingLevel = normalizeReasoningEffort(
+      delegated ? delegated.selection.thinkingLevel : (input.thinkingLevel ?? configuredReasoningEffort())
+    );
+    const api = delegatedProfile?.api ?? input.api ?? configuredModelApi();
+    const thinkingFormat =
+      delegatedProfile?.thinkingFormat ?? input.thinkingFormat ?? configuredThinkingFormat();
+    const supportsReasoningEffort =
+      delegatedProfile?.supportsReasoningEffort ??
+      input.supportsReasoningEffort ??
+      configuredSupportsReasoningEffort();
+    const supportsPromptCacheKey =
+      delegatedProfile?.supportsPromptCacheKey ??
+      input.supportsPromptCacheKey ??
+      configuredSupportsPromptCacheKey();
+    const supportsImages = delegated
+      ? delegated.selection.supportsImages
+      : (input.supportsImages ?? configuredSupportsImages());
+    const baseUrl = delegated?.selection.baseUrl ?? input.baseUrl;
+    const apiKey = delegated?.selection.apiKey ?? input.apiKey;
+    const model = delegated?.selection.model ?? input.model;
+    const maxTokens = delegatedProfile?.subagentMaxTokens ?? input.maxTokens;
+    const contextWindow = delegatedProfile?.contextWindow ?? input.contextWindow;
+    const dependsOn = [...new Set(input.dependsOn ?? [])];
+    // Every delegated work item records the non-sensitive selection it started
+    // with. With no binding it kept the caller's connection, which the record
+    // states plainly instead of leaving the model unknown.
+    const modelSelection: ModelRoleSnapshot | undefined = delegated
+      ? delegated.snapshot
+      : input.delegation
+        ? {
+            role: input.delegation.role,
+            source: "active",
+            connectionId: null,
+            connectionName: null,
+            model: model ?? DEFAULT_MODEL,
+            api,
+            thinkingLevel,
+            supportsImages,
+            ...(input.delegation.projectId ? { projectId: input.delegation.projectId } : {})
+          }
+        : undefined;
     const callId = input.callId ?? id("call");
     const workspace = new LocalWorkspaceStore(input.workspaceRoot);
     const runPath =
@@ -661,6 +714,14 @@ export class CoordinatorRuntime {
         : await workspace.createRun(input.taskId, input.runId);
     const events = new JsonlEventStore(join(runPath, "run_events.jsonl"));
     const scheduler = new DurableScheduler(join(runPath, "queue.json"));
+    if (dependsOn.length > 0) {
+      const known = new Set((await scheduler.list()).map((item) => item.stepId));
+      const unknown = dependsOn.filter((stepId) => !known.has(stepId));
+      if (unknown.length > 0)
+        throw new Error(
+          `dependsOn 引用了本 Run 中不存在的工作项：${unknown.join("、")}；只能依赖已委派的 callId`
+        );
+    }
     const checkpointPath = join(runPath, "agents", "subagents", input.agentId, "checkpoint.json");
     const checkpointStore = new CheckpointStore(checkpointPath);
     const previous = await checkpointStore.load(input.runId);
@@ -694,6 +755,16 @@ export class CoordinatorRuntime {
       events,
       event(input, callId, "step.queued", "coordinator", { callId, agentId: input.agentId })
     );
+    if (modelSelection)
+      await this.append(
+        events,
+        // Recorded per attempt: a recovered launch re-resolves the role, so the
+        // latest selection is the one this work item is actually running with.
+        event(input, callId, "call.model_selected", input.agentId, {
+          callId,
+          modelSelection
+        })
+      );
     const work = await scheduler.enqueue({
       stepId: callId,
       taskId: input.taskId,
@@ -713,6 +784,11 @@ export class CoordinatorRuntime {
         supportsPromptCacheKey,
         supportsImages,
         ...delegatedSettings(input),
+        // Non-sensitive launch facts: a recovered call re-resolves the role
+        // instead of reading a connection, key or endpoint from shared data.
+        delegation: input.delegation,
+        modelSelection,
+        dependsOn: dependsOn.length > 0 ? dependsOn : undefined,
         experimentRef: input.experimentRef,
         capabilityGrants: input.capabilityGrants ?? [],
         skillRoots: input.skillRoots,
@@ -762,6 +838,9 @@ export class CoordinatorRuntime {
       Math.max(1_000, Math.floor(leaseMs / 3))
     );
     try {
+      // A work item whose prerequisites are not finished does not start: no
+      // model request, no session and no checkpoint until they are terminal.
+      if (dependsOn.length > 0) await this.awaitDependencies({ input, callId, dependsOn, scheduler, events });
       const grants = input.capabilityGrants ?? [];
       if (grants.length && !input.capabilityProvider)
         throw new Error("Delegated capabilities require a provider; refusing to drop the recorded grant");
@@ -832,9 +911,9 @@ export class CoordinatorRuntime {
       if (input.disableTools) tools.clear();
       const projectWrites = input.projectDirectory !== undefined && capabilities.projectWrite;
       session = new PiSession({
-        baseUrl: input.baseUrl,
-        apiKey: input.apiKey,
-        model: input.model,
+        baseUrl,
+        apiKey,
+        model,
         thinkingLevel,
         api,
         thinkingFormat,
@@ -845,6 +924,7 @@ export class CoordinatorRuntime {
           input.systemPrompt ??
           [
             atriaRoleIdentity("Subagent"),
+            ...(input.delegation ? [delegationRoleGuidance(input.delegation)] : []),
             `Your team name is ${agentDisplayName(input.agentId)}. Main and the UI use this stable name to identify your work.`,
             `Your working directory (read_file/write_file/run_command): ${workingDirectory}. Drafts and scripts: ${join(workingDirectory, "work")}. Candidate outputs: ${join(workingDirectory, "deliverables")}.`,
             `Shared Task workspace (browse_workspace paths start here): ${join(input.workspaceRoot, input.taskId)}.${input.projectDirectory ? ` The user's project directory is ${input.projectDirectory}.` : ""}`,
@@ -871,8 +951,8 @@ export class CoordinatorRuntime {
           ].join("\n\n"),
         tools,
         maxTurns: input.maxTurns ?? 200,
-        maxTokens: input.maxTokens,
-        contextWindow: input.contextWindow,
+        maxTokens,
+        contextWindow,
         maxLengthContinuations: input.maxLengthContinuations,
         sampling: input.sampling,
         compaction: input.compaction,
@@ -1511,6 +1591,62 @@ export class CoordinatorRuntime {
           status
         })
       );
+    }
+  }
+
+  /**
+   * Hold a work item until the calls it depends on are terminal.
+   *
+   * The same durable queue is the only scheduler: a blocked item keeps its
+   * lease (renewed by the dispatch heartbeat) and stays visible as pending, so
+   * Main still waits for it. A cancellation of this call, or a prerequisite
+   * that failed, ends it here — before any model request or session exists.
+   */
+  private async awaitDependencies(context: {
+    input: SubagentDispatchInput;
+    callId: string;
+    dependsOn: string[];
+    scheduler: DurableScheduler;
+    events: JsonlEventStore;
+  }): Promise<void> {
+    const { input, callId, dependsOn, scheduler, events } = context;
+    const terminal = (status: string) =>
+      status === "completed" || status === "failed" || status === "cancelled";
+    await this.append(events, event(input, callId, "call.blocked", input.agentId, { callId, dependsOn }));
+    for (;;) {
+      const items = await scheduler.list();
+      const own = items.find((item) => item.stepId === callId);
+      if (
+        !own ||
+        own.status === "cancelled" ||
+        this.cancelRequests.has(callId) ||
+        input.signal?.aborted === true
+      )
+        throw new SubagentTerminationError("cancelled", "工作项在等待前置工作时被取消，未开始执行");
+      const statusOf = (stepId: string) => items.find((item) => item.stepId === stepId)?.status;
+      const unfinished = dependsOn.filter((stepId) => {
+        const status = statusOf(stepId);
+        return status === undefined || !terminal(status);
+      });
+      if (unfinished.length === 0) {
+        const failed = dependsOn.filter((stepId) => statusOf(stepId) !== "completed");
+        if (failed.length > 0) {
+          await this.append(
+            events,
+            event(input, callId, "call.dependency_failed", input.agentId, { callId, dependsOn, failed })
+          );
+          throw new SubagentTerminationError(
+            "cancelled",
+            `前置工作 ${failed.join("、")} 未成功完成，本工作项未执行`
+          );
+        }
+        await this.append(
+          events,
+          event(input, callId, "call.dependencies_met", input.agentId, { callId, dependsOn })
+        );
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 
