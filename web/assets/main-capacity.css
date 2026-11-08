@@ -1,0 +1,79 @@
+/* The external Main service: quotas and the two lines that consume them. */
+.main-capacity-backdrop .main-capacity-card.modal-card {
+  width: min(520px, calc(100vw - 32px));
+}
+.main-capacity-card .main-capacity-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.main-capacity-quota {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 16px;
+  background: var(--ui-raised);
+  border: 1px solid var(--ui-border);
+  border-radius: 14px;
+}
+.main-capacity-quota .settings-field {
+  flex: 1;
+}
+.main-capacity-actions {
+  display: flex;
+}
+.main-capacity-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.main-capacity-section h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ui-secondary);
+}
+.main-capacity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.main-capacity-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+}
+.main-capacity-list strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.main-capacity-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ui-secondary);
+  font-size: 12px;
+}
+.main-capacity-retry {
+  padding: 2px 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.main-capacity-retry:hover {
+  background: var(--ui-raised);
+}
+.main-capacity-empty {
+  color: var(--ui-secondary);
+  font-size: 12px;
+}

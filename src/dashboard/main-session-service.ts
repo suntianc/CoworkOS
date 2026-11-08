@@ -53,6 +53,23 @@ export interface MainSessionServicePorts {
   runtime: Pick<ProjectDataRuntime, "service">;
   /** The serving backend: it owns the Pi history of the sessions it created. */
   backendId: string;
+  /**
+   * The external Main budget this backend applies.
+   *
+   * A saved external regular session counts toward its project's session limit,
+   * so a third saved session cannot appear behind a two-slot service; only a
+   * running Main, not a saved conversation, occupies a running slot.
+   */
+  capacity?: {
+    settings(): { resident: number; continuation: number } | undefined;
+    sessionUsage(projectId: string): Promise<{ regular: number; continuation: number } | undefined>;
+    noteSession(record: MainSessionRecord): Promise<void>;
+    /**
+     * Serialize an external session's limit check and its creation. Two pages
+     * saving at once must not each pass the last free place.
+     */
+    withCreateLock?<T>(action: () => Promise<T>): Promise<T>;
+  };
   project(projectId: string): Promise<MainSessionProject | undefined>;
   projectTasks(projectId: string): Promise<MainSessionTask[]>;
   createProjectTask(taskId: string, projectId: string, metadata: { goal: string }): Promise<unknown>;
@@ -127,7 +144,54 @@ export function createMainSessionService(ports: MainSessionServicePorts) {
     return records.map((record) => view(record, project, byTask));
   }
 
+  /**
+   * Which session would run this Task, without recording anything.
+   *
+   * Capacity admission needs the session's entry kind before a Run exists. An
+   * unknown Task is an internal conversation that `beginRun` will create.
+   */
+  async function resolve(
+    location: {
+      projectId: string;
+      task: { taskId: string };
+    },
+    input: { mainSessionId?: unknown }
+  ): Promise<{ sessionId: string; entryKind: MainSessionEntryKind; kind: MainSessionKind } | undefined> {
+    if (!location.projectId) return undefined;
+    const project = await bindProject(location.projectId);
+    const service = await ports.runtime.service();
+    const identity = (record: MainSessionRecord) => ({
+      sessionId: record.session.sessionId,
+      entryKind: record.session.entryKind,
+      kind: record.session.kind
+    });
+    if (input.mainSessionId !== undefined && input.mainSessionId !== null) {
+      const record = await service.getMainSession(project.projectId, input.mainSessionId);
+      if (record.session.backendId !== ports.backendId)
+        throw new ProjectDataConflictError(
+          "该会话由另一台后端执行，不能在此发送",
+          undefined,
+          "remote_session"
+        );
+      if (record.session.taskId !== location.task.taskId)
+        throw new ProjectDataConflictError(
+          "该消息不属于当前会话，请刷新页面后重新发送",
+          undefined,
+          "session_task_mismatch"
+        );
+      return identity(record);
+    }
+    const record = await service.findMainSessionByTask(
+      project.projectId,
+      ports.backendId,
+      location.task.taskId
+    );
+    return record ? identity(record) : undefined;
+  }
+
   return {
+    resolve,
+
     list(projectId: string): Promise<MainSessionView[]> {
       return listed(projectId);
     },
@@ -155,24 +219,60 @@ export function createMainSessionService(ports: MainSessionServicePorts) {
             : undefined;
       if (input.requirementId !== undefined && input.requirementId !== null && !requirementId)
         throw new ProjectDataInvalidError("需求 ID 必须是字符串");
-      const requirementTitle = requirementId
-        ? (await service.getRequirement(projectId, requirementId)).title
-        : undefined;
-      const title =
-        typeof input.title === "string" && input.title.trim()
-          ? input.title.trim()
-          : (requirementTitle ?? "新会话");
-      const taskId = `task-${randomUUID()}`;
-      await ports.createProjectTask(taskId, projectId, { goal: title });
-      const record = await service.createMainSession(projectId, {
-        title,
-        entryKind,
-        kind,
-        backendId: ports.backendId,
-        taskId,
-        ...(requirementId ? { requirementId } : {})
-      });
-      return view(record, project, new Map([[taskId, { taskId, status: "created" }]]));
+      const create = async (): Promise<MainSessionView> => {
+        // The check and the creation of one external session are one step: a
+        // concurrent save of the last free place must see this count.
+        if (entryKind === "external") {
+          const settings = ports.capacity?.settings();
+          if (!settings)
+            throw new ProjectDataConflictError(
+              "外部 Main 尚未启用：请先在外部服务配置 resident 与 continuation",
+              undefined,
+              "main_capacity_unconfigured"
+            );
+          if (kind === "regular") {
+            const usage = await ports.capacity?.sessionUsage(project.projectId);
+            if ((usage?.regular ?? 0) >= settings.resident)
+              throw new ProjectDataConflictError(
+                `项目外部常规会话已达上限（resident=${settings.resident}）；接续会话不计入项目上限`,
+                undefined,
+                "main_session_limit"
+              );
+          }
+        }
+        const requirementTitle = requirementId
+          ? (await service.getRequirement(projectId, requirementId)).title
+          : undefined;
+        const title =
+          typeof input.title === "string" && input.title.trim()
+            ? input.title.trim()
+            : (requirementTitle ?? "新会话");
+        const taskId = `task-${randomUUID()}`;
+        await ports.createProjectTask(taskId, projectId, { goal: title });
+        const record = await service.createMainSession(projectId, {
+          title,
+          entryKind,
+          kind,
+          backendId: ports.backendId,
+          taskId,
+          ...(requirementId ? { requirementId } : {})
+        });
+        // The CLI and worker find this backend's external Mains through this
+        // local index, so it is written with the session before it is listed.
+        await ports.capacity
+          ?.noteSession(record)
+          .catch((error) =>
+            console.error(
+              `[cowork] external session index failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            )
+          );
+        return view(record, project, new Map([[taskId, { taskId, status: "created" }]]));
+      };
+      return entryKind === "external" && ports.capacity?.withCreateLock
+        ? ports.capacity.withCreateLock(create)
+        : create();
     },
 
     async selectRequirement(
@@ -215,19 +315,8 @@ export function createMainSessionService(ports: MainSessionServicePorts) {
       });
       let record: MainSessionRecord;
       if (input.mainSessionId !== undefined && input.mainSessionId !== null) {
-        record = await service.getMainSession(project.projectId, input.mainSessionId);
-        if (record.session.backendId !== ports.backendId)
-          throw new ProjectDataConflictError(
-            "该会话由另一台后端执行，不能在此发送",
-            undefined,
-            "remote_session"
-          );
-        if (record.session.taskId !== location.task.taskId)
-          throw new ProjectDataConflictError(
-            "该消息不属于当前会话，请刷新页面后重新发送",
-            undefined,
-            "session_task_mismatch"
-          );
+        const resolved = (await resolve(location, input))!;
+        record = await service.getMainSession(project.projectId, resolved.sessionId);
       } else {
         record =
           (await service.findMainSessionByTask(project.projectId, ports.backendId, location.task.taskId)) ??
@@ -283,3 +372,5 @@ export function createMainSessionService(ports: MainSessionServicePorts) {
     }
   };
 }
+
+export type MainSessionService = ReturnType<typeof createMainSessionService>;

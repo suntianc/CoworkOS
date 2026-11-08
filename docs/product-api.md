@@ -223,6 +223,45 @@ The session must belong to this backend and name that Task; a mismatch is refuse
 
 A secondary backend with `projectData.authority` reads and writes these same session records through its authenticated client, as business requests only: it never sends SQL or a transaction callback, and the authority keeps the token, the shared records and each backend's directory binding. Session records cross backends; the Task, Pi transcript and process ownership do not. A request recording or settling a Run for a session owned by another backend is refused with `session_backend_mismatch` instead of writing a second owner.
 
+## External Main capacity
+
+External Main capacity is a per-backend execution fact, so it is configured and served by the host that runs the processes. The quotas live in that host's public configuration; the slots, the queue and the index of the host's external sessions live beside the backend identity (`ATRIA_HOME/runtime/main-capacity/state.json`), never in shared project data.
+
+```json
+{ "mainCapacity": { "resident": 2, "continuation": 1 } }
+```
+
+A host without `mainCapacity` keeps its previous internal-only behavior and refuses to create an external session. `resident` is a positive integer, `continuation` a non-negative integer; both cap at 32. An invalid value stops configuration reads with an error instead of guessing.
+
+```text
+GET  /api/main-capacity
+POST /api/main-capacity   { action: "configure", resident?, continuation? }
+POST /api/main-capacity   { action: "retry", requestId }
+```
+
+`GET` returns `configured`, `settings` (`resident`, `continuation` or null), `running` (`requestId`, `projectId`, `projectName?`, `sessionId`, `taskId`, `runId`, `kind`, `requirementId?`, `pid?`, `startedAt`), `queued` (`requestId`, project and session identity, `kind`, `requirementId?`, `position`, `origin` = `http|worker|cli|internal`, `enqueuedAt`, `state` = `queued|failed`, `attempts`, optional `lastError`; a demand already being dispatched is listed under `running` instead), per-project `projects` with the external `regular` and `continuation` session counts this backend owns, and `projectsComplete` (`false` plus `projectsError` when a shared session read failed — the counts are then unknown, never zero). `POST` validates and commits the quotas; a reduction below a running kind or below any project's saved regular sessions is refused with 409 `main_capacity_in_use` and a message naming the reason, which never ends running work.
+
+A regular external Run occupies one `resident` slot and a continuation Run one `continuation` slot; a slot is never borrowed from the other kind. An internal Main spends no external capacity. The number of external regular sessions a project may save equals `resident`; saved sessions do not occupy a running slot, and continuation sessions do not count toward the project limit. Both limits are computed from the shared Main session rows, so every backend and every engine sees the same saved sessions.
+
+A Run occupies its slot while this host has a process for it. The slot is released when the process exits (completed, failed, cancelled or shutdown), when the start fails, and by startup reconciliation when the recorded process is no longer alive. Releasing a slot starts the next eligible waiting demand in arrival order; continuation capacity is only ever used by continuation demands. A backend restart keeps a demand whose process is still alive and never starts the same request twice: a dispatch interrupted before a process existed is dropped rather than replayed. Reconciliation only ever inspects or affects this host's own processes.
+
+```text
+POST /api/tasks/:taskId/run   → 202 { status: "running" } | { status: "queued", queuePosition }
+                              | { status: "duplicate", runId?, queuePosition? }
+```
+
+`POST /api/tasks/:taskId/run` admits an external session through this budget before recording anything. When no slot is free the response is `202` with `status:"queued"` and a position; no Run row is written, no process starts and the Task keeps its previous status. A demand for a Task or requirement that already owns a slot or a waiting position returns `status:"duplicate"` with the existing identity instead of running twice. `cancel` on a queued Task drops its waiting demand. The Main worker and the interactive CLI reserve from the same file and lock before starting a Main; when the budget is full the worker reports `main_capacity_queued` and leaves the demand to the program's queue, and an interactive launch refuses with the reason.
+
+A submitted human answer or a watch wake is a durable demand too: when the budget is full it joins the same queue (`origin:"internal"`) instead of being lost, and the program resumes it when a slot frees. `POST /api/tasks/:taskId/human/resume` reports `status:"queued"` in that case.
+
+A dispatch that fails for a recoverable reason (shared service unreachable or authentication unavailable at the session call) releases its unused slot but keeps the accepted demand: it stays `queued` with a `lastError` and is retried by the capacity loop with exponential backoff. A permanent refusal (an explicit connection gone, the session or Task removed, a shared 404/409 before the Run exists) does not delete the input either: it releases the unused slot and marks the demand `failed` immediately with its `lastError`, without spending retry attempts. Either way the input and its choices stay durable and visible in `queued`; `POST /api/main-capacity { action: "retry", requestId }` puts a failed demand back in line. A restart mid-dispatch checks the local Task: a recorded Run is never started twice, a demand whose Run never existed is re-queued.
+
+A Main dispatched by the program registers its own pid in its slot before it does any work, so the interval between spawn and the parent recording the pid cannot hide a live Main. Reclaiming a slot judged stale is a single check-and-remove inside the capacity store: it is removed only when it still names the same request, Run, host and bound/pid-less state as the observation, so a Main that registered in between keeps its slot and is counted. A Main whose reservation has already been released refuses to start instead of running uncounted.
+
+A resubmission is idempotent only when the input identity matches — text, body, attachments, explicit connection/model/thinking choice and resume/retry identity. A **different** message on a queued or running Task returns 409 `main_capacity_conflict` instead of a success, so the caller keeps the draft; the same task or requirement with the same input still returns `duplicate`.
+
+A queued demand keeps the request's identity — Task, session, requirement, `retryRequestId`, explicit `profileId`/`model`/thinking level and attachment ids — but no resolved model default and no credential. The default connection, model and reasoning profile are resolved by the host role resolver at the moment the demand actually gets a slot, so a host or project default changed while it waited applies to that Run; an explicit choice stays the user's and a retry keeps its saved request snapshot. Saving two external sessions at the same time is serialized, so a project can never exceed its `resident` saved regular sessions.
+
 ## Demand board
 
 The board is a separate projection of the ledger: one external demand has one board item linked by `requirementId`. An internal `create` on the ledger stays ledger-only and creates no board item; only a controlled external `publish` creates one. Entries keep the owning `backendId`, entry kind, state, revision, the handling Main (when claimed) and an append-only event history. The handler identity is `{ backendId, projectId, taskId }`; it names exactly one project Main session through the session's own `{ backendId, projectId, taskId }` triple, so a claim can be resolved to the conversation that handles it without a second claim model or a directory identity.

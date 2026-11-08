@@ -26,7 +26,15 @@ export function createWatchService(ports: {
     | "web"
   >;
   cancelTask: (taskId: string) => Promise<unknown>;
-  startMainRun: (taskId: string, prompt: string, runId?: string, resume?: boolean) => Promise<unknown>;
+  startMainRun: (
+    taskId: string,
+    prompt: string,
+    runId?: string,
+    resume?: boolean,
+    model?: string,
+    retryRequestId?: string,
+    submission?: { origin?: "http" | "worker" | "cli" | "internal"; queueWhenFull?: boolean }
+  ) => Promise<unknown>;
 }) {
   const disabled = process.env.COWORK_DISABLE_WATCH_SUPERVISOR === "1";
   const intervalMs = Math.max(1000, Number(process.env.COWORK_SUPERVISOR_INTERVAL_MS) || 60_000);
@@ -55,7 +63,12 @@ export function createWatchService(ports: {
       const main = new MainSupervisor({
         workspaceRoot: root,
         launch: async ({ taskId, runId }) => {
-          await ports.startMainRun(taskId, SUPERVISOR_WAKE_TURN, runId, true);
+          // A wake that meets a full external budget waits in the same queue
+          // instead of being lost; the program starts it when a slot frees.
+          await ports.startMainRun(taskId, SUPERVISOR_WAKE_TURN, runId, true, undefined, undefined, {
+            origin: "internal",
+            queueWhenFull: true
+          });
         }
       });
       for (const task of await new LocalWorkspaceStore(root).listTasks()) {

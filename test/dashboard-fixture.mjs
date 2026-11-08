@@ -148,6 +148,8 @@ export async function startDashboard({
       ({ project } = await response.json());
     }
     return {
+      /** The isolated environment the backend was launched with. */
+      env: launchOptions.env,
       get base() {
         return base;
       },

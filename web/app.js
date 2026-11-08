@@ -37,6 +37,7 @@ import { createProjectExperienceController } from "./assets/controllers/project-
 import { createProjectController } from "./assets/controllers/project-controller.js";
 import { createProjectLedgerController } from "./assets/controllers/project-ledger.js";
 import { createMainSessionsController } from "./assets/controllers/main-sessions.js";
+import { createMainCapacityController } from "./assets/controllers/main-capacity.js";
 import { createProjectBoardController } from "./assets/controllers/project-board.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
@@ -547,6 +548,8 @@ const mainSessionsController = createMainSessionsController({
   }
 });
 $("#main-sessions-nav").addEventListener("click", () => mainSessionsController.open());
+const mainCapacityController = createMainCapacityController({ api, state, showToast });
+$("#main-capacity-nav").addEventListener("click", () => mainCapacityController.open());
 const boardController = createProjectBoardController({
   api,
   state,
@@ -1064,6 +1067,7 @@ function renderConversationList() {
   projectController.render();
   ledgerController.render();
   mainSessionsController.render();
+  mainCapacityController.render();
   boardController.render();
 }
 
@@ -2302,6 +2306,13 @@ async function launchPrompt(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ prompt, body, resume, model, thinkingLevel, attachmentIds, retryRequestId })
     });
+    // A queued demand is accepted but not running: keeping the optimistic
+    // running state would route the next message into interject instead of
+    // letting the server refuse a different input.
+    if (run.status === "queued") {
+      showToast(ui`已排队第 ${run.queuePosition ?? 1} 位`);
+      return run;
+    }
     if (run.model) {
       state.modelByTask.set(taskId, run.model);
       if (state.selected === taskId) {

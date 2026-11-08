@@ -7,7 +7,9 @@ import {
 } from "../runtime/main-message-edit.js";
 import { createWebSearchSettings } from "./web-search-settings.js";
 import { spawn } from "node:child_process";
-import { stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { ApplicationService, type ApplicationEvent } from "../applications/application-service.js";
@@ -15,9 +17,10 @@ import { applicationServiceForTask } from "../applications/task-service.js";
 import { ResourceMappingStore } from "../applications/mapping-store.js";
 import { McpSupervisor } from "../applications/mcp-supervisor.js";
 import { id, now } from "../domain/types.js";
-import { coworkConfigPath, readHostCoworkConfig } from "../runtime/config.js";
+import { coworkConfigPath, readCoworkConfig, readHostCoworkConfig } from "../runtime/config.js";
 import {
   runtimeSettingsEnv,
+  normalizeReasoningEffort,
   configuredContextWindow,
   configuredMainMaxTokens,
   configuredModelApi,
@@ -67,6 +70,10 @@ import { createCatalogEvents } from "./catalog-events.js";
 import { EventLedger } from "./event-ledger.js";
 import { createWorkspaceDirectory } from "./workspace-directory.js";
 import { createMainSessionService } from "./main-session-service.js";
+import { createMainCapacityService } from "./main-capacity-service.js";
+import { createMainRunLauncher } from "./main-run-launch.js";
+import { MainCapacityStore, mainCapacityStatePath } from "../storage/main-capacity-store.js";
+import { withFileLock } from "../storage/file-lock.js";
 import { ProjectDataRuntime } from "../workspace/project-data-service.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
@@ -179,7 +186,65 @@ export function createDashboardApplication(
         : undefined;
     },
     projectTasks: workspaces.projectTasks,
-    createProjectTask: workspaces.createProjectTask
+    createProjectTask: workspaces.createProjectTask,
+    capacity: {
+      settings: () => runtimeConfig.mainCapacity,
+      sessionUsage: (projectId) =>
+        mainCapacity
+          .sessionUsage(projectId)
+          .then((usage) =>
+            usage ? { regular: usage.regular, continuation: usage.continuation } : undefined
+          ),
+      noteSession: (record) => mainCapacity.noteSession(record),
+      withCreateLock: (action) => mainCapacity.withCreateLock(action)
+    }
+  });
+  /**
+   * External Main capacity for this backend.
+   *
+   * The quotas are public configuration; the slots and the queue are local
+   * execution facts beside the backend identity, because a pid and a waiting
+   * Run belong to this host alone.
+   */
+  const mainCapacity = createMainCapacityService({
+    store: new MainCapacityStore(mainCapacityStatePath(dirname(globalIndexPath))),
+    backendId: backendIdentity.backendId,
+    settings: () => runtimeConfig.mainCapacity,
+    persistSettings: async (next) => {
+      const path = coworkConfigPath(projectRoot);
+      await withFileLock(path, async () => {
+        const previous = existsSync(path) ? readCoworkConfig(projectRoot, { COWORK_CONFIG: path }) : {};
+        const persisted = { ...previous, mainCapacity: next };
+        await mkdir(dirname(path), { recursive: true });
+        const temporary = `${path}.tmp-${randomUUID()}`;
+        await writeFile(temporary, `${JSON.stringify(persisted, null, 2)}\n`, { mode: 0o600 });
+        await rename(temporary, path);
+      });
+      runtimeConfig.mainCapacity = next;
+    },
+    projects: async () =>
+      (await (await projectData.service()).projects()).map((project) => ({
+        projectId: project.projectId,
+        projectName: project.projectName
+      })),
+    sessions: async (projectId) => await (await projectData.service()).listMainSessions(projectId),
+    ...(process.env.COWORK_MAIN_CAPACITY_RETRY_MS
+      ? { retryBaseMs: Number(process.env.COWORK_MAIN_CAPACITY_RETRY_MS) }
+      : {}),
+    taskState: async (taskId) => {
+      const location = await locateTask(taskId).catch(() => undefined);
+      if (!location) return undefined;
+      return {
+        status: location.task.status,
+        ...(location.task.activeRunId ? { activeRunId: location.task.activeRunId } : {})
+      };
+    },
+    heartbeat: async (taskId) => {
+      const location = await locateTask(taskId).catch(() => undefined);
+      if (!location) return undefined;
+      const beat = await readHeartbeat(location.workspaceRoot, taskId);
+      return beat ? { pid: beat.pid, host: beat.host, runId: beat.runId } : undefined;
+    }
   });
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
   /**
@@ -259,6 +324,10 @@ export function createDashboardApplication(
     runCredential: access.runCredential(),
     coordinator,
     locateTask,
+    mainSessions: {
+      resolve: (location, input) => mainSessions.resolve(location, input)
+    },
+    mainCapacity,
     withTaskProjectLock: workspaces.withTaskProjectLock,
     resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
     onRunExit: (taskId) => computer.finishTask(taskId),
@@ -267,6 +336,38 @@ export function createDashboardApplication(
     readJsonFile
   });
   const { activeRuns, startMainRun, pendingHumanAnswers, resumeHumanAnswers } = runs;
+  const launchMainRun = createMainRunLauncher({ locateTask, mainSessions, startMainRun });
+  /**
+   * Start the demand that just got a slot.
+   *
+   * Everything a queued request needs is in its durable entry, so a restart or
+   * a completion starts exactly that demand through the same launcher the page
+   * uses — no second scheduler and no second Run identity.
+   */
+  mainCapacity.attachStarter(async (entry) => {
+    await launchMainRun({
+      taskId: entry.taskId,
+      prompt: entry.prompt,
+      runId: entry.runId,
+      resume: entry.resume,
+      ...(entry.model ? { model: entry.model } : {}),
+      ...(entry.retryRequestId ? { retryRequestId: entry.retryRequestId } : {}),
+      mainSessionId: entry.sessionId,
+      ...(entry.requirementId ? { requirementId: entry.requirementId } : {}),
+      ...(entry.submission?.body === undefined ? {} : { body: entry.submission.body }),
+      ...(entry.submission?.profileId ? { profileId: entry.submission.profileId } : {}),
+      ...(entry.submission?.thinkingLevel
+        ? {
+            thinkingLevel: normalizeReasoningEffort(entry.submission.thinkingLevel, "thinkingLevel")
+          }
+        : {}),
+      ...(entry.submission?.attachmentIds ? { attachmentIds: entry.submission.attachmentIds } : {}),
+      ...(entry.submission?.textAttachments ? { textAttachments: entry.submission.textAttachments } : {}),
+      ...(entry.submission?.source ? { source: entry.submission.source } : {}),
+      admittedRequestId: entry.requestId,
+      queueWhenFull: false
+    });
+  });
 
   const watchers = createWatchService({
     harnessRoot: projectRoot,
@@ -747,6 +848,8 @@ export function createDashboardApplication(
     userMemory,
     projectData,
     mainSessions,
+    mainCapacity,
+    launchMainRun,
     access,
     commands,
     events: catalogEvents,
@@ -818,6 +921,7 @@ export function createDashboardApplication(
     appendRunEvent
   };
   const server = createServer(createDashboardHandler(routes));
+  server.once("listening", () => void mainCapacity.start());
   server.once("listening", () => watchers.start());
   server.once("listening", () => memoryLearning.start());
   server.once("listening", () => projectLearning.start());
@@ -839,6 +943,9 @@ export function createDashboardApplication(
       computer.close();
       await watchers.stop();
       server.closeAllConnections();
+      // Stop admitting before the processes exit, so no shutdown release
+      // starts the next demand while the service is going away.
+      await mainCapacity.stop();
       await runs.stop();
       await mcpSupervisor.stopAll();
       await new Promise<void>((done) => server.close(() => done()));

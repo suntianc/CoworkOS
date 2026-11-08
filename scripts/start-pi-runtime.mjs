@@ -28,8 +28,33 @@ import { runCliProcess } from "./cli-runtime-host.mjs";
 export async function startPi({ uiCompatibility } = {}) {
   // Component release credentials are never model/Agent/tool credentials.
   delete process.env.ATRIA_COMPONENTS_GITHUB_TOKEN;
+  // A Main dispatched by the program must own a durable capacity slot before it
+  // does any work. Registering the process itself closes the spawn→bind window:
+  // a child whose reservation was already released refuses to run, so recovery
+  // can never hand a second slot to a process it cannot count.
+  const capacityGrant = process.env.COWORK_MAIN_CAPACITY_GRANTED;
+  let capacityAlreadyGranted = false;
+  if (capacityGrant) {
+    try {
+      const { openMainCapacityGate } = await import("./main-capacity-gate.mjs");
+      const capacity = await openMainCapacityGate({
+        taskId: process.env.COWORK_TASK_ID,
+        cwd: process.cwd()
+      });
+      if (!capacity) throw new Error("外部 Main 容量配置缺失，未启动");
+      if (!(await capacity.bindProcess(capacityGrant, process.pid)))
+        throw new Error("外部 Main 名额已释放，未启动");
+      // Children of this Main must not inherit the grant and claim the slot.
+      delete process.env.COWORK_MAIN_CAPACITY_GRANTED;
+      capacityAlreadyGranted = true;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  }
   let projectExecution;
   let projectExecutionTimer;
+  let capacityExecution;
   try {
     const harnessRoot = resolve(process.env.COWORK_HARNESS_ROOT ?? process.cwd());
     const piBin = resolve(
@@ -204,9 +229,43 @@ export async function startPi({ uiCompatibility } = {}) {
       console.error(error.message);
       process.exit(1);
     }
+    // A CLI-launched external Main spends the same budget as the Dashboard. The
+    // Dashboard and the worker hand down the slot they already reserved.
+    if (!capacityAlreadyGranted)
+      try {
+        const { openMainCapacityGate } = await import("./main-capacity-gate.mjs");
+        const capacity = await openMainCapacityGate({ taskId, cwd: process.cwd() });
+        if (capacity?.external) {
+          const decided = await capacity.admit({
+            projectId: capacity.external.projectId,
+            sessionId: capacity.external.sessionId,
+            taskId,
+            kind: capacity.external.kind,
+            runId: process.env.COWORK_RUN_ID ?? `main-${taskId}`,
+            resume: true,
+            prompt: "External Main started from the CLI.",
+            origin: "cli",
+            queueWhenFull: false
+          });
+          if (decided.state !== "running")
+            throw new Error(
+              decided.state === "queued"
+                ? `外部 Main 名额已满，已排队第 ${decided.position} 位；请等待当前 Main 完成后从界面继续`
+                : "外部 Main 名额已满，请等待当前 Main 完成后从界面继续"
+            );
+          await capacity.bindProcess(decided.requestId, process.pid);
+          capacityExecution = { capacity, requestId: decided.requestId };
+        }
+      } catch (error) {
+        await projectExecution?.release().catch(() => {});
+        console.error(error.message);
+        process.exit(1);
+      }
     // The CLI reads the same execution-host role defaults as the Dashboard. An
     // explicit --model or a model forced by the launch environment still wins;
-    // a role-selected connection supplies its key, endpoint and profile.
+    // a role-selected connection supplies its key, endpoint and profile. This
+    // runs after admission, so a default changed while the host was full is the
+    // default this launch actually gets.
     const roleBinding =
       launchConfig.roleModels?.host?.main ??
       (taskProjectId ? launchConfig.roleModels?.projects?.[taskProjectId]?.main : undefined);
@@ -221,6 +280,7 @@ export async function startPi({ uiCompatibility } = {}) {
           ...(thinkingIndex >= 0 ? { thinkingLevel } : {})
         });
       } catch (error) {
+        await capacityExecution?.capacity.release(capacityExecution.requestId).catch(() => {});
         console.error(error.message);
         process.exit(1);
       }
@@ -230,6 +290,7 @@ export async function startPi({ uiCompatibility } = {}) {
       thinkingFormat = mainRole.profile.thinkingFormat ?? "auto";
       supportsPromptCacheKey = mainRole.profile.supportsPromptCacheKey;
     }
+
     const sessionDirectoryArg = optionArgs.lastIndexOf("--session-dir");
     if (
       !cliLaunch &&
@@ -451,6 +512,8 @@ export async function startPi({ uiCompatibility } = {}) {
   } finally {
     clearInterval(projectExecutionTimer);
     await projectExecution?.release().catch(() => {});
+    if (capacityExecution)
+      await capacityExecution.capacity.release(capacityExecution.requestId).catch(() => {});
   }
 }
 

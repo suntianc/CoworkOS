@@ -166,6 +166,20 @@ coworkos data restore --from ~/backups/project-data.json
 
 A backup is a local logical snapshot (mode 0600) of the shared projects, this host's directory bindings, requirements, revisions, decisions, references, board entries and events, Main sessions and Run ownership. Pi transcripts are not in the snapshot; the executing backend keeps them locally. Restore replaces those records in one transaction in foreign-key order and refuses a snapshot from the other engine or an older schema. Stop the backend writing the data root before a restore and restart it afterwards. A backend using `projectData.authority` has no local database; run backup and restore on the authority's backend.
 
+## External Main capacity
+
+The external service's Main quotas live in the host's own configuration. Leaving them out keeps the previous internal-only behavior and refuses to create external sessions. `resident` is a positive integer, `continuation` a non-negative integer, both capped at 32; an invalid value fails configuration reads instead of guessing.
+
+```json
+{ "mainCapacity": { "resident": 2, "continuation": 1 } }
+```
+
+`resident` bounds the external regular Mains running at once and `continuation` is reserved for continuation Mains; neither kind borrows from the other, and internal Mains spend no external capacity. A project may save as many external regular sessions as `resident`; a saved session occupies no running slot, and continuation sessions do not count toward the project limit. Lowering a quota below the running count or below any project's saved regular sessions is refused with its reason and never ends running work.
+
+Quotas and state are read with `GET /api/main-capacity` and changed with `POST /api/main-capacity`; running and waiting facts live in the data root's `main-capacity/state.json` (default `~/.atria/runtime/main-capacity/state.json`) beside the backend identity, not in shared project data. The program fills a free slot in arrival order and releases it on process exit, failed start, cancellation, crash and restart reconciliation; reconciliation only inspects this host's own processes and stops nothing unrelated. A recoverable failure (shared service unreachable or authentication unavailable) releases the unused slot but keeps the accepted demand, retried with backoff and shown as waiting/failed with its last error; a permanent refusal keeps the input too and becomes `failed` without spending retries. A failed demand keeps its input and `POST /api/main-capacity` with `retry` puts it back in line. A dispatched Main registers its own pid before doing any work; reclaiming a stale reservation is a single check-and-remove in the capacity store, so a Main that registered in between keeps its slot and is counted, and a Main whose reservation is already gone refuses to start. The CLI and main-worker read the same file and write to the same queue. A waiting demand keeps only its explicit profile/model/thinking choice: the host and project role defaults are resolved when it actually gets a slot, so a default changed during the wait applies to that Run.
+
+Interface details: [Product API](../product-api.md#external-main-capacity).
+
 ## Paths and environment variables
 
 | Variable                                              | Purpose                                                                                      |

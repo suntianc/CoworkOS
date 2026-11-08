@@ -17,6 +17,7 @@ import {
   readHostCredentials
 } from "../security/host-credentials.js";
 import type { ProjectDataConfig } from "../storage/project-data/config.js";
+import { mainCapacitySettings, type MainCapacitySettings } from "../domain/main-capacity.js";
 
 export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig {
   modelConnections?: ModelConnections;
@@ -32,6 +33,8 @@ export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig {
   webTools?: boolean;
   /** Default SQLite; an explicit PostgreSQL choice is never replaced by a fallback. */
   projectData?: ProjectDataConfig;
+  /** External Main quotas; absent keeps the internal-only behavior of an old entry. */
+  mainCapacity?: MainCapacitySettings;
 }
 
 /** Explicit and project paths win; all installed hosts share the user fallback. */
@@ -65,6 +68,9 @@ export function readCoworkConfig(root = process.cwd(), env: NodeJS.ProcessEnv = 
   normalizeContextWindow(config.contextWindow);
   proxyEnvironment(config, {});
   if (config.modelConnections) modelConnections(config);
+  // An explicit external configuration is either valid or an error: guessing
+  // would silently change how many Mains this host runs.
+  if (config.mainCapacity !== undefined) config.mainCapacity = mainCapacitySettings(config.mainCapacity);
   validateRoleModelConfig(config.roleModels);
   if (config.supportsImages !== undefined && typeof config.supportsImages !== "boolean")
     throw new Error("模型配置 supportsImages 必须为布尔值");
