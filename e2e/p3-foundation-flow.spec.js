@@ -88,6 +88,7 @@ test("a person moves between project, ledger, board, sessions, capacity and mode
   });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  if (evidenceRoot) await mkdir(evidenceRoot, { recursive: true });
   const actions = [];
   const shot = async (name) => {
     const png = await page.screenshot({ fullPage: false });
