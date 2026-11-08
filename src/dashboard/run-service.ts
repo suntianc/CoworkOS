@@ -138,8 +138,10 @@ export interface RunServicePorts {
     /** Whether this host runs external Mains at all; a disabled host reads no session. */
     enabled(): boolean;
     admit(request: MainCapacityRequest): Promise<MainCapacityDecision>;
-    bindProcess(requestId: string, pid: number): Promise<void>;
+    bindProcess(requestId: string, pid: number): Promise<boolean>;
     release(requestId: string): Promise<void>;
+    /** The process exists: remove the queue row but keep the slot until it exits. */
+    markStarted(requestId: string): Promise<void>;
     /** A cancelled Task gives up its waiting demand, if it has one. */
     cancelTask(taskId: string): Promise<void>;
   };
@@ -815,9 +817,12 @@ export function createDashboardRunService({
         admission
       );
     } catch (error) {
-      // A Run that was admitted but never reached a process still owns no slot.
-      if (admission.requestId && !admission.spawned && mainCapacity)
-        await mainCapacity.release(admission.requestId).catch(() => {});
+      // A Run that never reached a process owns no slot; one that did keeps its
+      // slot until the process exits, and only its queue row is settled here.
+      if (admission.requestId && mainCapacity) {
+        if (admission.spawned) await mainCapacity.markStarted(admission.requestId).catch(() => {});
+        else await mainCapacity.release(admission.requestId).catch(() => {});
+      }
       await userMemory?.taskForegroundIdle(args[0], activityId).catch(() => {});
       throw error;
     }

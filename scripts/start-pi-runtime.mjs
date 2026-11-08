@@ -28,6 +28,30 @@ import { runCliProcess } from "./cli-runtime-host.mjs";
 export async function startPi({ uiCompatibility } = {}) {
   // Component release credentials are never model/Agent/tool credentials.
   delete process.env.ATRIA_COMPONENTS_GITHUB_TOKEN;
+  // A Main dispatched by the program must own a durable capacity slot before it
+  // does any work. Registering the process itself closes the spawn→bind window:
+  // a child whose reservation was already released refuses to run, so recovery
+  // can never hand a second slot to a process it cannot count.
+  const capacityGrant = process.env.COWORK_MAIN_CAPACITY_GRANTED;
+  let capacityAlreadyGranted = false;
+  if (capacityGrant) {
+    try {
+      const { openMainCapacityGate } = await import("./main-capacity-gate.mjs");
+      const capacity = await openMainCapacityGate({
+        taskId: process.env.COWORK_TASK_ID,
+        cwd: process.cwd()
+      });
+      if (!capacity) throw new Error("外部 Main 容量配置缺失，未启动");
+      if (!(await capacity.bindProcess(capacityGrant, process.pid)))
+        throw new Error("外部 Main 名额已释放，未启动");
+      // Children of this Main must not inherit the grant and claim the slot.
+      delete process.env.COWORK_MAIN_CAPACITY_GRANTED;
+      capacityAlreadyGranted = true;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  }
   let projectExecution;
   let projectExecutionTimer;
   let capacityExecution;
@@ -207,7 +231,7 @@ export async function startPi({ uiCompatibility } = {}) {
     }
     // A CLI-launched external Main spends the same budget as the Dashboard. The
     // Dashboard and the worker hand down the slot they already reserved.
-    if (!process.env.COWORK_MAIN_CAPACITY_GRANTED)
+    if (!capacityAlreadyGranted)
       try {
         const { openMainCapacityGate } = await import("./main-capacity-gate.mjs");
         const capacity = await openMainCapacityGate({ taskId, cwd: process.cwd() });

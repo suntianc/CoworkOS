@@ -261,10 +261,12 @@ export function createMainCapacityLedger({
     },
 
     /** Remember the pid the spawn returned; a pid from another host is never treated as ours. */
-    bindProcess(requestId: string, pid: number): Promise<void> {
+    bindProcess(requestId: string, pid: number): Promise<boolean> {
       return store.update((state) => {
         const slot = state.slots.find((entry) => entry.requestId === requestId);
-        if (slot) slot.pid = pid;
+        if (!slot) return false;
+        slot.pid = pid;
+        return true;
       });
     },
 
@@ -332,13 +334,21 @@ export function createMainCapacityLedger({
       });
     },
 
-    /** The start callback failed permanently: the demand owns nothing and the queue moves on. */
-    failStart(requestId: string): Promise<void> {
+    /**
+     * A permanent dispatch failure: release the unused slot but keep the
+     * accepted input as a visible `failed` demand, retryable by the operator.
+     * A missing entry means the Run already started (its own close releases
+     * the slot), so this must not touch that slot.
+     */
+    failPermanent(requestId: string, error: string): Promise<void> {
       return store.update((state) => {
-        const slot = state.slots.findIndex((entry) => entry.requestId === requestId);
+        const entry = state.queue.find((item) => item.requestId === requestId);
+        if (!entry) return;
+        const slot = state.slots.findIndex((item) => item.requestId === requestId);
         if (slot >= 0) state.slots.splice(slot, 1);
-        const queued = state.queue.findIndex((entry) => entry.requestId === requestId);
-        if (queued >= 0) state.queue.splice(queued, 1);
+        entry.state = "failed";
+        entry.lastError = error.slice(0, 500);
+        delete entry.retryAt;
       });
     },
 
@@ -352,10 +362,11 @@ export function createMainCapacityLedger({
      */
     retryStart(requestId: string, error: string): Promise<void> {
       return store.update((state) => {
-        const slot = state.slots.findIndex((entry) => entry.requestId === requestId);
-        if (slot >= 0) state.slots.splice(slot, 1);
         const entry = state.queue.find((item) => item.requestId === requestId);
+        // No entry: the Run already started and its close owns the slot.
         if (!entry) return;
+        const slot = state.slots.findIndex((item) => item.requestId === requestId);
+        if (slot >= 0) state.slots.splice(slot, 1);
         const attempts = (entry.attempts ?? 0) + 1;
         entry.attempts = attempts;
         entry.lastError = error.slice(0, 500);

@@ -317,7 +317,22 @@ test(
       const now = await capacity(request);
       return now.body.running.some((entry) => entry.taskId === sessions.foxtrot.taskId);
     }, "foxtrot did not start after the failed start of echo");
-    assert.equal((await capacity(request)).body.queued.length, 0);
+    // The demand that cannot ever start keeps its accepted input as a visible
+    // failure; it does not hold the slot and does not stop the queue.
+    const refused = (await capacity(request)).body.queued.find(
+      (entry) => entry.taskId === sessions.echo.taskId
+    );
+    assert.ok(refused, "the permanently refused demand lost its accepted input");
+    assert.equal(refused.state, "failed");
+    assert.match(String(refused.lastError), /task|unknown|不存在|unknown task/i);
+    const echoStored = JSON.parse(await readFile(statePath(dashboard), "utf8")).queue.find(
+      (entry) => entry.taskId === sessions.echo.taskId
+    );
+    assert.match(echoStored.prompt, /处理 echo/);
+    // The Task directory was removed, so no detail can claim it is running.
+    const echoDetail = await taskDetail(request, sessions.echo.taskId);
+    assert.notEqual(echoDetail.status, 200);
+    assert.equal(echoDetail.body.runtime?.active, undefined);
     local.release("foxtrot");
     await settle(request, sessions.foxtrot.taskId, "completed");
     await waitFor(async () => (await capacity(request)).body.running.length === 0, "slots were not released");
@@ -1164,7 +1179,7 @@ async function authorityPair(t, { env = {}, config = {} } = {}) {
  * half-open.
  */
 async function outageProxy(t, authority) {
-  const state = { down: false };
+  const state = { down: false, mode: "503" };
   const server = createServer(async (request, response) => {
     if (state.down) {
       // Drain the request before answering, or a client sending a body can
@@ -1172,8 +1187,12 @@ async function outageProxy(t, authority) {
       for await (const _chunk of request) {
         /* discard the request body */
       }
-      response.writeHead(503, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: "fixture shared-service outage" }));
+      response.writeHead(state.mode === "404" ? 404 : 503, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          error: state.mode === "404" ? "fixture permanent rejection" : "fixture shared-service outage"
+        })
+      );
       return;
     }
     try {
@@ -1384,6 +1403,7 @@ test(
       modelEndpoint: local.base,
       model: "fixture-model",
       defaultProject: false,
+      env: { COWORK_MAIN_CAPACITY_BIND_WAIT_MS: "120" },
       config: { mainCapacity: { resident: 1, continuation: 0 } }
     });
     t.after(() => dashboard.stop());
@@ -1459,6 +1479,7 @@ test(
       modelEndpoint: local.base,
       model: "fixture-model",
       defaultProject: false,
+      env: { COWORK_MAIN_CAPACITY_BIND_WAIT_MS: "120" },
       config: { mainCapacity: { resident: 1, continuation: 0 } }
     });
     t.after(() => dashboard.stop());
@@ -1690,5 +1711,311 @@ test(
     assert.equal(local.tags().includes("p2-q2"), false);
     assert.equal(local.tags().includes("p2-q3"), false);
     assert.deepEqual(local.failures, []);
+  }
+);
+
+test(
+  "a permanently refused queued demand keeps its accepted input as a visible failure",
+  { timeout: 240_000 },
+  async (t) => {
+    const local = await provider(t);
+    const authority = await startDashboard({ defaultProject: false });
+    t.after(() => authority.stop());
+    const instance = await readBackendInstance(backendPaths(join(authority.root, "home")));
+    // The proxy injects a permanent rejection: the same real remote client maps
+    // a 404 to ProjectDataNotFoundError, which no retry can repair.
+    const outage = await outageProxy(t, authority);
+    const secondary = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      config: {
+        projectData: { authority: { url: outage.url, token: instance.value.token } },
+        mainCapacity: { resident: 1, continuation: 0 }
+      }
+    });
+    t.after(() => secondary.stop());
+    const request = client(secondary);
+    const blocker = await createProject(request, secondary, "perm-a");
+    const waiting = await createProject(request, secondary, "perm-b");
+    const blockerSession = await externalSession(request, blocker.projectId, "perm-a");
+    const waitingSession = await externalSession(request, waiting.projectId, "perm-b");
+    const upload = await fetch(`${secondary.base}/api/uploads?name=${encodeURIComponent("附件.txt")}`, {
+      method: "POST",
+      body: Buffer.from("永久失败也要保留的附件"),
+      headers: { "content-type": "application/octet-stream" }
+    });
+    assert.equal(upload.status, 201);
+    const { uploadId } = await upload.json();
+
+    local.hold("perm-a");
+    const running = await runTask(request, blockerSession.taskId, {
+      prompt: "[tag:perm-a] 占住名额。",
+      mainSessionId: blockerSession.sessionId
+    });
+    assert.equal(running.body.status, "running", JSON.stringify(running.body));
+    const queued = await runTask(request, waitingSession.taskId, {
+      prompt: "[tag:perm-b] 永久拒绝也不能丢。",
+      body: "perm-b body",
+      thinkingLevel: "low",
+      mainSessionId: waitingSession.sessionId,
+      attachmentIds: [uploadId]
+    });
+    assert.equal(queued.body.status, "queued", JSON.stringify(queued.body));
+
+    // Permanent rejection for every shared call.
+    outage.state.down = true;
+    outage.state.mode = "404";
+    local.release("perm-a");
+    await settle(request, blockerSession.taskId, "completed");
+
+    let snapshot = {};
+    let deadline = Date.now() + 45_000;
+    while (Date.now() < deadline) {
+      snapshot = (await capacity(request)).body;
+      const entry = snapshot.queued.find((item) => item.taskId === waitingSession.taskId);
+      if (entry?.state === "failed") break;
+      await delay(100);
+    }
+    const failed = snapshot.queued.find((item) => item.taskId === waitingSession.taskId);
+    assert.ok(failed, "the permanently refused demand lost its accepted input");
+    assert.equal(failed.state, "failed");
+    assert.match(String(failed.lastError), /404|not_found|不存在|fixture/i);
+    assert.deepEqual(snapshot.running, [], "the unused slot must be released");
+    const stored = JSON.parse(await readFile(join(secondary.root, "main-capacity", "state.json"), "utf8"));
+    const storedEntry = stored.queue.find((entry) => entry.taskId === waitingSession.taskId);
+    assert.ok(storedEntry, "the accepted input must stay durable in the queue state");
+    assert.match(storedEntry.prompt, /永久拒绝也不能丢/);
+    assert.equal(storedEntry.submission.body, "perm-b body");
+    assert.equal(storedEntry.submission.thinkingLevel, "low");
+    assert.deepEqual(storedEntry.submission.attachmentIds, [uploadId]);
+    assert.equal(storedEntry.sessionId, waitingSession.sessionId);
+    assert.deepEqual(stored.slots, []);
+    // Nothing pretends the Run exists.
+    const detail = await taskDetail(request, waitingSession.taskId);
+    assert.equal(detail.body.runtime.active, false);
+    assert.equal(detail.body.task.activeRunId ?? null, null);
+    assert.deepEqual(await ownProcesses(secondary.workspaceRoot, waitingSession.taskId), []);
+    assert.equal(local.tags().includes("perm-b"), false);
+
+    // The problem goes away; the operator retries the visible failed demand.
+    outage.state.mode = "pass";
+    outage.state.down = false;
+    const retried = await request("/api/main-capacity", {
+      action: "retry",
+      requestId: failed.requestId
+    });
+    assert.equal(retried.status, 200, JSON.stringify(retried.body));
+    await waitFor(() => local.tags().includes("perm-b"), "the retried permanent failure never ran", 45_000);
+    await settle(request, waitingSession.taskId, "completed");
+    assert.equal(local.tags().filter((tag) => tag === "perm-b").length, 1);
+    assert.deepEqual((await capacity(request)).body.queued, []);
+    const input = JSON.parse(
+      await readFile(
+        join(secondary.workspaceRoot, waitingSession.taskId, "runs", queued.body.runId, "main-input.json"),
+        "utf8"
+      )
+    );
+    assert.match(input.prompt, /永久拒绝也不能丢/);
+    assert.deepEqual(input.attachmentIds, [uploadId]);
+    assert.deepEqual(local.failures, []);
+  }
+);
+
+/**
+ * The spawn→bind window.
+ *
+ * A dispatched Main registers its own pid before any work. A backend restart
+ * that lands in that window must count the live child (and keep the next demand
+ * queued), and release the slot only once the child is gone.
+ */
+test(
+  "a live Main child that registered after spawn stays counted across a restart",
+  { timeout: 240_000 },
+  async (t) => {
+    const local = await provider(t);
+    const dashboard = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      env: { COWORK_MAIN_CAPACITY_BIND_WAIT_MS: "3000" },
+      config: { mainCapacity: { resident: 1, continuation: 0 } }
+    });
+    t.after(() => dashboard.stop());
+    const request = client(dashboard);
+    const first = await createProject(request, dashboard, "window-a");
+    const second = await createProject(request, dashboard, "window-b");
+    const firstSession = await externalSession(request, first.projectId, "window-a");
+    const secondSession = await externalSession(request, second.projectId, "window-b");
+    const requestId = "request-window-a";
+    const runId = `main-${Date.now()}`;
+    const stamp = new Date().toISOString();
+    // The durable state between ProcessHost.start and await bindProcess: the
+    // Run exists and the child lives, but pid/heartbeat is not persisted yet.
+    const state = JSON.parse(await readFile(statePath(dashboard), "utf8"));
+    await writeFile(
+      statePath(dashboard),
+      JSON.stringify(
+        {
+          ...state,
+          slots: [
+            {
+              requestId,
+              projectId: first.projectId,
+              sessionId: firstSession.sessionId,
+              taskId: firstSession.taskId,
+              runId,
+              kind: "regular",
+              host: hostname(),
+              startedAt: stamp
+            }
+          ],
+          queue: [
+            {
+              requestId,
+              projectId: first.projectId,
+              sessionId: firstSession.sessionId,
+              taskId: firstSession.taskId,
+              runId,
+              kind: "regular",
+              host: hostname(),
+              resume: false,
+              prompt: "[tag:window-a] 真实子进程占住唯一名额。",
+              origin: "http",
+              enqueuedAt: stamp,
+              state: "starting"
+            }
+          ],
+          updatedAt: stamp
+        },
+        null,
+        2
+      )
+    );
+
+    // A real Main child: it registers its own pid before it starts Pi.
+    local.hold("window-a");
+    const child = spawn(
+      process.execPath,
+      [
+        "scripts/start-pi.mjs",
+        "--print",
+        "--mode",
+        "json",
+        "--session-id",
+        runId,
+        "--session-dir",
+        join(dashboard.workspaceRoot, firstSession.taskId, "sessions", "main", "pi")
+      ],
+      {
+        cwd: process.cwd(),
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: true,
+        env: {
+          ...dashboard.env,
+          COWORK_TASK_ID: firstSession.taskId,
+          COWORK_RUN_ID: runId,
+          COWORK_MAIN_CAPACITY_GRANTED: requestId
+        }
+      }
+    );
+    t.after(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
+      }
+    });
+    let childStderr = "";
+    let childStdout = "";
+    child.stderr.on("data", (chunk) => {
+      childStderr += String(chunk);
+    });
+    child.stdout.on("data", (chunk) => {
+      childStdout += String(chunk);
+    });
+    child.stdin.end("[tag:window-a] 真实子进程占住唯一名额。");
+    await waitFor(async () => {
+      const stored = JSON.parse(await readFile(statePath(dashboard), "utf8"));
+      return stored.slots.some((slot) => slot.requestId === requestId && slot.pid === child.pid);
+    }, "the child did not register its pid");
+    await waitFor(
+      () => local.tags().includes("window-a"),
+      `the child never reached the model: exit=${child.exitCode}/${child.signalCode} stderr=${childStderr.slice(-1200)} stdout=${childStdout.slice(-400)}`
+    );
+    // The registration happened before the model call.
+    const registered = JSON.parse(await readFile(statePath(dashboard), "utf8"));
+    assert.equal(registered.slots.find((slot) => slot.requestId === requestId).pid, child.pid);
+
+    // With the live child counted, the next demand waits.
+    const queued = await runTask(request, secondSession.taskId, {
+      prompt: "[tag:window-b] 下一个需求必须在旧 child 之后。",
+      mainSessionId: secondSession.sessionId
+    });
+    assert.equal(queued.body.status, "queued", JSON.stringify(queued.body));
+
+    // A hard backend crash/restart must not hand the live child's slot away.
+    const exited = once(dashboard.child, "exit");
+    dashboard.child.kill("SIGKILL");
+    await exited;
+    await dashboard.restart();
+    const restored = (await capacity(request)).body;
+    assert.equal(restored.running.length, 1, JSON.stringify(restored));
+    assert.equal(restored.running[0].taskId, firstSession.taskId);
+    assert.equal(restored.running[0].pid, child.pid);
+    assert.deepEqual(
+      restored.queued.map((entry) => entry.taskId),
+      [secondSession.taskId]
+    );
+
+    // Only when the child actually exits does the slot free and the next demand
+    // start, exactly once.
+    process.kill(-child.pid, "SIGKILL");
+    await waitFor(
+      async () =>
+        (await capacity(request)).body.running.some((entry) => entry.taskId === secondSession.taskId),
+      "the queued demand did not start after the registered child exited",
+      45_000
+    );
+    await waitFor(() => local.tags().includes("window-b"), "the queued demand never reached the model");
+    local.release("window-b");
+    await settle(request, secondSession.taskId, "completed");
+    assert.equal(local.tags().filter((tag) => tag === "window-b").length, 1);
+    assert.deepEqual(local.failures, []);
+  }
+);
+
+test(
+  "a Main child whose capacity reservation is gone refuses to do any work",
+  { timeout: 120_000 },
+  async (t) => {
+    const local = await provider(t);
+    const dashboard = await startDashboard({
+      modelEndpoint: local.base,
+      model: "fixture-model",
+      defaultProject: false,
+      config: { mainCapacity: { resident: 1, continuation: 0 } }
+    });
+    t.after(() => dashboard.stop());
+    const child = spawn(process.execPath, ["scripts/start-pi.mjs", "--print"], {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...dashboard.env,
+        COWORK_TASK_ID: "task-without-slot",
+        COWORK_RUN_ID: "main-without-slot",
+        COWORK_MAIN_CAPACITY_GRANTED: "request-without-slot"
+      }
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    const [code] = await once(child, "exit");
+    assert.notEqual(code, 0, stderr);
+    assert.match(stderr, /名额已释放|容量配置缺失/);
+    assert.deepEqual(local.requests, [], "an unbound Main must not reach the model");
   }
 );

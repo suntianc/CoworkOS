@@ -231,6 +231,9 @@ export function createDashboardApplication(
     ...(process.env.COWORK_MAIN_CAPACITY_RETRY_MS
       ? { retryBaseMs: Number(process.env.COWORK_MAIN_CAPACITY_RETRY_MS) }
       : {}),
+    ...(process.env.COWORK_MAIN_CAPACITY_BIND_WAIT_MS
+      ? { bindWaitMs: Number(process.env.COWORK_MAIN_CAPACITY_BIND_WAIT_MS) }
+      : {}),
     taskState: async (taskId) => {
       const location = await locateTask(taskId).catch(() => undefined);
       if (!location) return undefined;

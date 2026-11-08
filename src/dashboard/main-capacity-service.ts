@@ -41,6 +41,8 @@ export interface MainCapacityServicePorts {
   tickMs?: number;
   /** Base backoff for a recoverable dispatch failure (tests use a small one). */
   retryBaseMs?: number;
+  /** How long startup waits for a spawned Main to register its pid. */
+  bindWaitMs?: number;
   now?: () => string;
 }
 
@@ -290,7 +292,12 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
               // backoff and stays visible instead of being dropped.
               await ledger.retryStart(next.requestId, error instanceof Error ? error.message : String(error));
             } else {
-              await ledger.failStart(next.requestId);
+              // A permanent refusal keeps the accepted input as a visible
+              // failure; only a Run that already started keeps its slot.
+              await ledger.failPermanent(
+                next.requestId,
+                error instanceof Error ? error.message : String(error)
+              );
             }
           }
         }
@@ -481,8 +488,13 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
       if (!stopping) void dispatch().catch(log);
     },
 
-    bindProcess(requestId: string, pid: number): Promise<void> {
+    bindProcess(requestId: string, pid: number): Promise<boolean> {
       return ledger.bindProcess(requestId, pid);
+    },
+
+    /** A Run that produced a process owns its slot; drop only its queue row. */
+    markStarted(requestId: string): Promise<void> {
+      return ledger.completeStart(requestId);
     },
 
     /** A cancelled Task gives up its place in line as well as any running slot. */
