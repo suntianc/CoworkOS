@@ -254,7 +254,13 @@ export function createDashboardApplication(
   const developments = createProjectDevelopmentService({
     runtime: projectData,
     backendId: backendIdentity.backendId,
+    startedAt: backendIdentity.startedAt,
     developmentRoot: join(dirname(globalIndexPath), "development-workspaces"),
+    // Test-only crash window: kill this process between the target update and
+    // its record so recovery has to reconcile against real Git facts.
+    ...(process.env.COWORK_MERGE_FAULT_INJECT
+      ? { mergeFaultInject: process.env.COWORK_MERGE_FAULT_INJECT }
+      : {}),
     // Review identity comes from this Task's own durable queue, never a body.
     call: async (taskId, callId) => {
       const location = await workspaces.locateTask(taskId).catch(() => undefined);

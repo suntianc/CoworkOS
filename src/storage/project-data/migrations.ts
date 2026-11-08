@@ -291,6 +291,49 @@ export const PROJECT_DATA_MIGRATIONS: readonly ProjectDataMigration[] = [
       `CREATE INDEX IF NOT EXISTS project_data_development_reviews_project
          ON project_data_development_reviews(project_id, development_id, created_at)`
     ]
+  },
+  {
+    // v6: one project's applications to its shared target branch. The row keeps
+    // the candidate, the combined base, the checks that ran on it and the commit
+    // actually written, so an interrupted process reconciles against Git instead
+    // of merging twice. The partial unique index is the cross-backend promise
+    // that only one operation updates this project's target at a time.
+    version: 6,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS project_data_development_merges (
+         project_id TEXT NOT NULL,
+         merge_id TEXT NOT NULL,
+         development_id TEXT NOT NULL,
+         requirement_id TEXT NOT NULL,
+         state TEXT NOT NULL,
+         revision INTEGER NOT NULL,
+         requested_by TEXT NOT NULL,
+         execution_backend_id TEXT NOT NULL,
+         target_branch TEXT NOT NULL,
+         candidate TEXT NOT NULL,
+         candidate_commit TEXT NOT NULL,
+         acceptance TEXT NOT NULL,
+         checks TEXT NOT NULL,
+         reasons TEXT NOT NULL,
+         combined_base TEXT,
+         expected_target TEXT,
+         merge_commit TEXT,
+         owner_started_at TEXT,
+         detail TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, merge_id),
+         FOREIGN KEY (project_id, development_id)
+           REFERENCES project_data_developments(project_id, development_id) ON DELETE CASCADE
+       )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS project_data_development_merges_applying
+         ON project_data_development_merges(project_id) WHERE state = 'applying'`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS project_data_development_merges_candidate
+         ON project_data_development_merges(project_id, development_id, candidate_commit)
+         WHERE state IN ('waiting', 'applying', 'merged')`,
+      `CREATE INDEX IF NOT EXISTS project_data_development_merges_project
+         ON project_data_development_merges(project_id, development_id, created_at)`
+    ]
   }
 ];
 

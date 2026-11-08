@@ -35,6 +35,7 @@ import type {
 import { DevelopmentExistsError } from "../domain/project-development.js";
 import type { DevelopmentRecord, MergeConfig } from "../domain/project-development.js";
 import type { DevelopmentReview, ReviewPlan } from "../domain/development-review.js";
+import type { DevelopmentMerge, MergeCreate } from "../domain/development-merge.js";
 import type { MainSessionRun } from "../domain/main-session.js";
 import type { RequirementDetail, RequirementSummary, SharedProject } from "../domain/project-ledger.js";
 
@@ -499,6 +500,61 @@ export class RemoteProjectDataService implements ProjectDataGateway {
 
   private reviewRequest(projectId: unknown, body: Record<string, unknown>) {
     return this.request(projectPath(projectId, "/reviews"), { body });
+  }
+
+  /**
+   * Merge operations are shared queue facts. This backend records what it owns
+   * and claims a waiting operation only when it is the configured executor; the
+   * authority stores the row and refuses a claim for another backend.
+   */
+  async createMerge(
+    projectId: unknown,
+    developmentId: unknown,
+    input: MergeCreate
+  ): Promise<DevelopmentMerge> {
+    const result = await this.mergeRequest(projectId, {
+      action: "create",
+      developmentId,
+      ...input
+    });
+    return result.merge as DevelopmentMerge;
+  }
+
+  async getMerge(projectId: unknown, mergeId: unknown): Promise<DevelopmentMerge> {
+    const result = await this.request(
+      projectPath(projectId, `/merges/${encodeURIComponent(String(mergeId))}`)
+    );
+    return result.merge as DevelopmentMerge;
+  }
+
+  async queryMerges(projectId: unknown, developmentId?: unknown): Promise<DevelopmentMerge[]> {
+    const result = await this.mergeRequest(projectId, {
+      action: "query",
+      ...(developmentId === undefined ? {} : { developmentId })
+    });
+    return (result.merges as DevelopmentMerge[]) ?? [];
+  }
+
+  async claimMerge(projectId: unknown, mergeId: unknown, input: unknown): Promise<DevelopmentMerge> {
+    const result = await this.mergeRequest(projectId, {
+      action: "claim",
+      mergeId,
+      ...(input && typeof input === "object" && !Array.isArray(input) ? input : {})
+    });
+    return result.merge as DevelopmentMerge;
+  }
+
+  async updateMerge(projectId: unknown, mergeId: unknown, input: unknown): Promise<DevelopmentMerge> {
+    const result = await this.mergeRequest(projectId, {
+      action: "update",
+      mergeId,
+      ...(input && typeof input === "object" && !Array.isArray(input) ? input : {})
+    });
+    return result.merge as DevelopmentMerge;
+  }
+
+  private mergeRequest(projectId: unknown, body: Record<string, unknown>) {
+    return this.request(projectPath(projectId, "/merges"), { body });
   }
 
   async boardEntries(projectId: unknown): Promise<BoardEntry[]> {

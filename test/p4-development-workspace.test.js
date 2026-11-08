@@ -554,17 +554,32 @@ for (const engine of PROJECT_DATA_ENGINES) {
     });
     assert.equal(foundBySecondary.development.workspace.directory, development.workspace.directory);
 
-    // A non-owner backend cannot prepare this project's checkout.
-    const nonOwnerRequirement = await createRequirement(authorityRequest, projectId, "非所有者");
-    const refused = await authorityRequest(`/api/projects/${encodeURIComponent(projectId)}/developments`, {
-      action: "create",
-      requirementId: nonOwnerRequirement.requirementId,
-      goal: "不应在错误的主机上准备现场",
-      completionCriteria: ["被拒绝"],
-      route: "quick"
-    });
-    assert.equal(refused.status, 409, JSON.stringify(refused.body));
-    assert.equal(refused.body.code, "project_git_owner_mismatch");
+    // P4 #04: a second backend develops in its own isolated checkout from the
+    // same configured repository. Only the configured execution backend updates
+    // the target branch; checkout preparation is that backend's own local fact.
+    const nonOwnerRequirement = await createRequirement(authorityRequest, projectId, "另一后端开发");
+    const ownCheckout = await authorityRequest(
+      `/api/projects/${encodeURIComponent(projectId)}/developments`,
+      {
+        action: "create",
+        requirementId: nonOwnerRequirement.requirementId,
+        goal: "在另一个后端自己的数据根中准备现场",
+        completionCriteria: ["现场位于本后端的数据根"],
+        route: "quick"
+      }
+    );
+    assert.equal(ownCheckout.status, 201, JSON.stringify(ownCheckout.body));
+    assert.equal(ownCheckout.body.development.workspace.state, "ready");
+    assert.equal(
+      ownCheckout.body.development.workspace.backendId,
+      authorityInstance.value.backendId,
+      "the authority prepared its own row, not the owner's"
+    );
+    assert.ok(
+      ownCheckout.body.development.workspace.directory.startsWith(authority.root),
+      "the checkout lives under the backend that prepared it"
+    );
+    assert.notEqual(ownCheckout.body.development.workspace.directory, development.workspace.directory);
 
     // P4: a remote gateway conflict names the existing record it collided with.
     const localDirectory = join(authority.root, "project-local");
@@ -633,7 +648,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     try {
       const service = await runtime.service();
       // v5 appends candidate reviews; an older database still upgrades in order.
-      assert.equal(service.description.schemaVersion, 5);
+      assert.equal(service.description.schemaVersion, 6);
       assert.deepEqual(
         (await service.queryRequirements("project_legacy")).map((requirement) => requirement.title),
         ["旧需求"]

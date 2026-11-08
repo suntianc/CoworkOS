@@ -17,8 +17,8 @@ export interface ProjectDevelopmentRoutePorts {
   taskProject(taskId: string): Promise<DevelopmentProject | undefined>;
 }
 
-const PROJECT_PATH = /^\/api\/projects\/([^/]+)\/(developments|merge-config|reviews)(?:\/([^/]+))?$/;
-const TASK_PATH = /^\/api\/tasks\/([^/]+)\/(developments|reviews)(?:\/([^/]+))?$/;
+const PROJECT_PATH = /^\/api\/projects\/([^/]+)\/(developments|merge-config|reviews|merges)(?:\/([^/]+))?$/;
+const TASK_PATH = /^\/api\/tasks\/([^/]+)\/(developments|reviews|merges)(?:\/([^/]+))?$/;
 const BACKEND_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,200}$/;
 
 function declaredBackend(request: IncomingMessage): string | undefined {
@@ -182,6 +182,93 @@ async function handleReviewRequest(
 }
 
 /**
+ * The project merge entry.
+ *
+ * A local request applies or queues the candidate through the production
+ * service. An authenticated remote backend only stores the operation and the
+ * claims/updates it owns; the authority never runs that backend's Git.
+ */
+async function handleMergeRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+  ports: ProjectDevelopmentRoutePorts,
+  scope: {
+    projectId: string;
+    taskId?: string;
+    scopedTaskId?: string;
+    itemId?: string;
+    declared?: string;
+  }
+): Promise<boolean> {
+  const service = ports.service;
+  const task = scope.taskId ?? scope.scopedTaskId;
+  const list = async (developmentId?: string) => ({
+    projectId: scope.projectId,
+    merges: task
+      ? await service.queryMergesForTask(task, developmentId)
+      : await service.queryMerges(scope.projectId, developmentId)
+  });
+  const one = async (mergeId: string) =>
+    task ? service.getMergeForTask(task, mergeId) : service.getMerge(scope.projectId, mergeId);
+
+  if (request.method === "GET") {
+    if (scope.itemId !== undefined) return reply(response, 200, { merge: await one(scope.itemId) });
+    return reply(response, 200, await list(url.searchParams.get("developmentId") ?? undefined));
+  }
+  if (request.method !== "POST") throw new HttpError(405, "method not allowed");
+  const body = await readJsonBody(request);
+  switch (body.action) {
+    case "query":
+      return reply(
+        response,
+        200,
+        await list(typeof body.developmentId === "string" ? body.developmentId : undefined)
+      );
+    case "get": {
+      if (typeof body.mergeId !== "string") throw new HttpError(400, "get 需要 mergeId");
+      return reply(response, 200, { merge: await one(body.mergeId) });
+    }
+    case "create": {
+      if (!scope.declared) throw new HttpError(403, "合入操作须由执行后端记录", "merge_owner_only");
+      return reply(response, 201, {
+        merge: await service.recordMerge(scope.projectId, body.developmentId, body, scope.declared)
+      });
+    }
+    case "claim": {
+      if (!scope.declared) throw new HttpError(403, "合入操作须由执行后端领取", "merge_owner_only");
+      if (typeof body.mergeId !== "string") throw new HttpError(400, "claim 需要 mergeId");
+      return reply(response, 200, {
+        merge: await service.recordMergeClaim(scope.projectId, body.mergeId, body, scope.declared)
+      });
+    }
+    case "update": {
+      if (!scope.declared) throw new HttpError(403, "合入结果须由执行后端记录", "merge_owner_only");
+      if (typeof body.mergeId !== "string") throw new HttpError(400, "update 需要 mergeId");
+      return reply(response, 200, {
+        merge: await service.recordMergeUpdate(scope.projectId, body.mergeId, body, scope.declared)
+      });
+    }
+    case "request": {
+      if (scope.declared) throw new HttpError(403, "合入申请须在执行主机上完成验收", "merge_owner_only");
+      return reply(response, 200, {
+        merge: task
+          ? await service.requestMergeForTask(task, body)
+          : await service.requestMerge(scope.projectId, body)
+      });
+    }
+    case "apply": {
+      if (scope.declared) throw new HttpError(403, "目标分支只能由执行后端更新", "merge_owner_only");
+      return reply(response, 200, {
+        merges: task ? await service.applyMergesForTask(task) : await service.applyMerges(scope.projectId)
+      });
+    }
+    default:
+      throw new HttpError(400, "未知的合入操作");
+  }
+}
+
+/**
  * The development-record HTTP surface.
  *
  * Two shapes reach the same service: the UI/API names a project, while the Main
@@ -229,10 +316,20 @@ export async function handleDevelopmentRequest(
         ? decodeURIComponent(taskMatch[3])
         : undefined;
   const kind = (projectMatch?.[2] ?? taskMatch?.[2] ?? "developments") as
-    "developments" | "merge-config" | "reviews";
+    "developments" | "merge-config" | "reviews" | "merges";
 
   if (kind === "reviews") {
     return handleReviewRequest(request, response, url, ports, {
+      projectId,
+      taskId,
+      scopedTaskId,
+      itemId,
+      declared
+    });
+  }
+
+  if (kind === "merges") {
+    return handleMergeRequest(request, response, url, ports, {
       projectId,
       taskId,
       scopedTaskId,

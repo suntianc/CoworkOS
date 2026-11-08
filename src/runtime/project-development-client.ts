@@ -17,6 +17,8 @@ export interface ProjectDevelopmentClient {
   (input: Record<string, unknown>): Promise<Record<string, unknown>>;
   /** Fixed-candidate review facts for the same Task. */
   reviews(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /** The project merge entry for the same Task. */
+  merges(input: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
 const TASK_ID = /^[A-Za-z0-9._-]+$/;
@@ -53,7 +55,7 @@ export function createProjectDevelopmentClient(options: {
   const base = `${origin}/api/tasks/${encodeURIComponent(options.taskId)}`;
 
   const send = async (
-    path: "developments" | "reviews",
+    path: "developments" | "reviews" | "merges",
     input: Record<string, unknown>
   ): Promise<Record<string, unknown>> => {
     const response = await fetch(`${base}/${path}`, {
@@ -82,5 +84,6 @@ export function createProjectDevelopmentClient(options: {
   const request = ((input: Record<string, unknown>) =>
     send("developments", input)) as ProjectDevelopmentClient;
   request.reviews = (input) => send("reviews", input);
+  request.merges = (input) => send("merges", input);
   return request;
 }

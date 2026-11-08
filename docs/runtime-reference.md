@@ -63,7 +63,7 @@ call_subagent({
 
 传入 `developmentId` 时，工作项在需求现场的独立执行现场运行：从本后端 `project_development` 记录中的 ready 需求现场按当前提交分出该工作项自己的 `git worktree` 与分支（`<需求现场同级的 work-items>/<callId>`），作为该 Subagent 的项目目录。并行工作项互不覆盖，也不会写入需求集成现场或用户原工作树；现场未 ready 时拒绝委派，提示先执行 `ensure_workspace`。Main 用现有文件/Git 工具明确收取结果到集成现场；需要审查汇总结果时，在汇总后委派 Reviewer，它从汇总现场的新提交分出自己的现场。重试、重启恢复和返修沿用同一目录与分支，保留已有提交和文件，不重建或 reset。`get_subagent_status`、Task 详情给出每个工作项的 callId、名称、角色、模型、实际工作目录、依赖、阻塞状态和失败原因；界面在这些字段上显示角色、模型与独立现场。
 
-`continueCallId`（可配 `reviewId`）是原上下文返修契约：它必须指向本 Run 中已结束的 Executor 工作项，复用该工作项的 agent 身份、检查点历史与现场，把返修任务作为同一会话的下一轮追加，而不是新建 Agent 或重复执行已终态工作。运行中的工作项、Reviewer、已有续接在运行或现场不可续接的调用会被拒绝；重启恢复沿用同一续接记录。`project_development` 的审查动作把候选提交、候选树、Reviewer 身份和现场、发现、裁定和返修关联写为共享记录；候选提交或受审内容变化后，旧结论不会被当作当前候选的有效审查。失败或漂移的审查仍可对其发现作裁定或记录返修，复审沿明确的 previousReview 链结算已验证的修复，链外发现不受影响；self 通道的自检绑定记录时的提交/树，现场前移后需在当版本重新验证。完整接口见 [Product API](product-api.md#fixed-candidate-reviews)。
+`continueCallId`（可配 `reviewId`）是原上下文返修契约：它必须指向本 Run 中已结束的 Executor 工作项，复用该工作项的 agent 身份、检查点历史与现场，把返修任务作为同一会话的下一轮追加，而不是新建 Agent 或重复执行已终态工作。运行中的工作项、Reviewer、已有续接在运行或现场不可续接的调用会被拒绝；重启恢复沿用同一续接记录。`project_development` 的审查动作把候选提交、候选树、Reviewer 身份和现场、发现、裁定和返修关联写为共享记录；候选提交或受审内容变化后，旧结论不会被当作当前候选的有效审查。失败或漂移的审查仍可对其发现作裁定或记录返修，复审沿明确的 previousReview 链结算已验证的修复，链外发现不受影响；self 通道的自检绑定记录时的提交/树，现场前移后需在当版本重新验证。完整接口见 [Product API](product-api.md#fixed-candidate-reviews)。`request_merge` 把已满足交付资格的需求候选提交到项目共同入口，`application` 由配置的执行后端串行更新目标分支；等待期间目标前移时会在最新目标与候选的组合版本上重新运行检查。`apply_merge` 由该执行后端核对中断操作并继续队列，`merge_status` 读取操作、实际合入 SHA 与可幂等对账的回执；失败只处理操作自有现场，保留用户脏文件、先前合入和未合入分支。
 
 ### 子智能体之间的单向消息
 

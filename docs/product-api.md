@@ -225,7 +225,7 @@ A secondary backend with `projectData.authority` reads and writes these same ses
 
 ## Development records
 
-A requirement's development record is the agreed goal, completion criteria, suggested route and code baseline, plus the isolated Git checkout a backend prepared for it. The record is shared project data and goes through the same unified gateway and HTTP surface on SQLite and PostgreSQL; the checkout directory is a per-backend execution fact, like a directory binding. `status` stays `active`; fixed-candidate reviews and a delivery qualification are recorded beside the development, while the actual merge stays with the later shared merge entry.
+A requirement's development record is the agreed goal, completion criteria, suggested route and code baseline, plus the isolated Git checkout a backend prepared for it. The record is shared project data and goes through the same unified gateway and HTTP surface on SQLite and PostgreSQL; the checkout directory is a per-backend execution fact, like a directory binding. `status` stays `active`; fixed-candidate reviews, a delivery qualification and the project merge operations are recorded beside the development.
 
 ```text
 GET  /api/projects/:projectId/merge-config
@@ -248,7 +248,7 @@ The merge configuration is the project's single update entry and is reserved for
 { "repository": "/absolute/path/to/repository", "targetBranch": "main", "executionBackendId": "backend_…" }
 ```
 
-`repository` must be a local, non-bare Git repository and `targetBranch` a local branch; the execution backend checks both when the configuration is written and again when a workspace is prepared, and the data authority only stores the shared entry. `executionBackendId` defaults to the serving backend and names the backend that owns checkouts and later merges. A secondary backend with `projectData.authority` validates the repository on its own host, writes the shared entry and development record through its authenticated client, and prepares the checkout itself; on the authority a declared `create`/merge-config request only records the shared fact, and `ensure_workspace` is refused with 403 `development_workspace_owner_only` instead of running Git against another host's repository. Missing configuration returns 409 `project_git_missing` and names all three fields; an unusable repository, branch or bare repository returns 400 `project_git_invalid` naming the path or branch; a backend other than the execution owner returns 409 `project_git_owner_mismatch`.
+`repository` must be a local, non-bare Git repository and `targetBranch` a local branch; the writer checks both when the configuration is written and again when a checkout or merge is prepared, and the data authority only stores the shared entry. `executionBackendId` defaults to the serving backend and names the one backend that claims merge operations and updates the target. Each backend that can see the configured repository prepares its own isolated requirement checkout; a secondary backend with `projectData.authority` validates the repository on its own host, writes the shared entry and development record through its authenticated client, and prepares the checkout itself; on the authority a declared `create`/merge-config request only records the shared fact, and `ensure_workspace` is refused with 403 `development_workspace_owner_only` instead of running Git against another host's repository. Missing configuration returns 409 `project_git_missing` and names all three fields; an unusable repository, branch or bare repository returns 400 `project_git_invalid` naming the path or branch; a backend other than the execution owner returns 409 `project_git_owner_mismatch` when it tries to apply a merge.
 
 A development returns `projectId`, `developmentId`, `requirementId`, `requirementTitle`, `goal`, `completionCriteria`, `route` (`quick`/`direct`/`full`), `status` (`active`), `revision`, `baseline` (`{ branch, commit }`), optional `sessionId`/`taskId`, optional `workspace`, timestamps. `workspace` is `{ workspaceId, backendId, directory, branch, baseCommit, state, error? }`, where `state` is `ready` or `failed`; a failed attempt keeps the record, its directory, branch and baseline, so the requirement and workspace stay findable. The checkout is a real `git worktree` under `ATRIA_HOME/runtime/development-workspaces/<developmentId>` on branch `coworkos/development/<developmentId>` at the recorded commit; the user's own working copy, staged reservation and untracked files are never changed.
 
@@ -286,6 +286,30 @@ POST bodies carry `action`; actions that bind or verify a work item (`attach_rev
 - `delivery` (`developmentId`) returns `{ developmentId, eligible, channel?, candidate?, approved?, reviewId?, kind?, independentReview, reasons }`. A `self` plan qualifies on its own only while its captured candidate still matches the current integration commit and tree, no review has been started (`review_started`), and the checks are present. Otherwise the latest review must have passed, its candidate must still be the current integration commit and tree, and every finding across the development must be dismissed or fixed. `self_check_stale`, `candidate_changed`, `findings_open`, `review_drifted` and the other `reasons` explain a refusal. `query`/`get` read reviews back; the `GET` above also returns `plan` and `qualification` for a named development.
 
 `continueCallId` on `call_subagent` is the original-context rework contract: it must name a finished Executor work item in this Run, reuses that item's agent id, checkpoint history and checkout, and appends the rework instruction as the next turn of the same session instead of creating a fresh Agent or repeating completed work. A running item, a Reviewer, or an item that already has a continuation in flight is refused.
+
+## Project merge entry
+
+Each Main keeps its own requirement checkout, but the target branch has one writer: the execution backend named by the merge configuration. Merge operations are shared project data (schema v6, carried by the same backup/restore snapshot), so two backends apply through one project queue instead of a per-requirement or per-Main lock.
+
+```text
+GET  /api/projects/:projectId/merges[?developmentId=]
+GET  /api/projects/:projectId/merges/:mergeId
+POST /api/projects/:projectId/merges
+GET  /api/tasks/:taskId/merges
+POST /api/tasks/:taskId/merges
+```
+
+A merge returns `mergeId`, `developmentId`, `requirementId`, `state` (`waiting`/`applying`/`merged`/`conflict`/`check_failed`/`failed`), `revision`, `requestedBy`, `executionBackendId`, `targetBranch`, `candidate` (`{ commit, tree, branch, workspace }`), `acceptance` (`{ channel, approvedCommit, approvedTree, reviewId? }`), `checks`, `reasons`, optional `combinedBase`, `expectedTarget`, `mergeCommit`, `detail`, `ownerStartedAt`, timestamps, and — once merged — an idempotent `receipt` (`{ mergeId, developmentId, requirementId, candidateCommit, mergedCommit, targetBranch, mergedAt }`). A check is `{ name, command, exitCode?, output?, at? }`; before it runs, only the command is recorded.
+
+POST bodies carry `action`:
+
+- `request` (`developmentId`, optional `checks` of `{ name, command }`) requires an eligible delivery qualification whose approved candidate is still the current integration commit and tree. Without explicit checks it reuses the self plan's commands, else the passed review's. A retry for the same candidate returns the existing operation; a merged candidate returns the same receipt without creating another target commit; a new version needs its own operation. When the requesting backend is the execution owner it also applies the project queue.
+- `apply` reconciles operations a previous process of this backend left `applying`, then processes waiting operations in creation order. It is refused with 409 `project_git_owner_mismatch` on any other backend.
+- `create` records an operation an authenticated backend qualified on its own host; `claim` and `update` are accepted only from the configured execution backend. `query`/`get` read the shared rows.
+
+The execution backend builds the combined version in a real detached worktree at the current target, merges the candidate, runs the checks there and records the combined base, the commit about to be published and the receipts before touching the ref. A real conflict leaves the target and the candidate branch alone and records `conflict` with the conflicted paths. A failing check records `check_failed` with its exit codes and output. The target moves by fast-forwarding the worktree that has the branch checked out — a dirty file the merge would touch refuses instead of being overwritten — or by compare-and-swap on the ref. If the target advanced during the attempt, the operation rebuilds on the new tip and re-runs the checks; after repeated movement it records `failed` for a retry.
+
+A crash between the target update and its record leaves `applying` with the recorded `mergeCommit` and `expectedTarget`. A new process of that backend compares them with the actual branch: a tip equal to `mergeCommit` only needs the record completed; a tip still equal to `expectedTarget` means the compare-and-swap never ran, so the same commit is published; anything else requeues the operation on the current target. It never merges the same candidate twice. The merged operation's receipt is what the ledger and board ticket reconciles idempotently.
 
 ## External Main capacity
 

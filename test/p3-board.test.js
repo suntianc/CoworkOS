@@ -457,7 +457,7 @@ test("a v1 project database upgrades in place and keeps its ledger", async (t) =
   // v1 and v2 keep their meaning; v3 adds project Main sessions and v4 adds
   // development records. Each missing version is applied on its own, so the
   // final schema is the latest one.
-  assert.equal(service.description.schemaVersion, 5);
+  assert.equal(service.description.schemaVersion, 6);
   const requirements = await service.queryRequirements("project_legacy");
   assert.deepEqual(
     requirements.map((requirement) => requirement.title),
