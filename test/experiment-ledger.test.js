@@ -118,7 +118,14 @@ test("the ledger adds no tools for Main to operate", async (t) => {
     "task",
     "attachments",
     "resources",
-    "mode"
+    "mode",
+    "role",
+    "dependsOn",
+    "developmentId",
+    "continueCallId",
+    "reviewId",
+    "profileId",
+    "model"
   ]);
   assert.equal(pi.tools.get("call_subagent").parameters.additionalProperties, false);
 });

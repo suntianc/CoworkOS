@@ -712,21 +712,22 @@ test(
       timeoutMs: 10000
     };
     const coordinator = new CoordinatorRuntime();
-    await assert.rejects(
-      coordinator.dispatch({
-        ...connection,
-        activateRun: false,
-        callId: "recover-call",
-        agentId: "recover-agent",
-        task: "Run the fixture",
-        mode: "async",
-        commandEnv: { COWORK_API_TOKEN: "old-business-token" },
-        onQueued: () => {
-          throw new Error("stop after queue");
-        }
-      }),
-      /stop after queue/
-    );
+    // The throw interrupts the process after the durable enqueue; dispatch
+    // settles the call record and recovery re-drives the queued item.
+    const interrupted = await coordinator.dispatch({
+      ...connection,
+      activateRun: false,
+      callId: "recover-call",
+      agentId: "recover-agent",
+      task: "Run the fixture",
+      mode: "async",
+      commandEnv: { COWORK_API_TOKEN: "old-business-token" },
+      onQueued: () => {
+        throw new Error("stop after queue");
+      }
+    });
+    assert.equal(interrupted.status, "failed");
+    assert.match(interrupted.error, /stop after queue/);
     const queuePath = join(root, taskId, "runs", "recover-run", "queue.json");
     assert.doesNotMatch(await readFile(queuePath, "utf8"), /old-business-token|native-host-fixture-token/);
     const recovered = await coordinator.recoverRun({
