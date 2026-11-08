@@ -7,8 +7,10 @@ const stateLabel = {
   claimed: "已认领",
   in_progress: "处理中",
   paused: "暂停",
-  cancelled: "已取消"
+  cancelled: "已取消",
+  pending_release: "待发布"
 };
+const shortCommit = (commit) => (typeof commit === "string" ? commit.slice(0, 8) : "");
 const ownerLabel = (assignment) => {
   if (!assignment) return "";
   if (assignment.kind === "main") return `Main · ${assignment.handler?.taskId ?? ""}`;
@@ -266,6 +268,11 @@ export function createProjectBoardController({ api, state, getBackend = () => ""
       ${entry.source?.reference ? `<p class="board-source">${esc(entry.source.reference)}</p>` : ""}
       <p class="board-content">${esc(entry.content)}</p>
       <p class="board-assignee" data-assignee>${owner ? `归属：${esc(owner)}` : "尚未认领"}</p>
+      ${
+        entry.delivery
+          ? `<p class="board-delivery" data-delivery>合入 ${esc(shortCommit(entry.delivery.mergedCommit))}</p>`
+          : ""
+      }
       <div class="board-actions">${
         entry.state === "pending"
           ? `<button type="button" class="app-button is-primary" data-board-action="claim">认领</button>`

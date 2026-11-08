@@ -648,7 +648,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     try {
       const service = await runtime.service();
       // v5 appends candidate reviews; an older database still upgrades in order.
-      assert.equal(service.description.schemaVersion, 6);
+      assert.equal(service.description.schemaVersion, 7);
       assert.deepEqual(
         (await service.queryRequirements("project_legacy")).map((requirement) => requirement.title),
         ["旧需求"]

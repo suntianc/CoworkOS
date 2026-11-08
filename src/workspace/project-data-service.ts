@@ -60,6 +60,7 @@ import {
   mergeCheckCommands,
   mergeCheckResults,
   mergeClaim,
+  mergeCommit,
   mergeCreate,
   mergeReceipt,
   mergeReasons,
@@ -70,8 +71,14 @@ import {
   type MergeCreate
 } from "../domain/development-merge.js";
 import {
+  deliveryReceipt,
+  type DeliveryReceipt,
+  type DevelopmentDelivery
+} from "../domain/development-delivery.js";
+import {
   DevelopmentExistsError,
   developmentBaseline,
+  developmentBranch,
   developmentCommit,
   developmentCompletionCriteria,
   developmentGoal,
@@ -106,6 +113,7 @@ import {
 } from "../storage/project-data/config.js";
 import type { SqlDatabase, SqlTransaction } from "../storage/project-data/database.js";
 import { ProjectBoardRepository } from "./project-board.js";
+import { ProjectDeliveryRepository } from "./project-delivery.js";
 import { RemoteProjectDataService } from "./project-data-remote.js";
 
 interface ProjectRow {
@@ -444,6 +452,12 @@ export interface ProjectDataGateway {
   queryMerges(projectId: unknown, developmentId?: unknown): Promise<DevelopmentMerge[]>;
   claimMerge(projectId: unknown, mergeId: unknown, input: unknown): Promise<DevelopmentMerge>;
   updateMerge(projectId: unknown, mergeId: unknown, input: unknown): Promise<DevelopmentMerge>;
+  // Delivery synchronization starts from a merged operation's receipt and is
+  // idempotent per merge; a pending row is retried rather than re-delivered.
+  syncDelivery(projectId: unknown, receipt: unknown): Promise<DevelopmentDelivery>;
+  queryDeliveries(projectId: unknown, developmentId?: unknown): Promise<DevelopmentDelivery[]>;
+  getDelivery(projectId: unknown, deliveryId: unknown): Promise<DevelopmentDelivery>;
+  retryDelivery(projectId: unknown, deliveryId: unknown): Promise<DevelopmentDelivery>;
   boardEntries(projectId: unknown): Promise<BoardEntry[]>;
   boardEntry(projectId: unknown, boardId: unknown): Promise<BoardEntry>;
   boardEvents(projectId: unknown, boardId: unknown): Promise<BoardEvent[]>;
@@ -464,7 +478,7 @@ export interface ProjectDataGateway {
   close(): Promise<void>;
 }
 
-const SNAPSHOT_VERSION = 5;
+const SNAPSHOT_VERSION = 6;
 const TABLES = [
   "project_data_projects",
   "project_data_bindings",
@@ -481,6 +495,7 @@ const TABLES = [
   "project_data_development_review_plans",
   "project_data_development_reviews",
   "project_data_development_merges",
+  "project_data_deliveries",
   "project_data_merge_configs"
 ] as const;
 type SnapshotTable = (typeof TABLES)[number];
@@ -541,6 +556,9 @@ const TABLE_COLUMNS: Record<SnapshotTable, readonly string[]> = {
     "handler_project_id",
     "handler_task_id",
     "assigned_at",
+    "delivery_merge_id",
+    "delivery_commit",
+    "delivery_merged_at",
     "created_at",
     "updated_at"
   ],
@@ -675,6 +693,24 @@ const TABLE_COLUMNS: Record<SnapshotTable, readonly string[]> = {
     "merge_commit",
     "owner_started_at",
     "detail",
+    "created_at",
+    "updated_at"
+  ],
+  project_data_deliveries: [
+    "project_id",
+    "delivery_id",
+    "development_id",
+    "requirement_id",
+    "merge_id",
+    "candidate_commit",
+    "merged_commit",
+    "target_branch",
+    "merged_at",
+    "board_id",
+    "state",
+    "attempts",
+    "error",
+    "synced_at",
     "created_at",
     "updated_at"
   ]
@@ -2283,9 +2319,62 @@ export class ProjectDataRepository {
     return grouped;
   }
 
+  /**
+   * Mark the requirement delivered by one real merge.
+   *
+   * The delivered status, its revision note and a `delivery` reference carrying
+   * the actual merge commit are written together. Repeating the same merge is a
+   * no-op, so a retried synchronization never appends a second delivery
+   * revision; a later, different merge appends its own commit and reference.
+   */
+  async markRequirementDelivered(
+    projectIdValue: unknown,
+    requirementIdValue: unknown,
+    input: { mergeId: unknown; mergedCommit: unknown; targetBranch: unknown }
+  ): Promise<RequirementDetail> {
+    const projectId = ledgerProjectId(projectIdValue);
+    const requirementId = ledgerIdentifier(requirementIdValue, "需求 ID");
+    const mergeId = ledgerIdentifier(input.mergeId, "合入操作 ID");
+    const mergedCommit = mergeCommit(input.mergedCommit, "合入提交");
+    const targetBranch = developmentBranch(input.targetBranch, "合入目标分支");
+    const current = await this.requireRequirement(projectId, requirementId);
+    const delivered = await this.transaction.query<ReferenceRow>(
+      "SELECT * FROM project_data_references WHERE project_id = ? AND requirement_id = ? AND kind = 'delivery' AND value = ?",
+      [projectId, requirementId, mergedCommit]
+    );
+    if (current.status === "delivered" && delivered.length) return this.requirement(projectId, requirementId);
+    const revision = Number(current.revision) + 1;
+    const timestamp = now();
+    const note = `合入 ${targetBranch} · ${mergedCommit.slice(0, 12)} · ${mergeId}`;
+    await this.insertRevision(projectId, requirementId, {
+      revision,
+      title: current.title,
+      content: current.content,
+      status: "delivered",
+      source: sourceOf(current.source_kind, current.source_reference),
+      note: note.slice(0, 2000),
+      createdAt: timestamp
+    });
+    const changed = await this.transaction.execute(
+      `UPDATE project_data_requirements
+          SET status = 'delivered', revision = ?, updated_at = ?
+        WHERE project_id = ? AND requirement_id = ? AND revision = ?`,
+      [revision, timestamp, projectId, requirementId, Number(current.revision)]
+    );
+    if (changed !== 1)
+      throw new ProjectDataConflictError("需求已被另一写入更新，请重新读取", undefined, "revision_conflict");
+    await this.insertReferences(projectId, requirementId, [{ kind: "delivery", value: mergedCommit }]);
+    return this.requirement(projectId, requirementId);
+  }
+
   /** Board writes share this transaction, so a published entry commits with its requirement. */
   board(): ProjectBoardRepository {
     return new ProjectBoardRepository(this.transaction, this, this.lockRows);
+  }
+
+  /** Delivery rows use this same transaction, so the ledger, board and receipt commit together. */
+  delivery(): ProjectDeliveryRepository {
+    return new ProjectDeliveryRepository(this.transaction, this, this.lockRows);
   }
 }
 
@@ -2446,6 +2535,94 @@ export class ProjectDataService implements ProjectDataGateway {
     return this.transaction((repository) => repository.updateMerge(projectId, mergeId, input));
   }
 
+  /**
+   * Record and apply one merged operation's delivery.
+   *
+   * The shared merge row is the authority for what actually happened: a receipt
+   * that does not match a `merged` row is refused instead of creating a
+   * delivery from a caller's claim. The pending row is written first, so a
+   * failure while writing the ledger/board leaves a retryable state with the
+   * target commit already attached.
+   */
+  async syncDelivery(projectIdValue: unknown, receiptValue: unknown): Promise<DevelopmentDelivery> {
+    const projectId = ledgerProjectId(projectIdValue);
+    const receipt: DeliveryReceipt = deliveryReceipt(receiptValue);
+    const merge = await this.getMerge(projectId, receipt.mergeId);
+    const canonical = merge.receipt;
+    if (
+      !canonical ||
+      merge.state !== "merged" ||
+      canonical.mergeId !== receipt.mergeId ||
+      canonical.developmentId !== receipt.developmentId ||
+      canonical.requirementId !== receipt.requirementId ||
+      canonical.candidateCommit !== receipt.candidateCommit ||
+      canonical.mergedCommit !== receipt.mergedCommit ||
+      canonical.targetBranch !== receipt.targetBranch ||
+      canonical.mergedAt !== receipt.mergedAt
+    )
+      throw new ProjectDataConflictError(
+        "交付回执与已合入记录不一致，不能记录交付",
+        undefined,
+        "delivery_not_merged"
+      );
+    const delivery = await this.transaction((repository) =>
+      repository.delivery().record(projectId, canonical)
+    );
+    if (delivery.state === "synced") return delivery;
+    return this.applyDeliveryRecord(projectId, delivery.deliveryId, merge.executionBackendId);
+  }
+
+  queryDeliveries(projectId: unknown, developmentId?: unknown) {
+    return this.transaction((repository) => repository.delivery().list(projectId, developmentId));
+  }
+
+  getDelivery(projectId: unknown, deliveryId: unknown) {
+    return this.transaction((repository) => repository.delivery().get(projectId, deliveryId));
+  }
+
+  async retryDelivery(projectIdValue: unknown, deliveryIdValue: unknown): Promise<DevelopmentDelivery> {
+    const projectId = ledgerProjectId(projectIdValue);
+    const delivery = await this.getDelivery(projectId, deliveryIdValue);
+    if (delivery.state === "synced") return delivery;
+    const merge = await this.getMerge(projectId, delivery.mergeId);
+    const canonical = merge.receipt;
+    if (
+      !canonical ||
+      merge.state !== "merged" ||
+      canonical.mergeId !== delivery.mergeId ||
+      canonical.developmentId !== delivery.developmentId ||
+      canonical.requirementId !== delivery.requirementId ||
+      canonical.candidateCommit !== delivery.candidateCommit ||
+      canonical.mergedCommit !== delivery.mergedCommit ||
+      canonical.targetBranch !== delivery.targetBranch ||
+      canonical.mergedAt !== delivery.mergedAt
+    )
+      throw new ProjectDataConflictError(
+        "交付记录与已合入回执不一致，不能同步交付",
+        undefined,
+        "delivery_not_merged"
+      );
+    return this.applyDeliveryRecord(projectId, delivery.deliveryId, merge.executionBackendId);
+  }
+
+  private async applyDeliveryRecord(
+    projectId: string,
+    deliveryId: string,
+    backendId: string
+  ): Promise<DevelopmentDelivery> {
+    try {
+      return await this.transaction((repository) =>
+        repository.delivery().apply(projectId, deliveryId, backendId)
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.transaction((repository) =>
+        repository.delivery().fail(projectId, deliveryId, message)
+      ).catch(() => undefined);
+      throw error;
+    }
+  }
+
   boardEntries(projectId: unknown) {
     const sharedProjectId = ledgerProjectId(projectId);
     return this.transaction((repository) => repository.board().list(sharedProjectId));
@@ -2576,6 +2753,10 @@ function parseSnapshot(raw: string): ProjectDataSnapshot {
   if (snapshot && typeof snapshot === "object" && snapshot.version === 4)
     throw new ProjectDataInvalidError(
       "备份文件是旧版本（4），不含项目合入操作；请重新备份或使用对应版本恢复"
+    );
+  if (snapshot && typeof snapshot === "object" && snapshot.version === 5)
+    throw new ProjectDataInvalidError(
+      "备份文件是旧版本（5），不含需求交付记录；请重新备份或使用对应版本恢复"
     );
   if (
     !snapshot ||

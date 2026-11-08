@@ -256,6 +256,9 @@ export function createDashboardApplication(
     backendId: backendIdentity.backendId,
     startedAt: backendIdentity.startedAt,
     developmentRoot: join(dirname(globalIndexPath), "development-workspaces"),
+    // A published merge that the shared store has not accepted yet is kept on
+    // this host until its ledger/board delivery is written.
+    deliveryRoot: join(dirname(globalIndexPath), "delivery-sync"),
     // Test-only crash window: kill this process between the target update and
     // its record so recovery has to reconcile against real Git facts.
     ...(process.env.COWORK_MERGE_FAULT_INJECT
@@ -290,6 +293,13 @@ export function createDashboardApplication(
         : undefined;
     }
   });
+  // Retry delivery facts this host published but could not record while the
+  // shared service was unreachable. One bounded interval in this process only
+  // looks at local pending facts, so no user read or restart is required.
+  const deliverySyncTickMs = Number(process.env.COWORK_DELIVERY_SYNC_TICK_MS);
+  developments.startDeliveryRecovery(
+    Number.isFinite(deliverySyncTickMs) && deliverySyncTickMs > 0 ? deliverySyncTickMs : undefined
+  );
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
   /**
    * The durable catalog event log, beside the sessions and receipts.
@@ -981,6 +991,7 @@ export function createDashboardApplication(
     /** Resolves when the project data service is migrated and reachable. */
     ready: projectData.ready,
     async stop() {
+      await developments.stopDeliveryRecovery();
       await computerApproval.close();
       await catalogEvents.close();
       await memoryLearning.stop();

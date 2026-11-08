@@ -240,6 +240,11 @@ GET  /api/projects/:projectId/reviews/:reviewId
 POST /api/projects/:projectId/reviews
 GET  /api/tasks/:taskId/reviews
 POST /api/tasks/:taskId/reviews
+GET  /api/projects/:projectId/deliveries[?developmentId=]
+GET  /api/projects/:projectId/deliveries/:deliveryId
+POST /api/projects/:projectId/deliveries
+GET  /api/tasks/:taskId/deliveries
+POST /api/tasks/:taskId/deliveries
 ```
 
 The merge configuration is the project's single update entry and is reserved for the later shared merge queue:
@@ -260,7 +265,7 @@ POST bodies carry `action`:
 - `get` (`developmentId`), `query` and `find_by_requirement` (`requirementId`) read; an unknown record returns 404.
 - `record_workspace` records the authenticated backend's own checkout (`developmentId`, `workspace`); it is used by a secondary backend's client and refuses a workspace for another backend with 403 `development_workspace_backend_mismatch`.
 
-The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project and Main session, so a tool argument cannot select another project or session. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project. The production tool is `project_development` with actions `create`, `get`, `query`, `find_by_requirement`, `update`, `ensure_workspace`, `review_plan`, `freeze_candidate`, `attach_reviewer`, `record_finding`, `rule_finding`, `record_rework`, `complete_review`, `delivery_check`, `query_reviews` and `get_review`.
+The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project and Main session, so a tool argument cannot select another project or session. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project. The production tool is `project_development` with actions `create`, `get`, `query`, `find_by_requirement`, `update`, `ensure_workspace`, `review_plan`, `freeze_candidate`, `attach_reviewer`, `record_finding`, `rule_finding`, `record_rework`, `complete_review`, `delivery_check`, `query_reviews`, `get_review`, `request_merge`, `apply_merge`, `merge_status` and `delivery_status`. `delivery_status` returns the same {projectId, development, stage, plan, reviews, qualification, merges, delivery, board?, diff?, roles, pendingSync?} view the Web controller reads; it accepts a `developmentId` or a `requirementId`.
 
 ## Fixed-candidate reviews
 
@@ -289,7 +294,7 @@ POST bodies carry `action`; actions that bind or verify a work item (`attach_rev
 
 ## Project merge entry
 
-Each Main keeps its own requirement checkout, but the target branch has one writer: the execution backend named by the merge configuration. Merge operations are shared project data (schema v6, carried by the same backup/restore snapshot), so two backends apply through one project queue instead of a per-requirement or per-Main lock.
+Each Main keeps its own requirement checkout, but the target branch has one writer: the execution backend named by the merge configuration. Merge operations are shared project data (introduced in schema v6, carried by the same backup/restore snapshot; the current schema adds the v7 delivery rows), so two backends apply through one project queue instead of a per-requirement or per-Main lock.
 
 ```text
 GET  /api/projects/:projectId/merges[?developmentId=]
@@ -310,6 +315,30 @@ POST bodies carry `action`:
 The execution backend builds the combined version in a real detached worktree at the current target, merges the candidate, runs the checks there and records the combined base, the commit about to be published and the receipts before touching the ref. A real conflict leaves the target and the candidate branch alone and records `conflict` with the conflicted paths. A failing check records `check_failed` with its exit codes and output. The target moves by fast-forwarding the worktree that has the branch checked out — a dirty file the merge would touch refuses instead of being overwritten — or by compare-and-swap on the ref. If the target advanced during the attempt, the operation rebuilds on the new tip and re-runs the checks; after repeated movement it records `failed` for a retry.
 
 A crash between the target update and its record leaves `applying` with the recorded `mergeCommit` and `expectedTarget`. A new process of that backend compares them with the actual branch: a tip equal to `mergeCommit` only needs the record completed; a tip still equal to `expectedTarget` means the compare-and-swap never ran, so the same commit is published; anything else requeues the operation on the current target. It never merges the same candidate twice. The merged operation's receipt is what the ledger and board ticket reconciles idempotently.
+
+## Delivery records
+
+A delivery exists only after the target branch actually contains a merge. It starts from the merged operation's `receipt` (`mergeId`, `developmentId`, `requirementId`, `candidateCommit`, `mergedCommit`, `targetBranch`, `mergedAt`) and is shared project data (schema v7, carried by the same backup/restore snapshot). A receipt that does not match a shared `merged` row is refused with 409 `delivery_not_merged`; the UI, a model report or a request body never creates a delivery on its own.
+
+```text
+GET  /api/projects/:projectId/deliveries[?developmentId=]
+GET  /api/projects/:projectId/deliveries/:deliveryId
+POST /api/projects/:projectId/deliveries
+GET  /api/tasks/:taskId/deliveries
+POST /api/tasks/:taskId/deliveries
+```
+
+A delivery returns `projectId`, `deliveryId`, `developmentId`, `requirementId`, `mergeId`, `candidateCommit`, `mergedCommit`, `targetBranch`, `mergedAt`, optional `boardId`, `state` (`pending`/`synced`), `attempts`, optional `lastError`, `syncedAt` and timestamps. One row exists per merge; repeating the same receipt updates that row instead of writing a second delivery.
+
+Applying a delivery writes the ledger and board together with the `synced` state: the requirement becomes `delivered`, gains a `delivery` reference carrying `mergedCommit` and a revision note naming the branch and merge, and a board projection — when the need came from the board — becomes `pending_release` with its owner, handling Main and the actual merge commit. An internal requirement stays ledger-only and creates no board item. A delivery failure leaves the `pending` row and its `lastError` readable; `pending_release` never advances to a published state in P4.
+
+POST bodies carry `action`:
+
+- `query` (optional `developmentId`), `get` (`deliveryId`) and `view` (`developmentId` or `requirementId`) read. The view returns `{ projectId, development, stage, plan?, reviews, qualification?, merges, delivery?, board?, diff?, roles, pendingSync? }`, where `stage` is `developing`/`reviewing`/`merge_pending`/`merged`/`delivered`, `roles` are the recorded Executor/Reviewer work items with their durable status when this host still has them, `diff` is the committed baseline-to-candidate change read from the checkout that owns it, and `pendingSync` names a locally published merge whose shared delivery has not been accepted yet. The same view is reachable from the project route, the Task route and the `project_development` tool (`delivery_status`).
+- `retry` (`deliveryId` or `developmentId`) re-applies the persisted delivery or completes the latest merged operation of that development; a retry cannot create a second delivery or a second target commit.
+- `sync` (`receipt`) is accepted only from the authenticated execution backend that owns the merge and is how a secondary backend records what it published. The authority verifies the receipt against its own merged row before writing anything.
+
+A merge updates real Git before the shared record can be written. The execution backend keeps that fact in `ATRIA_HOME/runtime/delivery-sync/<project-hash>.json` (0600, atomic replace) with the merge identity, expected target, published commit and last error. Any later read, `apply_merge`, retry, process restart or the execution host's bounded in-process retry task retries from that outbox and from the merged row: a row left `applying` is completed from the real branch, the delivery is written once, and the entry is removed. The retry task starts with the host, never overlaps a tick, only looks at local pending facts, and stops when that service instance stops; a recovered shared service therefore completes the delivery without a UI read, a new merge or a manual retry. Another backend's read does not claim or complete an operation it did not publish. The local Run finishes independently of the shared service; an unreachable authority therefore leaves a visible pending state rather than failing the merge or asking Main to repeat it. Ledger/board writes are idempotent, so a retry after a crash or restart does not repeat development, merge or delivery.
 
 ## External Main capacity
 
@@ -362,13 +391,13 @@ GET  /api/tasks/:taskId/board
 POST /api/tasks/:taskId/board
 ```
 
-`GET` returns `{ projectId, entries }`; the single-item read returns `{ entry, events }`. An entry has `projectId`, `boardId`, `requirementId`, `title`, `content`, `entryKind:"external"`, `source`, `state` (`pending`, `claimed`, `in_progress`, `paused`, `cancelled`), `revision`, `backendId`, optional `assignment` (`{ kind: "user"|"main", actorId, handler?, assignedAt }`) and timestamps.
+`GET` returns `{ projectId, entries }`; the single-item read returns `{ entry, events }`. An entry has `projectId`, `boardId`, `requirementId`, `title`, `content`, `entryKind:"external"`, `source`, `state` (`pending`, `claimed`, `in_progress`, `paused`, `cancelled`, `pending_release`), `revision`, `backendId`, optional `assignment` (`{ kind: "user"|"main", actorId, handler?, assignedAt }`), optional `delivery` (`{ mergeId, mergedCommit, mergedAt }`) and timestamps. `delivery.mergedAt` is the merged operation's own timestamp; the entry's `updatedAt` and the `delivered` event's `createdAt` are the later synchronization times.
 
 POST bodies carry `action`:
 
 - `publish` (`requestId`, `title`, `content`, `source` with `kind:"external"`, optional reference) creates the requirement and its board item in one transaction and returns 201. `source.kind` must be `external`.
 - `claim` (`boardId`, `expectedRevision`, `requestId`, optional `handler`) moves `pending` to `claimed`. The Task-scoped route fills `handler` from the current Task, so a Main cannot name another backend or project.
-- `pause` (`claimed`/`in_progress` → `paused`) keeps the owner; `release` clears ownership back to `pending`; `cancel` is terminal and stays visible. A stale `expectedRevision` returns 409 `revision_conflict` with `currentRevision`.
+- `pause` (`claimed`/`in_progress` → `paused`) keeps the owner; `release` clears ownership back to `pending`; `cancel` is terminal and stays visible. A stale `expectedRevision` returns 409 `revision_conflict` with `currentRevision`. `pending_release` is written only by a real delivery; it keeps the original owner and handling Main, attaches the actual merge commit and refuses release/pause/cancel. Publishing is a later phase, so P4 never advances beyond this state.
 
 Every write carries a `requestId`: repeating the same request returns the committed entry and appends no second event. Two backends claiming at the same revision produce one winner; the other receives 409. Only the serving host or the current owner may pause, release or cancel (`403 board_assignee_required` otherwise). Handler mismatches return `board_handler_mismatch` or `board_project_mismatch`; reusing a request id for a different action returns `board_request_reused`.
 
