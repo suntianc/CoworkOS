@@ -235,6 +235,58 @@ export const PROJECT_DATA_MIGRATIONS: readonly ProjectDataMigration[] = [
       `CREATE INDEX IF NOT EXISTS project_data_developments_project
          ON project_data_developments(project_id, updated_at)`
     ]
+  },
+  {
+    // v5: the review record a requirement's delivery is qualified against.
+    // A plan is Main's channel decision; a review freezes one candidate and
+    // keeps the independent Reviewer's findings, Main's rulings and the rework
+    // that continued the author's original session. Findings and reworks are a
+    // bounded JSON array on the review row so one version and one revision
+    // cover the whole record atomically.
+    version: 5,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS project_data_development_review_plans (
+         project_id TEXT NOT NULL,
+         development_id TEXT NOT NULL,
+         channel TEXT NOT NULL,
+         basis TEXT NOT NULL,
+         checks TEXT NOT NULL,
+         revision INTEGER NOT NULL,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, development_id),
+         FOREIGN KEY (project_id, development_id)
+           REFERENCES project_data_developments(project_id, development_id) ON DELETE CASCADE
+       )`,
+      `CREATE TABLE IF NOT EXISTS project_data_development_reviews (
+         project_id TEXT NOT NULL,
+         review_id TEXT NOT NULL,
+         development_id TEXT NOT NULL,
+         kind TEXT NOT NULL,
+         state TEXT NOT NULL,
+         revision INTEGER NOT NULL,
+         candidate_commit TEXT NOT NULL,
+         candidate_tree TEXT NOT NULL,
+         candidate_branch TEXT NOT NULL,
+         candidate_workspace TEXT NOT NULL,
+         author TEXT,
+         previous_review_id TEXT,
+         previous_candidate_commit TEXT,
+         changed_paths TEXT NOT NULL,
+         reviewer TEXT,
+         findings TEXT NOT NULL,
+         reworks TEXT NOT NULL,
+         verdict TEXT,
+         drift TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         PRIMARY KEY (project_id, review_id),
+         FOREIGN KEY (project_id, development_id)
+           REFERENCES project_data_developments(project_id, development_id) ON DELETE CASCADE
+       )`,
+      `CREATE INDEX IF NOT EXISTS project_data_development_reviews_project
+         ON project_data_development_reviews(project_id, development_id, created_at)`
+    ]
   }
 ];
 

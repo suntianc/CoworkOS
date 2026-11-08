@@ -225,7 +225,7 @@ A secondary backend with `projectData.authority` reads and writes these same ses
 
 ## Development records
 
-A requirement's development record is the agreed goal, completion criteria, suggested route and code baseline, plus the isolated Git checkout a backend prepared for it. The record is shared project data and goes through the same unified gateway and HTTP surface on SQLite and PostgreSQL; the checkout directory is a per-backend execution fact, like a directory binding. This ticket records the work start only: `status` is `active` and delivery stays with later tickets.
+A requirement's development record is the agreed goal, completion criteria, suggested route and code baseline, plus the isolated Git checkout a backend prepared for it. The record is shared project data and goes through the same unified gateway and HTTP surface on SQLite and PostgreSQL; the checkout directory is a per-backend execution fact, like a directory binding. `status` stays `active`; fixed-candidate reviews and a delivery qualification are recorded beside the development, while the actual merge stays with the later shared merge entry.
 
 ```text
 GET  /api/projects/:projectId/merge-config
@@ -235,6 +235,11 @@ GET  /api/projects/:projectId/developments/:developmentId
 POST /api/projects/:projectId/developments
 GET  /api/tasks/:taskId/developments
 POST /api/tasks/:taskId/developments
+GET  /api/projects/:projectId/reviews[?developmentId=]
+GET  /api/projects/:projectId/reviews/:reviewId
+POST /api/projects/:projectId/reviews
+GET  /api/tasks/:taskId/reviews
+POST /api/tasks/:taskId/reviews
 ```
 
 The merge configuration is the project's single update entry and is reserved for the later shared merge queue:
@@ -255,7 +260,32 @@ POST bodies carry `action`:
 - `get` (`developmentId`), `query` and `find_by_requirement` (`requirementId`) read; an unknown record returns 404.
 - `record_workspace` records the authenticated backend's own checkout (`developmentId`, `workspace`); it is used by a secondary backend's client and refuses a workspace for another backend with 403 `development_workspace_backend_mismatch`.
 
-The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project and Main session, so a tool argument cannot select another project or session. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project. The production tool is `project_development` with actions `create`, `get`, `query`, `find_by_requirement`, `update` and `ensure_workspace`.
+The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project and Main session, so a tool argument cannot select another project or session. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project. The production tool is `project_development` with actions `create`, `get`, `query`, `find_by_requirement`, `update`, `ensure_workspace`, `review_plan`, `freeze_candidate`, `attach_reviewer`, `record_finding`, `rule_finding`, `record_rework`, `complete_review`, `delivery_check`, `query_reviews` and `get_review`.
+
+## Fixed-candidate reviews
+
+A review freezes one integration commit and records what an independent Reviewer found and what Main ruled. Review facts are shared project data (schema v5, carried by the same backup/restore snapshot), so a restart or another backend reads the same plan, candidate, findings and rulings. Candidate and drift checks run on the execution backend that owns the checkout; the data authority only stores the validated facts.
+
+```text
+GET  /api/projects/:projectId/reviews?developmentId=:developmentId
+GET  /api/projects/:projectId/reviews/:reviewId
+POST /api/projects/:projectId/reviews
+```
+
+A review returns `reviewId`, `developmentId`, `kind` (`independent`/`combined`), `state` (`in_review`/`passed`/`failed`/`drifted`), `revision`, `candidate` (`{ commit, tree, branch, workspace }`), optional `author` (`{ callId, agentId, workspace }`), optional `previousReviewId`/`previousCandidateCommit`, `changedPaths`, optional `reviewer` (`{ taskId, callId, agentId, workspace }`), `findings`, `reworks`, optional `verdict` (`{ summary, checks, at }`), optional `drift`, timestamps. A finding carries `findingId`, `title`, `detail`, `location?`, `candidateCommit`, `state` (`open`/`fix_claimed`/`fixed`/`dismissed`), `checks`, `rawFailure?`, optional `ruling` (`{ decision, category?, basis, candidateCommit, at }`) and optional `fixedCommit`. A check is `{ name, command?, exitCode, output, at }`.
+
+POST bodies carry `action`; actions that bind or verify a work item (`attach_reviewer`, `record_rework`, and `freeze_candidate` with `authorCallId`) require the Task-scoped route or `x-cowork-task-id`, because the role, agent and checkout come from that Task's durable queue rather than from the request:
+
+- `plan` (`developmentId`, `channel` `self`/`independent`/`combined`, `basis`, `checks`) records Main's channel decision and the author's own verification. `self` requires at least one check.
+- `start` (`developmentId`, `kind`, optional `previousReviewId`, optional `authorCallId`) freezes the clean integration checkout's current commit and tree. A re-review needs a different candidate and records the previous review plus the changed paths; fix-ruled findings must have a recorded rework when the candidate came from a delegated Executor.
+- `attach_reviewer` (`reviewId`, `callId`) reads that call from the Task queue, requires a Reviewer, verifies the item's own `work-items/<callId>` checkout and refuses a session with the author's agent. A HEAD, tree or tracked-file change marks the review `drifted` and returns 409 `review_drifted`.
+- `record_finding` (`reviewId`, `title`, `detail`, `checks`, optional `location`/`rawFailure`) appends the Reviewer's finding with the frozen candidate commit.
+- `rule_finding` (`reviewId`, `findingId`, `decision` `fix`/`dismiss`, `basis`, and `category` `false_positive`/`out_of_scope`/`other` for a dismissal) records Main's ruling; a dismissal keeps the finding and its reason.
+- `record_rework` (`reviewId`, `findingIds`, `fromCallId`, `continuationCallId`) verifies from the durable queue that the continuation reused the original agent, checkpoint history and checkout, and is refused with `review_rework_not_continuation`, `review_rework_identity` or `review_rework_site` otherwise.
+- `complete` (`reviewId`, `verdict` `passed`/`failed`, `summary`, `checks`) re-checks the Reviewer's checkout against the candidate; a passed review needs a check receipt and no fix-ruled finding, and it marks the previous review's fix-ruled findings `fixed` at this candidate.
+- `delivery` (`developmentId`) returns `{ developmentId, eligible, channel?, candidate?, approved?, reviewId?, kind?, independentReview, reasons }`. A `self` plan with its checks is complete qualification on its own. Otherwise the latest review must have passed, its candidate must still be the current integration commit and tree, and every finding across the development must be dismissed or fixed. `candidate_changed`, `findings_open`, `review_drifted` and the other `reasons` explain a refusal. `query`/`get` read reviews back; the `GET` above also returns `plan` and `qualification` for a named development.
+
+`continueCallId` on `call_subagent` is the original-context rework contract: it must name a finished Executor work item in this Run, reuses that item's agent id, checkpoint history and checkout, and appends the rework instruction as the next turn of the same session instead of creating a fresh Agent or repeating completed work. A running item, a Reviewer, or an item that already has a continuation in flight is refused.
 
 ## External Main capacity
 

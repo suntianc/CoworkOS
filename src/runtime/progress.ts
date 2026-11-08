@@ -1,4 +1,4 @@
-import { lstat, open, readFile, readdir } from "node:fs/promises";
+import { lstat, open, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -208,6 +208,81 @@ export async function readSubagentProgress(input: {
     callbackPending: agents.filter((agent) => agent.callbackPending).length
   };
   return { taskId: input.taskId, runId: input.runId, summary, agents };
+}
+
+/** One durable work-item identity, read from whatever Run in this Task queued it. */
+export interface SubagentCallFact {
+  callId: string;
+  agentId: string;
+  role: "executor" | "reviewer";
+  workspace?: string;
+  developmentId?: string;
+  status: string;
+  /** The call this one explicitly continued, when it is a rework. */
+  continuationFrom?: string;
+}
+
+/**
+ * Find a Task's own work item by callId across its Runs.
+ *
+ * Review identity must come from the durable queue rather than from a model's
+ * report: this is what lets the service refuse a Reviewer that was never
+ * dispatched, a role that does not match, or a site the item does not own.
+ */
+export async function findSubagentCall(input: {
+  workspaceRoot: string;
+  taskId: string;
+  callId: string;
+}): Promise<SubagentCallFact | undefined> {
+  const runsRoot = join(input.workspaceRoot, input.taskId, "runs");
+  let entries;
+  try {
+    entries = await readdir(runsRoot, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const runs = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => ({
+        runId: entry.name,
+        mtime: await stat(join(runsRoot, entry.name))
+          .then((info) => info.mtimeMs)
+          .catch(() => 0)
+      }))
+  );
+  runs.sort((left, right) => right.mtime - left.mtime);
+  for (const run of runs) {
+    const queue = await readJson<
+      Array<{
+        stepId: string;
+        agentId: string;
+        status: string;
+        payload?: {
+          delegation?: { role?: string };
+          projectDirectory?: string;
+          workItemSite?: { directory?: string };
+          developmentId?: string;
+          continuation?: { fromCallId?: string };
+        };
+      }>
+    >(join(runsRoot, run.runId, "queue.json"), []);
+    const item = queue.find((entry) => entry.stepId === input.callId);
+    if (!item) continue;
+    const workspace = item.payload?.workItemSite?.directory ?? item.payload?.projectDirectory;
+    return {
+      callId: item.stepId,
+      agentId: item.agentId,
+      role: item.payload?.delegation?.role === "reviewer" ? "reviewer" : "executor",
+      ...(workspace ? { workspace } : {}),
+      ...(item.payload?.developmentId ? { developmentId: item.payload.developmentId } : {}),
+      status: item.status,
+      ...(item.payload?.continuation?.fromCallId
+        ? { continuationFrom: item.payload.continuation.fromCallId }
+        : {})
+    };
+  }
+  return undefined;
 }
 
 function normalizeStatus(status: string): SubagentProgress["status"] {

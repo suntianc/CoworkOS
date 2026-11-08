@@ -5,8 +5,25 @@ import { escapeHtml as esc } from "../workbench/html.js";
 const routeLabel = { quick: "Quick", direct: "Direct", full: "Full" };
 const statusLabel = { active: "进行中" };
 const workspaceLabel = { ready: "现场就绪", failed: "现场未就绪" };
+const channelLabel = { self: "Main 自检", independent: "独立审查", combined: "组合审查" };
+const reviewStateLabel = { in_review: "审查中", passed: "通过", failed: "未通过", drifted: "漂移" };
+const findingStateLabel = { open: "待裁定", fix_claimed: "待修复", fixed: "已修复", dismissed: "不采纳" };
+const dismissalLabel = { false_positive: "误报", out_of_scope: "范围外", other: "其他" };
+const reasonLabel = {
+  review_plan_missing: "缺通道判断",
+  review_checks_missing: "缺检查记录",
+  review_missing: "缺独立审查",
+  review_in_review: "审查未完成",
+  review_failed: "审查未通过",
+  review_drifted: "审查内容漂移",
+  review_kind_mismatch: "缺组合审查",
+  candidate_changed: "候选已变化",
+  candidate_workspace_dirty: "现场有未提交改动",
+  findings_open: "有未处理发现"
+};
 
 const shortCommit = (commit) => (typeof commit === "string" ? commit.slice(0, 8) : "");
+const shortCall = (callId) => (typeof callId === "string" ? callId.slice(-8) : "");
 
 /**
  * The requirement development view.
@@ -21,12 +38,17 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
   let activeProject = null;
   let activeDevelopment = null;
   let developments = [];
+  let activeReview = { plan: null, reviews: [], qualification: null };
   let projectsSignature = "";
 
   const endpoint = (projectId, developmentId) =>
     `/api/projects/${encodeURIComponent(projectId)}/developments${
       developmentId ? `/${encodeURIComponent(developmentId)}` : ""
     }`;
+  const reviewEndpoint = (projectId, developmentId) =>
+    `/api/projects/${encodeURIComponent(projectId)}/reviews?developmentId=${encodeURIComponent(
+      developmentId
+    )}`;
   const visible = (projectId) => panel && !panel.hidden && activeProject?.projectId === projectId;
 
   function install() {
@@ -158,21 +180,99 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
     try {
       const result = await api(endpoint(projectId, developmentId));
       if (current !== epoch || !visible(projectId)) return;
+      const reviews = await api(reviewEndpoint(projectId, developmentId)).catch(() => ({}));
+      if (current !== epoch || !visible(projectId)) return;
       activeDevelopment = developmentId;
-      renderDetail(result.development);
+      activeReview = {
+        plan: reviews.plan ?? null,
+        reviews: reviews.reviews ?? [],
+        qualification: reviews.qualification ?? null
+      };
+      renderDetail(result.development, activeReview);
       renderList();
     } catch (error) {
       if (current === epoch && visible(projectId)) fail(error);
     }
   }
 
-  function renderDetail(development) {
+  function checksHtml(checks, label) {
+    if (!checks?.length) return "";
+    return `<ul class="development-checks" aria-label="${esc(label)}">${checks
+      .map(
+        (check) =>
+          `<li><span>${esc(check.name)}</span><span>exit ${esc(check.exitCode)}</span>${
+            check.command ? `<code>${esc(check.command)}</code>` : ""
+          }</li>`
+      )
+      .join("")}</ul>`;
+  }
+
+  function findingsHtml(findings) {
+    if (!findings?.length) return "";
+    return `<ul class="development-findings">${findings
+      .map((finding) => {
+        const ruling = finding.ruling;
+        return `<li data-finding="${esc(finding.findingId)}">
+          <header><strong>${esc(finding.title)}</strong><span class="ledger-tags"><span>${esc(
+            findingStateLabel[finding.state] ?? finding.state
+          )}</span></span></header>
+          <p class="ledger-source">${esc(finding.location ?? "")}${
+            finding.fixedCommit
+              ? ` · ${esc(shortCommit(finding.candidateCommit))} → ${esc(shortCommit(finding.fixedCommit))}`
+              : ` · ${esc(shortCommit(finding.candidateCommit))}`
+          }</p>
+          ${checksHtml(finding.checks, "发现检查")}
+          ${finding.rawFailure ? `<pre class="development-raw">${esc(finding.rawFailure)}</pre>` : ""}
+          ${
+            ruling
+              ? `<p class="ledger-source">裁定：${
+                  ruling.decision === "fix"
+                    ? "修复"
+                    : `不采纳（${esc(dismissalLabel[ruling.category] ?? ruling.category ?? "")}）`
+                } · ${esc(ruling.basis)}</p>`
+              : ""
+          }
+        </li>`;
+      })
+      .join("")}</ul>`;
+  }
+
+  function reviewHtml(review) {
+    return `<article class="development-review" data-review="${esc(review.reviewId)}">
+      <header><strong>${esc(channelLabel[review.kind] ?? review.kind)}</strong><span class="ledger-tags"><span>${esc(
+        reviewStateLabel[review.state] ?? review.state
+      )}</span><span>${esc(shortCommit(review.candidate?.commit))}</span></span></header>
+      <p class="ledger-source">${
+        review.reviewer
+          ? `审查者 ${esc(review.reviewer.agentId)} · 现场 ${esc(review.reviewer.workspace)}`
+          : "尚未绑定独立审查会话"
+      }</p>
+      ${review.previousReviewId ? `<p class="ledger-source">复审 ${esc(shortCall(review.previousReviewId))} · 改动 ${esc((review.changedPaths ?? []).join("、") || "无")}</p>` : ""}
+      ${findingsHtml(review.findings)}
+      ${(review.reworks ?? [])
+        .map(
+          (rework) =>
+            `<p class="ledger-source">返修 ${esc(shortCall(rework.fromCallId))} → ${esc(
+              shortCall(rework.continuationCallId)
+            )} · ${esc(rework.findingIds.map(shortCall).join("、"))}</p>`
+        )
+        .join("")}
+      ${review.verdict ? `<p class="ledger-source">结论：${esc(review.verdict.summary)}</p>` : ""}
+      ${checksHtml(review.verdict?.checks, "复审检查")}
+      ${review.drift ? `<p class="development-error" role="alert">${esc(review.drift)}</p>` : ""}
+    </article>`;
+  }
+
+  function renderDetail(development, review = activeReview) {
     if (!development) {
       detail.hidden = true;
       return;
     }
     activeDevelopment = development.developmentId;
     const workspace = development.workspace;
+    const plan = review?.plan;
+    const qualification = review?.qualification;
+    const reviews = review?.reviews ?? [];
     detail.hidden = false;
     detail.innerHTML = `<header><strong>${esc(
       development.requirementTitle || development.goal
@@ -200,6 +300,27 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
             }`
           : `<p class="ledger-source">尚未准备</p>`
       }
+      <h3>自检</h3>
+      ${
+        plan
+          ? `<p class="ledger-source">${esc(channelLabel[plan.channel] ?? plan.channel)} · ${esc(
+              plan.basis
+            )}</p>${checksHtml(plan.checks, "自检记录")}`
+          : `<p class="ledger-source">未记录审查通道</p>`
+      }
+      <h3>独立审查</h3>
+      ${reviews.length ? reviews.map(reviewHtml).join("") : `<p class="ledger-source">未冻结候选</p>`}
+      <h3>交付</h3>
+      <p class="ledger-source" data-qualification>${
+        qualification
+          ? qualification.eligible
+            ? `可交付 · ${esc(shortCommit(qualification.approved?.commit))}`
+            : (qualification.reasons ?? [])
+                .map((reason) => reasonLabel[reason] ?? reason)
+                .map((label) => esc(label))
+                .join(" · ")
+          : "尚不可判定"
+      }</p>
       <div class="ledger-actions"><button type="button" class="app-button" data-continue>继续现场</button></div>`;
   }
 

@@ -174,7 +174,7 @@ coworkos data backup --to ~/backups/project-data.json
 coworkos data restore --from ~/backups/project-data.json
 ```
 
-A backup is a local logical snapshot (mode 0600) of the shared projects, this host's directory bindings, requirements, revisions, decisions, references, board entries and events, Main sessions and Run ownership, development records, per-backend workspace bindings and the project merge configuration. Pi transcripts and the checkout files are not in the snapshot; the executing backend keeps them locally. Restore replaces those records in one transaction in foreign-key order and refuses a snapshot from the other engine or an older schema. Stop the backend writing the data root before a restore and restart it afterwards. A backend using `projectData.authority` has no local database; run backup and restore on the authority's backend.
+A backup is a local logical snapshot (mode 0600) of the shared projects, this host's directory bindings, requirements, revisions, decisions, references, board entries and events, Main sessions and Run ownership, development records, review channel decisions, fixed-candidate reviews with their findings and rulings, per-backend workspace bindings and the project merge configuration. Pi transcripts and the checkout files are not in the snapshot; the executing backend keeps them locally. Restore replaces those records in one transaction in foreign-key order and refuses a snapshot from the other engine or an older schema. Stop the backend writing the data root before a restore and restart it afterwards. A backend using `projectData.authority` has no local database; run backup and restore on the authority's backend.
 
 ## External Main capacity
 

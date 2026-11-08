@@ -1,5 +1,5 @@
 /**
- * The Main-side client for requirement development records.
+ * The Main-side client for requirement development records and their reviews.
  *
  * It addresses one Task, never a project id: the Dashboard resolves the Task's
  * project from its own catalog, so an Agent cannot name a project it is not
@@ -11,6 +11,12 @@ export interface ProjectDevelopmentClientError extends Error {
   code?: string;
   currentRevision?: number;
   developmentId?: string;
+}
+
+export interface ProjectDevelopmentClient {
+  (input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /** Fixed-candidate review facts for the same Task. */
+  reviews(input: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
 const TASK_ID = /^[A-Za-z0-9._-]+$/;
@@ -39,15 +45,18 @@ export function createProjectDevelopmentClient(options: {
   dashboardUrl: string;
   taskId: string;
   token?: string;
-}) {
+}): ProjectDevelopmentClient {
   const origin = loopback(options.dashboardUrl);
   if (!TASK_ID.test(options.taskId)) throw new Error("需求开发工具不可用：当前会话 ID 不合法");
   const token = options.token ?? process.env.COWORK_API_TOKEN;
   if (!token) throw new Error("需求开发工具不可用：本次运行没有本地服务凭据");
-  const endpoint = `${origin}/api/tasks/${encodeURIComponent(options.taskId)}/developments`;
+  const base = `${origin}/api/tasks/${encodeURIComponent(options.taskId)}`;
 
-  return async (input: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const response = await fetch(endpoint, {
+  const send = async (
+    path: "developments" | "reviews",
+    input: Record<string, unknown>
+  ): Promise<Record<string, unknown>> => {
+    const response = await fetch(`${base}/${path}`, {
       method: "POST",
       redirect: "error",
       headers: { "content-type": "application/json", "x-atria-token": token },
@@ -69,4 +78,9 @@ export function createProjectDevelopmentClient(options: {
     }
     return body;
   };
+
+  const request = ((input: Record<string, unknown>) =>
+    send("developments", input)) as ProjectDevelopmentClient;
+  request.reviews = (input) => send("reviews", input);
+  return request;
 }

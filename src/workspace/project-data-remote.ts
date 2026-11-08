@@ -34,6 +34,7 @@ import type {
 } from "./project-data-service.js";
 import { DevelopmentExistsError } from "../domain/project-development.js";
 import type { DevelopmentRecord, MergeConfig } from "../domain/project-development.js";
+import type { DevelopmentReview, ReviewPlan } from "../domain/development-review.js";
 import type { MainSessionRun } from "../domain/main-session.js";
 import type { RequirementDetail, RequirementSummary, SharedProject } from "../domain/project-ledger.js";
 
@@ -438,6 +439,65 @@ export class RemoteProjectDataService implements ProjectDataGateway {
       body: { action: "record_workspace", developmentId, workspace }
     });
     return result.development as DevelopmentRecord;
+  }
+
+  /**
+   * Review facts travel through the same authority surface. The backend that
+   * owns the checkout decides the candidate and drift, then stores the result;
+   * the authority only keeps the shared record.
+   */
+  async reviewPlan(projectId: unknown, developmentId: unknown): Promise<ReviewPlan | undefined> {
+    const result = await this.reviewRequest(projectId, { action: "query", developmentId });
+    return (result.plan as ReviewPlan | null) ?? undefined;
+  }
+
+  async setReviewPlan(projectId: unknown, developmentId: unknown, input: unknown): Promise<ReviewPlan> {
+    const value = (input ?? {}) as Record<string, unknown>;
+    const result = await this.reviewRequest(projectId, {
+      action: "plan",
+      developmentId,
+      channel: value.channel,
+      basis: value.basis,
+      checks: value.checks
+    });
+    return result.plan as ReviewPlan;
+  }
+
+  async createReview(projectId: unknown, developmentId: unknown, input: unknown): Promise<DevelopmentReview> {
+    const result = await this.reviewRequest(projectId, {
+      action: "start",
+      developmentId,
+      ...(input && typeof input === "object" && !Array.isArray(input) ? input : {})
+    });
+    return result.review as DevelopmentReview;
+  }
+
+  async updateReview(projectId: unknown, reviewId: unknown, input: unknown): Promise<DevelopmentReview> {
+    const result = await this.reviewRequest(projectId, {
+      action: "update",
+      reviewId,
+      ...(input && typeof input === "object" && !Array.isArray(input) ? input : {})
+    });
+    return result.review as DevelopmentReview;
+  }
+
+  async getReview(projectId: unknown, reviewId: unknown): Promise<DevelopmentReview> {
+    const result = await this.request(
+      projectPath(projectId, `/reviews/${encodeURIComponent(String(reviewId))}`)
+    );
+    return result.review as DevelopmentReview;
+  }
+
+  async queryReviews(projectId: unknown, developmentId?: unknown): Promise<DevelopmentReview[]> {
+    const result = await this.reviewRequest(projectId, {
+      action: "query",
+      ...(developmentId === undefined ? {} : { developmentId })
+    });
+    return (result.reviews as DevelopmentReview[]) ?? [];
+  }
+
+  private reviewRequest(projectId: unknown, body: Record<string, unknown>) {
+    return this.request(projectPath(projectId, "/reviews"), { body });
   }
 
   async boardEntries(projectId: unknown): Promise<BoardEntry[]> {
