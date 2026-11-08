@@ -1011,6 +1011,52 @@ test(
     await waitFor(() => local.tags().includes("answer-turn"), "the answer never reached the model");
     await settle(request, answerSession.taskId, "completed");
     assert.deepEqual((await capacity(request)).body.queued, []);
+
+    // A watch wake is a durable demand too: with the budget full it waits in
+    // the same queue and starts when a slot frees. Wait for the completed Run
+    // to release its slot before filling it again.
+    await waitFor(
+      async () => (await capacity(request)).body.running.length === 0,
+      "the answer Run did not release its slot"
+    );
+    local.hold("blocker-again");
+    const blockingAgain = await runTask(request, blockerSession.taskId, {
+      prompt: "[tag:blocker-again] 再次占住唯一名额。",
+      mainSessionId: blockerSession.sessionId
+    });
+    assert.equal(blockingAgain.body.status, "running", JSON.stringify(blockingAgain.body));
+    let latestWake = {};
+    const wakeDeadline = Date.now() + 20_000;
+    while (Date.now() < wakeDeadline) {
+      latestWake = (await capacity(request)).body;
+      if (latestWake.running.some((entry) => entry.taskId === blockerSession.taskId)) break;
+      await delay(50);
+    }
+    assert.ok(
+      latestWake.running.some((entry) => entry.taskId === blockerSession.taskId),
+      `the second blocking Main did not take the slot: ${JSON.stringify(latestWake)} tags=${JSON.stringify(local.tags())} task=${JSON.stringify((await taskDetail(request, blockerSession.taskId)).body.task)}`
+    );
+    const woken = await request(`/api/tasks/${encodeURIComponent(answerSession.taskId)}/events`, {
+      type: "external.event",
+      payload: { kind: "fixture" },
+      wake: true
+    });
+    assert.equal(woken.status, 202, JSON.stringify(woken.body));
+    assert.equal(woken.body.wake.status, "queued", JSON.stringify(woken.body.wake));
+    await waitFor(
+      async () =>
+        (await capacity(request)).body.queued.some((entry) => entry.taskId === answerSession.taskId),
+      "the wake did not join the queue"
+    );
+    local.release("blocker-again");
+    await settle(request, blockerSession.taskId, "completed");
+    await waitFor(
+      async () =>
+        (await capacity(request)).body.running.some((entry) => entry.taskId === answerSession.taskId),
+      "the queued wake did not start after the slot was released"
+    );
+    await settle(request, answerSession.taskId, "completed");
+    assert.deepEqual((await capacity(request)).body.queued, []);
     assert.deepEqual(local.failures, []);
   }
 );

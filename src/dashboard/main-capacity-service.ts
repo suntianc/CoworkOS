@@ -188,8 +188,9 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
     pid?: number;
     startedAt: string;
   }): Promise<boolean> {
+    // A heartbeat for another Run of the same Task is stale evidence about an
+    // earlier process, not proof that this slot has no process.
     const beat = await ports.heartbeat(slot.taskId).catch(() => undefined);
-    if (beat && beat.runId !== slot.runId) return false;
     if (beat && beat.runId === slot.runId && beat.host === host && pidAlive(beat.pid)) return true;
     if (slot.host !== host) return false;
     if (slot.pid !== undefined) return pidAlive(slot.pid);
