@@ -4,8 +4,8 @@ import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
@@ -1403,7 +1403,6 @@ test(
       modelEndpoint: local.base,
       model: "fixture-model",
       defaultProject: false,
-      env: { COWORK_MAIN_CAPACITY_BIND_WAIT_MS: "120" },
       config: { mainCapacity: { resident: 1, continuation: 0 } }
     });
     t.after(() => dashboard.stop());
@@ -1479,7 +1478,6 @@ test(
       modelEndpoint: local.base,
       model: "fixture-model",
       defaultProject: false,
-      env: { COWORK_MAIN_CAPACITY_BIND_WAIT_MS: "120" },
       config: { mainCapacity: { resident: 1, continuation: 0 } }
     });
     t.after(() => dashboard.stop());
@@ -1838,7 +1836,6 @@ test(
       modelEndpoint: local.base,
       model: "fixture-model",
       defaultProject: false,
-      env: { COWORK_MAIN_CAPACITY_BIND_WAIT_MS: "3000" },
       config: { mainCapacity: { resident: 1, continuation: 0 } }
     });
     t.after(() => dashboard.stop());
@@ -2017,5 +2014,163 @@ test(
     assert.notEqual(code, 0, stderr);
     assert.match(stderr, /名额已释放|容量配置缺失/);
     assert.deepEqual(local.requests, [], "an unbound Main must not reach the model");
+  }
+);
+
+/**
+ * The snapshot→reclaim ordering of recovery.
+ *
+ * A reconcile that judged a pid-less reservation dead must not delete a child
+ * that registered itself in the meantime. The check and the removal are one
+ * store write; this test drives the exact ordering with a real owned child that
+ * binds through the production ledger while the recovery awaits its heartbeat
+ * port.
+ */
+test(
+  "a child that registers between the reconcile snapshot and the reclaim keeps its slot",
+  { timeout: 180_000 },
+  async (t) => {
+    const { MainCapacityStore } = await import("../dist/src/storage/main-capacity-store.js");
+    const { createMainCapacityService } = await import("../dist/src/dashboard/main-capacity-service.js");
+    const dist = new URL("../dist/", import.meta.url);
+    const dir = await mkdtemp(join(tmpdir(), "cowork-capacity-race-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const childScript = join(dir, "child-self-register.mjs");
+    await writeFile(
+      childScript,
+      [
+        `import { MainCapacityStore } from ${JSON.stringify(new URL("src/storage/main-capacity-store.js", dist).href)};`,
+        `import { createMainCapacityLedger } from ${JSON.stringify(new URL("src/runtime/main-capacity.js", dist).href)};`,
+        `import { hostname } from "node:os";`,
+        `const [storePath, requestId, delayMs] = process.argv.slice(2);`,
+        `const ledger = createMainCapacityLedger({ store: new MainCapacityStore(storePath), host: hostname(), settings: () => ({ resident: 1, continuation: 0 }) });`,
+        `await new Promise((resolve) => setTimeout(resolve, Number(delayMs)));`,
+        `const bound = await ledger.bindProcess(requestId, process.pid);`,
+        `console.log(JSON.stringify({ pid: process.pid, bound }));`,
+        `if (!bound) process.exit(3);`,
+        `setInterval(() => {}, 1000);`,
+        ""
+      ].join("\n")
+    );
+    const settings = { resident: 1, continuation: 0 };
+    const spawnChild = (storePath, delayMs) => {
+      const child = spawn(process.execPath, [childScript, storePath, "request-a", String(delayMs)], {
+        stdio: ["ignore", "pipe", "ignore"]
+      });
+      t.after(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      });
+      let bound;
+      child.stdout.on("data", (chunk) => {
+        try {
+          bound = JSON.parse(String(chunk).trim()).bound;
+        } catch {
+          /* partial line */
+        }
+      });
+      return { child, bound: () => bound };
+    };
+    const windowState = (aged = false) => {
+      const stamp = new Date().toISOString();
+      const startedAt = new Date(Date.now() - (aged ? 130_000 : 0)).toISOString();
+      return {
+        slots: [
+          {
+            requestId: "request-a",
+            projectId: "project-a",
+            sessionId: "session-a",
+            taskId: "task-a",
+            runId: "run-a",
+            kind: "regular",
+            host: hostname(),
+            startedAt
+          }
+        ],
+        queue: [
+          {
+            requestId: "request-a",
+            projectId: "project-a",
+            sessionId: "session-a",
+            taskId: "task-a",
+            runId: "run-a",
+            kind: "regular",
+            host: hostname(),
+            resume: false,
+            prompt: "accepted a",
+            origin: "http",
+            enqueuedAt: stamp,
+            state: "starting"
+          }
+        ]
+      };
+    };
+    const run = async ({ runRecorded, aged = false, viaDescribe = false }) => {
+      const storePath = join(dir, `state-${runRecorded ? "run" : "no-run"}-${aged ? "aged" : "fresh"}.json`);
+      const store = new MainCapacityStore(storePath);
+      await store.update((state) => {
+        const window = windowState(aged);
+        state.slots = window.slots;
+        state.queue = window.queue;
+      });
+      const service = createMainCapacityService({
+        store,
+        backendId: "backend-race",
+        settings: () => settings,
+        persistSettings: async () => {},
+        projects: async () => [],
+        sessions: async () => [],
+        // The production port awaits locateTask + a heartbeat read; no beat for
+        // this runId exists yet, which is what makes the ordering deterministic.
+        heartbeat: async () => {
+          await delay(600);
+          return undefined;
+        },
+        taskState: async (taskId) =>
+          taskId !== "task-a" || !runRecorded ? undefined : { status: "running", activeRunId: "run-a" },
+        retryBaseMs: 50
+      });
+      t.after(() => service.stop());
+      // The child commits its own registration ~150 ms into the 600 ms
+      // heartbeat await of the recovery that already read the pid-less snapshot.
+      const child = spawnChild(storePath, 150);
+      if (viaDescribe) await service.describe();
+      else await service.recover();
+      assert.equal(child.bound(), true, "the production ledger refused a live reservation");
+      const after = await store.read();
+      assert.ok(after.slots.some((slot) => slot.requestId === "request-a"));
+      assert.equal(after.slots[0].pid, child.child.pid, "the registered child lost its slot");
+      // The demand is the running child's; it is not requeued or redispatched.
+      // (A normal-operation reconcile leaves the dispatch's starting row alone;
+      // startup settles it as started.)
+      if (!viaDescribe) assert.deepEqual(after.queue, []);
+      const decision = await service.admit({
+        requestId: "request-b",
+        projectId: "project-b",
+        sessionId: "session-b",
+        taskId: "task-b",
+        runId: "run-b",
+        kind: "regular",
+        resume: false,
+        prompt: "accepted b",
+        origin: "http",
+        queueWhenFull: true
+      });
+      assert.equal(decision.state, "queued", JSON.stringify(decision));
+      return { store, service, child };
+    };
+
+    const recorded = await run({ runRecorded: true });
+    const unrecorded = await run({ runRecorded: false });
+    const describePath = await run({ runRecorded: false, aged: true, viaDescribe: true });
+    for (const runResult of [recorded, unrecorded, describePath]) {
+      await runResult.service.stop();
+      const child = runResult.child.child;
+      if (child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, "close");
+        child.kill("SIGKILL");
+        await closed;
+      }
+      assert.notEqual(child.exitCode === null && child.signalCode === null, true);
+    }
   }
 );

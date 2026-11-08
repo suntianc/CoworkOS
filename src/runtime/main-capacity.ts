@@ -352,8 +352,32 @@ export function createMainCapacityLedger({
       });
     },
 
-    /** Remove one slot but keep its accepted demand where it is. */
-    releaseSlot: dropSlot,
+    /**
+     * Reclaim a slot judged dead from a previous observation.
+     *
+     * The check and the removal are one store write: a child that registers
+     * itself between the observer's snapshot and this call (or a slot that now
+     * names another Run) no longer matches the observation and is kept, so a
+     * live Main is never uncounted. The record is re-evaluated next time.
+     */
+    releaseSlot(
+      requestId: string,
+      expected: { runId: string; host: string; pid?: number }
+    ): Promise<boolean> {
+      return store.update((state) => {
+        const index = state.slots.findIndex((entry) => entry.requestId === requestId);
+        if (index < 0) return false;
+        const slot = state.slots[index]!;
+        if (
+          slot.runId !== expected.runId ||
+          slot.host !== expected.host ||
+          (slot.pid ?? undefined) !== expected.pid
+        )
+          return false;
+        state.slots.splice(index, 1);
+        return true;
+      });
+    },
 
     /**
      * A recoverable dispatch failure: release the unused slot and keep the

@@ -41,8 +41,6 @@ export interface MainCapacityServicePorts {
   tickMs?: number;
   /** Base backoff for a recoverable dispatch failure (tests use a small one). */
   retryBaseMs?: number;
-  /** How long startup waits for a spawned Main to register its pid. */
-  bindWaitMs?: number;
   now?: () => string;
 }
 
@@ -241,11 +239,17 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
    */
   async function reconcile(ignoreFreshReservations = false): Promise<void> {
     const state = await ledger.state();
-    if (state.queue.length || state.slots.length)
-      for (const slot of state.slots) {
-        if (await slotAlive(slot, ignoreFreshReservations)) continue;
-        await ledger.releaseSlot(slot.requestId);
-      }
+    for (const slot of state.slots) {
+      if (await slotAlive(slot, ignoreFreshReservations)) continue;
+      // Re-validate against the current record under the store lock: a child
+      // may have registered between this snapshot and the reclaim below, and
+      // must keep its slot.
+      await ledger.releaseSlot(slot.requestId, {
+        runId: slot.runId,
+        host: slot.host,
+        ...(slot.pid === undefined ? {} : { pid: slot.pid })
+      });
+    }
     // Only startup judges an interrupted `starting` entry: during normal
     // operation an in-flight dispatch owns it, and its own failure handler
     // decides between a retry and a permanent drop.
