@@ -2,6 +2,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   dismissalCategory,
   reviewBasis,
+  reviewCandidate,
   reviewFindingInput,
   reviewKind,
   reviewPlanInput,
@@ -12,6 +13,13 @@ import {
   type ReviewFinding,
   type ReviewQualification
 } from "../domain/development-review.js";
+import {
+  mergeAcceptance,
+  mergeCheckCommands,
+  type DevelopmentMerge,
+  type MergeAcceptance,
+  type MergeCheck
+} from "../domain/development-merge.js";
 import {
   DevelopmentExistsError,
   developmentIdentifier,
@@ -36,6 +44,14 @@ import {
   prepareDevelopmentWorkspace,
   resolveDevelopmentBaseline
 } from "../workspace/development-workspace.js";
+import {
+  isAncestor,
+  mergeCandidate,
+  publishMerge,
+  removeMergeSite,
+  runMergeChecks,
+  targetTip
+} from "../workspace/project-merge.js";
 
 export interface DevelopmentProject {
   projectId: string;
@@ -58,8 +74,19 @@ export interface ProjectDevelopmentPorts {
   runtime: Pick<ProjectDataRuntime, "service">;
   /** The serving backend: it owns the checkouts it prepares and can read them back. */
   backendId: string;
+  /**
+   * This process instance's start time. A merge claim records it, so a later
+   * process of the same backend can tell an interrupted operation from one that
+   * is still being applied by this instance.
+   */
+  startedAt?: string;
   /** Where isolated checkouts live, outside every user working copy. */
   developmentRoot: string;
+  /**
+   * Test-only crash injection: `crash:<mergeId|*>@after-apply` kills the process
+   * between the target update and its record, reproducing that recovery window.
+   */
+  mergeFaultInject?: string;
   project(projectId: string): Promise<DevelopmentProject | undefined>;
   taskProject(taskId: string): Promise<DevelopmentProject | undefined>;
   /** A call this Task's own durable queue recorded; never an identity the model supplied. */
@@ -115,6 +142,13 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
   const workspaceDirectory = (developmentId: string) => join(ports.developmentRoot, developmentId);
   const workspaceBranch = (developmentId: string) => `coworkos/development/${developmentId}`;
 
+  /**
+   * The project's merge entry.
+   *
+   * Every backend that can see the configured repository may prepare its own
+   * isolated checkout; only the named execution backend claims an operation and
+   * updates the target. Preparation is therefore not an ownership refusal.
+   */
   async function requiredMergeConfig(projectId: string): Promise<MergeConfig> {
     const config = await (await gateway()).mergeConfig(projectId);
     if (!config)
@@ -122,12 +156,6 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         "项目合入配置缺失：请先设置 repository、targetBranch 与 executionBackendId",
         undefined,
         "project_git_missing"
-      );
-    if (config.executionBackendId !== ports.backendId)
-      throw new ProjectDataConflictError(
-        `该项目的合入配置归属后端 ${config.executionBackendId}，当前后端不能准备需求现场`,
-        undefined,
-        "project_git_owner_mismatch"
       );
     return config;
   }
@@ -237,14 +265,6 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         directory,
         branch,
         "项目合入配置缺失：请先设置 repository、targetBranch 与 executionBackendId"
-      );
-    if (config.executionBackendId !== ports.backendId)
-      return markFailed(
-        projectId,
-        record,
-        directory,
-        branch,
-        `该项目的合入配置归属后端 ${config.executionBackendId}，当前后端不能继续需求现场`
       );
     if (
       record.workspace &&
@@ -830,6 +850,404 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     return qualification;
   }
 
+  // ---- project merge entry ---------------------------------------------------
+  // Every Main applies here; the configured execution backend claims one
+  // operation at a time and updates the target. The operation row is the
+  // persistent identity a later process reconciles against real Git facts, so a
+  // crash between "target updated" and "record written" cannot merge twice.
+
+  const startedAt = ports.startedAt ?? "unidentified";
+  const mergeAttempts = 3;
+  const projectQueues = new Map<string, Promise<unknown>>();
+
+  /** One project queue per process; the shared row is the cross-process lock. */
+  function serialized<T>(projectId: string, action: () => Promise<T>): Promise<T> {
+    const previous = projectQueues.get(projectId) ?? Promise.resolve();
+    const next = previous.then(action, action);
+    projectQueues.set(
+      projectId,
+      next.then(
+        () => undefined,
+        () => undefined
+      )
+    );
+    return next;
+  }
+
+  const mergeSite = (mergeId: string) => join(ports.developmentRoot, "merges", mergeId);
+
+  function parseMergeFault(value: string | undefined): { mergeId?: string } | undefined {
+    if (!value) return undefined;
+    const match = value.match(/^crash:(.+)@after-apply$/);
+    if (!match) return undefined;
+    return match[1] === "*" ? {} : { mergeId: match[1] };
+  }
+
+  function afterApply(merge: DevelopmentMerge): void {
+    const fault = parseMergeFault(ports.mergeFaultInject);
+    if (!fault) return;
+    if (fault.mergeId && fault.mergeId !== merge.mergeId) return;
+    // The target is already updated; nothing after this point can run. A real
+    // kill, so recovery has to reconcile the record against Git.
+    process.kill(process.pid, "SIGKILL");
+  }
+
+  /**
+   * Checks the requester did not name fall back to the commands its self plan or
+   * passed review actually ran, so the combined version is verified with the
+   * same relevant checks rather than an empty list.
+   */
+  async function recordedMergeChecks(
+    service: ProjectDataGateway,
+    projectId: string,
+    developmentId: string
+  ): Promise<MergeCheck[]> {
+    const plan = await service.reviewPlan(projectId, developmentId);
+    const reviews = await service.queryReviews(projectId, developmentId);
+    const commands = (checks: { name: string; command?: string }[]): MergeCheck[] =>
+      checks
+        .filter((check): check is { name: string; command: string } => Boolean(check.command))
+        .map((check) => ({ name: check.name, command: check.command }));
+    const fromPlan = commands(plan?.checks ?? []);
+    if (fromPlan.length) return fromPlan;
+    return commands(reviews.at(-1)?.verdict?.checks ?? []);
+  }
+
+  /**
+   * Re-check the accepted version without reading the requester's checkout.
+   *
+   * The execution backend may be another host, so it verifies the shared facts
+   * the request was qualified against: the same self-check version with no
+   * review started, or the same passed review with every finding settled. A
+   * later pass on a different candidate therefore does not approve this one.
+   */
+  async function acceptanceReasons(projectId: string, merge: DevelopmentMerge): Promise<string[]> {
+    const service = await gateway();
+    const plan = await service.reviewPlan(projectId, merge.developmentId);
+    const reviews = await service.queryReviews(projectId, merge.developmentId);
+    const reasons: string[] = [];
+    if (merge.acceptance.channel === "self") {
+      if (!plan || plan.channel !== "self") reasons.push("review_plan_missing");
+      else {
+        if (plan.candidate.commit !== merge.candidate.commit || plan.candidate.tree !== merge.candidate.tree)
+          reasons.push("candidate_changed");
+        if (!plan.checks.length) reasons.push("review_checks_missing");
+      }
+      if (reviews.length) reasons.push("review_started");
+    } else {
+      const review = merge.acceptance.reviewId
+        ? reviews.find((entry) => entry.reviewId === merge.acceptance.reviewId)
+        : undefined;
+      if (!review) reasons.push("review_missing");
+      else {
+        if (review.state !== "passed") reasons.push(`review_${review.state}`);
+        if (review.candidate.commit !== merge.candidate.commit) reasons.push("candidate_changed");
+        if (merge.acceptance.channel === "combined" && review.kind !== "combined")
+          reasons.push("review_kind_mismatch");
+      }
+      const unresolved = reviews
+        .flatMap((entry) => entry.findings)
+        .filter((finding) => finding.state === "open" || finding.state === "fix_claimed");
+      if (unresolved.length) reasons.push("findings_open");
+    }
+    if (merge.acceptance.approvedCommit !== merge.candidate.commit) reasons.push("candidate_changed");
+    if (merge.acceptance.approvedTree !== merge.candidate.tree) reasons.push("candidate_changed");
+    return [...new Set(reasons)];
+  }
+
+  async function requestMerge(projectId: string, input: Record<string, unknown>): Promise<DevelopmentMerge> {
+    await project(projectId);
+    const developmentId = developmentIdentifier(input.developmentId, "开发记录 ID");
+    await reviewDevelopment(projectId, developmentId);
+    const config = await requiredMergeConfig(projectId);
+    const qualification = await deliveryQualification(projectId, developmentId);
+    if (
+      !qualification.eligible ||
+      !qualification.channel ||
+      !qualification.candidate ||
+      !qualification.approved
+    )
+      throw conflict(
+        `交付资格还不满足：${qualification.reasons.join("、") || "未通过验收"}`,
+        "merge_not_qualified"
+      );
+    const candidate = qualification.candidate;
+    if (qualification.approved.commit !== candidate.commit || qualification.approved.tree !== candidate.tree)
+      throw conflict("验收版本与当前候选不一致；请在当前版本验收后再申请合入", "merge_not_qualified");
+    const supplied = input.checks === undefined ? undefined : mergeCheckCommands(input.checks);
+    const service = await gateway();
+    const checks = supplied ?? (await recordedMergeChecks(service, projectId, developmentId));
+    if (!checks.length) throw conflict("合入须记录在组合版本上运行的检查命令", "merge_checks_missing");
+    const acceptance: MergeAcceptance = {
+      channel: qualification.channel,
+      approvedCommit: qualification.approved.commit,
+      approvedTree: qualification.approved.tree,
+      ...(qualification.reviewId ? { reviewId: qualification.reviewId } : {})
+    };
+    const existing = await service.queryMerges(projectId, developmentId);
+    const open = existing.find(
+      (entry) =>
+        (entry.state === "waiting" || entry.state === "applying") &&
+        entry.candidate.commit === candidate.commit
+    );
+    if (open) return open;
+    // A merged candidate is the same receipt on a retry; a new version needs its
+    // own operation instead of inheriting the previous approval.
+    const merged = [...existing]
+      .reverse()
+      .find((entry) => entry.state === "merged" && entry.candidate.commit === candidate.commit);
+    if (merged) return merged;
+    const created = await service.createMerge(projectId, developmentId, {
+      candidate,
+      acceptance,
+      checks,
+      requestedBy: ports.backendId,
+      executionBackendId: config.executionBackendId,
+      targetBranch: config.targetBranch
+    });
+    if (config.executionBackendId !== ports.backendId) return created;
+    // The location that owns the target applies its own project queue; another
+    // backend's request stays waiting until that location processes it.
+    const applied = await applyMerges(projectId);
+    return (
+      applied.find((entry) => entry.mergeId === created.mergeId) ??
+      service.getMerge(projectId, created.mergeId)
+    );
+  }
+
+  async function executeMerge(
+    projectId: string,
+    config: MergeConfig,
+    merge: DevelopmentMerge
+  ): Promise<DevelopmentMerge> {
+    const service = await gateway();
+    let current = merge;
+    const update = (patch: Record<string, unknown>) =>
+      service.updateMerge(projectId, current.mergeId, {
+        expectedRevision: current.revision,
+        ...patch
+      });
+    try {
+      const reasons = await acceptanceReasons(projectId, merge);
+      if (reasons.length)
+        return await update({
+          state: "check_failed",
+          reasons,
+          detail: "合入前复核验收未通过；旧候选或旧审查不能批准当前版本"
+        });
+      for (let attempt = 0; attempt < mergeAttempts; attempt += 1) {
+        const combined = await mergeCandidate({
+          repository: config.repository,
+          directory: mergeSite(merge.mergeId),
+          targetBranch: merge.targetBranch,
+          candidate: merge.candidate.commit
+        });
+        if (combined.status === "conflict") {
+          await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+          return await update({
+            state: "conflict",
+            reasons: [],
+            detail: `目标分支与候选存在 Git 冲突：${combined.paths.join("、")}`
+          });
+        }
+        if (combined.status === "failed") {
+          await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+          return await update({ state: "failed", reasons: [], detail: combined.detail });
+        }
+        const results = await runMergeChecks(mergeSite(merge.mergeId), merge.checks);
+        const failed = results.filter((check) => check.exitCode !== 0);
+        if (failed.length) {
+          await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+          return await update({
+            state: "check_failed",
+            checks: results,
+            reasons: [],
+            detail: `组合版本检查未通过：${failed.map((check) => check.name).join("、")}`
+          });
+        }
+        // Persist the combined base, the commit about to be published and the
+        // real receipts before the ref moves; that is the recovery identity.
+        current = await update({
+          checks: results,
+          reasons: [],
+          detail: null,
+          combinedBase: combined.baseCommit,
+          expectedTarget: combined.baseCommit,
+          mergeCommit: combined.mergeCommit
+        });
+        const published = await publishMerge({
+          repository: config.repository,
+          targetBranch: current.targetBranch,
+          mergeCommit: combined.mergeCommit,
+          expectedTarget: combined.baseCommit
+        });
+        if (published.status === "moved") {
+          await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+          current = await update({
+            reasons: ["target_moved"],
+            combinedBase: null,
+            expectedTarget: null,
+            mergeCommit: null
+          });
+          continue;
+        }
+        if (published.status === "blocked") {
+          await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+          return await update({
+            state: "conflict",
+            reasons: ["target_worktree_blocked"],
+            detail: published.detail
+          });
+        }
+        afterApply(current);
+        await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+        return await update({ state: "merged", reasons: [], detail: null });
+      }
+      return await update({
+        state: "failed",
+        reasons: ["target_moved"],
+        detail: "目标分支在合入期间持续前移，稍后重新申请合入",
+        combinedBase: null,
+        expectedTarget: null,
+        mergeCommit: null
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const failed = await service
+        .updateMerge(projectId, merge.mergeId, {
+          expectedRevision: current.revision,
+          state: "failed",
+          reasons: ["merge_failed"],
+          detail
+        })
+        .catch(() => undefined);
+      return failed ?? service.getMerge(projectId, merge.mergeId);
+    }
+  }
+
+  /**
+   * Resolve an operation a previous process left `applying`.
+   *
+   * Its own row says which commit it staged and which target it expected; the
+   * actual branch decides what happened. If the target already points at the
+   * staged commit, only the record is missing. If the target still equals the
+   * expectation, the compare-and-swap never ran, so publishing the same commit
+   * is safe. Anything else means the target advanced; the attempt is requeued.
+   */
+  async function reconcileApplying(
+    projectId: string,
+    config: MergeConfig,
+    merge: DevelopmentMerge
+  ): Promise<DevelopmentMerge> {
+    const service = await gateway();
+    const update = (patch: Record<string, unknown>) =>
+      service.updateMerge(projectId, merge.mergeId, {
+        expectedRevision: merge.revision,
+        ...patch
+      });
+    try {
+      const tip = await targetTip(config.repository, merge.targetBranch);
+      if (!tip)
+        return await update({
+          state: "failed",
+          reasons: ["target_missing"],
+          detail: `目标分支 ${merge.targetBranch} 不存在`
+        });
+      // The target may already contain the staged commit: either it moved to
+      // exactly that commit, or another update landed on top of it. In both
+      // cases only the record is missing, so the same receipt is completed
+      // instead of merging the candidate a second time.
+      if (merge.mergeCommit && (await isAncestor(config.repository, merge.mergeCommit, tip))) {
+        await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+        return await update({ state: "merged", reasons: [], detail: null });
+      }
+      if (merge.mergeCommit && merge.expectedTarget && tip === merge.expectedTarget) {
+        const published = await publishMerge({
+          repository: config.repository,
+          targetBranch: merge.targetBranch,
+          mergeCommit: merge.mergeCommit,
+          expectedTarget: merge.expectedTarget
+        });
+        if (published.status === "updated") {
+          await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+          return await update({ state: "merged", reasons: [], detail: null });
+        }
+        if (published.status === "blocked") {
+          await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+          return await update({
+            state: "conflict",
+            reasons: ["target_worktree_blocked"],
+            detail: published.detail
+          });
+        }
+      }
+      await removeMergeSite(config.repository, mergeSite(merge.mergeId));
+      return await update({
+        state: "waiting",
+        reasons: ["target_moved"],
+        detail: "目标已前移；在最新目标上重新验证组合版本",
+        combinedBase: null,
+        expectedTarget: null,
+        mergeCommit: null
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return await update({
+        state: "failed",
+        reasons: ["merge_reconcile_failed"],
+        detail
+      }).catch(() => merge);
+    }
+  }
+
+  async function applyMerges(projectId: string): Promise<DevelopmentMerge[]> {
+    await project(projectId);
+    const config = await requiredMergeConfig(projectId);
+    if (config.executionBackendId !== ports.backendId)
+      throw conflict(
+        `该项目合入归属后端 ${config.executionBackendId}，当前后端不能更新目标分支`,
+        "project_git_owner_mismatch"
+      );
+    return serialized(projectId, async () => {
+      const service = await gateway();
+      const processed: DevelopmentMerge[] = [];
+      // Reconcile first: a previous process of this backend may have died
+      // between the Git update and its record.
+      for (const entry of await service.queryMerges(projectId)) {
+        if (entry.state !== "applying") continue;
+        if (entry.executionBackendId !== ports.backendId) continue;
+        if (entry.ownerStartedAt === startedAt) continue;
+        const reconciled = await reconcileApplying(projectId, config, entry);
+        // A requeued operation is claimed below; only a terminal reconciliation
+        // is its result for this call.
+        if (reconciled.state !== "waiting") processed.push(reconciled);
+      }
+      for (;;) {
+        const waiting = (await service.queryMerges(projectId)).filter((entry) => entry.state === "waiting");
+        const next = waiting[0];
+        if (!next) break;
+        let claimed: DevelopmentMerge;
+        try {
+          claimed = await service.claimMerge(projectId, next.mergeId, {
+            expectedRevision: next.revision,
+            ownerStartedAt: startedAt
+          });
+        } catch (error) {
+          // Another process owns the project's update window (or this one
+          // changed underneath us); its own run will record the result.
+          if (
+            error instanceof ProjectDataConflictError &&
+            (error.code === "merge_busy" || error.code === "merge_not_claimable")
+          )
+            break;
+          throw error;
+        }
+        processed.push(await executeMerge(projectId, config, claimed));
+      }
+      return processed;
+    });
+  }
+
   return {
     async mergeConfig(projectId: string) {
       await project(projectId);
@@ -1039,6 +1457,83 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     async getReviewForTask(taskId: string, reviewId: string) {
       const found = await taskProject(taskId);
       return (await gateway()).getReview(found.projectId, reviewId);
+    },
+
+    // ---- project merge actions -------------------------------------------------
+    async requestMerge(projectId: string, input: Record<string, unknown>) {
+      return requestMerge(projectId, input);
+    },
+
+    async requestMergeForTask(taskId: string, input: Record<string, unknown>) {
+      const found = await taskProject(taskId);
+      return requestMerge(found.projectId, input);
+    },
+
+    async applyMerges(projectId: string) {
+      return applyMerges(projectId);
+    },
+
+    async applyMergesForTask(taskId: string) {
+      const found = await taskProject(taskId);
+      return applyMerges(found.projectId);
+    },
+
+    async queryMerges(projectId: string, developmentId?: string) {
+      await project(projectId);
+      return (await gateway()).queryMerges(projectId, developmentId);
+    },
+
+    async queryMergesForTask(taskId: string, developmentId?: string) {
+      const found = await taskProject(taskId);
+      return (await gateway()).queryMerges(found.projectId, developmentId);
+    },
+
+    async getMerge(projectId: string, mergeId: string) {
+      await project(projectId);
+      return (await gateway()).getMerge(projectId, mergeId);
+    },
+
+    async getMergeForTask(taskId: string, mergeId: string) {
+      const found = await taskProject(taskId);
+      return (await gateway()).getMerge(found.projectId, mergeId);
+    },
+
+    /**
+     * Record the operation a remote backend qualified on its own host. The
+     * authority stores the shared row from the configured entry; it never runs
+     * Git or trusts a request body's repository or target.
+     */
+    async recordMerge(projectId: string, developmentId: unknown, input: unknown, backendId: string) {
+      await project(projectId);
+      const config = await requiredMergeConfig(projectId);
+      const value =
+        input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
+      const checks = mergeCheckCommands(value.checks);
+      if (!checks.length) throw conflict("合入须记录在组合版本上运行的检查命令", "merge_checks_missing");
+      return (await gateway()).createMerge(projectId, developmentId, {
+        candidate: reviewCandidate(value.candidate),
+        acceptance: mergeAcceptance(value.acceptance),
+        checks,
+        requestedBy: backendId,
+        executionBackendId: config.executionBackendId,
+        targetBranch: config.targetBranch
+      });
+    },
+
+    async recordMergeClaim(projectId: string, mergeId: unknown, input: unknown, backendId: string) {
+      const id = developmentIdentifier(mergeId, "合入操作 ID");
+      const merge = await (await gateway()).getMerge(projectId, id);
+      if (merge.executionBackendId !== backendId)
+        throw conflict(`合入操作归属后端 ${merge.executionBackendId}`, "merge_owner_mismatch");
+      return (await gateway()).claimMerge(projectId, id, input);
+    },
+
+    async recordMergeUpdate(projectId: string, mergeId: unknown, input: unknown, backendId: string) {
+      const id = developmentIdentifier(mergeId, "合入操作 ID");
+      const merge = await (await gateway()).getMerge(projectId, id);
+      if (merge.executionBackendId !== backendId)
+        throw conflict(`合入操作归属后端 ${merge.executionBackendId}`, "merge_owner_mismatch");
+      return (await gateway()).updateMerge(projectId, id, input);
     },
 
     /**

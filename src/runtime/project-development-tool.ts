@@ -19,6 +19,8 @@ const CHECK = {
   additionalProperties: false
 } as const;
 
+const MERGE_ACTIONS = ["request_merge", "apply_merge", "merge_status"] as const;
+
 const REVIEW_ACTIONS = [
   "review_plan",
   "freeze_candidate",
@@ -50,7 +52,7 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
     name: "project_development",
     label: "Project Development",
     description:
-      "The current project's requirement development records and fixed-candidate reviews. create records the goal, completion criteria, suggested route and the code baseline, then prepares this backend's isolated Git checkout for the requirement; one record exists per requirement, so read it before creating. get/query read records back, find_by_requirement looks one up for a requirement, update appends a new revision (carry the revision you last read), and ensure_workspace continues or repairs the existing checkout at its recorded baseline. Review actions record the channel decision and the version its self-checks ran on (review_plan), freeze the integration checkout's current commit as a candidate and open a review (freeze_candidate), bind one independent Reviewer call (attach_reviewer), keep its findings and Main's rulings (record_finding/rule_finding), record a rework that continued the original Executor session (record_rework), read or finish a review (get_review/complete_review), and read delivery qualification (delivery_check). A passed review settles its linked fixes; failed or drifted reviews keep their findings rulable so a repair or reasoned dismissal can still settle them. The current project and Task come from this conversation, so no project id or path is accepted.",
+      "The current project's requirement development records, fixed-candidate reviews and shared merge entry. create records the goal, completion criteria, suggested route and the code baseline, then prepares this backend's isolated Git checkout for the requirement; one record exists per requirement, so read it before creating. get/query read records back, find_by_requirement looks one up for a requirement, update appends a new revision (carry the revision you last read), and ensure_workspace continues or repairs the existing checkout at its recorded baseline. Review actions record the channel decision and the version its self-checks ran on (review_plan), freeze the integration checkout's current commit as a candidate and open a review (freeze_candidate), bind one independent Reviewer call (attach_reviewer), keep its findings and Main's rulings (record_finding/rule_finding), record a rework that continued the original Executor session (record_rework), read or finish a review (get_review/complete_review), and read delivery qualification (delivery_check). A passed review settles its linked fixes; failed or drifted reviews keep their findings rulable so a repair or reasoned dismissal can still settle them. Merge actions apply an accepted candidate to the project's configured target through the shared entry: request_merge queues it (and the execution location applies its queue when this backend owns it), apply_merge asks the execution location to reconcile interrupted attempts and process waiting operations in order, and merge_status reads operations and their idempotent merged receipts. The current project and Task come from this conversation, so no project id or path is accepted.",
     parameters: {
       type: "object",
       properties: {
@@ -63,7 +65,8 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
             "find_by_requirement",
             "update",
             "ensure_workspace",
-            ...REVIEW_ACTIONS
+            ...REVIEW_ACTIONS,
+            ...MERGE_ACTIONS
           ]
         },
         requirementId: { ...ID, description: "create/find_by_requirement target requirement." },
@@ -162,6 +165,21 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
         continuationCallId: {
           ...ID,
           description: "record_rework: the continuation call returned by call_subagent continueCallId."
+        },
+        mergeChecks: {
+          type: "array",
+          maxItems: 20,
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", minLength: 1, maxLength: 200 },
+              command: { type: "string", minLength: 1, maxLength: 4000 }
+            },
+            required: ["name", "command"],
+            additionalProperties: false
+          },
+          description:
+            "request_merge: commands to run on the target-plus-candidate version. Omit to reuse the recorded self checks or the passed review's checks."
         },
         verdict: {
           type: "string",
@@ -264,6 +282,20 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
           ...(input.developmentId === undefined ? {} : { developmentId: input.developmentId })
         });
       if (action === "get_review") return review({ action: "get", reviewId: input.reviewId });
+
+      const merges = request.merges;
+      if (action === "request_merge")
+        return merges({
+          action: "request",
+          developmentId: input.developmentId,
+          ...(input.mergeChecks === undefined ? {} : { checks: input.mergeChecks })
+        });
+      if (action === "apply_merge") return merges({ action: "apply" });
+      if (action === "merge_status")
+        return merges({
+          action: "query",
+          ...(input.developmentId === undefined ? {} : { developmentId: input.developmentId })
+        });
       throw new Error(`未知的开发记录操作：${String(action)}`);
     }
   };

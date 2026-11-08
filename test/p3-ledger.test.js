@@ -88,7 +88,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     // v1 and v2 stayed intact; v3 adds project Main sessions and v4 adds
     // development records. Migrations are applied one version at a time, so a
     // later version does not hide an unapplied one.
-    assert.equal(info.body.schemaVersion, 5);
+    assert.equal(info.body.schemaVersion, 6);
     assert.ok(info.body.serverVersion, "the engine version is reported");
     assert.doesNotMatch(JSON.stringify(info.body), /password/i);
     if (engine === "sqlite")
@@ -259,7 +259,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     assert.equal(detail.body.requirement.revisions.length, 3);
     assert.equal(detail.body.requirement.decisions[0].effective, false);
     const infoAfterRestart = await f.request("/api/project-data", undefined, "GET");
-    assert.equal(infoAfterRestart.body.schemaVersion, 5);
+    assert.equal(infoAfterRestart.body.schemaVersion, 6);
   });
 
   test(`${engine}: existing project and task history keep their identity and files`, async (t) => {

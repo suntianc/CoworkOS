@@ -7,6 +7,14 @@ const statusLabel = { active: "进行中" };
 const workspaceLabel = { ready: "现场就绪", failed: "现场未就绪" };
 const channelLabel = { self: "Main 自检", independent: "独立审查", combined: "组合审查" };
 const reviewStateLabel = { in_review: "审查中", passed: "通过", failed: "未通过", drifted: "漂移" };
+const mergeStateLabel = {
+  waiting: "等待合入",
+  applying: "待同步",
+  merged: "已合入",
+  conflict: "合入冲突",
+  check_failed: "检查未通过",
+  failed: "合入失败"
+};
 const findingStateLabel = { open: "待裁定", fix_claimed: "待修复", fixed: "已修复", dismissed: "不采纳" };
 const dismissalLabel = { false_positive: "误报", out_of_scope: "范围外", other: "其他" };
 const reasonLabel = {
@@ -40,7 +48,7 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
   let activeProject = null;
   let activeDevelopment = null;
   let developments = [];
-  let activeReview = { plan: null, reviews: [], qualification: null };
+  let activeReview = { plan: null, reviews: [], qualification: null, merges: [] };
   let projectsSignature = "";
 
   const endpoint = (projectId, developmentId) =>
@@ -49,6 +57,10 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
     }`;
   const reviewEndpoint = (projectId, developmentId) =>
     `/api/projects/${encodeURIComponent(projectId)}/reviews?developmentId=${encodeURIComponent(
+      developmentId
+    )}`;
+  const mergeEndpoint = (projectId, developmentId) =>
+    `/api/projects/${encodeURIComponent(projectId)}/merges?developmentId=${encodeURIComponent(
       developmentId
     )}`;
   const visible = (projectId) => panel && !panel.hidden && activeProject?.projectId === projectId;
@@ -184,11 +196,14 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
       if (current !== epoch || !visible(projectId)) return;
       const reviews = await api(reviewEndpoint(projectId, developmentId)).catch(() => ({}));
       if (current !== epoch || !visible(projectId)) return;
+      const merges = await api(mergeEndpoint(projectId, developmentId)).catch(() => ({}));
+      if (current !== epoch || !visible(projectId)) return;
       activeDevelopment = developmentId;
       activeReview = {
         plan: reviews.plan ?? null,
         reviews: reviews.reviews ?? [],
-        qualification: reviews.qualification ?? null
+        qualification: reviews.qualification ?? null,
+        merges: merges.merges ?? []
       };
       renderDetail(result.development, activeReview);
       renderList();
@@ -202,9 +217,9 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
     return `<ul class="development-checks" aria-label="${esc(label)}">${checks
       .map(
         (check) =>
-          `<li><span>${esc(check.name)}</span><span>exit ${esc(check.exitCode)}</span>${
-            check.command ? `<code>${esc(check.command)}</code>` : ""
-          }</li>`
+          `<li><span>${esc(check.name)}</span><span>${
+            check.exitCode === undefined ? "未运行" : `exit ${esc(check.exitCode)}`
+          }</span>${check.command ? `<code>${esc(check.command)}</code>` : ""}</li>`
       )
       .join("")}</ul>`;
   }
@@ -237,6 +252,25 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
         </li>`;
       })
       .join("")}</ul>`;
+  }
+
+  function mergeHtml(merge) {
+    if (!merge) return `<p class="ledger-source">未申请合入</p>`;
+    const merged = merge.mergeCommit ? ` → ${esc(shortCommit(merge.mergeCommit))}` : "";
+    return `<article class="development-merge" data-merge="${esc(merge.mergeId)}" data-state="${esc(
+      merge.state
+    )}">
+      <header><strong>${esc(mergeStateLabel[merge.state] ?? merge.state)}</strong><span class="ledger-tags"><span>${esc(
+        merge.targetBranch
+      )}</span><span>${esc(shortCommit(merge.candidate?.commit))}${merged}</span></span></header>
+      ${
+        merge.combinedBase
+          ? `<p class="ledger-source">组合版本 ${esc(shortCommit(merge.combinedBase))}</p>`
+          : ""
+      }
+      ${checksHtml(merge.checks, "合入检查")}
+      ${merge.detail ? `<p class="development-error" role="alert">${esc(merge.detail)}</p>` : ""}
+    </article>`;
   }
 
   function reviewHtml(review) {
@@ -323,6 +357,8 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
                 .join(" · ")
           : "尚不可判定"
       }</p>
+      <h3>合入</h3>
+      ${mergeHtml((review?.merges ?? []).at(-1))}
       <div class="ledger-actions"><button type="button" class="app-button" data-continue>继续现场</button></div>`;
   }
 
