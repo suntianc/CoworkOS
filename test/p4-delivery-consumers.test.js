@@ -287,6 +287,11 @@ test(
       checks: [{ name: "组合检查", command: "test -f report.txt" }]
     });
     assert.equal(reviewedMerge.state, "merged", JSON.stringify(reviewedMerge));
+    // Local work after the merge must not rewrite the delivered diff.
+    const unmergedHead = await commitFile(reviewed.workspace.directory, "not-delivered.txt", "local only\n");
+    assert.notEqual(unmergedHead, reviewedMerge.mergeCommit);
+    await assert.rejects(readFile(join(repository, "not-delivered.txt"), "utf8"));
+    assert.equal(await git(repository, ["rev-parse", "main"]), reviewedMerge.mergeCommit);
 
     // --- the quick direct path -------------------------------------------------
     const quickCandidate = await commitFile(quick.workspace.directory, "quick.txt", "quick\n");
@@ -301,6 +306,8 @@ test(
       checks: [{ name: "组合检查", command: "test -f quick.txt" }]
     });
     assert.equal(quickMerge.state, "merged", JSON.stringify(quickMerge));
+    const quickUnmergedHead = await commitFile(quick.workspace.directory, "quick-later.txt", "local only\n");
+    assert.notEqual(quickUnmergedHead, quickMerge.mergeCommit);
 
     // --- the project view ------------------------------------------------------
     const viewed = await request(projectPath(project.projectId, "/deliveries"), {
@@ -338,7 +345,11 @@ test(
       ]
     );
     assert.deepEqual(view.diff.files, [{ path: "report.txt", additions: 1, deletions: 0 }]);
-    assert.equal(view.diff.head, reviewedCandidate);
+    assert.equal(view.diff.base, reviewedMerge.combinedBase);
+    assert.equal(view.diff.head, reviewedMerge.mergeCommit);
+    assert.equal(view.diff.candidateCommit, reviewedCandidate);
+    assert.equal(view.diff.mergedCommit, reviewedMerge.mergeCommit);
+    assert.equal(await git(reviewed.workspace.directory, ["rev-parse", "HEAD"]), unmergedHead);
     assert.equal(view.merges.at(-1).mergeCommit, reviewedMerge.mergeCommit);
     assert.equal(view.merges.at(-1).checks[0].exitCode, 0);
     assert.equal(view.delivery.state, "synced");
@@ -362,7 +373,11 @@ test(
     assert.equal(quickView.delivery.mergedCommit, quickMerge.mergeCommit);
     assert.equal(quickView.board, undefined, "an internal need has no board projection");
     assert.deepEqual(quickView.diff.files, [{ path: "quick.txt", additions: 1, deletions: 0 }]);
-    assert.equal(quickView.diff.head, quickCandidate);
+    assert.equal(quickView.diff.base, quickMerge.combinedBase);
+    assert.equal(quickView.diff.head, quickMerge.mergeCommit);
+    assert.equal(quickView.diff.candidateCommit, quickCandidate);
+    assert.equal(quickView.diff.mergedCommit, quickMerge.mergeCommit);
+    assert.equal(await git(quick.workspace.directory, ["rev-parse", "HEAD"]), quickUnmergedHead);
 
     const tool = createProjectDevelopmentTool({
       dashboardUrl: dashboard.base,
@@ -375,6 +390,9 @@ test(
     });
     assert.equal(toolView.view.delivery.mergedCommit, reviewedMerge.mergeCommit);
     assert.equal(toolView.view.roles[1].callId, "call-reviewer");
+    assert.equal(toolView.view.diff.head, reviewedMerge.mergeCommit);
+    assert.equal(toolView.view.diff.candidateCommit, reviewedCandidate);
+    assert.deepEqual(toolView.view.diff.files, [{ path: "report.txt", additions: 1, deletions: 0 }]);
     const toolByRequirement = await tool.execute({
       action: "delivery_status",
       requirementId: internalRequirementId
@@ -437,6 +455,7 @@ test(
     assert.match(reviewedText, /agent-executor/);
     assert.match(reviewedText, /agent-reviewer/);
     assert.match(reviewedText, /report\.txt/);
+    assert.doesNotMatch(reviewedText, /not-delivered\.txt/);
     assert.match(reviewedText, /已记录交付/);
     assert.match(reviewedText, /看板需求 待发布/);
     assert.match(reviewedText, new RegExp(reviewedMerge.mergeCommit.slice(0, 8)));
@@ -445,6 +464,7 @@ test(
     assert.match(detail().textContent, /已交付/);
     assert.match(detail().textContent, /本次没有委派子 Agent/);
     assert.match(detail().textContent, /quick\.txt/);
+    assert.doesNotMatch(detail().textContent, /quick-later\.txt/);
     controller.close();
     document.querySelector(".development-backdrop")?.remove();
 
@@ -547,6 +567,8 @@ test(
     assert.equal(pendingView.status, 200, JSON.stringify(pendingView.body));
     assert.equal(pendingView.body.view.stage, "merged");
     assert.equal(pendingView.body.view.delivery, undefined);
+    assert.equal(pendingView.body.view.development.workspace, undefined);
+    assert.equal(pendingView.body.view.diff, undefined);
     assert.equal(pendingView.body.view.pendingSync.mergeId, failingMerge.mergeId);
     assert.match(pendingView.body.view.pendingSync.error, /交付写入暂时失败/);
 

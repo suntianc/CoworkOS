@@ -42,7 +42,7 @@ interface BoardRow {
   assigned_at: string | null;
   delivery_merge_id: string | null;
   delivery_commit: string | null;
-  delivered_at: string | null;
+  delivery_merged_at: string | null;
   created_at: string;
   updated_at: string;
   title: string;
@@ -124,11 +124,11 @@ function sourceOf(row: BoardRow): LedgerSource {
 function entryOf(row: BoardRow): BoardEntry {
   const assignment = assignmentOf(row);
   const delivery =
-    row.delivery_merge_id && row.delivery_commit && row.delivered_at
+    row.delivery_merge_id && row.delivery_commit && row.delivery_merged_at
       ? {
           mergeId: row.delivery_merge_id,
           mergedCommit: row.delivery_commit,
-          mergedAt: row.delivered_at
+          mergedAt: row.delivery_merged_at
         }
       : undefined;
   return {
@@ -365,13 +365,13 @@ export class ProjectBoardRepository {
     const changed = await this.transaction.execute(
       `UPDATE project_data_board_entries
           SET state = 'pending_release', revision = ?, delivery_merge_id = ?, delivery_commit = ?,
-              delivered_at = ?, updated_at = ?
+              delivery_merged_at = ?, updated_at = ?
         WHERE project_id = ? AND board_id = ? AND revision = ? AND state = ?`,
       [
         revision,
         input.mergeId,
         input.mergedCommit,
-        timestamp,
+        input.mergedAt,
         timestamp,
         projectId,
         current.board_id,

@@ -70,10 +70,20 @@ export interface DeliveryDiffFile {
   deletions: number;
 }
 
-/** The committed change the candidate carries, read from the checkout that owns it. */
+/**
+ * The committed change the delivery carries, read from the checkout that owns
+ * it and frozen to the delivered (or accepted) version.
+ *
+ * `base` is the target the merge was combined with (`combinedBase`, or the
+ * recorded baseline before a merge), `head` is the actual merge commit when
+ * available, and `candidateCommit`/`mergedCommit` name the two versions the
+ * change came from. A later local commit in the same checkout never moves it.
+ */
 export interface DeliveryDiff {
   base: string;
   head: string;
+  candidateCommit: string;
+  mergedCommit?: string;
   files: DeliveryDiffFile[];
 }
 

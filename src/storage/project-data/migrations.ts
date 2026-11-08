@@ -370,7 +370,7 @@ export const PROJECT_DATA_MIGRATIONS: readonly ProjectDataMigration[] = [
          ON project_data_deliveries(project_id, development_id, created_at)`,
       `ALTER TABLE project_data_board_entries ADD COLUMN delivery_merge_id TEXT`,
       `ALTER TABLE project_data_board_entries ADD COLUMN delivery_commit TEXT`,
-      `ALTER TABLE project_data_board_entries ADD COLUMN delivered_at TEXT`
+      `ALTER TABLE project_data_board_entries ADD COLUMN delivery_merged_at TEXT`
     ]
   }
 ];

@@ -293,9 +293,13 @@ export function createDashboardApplication(
         : undefined;
     }
   });
-  // Resume any delivery this host published but could not record before its
-  // last shutdown; the same facts are retried on the next read or apply.
-  void developments.resumeDeliveries().catch(() => undefined);
+  // Retry delivery facts this host published but could not record while the
+  // shared service was unreachable. One bounded interval in this process only
+  // looks at local pending facts, so no user read or restart is required.
+  const deliverySyncTickMs = Number(process.env.COWORK_DELIVERY_SYNC_TICK_MS);
+  developments.startDeliveryRecovery(
+    Number.isFinite(deliverySyncTickMs) && deliverySyncTickMs > 0 ? deliverySyncTickMs : undefined
+  );
   const { knownWorkspaceRoots, locateTask, taskListItem, globalTaskPayload } = workspaces;
   /**
    * The durable catalog event log, beside the sessions and receipts.
@@ -987,6 +991,7 @@ export function createDashboardApplication(
     /** Resolves when the project data service is migrated and reachable. */
     ready: projectData.ready,
     async stop() {
+      await developments.stopDeliveryRecovery();
       await computerApproval.close();
       await catalogEvents.close();
       await memoryLearning.stop();

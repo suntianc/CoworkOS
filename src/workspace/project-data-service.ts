@@ -558,7 +558,7 @@ const TABLE_COLUMNS: Record<SnapshotTable, readonly string[]> = {
     "assigned_at",
     "delivery_merge_id",
     "delivery_commit",
-    "delivered_at",
+    "delivery_merged_at",
     "created_at",
     "updated_at"
   ],
@@ -2548,19 +2548,26 @@ export class ProjectDataService implements ProjectDataGateway {
     const projectId = ledgerProjectId(projectIdValue);
     const receipt: DeliveryReceipt = deliveryReceipt(receiptValue);
     const merge = await this.getMerge(projectId, receipt.mergeId);
+    const canonical = merge.receipt;
     if (
+      !canonical ||
       merge.state !== "merged" ||
-      merge.mergeCommit !== receipt.mergedCommit ||
-      merge.developmentId !== receipt.developmentId ||
-      merge.requirementId !== receipt.requirementId ||
-      merge.targetBranch !== receipt.targetBranch
+      canonical.mergeId !== receipt.mergeId ||
+      canonical.developmentId !== receipt.developmentId ||
+      canonical.requirementId !== receipt.requirementId ||
+      canonical.candidateCommit !== receipt.candidateCommit ||
+      canonical.mergedCommit !== receipt.mergedCommit ||
+      canonical.targetBranch !== receipt.targetBranch ||
+      canonical.mergedAt !== receipt.mergedAt
     )
       throw new ProjectDataConflictError(
         "交付回执与已合入记录不一致，不能记录交付",
         undefined,
         "delivery_not_merged"
       );
-    const delivery = await this.transaction((repository) => repository.delivery().record(projectId, receipt));
+    const delivery = await this.transaction((repository) =>
+      repository.delivery().record(projectId, canonical)
+    );
     if (delivery.state === "synced") return delivery;
     return this.applyDeliveryRecord(projectId, delivery.deliveryId, merge.executionBackendId);
   }
@@ -2578,8 +2585,23 @@ export class ProjectDataService implements ProjectDataGateway {
     const delivery = await this.getDelivery(projectId, deliveryIdValue);
     if (delivery.state === "synced") return delivery;
     const merge = await this.getMerge(projectId, delivery.mergeId);
-    if (merge.state !== "merged" || merge.mergeCommit !== delivery.mergedCommit)
-      throw new ProjectDataConflictError("合入记录尚未完成，不能同步交付", undefined, "delivery_not_merged");
+    const canonical = merge.receipt;
+    if (
+      !canonical ||
+      merge.state !== "merged" ||
+      canonical.mergeId !== delivery.mergeId ||
+      canonical.developmentId !== delivery.developmentId ||
+      canonical.requirementId !== delivery.requirementId ||
+      canonical.candidateCommit !== delivery.candidateCommit ||
+      canonical.mergedCommit !== delivery.mergedCommit ||
+      canonical.targetBranch !== delivery.targetBranch ||
+      canonical.mergedAt !== delivery.mergedAt
+    )
+      throw new ProjectDataConflictError(
+        "交付记录与已合入回执不一致，不能同步交付",
+        undefined,
+        "delivery_not_merged"
+      );
     return this.applyDeliveryRecord(projectId, delivery.deliveryId, merge.executionBackendId);
   }
 

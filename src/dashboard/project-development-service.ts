@@ -11,6 +11,7 @@ import {
   type DevelopmentReview,
   type ReviewCandidate,
   type ReviewFinding,
+  type ReviewPlan,
   type ReviewQualification
 } from "../domain/development-review.js";
 import {
@@ -1238,6 +1239,11 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
   // later without a second development or merge.
 
   const deliveryReplays = new Map<string, Promise<DevelopmentMerge[]>>();
+  const deliveryRecovery = {
+    timer: undefined as ReturnType<typeof setInterval> | undefined,
+    running: undefined as Promise<void> | undefined,
+    stopping: false
+  };
 
   /** Apply one merged operation's receipt to the ledger and board. */
   async function syncDelivery(
@@ -1374,6 +1380,49 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     return undefined;
   }
 
+  /** Every project with a local pending fact; a startup and periodic pass uses it. */
+  async function resumePendingDeliveries(): Promise<void> {
+    for (const projectId of await deliveryOutbox.projects().catch(() => [])) {
+      if (deliveryRecovery.stopping) return;
+      await replayDeliveries(projectId).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Keep retrying this host's pending deliveries while the host runs.
+   *
+   * The shared service may be unreachable when a merge publishes and later
+   * come back without a user read, a new apply or a restart. This one bounded
+   * interval is the execution host's own recovery responsibility: it only
+   * looks at local pending facts, never overlaps a tick and stops with this
+   * process. It is not a general scheduler and does not touch another backend's
+   * operations.
+   */
+  function startDeliveryRecovery(intervalMs = 2_000): void {
+    if (deliveryRecovery.timer) return;
+    deliveryRecovery.stopping = false;
+    const delay = Math.max(10, Math.round(intervalMs));
+    const tick = () => {
+      if (deliveryRecovery.stopping || deliveryRecovery.running) return;
+      deliveryRecovery.running = resumePendingDeliveries()
+        .catch(() => undefined)
+        .finally(() => {
+          deliveryRecovery.running = undefined;
+        });
+    };
+    tick();
+    deliveryRecovery.timer = setInterval(tick, delay);
+    deliveryRecovery.timer.unref?.();
+  }
+
+  async function stopDeliveryRecovery(): Promise<void> {
+    deliveryRecovery.stopping = true;
+    if (deliveryRecovery.timer) clearInterval(deliveryRecovery.timer);
+    deliveryRecovery.timer = undefined;
+    await deliveryRecovery.running?.catch(() => undefined);
+    deliveryRecovery.running = undefined;
+  }
+
   /**
    * Complete locally published deliveries and any merged row still missing its
    * delivery. Called before reads and applies, so a recovered shared service is
@@ -1489,13 +1538,42 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
 
   // ---- delivery read model -----------------------------------------------------
 
-  /** The committed change between the baseline and the candidate this host holds. */
-  async function deliveryDiff(record: DevelopmentRecord): Promise<DeliveryDiff | undefined> {
+  /**
+   * The committed change of the delivered (or accepted) version.
+   *
+   * The merge commit is the immutable head once a merge exists, so later local
+   * work in the same checkout cannot rewrite a delivered diff. `combinedBase`
+   * is the target it was actually combined with; before a merge the recorded
+   * baseline and the latest frozen candidate stand in. A checkout this host no
+   * longer owns or cannot read yields no diff instead of reading another
+   * backend's checkout.
+   */
+  async function deliveryDiff(
+    record: DevelopmentRecord,
+    delivery: DevelopmentDelivery | undefined,
+    merges: DevelopmentMerge[],
+    plan: ReviewPlan | undefined,
+    reviews: DevelopmentReview[]
+  ): Promise<DeliveryDiff | undefined> {
     const workspace = record.workspace;
     if (!workspace || workspace.state !== "ready") return undefined;
+    const deliveredMerge = delivery
+      ? merges.find(
+          (merge) => merge.mergeId === delivery.mergeId || merge.mergeCommit === delivery.mergedCommit
+        )
+      : undefined;
+    const latestMerged = [...merges].reverse().find((merge) => merge.state === "merged");
+    const merge = deliveredMerge ?? latestMerged;
+    const candidateCommit =
+      delivery?.candidateCommit ??
+      merge?.candidate.commit ??
+      plan?.candidate.commit ??
+      reviews.at(-1)?.candidate.commit;
     try {
-      const head = await git(workspace.directory, ["rev-parse", "HEAD"]);
-      const raw = await git(workspace.directory, ["diff", "--numstat", `${record.baseline.commit}..${head}`]);
+      const head =
+        merge?.mergeCommit ?? candidateCommit ?? (await git(workspace.directory, ["rev-parse", "HEAD"]));
+      const base = merge?.combinedBase ?? record.baseline.commit;
+      const raw = await git(workspace.directory, ["diff", "--numstat", `${base}..${head}`]);
       const files = raw
         .split("\n")
         .filter(Boolean)
@@ -1508,7 +1586,13 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
           };
         })
         .filter((file) => Boolean(file.path));
-      return { base: record.baseline.commit, head, files };
+      return {
+        base,
+        head,
+        candidateCommit: candidateCommit ?? head,
+        ...(merge?.mergeCommit ? { mergedCommit: merge.mergeCommit } : {}),
+        files
+      };
     } catch {
       // A checkout this host no longer has cannot produce a diff; the shared
       // commits and checks above remain readable without pretending otherwise.
@@ -1622,7 +1706,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     const delivery = deliveries.at(-1);
     const board = boardEntries.find((entry) => entry.requirementId === record.requirementId);
     const qualification = await deliveryQualification(projectId, record.developmentId).catch(() => undefined);
-    const diff = await deliveryDiff(record);
+    const diff = await deliveryDiff(record, delivery, merges, plan, reviews);
     const roles = await deliveryRoles(record, reviews);
     const pending = [...(await deliveryOutbox.list(projectId).catch(() => []))]
       .reverse()
@@ -1760,10 +1844,19 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       return retryDevelopmentDelivery(found.projectId, developmentId);
     },
 
-    /** One startup pass over this host's persisted facts; failures stay pending. */
-    async resumeDeliveries() {
-      for (const projectId of await deliveryOutbox.projects().catch(() => []))
-        await replayDeliveries(projectId).catch(() => undefined);
+    /** One pass over this host's persisted facts; failures stay pending. */
+    resumeDeliveries() {
+      return resumePendingDeliveries();
+    },
+
+    /** Start the bounded retry responsibility for this process. */
+    startDeliveryRecovery(intervalMs?: number) {
+      startDeliveryRecovery(intervalMs);
+    },
+
+    /** Stop this instance's retry task and let an in-flight pass finish. */
+    stopDeliveryRecovery() {
+      return stopDeliveryRecovery();
     },
 
     async deliveryView(projectId: string, input: Record<string, unknown>) {

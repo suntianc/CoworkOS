@@ -1,10 +1,12 @@
 import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import pg from "pg";
 import {
@@ -12,6 +14,7 @@ import {
   startPostgresProjectDatabase,
   startProjectDataDashboard
 } from "./p3-storage-fixture.mjs";
+import { startDashboard } from "./dashboard-fixture.mjs";
 import { ProjectDataRuntime } from "../dist/src/workspace/project-data-service.js";
 import { RemoteProjectDataService } from "../dist/src/workspace/project-data-remote.js";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
@@ -81,6 +84,98 @@ const client = (dashboard) => async (path, body, method) => {
 };
 
 const projectPath = (projectId, suffix) => `/api/projects/${encodeURIComponent(projectId)}${suffix}`;
+
+const waitFor = async (check, message, timeout = 20_000) => {
+  const until = Date.now() + timeout;
+  while (Date.now() < until) {
+    if (await check()) return;
+    await delay(25);
+  }
+  assert.fail(message);
+};
+
+async function servingInstance(root) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const instance = await readBackendInstance(backendPaths(join(root, "home")));
+    if (instance.value?.token && instance.value.backendId) return instance.value;
+    await delay(25);
+  }
+  assert.fail("the backend did not publish its local credential");
+}
+
+/**
+ * A real HTTP partition in front of the authority.
+ *
+ * It forwards every request unchanged until the execution host tries to record
+ * the target update as merged; then it fails like an unreachable service until
+ * the test restores it. Only delivery/merge requests are counted, so the
+ * shutdown check can tell whether this host's recovery task is still working.
+ */
+async function startPartitionProxy(target) {
+  let failing = false;
+  let triggerMergedUpdate = true;
+  let mergeRequests = 0;
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    const url = request.url ?? "/";
+    let payload = {};
+    try {
+      payload = JSON.parse(body.toString("utf8"));
+    } catch {
+      /* not JSON */
+    }
+    if (
+      !failing &&
+      triggerMergedUpdate &&
+      request.method === "POST" &&
+      /\/merges$/.test(url) &&
+      payload.action === "update" &&
+      payload.state === "merged"
+    ) {
+      triggerMergedUpdate = false;
+      failing = true;
+    }
+    if (/\/(?:merges|deliveries)(?:\/|$)/.test(url)) mergeRequests += 1;
+    if (failing) {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({ error: "fixture: shared service unreachable", code: "storage_unavailable" })
+      );
+      return;
+    }
+    const headers = { ...request.headers };
+    delete headers.host;
+    delete headers.connection;
+    delete headers["content-length"];
+    delete headers["transfer-encoding"];
+    const upstream = await fetch(`${target}${url}`, {
+      method: request.method,
+      headers,
+      ...(body.length ? { body } : {})
+    });
+    const result = Buffer.from(await upstream.arrayBuffer());
+    response.writeHead(upstream.status, {
+      "content-type": upstream.headers.get("content-type") ?? "application/json"
+    });
+    response.end(result);
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    setFailing(value) {
+      failing = value;
+    },
+    rearm() {
+      triggerMergedUpdate = true;
+    },
+    mergeRequests: () => mergeRequests,
+    close: () => new Promise((done) => server.close(() => done()))
+  };
+}
 
 function serviceFor({ gateway, backendId, startedAt, root, project }) {
   return createProjectDevelopmentService({
@@ -647,3 +742,423 @@ for (const engine of PROJECT_DATA_ENGINES) {
     }
   );
 }
+
+test(
+  "a delivery receipt must match the whole merged operation and keeps its merge time",
+  { timeout: 180_000 },
+  async (t) => {
+    const dashboard = await startProjectDataDashboard(t, "sqlite", { postgres });
+    const repository = await makeRepository(join(dashboard.root, "repository"));
+    const created = await dashboard.request("/api/projects", {
+      projectName: "回执一致性项目",
+      projectDirectory: repository
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const project = created.body.project;
+    const instance = await readBackendInstance(backendPaths(join(dashboard.root, "home")));
+    const authority = await openAuthority("sqlite", dashboard);
+    t.after(() => authority.close());
+    const request = client(dashboard);
+    const info = (await request("/api/project-data", undefined, "GET")).body;
+
+    // The merge record is written but the delivery write fails, so a merged
+    // row with no delivery is the fixture for every forged receipt below.
+    const failing = new Proxy(authority.gateway, {
+      get(target, property) {
+        const value = Reflect.get(target, property);
+        if (typeof value !== "function") return value;
+        if (property === "syncDelivery")
+          return async () => {
+            throw new ProjectDataUnavailableError("fixture: delivery write failed");
+          };
+        return (...args) => value.apply(target, args);
+      }
+    });
+    const service = serviceFor({
+      gateway: failing,
+      backendId: instance.value.backendId,
+      startedAt: "started-receipt",
+      root: dashboard.root,
+      project
+    });
+    await service.setMergeConfig(project.projectId, { repository, targetBranch: "main" });
+
+    const published = await request(projectPath(project.projectId, "/board"), {
+      action: "publish",
+      requestId: "publish-receipt-board",
+      title: "回执一致性看板需求",
+      content: "关联合入回执和合入时间。",
+      source: { kind: "external", reference: "回执渠道" }
+    });
+    assert.equal(published.status, 201, JSON.stringify(published.body));
+    const boardId = published.body.entry.boardId;
+    const boardRequirementId = published.body.entry.requirementId;
+    const claimed = await request(projectPath(project.projectId, "/board"), {
+      action: "claim",
+      boardId,
+      expectedRevision: published.body.entry.revision,
+      requestId: "claim-receipt-board"
+    });
+    assert.equal(claimed.status, 200, JSON.stringify(claimed.body));
+    const internal = await request(projectPath(project.projectId, "/ledger"), {
+      action: "create",
+      title: "回执一致性内部需求",
+      content: "只写台账。"
+    });
+    const internalRequirementId = internal.body.requirement.requirementId;
+
+    const develop = (requirementId, title) =>
+      service.create(project.projectId, {
+        requirementId,
+        goal: title,
+        completionCriteria: ["observable result"],
+        route: "quick"
+      });
+    const boardDevelopment = await develop(boardRequirementId, "回执一致性看板");
+    const internalDevelopment = await develop(internalRequirementId, "回执一致性内部");
+    const merge = async (development, file) => {
+      await commitFile(development.workspace.directory, file, `${file}\n`);
+      await service.setReviewPlan(project.projectId, {
+        developmentId: development.developmentId,
+        channel: "self",
+        basis: "Main 自查",
+        checks: [{ name: "自检", command: `test -f ${file}`, exitCode: 0, output: "" }]
+      });
+      return service.requestMerge(project.projectId, {
+        developmentId: development.developmentId,
+        checks: [{ name: "组合检查", command: `test -f ${file}` }]
+      });
+    };
+    const boardMerge = await merge(boardDevelopment, "receipt.txt");
+    const internalMerge = await merge(internalDevelopment, "internal-receipt.txt");
+    assert.equal(boardMerge.state, "merged", JSON.stringify(boardMerge));
+    assert.equal(internalMerge.state, "merged", JSON.stringify(internalMerge));
+    assert.equal((await authority.gateway.queryDeliveries(project.projectId)).length, 0);
+    assert.equal(
+      (await authority.gateway.getRequirement(project.projectId, boardRequirementId)).status,
+      "open"
+    );
+
+    // Each field that identifies the accepted version is authoritative; a
+    // caller value that differs is refused before any row or record changes.
+    const forgedReceipts = [
+      ["candidateCommit", { ...boardMerge.receipt, candidateCommit: "0".repeat(40) }],
+      ["mergedAt", { ...internalMerge.receipt, mergedAt: "2000-01-01T00:00:00.000Z" }]
+    ];
+    for (const [field, receipt] of forgedReceipts) {
+      await assert.rejects(authority.gateway.syncDelivery(project.projectId, receipt), (error) => {
+        assert.equal(error.code, "delivery_not_merged", field);
+        return true;
+      });
+    }
+    assert.equal((await authority.gateway.queryDeliveries(project.projectId)).length, 0);
+    assert.equal(
+      (await authority.gateway.getRequirement(project.projectId, boardRequirementId)).status,
+      "open"
+    );
+    assert.equal(
+      (await authority.gateway.getRequirement(project.projectId, internalRequirementId)).status,
+      "open"
+    );
+    assert.equal(
+      (await authority.gateway.boardEntry(project.projectId, boardId)).state,
+      "claimed",
+      "a forged receipt does not move the board"
+    );
+
+    // A pending row that no longer matches the merged operation is refused on
+    // retry; it must not reach the ledger or the board.
+    const timestamp = new Date().toISOString();
+    const forged = await SqliteDatabase.open(info.target);
+    await forged.execute(
+      `INSERT INTO project_data_deliveries
+         (project_id, delivery_id, development_id, requirement_id, merge_id, candidate_commit,
+          merged_commit, target_branch, merged_at, state, attempts, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
+      [
+        project.projectId,
+        "delivery_forged_receipt",
+        boardDevelopment.developmentId,
+        boardRequirementId,
+        boardMerge.mergeId,
+        "0".repeat(40),
+        boardMerge.mergeCommit,
+        "main",
+        boardMerge.receipt.mergedAt,
+        timestamp,
+        timestamp
+      ]
+    );
+    await forged.close();
+    const pending = (await authority.gateway.queryDeliveries(project.projectId)).find(
+      (entry) => entry.mergeId === boardMerge.mergeId
+    );
+    assert.equal(pending.state, "pending");
+    await assert.rejects(
+      authority.gateway.retryDelivery(project.projectId, pending.deliveryId),
+      (error) => error.code === "delivery_not_merged"
+    );
+    assert.equal(
+      (await authority.gateway.getRequirement(project.projectId, boardRequirementId)).status,
+      "open"
+    );
+    assert.equal((await authority.gateway.boardEntry(project.projectId, boardId)).state, "claimed");
+    const cleanup = await SqliteDatabase.open(info.target);
+    await cleanup.execute("DELETE FROM project_data_deliveries WHERE project_id = ? AND delivery_id = ?", [
+      project.projectId,
+      pending.deliveryId
+    ]);
+    await cleanup.close();
+
+    // The accepted receipt syncs the real candidate and the authority's own
+    // merge time; a later sync keeps the same delivery and revision.
+    await delay(20);
+    const boardDelivery = await authority.gateway.syncDelivery(project.projectId, boardMerge.receipt);
+    assert.equal(boardDelivery.state, "synced");
+    assert.equal(boardDelivery.candidateCommit, boardMerge.candidate.commit);
+    assert.equal(boardDelivery.mergedCommit, boardMerge.mergeCommit);
+    assert.equal(boardDelivery.mergedAt, boardMerge.receipt.mergedAt);
+    const internalDelivery = await authority.gateway.syncDelivery(project.projectId, internalMerge.receipt);
+    assert.equal(internalDelivery.candidateCommit, internalMerge.candidate.commit);
+    assert.equal(internalDelivery.mergedAt, internalMerge.receipt.mergedAt);
+    const boardEntry = await authority.gateway.boardEntry(project.projectId, boardId);
+    assert.equal(boardEntry.state, "pending_release");
+    assert.equal(boardEntry.delivery.mergedAt, boardMerge.receipt.mergedAt);
+    assert.notEqual(boardEntry.updatedAt, boardEntry.delivery.mergedAt, "sync time is not merge time");
+    const revision = (await authority.gateway.getRequirement(project.projectId, boardRequirementId)).revision;
+    const repeated = await authority.gateway.syncDelivery(project.projectId, boardMerge.receipt);
+    assert.equal(repeated.deliveryId, boardDelivery.deliveryId);
+    assert.equal(
+      (await authority.gateway.getRequirement(project.projectId, boardRequirementId)).revision,
+      revision,
+      "a repeated receipt does not append another delivery revision"
+    );
+  }
+);
+
+test(
+  "the execution host completes a pending delivery after the shared service returns without a read",
+  { timeout: 180_000 },
+  async (t) => {
+    const authority = await startDashboard({ defaultProject: false });
+    t.after(() => authority.stop());
+    const request = client(authority);
+    const repository = await makeRepository(join(authority.root, "repository"));
+    const created = await request("/api/projects", {
+      projectName: "自动补齐项目",
+      projectDirectory: repository
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const project = created.body.project;
+    const authorityInstance = await servingInstance(authority.root);
+    const info = (await request("/api/project-data", undefined, "GET")).body;
+    const runtime = new ProjectDataRuntime({
+      config: { sqlite: { path: info.target } },
+      configPath: join(authority.root, "config.json"),
+      dataRoot: authority.root,
+      env: {}
+    });
+    t.after(() => runtime.close());
+    const gateway = await runtime.service();
+    const proxy = await startPartitionProxy(authority.base);
+    const execution = await startDashboard({
+      defaultProject: false,
+      config: {
+        projectData: { authority: { url: proxy.url, token: authorityInstance.token } }
+      },
+      env: { COWORK_DELIVERY_SYNC_TICK_MS: "50" }
+    });
+    let stopped = false;
+    t.after(async () => {
+      if (!stopped) await execution.stop();
+      await proxy.close();
+    });
+    const executionInstance = await servingInstance(execution.root);
+    const remote = await RemoteProjectDataService.open({
+      url: proxy.url,
+      token: authorityInstance.token,
+      backendId: executionInstance.backendId,
+      source: "p4-delivery-recovery-test"
+    });
+    t.after(() => remote.close());
+    const service = createProjectDevelopmentService({
+      runtime: { service: async () => remote },
+      backendId: executionInstance.backendId,
+      startedAt: "started-recovery",
+      developmentRoot: join(execution.root, "development-workspaces"),
+      deliveryRoot: join(execution.root, "delivery-sync"),
+      project: async (projectId) =>
+        projectId === project.projectId
+          ? {
+              projectId: project.projectId,
+              projectName: project.projectName,
+              projectDirectory: repository
+            }
+          : undefined,
+      taskProject: async () => undefined
+    });
+    await service.setMergeConfig(project.projectId, {
+      repository,
+      targetBranch: "main",
+      executionBackendId: executionInstance.backendId
+    });
+    const requirement = await request(projectPath(project.projectId, "/ledger"), {
+      action: "create",
+      title: "自动补齐需求",
+      content: "共享服务恢复后无需读取即可补齐。"
+    });
+    const development = await service.create(project.projectId, {
+      requirementId: requirement.body.requirement.requirementId,
+      goal: "自动补齐需求",
+      completionCriteria: ["共享服务恢复后自动补齐"],
+      route: "quick"
+    });
+    await commitFile(development.workspace.directory, "auto.txt", "auto\n");
+    await service.setReviewPlan(project.projectId, {
+      developmentId: development.developmentId,
+      channel: "self",
+      basis: "Main 自查",
+      checks: [{ name: "自检", command: "test -f auto.txt", exitCode: 0, output: "" }]
+    });
+    const baseline = await git(repository, ["rev-parse", "HEAD"]);
+    const requested = await service.requestMerge(project.projectId, {
+      developmentId: development.developmentId,
+      checks: [{ name: "组合检查", command: "test -f auto.txt" }]
+    });
+    assert.equal(requested.state, "applying", JSON.stringify(requested));
+    await waitFor(async () => {
+      const row = (await gateway.queryMerges(project.projectId))[0];
+      return row?.state === "applying" && (await outboxEntries(execution.root)).length === 1;
+    }, "the published merge and its local pending fact were not observed");
+    // While the service is unreachable, the host must not pretend to complete.
+    await delay(300);
+    assert.equal(
+      (await gateway.queryMerges(project.projectId))[0].state,
+      "applying",
+      "an unreachable service cannot complete the record"
+    );
+    assert.equal((await gateway.queryDeliveries(project.projectId)).length, 0);
+
+    // Restore the service; only the production execution host's own retry task
+    // runs now. The test reads the authority directly and never calls the
+    // execution host, apply, retry or a UI.
+    proxy.setFailing(false);
+    await waitFor(
+      async () => {
+        const row = (await gateway.queryMerges(project.projectId))[0];
+        const deliveries = await gateway.queryDeliveries(project.projectId);
+        return (
+          row?.state === "merged" &&
+          deliveries.some((delivery) => delivery.mergeId === row.mergeId && delivery.state === "synced")
+        );
+      },
+      "the execution host did not complete the delivery after the service returned",
+      20_000
+    );
+    const merged = (await gateway.queryMerges(project.projectId))[0];
+    assert.equal(merged.state, "merged");
+    assert.equal(merged.mergeCommit, requested.mergeCommit);
+    assert.equal(await git(repository, ["rev-list", "--count", "--first-parent", `${baseline}..main`]), "1");
+    assert.equal(
+      (await gateway.getRequirement(project.projectId, development.requirementId)).status,
+      "delivered"
+    );
+    assert.deepEqual(await outboxEntries(execution.root), []);
+
+    // Stopping the production execution host ends its retry task; no later
+    // merge/delivery requests are issued by it.
+    const before = proxy.mergeRequests();
+    await execution.stop();
+    stopped = true;
+    await delay(400);
+    assert.equal(proxy.mergeRequests(), before, "the stopped execution host kept retrying");
+
+    // A new execution service instance can also start while the shared service
+    // is still unreachable: its startup retry pass keeps the local fact pending
+    // and its next tick completes it after recovery without a read or apply.
+    proxy.rearm();
+    const secondRequirement = await request(projectPath(project.projectId, "/ledger"), {
+      action: "create",
+      title: "重启后自动补齐",
+      content: "启动时仍不可达，恢复后自动完成。"
+    });
+    const secondDevelopment = await service.create(project.projectId, {
+      requirementId: secondRequirement.body.requirement.requirementId,
+      goal: "重启后自动补齐",
+      completionCriteria: ["重启后自动补齐"],
+      route: "quick"
+    });
+    await commitFile(secondDevelopment.workspace.directory, "restart.txt", "restart\n");
+    await service.setReviewPlan(project.projectId, {
+      developmentId: secondDevelopment.developmentId,
+      channel: "self",
+      basis: "Main 自查",
+      checks: [{ name: "自检", command: "test -f restart.txt", exitCode: 0, output: "" }]
+    });
+    const secondRequested = await service.requestMerge(project.projectId, {
+      developmentId: secondDevelopment.developmentId,
+      checks: [{ name: "组合检查", command: "test -f restart.txt" }]
+    });
+    assert.equal(secondRequested.state, "applying", JSON.stringify(secondRequested));
+    await waitFor(async () => {
+      const row = (await gateway.queryMerges(project.projectId)).find(
+        (entry) => entry.mergeId === secondRequested.mergeId
+      );
+      return row?.state === "applying" && (await outboxEntries(execution.root)).length === 1;
+    }, "the second published merge and its local pending fact were not observed");
+    const restarted = createProjectDevelopmentService({
+      runtime: { service: async () => remote },
+      backendId: executionInstance.backendId,
+      startedAt: "started-restart",
+      developmentRoot: join(execution.root, "development-workspaces"),
+      deliveryRoot: join(execution.root, "delivery-sync"),
+      project: async (projectId) =>
+        projectId === project.projectId
+          ? {
+              projectId: project.projectId,
+              projectName: project.projectName,
+              projectDirectory: repository
+            }
+          : undefined,
+      taskProject: async () => undefined
+    });
+    restarted.startDeliveryRecovery(50);
+    t.after(() => restarted.stopDeliveryRecovery());
+    await delay(300);
+    assert.equal(
+      (await gateway.queryMerges(project.projectId)).find(
+        (entry) => entry.mergeId === secondRequested.mergeId
+      ).state,
+      "applying",
+      "a startup pass during the outage cannot complete the record"
+    );
+    assert.equal(
+      (await gateway.queryDeliveries(project.projectId)).filter(
+        (delivery) => delivery.mergeId === secondRequested.mergeId
+      ).length,
+      0
+    );
+    proxy.setFailing(false);
+    await waitFor(
+      async () => {
+        const row = (await gateway.queryMerges(project.projectId)).find(
+          (entry) => entry.mergeId === secondRequested.mergeId
+        );
+        const deliveries = await gateway.queryDeliveries(project.projectId);
+        return (
+          row?.state === "merged" &&
+          deliveries.some((delivery) => delivery.mergeId === row.mergeId && delivery.state === "synced")
+        );
+      },
+      "the restarted service did not complete the delivery after the service returned",
+      20_000
+    );
+    assert.equal(await git(repository, ["rev-list", "--count", "--first-parent", `${baseline}..main`]), "2");
+    assert.equal(
+      (await gateway.getRequirement(project.projectId, secondDevelopment.requirementId)).status,
+      "delivered"
+    );
+    assert.deepEqual(await outboxEntries(execution.root), []);
+    await restarted.stopDeliveryRecovery();
+  }
+);

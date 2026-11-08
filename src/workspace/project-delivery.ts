@@ -4,7 +4,12 @@ import {
   type DeliveryReceipt,
   type DevelopmentDelivery
 } from "../domain/development-delivery.js";
-import { ProjectDataNotFoundError, ledgerIdentifier, ledgerProjectId } from "../domain/project-ledger.js";
+import {
+  ProjectDataConflictError,
+  ProjectDataNotFoundError,
+  ledgerIdentifier,
+  ledgerProjectId
+} from "../domain/project-ledger.js";
 import { id, now } from "../domain/types.js";
 import type { SqlTransaction } from "../storage/project-data/database.js";
 import type { ProjectDataRepository } from "./project-data-service.js";
@@ -47,6 +52,16 @@ function deliveryOf(row: DeliveryRow): DevelopmentDelivery {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+interface MergeReceiptRow {
+  development_id: string;
+  requirement_id: string;
+  candidate_commit: string;
+  merge_commit: string | null;
+  target_branch: string;
+  state: string;
+  updated_at: string;
 }
 
 const ERROR_MAX = 2000;
@@ -97,6 +112,7 @@ export class ProjectDeliveryRepository {
         "SELECT project_id FROM project_data_projects WHERE project_id = ? FOR UPDATE",
         [projectId]
       );
+    await this.requireMergedReceipt(projectId, receipt);
     const existing = await this.transaction.query<DeliveryRow>(
       "SELECT * FROM project_data_deliveries WHERE project_id = ? AND merge_id = ?",
       [projectId, receipt.mergeId]
@@ -152,6 +168,7 @@ export class ProjectDeliveryRepository {
       targetBranch: row.target_branch,
       mergedAt: row.merged_at
     });
+    await this.requireMergedReceipt(projectId, receipt);
     const board = await this.ledger.board().markPendingRelease(projectId, receipt.requirementId, {
       mergeId: receipt.mergeId,
       mergedCommit: receipt.mergedCommit,
@@ -193,6 +210,42 @@ export class ProjectDeliveryRepository {
       [text, timestamp, projectId, deliveryId]
     );
     return this.get(projectId, deliveryId);
+  }
+
+  /**
+   * The authority's own merged row is the only receipt source.
+   *
+   * Every field that identifies the delivery (development, requirement,
+   * candidate, actual merge commit, target branch and the merged operation's
+   * own timestamp) must agree. This re-check lives beside the row writes, so a
+   * forged or stale receipt cannot create a pending row, and a pending row
+   * that no longer agrees with the merged fact can never reach the ledger or
+   * the board on retry.
+   */
+  private async requireMergedReceipt(projectId: string, receipt: DeliveryReceipt): Promise<void> {
+    const rows = await this.transaction.query<MergeReceiptRow>(
+      `SELECT development_id, requirement_id, candidate_commit, merge_commit, target_branch, state, updated_at
+         FROM project_data_development_merges
+        WHERE project_id = ? AND merge_id = ?`,
+      [projectId, receipt.mergeId]
+    );
+    const merge = rows[0];
+    if (
+      !merge ||
+      merge.state !== "merged" ||
+      !merge.merge_commit ||
+      merge.development_id !== receipt.developmentId ||
+      merge.requirement_id !== receipt.requirementId ||
+      merge.candidate_commit !== receipt.candidateCommit ||
+      merge.merge_commit !== receipt.mergedCommit ||
+      merge.target_branch !== receipt.targetBranch ||
+      merge.updated_at !== receipt.mergedAt
+    )
+      throw new ProjectDataConflictError(
+        "交付回执与已合入记录不一致，不能记录交付",
+        undefined,
+        "delivery_not_merged"
+      );
   }
 
   private async requireDelivery(projectId: string, deliveryId: string, lock = false): Promise<DeliveryRow> {
