@@ -871,6 +871,7 @@ export function createDashboardHandler(
             ...(body.mainSessionId === undefined ? {} : { mainSessionId: body.mainSessionId }),
             ...(body.requirementId === undefined ? {} : { requirementId: body.requirementId }),
             source: "composer",
+            origin: "http",
             queueWhenFull: true
           })
         );

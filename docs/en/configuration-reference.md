@@ -153,6 +153,8 @@ A secondary backend does not open a local engine; it reaches the same authority 
 
 SQLite defaults to `project-data.sqlite` under the data root (`ATRIA_HOME/runtime/project-data.sqlite`, `~/.atria/runtime/project-data.sqlite` by default); `projectData.sqlite.path` selects another file, and a relative path resolves against the data root. PostgreSQL also accepts separate `host`, `port`, `database`, `user`, `password` and `ssl` fields. Connection credentials stay in the serving host's configuration or `COWORK_PROJECT_DATA_URL` and never enter the UI, tool arguments or error text.
 
+This stage verified the integration with Node 22.23.4 (the minimum is 22.19.0), the built-in `node:sqlite` (SQLite 3.53.4), a PostgreSQL 18.6 server (the official `postgres:18.6-alpine3.24` image) and the locked `pg` 8.23.1 client; other engine versions were not verified here. The engine is fixed at startup, and switching it never reads the other engine's data.
+
 Choosing an engine is not a data migration: switching engines does not move the existing project catalog, Task/Run, attachments or Pi history, and this stage adds no cross-engine move, dual write or live switch. The existing project catalog still supplies the stable `projectId`; shared project rows keep only that identity, while the local directory is a binding of the current backend, so a shared row's directory is never used as a local execution directory.
 
 ### Backup and restore

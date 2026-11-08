@@ -60,6 +60,23 @@ Routine GitHub checks are manual-only with no automatic push/PR triggers. Manual
 
 For version-tag/Release changes, start with `npm run test:unit -- --file test/release-metadata.test.js`. It uses temporary Git repositories to validate versions, tags, commit identity and Actions outputs without accessing remote Releases. Actual Actions logs establish uploads/draft retries; see [release steps](development.md#mac-release-drafts-from-version-tags).
 
+## Shared project data integration
+
+The default SQLite and a real PostgreSQL run the same product scenarios: an internal need that stays in the ledger, an external publish with competing claims, several Main sessions in one project, A/B history switching, the fixed external slot queue, the Main model override and post-restart fact reconciliation. Both backends have their own data root and share the authority through the authenticated client; the test creates its own container, loopback port and temporary data root and stops only what it created.
+
+```sh
+docker pull postgres:18.6-alpine3.24
+node scripts/test.mjs --skip-build --file test/p3-foundation-integration.test.js
+```
+
+Missing Docker, the image or PostgreSQL must fail this file; it is not a pass or a skip. `--skip-build` reuses an existing build of the current sources. The combined browser flow drives a real backend and page with a local fake model:
+
+```sh
+npx playwright test e2e/p3-foundation-flow.spec.js --workers=1 --output=.tmp/browser-p3
+```
+
+It covers projects, ledger, board, Main sessions, external capacity and Main model settings, and checks drafts, attachments, history and in-flight Run ownership across switches. Screenshots and actions stay with the Playwright artifacts; set `P3_EVIDENCE_DIR` to keep a second copy.
+
 ## Performance regressions
 
 Use isolated data to check read counts, request concurrency and DOM retention before timing requests. This separates frontend costs from model or native computation load. With a current build, run:

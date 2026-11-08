@@ -114,10 +114,8 @@ async function settle(request, taskId, timeout = 30_000) {
   const until = Date.now() + timeout;
   while (Date.now() < until) {
     const detail = await request(`/api/tasks/${taskId}`);
-    if (detail.status === 200 && !detail.body.runtime.active) {
-      assert.equal(detail.body.task.status, "completed", JSON.stringify(detail.body.task));
+    if (detail.status === 200 && !detail.body.runtime.active && detail.body.task.status === "completed")
       return detail.body;
-    }
     await delay(50);
   }
   assert.fail(`Main ${taskId} did not settle`);

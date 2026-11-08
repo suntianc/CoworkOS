@@ -134,17 +134,17 @@ const cancel = (request, taskId) =>
   request(`/api/tasks/${encodeURIComponent(taskId)}/action`, { action: "cancel" });
 
 async function settle(request, taskId, status, timeout = 30_000) {
+  // A freshly admitted Run is recorded before its process registers; wait for
+  // the durable outcome instead of the first "no active process" sample.
   await waitFor(
     async () => {
       const detail = await taskDetail(request, taskId);
-      return detail.status === 200 && !detail.body.runtime.active;
+      return detail.status === 200 && !detail.body.runtime.active && detail.body.task.status === status;
     },
-    `Main ${taskId} did not settle`,
+    `Main ${taskId} did not settle to ${status}`,
     timeout
   );
-  const detail = await taskDetail(request, taskId);
-  assert.equal(detail.body.task.status, status, JSON.stringify(detail.body.task));
-  return detail.body;
+  return (await taskDetail(request, taskId)).body;
 }
 
 /** The processes this test owns: their argv names the Task or Task directory. */
@@ -688,8 +688,31 @@ test(
     assert.match(document.querySelector("[data-running]").textContent, /常规/);
     assert.match(document.querySelector("[data-queued]").textContent, /第 1 位/);
     assert.match(document.querySelector("[data-queued]").textContent, /项目 ui-b/);
+    // A demand posted from the page reports the page, not the internal Main
+    // default that never spends an external slot.
+    assert.equal(controller.view.queued[0].origin, "http");
+    assert.match(document.querySelector("[data-queued]").textContent, /页面/);
     assert.equal(document.querySelector('[name="resident"]').value, "1");
     assert.equal(document.querySelector('[name="continuation"]').value, "0");
+    // A background refresh keeps the numbers the person typed.
+    document.querySelector('[name="continuation"]').value = "1";
+    controller.render();
+    assert.equal(
+      document.querySelector('[name="continuation"]').value,
+      "1",
+      "a background refresh must not overwrite the edited quota"
+    );
+    // Saving submits what the person typed, not the values the page just loaded.
+    document
+      .querySelector("[data-quota]")
+      .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await waitFor(
+      () => controller.view?.settings?.continuation === 1,
+      "the quota typed on the page was not saved"
+    );
+    assert.equal(document.querySelector('[name="continuation"]').value, "1");
+    const savedQuota = await (await fetch(`${dashboard.base}/api/main-capacity`)).json();
+    assert.deepEqual(savedQuota.settings, { resident: 1, continuation: 1 });
     local.release("ui-a");
     await settle(request, session.taskId, "completed");
     controller.close();

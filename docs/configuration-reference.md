@@ -173,6 +173,8 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 
 SQLite 的默认文件是数据根下的 `project-data.sqlite`（`ATRIA_HOME/runtime/project-data.sqlite`，默认 `~/.atria/runtime/project-data.sqlite`）；`projectData.sqlite.path` 可指定文件，相对路径按数据根解析。PostgreSQL 也可用 `host`、`port`、`database`、`user`、`password`、`ssl` 分开填写。连接凭据只保存在服务端配置或 `COWORK_PROJECT_DATA_URL`，不进入界面、工具参数或错误文本。
 
+本阶段的整合验证使用 Node 22.23.4（最低要求 22.19.0）、内置 `node:sqlite`（SQLite 3.53.4）、PostgreSQL 18.6 服务端（官方 `postgres:18.6-alpine3.24` 镜像）和锁定版本 `pg` 8.23.1 客户端；其他引擎版本未在本阶段验证。启动时引擎即固定，切换引擎不会读取另一引擎的数据。
+
 选择引擎与既有数据迁移是两件事：更换引擎不会移动已有项目目录索引、Task/Run、附件或 Pi 历史，本阶段也不做跨引擎自动搬迁、双写或运行中热切换。既有项目目录索引继续提供稳定 `projectId`；共享项目记录只保存身份，本机目录作为当前后端的绑定单独保存，共享记录中的目录不会被当作本机执行目录。
 
 ### 备份与恢复

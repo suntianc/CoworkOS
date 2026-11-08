@@ -75,13 +75,13 @@ const userText = (body) =>
     .join("\n");
 
 async function settle(request, taskId, status) {
+  // A freshly admitted Run is recorded before its process registers; wait for
+  // the durable outcome instead of the first "no active process" sample.
   const until = Date.now() + 30_000;
   while (Date.now() < until) {
     const detail = await request(`/api/tasks/${encodeURIComponent(taskId)}`);
-    if (detail.status === 200 && !detail.body.runtime.active) {
-      assert.equal(detail.body.task.status, status, JSON.stringify(detail.body.task));
+    if (detail.status === 200 && !detail.body.runtime.active && detail.body.task.status === status)
       return detail.body;
-    }
     await delay(50);
   }
   assert.fail(`Main ${taskId} did not settle to ${status}`);

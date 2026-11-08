@@ -74,7 +74,7 @@ export function installDesktopSettings({
       <div class="settings-profile"><label class="settings-field model-profile-picker">已保存的配置<select data-model-profiles aria-label="已保存的配置"></select></label><p class="settings-help" data-model-active></p></div>
       <div class="settings-profile" data-model-roles>
         <label class="settings-field">Main 角色<select data-role-host aria-label="Main 角色默认连接"></select></label>
-        <label class="settings-field" data-role-project hidden>项目覆盖<select data-role-project aria-label="当前项目的 Main 模型连接"></select></label>
+        <label class="settings-field" data-role-project-field hidden>项目覆盖<select data-role-project aria-label="当前项目的 Main 模型连接"></select></label>
         <p class="settings-help" data-role-effective></p>
       </div>
       <div class="model-connection-fields">
@@ -180,8 +180,11 @@ export function installDesktopSettings({
     setRoleDisabled();
     panel.querySelector("[data-model-error]").textContent = "";
     try {
-      const result = await saveRole(body);
-      snapshot.modelRoles = result.modelRoles;
+      await saveRole(body);
+      // A host-default save answers without a project scope, so re-read what
+      // this page shows; otherwise the project override would disappear until
+      // the panel is reopened.
+      snapshot.modelRoles = (await status()).modelRoles;
     } catch (error) {
       panel.querySelector("[data-model-error]").textContent = errorMessage(error);
     } finally {

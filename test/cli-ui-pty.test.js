@@ -419,7 +419,9 @@ test(
     assert.match(result.plain, /FIXTURE_ATRIA_BUG=false/);
     assert.match(result.plain, /FIXTURE_PREVIOUS_CRASH/);
     assert.match(result.plain, /FIXTURE_MODEL_FAILURE/);
-    assert.match(result.plain, /review the\s+file before submitting it manually/);
+    // The hint shares the status line with the crash notice; a narrow terminal
+    // may wrap it mid-phrase, so only the words are fixed.
+    assert.match(result.plain, /review\s+the\s+file before submitting it manually/);
     assert.match(result.plain, /saves a local feedback file/);
     assert.match(result.plain, /When CoworkOS commands are enabled, \/coworkos-bug/);
     assert.match(result.plain, /Run \/coworkos-bug when CoworkOS commands are enabled/);

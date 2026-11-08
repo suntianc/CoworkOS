@@ -232,6 +232,9 @@ test("the actual CLI packer excludes retained Mac helpers and tolerates optional
     assert.deepEqual(manifest.bin, { coworkos: "scripts/atria.mjs", atria: "scripts/atria.mjs" });
     const files = execFileSync("tar", ["-tzf", archive], { encoding: "utf8" }).trim().split("\n");
     assert.ok(files.includes("package/scripts/desktop.mjs"));
+    // The worker and the Pi runtime load this gate at run time, so the archive
+    // has to carry it or an external-capacity CLI fails in the consumer's tree.
+    assert.ok(files.includes("package/scripts/main-capacity-gate.mjs"));
     assert.ok(files.includes("package/desktop/update-install.cjs"));
     assert.ok(!files.includes("package/desktop/main.cjs"));
     assert.ok(!files.some((path) => path.startsWith("package/docs/site/node_modules/")));
