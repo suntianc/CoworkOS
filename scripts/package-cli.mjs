@@ -60,6 +60,7 @@ try {
     "scripts/cli-runtime-host.mjs",
     "scripts/main-session.mjs",
     "scripts/main-worker.mjs",
+    "scripts/main-capacity-gate.mjs",
     "scripts/read-attachment.py",
     "README.md",
     "README.zh-CN.md",
