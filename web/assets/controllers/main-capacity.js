@@ -18,6 +18,9 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
   let panel, modal, form, errorNode, runningNode, queuedNode, projectsNode;
   let view = null;
   let loading = false;
+  // Set once a person edits the quota form, so an async read or a background
+  // refresh cannot overwrite the numbers they are typing.
+  let quotaEdited = false;
 
   function install() {
     if (panel) return;
@@ -58,6 +61,9 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
     queuedNode = $("[data-queued]");
     projectsNode = $("[data-projects]");
     modal = createModal(panel, $("[data-close]"));
+    form.addEventListener("input", () => {
+      quotaEdited = true;
+    });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       void save();
@@ -150,10 +156,14 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
       .join("");
   }
 
-  function renderView() {
+  function renderView({ syncQuota = false } = {}) {
     if (!view) return;
-    form.querySelector('[name="resident"]').value = String(view.settings?.resident ?? "");
-    form.querySelector('[name="continuation"]').value = String(view.settings?.continuation ?? "");
+    // A background refresh rerenders the running/queued lists but leaves the
+    // quota inputs alone; otherwise it would overwrite what a person is typing.
+    if (syncQuota) {
+      form.querySelector('[name="resident"]').value = String(view.settings?.resident ?? "");
+      form.querySelector('[name="continuation"]').value = String(view.settings?.continuation ?? "");
+    }
     form.querySelector('button[type="submit"]').disabled = loading;
     renderRunning();
     renderQueued();
@@ -173,7 +183,7 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
       fail(error);
     } finally {
       loading = false;
-      renderView();
+      renderView({ syncQuota: !quotaEdited });
     }
   }
 
@@ -199,25 +209,29 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
 
   async function save() {
     if (loading) return;
+    // Read the typed values before anything re-renders the form from the
+    // service view; otherwise the save would submit the numbers just loaded.
+    const resident = Number(form.querySelector('[name="resident"]').value);
+    const continuation = Number(form.querySelector('[name="continuation"]').value);
+    const submit = form.querySelector('button[type="submit"]');
     loading = true;
-    renderView();
+    submit.disabled = true;
     try {
       view = await api("/api/main-capacity", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "configure",
-          resident: Number(form.querySelector('[name="resident"]').value),
-          continuation: Number(form.querySelector('[name="continuation"]').value)
-        })
+        body: JSON.stringify({ action: "configure", resident, continuation })
       });
       clearError();
+      quotaEdited = false;
       showToast?.("外部容量已更新");
+      renderView({ syncQuota: true });
     } catch (error) {
+      // A refused save keeps the typed values so the reason can be corrected.
       fail(error);
     } finally {
       loading = false;
-      renderView();
+      submit.disabled = false;
     }
   }
 
@@ -228,6 +242,7 @@ export function createMainCapacityController({ api, state = {}, showToast = () =
     },
     open() {
       install();
+      quotaEdited = false;
       clearError();
       modal.open();
       void load();

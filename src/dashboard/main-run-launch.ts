@@ -20,6 +20,8 @@ export interface MainRunLaunchRequest {
   thinkingLevel?: PiThinkingLevel;
   textAttachments?: EditTextFile[];
   source?: "composer" | "human" | "inbox";
+  /** Which entry point asked, so the capacity queue reports where a demand came from. */
+  origin?: "http" | "worker" | "cli" | "internal";
   mainSessionId?: unknown;
   requirementId?: unknown;
   /** A person waiting on the page keeps the demand when the budget is full. */
@@ -68,6 +70,7 @@ export function createMainRunLauncher({ locateTask, mainSessions, startMainRun }
       ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {}),
       ...(request.textAttachments ? { textAttachments: request.textAttachments } : {}),
       ...(request.source ? { source: request.source } : {}),
+      ...(request.origin ? { origin: request.origin } : {}),
       ...(request.queueWhenFull ? { queueWhenFull: true } : {}),
       ...(request.admittedRequestId ? { admittedRequestId: request.admittedRequestId } : {}),
       ...(request.mainSessionId === undefined || request.mainSessionId === null

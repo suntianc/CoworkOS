@@ -336,9 +336,13 @@ function settingsFixture(t) {
     host: null,
     project: null
   };
-  const effective = () => {
-    const source = state.project ? "project" : state.host ? "host" : "active";
-    const profile = state.profiles.find((entry) => entry.id === (state.project || state.host || "a"));
+  // The server scopes the role view by the request: a host-default save names
+  // no project, so its answer carries no project override. The fake keeps that
+  // boundary instead of always echoing the selected project.
+  const effective = (scoped) => {
+    const project = scoped ? state.project : null;
+    const source = project ? "project" : state.host ? "host" : "active";
+    const profile = state.profiles.find((entry) => entry.id === (project || state.host || "a"));
     return {
       role: "main",
       source,
@@ -348,31 +352,34 @@ function settingsFixture(t) {
       api: "openai-completions",
       thinkingLevel: "low",
       supportsImages: false,
-      ...(state.project ? { projectId: state.projectId } : {})
+      ...(project ? { projectId: state.projectId } : {})
     };
   };
-  const status = () => ({
-    ...state.profiles[0],
-    activeProfileId: "a",
-    visionProfileId: "",
-    profiles: state.profiles,
-    managedByEnvironment: false,
-    modelRoles: {
-      projectId: state.projectId,
-      roles: [
-        {
-          role: "main",
-          wired: true,
-          host: state.host ? { profileId: state.host } : null,
-          project: state.project ? { profileId: state.project } : null,
-          effective: effective()
-        },
-        { role: "executor", wired: false, host: null, project: null, effective: null },
-        { role: "reviewer", wired: false, host: null, project: null, effective: null },
-        { role: "router", wired: false, host: null, project: null, effective: null }
-      ]
-    }
-  });
+  const status = (scoped = state.projectId) => {
+    const project = scoped ? state.project : null;
+    return {
+      ...state.profiles[0],
+      activeProfileId: "a",
+      visionProfileId: "",
+      profiles: state.profiles,
+      managedByEnvironment: false,
+      modelRoles: {
+        projectId: scoped ?? null,
+        roles: [
+          {
+            role: "main",
+            wired: true,
+            host: state.host ? { profileId: state.host } : null,
+            project: project ? { profileId: project } : null,
+            effective: effective(scoped)
+          },
+          { role: "executor", wired: false, host: null, project: null, effective: null },
+          { role: "reviewer", wired: false, host: null, project: null, effective: null },
+          { role: "router", wired: false, host: null, project: null, effective: null }
+        ]
+      }
+    };
+  };
   const requests = [];
   installDesktopSettings({
     showToast() {},
@@ -385,8 +392,9 @@ function settingsFixture(t) {
       if (path === "/api/model-settings/roles") {
         if (body.projectId) state.project = body.profileId || null;
         else state.host = body.profileId || null;
+        return status(body.projectId ?? null);
       }
-      return status();
+      return status(new URL(path, "http://fixture.test").searchParams.get("projectId"));
     }
   });
   const panel = document.querySelector("[aria-labelledby=model-settings-title]").parentNode;
@@ -434,6 +442,10 @@ test("the production settings view configures Main and shows which source is in 
     ["跟随当前启用连接", "连接 A", "连接 B"]
   );
   assert.equal(f.projectField.hidden, false, "a selected project offers its override");
+  // The real control is the select inside the field, not the field itself.
+  assert.equal(f.projectSelect.tagName, "SELECT", "the project override is a select");
+  assert.equal(f.projectField.tagName, "LABEL");
+  assert.equal(f.projectField.querySelector("select"), f.projectSelect);
   assert.match(f.effective(), /当前启用连接/);
   assert.match(f.effective(), /连接 A · model-a/);
   assert.doesNotMatch(f.panel.textContent, /Executor|Reviewer|Router|已运行/);
@@ -447,7 +459,11 @@ test("the production settings view configures Main and shows which source is in 
   await f.choose(f.hostSelect, "b");
   const hostSave = f.requests.filter((request) => request.path === "/api/model-settings/roles").at(-1);
   assert.deepEqual(hostSave.body, { role: "main", profileId: "b" });
+  // A host-default save must not hide the project override the person is editing.
+  assert.equal(f.projectField.hidden, false, "the project override stays editable");
+  assert.equal(f.projectSelect.value, "b", "the project override keeps its saved choice");
   assert.match(f.effective(), /项目覆盖/, "the project override still outranks the host default");
+  assert.match(f.effective(), /连接 B · model-b/);
 
   await f.choose(f.projectSelect, "");
   const clear = f.requests.filter((request) => request.path === "/api/model-settings/roles").at(-1);

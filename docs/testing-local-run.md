@@ -60,6 +60,23 @@ GitHub 常规检查仅手动触发，不随 push/PR 自动执行；手动运行�
 
 版本 tag / Release 工作流修改可先执行 `npm run test:unit -- --file test/release-metadata.test.js`。该用例使用临时 Git 仓库校验版本、tag、提交身份与 Actions 输出，不访问远端 Release；上传/草稿重试以实际 Actions 日志另行验收，流程见 [Mac 发布](mac-release.md#版本-tag-与-release-草稿)。
 
+## 项目共享数据整合回归
+
+默认 SQLite 与真实 PostgreSQL 共用同一组项目整合场景：内部需求只进台账、外部发布与竞争认领、同项目多个 Main 会话、A/B 历史切换、固定外部名额排队、Main 模型覆盖和重启后事实对账。两个后端各有独立数据根，经既有认证客户端共享权威服务；测试自建唯一容器、127.0.0.1 端口和临时数据根，结束只回收自己创建的容器。
+
+```sh
+docker pull postgres:18.6-alpine3.24
+node scripts/test.mjs --skip-build --file test/p3-foundation-integration.test.js
+```
+
+缺少 Docker、镜像或 PostgreSQL 时该文件必须失败，不能记为通过或跳过；`--skip-build` 需要当前源码的既有构建。组合界面流程使用真实后端和页面、本地假模型：
+
+```sh
+npx playwright test e2e/p3-foundation-flow.spec.js --workers=1 --output=.tmp/browser-p3
+```
+
+它覆盖项目、台账、看板、Main 会话、外部容量与模型角色设置，并核对切换中的草稿、附件、历史和在途 Run 归属；截图与动作记录随 Playwright 产物保存，设置 `P3_EVIDENCE_DIR` 可另存一份。
+
 ## 性能回归
 
 先使用隔离数据检查读取次数、并发请求和 DOM 保留，再测耗时，避免把本机模型或原生计算负载误算为前端开销。已有当前构建时运行：

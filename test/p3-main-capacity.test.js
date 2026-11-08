@@ -6,7 +6,9 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { parseHTML } from "linkedom";
 import { startDashboard } from "./dashboard-fixture.mjs";
+import { createMainCapacityController } from "../web/assets/controllers/main-capacity.js";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 import {
@@ -114,13 +116,13 @@ const externalRegular = (view) => view.running.filter((entry) => entry.kind === 
 const externalContinuation = (view) => view.running.filter((entry) => entry.kind === "continuation");
 
 async function settle(request, taskId, status) {
+  // A freshly admitted Run is recorded before its process registers, so a read
+  // can see "running" with no active process. Wait for the durable outcome.
   await waitFor(async () => {
     const detail = await taskDetail(request, taskId);
-    return detail.status === 200 && !detail.body.runtime.active;
-  }, `Main ${taskId} did not settle`);
-  const detail = await taskDetail(request, taskId);
-  assert.equal(detail.body.task.status, status, JSON.stringify(detail.body.task));
-  return detail.body;
+    return detail.status === 200 && !detail.body.runtime.active && detail.body.task.status === status;
+  }, `Main ${taskId} did not settle to ${status}`);
+  return (await taskDetail(request, taskId)).body;
 }
 
 let postgres;
@@ -408,4 +410,60 @@ test("concurrent external session saves never exceed the project limit", { timeo
   const reduced = await setCapacity(request, { resident: 1 });
   assert.equal(reduced.status, 409, JSON.stringify(reduced.body));
   assert.match(reduced.body.error, /已有 2 个外部常规会话/);
+});
+
+/**
+ * The quota form loads asynchronously. A person who starts typing before that
+ * read comes back must keep their numbers, and saving must write them.
+ */
+test("the capacity form keeps typed quotas across the first read and a background refresh", async (t) => {
+  const { window, document } = parseHTML("<html><body></body></html>");
+  const previous = { window: globalThis.window, document: globalThis.document, CSS: globalThis.CSS };
+  Object.assign(globalThis, { window, document, CSS: { escape: (value) => value } });
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete globalThis[key];
+      else globalThis[key] = value;
+    }
+  });
+  window.HTMLElement.prototype.getClientRects ??= () => [];
+  const sent = [];
+  let resolveStatus;
+  let calls = 0;
+  const api = async (path, options) => {
+    if (options?.body) {
+      const body = JSON.parse(options.body);
+      sent.push(body);
+      return {
+        settings: { resident: body.resident, continuation: body.continuation },
+        running: [],
+        queued: [],
+        projects: []
+      };
+    }
+    calls += 1;
+    if (calls === 1) await new Promise((resolve) => (resolveStatus = resolve));
+    return { settings: { resident: 2, continuation: 0 }, running: [], queued: [], projects: [] };
+  };
+  const controller = createMainCapacityController({ api });
+  controller.open();
+  const resident = document.querySelector('[name="resident"]');
+  const continuation = document.querySelector('[name="continuation"]');
+  resident.value = "3";
+  resident.dispatchEvent(new window.Event("input", { bubbles: true }));
+  continuation.value = "1";
+  continuation.dispatchEvent(new window.Event("input", { bubbles: true }));
+  resolveStatus();
+  for (let index = 0; index < 8; index++) await new Promise((done) => setTimeout(done, 0));
+  assert.equal(resident.value, "3", "the first read must not overwrite typing");
+  assert.equal(continuation.value, "1");
+  controller.render();
+  assert.equal(resident.value, "3", "a background refresh must not overwrite typing");
+  document
+    .querySelector("[data-quota]")
+    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  for (let index = 0; index < 8; index++) await new Promise((done) => setTimeout(done, 0));
+  assert.deepEqual(sent, [{ action: "configure", resident: 3, continuation: 1 }]);
+  assert.equal(resident.value, "3", "the saved value is shown after saving");
+  controller.close();
 });
