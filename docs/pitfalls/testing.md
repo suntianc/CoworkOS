@@ -10,11 +10,27 @@
 
 ## 切换执行 CLI 后文档夹具缺库
 
-- **Trigger：** 更换执行 CLI 后运行 `test/input-files.test.js`，未显式选择已准备的 Python 环境。
+- **Trigger：** 新验证工作树或更换执行 CLI 后运行 `test/input-files.test.js`，未显式选择已准备的 Python 环境。
 - **What happens：** 新进程的 `python3` 解析到另一安装，生成 PDF/Office fixture 时出现 `ModuleNotFoundError: No module named 'fitz'`；此前执行者的通过结果和依赖并未迁移到这个解释器。
 - **Confirm：** 在检查所用进程环境执行 `"${COWORK_PYTHON:-python3}" -c 'import sys; print(sys.executable, sys.version); import fitz, docx, pptx, openpyxl'`。缺库时非零退出；选择已准备依赖的解释器后导入成功。
 - **Avoid：** 按 [Python 环境](../development.md#准备环境) 设置检查子进程的 `COWORK_PYTHON`，记录路径、版本和依赖预检结果，再运行原受影响命令。
-- **Sources：** 2026-11-07 [科学剪枝复盘摘录](evidence/os-core-pruning/retro.md)、[失败与恢复日志摘录](evidence/os-core-pruning/checks.md)。
+- **Sources：** 2026-11-07 [科学剪枝复盘摘录](evidence/os-core-pruning/retro.md)、[失败与恢复日志摘录](evidence/os-core-pruning/checks.md)；2026-11-08 [P3 前置失败摘录](evidence/os-p3-project-foundation/checks.md#依赖与解释器前置)。P3 中测试隔离 hook 清除显式覆盖变量的问题已修复；新环境仍需准备对应解释器的依赖。
+
+## 合入依赖后仍使用旧安装
+
+- **Trigger：** 合入含 package/lockfile 变化的候选，在已有工作树直接构建。
+- **What happens：** 新代码使用的库尚未安装；P3 首次集成报 `TS2307: Cannot find module 'pg'`。
+- **Confirm：** 对照合入前后的 package/lockfile 差异及失败模块；按锁文件完成 `npm ci` 后，在同一源码候选重跑原失败检查，分别保留退出记录。
+- **Avoid：** 沿 [验证准备](../development-handoffs.md#验证前准备) 同步依赖，再固定候选环境；依赖安装失败按具体错误处理。
+- **Sources：** 2026-11-08 [P3 前置失败摘录](evidence/os-p3-project-foundation/checks.md#依赖与解释器前置)，同一 e3d2e499 候选补齐依赖后集成通过。
+
+## Electron 运行时尚未准备
+
+- **Trigger：** 新环境执行读取 Electron.app 内容的检查，尚未下载 Electron 二进制。
+- **What happens：** npm 包已存在，测试读取 `Electron.app/Contents/Info.plist` 时出现 ENOENT。
+- **Confirm：** 核对原始错误指向运行时文件；执行现有 `node scripts/ensure-electron.mjs` 后检查该文件并继续原命令，保存准备与检查结果。
+- **Avoid：** 所选检查需要 Electron 运行时时先使用已有准备入口；完整桌面构建按 [开发指南](../development.md) 执行。
+- **Sources：** 2026-11-08 [P3 F3 记录](evidence/os-p3-project-foundation/checks.md#依赖与解释器前置)；补齐前置后 desktop-dev 3/3 通过。
 
 ## 提交后格式检查没有选中文件
 
