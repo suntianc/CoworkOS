@@ -458,7 +458,8 @@ export class RemoteProjectDataService implements ProjectDataGateway {
       developmentId,
       channel: value.channel,
       basis: value.basis,
-      checks: value.checks
+      checks: value.checks,
+      candidate: value.candidate
     });
     return result.plan as ReviewPlan;
   }

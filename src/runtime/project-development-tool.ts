@@ -50,7 +50,7 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
     name: "project_development",
     label: "Project Development",
     description:
-      "The current project's requirement development records and fixed-candidate reviews. create records the goal, completion criteria, suggested route and the code baseline, then prepares this backend's isolated Git checkout for the requirement; one record exists per requirement, so read it before creating. get/query read records back, find_by_requirement looks one up for a requirement, update appends a new revision (carry the revision you last read), and ensure_workspace continues or repairs the existing checkout at its recorded baseline. Review actions record the channel decision (review_plan), freeze the integration checkout's current commit as a candidate and open a review (freeze_candidate), bind the independent Reviewer call (attach_reviewer), keep its findings and Main's rulings (record_finding/rule_finding), record a rework that continued the original Executor session (record_rework), read or finish a review (get_review/complete_review), and read delivery qualification (delivery_check). The current project and Task come from this conversation, so no project id or path is accepted.",
+      "The current project's requirement development records and fixed-candidate reviews. create records the goal, completion criteria, suggested route and the code baseline, then prepares this backend's isolated Git checkout for the requirement; one record exists per requirement, so read it before creating. get/query read records back, find_by_requirement looks one up for a requirement, update appends a new revision (carry the revision you last read), and ensure_workspace continues or repairs the existing checkout at its recorded baseline. Review actions record the channel decision and the version its self-checks ran on (review_plan), freeze the integration checkout's current commit as a candidate and open a review (freeze_candidate), bind one independent Reviewer call (attach_reviewer), keep its findings and Main's rulings (record_finding/rule_finding), record a rework that continued the original Executor session (record_rework), read or finish a review (get_review/complete_review), and read delivery qualification (delivery_check). A passed review settles its linked fixes; failed or drifted reviews keep their findings rulable so a repair or reasoned dismissal can still settle them. The current project and Task come from this conversation, so no project id or path is accepted.",
     parameters: {
       type: "object",
       properties: {
@@ -94,7 +94,7 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
           type: "string",
           enum: ["self", "independent", "combined"],
           description:
-            "review_plan: self (Main verified a small change), independent, or combined for a final version."
+            "review_plan: self (Main verified a small change), independent, or combined for a final version. self checks bind to the current commit/tree; record them again after the checkout moves."
         },
         basis: {
           type: "string",
@@ -110,7 +110,8 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
         kind: {
           type: "string",
           enum: ["independent", "combined"],
-          description: "freeze_candidate: independent review or a combined final review."
+          description:
+            "freeze_candidate: independent review, or combined (which requires a combined plan) for the final version."
         },
         previousReviewId: {
           ...ID,
@@ -124,7 +125,8 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
         reviewId: { ...ID, description: "attach_reviewer/record/rule/complete/get_review target." },
         callId: {
           ...ID,
-          description: "attach_reviewer: the Reviewer work item returned by call_subagent."
+          description:
+            "attach_reviewer: the Reviewer work item returned by call_subagent. The first Reviewer owns the review; retrying the same call is safe and another call is refused."
         },
         title: { type: "string", maxLength: 300, description: "record_finding: short finding title." },
         detail: { type: "string", maxLength: 4000, description: "record_finding: what is wrong and why." },
@@ -138,7 +140,8 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
         decision: {
           type: "string",
           enum: ["fix", "dismiss"],
-          description: "rule_finding: fix it, or dismiss it with a recorded basis."
+          description:
+            "rule_finding: fix it, or dismiss it with a recorded basis. Findings of failed or drifted reviews stay rulable; a passed review is closed."
         },
         category: {
           type: "string",

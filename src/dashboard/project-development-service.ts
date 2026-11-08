@@ -27,6 +27,7 @@ import type {
   DevelopmentCreate,
   DevelopmentUpdate,
   MergeConfigInput,
+  ProjectDataGateway,
   ProjectDataRuntime
 } from "../workspace/project-data-service.js";
 import {
@@ -320,19 +321,28 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     };
   }
 
-  /** The reviewed content is the candidate commit's tracked tree, not the Reviewer's evidence files. */
-  async function driftReason(workspace: string, candidate: ReviewCandidate): Promise<string | undefined> {
-    let site: { head: string; tree: string; changes: string };
+  interface ReviewSiteState {
+    head: string;
+    tree: string;
+    changes: string;
+  }
+
+  /** Read the Reviewer checkout, or undefined while it is not prepared yet. */
+  async function readReviewSite(workspace: string): Promise<ReviewSiteState | undefined> {
     try {
       const [head, tree, changes] = await Promise.all([
         git(workspace, ["rev-parse", "HEAD"]),
         git(workspace, ["rev-parse", "HEAD^{tree}"]),
         git(workspace, ["status", "--porcelain", "--untracked-files=no"])
       ]);
-      site = { head, tree, changes };
-    } catch (error) {
-      return `审查现场 ${workspace} 不可读：${error instanceof Error ? error.message : String(error)}`;
+      return { head, tree, changes };
+    } catch {
+      return undefined;
     }
+  }
+
+  /** The reviewed content is the candidate commit's tracked tree, not the Reviewer's evidence files. */
+  function driftReason(site: ReviewSiteState, candidate: ReviewCandidate): string | undefined {
     if (site.head !== candidate.commit)
       return `审查现场已从候选 ${candidate.commit.slice(0, 8)} 移到 ${site.head.slice(0, 8)}`;
     if (site.tree !== candidate.tree) return `审查现场的受审内容已变化（树 ${site.tree.slice(0, 8)}）`;
@@ -362,10 +372,25 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
 
   async function setReviewPlan(projectId: string, input: Record<string, unknown>) {
     const developmentId = developmentIdentifier(input.developmentId, "开发记录 ID");
-    await reviewDevelopment(projectId, developmentId);
-    const plan = reviewPlanInput(input);
+    const record = await reviewDevelopment(projectId, developmentId);
+    const current = await inspectWorkspace(record);
+    // A self check belongs to the integration version it actually ran on. The
+    // program records that version here, so a later commit cannot inherit it.
+    const plan = reviewPlanInput({
+      ...input,
+      candidate: {
+        commit: current.commit,
+        tree: current.tree,
+        branch: current.branch,
+        workspace: current.workspace
+      }
+    });
     if (plan.channel === "self" && plan.checks.length === 0)
       throw conflict("没有独立 Reviewer 时须至少记录一项相关验证", "review_checks_missing");
+    // The checks claim this committed version. An uncommitted checkout would
+    // let a later clean state inherit verification that never ran on it.
+    if (plan.channel === "self" && current.changes)
+      throw conflict("自检须对应已提交的干净现场；先提交或清理再记录", "review_candidate_dirty");
     if (plan.channel === "self") {
       // A review already opened for this development stands: the self channel
       // records a decision made before review, not a way to erase one.
@@ -384,8 +409,14 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     const developmentId = developmentIdentifier(input.developmentId, "开发记录 ID");
     const record = await reviewDevelopment(projectId, developmentId);
     const kind = reviewKind(input.kind);
-    const candidate = await currentCandidate(record);
     const service = await gateway();
+    const plan = await service.reviewPlan(projectId, developmentId);
+    if (!plan) throw conflict("先记录审查通道（review_plan），再冻结候选", "review_plan_missing");
+    if (plan.channel === "self")
+      throw conflict("当前通道是不含独立审查的 self；先明确改变通道再冻结候选", "review_channel_mismatch");
+    if (kind === "combined" && plan.channel !== "combined")
+      throw conflict("组合审查须先把通道改为 combined", "review_channel_mismatch");
+    const candidate = await currentCandidate(record);
     let author: DevelopmentReview["author"];
     let previous: DevelopmentReview | undefined;
     let changedPaths: string[] = [];
@@ -477,9 +508,24 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     const derived = join(dirname(development.workspace.directory), "work-items", fact.callId);
     if (resolve(fact.workspace) !== resolve(derived))
       throw conflict(`审查现场不是工作项 ${fact.callId} 自己的现场`, "review_site_mismatch");
+    if (review.reviewer) {
+      // A review belongs to the session that was bound first. The same call is
+      // a safe retry; another Reviewer must use its own review record instead of
+      // silently inheriting the findings and evidence already recorded here.
+      if (review.reviewer.callId === fact.callId) return review;
+      throw conflict(
+        `审查已绑定 Reviewer ${review.reviewer.callId}；新的 Reviewer 须使用独立审查记录`,
+        "review_reviewer_bound"
+      );
+    }
     if (review.author && (review.author.callId === fact.callId || review.author.agentId === fact.agentId))
       throw conflict("审查会话与执行身份相同，不能记为独立审查", "review_not_independent");
-    const reason = await driftReason(fact.workspace, review.candidate);
+    // A leased work item may not have created its checkout yet. That is a
+    // retryable state, not unauthorized drift; only readable, changed content
+    // invalidates the review.
+    const site = await readReviewSite(fact.workspace);
+    if (!site) throw conflict("审查工作项现场尚未准备完成；稍后重试绑定", "review_site_unavailable");
+    const reason = driftReason(site, review.candidate);
     if (reason) {
       await markDrifted(projectId, review, reason);
       throw conflict(reason, "review_drifted");
@@ -516,6 +562,11 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       state: "open",
       checks: parsed.checks,
       ...(parsed.rawFailure ? { rawFailure: parsed.rawFailure } : {}),
+      source: {
+        role: "reviewer",
+        callId: review.reviewer.callId,
+        agentId: review.reviewer.agentId
+      },
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -529,7 +580,10 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     const service = await gateway();
     const reviewId = developmentIdentifier(input.reviewId, "审查 ID");
     const review = await service.getReview(projectId, reviewId);
-    if (review.state !== "in_review") throw conflict("审查已结束，不能再裁定", "review_closed");
+    // A failed or drifted review is terminal for its verdict, not for the
+    // findings it recorded: Main still has to rule them so a repair or a
+    // reasoned dismissal can settle them later.
+    if (review.state === "passed") throw conflict("审查已通过，不能再裁定", "review_closed");
     const findingId = developmentIdentifier(input.findingId, "发现 ID");
     const decision = rulingDecision(input.decision);
     const category = decision === "dismiss" ? dismissalCategory(input.category) : undefined;
@@ -571,8 +625,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     const service = await gateway();
     const reviewId = developmentIdentifier(input.reviewId, "审查 ID");
     const review = await service.getReview(projectId, reviewId);
-    if (review.state !== "in_review" && review.state !== "failed")
-      throw conflict(`审查已经是 ${review.state}，不能记录返修`, "review_closed");
+    if (review.state === "passed") throw conflict("审查已通过，不能记录返修", "review_closed");
     const from = await requireCall(taskId, input.fromCallId);
     const continuation = await requireCall(taskId, input.continuationCallId);
     if (from.role !== "executor" || continuation.role !== "executor")
@@ -627,6 +680,58 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     });
   }
 
+  /**
+   * Settle fix-claimed findings along the explicit previousReview chain.
+   *
+   * A passing review verifies the whole chain it descends from, not just its
+   * immediate predecessor. Each finding is settled at the first review on that
+   * chain created after its fix evidence (the recorded rework, or the ruling
+   * when Main repaired directly), so a long rework keeps the candidate that
+   * actually carried the repair. Findings outside the chain are not touched.
+   */
+  async function settleLinkedFindings(
+    projectId: string,
+    passed: DevelopmentReview,
+    service: ProjectDataGateway
+  ): Promise<void> {
+    const all = await service.queryReviews(projectId, passed.developmentId);
+    const byId = new Map(all.map((entry) => [entry.reviewId, entry] as const));
+    const chain: DevelopmentReview[] = [passed];
+    const seen = new Set([passed.reviewId]);
+    let parentId = passed.previousReviewId;
+    while (parentId && !seen.has(parentId)) {
+      const parent = byId.get(parentId) ?? (await service.getReview(projectId, parentId));
+      chain.unshift(parent);
+      seen.add(parentId);
+      parentId = parent.previousReviewId;
+    }
+    const timestamp = now();
+    for (let index = 0; index < chain.length - 1; index += 1) {
+      const parent = chain[index]!;
+      if (!parent.findings.some((finding) => finding.state === "fix_claimed")) continue;
+      const evidenceAt = new Map<string, string>();
+      for (const rework of parent.reworks)
+        for (const findingId of rework.findingIds) evidenceAt.set(findingId, rework.at);
+      const findings = parent.findings.map((finding) => {
+        if (finding.state !== "fix_claimed") return finding;
+        const since = evidenceAt.get(finding.findingId) ?? finding.ruling?.at ?? finding.updatedAt;
+        const carrier = chain.slice(index + 1).find((candidate) => candidate.createdAt >= since);
+        if (!carrier) return finding;
+        return {
+          ...finding,
+          state: "fixed" as const,
+          fixedCommit: carrier.candidate.commit,
+          verifiedByReviewId: passed.reviewId,
+          updatedAt: timestamp
+        };
+      });
+      await service.updateReview(projectId, parent.reviewId, {
+        expectedRevision: parent.revision,
+        findings
+      });
+    }
+  }
+
   async function completeReview(
     projectId: string,
     input: Record<string, unknown>
@@ -639,7 +744,13 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     const verdict = reviewVerdict({ summary: input.summary, checks: input.checks });
     if (input.verdict !== "passed" && input.verdict !== "failed")
       throw conflict("审查结论须为 passed / failed", "review_verdict_invalid");
-    const reason = await driftReason(review.reviewer.workspace, review.candidate);
+    const site = await readReviewSite(review.reviewer.workspace);
+    if (!site) {
+      const reason = `审查现场 ${review.reviewer.workspace} 不可读`;
+      await markDrifted(projectId, review, reason);
+      throw conflict(reason, "review_drifted");
+    }
+    const reason = driftReason(site, review.candidate);
     if (reason) {
       await markDrifted(projectId, review, reason);
       throw conflict(reason, "review_drifted");
@@ -653,24 +764,8 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
           "review_findings_open"
         );
     }
-    if (input.verdict === "passed" && review.previousReviewId) {
-      const previous = await service.getReview(projectId, review.previousReviewId);
-      const timestamp = now();
-      const findings = previous.findings.map((finding) =>
-        finding.state === "fix_claimed"
-          ? {
-              ...finding,
-              state: "fixed" as const,
-              fixedCommit: review.candidate.commit,
-              updatedAt: timestamp
-            }
-          : finding
-      );
-      await service.updateReview(projectId, previous.reviewId, {
-        expectedRevision: previous.revision,
-        findings
-      });
-    }
+    if (input.verdict === "passed" && review.previousReviewId)
+      await settleLinkedFindings(projectId, review, service);
     return service.updateReview(projectId, reviewId, {
       expectedRevision: review.revision,
       state: input.verdict === "passed" ? "passed" : "failed",
@@ -705,8 +800,11 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     if (!plan) reasons.push("review_plan_missing");
     const latest = reviews.at(-1);
     if (plan?.channel === "self") {
-      qualification.approved = qualification.candidate;
+      const aligned = plan.candidate.commit === current.commit && plan.candidate.tree === current.tree;
+      if (!aligned) reasons.push("self_check_stale");
+      if (reviews.length > 0) reasons.push("review_started");
       if (plan.checks.length === 0) reasons.push("review_checks_missing");
+      if (aligned && reviews.length === 0) qualification.approved = plan.candidate;
     } else if (plan) {
       if (!latest) reasons.push("review_missing");
       else {

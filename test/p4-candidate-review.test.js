@@ -559,10 +559,25 @@ test(
             assert.equal(qualification.approved.commit, candidate2);
             return {
               name: "project_development",
-              arguments: { action: "freeze_candidate", developmentId, kind: "combined" }
+              arguments: {
+                action: "review_plan",
+                developmentId,
+                channel: "combined",
+                basis: "对当前集成版本做组合终审",
+                checks: [
+                  { name: "自检：导出首行", command: "head -1 export.txt", exitCode: 0, output: "header" }
+                ]
+              }
             };
           }
           if (step === 29) {
+            assert.equal(toolJson(body).plan.channel, "combined");
+            return {
+              name: "project_development",
+              arguments: { action: "freeze_candidate", developmentId, kind: "combined" }
+            };
+          }
+          if (step === 30) {
             const review = toolJson(body).review;
             reviewId3 = review.reviewId;
             assert.equal(review.kind, "combined");
@@ -576,14 +591,14 @@ test(
               }
             };
           }
-          if (step === 30) {
+          if (step === 31) {
             calls.d = toolJson(body);
             return {
               name: "wait_for_subagents",
               arguments: { callIds: [calls.d.callId], timeoutMs: 60_000 }
             };
           }
-          if (step === 31) {
+          if (step === 32) {
             const waited = toolJson(body);
             assert.equal(waited.calls.find((entry) => entry.callId === calls.d.callId).status, "completed");
             return {
@@ -593,21 +608,21 @@ test(
               }
             };
           }
-          if (step === 32) {
+          if (step === 33) {
             assert.match(lastToolText(body), /TAMPERED/);
             return {
               name: "project_development",
               arguments: { action: "attach_reviewer", reviewId: reviewId3, callId: calls.d.callId }
             };
           }
-          if (step === 33) {
+          if (step === 34) {
             assert.match(lastToolText(body), /审查现场/, `drift was not reported: ${lastToolText(body)}`);
             return {
               name: "project_development",
               arguments: { action: "get_review", reviewId: reviewId3 }
             };
           }
-          if (step === 34) {
+          if (step === 35) {
             const review = toolJson(body).review;
             assert.equal(review.state, "drifted");
             assert.match(review.drift, /受控文件改动/);
@@ -616,7 +631,7 @@ test(
               arguments: { action: "delivery_check", developmentId }
             };
           }
-          if (step === 35) {
+          if (step === 36) {
             const qualification = toolJson(body).qualification;
             assert.equal(qualification.eligible, false);
             assert.ok(qualification.reasons.includes("review_drifted"), JSON.stringify(qualification));
@@ -721,7 +736,7 @@ test(
       )}`
     );
     assert.equal(records.status, 200, JSON.stringify(records.body));
-    assert.equal(records.body.plan.channel, "independent");
+    assert.equal(records.body.plan.channel, "combined");
     assert.equal(records.body.plan.checks[0].name, "自检：导出首行");
     assert.equal(records.body.reviews.length, 3);
     const [first, second, third] = records.body.reviews;
@@ -922,6 +937,12 @@ for (const engine of PROJECT_DATA_ENGINES) {
     await writeFile(join(integration, "later.txt"), "later\n");
     await git(integration, ["add", "."]);
     await git(integration, ["commit", "-m", "candidate two"]);
+    await service.setReviewPlanForTask("task-review", {
+      developmentId: development.developmentId,
+      channel: "combined",
+      basis: "combined final version",
+      checks: [{ name: "combined self", command: "fixture", exitCode: 0, output: "ok" }]
+    });
     const later = await service.startReviewForTask("task-review", {
       developmentId: development.developmentId,
       kind: "combined",
@@ -1119,3 +1140,475 @@ test("a remote backend writes review facts through the authority and reads them 
     "independent"
   );
 });
+
+/**
+ * A lifecycle harness over the real service, gateway and Git worktrees.
+ *
+ * Reviewer/Executor identities are durable call facts, like the queue the
+ * production service reads; the check rows are controlled service inputs that
+ * pin down state transitions without a second model run.
+ */
+async function makeLifecycleHarness({ root, runtime, backendId = "backend-lifecycle" }) {
+  const repository = await makeRepository(join(root, "repository"));
+  const developmentRoot = join(root, "development-workspaces");
+  const gateway = await runtime.service();
+  const projectId = "project-lifecycle";
+  const project = { projectId, projectName: "lifecycle", projectDirectory: repository };
+  await gateway.ensureProject({
+    projectId,
+    projectName: project.projectName,
+    projectDirectory: repository,
+    backendId
+  });
+  await gateway.setMergeConfig(
+    projectId,
+    { repository, targetBranch: "main", executionBackendId: backendId },
+    backendId
+  );
+  const calls = {};
+  const service = createProjectDevelopmentService({
+    runtime,
+    backendId,
+    developmentRoot,
+    project: async (id) => (id === projectId ? project : undefined),
+    taskProject: async (id) => (id === "task-lifecycle" ? project : undefined),
+    call: async (_taskId, callId) => calls[callId]
+  });
+  let seq = 0;
+  const fixtureChecks = [{ name: "controlled check", command: "fixture", exitCode: 0, output: "ok" }];
+  async function makeDevelopment(label) {
+    const requirement = await gateway.createRequirement(projectId, { title: label, content: label });
+    return service.create(projectId, {
+      requirementId: requirement.requirementId,
+      goal: label,
+      completionCriteria: ["observable result"],
+      route: "direct"
+    });
+  }
+  async function commit(development, name, content) {
+    const directory = development.workspace.directory;
+    await writeFile(join(directory, name), content);
+    await git(directory, ["add", "."]);
+    await git(directory, ["commit", "-m", content]);
+    return git(directory, ["rev-parse", "HEAD"]);
+  }
+  async function writeExecutor(development, agentId = "executor-a") {
+    const callId = `call-author-${++seq}`;
+    const directory = join(developmentRoot, "work-items", callId);
+    await prepareWorkItemSite({
+      developmentDirectory: development.workspace.directory,
+      directory,
+      branch: `coworkos/work/${callId}`
+    });
+    const fact = {
+      callId,
+      agentId,
+      role: "executor",
+      workspace: directory,
+      developmentId: development.developmentId,
+      status: "completed"
+    };
+    calls[callId] = fact;
+    return fact;
+  }
+  function continueExecutor(from) {
+    const callId = `call-continuation-${++seq}`;
+    const fact = { ...from, callId, continuationFrom: from.callId };
+    calls[callId] = fact;
+    return fact;
+  }
+  async function addReviewer(development) {
+    const callId = `call-reviewer-${++seq}`;
+    const directory = join(developmentRoot, "work-items", callId);
+    await prepareWorkItemSite({
+      developmentDirectory: development.workspace.directory,
+      directory,
+      branch: `coworkos/work/${callId}`
+    });
+    const fact = {
+      callId,
+      agentId: `reviewer-${seq}`,
+      role: "reviewer",
+      workspace: directory,
+      developmentId: development.developmentId,
+      status: "completed"
+    };
+    calls[callId] = fact;
+    return fact;
+  }
+  const plan = (development, channel = "independent") =>
+    service.setReviewPlan(projectId, {
+      developmentId: development.developmentId,
+      channel,
+      basis: "lifecycle regression",
+      checks: fixtureChecks
+    });
+  const start = (development, options = {}) =>
+    service.startReview(projectId, "task-lifecycle", {
+      developmentId: development.developmentId,
+      kind: "independent",
+      ...options
+    });
+  const attach = (review, callId) =>
+    service.attachReviewer(projectId, "task-lifecycle", { reviewId: review.reviewId, callId });
+  const finding = (review, title) =>
+    service.recordFinding(projectId, { reviewId: review.reviewId, title, detail: title, checks: [] });
+  const rule = (review, findingId, decision, extra = {}) =>
+    service.ruleFinding(projectId, {
+      reviewId: review.reviewId,
+      findingId,
+      decision,
+      basis: "recorded lifecycle basis",
+      ...extra
+    });
+  const complete = (review, verdict, checks = fixtureChecks) =>
+    service.completeReview(projectId, {
+      reviewId: review.reviewId,
+      verdict,
+      summary: "controlled lifecycle result",
+      checks
+    });
+  const rework = (review, findingId, from, continuation) =>
+    service.recordRework(projectId, "task-lifecycle", {
+      reviewId: review.reviewId,
+      findingIds: [findingId],
+      fromCallId: from.callId,
+      continuationCallId: continuation.callId
+    });
+  async function currentCandidate(development) {
+    const workspace = development.workspace.directory;
+    return {
+      commit: await git(workspace, ["rev-parse", "HEAD"]),
+      tree: await git(workspace, ["rev-parse", "HEAD^{tree}"]),
+      branch: development.workspace.branch,
+      workspace
+    };
+  }
+  return {
+    repository,
+    developmentRoot,
+    gateway,
+    service,
+    calls,
+    projectId,
+    project,
+    makeDevelopment,
+    commit,
+    writeExecutor,
+    continueExecutor,
+    addReviewer,
+    currentCandidate,
+    plan,
+    start,
+    attach,
+    finding,
+    rule,
+    complete,
+    rework,
+    delivery: (development) => service.delivery(projectId, development.developmentId),
+    getReview: (reviewId) => service.getReview(projectId, reviewId)
+  };
+}
+
+test("a closed or drifted review keeps its findings rulable and one reviewer owns it", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-p4-lifecycle-"));
+  const config = { sqlite: { path: join(root, "project-data.sqlite") } };
+  let runtime = new ProjectDataRuntime({
+    config,
+    configPath: join(root, "config.json"),
+    dataRoot: root,
+    env: {}
+  });
+  t.after(async () => {
+    await runtime.close().catch(() => undefined);
+    await rm(root, { recursive: true, force: true });
+  });
+  const h = await makeLifecycleHarness({ root, runtime });
+
+  // P1: a finding left open when its review completes failed can still be ruled.
+  const failed = await h.makeDevelopment("failed review with open finding");
+  await h.commit(failed, "export.txt", "header\n");
+  await h.plan(failed);
+  const failedAuthor = await h.writeExecutor(failed);
+  let review = await h.start(failed, { authorCallId: failedAuthor.callId });
+  review = await h.attach(review, (await h.addReviewer(failed)).callId);
+  review = await h.finding(review, "found late");
+  const lateFinding = review.findings[0].findingId;
+  review = await h.complete(review, "failed", []);
+  assert.equal(review.state, "failed");
+  assert.equal(review.findings[0].state, "open");
+  const ruledLate = await h.rule(review, lateFinding, "dismiss", { category: "false_positive" });
+  assert.equal(ruledLate.findings[0].state, "dismissed");
+  await assert.rejects(h.finding(review, "too late"), (error) => error.code === "review_closed");
+  assert.equal(
+    (await h.delivery(failed)).reasons.includes("findings_open"),
+    false,
+    "a ruled finding no longer blocks delivery"
+  );
+
+  // P1: a fix ruled after closure can be reworked from the original session and
+  // settled by a successor review pass.
+  const fixed = await h.makeDevelopment("failed review with fix after closure");
+  await h.commit(fixed, "export.txt", "header\n");
+  await h.plan(fixed);
+  const fixedAuthor = await h.writeExecutor(fixed);
+  let fixReview = await h.start(fixed, { authorCallId: fixedAuthor.callId });
+  fixReview = await h.attach(fixReview, (await h.addReviewer(fixed)).callId);
+  fixReview = await h.finding(fixReview, "repair me");
+  const fixFinding = fixReview.findings[0].findingId;
+  fixReview = await h.complete(fixReview, "failed", []);
+  fixReview = await h.rule(fixReview, fixFinding, "fix");
+  const continuation = h.continueExecutor(fixedAuthor);
+  await h.rework(fixReview, fixFinding, fixedAuthor, continuation);
+  const fixedCandidate = await h.commit(fixed, "export.txt", "header\nfixed\n");
+  let successor = await h.start(fixed, { previousReviewId: fixReview.reviewId });
+  successor = await h.attach(successor, (await h.addReviewer(fixed)).callId);
+  successor = await h.complete(successor, "passed");
+  const fixedAfter = await h.getReview(fixReview.reviewId);
+  assert.equal(fixedAfter.state, "failed");
+  assert.equal(fixedAfter.findings[0].state, "fixed");
+  assert.equal(fixedAfter.findings[0].fixedCommit, fixedCandidate);
+  assert.equal(fixedAfter.findings[0].verifiedByReviewId, successor.reviewId);
+  assert.equal((await h.delivery(fixed)).eligible, true);
+
+  // P1: a drifted review is terminal but its findings can still be dismissed or
+  // reworked; the drift itself is never turned into a passed review.
+  const driftedDev = await h.makeDevelopment("drifted review with findings");
+  await h.commit(driftedDev, "export.txt", "header\n");
+  await h.plan(driftedDev);
+  const driftAuthor = await h.writeExecutor(driftedDev);
+  let driftReview = await h.start(driftedDev, { authorCallId: driftAuthor.callId });
+  const driftReviewer = await h.addReviewer(driftedDev);
+  driftReview = await h.attach(driftReview, driftReviewer.callId);
+  driftReview = await h.finding(driftReview, "fix after drift");
+  const driftFinding = driftReview.findings[0].findingId;
+  driftReview = await h.rule(driftReview, driftFinding, "fix");
+  driftReview = await h.finding(driftReview, "dismiss after drift");
+  const dismissFinding = driftReview.findings.at(-1).findingId;
+  await writeFile(join(driftReviewer.workspace, "export.txt"), "tampered\n");
+  await assert.rejects(h.complete(driftReview, "failed", []), (error) => error.code === "review_drifted");
+  const drifted = await h.getReview(driftReview.reviewId);
+  assert.equal(drifted.state, "drifted");
+  const dismissed = await h.rule(drifted, dismissFinding, "dismiss", { category: "out_of_scope" });
+  assert.equal(dismissed.findings.find((entry) => entry.findingId === dismissFinding).state, "dismissed");
+  const driftContinuation = h.continueExecutor(driftAuthor);
+  await h.rework(drifted, driftFinding, driftAuthor, driftContinuation);
+  const driftCandidate = await h.commit(driftedDev, "export.txt", "header\nfixed\n");
+  let driftSuccessor = await h.start(driftedDev, { previousReviewId: drifted.reviewId });
+  driftSuccessor = await h.attach(driftSuccessor, (await h.addReviewer(driftedDev)).callId);
+  driftSuccessor = await h.complete(driftSuccessor, "passed");
+  const driftAfter = await h.getReview(drifted.reviewId);
+  assert.equal(driftAfter.state, "drifted", "a drifted review stays drifted");
+  assert.equal(driftAfter.findings.find((entry) => entry.findingId === driftFinding).state, "fixed");
+  assert.equal(
+    driftAfter.findings.find((entry) => entry.findingId === driftFinding).fixedCommit,
+    driftCandidate
+  );
+  assert.equal((await h.delivery(driftedDev)).eligible, true);
+
+  // M1: a review belongs to the Reviewer that was bound first. A second
+  // Reviewer cannot replace it; the same call is an idempotent retry.
+  const identity = await h.makeDevelopment("reviewer identity");
+  await h.commit(identity, "export.txt", "header\n");
+  await h.plan(identity);
+  const identityAuthor = await h.writeExecutor(identity);
+  let identityReview = await h.start(identity, { authorCallId: identityAuthor.callId });
+  const reviewerOne = await h.addReviewer(identity);
+  identityReview = await h.attach(identityReview, reviewerOne.callId);
+  identityReview = await h.finding(identityReview, "source finding");
+  const sourceFinding = identityReview.findings[0].findingId;
+  assert.equal(identityReview.findings[0].source.callId, reviewerOne.callId);
+  const reviewerTwo = await h.addReviewer(identity);
+  await assert.rejects(
+    h.attach(identityReview, reviewerTwo.callId),
+    (error) => error.code === "review_reviewer_bound"
+  );
+  const unchanged = await h.getReview(identityReview.reviewId);
+  assert.equal(unchanged.reviewer.callId, reviewerOne.callId);
+  assert.equal(unchanged.findings[0].findingId, sourceFinding);
+  assert.equal(unchanged.findings[0].source.callId, reviewerOne.callId);
+  const retried = await h.attach(unchanged, reviewerOne.callId);
+  assert.equal(retried.reviewer.callId, reviewerOne.callId);
+  assert.equal(retried.findings[0].findingId, sourceFinding);
+  // A different Reviewer needs its own review record, not a rebind.
+  let separate = await h.start(identity);
+  separate = await h.attach(separate, reviewerTwo.callId);
+  assert.equal(separate.reviewer.callId, reviewerTwo.callId);
+  const originalStill = await h.getReview(identityReview.reviewId);
+  assert.equal(originalStill.reviewer.callId, reviewerOne.callId);
+  assert.equal(originalStill.findings[0].source.callId, reviewerOne.callId);
+
+  // A leased Reviewer whose own checkout is not prepared yet is retryable, not
+  // a drift that permanently invalidates the review.
+  const pending = await h.makeDevelopment("reviewer site not ready");
+  await h.commit(pending, "export.txt", "header\n");
+  await h.plan(pending);
+  const pendingAuthor = await h.writeExecutor(pending);
+  const pendingReview = await h.start(pending, { authorCallId: pendingAuthor.callId });
+  const pendingCall = "call-pending-site";
+  const pendingDirectory = join(h.developmentRoot, "work-items", pendingCall);
+  h.calls[pendingCall] = {
+    callId: pendingCall,
+    agentId: "reviewer-pending",
+    role: "reviewer",
+    workspace: pendingDirectory,
+    developmentId: pending.developmentId,
+    status: "leased"
+  };
+  await assert.rejects(
+    h.attach(pendingReview, pendingCall),
+    (error) => error.code === "review_site_unavailable"
+  );
+  assert.equal((await h.getReview(pendingReview.reviewId)).state, "in_review");
+  await prepareWorkItemSite({
+    developmentDirectory: pending.workspace.directory,
+    directory: pendingDirectory,
+    branch: `coworkos/work/${pendingCall}`
+  });
+  const pendingAttached = await h.attach(pendingReview, pendingCall);
+  assert.equal(pendingAttached.reviewer.callId, pendingCall);
+
+  // A forced self plan with a started review is not deliverable; the guard
+  // covers inconsistent/legacy rows even though the service refuses to create
+  // this state through startReview.
+  const selfDev = await h.makeDevelopment("self with started review");
+  await h.commit(selfDev, "self.txt", "one\n");
+  const selfCandidate = await h.currentCandidate(selfDev);
+  await h.gateway.setReviewPlan(h.projectId, selfDev.developmentId, {
+    channel: "self",
+    basis: "forced legacy self plan",
+    checks: [{ name: "self", command: "fixture", exitCode: 0, output: "ok" }],
+    candidate: selfCandidate
+  });
+  await h.gateway.createReview(h.projectId, selfDev.developmentId, {
+    kind: "independent",
+    candidate: selfCandidate,
+    changedPaths: []
+  });
+  const selfQualification = await h.delivery(selfDev);
+  assert.equal(selfQualification.eligible, false);
+  assert.ok(selfQualification.reasons.includes("review_started"), JSON.stringify(selfQualification));
+
+  // A restart keeps the drifted review, its settled findings and the delivery
+  // qualification.
+  await runtime.close();
+  runtime = new ProjectDataRuntime({
+    config,
+    configPath: join(root, "config.json"),
+    dataRoot: root,
+    env: {}
+  });
+  const reopened = createProjectDevelopmentService({
+    runtime,
+    backendId: "backend-lifecycle",
+    developmentRoot: h.developmentRoot,
+    project: async (id) => (id === h.projectId ? h.project : undefined),
+    taskProject: async (id) => (id === "task-lifecycle" ? h.project : undefined),
+    call: async (_taskId, callId) => h.calls[callId]
+  });
+  const persisted = await reopened.getReview(h.projectId, drifted.reviewId);
+  assert.equal(persisted.state, "drifted");
+  assert.equal(persisted.findings.find((entry) => entry.findingId === driftFinding).state, "fixed");
+  assert.equal(persisted.findings.find((entry) => entry.findingId === dismissFinding).state, "dismissed");
+  const persistedFailed = await reopened.getReview(h.projectId, review.reviewId);
+  assert.equal(persistedFailed.state, "failed");
+  assert.equal(persistedFailed.findings[0].state, "dismissed");
+  const persistedFix = await reopened.getReview(h.projectId, fixReview.reviewId);
+  assert.equal(persistedFix.findings[0].state, "fixed");
+  assert.equal(persistedFix.findings[0].fixedCommit, fixedCandidate);
+  assert.equal(persistedFix.findings[0].verifiedByReviewId, successor.reviewId);
+  const persistedIdentity = await reopened.getReview(h.projectId, identityReview.reviewId);
+  assert.equal(persistedIdentity.reviewer.callId, reviewerOne.callId);
+  assert.equal(persistedIdentity.findings[0].source.callId, reviewerOne.callId);
+  assert.equal((await reopened.delivery(h.projectId, driftedDev.developmentId)).eligible, true);
+});
+
+for (const engine of PROJECT_DATA_ENGINES) {
+  test(`${engine}: linked review rounds settle their own findings and unrelated open ones still block`, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), `atria-p4-chain-${engine}-`));
+    const config =
+      engine === "sqlite"
+        ? { sqlite: { path: join(root, "project-data.sqlite") } }
+        : projectDataConfig(engine, { postgres });
+    const runtime = new ProjectDataRuntime({
+      config,
+      configPath: join(root, "config.json"),
+      dataRoot: root,
+      env: {}
+    });
+    t.after(async () => {
+      await runtime.close().catch(() => undefined);
+      await rm(root, { recursive: true, force: true });
+    });
+    const h = await makeLifecycleHarness({ root, runtime, backendId: `backend-chain-${engine}` });
+
+    // M2: R1 fixes F1 and fails, R2 finds F2 and fails, R3 passes. Both are
+    // settled through the explicit previousReview chain, each at the candidate
+    // that actually carried its repair.
+    const chain = await h.makeDevelopment("three review rounds");
+    await h.commit(chain, "chain.txt", "one\n");
+    await h.plan(chain);
+    const author = await h.writeExecutor(chain);
+    let first = await h.start(chain, { authorCallId: author.callId });
+    first = await h.attach(first, (await h.addReviewer(chain)).callId);
+    first = await h.finding(first, "first defect");
+    const firstFinding = first.findings[0].findingId;
+    first = await h.rule(first, firstFinding, "fix");
+    first = await h.complete(first, "failed", []);
+    const firstContinuation = h.continueExecutor(author);
+    await h.rework(first, firstFinding, author, firstContinuation);
+    const secondCandidate = await h.commit(chain, "chain.txt", "two\n");
+    let second = await h.start(chain, { previousReviewId: first.reviewId });
+    assert.equal(second.author.callId, firstContinuation.callId);
+    second = await h.attach(second, (await h.addReviewer(chain)).callId);
+    second = await h.finding(second, "second defect");
+    const secondFinding = second.findings[0].findingId;
+    second = await h.rule(second, secondFinding, "fix");
+    second = await h.complete(second, "failed", []);
+    const secondContinuation = h.continueExecutor(firstContinuation);
+    await h.rework(second, secondFinding, firstContinuation, secondContinuation);
+    const thirdCandidate = await h.commit(chain, "chain.txt", "three\n");
+    let third = await h.start(chain, { previousReviewId: second.reviewId });
+    third = await h.attach(third, (await h.addReviewer(chain)).callId);
+    third = await h.complete(third, "passed");
+    const firstAfter = await h.getReview(first.reviewId);
+    const secondAfter = await h.getReview(second.reviewId);
+    assert.equal(firstAfter.findings[0].state, "fixed");
+    assert.equal(firstAfter.findings[0].fixedCommit, secondCandidate);
+    assert.equal(firstAfter.findings[0].verifiedByReviewId, third.reviewId);
+    assert.equal(secondAfter.findings[0].state, "fixed");
+    assert.equal(secondAfter.findings[0].fixedCommit, thirdCandidate);
+    assert.equal(secondAfter.findings[0].verifiedByReviewId, third.reviewId);
+    const chainQualification = await h.delivery(chain);
+    assert.equal(chainQualification.eligible, true, JSON.stringify(chainQualification));
+
+    // A pass does not clear an open finding outside its chain; ruling that
+    // finding on the closed review is what unblocks delivery.
+    const open = await h.makeDevelopment("unrelated open finding");
+    await h.commit(open, "open.txt", "one\n");
+    await h.plan(open);
+    const openAuthor = await h.writeExecutor(open);
+    let openReview = await h.start(open, { authorCallId: openAuthor.callId });
+    openReview = await h.attach(openReview, (await h.addReviewer(open)).callId);
+    openReview = await h.finding(openReview, "never ruled");
+    const openFinding = openReview.findings[0].findingId;
+    openReview = await h.complete(openReview, "failed", []);
+    await h.commit(open, "open.txt", "two\n");
+    let openSuccessor = await h.start(open, { previousReviewId: openReview.reviewId });
+    openSuccessor = await h.attach(openSuccessor, (await h.addReviewer(open)).callId);
+    openSuccessor = await h.complete(openSuccessor, "passed");
+    const openReviewAfter = await h.getReview(openReview.reviewId);
+    assert.equal(
+      openReviewAfter.findings[0].state,
+      "open",
+      "a pass only settles fix-claimed findings on its linked chain"
+    );
+    const blocked = await h.delivery(open);
+    assert.equal(blocked.eligible, false);
+    assert.ok(blocked.reasons.includes("findings_open"));
+    const openRuled = await h.rule(openReviewAfter, openFinding, "dismiss", { category: "out_of_scope" });
+    assert.equal(openRuled.findings[0].state, "dismissed");
+    const unblocked = await h.delivery(open);
+    assert.equal(unblocked.eligible, true, JSON.stringify(unblocked));
+  });
+}

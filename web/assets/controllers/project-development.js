@@ -17,6 +17,8 @@ const reasonLabel = {
   review_failed: "审查未通过",
   review_drifted: "审查内容漂移",
   review_kind_mismatch: "缺组合审查",
+  self_check_stale: "自检版本已变化",
+  review_started: "审查已开始",
   candidate_changed: "候选已变化",
   candidate_workspace_dirty: "现场有未提交改动",
   findings_open: "有未处理发现"
@@ -305,7 +307,7 @@ export function createProjectDevelopmentController({ api, state, showToast = () 
         plan
           ? `<p class="ledger-source">${esc(channelLabel[plan.channel] ?? plan.channel)} · ${esc(
               plan.basis
-            )}</p>${checksHtml(plan.checks, "自检记录")}`
+            )} · ${esc(shortCommit(plan.candidate?.commit))}</p>${checksHtml(plan.checks, "自检记录")}`
           : `<p class="ledger-source">未记录审查通道</p>`
       }
       <h3>独立审查</h3>

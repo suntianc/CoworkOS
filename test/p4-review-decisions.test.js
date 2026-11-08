@@ -512,10 +512,23 @@ test(
             assert.equal(toolJson(body).review.state, "passed");
             return {
               name: "project_development",
-              arguments: { action: "freeze_candidate", developmentId, kind: "combined" }
+              arguments: {
+                action: "review_plan",
+                developmentId,
+                channel: "combined",
+                basis: "对当前集成版本做组合终审",
+                checks: [{ name: "自检：数据行", command: "wc -l < export.txt", exitCode: 0, output: "2" }]
+              }
             };
           }
           if (step === 29) {
+            assert.equal(toolJson(body).plan.channel, "combined");
+            return {
+              name: "project_development",
+              arguments: { action: "freeze_candidate", developmentId, kind: "combined" }
+            };
+          }
+          if (step === 30) {
             const review = toolJson(body).review;
             reviewId3 = review.reviewId;
             assert.equal(review.kind, "combined");
@@ -531,14 +544,14 @@ test(
               }
             };
           }
-          if (step === 30) {
+          if (step === 31) {
             calls.d = toolJson(body);
             return {
               name: "wait_for_subagents",
               arguments: { callIds: [calls.d.callId], timeoutMs: 60_000 }
             };
           }
-          if (step === 31) {
+          if (step === 32) {
             assert.equal(
               toolJson(body).calls.find((entry) => entry.callId === calls.d.callId).status,
               "completed"
@@ -548,7 +561,7 @@ test(
               arguments: { action: "attach_reviewer", reviewId: reviewId3, callId: calls.d.callId }
             };
           }
-          if (step === 32) {
+          if (step === 33) {
             assert.equal(toolJson(body).review.reviewer.agentId, calls.d.agentId);
             return {
               name: "bash",
@@ -557,7 +570,7 @@ test(
               }
             };
           }
-          if (step === 33) {
+          if (step === 34) {
             assert.match(lastToolText(body), /CLEAN/, "the combined candidate is clean");
             return {
               name: "project_development",
@@ -577,14 +590,14 @@ test(
               }
             };
           }
-          if (step === 34) {
+          if (step === 35) {
             assert.equal(toolJson(body).review.state, "passed");
             return {
               name: "project_development",
               arguments: { action: "delivery_check", developmentId }
             };
           }
-          if (step === 35) {
+          if (step === 36) {
             const qualification = toolJson(body).qualification;
             assert.equal(qualification.eligible, true, JSON.stringify(qualification));
             assert.equal(qualification.kind, "combined");
@@ -711,8 +724,8 @@ test(
     assert.equal(third.kind, "combined");
     assert.equal(third.candidate.commit, candidate2);
     assert.equal(third.state, "passed");
-    assert.equal(records.plan.channel, "independent");
-    assert.equal(records.plan.checks[0].name, "自检：首行");
+    assert.equal(records.plan.channel, "combined");
+    assert.equal(records.plan.checks[0].name, "自检：数据行");
     assert.equal(records.qualification.eligible, true);
     assert.equal(records.qualification.kind, "combined");
 
@@ -821,12 +834,81 @@ test(
     assert.deepEqual(smallReviews.body.reviews, []);
     assert.equal(smallReviews.body.plan.checks[0].name, "文案检查");
 
+    // M3: self-check evidence belongs to the version it ran on. A later commit
+    // is not approved by the old checks; recording the verification for the
+    // current version restores eligibility, and an incompatible review cannot
+    // be started until Main explicitly changes the channel.
+    const smallWorkspace = smallDevelopment.body.development.workspace.directory;
+    await writeFile(join(smallWorkspace, "copy.txt"), "第一版\n");
+    await git(smallWorkspace, ["add", "."]);
+    await git(smallWorkspace, ["commit", "-m", "new version"]);
+    const stale = await request(`/api/projects/${encodeURIComponent(project.projectId)}/reviews`, {
+      action: "delivery",
+      developmentId: smallId
+    });
+    assert.equal(stale.status, 200, JSON.stringify(stale.body));
+    assert.equal(stale.body.qualification.eligible, false, "old checks do not approve a new commit");
+    assert.ok(stale.body.qualification.reasons.includes("self_check_stale"));
+    assert.notEqual(stale.body.qualification.approved?.commit, stale.body.qualification.candidate.commit);
+
+    const rechecked = await request(`/api/projects/${encodeURIComponent(project.projectId)}/reviews`, {
+      action: "plan",
+      developmentId: smallId,
+      channel: "self",
+      basis: "在当前版本重新完成文案检查",
+      checks: [{ name: "当前版本文案检查", command: "grep 导出 copy.txt", exitCode: 0, output: "导出" }]
+    });
+    assert.equal(rechecked.status, 200, JSON.stringify(rechecked.body));
+    const recheckedDelivery = await request(
+      `/api/projects/${encodeURIComponent(project.projectId)}/reviews`,
+      { action: "delivery", developmentId: smallId }
+    );
+    assert.equal(recheckedDelivery.body.qualification.eligible, true);
+    assert.equal(
+      recheckedDelivery.body.qualification.approved.commit,
+      recheckedDelivery.body.qualification.candidate.commit
+    );
+
+    const incompatible = await request(`/api/projects/${encodeURIComponent(project.projectId)}/reviews`, {
+      action: "start",
+      developmentId: smallId,
+      kind: "independent"
+    });
+    assert.equal(incompatible.status, 409, JSON.stringify(incompatible.body));
+    assert.equal(incompatible.body.code, "review_channel_mismatch");
+
+    // A dirty checkout is not a deliverable version and cannot claim a new
+    // self verification either.
+    await writeFile(join(smallWorkspace, "draft.txt"), "未提交\n");
+    const dirtyPlan = await request(`/api/projects/${encodeURIComponent(project.projectId)}/reviews`, {
+      action: "plan",
+      developmentId: smallId,
+      channel: "self",
+      basis: "在未提交的现场记录自检",
+      checks: [{ name: "脏现场检查", command: "fixture", exitCode: 0, output: "ok" }]
+    });
+    assert.equal(dirtyPlan.status, 409, JSON.stringify(dirtyPlan.body));
+    assert.equal(dirtyPlan.body.code, "review_candidate_dirty");
+    const dirty = await request(`/api/projects/${encodeURIComponent(project.projectId)}/reviews`, {
+      action: "delivery",
+      developmentId: smallId
+    });
+    assert.equal(dirty.body.qualification.eligible, false);
+    assert.ok(dirty.body.qualification.reasons.includes("candidate_workspace_dirty"));
+    await rm(join(smallWorkspace, "draft.txt"), { force: true });
+    const cleanAgain = await request(`/api/projects/${encodeURIComponent(project.projectId)}/reviews`, {
+      action: "delivery",
+      developmentId: smallId
+    });
+    assert.equal(cleanAgain.body.qualification.eligible, true);
+
     // A backend restart keeps the plan, checks, findings, rulings and
     // qualification readable under the same project.
     await dashboard.restart();
     const afterRestart = (await request(path)).body;
     assert.equal(afterRestart.reviews.length, 3);
-    assert.equal(afterRestart.plan.checks[0].name, "自检：首行");
+    assert.equal(afterRestart.plan.channel, "combined");
+    assert.equal(afterRestart.plan.checks[0].name, "自检：数据行");
     assert.equal(afterRestart.reviews[1].verdict.checks[0].name, "复审：数据行");
     assert.equal(afterRestart.reviews[0].findings[0].findingId, findings.standard);
     assert.equal(
@@ -843,8 +925,9 @@ test(
       )
     ).body;
     assert.equal(smallAfterRestart.plan.channel, "self");
-    assert.equal(smallAfterRestart.plan.checks[0].name, "文案检查");
+    assert.equal(smallAfterRestart.plan.checks[0].name, "当前版本文案检查");
     assert.equal(smallAfterRestart.qualification.eligible, true);
+    assert.equal(smallAfterRestart.plan.candidate.commit, smallAfterRestart.qualification.candidate.commit);
     assert.equal(await readFile(join(integration, "export.txt"), "utf8"), "header\ndata\n");
   }
 );

@@ -55,11 +55,22 @@ export interface ReviewFinding {
   checks: ReviewCheck[];
   /** The verbatim failure the Reviewer produced, kept so it can be read again. */
   rawFailure?: string;
+  /** Fixed at recording time, so a later rebind or history edit cannot move it. */
+  source?: ReviewFindingSource;
   ruling?: ReviewRuling;
   /** The candidate a recorded rework produced; set when the fix is verified. */
   fixedCommit?: string;
+  /** The later review on the previousReview chain that verified the fix. */
+  verifiedByReviewId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The independent session that actually produced one finding. */
+export interface ReviewFindingSource {
+  role: "reviewer";
+  callId: string;
+  agentId: string;
 }
 
 export interface ReviewCandidate {
@@ -140,6 +151,8 @@ export interface ReviewPlan {
   basis: string;
   /** The author's own verification, distinct from an independent Reviewer's checks. */
   checks: ReviewCheck[];
+  /** The integration version these checks actually ran on. */
+  candidate: ReviewCandidate;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -257,6 +270,7 @@ export function reviewPlanInput(value: unknown): {
   channel: ReviewChannel;
   basis: string;
   checks: ReviewCheck[];
+  candidate: ReviewCandidate;
 } {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new ProjectDataInvalidError("审查通道判断必须是对象");
@@ -264,7 +278,8 @@ export function reviewPlanInput(value: unknown): {
   return {
     channel: reviewChannel(input.channel),
     basis: bounded(input.basis, "审查通道依据", 2000),
-    checks: reviewChecks(input.checks)
+    checks: reviewChecks(input.checks),
+    candidate: reviewCandidate(input.candidate)
   };
 }
 
@@ -340,6 +355,18 @@ function reviewRuling(value: unknown): ReviewRuling {
   };
 }
 
+function reviewFindingSource(value: unknown): ReviewFindingSource {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new ProjectDataInvalidError("发现来源必须是对象");
+  const input = value as Record<string, unknown>;
+  if (input.role !== "reviewer") throw new ProjectDataInvalidError("发现来源角色须为 reviewer");
+  return {
+    role: "reviewer",
+    callId: reviewCallId(input.callId, "发现来源 callId"),
+    agentId: reviewCallId(input.agentId, "发现来源身份")
+  };
+}
+
 export function reviewFinding(value: unknown): ReviewFinding {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new ProjectDataInvalidError("审查发现必须是对象");
@@ -357,8 +384,12 @@ export function reviewFinding(value: unknown): ReviewFinding {
     ...(optionalBounded(input.rawFailure, "失败原件", 8000)
       ? { rawFailure: optionalBounded(input.rawFailure, "失败原件", 8000)! }
       : {}),
+    ...(input.source === undefined ? {} : { source: reviewFindingSource(input.source) }),
     ...(input.ruling === undefined ? {} : { ruling: reviewRuling(input.ruling) }),
     ...(input.fixedCommit === undefined ? {} : { fixedCommit: reviewCommit(input.fixedCommit, "修复提交") }),
+    ...(input.verifiedByReviewId === undefined
+      ? {}
+      : { verifiedByReviewId: ledgerIdentifier(input.verifiedByReviewId, "验证审查 ID") }),
     createdAt: bounded(input.createdAt, "发现创建时间", 100),
     updatedAt: bounded(input.updatedAt, "发现更新时间", 100)
   };

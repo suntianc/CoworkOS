@@ -205,6 +205,10 @@ interface ReviewPlanRow {
   channel: string;
   basis: string;
   checks: string;
+  candidate_commit: string;
+  candidate_tree: string;
+  candidate_branch: string;
+  candidate_workspace: string;
   revision: number;
   created_at: string;
   updated_at: string;
@@ -575,6 +579,10 @@ const TABLE_COLUMNS: Record<SnapshotTable, readonly string[]> = {
     "channel",
     "basis",
     "checks",
+    "candidate_commit",
+    "candidate_tree",
+    "candidate_branch",
+    "candidate_workspace",
     "revision",
     "created_at",
     "updated_at"
@@ -725,6 +733,12 @@ function planOf(row: ReviewPlanRow): ReviewPlan {
     channel: row.channel as ReviewPlan["channel"],
     basis: row.basis,
     checks: reviewChecks(storedArray(row.checks, "审查通道检查")),
+    candidate: reviewCandidate({
+      commit: row.candidate_commit,
+      tree: row.candidate_tree,
+      branch: row.candidate_branch,
+      workspace: row.candidate_workspace
+    }),
     revision: Number(row.revision),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -1539,19 +1553,47 @@ export class ProjectDataRepository {
     const existing = await this.reviewPlan(projectId, developmentId);
     const revision = (existing?.revision ?? 0) + 1;
     const checks = JSON.stringify(input.checks);
+    const candidate = input.candidate;
     if (existing)
       await this.transaction.execute(
         `UPDATE project_data_development_review_plans
-            SET channel = ?, basis = ?, checks = ?, revision = ?, updated_at = ?
+            SET channel = ?, basis = ?, checks = ?, candidate_commit = ?, candidate_tree = ?,
+                candidate_branch = ?, candidate_workspace = ?, revision = ?, updated_at = ?
           WHERE project_id = ? AND development_id = ?`,
-        [input.channel, input.basis, checks, revision, timestamp, projectId, developmentId]
+        [
+          input.channel,
+          input.basis,
+          checks,
+          candidate.commit,
+          candidate.tree,
+          candidate.branch,
+          candidate.workspace,
+          revision,
+          timestamp,
+          projectId,
+          developmentId
+        ]
       );
     else
       await this.transaction.execute(
         `INSERT INTO project_data_development_review_plans
-           (project_id, development_id, channel, basis, checks, revision, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [projectId, developmentId, input.channel, input.basis, checks, revision, timestamp, timestamp]
+           (project_id, development_id, channel, basis, checks, candidate_commit, candidate_tree,
+            candidate_branch, candidate_workspace, revision, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          projectId,
+          developmentId,
+          input.channel,
+          input.basis,
+          checks,
+          candidate.commit,
+          candidate.tree,
+          candidate.branch,
+          candidate.workspace,
+          revision,
+          timestamp,
+          timestamp
+        ]
       );
     return (await this.reviewPlan(projectId, developmentId))!;
   }
