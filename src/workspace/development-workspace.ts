@@ -56,7 +56,9 @@ export async function assertRepository(repository: string): Promise<void> {
     const bare = await git(repository, ["rev-parse", "--is-bare-repository"]);
     if (bare === "true") throw invalidConfig(`项目合入配置不可用：${repository} 是裸仓库，不能创建需求现场`);
   } catch (error) {
-    if (error instanceof ProjectDataInvalidError) throw error;
+    // Keep an explicit refusal (bare repository, missing executable, path
+    // trouble) as its own locatable reason instead of relabelling it.
+    if (error instanceof ProjectDataError) throw error;
     throw invalidConfig(`项目合入配置不可用：${repository} 不是 Git 仓库`);
   }
 }

@@ -136,7 +136,8 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         commit: record.baseline.commit,
         directory
       });
-      return (await gateway()).recordDevelopmentWorkspace(projectId, record.developmentId, {
+      const service = await gateway();
+      return await service.recordDevelopmentWorkspace(projectId, record.developmentId, {
         workspaceId: record.workspace?.workspaceId ?? id("workspace"),
         backendId: ports.backendId,
         directory,
@@ -218,14 +219,27 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         `该项目的合入配置归属后端 ${config.executionBackendId}，当前后端不能继续需求现场`
       );
     if (
-      record.workspace?.state === "ready" &&
+      record.workspace &&
       (await developmentWorkspaceIsIntact({
         repository: config.repository,
         directory: record.workspace.directory,
         branch: record.workspace.branch
       }))
-    )
-      return record;
+    ) {
+      if (record.workspace.state === "ready") return record;
+      // A failed marker after a successful checkout (for example a ready-write
+      // failure) is reconciled without creating a second worktree or resetting
+      // the user's work.
+      const service = await gateway();
+      return await service.recordDevelopmentWorkspace(projectId, record.developmentId, {
+        workspaceId: record.workspace.workspaceId,
+        backendId: ports.backendId,
+        directory: record.workspace.directory,
+        branch: record.workspace.branch,
+        baseCommit: record.workspace.baseCommit,
+        state: "ready"
+      });
+    }
     return prepare(projectId, record, config.repository);
   }
 
@@ -295,15 +309,32 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       return create(found.projectId, input, taskId);
     },
 
-    update(projectId: string, developmentId: string, input: DevelopmentUpdate) {
+    update(projectId: string, developmentId: string, input: DevelopmentUpdate, backendId = ports.backendId) {
       return gateway().then((service) =>
-        service.updateDevelopment(projectId, developmentId, input, ports.backendId)
+        service.updateDevelopment(projectId, developmentId, input, backendId)
       );
     },
 
-    async updateForTask(taskId: string, developmentId: string, input: DevelopmentUpdate) {
+    async updateForTask(
+      taskId: string,
+      developmentId: string,
+      input: DevelopmentUpdate,
+      backendId = ports.backendId
+    ) {
       const found = await taskProject(taskId);
-      return (await gateway()).updateDevelopment(found.projectId, developmentId, input, ports.backendId);
+      return (await gateway()).updateDevelopment(found.projectId, developmentId, input, backendId);
+    },
+
+    /** Record a shared merge entry that the caller already validated on its own host. */
+    async recordMergeConfig(projectId: string, input: MergeConfigInput, backendId: string) {
+      // The data authority only checks the shared project; the execution owner
+      // checked the repository path and branch where they actually exist.
+      return (await gateway()).setMergeConfig(projectId, input, backendId);
+    },
+
+    /** Record a shared development fact without preparing any checkout here. */
+    async record(projectId: string, input: DevelopmentCreate) {
+      return (await gateway()).createDevelopment(projectId, input);
     },
 
     /**

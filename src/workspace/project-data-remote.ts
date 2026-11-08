@@ -32,6 +32,7 @@ import type {
   RequirementQuery,
   RequirementUpdate
 } from "./project-data-service.js";
+import { DevelopmentExistsError } from "../domain/project-development.js";
 import type { DevelopmentRecord, MergeConfig } from "../domain/project-development.js";
 import type { MainSessionRun } from "../domain/main-session.js";
 import type { RequirementDetail, RequirementSummary, SharedProject } from "../domain/project-ledger.js";
@@ -533,12 +534,18 @@ async function call(
       : `共享项目数据服务请求失败（HTTP ${response.status}）`;
   if (response.status === 401) throw new ProjectDataAuthError(`共享项目数据服务认证已失效：${message}`);
   if (response.status === 404) throw new ProjectDataNotFoundError(message);
-  if (response.status === 409)
+  if (response.status === 409) {
+    const code = typeof body.code === "string" ? body.code : "revision_conflict";
+    // The existing record is part of the conflict contract: a create retry can
+    // continue that record instead of guessing a new one.
+    if (code === "development_exists" && typeof body.developmentId === "string")
+      throw new DevelopmentExistsError(message, body.developmentId);
     throw new ProjectDataConflictError(
       message,
       typeof body.currentRevision === "number" ? body.currentRevision : undefined,
-      typeof body.code === "string" ? body.code : "revision_conflict"
+      code
     );
+  }
   if (response.status === 503) throw new ProjectDataUnavailableError(message);
   if (!response.ok)
     throw new ProjectDataError(

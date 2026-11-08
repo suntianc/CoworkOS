@@ -87,14 +87,20 @@ export async function handleDevelopmentRequest(
       return reply(response, 200, { mergeConfig: (await ports.service.mergeConfig(projectId)) ?? null });
     if (request.method !== "POST") throw new HttpError(405, "method not allowed");
     const body = await readJsonBody(request);
+    const input = {
+      repository: body.repository,
+      targetBranch: body.targetBranch,
+      // A remote backend configures the entry it can reach; a local request
+      // defaults to the serving backend.
+      executionBackendId: body.executionBackendId ?? declared
+    };
+    // An authenticated remote backend already checked its own repository. The
+    // authority stores the shared entry and never executes or validates a path
+    // that belongs to another host's checkout.
     return reply(response, 200, {
-      mergeConfig: await ports.service.setMergeConfig(projectId, {
-        repository: body.repository,
-        targetBranch: body.targetBranch,
-        // A remote backend configures the entry it can reach; a local request
-        // defaults to the serving backend.
-        executionBackendId: body.executionBackendId ?? declared
-      })
+      mergeConfig: declared
+        ? await ports.service.recordMergeConfig(projectId, input, declared)
+        : await ports.service.setMergeConfig(projectId, input)
     });
   }
 
@@ -107,7 +113,9 @@ export async function handleDevelopmentRequest(
       });
     return reply(response, 200, {
       projectId,
-      developments: taskId ? await ports.service.listForTask(taskId) : await ports.service.list(projectId)
+      developments: taskId
+        ? await ports.service.listForTask(taskId, backendId)
+        : await ports.service.list(projectId, backendId)
     });
   }
   if (request.method !== "POST") throw new HttpError(405, "method not allowed");
@@ -117,7 +125,9 @@ export async function handleDevelopmentRequest(
       case "query":
         return reply(response, 200, {
           projectId,
-          developments: taskId ? await ports.service.listForTask(taskId) : await ports.service.list(projectId)
+          developments: taskId
+            ? await ports.service.listForTask(taskId, backendId)
+            : await ports.service.list(projectId, backendId)
         });
       case "get": {
         if (typeof body.developmentId !== "string") throw new HttpError(400, "get 需要 developmentId");
@@ -128,6 +138,13 @@ export async function handleDevelopmentRequest(
         });
       }
       case "create":
+        // A remote backend owns the repository and the checkout; the authority
+        // only records the shared fact it validated and never prepares a
+        // workspace in another host's data root.
+        if (declared)
+          return reply(response, 201, {
+            development: await ports.service.record(projectId, taskId ? { ...body, taskId } : body)
+          });
         return reply(response, 201, {
           development: taskId
             ? await ports.service.createForTask(taskId, body)
@@ -137,11 +154,15 @@ export async function handleDevelopmentRequest(
         if (typeof body.developmentId !== "string") throw new HttpError(400, "update 需要 developmentId");
         return reply(response, 200, {
           development: taskId
-            ? await ports.service.updateForTask(taskId, body.developmentId, body)
-            : await ports.service.update(projectId, body.developmentId, body)
+            ? await ports.service.updateForTask(taskId, body.developmentId, body, backendId)
+            : await ports.service.update(projectId, body.developmentId, body, backendId)
         });
       }
       case "ensure_workspace": {
+        // Continuing a checkout is an execution-host action. The authority must
+        // not run Git against a repository that belongs to another backend.
+        if (declared)
+          throw new HttpError(403, "需求现场只能在执行后端继续", "development_workspace_owner_only");
         if (typeof body.developmentId !== "string")
           throw new HttpError(400, "ensure_workspace 需要 developmentId");
         return reply(response, 200, {

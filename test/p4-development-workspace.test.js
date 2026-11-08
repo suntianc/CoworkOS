@@ -2,18 +2,22 @@ import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { after, before, test } from "node:test";
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
+import { startDashboard } from "./dashboard-fixture.mjs";
 import {
   PROJECT_DATA_ENGINES,
   startPostgresProjectDatabase,
   startProjectDataDashboard
 } from "./p3-storage-fixture.mjs";
 import { ProjectDataRuntime } from "../dist/src/workspace/project-data-service.js";
+import { RemoteProjectDataService } from "../dist/src/workspace/project-data-remote.js";
+import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
+import { createProjectDevelopmentTool } from "../dist/src/runtime/project-development-tool.js";
 import { SqliteDatabase } from "../dist/src/storage/project-data/sqlite-database.js";
 import { PostgresDatabase } from "../dist/src/storage/project-data/postgres-database.js";
 import { PROJECT_DATA_MIGRATIONS } from "../dist/src/storage/project-data/migrations.js";
@@ -122,6 +126,45 @@ async function openService(fixture, engine, info) {
   return { service: await runtime.service(), close: () => runtime.close() };
 }
 
+/** A second real backend with its own data root, reading the authority through its scoped credential. */
+async function readServingInstance(root) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const instance = await readBackendInstance(backendPaths(join(root, "home")));
+    if (instance.value?.token && instance.value.backendId) return instance.value;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.fail("the backend did not publish its local credential");
+}
+
+async function startSecondary(t, authority, token) {
+  const dashboard = await startDashboard({
+    defaultProject: false,
+    config: { projectData: { authority: { url: authority.base, token } } }
+  });
+  t.after(() => dashboard.stop());
+  const instance = await readServingInstance(dashboard.root);
+  return {
+    ...dashboard,
+    request: client(dashboard),
+    backendId: instance.backendId,
+    token: instance.token
+  };
+}
+
+/** A request that names an authenticated remote backend, like the remote gateway does. */
+async function declaredRequest(base, token, path, body, backendId) {
+  const response = await fetch(`${base}${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-atria-token": token,
+      "x-cowork-backend-id": backendId
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  return { status: response.status, body: await response.json() };
+}
+
 for (const engine of PROJECT_DATA_ENGINES) {
   test(`${engine}: two requirements get independent isolated workspaces that survive restart`, async (t) => {
     const f = await startProjectDataDashboard(t, engine, { postgres });
@@ -178,6 +221,16 @@ for (const engine of PROJECT_DATA_ENGINES) {
     assert.equal(badBranch.status, 400, JSON.stringify(badBranch.body));
     assert.equal(badBranch.body.code, "project_git_invalid");
     assert.match(badBranch.body.error, /missing-branch/);
+    const bareRepository = join(f.root, "bare.git");
+    await run("git", ["init", "--bare", bareRepository]);
+    const bare = await request(`/api/projects/${encodeURIComponent(other.projectId)}/merge-config`, {
+      repository: bareRepository,
+      targetBranch: "main"
+    });
+    assert.equal(bare.status, 400, JSON.stringify(bare.body));
+    assert.equal(bare.body.code, "project_git_invalid");
+    assert.match(bare.body.error, /裸仓库/, "the bare repository's own reason is kept");
+    assert.match(bare.body.error, /bare\.git/);
 
     const createdFirst = await request(developmentPath(project.projectId), {
       action: "create",
@@ -321,6 +374,252 @@ for (const engine of PROJECT_DATA_ENGINES) {
     assert.equal(crossProject.status, 404, JSON.stringify(crossProject.body));
   });
 
+  test(`${engine}: an authenticated secondary backend owns its checkout and every reader gets its own workspace`, async (t) => {
+    const authority = await startProjectDataDashboard(t, engine, { postgres });
+    const authorityRequest = client(authority);
+    const authorityInstance = { value: await readServingInstance(authority.root) };
+    assert.ok(authorityInstance.value.token && authorityInstance.value.backendId);
+    const secondary = await startSecondary(t, authority, authorityInstance.value.token);
+    const repository = await makeRepository(join(authority.root, "shared-repository"));
+    const head = await git(repository, ["rev-parse", "HEAD"]);
+
+    // The same shared project exists in both catalogs.
+    const ownedDirectory = join(authority.root, "project-owned");
+    await mkdir(ownedDirectory, { recursive: true });
+    const owned = await authorityRequest("/api/projects", {
+      projectName: "共享项目",
+      projectDirectory: ownedDirectory
+    });
+    assert.equal(owned.status, 201, JSON.stringify(owned.body));
+    const projectId = owned.body.project.projectId;
+    const secondaryDirectory = join(secondary.root, "project-owned");
+    await mkdir(secondaryDirectory, { recursive: true });
+    const ownedOnSecondary = await secondary.request("/api/projects", {
+      projectName: "共享项目",
+      projectDirectory: secondaryDirectory,
+      projectId
+    });
+    assert.equal(ownedOnSecondary.status, 201, JSON.stringify(ownedOnSecondary.body));
+    assert.equal(ownedOnSecondary.body.project.projectId, projectId);
+
+    // The secondary validates its own repository and records the project's merge entry.
+    const configured = await secondary.request(
+      `/api/projects/${encodeURIComponent(projectId)}/merge-config`,
+      { repository, targetBranch: "main" }
+    );
+    assert.equal(configured.status, 200, JSON.stringify(configured.body));
+    assert.equal(configured.body.mergeConfig.executionBackendId, secondary.backendId);
+
+    const remoteRequirement = await createRequirement(authorityRequest, projectId, "远程后端开发");
+    const session = await secondary.request(`/api/projects/${encodeURIComponent(projectId)}/main-sessions`, {
+      action: "create",
+      title: "secondary 的会话",
+      requirementId: remoteRequirement.requirementId
+    });
+    assert.equal(session.status, 201, JSON.stringify(session.body));
+    const tool = createProjectDevelopmentTool({
+      dashboardUrl: secondary.base,
+      taskId: session.body.session.taskId,
+      token: secondary.token
+    });
+
+    // P1: the real production create entry succeeds through the remote gateway.
+    const created = await tool.execute({
+      action: "create",
+      requirementId: remoteRequirement.requirementId,
+      goal: "secondary 在自己的检出中开发",
+      completionCriteria: ["记录和现场只出现一次"],
+      route: "direct"
+    });
+    const development = created.development;
+    assert.equal(development.workspace.state, "ready", JSON.stringify(development.workspace));
+    assert.equal(development.workspace.backendId, secondary.backendId);
+    assert.ok(
+      development.workspace.directory.startsWith(secondary.root),
+      "the checkout belongs to the secondary data root"
+    );
+    assert.equal(development.workspace.directory.startsWith(authority.root), false);
+    assert.equal((await stat(development.workspace.directory)).isDirectory(), true);
+    const secondaryList = await secondary.request(
+      `/api/projects/${encodeURIComponent(projectId)}/developments`
+    );
+    assert.equal(secondaryList.body.developments.length, 1, "the record appears once");
+    const authorityBeforeRow = await authorityRequest(
+      `/api/projects/${encodeURIComponent(projectId)}/developments/${encodeURIComponent(
+        development.developmentId
+      )}`
+    );
+    assert.equal(authorityBeforeRow.status, 200);
+    assert.equal(
+      authorityBeforeRow.body.development.workspace,
+      undefined,
+      "the authority has no checkout for this development"
+    );
+    await assert.rejects(
+      tool.execute({
+        action: "create",
+        requirementId: remoteRequirement.requirementId,
+        goal: "重复创建",
+        completionCriteria: ["应返回原记录"],
+        route: "direct"
+      }),
+      (error) => {
+        assert.equal(error.code, "development_exists");
+        assert.equal(error.developmentId, development.developmentId);
+        return true;
+      }
+    );
+
+    // P2: give the authority its own, clearly different checkout row.
+    const authorityWorkspace = {
+      workspaceId: "workspace_authority_probe",
+      backendId: authorityInstance.value.backendId,
+      directory: join(authority.root, "authority-workspace"),
+      branch: "coworkos/development/authority-probe",
+      baseCommit: head,
+      state: "ready"
+    };
+    const recorded = await authorityRequest(`/api/projects/${encodeURIComponent(projectId)}/developments`, {
+      action: "record_workspace",
+      developmentId: development.developmentId,
+      workspace: authorityWorkspace
+    });
+    assert.equal(recorded.status, 200, JSON.stringify(recorded.body));
+    assert.equal(recorded.body.development.workspace.backendId, authorityInstance.value.backendId);
+
+    const secondaryDetail = await secondary.request(
+      `/api/projects/${encodeURIComponent(projectId)}/developments/${encodeURIComponent(
+        development.developmentId
+      )}`
+    );
+    assert.equal(secondaryDetail.body.development.workspace.directory, development.workspace.directory);
+    const authorityDetail = await authorityRequest(
+      `/api/projects/${encodeURIComponent(projectId)}/developments/${encodeURIComponent(
+        development.developmentId
+      )}`
+    );
+    assert.equal(authorityDetail.body.development.workspace.directory, authorityWorkspace.directory);
+    const secondaryListAgain = await secondary.request(
+      `/api/projects/${encodeURIComponent(projectId)}/developments`
+    );
+    assert.equal(
+      secondaryListAgain.body.developments[0].workspace.directory,
+      development.workspace.directory
+    );
+    const authorityList = await authorityRequest(
+      `/api/projects/${encodeURIComponent(projectId)}/developments`
+    );
+    assert.equal(authorityList.body.developments[0].workspace.directory, authorityWorkspace.directory);
+    const secondaryQuery = await secondary.request(
+      `/api/projects/${encodeURIComponent(projectId)}/developments`,
+      { action: "query" }
+    );
+    assert.equal(secondaryQuery.body.developments[0].workspace.directory, development.workspace.directory);
+    const probe = await declaredRequest(
+      authority.base,
+      authorityInstance.value.token,
+      `/api/projects/${encodeURIComponent(projectId)}/developments/${encodeURIComponent(
+        development.developmentId
+      )}`,
+      undefined,
+      "backend_without_workspace"
+    );
+    assert.equal(probe.status, 200, JSON.stringify(probe.body));
+    assert.equal(probe.body.development.workspace, undefined, "no workspace means none, not the authority's");
+
+    // Task-scoped update from the secondary keeps the secondary's row; a local
+    // authority update keeps the authority's row.
+    const updatedBySecondary = await tool.execute({
+      action: "update",
+      developmentId: development.developmentId,
+      expectedRevision: 1,
+      goal: "secondary 继续开发"
+    });
+    assert.equal(updatedBySecondary.development.revision, 2);
+    assert.equal(updatedBySecondary.development.workspace.directory, development.workspace.directory);
+    const updatedByAuthority = await authorityRequest(
+      `/api/projects/${encodeURIComponent(projectId)}/developments`,
+      {
+        action: "update",
+        developmentId: development.developmentId,
+        expectedRevision: 2,
+        goal: "authority 自己的记录"
+      }
+    );
+    assert.equal(updatedByAuthority.status, 200, JSON.stringify(updatedByAuthority.body));
+    assert.equal(updatedByAuthority.body.development.workspace.directory, authorityWorkspace.directory);
+    const foundBySecondary = await tool.execute({
+      action: "find_by_requirement",
+      requirementId: remoteRequirement.requirementId
+    });
+    assert.equal(foundBySecondary.development.workspace.directory, development.workspace.directory);
+
+    // A non-owner backend cannot prepare this project's checkout.
+    const nonOwnerRequirement = await createRequirement(authorityRequest, projectId, "非所有者");
+    const refused = await authorityRequest(`/api/projects/${encodeURIComponent(projectId)}/developments`, {
+      action: "create",
+      requirementId: nonOwnerRequirement.requirementId,
+      goal: "不应在错误的主机上准备现场",
+      completionCriteria: ["被拒绝"],
+      route: "quick"
+    });
+    assert.equal(refused.status, 409, JSON.stringify(refused.body));
+    assert.equal(refused.body.code, "project_git_owner_mismatch");
+
+    // P4: a remote gateway conflict names the existing record it collided with.
+    const localDirectory = join(authority.root, "project-local");
+    await mkdir(localDirectory, { recursive: true });
+    const local = await authorityRequest("/api/projects", {
+      projectName: "本地项目",
+      projectDirectory: localDirectory
+    });
+    assert.equal(local.status, 201, JSON.stringify(local.body));
+    const localProjectId = local.body.project.projectId;
+    const localConfigured = await authorityRequest(
+      `/api/projects/${encodeURIComponent(localProjectId)}/merge-config`,
+      { repository, targetBranch: "main" }
+    );
+    assert.equal(localConfigured.status, 200, JSON.stringify(localConfigured.body));
+    const conflictRequirement = await createRequirement(authorityRequest, localProjectId, "远程冲突");
+    const remote = await RemoteProjectDataService.open({
+      url: authority.base,
+      token: authorityInstance.value.token,
+      backendId: "backend_remote_probe",
+      source: "p4-test"
+    });
+    t.after(() => remote.close());
+    const remoteFirst = await remote.createDevelopment(localProjectId, {
+      requirementId: conflictRequirement.requirementId,
+      goal: "远程网关记录共享事实",
+      completionCriteria: ["第一次创建成功"],
+      route: "quick",
+      baseline: { branch: "main", commit: head }
+    });
+    assert.ok(remoteFirst.developmentId);
+    await assert.rejects(
+      remote.createDevelopment(localProjectId, {
+        requirementId: conflictRequirement.requirementId,
+        goal: "重复创建",
+        completionCriteria: ["应返回原记录"],
+        route: "quick",
+        baseline: { branch: "main", commit: head }
+      }),
+      (error) => {
+        assert.equal(error.code, "development_exists");
+        assert.equal(error.developmentId, remoteFirst.developmentId);
+        return true;
+      }
+    );
+
+    // Cross-project reads stay isolated on the shared surface.
+    const crossProject = await secondary.request(
+      `/api/projects/${encodeURIComponent(localProjectId)}/developments/${encodeURIComponent(
+        development.developmentId
+      )}`
+    );
+    assert.equal(crossProject.status, 404, JSON.stringify(crossProject.body));
+  });
+
   test(`${engine}: a v3 database upgrades to v4 and keeps its records usable`, async (t) => {
     const directory = await mkdtemp(join(tmpdir(), `coworkos-p4-upgrade-${engine}-`));
     const moved = await migrateDirectory(t, directory, engine);
@@ -362,6 +661,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
     } finally {
       await runtime.close();
       await moved.cleanup();
+      await rm(directory, { recursive: true, force: true });
     }
   });
 }

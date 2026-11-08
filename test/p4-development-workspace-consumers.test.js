@@ -2,7 +2,8 @@ import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
@@ -12,6 +13,8 @@ import { projectDataConfig } from "./p3-storage-fixture.mjs";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 import { createProjectDevelopmentTool } from "../dist/src/runtime/project-development-tool.js";
 import { createProjectDevelopmentController } from "../web/assets/controllers/project-development.js";
+import { ProjectDataRuntime } from "../dist/src/workspace/project-data-service.js";
+import { createProjectDevelopmentService } from "../dist/src/dashboard/project-development-service.js";
 import { createComposerSession } from "../web/assets/controllers/composer-session.js";
 
 const run = promisify(execFile);
@@ -467,4 +470,111 @@ test("the development view continues its workspace and keeps drafts and late res
   );
   assert.equal(requirement.status, 200);
   assert.equal(requirement.body.requirement.requirementId, f.requirementA.requirementId);
+});
+
+test("a failed record with an intact checkout returns to ready without a second checkout", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "coworkos-p4-recovery-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const repository = await makeRepository(join(directory, "repository"));
+  const runtime = new ProjectDataRuntime({
+    config: { sqlite: { path: join(directory, "project-data.sqlite") } },
+    configPath: join(directory, "config.json"),
+    dataRoot: directory,
+    backendId: "backend_recovery"
+  });
+  t.after(() => runtime.close());
+  const gateway = await runtime.service();
+  const projectId = "project_recovery";
+  await gateway.ensureProject({
+    projectId,
+    projectName: "恢复项目",
+    projectDirectory: repository,
+    backendId: "backend_recovery"
+  });
+  await gateway.setMergeConfig(projectId, { repository, targetBranch: "main" }, "backend_recovery");
+  const requirement = await gateway.createRequirement(projectId, {
+    title: "恢复现场",
+    content: "一次就绪写入失败后，同一现场仍可恢复。"
+  });
+
+  // Controlled single failure: the checkout is created, then the ready write
+  // fails once, so the record is persisted as failed while the worktree exists.
+  let failReady = true;
+  const wrapped = {
+    service: async () =>
+      new Proxy(gateway, {
+        get(target, property, receiver) {
+          if (property === "recordDevelopmentWorkspace" && failReady) {
+            return async () => {
+              failReady = false;
+              throw new Error("fixture: ready write failed");
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      })
+  };
+  const service = createProjectDevelopmentService({
+    runtime: wrapped,
+    backendId: "backend_recovery",
+    developmentRoot: join(directory, "workspaces"),
+    project: async () => ({ projectId, projectName: "恢复项目", projectDirectory: repository }),
+    taskProject: async () => undefined
+  });
+
+  const created = await service.create(projectId, {
+    requirementId: requirement.requirementId,
+    goal: "恢复同一现场",
+    completionCriteria: ["恢复后不创建第二个 checkout"],
+    route: "direct"
+  });
+  assert.equal(created.workspace.state, "failed", JSON.stringify(created.workspace));
+  assert.match(created.workspace.error, /ready write failed/, "the first failure receipt is kept");
+  const original = created.workspace;
+
+  // Work the user already did in the checkout must survive the recovery.
+  await git(original.directory, ["config", "user.email", "fixture@example.test"]);
+  await git(original.directory, ["config", "user.name", "Fixture"]);
+  await writeFile(join(original.directory, "user-change.txt"), "keep me\n");
+  await git(original.directory, ["add", "."]);
+  await git(original.directory, ["commit", "-m", "user change"]);
+  const userHead = await git(original.directory, ["rev-parse", "HEAD"]);
+  const checkoutsBefore = (await git(repository, ["worktree", "list", "--porcelain"]))
+    .split("\n")
+    .filter((line) => line.startsWith("worktree ")).length;
+
+  const recovered = await service.ensureWorkspace(projectId, created.developmentId);
+  assert.equal(recovered.workspace.state, "ready", JSON.stringify(recovered.workspace));
+  assert.equal(recovered.workspace.workspaceId, original.workspaceId);
+  assert.equal(recovered.workspace.directory, original.directory);
+  assert.equal(recovered.workspace.branch, original.branch);
+  assert.equal(recovered.workspace.baseCommit, original.baseCommit);
+  assert.equal(recovered.workspace.error, undefined);
+  assert.equal(await git(original.directory, ["rev-parse", "HEAD"]), userHead, "HEAD was not reset");
+  assert.equal(await readFile(join(original.directory, "user-change.txt"), "utf8"), "keep me\n");
+  const checkoutsAfter = (await git(repository, ["worktree", "list", "--porcelain"]))
+    .split("\n")
+    .filter((line) => line.startsWith("worktree ")).length;
+  assert.equal(checkoutsAfter, checkoutsBefore, "no second checkout was created");
+
+  // A mismatched identity or a genuinely unrelated non-empty directory is still
+  // refused, and its files are preserved.
+  const unrelated = join(directory, "unrelated");
+  await mkdir(unrelated, { recursive: true });
+  await writeFile(join(unrelated, "keep.txt"), "do not delete\n");
+  await gateway.recordDevelopmentWorkspace(projectId, created.developmentId, {
+    workspaceId: original.workspaceId,
+    backendId: "backend_recovery",
+    directory: unrelated,
+    branch: "coworkos/development/wrong-branch",
+    baseCommit: userHead,
+    state: "failed",
+    error: "fixture: identity mismatch"
+  });
+  const refused = await service.ensureWorkspace(projectId, created.developmentId);
+  assert.equal(refused.workspace.state, "failed");
+  assert.match(refused.workspace.error, /已有内容/);
+  assert.equal(await readFile(join(unrelated, "keep.txt"), "utf8"), "do not delete\n");
+  assert.equal((await stat(unrelated)).isDirectory(), true);
 });
