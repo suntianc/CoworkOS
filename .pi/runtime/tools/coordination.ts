@@ -24,6 +24,8 @@ import { businessCommandEnvironment } from "../../../dist/src/runtime/command-en
 import { WatchManagement } from "../../../dist/src/runtime/watch-management.js";
 import type { DelegatedModelRequest } from "../../../dist/src/runtime/role-models.js";
 import { createProjectDevelopmentClient } from "../../../dist/src/runtime/project-development-client.js";
+import { DurableScheduler } from "../../../dist/src/runtime/scheduler.js";
+import { dirname, join } from "node:path";
 import { goalOwnsTaskClock } from "../../../dist/src/runtime/goal-routing.js";
 import type { CoworkToolContext } from "../extension.ts";
 import type { RuntimeToolResult } from "../helpers.ts";
@@ -411,19 +413,41 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
             )
           ]
         : [];
+      if (dependsOn.length > 0) {
+        // Refuse an unusable dependency before this call owns a name or an
+        // experiment row: a refusal here must leave no durable trace behind.
+        const queue = new DurableScheduler(
+          join(context.workspaceRoot, context.taskId, "runs", context.mainRunId, "queue.json")
+        );
+        const known = new Set((await queue.list()).map((item) => item.stepId));
+        const unknown = dependsOn.filter((stepId) => !known.has(stepId));
+        if (unknown.length > 0)
+          throw new Error(
+            `dependsOn 引用了本 Run 中不存在的工作项：${unknown.join("、")}；只能依赖已委派的 callId`
+          );
+      }
       const explicitProfileId = typeof params.profileId === "string" ? params.profileId.trim() : "";
       const explicitModel = typeof params.model === "string" ? params.model.trim() : "";
       // The requirement checkout is read from this backend's own record: an
       // arbitrary path from the model is never accepted as a working root.
       const requestedDevelopment =
         typeof params.developmentId === "string" ? params.developmentId.trim() : "";
-      const delegatedWorkspace = requestedDevelopment
+      const developmentWorkspace = requestedDevelopment
         ? await developmentWorkspaceDirectory(context, requestedDevelopment)
         : undefined;
       const capabilityGrants = await context.delegationGrants(params.resources, params.attachments);
       const commandEnv = await businessCommandEnvironment(context.runtimeEnv, signal);
       const { agentId, name } = await reserveSubagentIdentity(context.taskWorkspace);
       const callId = `call-${randomUUID()}`;
+      // A bound item gets its own checkout beside the integration site, forked
+      // at its actual start; the item never writes the integration site itself.
+      const workItemSite = developmentWorkspace
+        ? {
+            developmentDirectory: developmentWorkspace.directory,
+            directory: join(dirname(developmentWorkspace.directory), "work-items", callId),
+            branch: `coworkos/work/${callId}`
+          }
+        : undefined;
       // An open experiment absorbs this delegation automatically. Attribution
       // follows the program Main opened, never the wording of the task, so a
       // Task with no open program still records nothing.
@@ -450,9 +474,9 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         mode: params.mode,
         workspaceRoot: context.workspaceRoot,
         commandEnv,
-        projectDirectory: delegatedWorkspace?.directory ?? context.projectDirectory,
+        projectDirectory: workItemSite?.directory ?? context.projectDirectory,
         delegation,
-        ...(delegatedWorkspace ? { developmentId: requestedDevelopment } : {}),
+        ...(workItemSite ? { workItemSite, developmentId: requestedDevelopment } : {}),
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
         baseUrl: context.baseUrl,
         apiKey: context.apiKey,
@@ -483,16 +507,32 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       if (params.mode === "async") {
         context.active += 1;
         ctx.ui.setStatus("cowork", `子任务运行中（${context.active}）`);
+        let acceptedDurably = false;
+        queued.then(() => {
+          acceptedDurably = true;
+        });
         void run
-          .then(context.deliverCallbacks)
-          .catch((error) => {
-            try {
-              ctx.ui.notify(`Async callback delivery deferred: ${errorMessage(error)}`, "warning");
-            } catch {
-              // Main may have stopped while the Subagent was still running.
-              // Delivery releases its Inbox lease, so the next Main can recover it.
+          .then(
+            () =>
+              context.deliverCallbacks().catch((error) => {
+                try {
+                  ctx.ui.notify(`Async callback delivery deferred: ${errorMessage(error)}`, "warning");
+                } catch {
+                  // Main may have stopped while the Subagent was still running.
+                  // Delivery releases its Inbox lease, so the next Main can recover it.
+                }
+              }),
+            (error) => {
+              // A start refusal is reported by this call's own tool result; the
+              // callback path never began, so delivery wording would misattribute it.
+              if (!acceptedDurably) return;
+              try {
+                ctx.ui.notify(`Subagent start failed: ${errorMessage(error)}`, "warning");
+              } catch {
+                /* the Main that started it may already be gone */
+              }
             }
-          })
+          )
           .finally(() => {
             context.active -= 1;
             context.updateRuntime({
@@ -518,9 +558,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           agentId,
           name,
           role,
-          ...(delegatedWorkspace
-            ? { developmentId: requestedDevelopment, workspace: delegatedWorkspace.directory }
-            : {}),
+          ...(workItemSite ? { developmentId: requestedDevelopment, workspace: workItemSite.directory } : {}),
           ...(dependsOn.length > 0 ? { dependsOn } : {})
         };
         return { content: [{ type: "text", text: JSON.stringify(payload) }], details: payload };
@@ -537,9 +575,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           agentId: result.agentId,
           name,
           role,
-          ...(delegatedWorkspace
-            ? { developmentId: requestedDevelopment, workspace: delegatedWorkspace.directory }
-            : {}),
+          ...(workItemSite ? { developmentId: requestedDevelopment, workspace: workItemSite.directory } : {}),
           ...(dependsOn.length > 0 ? { dependsOn } : {}),
           status: result.status,
           response: result.response,

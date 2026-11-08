@@ -124,6 +124,29 @@ export class DurableScheduler {
     });
   }
 
+  /**
+   * Record a terminal failure for an item that never started.
+   *
+   * Recovery can refuse a queued item before any worker owns it — its stored
+   * role request no longer resolves, for example — so there is no lease token to
+   * match. Without this the refusal would be dropped and the same item would be
+   * re-driven on every pass while the Task waits for it forever.
+   */
+  async failUnstarted(stepId: string, error: string): Promise<WorkItem> {
+    return this.withLock(async () => {
+      const items = await this.readItems();
+      const item = items.find((candidate) => candidate.stepId === stepId);
+      if (!item) throw new Error(`unknown step: ${stepId}`);
+      if (item.status === "completed" || item.status === "failed" || item.status === "cancelled") return item;
+      item.status = "failed";
+      item.error = error;
+      item.lease = undefined;
+      item.updatedAt = now();
+      await this.writeItems(items);
+      return item;
+    });
+  }
+
   async cancel(stepId: string): Promise<WorkItem> {
     return this.withLock(async () => {
       const items = await this.readItems();

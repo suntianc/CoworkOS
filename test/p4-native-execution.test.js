@@ -10,6 +10,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 import { teamMembers } from "../web/assets/agent-room.js";
+import { prepareDevelopmentWorkspace } from "../dist/src/workspace/development-workspace.js";
+import { prepareWorkItemSite } from "../dist/src/workspace/work-item-workspace.js";
 
 const run = promisify(execFile);
 const messageText = (message) =>
@@ -68,6 +70,12 @@ async function makeRepository(directory) {
   return directory;
 }
 
+const exists = (path) =>
+  stat(path).then(
+    () => true,
+    () => false
+  );
+
 /**
  * Main, Executor and Reviewer work items on the real path.
  *
@@ -78,7 +86,7 @@ async function makeRepository(directory) {
  * UI renders work items from.
  */
 test(
-  "a real Main edits the requirement checkout directly and runs dependent role work items",
+  "a real Main edits the requirement checkout directly and runs isolated role work items",
   { timeout: 240_000 },
   async (t) => {
     const root = await mkdtemp(join(tmpdir(), "atria-p4-native-"));
@@ -119,16 +127,19 @@ test(
     assert.equal(task.status, 201, JSON.stringify(task.body));
 
     const failures = [];
-    const requests = { main: 0, a: 0, b: 0, reviewer: 0 };
+    const requests = { main: 0, a: 0, b: 0, c: 0, d: 0 };
     const calls = {};
-    let devDirectory = "";
-    let developmentRecordId = "";
-    // Both Executors are in flight before the dependent Reviewer can start.
+    let integration = "";
+    let developmentId = "";
+    // Both parallel Executors are in flight before the dependent one can start.
     const arrived = new Set();
-    const finished = new Set();
     let release;
     const gate = new Promise((done) => {
       release = done;
+    });
+    let failTest;
+    const scriptFailure = new Promise((_, reject) => {
+      failTest = reject;
     });
     const identity = (body) => {
       const system = body.messages
@@ -136,9 +147,9 @@ test(
         .map(messageText)
         .join("\n");
       if (!system.includes("You are a CoworkOS Subagent")) return "main";
-      const task = userText(body);
-      if (task.includes("审查者工作项")) return "reviewer";
-      return task.includes("工作项 B") ? "b" : "a";
+      const text = userText(body);
+      const match = text.match(/工作项 ([A-D])/);
+      return match ? match[1].toLowerCase() : "unknown";
     };
     const provider = await modelProtocolFixture("openai-completions", async (body) => {
       try {
@@ -162,34 +173,37 @@ test(
           if (step === 1) {
             const development = toolJson(body).development;
             assert.equal(development.workspace.state, "ready");
-            devDirectory = development.workspace.directory;
-            developmentRecordId = development.developmentId;
+            integration = development.workspace.directory;
+            developmentId = development.developmentId;
             assert.ok(
-              !devDirectory.startsWith(`${repository}/`),
+              !integration.startsWith(`${repository}/`),
               "the requirement checkout is outside the user's working tree"
             );
-            assert.equal((await stat(devDirectory)).isDirectory(), true);
             return {
               name: "write",
-              arguments: { path: join(devDirectory, "feature.txt"), content: "main edit\n" }
+              arguments: { path: join(integration, "feature.txt"), content: "main edit\n" }
             };
           }
           if (step === 2)
             return {
               name: "bash",
               arguments: {
-                command: `cd "${devDirectory}" && test "$(cat feature.txt)" = "main edit" && echo CHECK_OK`
+                command: `cd "${integration}" && test "$(cat feature.txt)" = "main edit" && echo CHECK_OK`
               }
             };
           if (step === 3) {
-            assert.match(lastToolText(body), /CHECK_OK/, "Main verified its own edit in the checkout");
+            assert.match(
+              lastToolText(body),
+              /CHECK_OK/,
+              "Main verified its own edit in the integration site"
+            );
             return {
               name: "call_subagent",
               arguments: {
-                task: "执行者工作项 A：在需求现场新增 export-a.txt 并返回证据。",
+                task: "执行者工作项 A：在需求现场新增 export-a.txt 与 shared.txt 并返回证据。",
                 mode: "async",
                 role: "executor",
-                developmentId: developmentRecordId
+                developmentId
               }
             };
           }
@@ -197,47 +211,56 @@ test(
             calls.a = toolJson(body);
             assert.equal(calls.a.accepted, true);
             assert.equal(calls.a.role, "executor");
-            assert.equal(calls.a.workspace, devDirectory, "the work item runs in the requirement checkout");
+            assert.notEqual(calls.a.workspace, integration, "a work item does not get the integration site");
             return {
               name: "call_subagent",
               arguments: {
-                task: "执行者工作项 B：在需求现场新增 export-b.txt 并返回证据。",
+                task: "执行者工作项 B：在需求现场新增 export-b.txt 与 shared.txt 并返回证据。",
                 mode: "async",
                 role: "executor",
-                developmentId: developmentRecordId
+                developmentId
               }
             };
           }
           if (step === 5) {
             calls.b = toolJson(body);
-            assert.notEqual(calls.b.callId, calls.a.callId);
+            assert.notEqual(calls.b.workspace, calls.a.workspace, "parallel items get their own checkouts");
             return {
               name: "call_subagent",
               arguments: {
-                task: "审查者工作项 C：核对 A 与 B 的产物并返回结论。",
+                task: "执行者工作项 D：在 A 完成后新增 export-d.txt 并返回证据。",
                 mode: "async",
-                role: "reviewer",
-                developmentId: developmentRecordId,
-                dependsOn: [calls.a.callId, calls.b.callId]
+                role: "executor",
+                developmentId,
+                dependsOn: [calls.a.callId]
               }
             };
           }
           if (step === 6) {
-            calls.c = toolJson(body);
-            assert.equal(calls.c.role, "reviewer");
-            assert.deepEqual(calls.c.dependsOn, [calls.a.callId, calls.b.callId]);
+            calls.d = toolJson(body);
+            assert.deepEqual(calls.d.dependsOn, [calls.a.callId]);
             return { name: "get_subagent_status", arguments: {} };
           }
           if (step === 7) {
             const status = toolJson(body);
             const byCall = new Map(status.agents.map((agent) => [agent.callId, agent]));
-            const waiting = byCall.get(calls.c.callId);
-            assert.equal(waiting.role, "reviewer");
+            const waiting = byCall.get(calls.d.callId);
+            assert.equal(waiting.role, "executor");
             assert.equal(waiting.blocked, true, "a work item with unfinished prerequisites is blocked");
-            assert.deepEqual(waiting.dependsOn, [calls.a.callId, calls.b.callId]);
-            assert.equal(waiting.workspace, devDirectory);
+            assert.deepEqual(waiting.dependsOn, [calls.a.callId]);
             assert.equal(waiting.status, "queued");
-            assert.equal(requests.reviewer, 0, "the Reviewer sent no model request before its prerequisites");
+            assert.equal(waiting.workspace, calls.d.workspace);
+            const held = byCall.get(calls.a.callId);
+            assert.equal(held.status, "running", "the first Executor is held at its model request");
+            const free = byCall.get(calls.b.callId);
+            assert.ok(["running", "succeeded"].includes(free.status), free.status);
+            for (const call of [calls.a, calls.b]) {
+              const running = byCall.get(call.callId);
+              assert.equal(running.blocked, undefined);
+              assert.notEqual(running.workspace, integration);
+            }
+            assert.notEqual(byCall.get(calls.a.callId).workspace, byCall.get(calls.b.callId).workspace);
+            // Both parallel Executors are working before either may answer.
             await waitFor(
               () => arrived.size === 2,
               "both independent Executors never reached the model together"
@@ -245,14 +268,97 @@ test(
             release();
             return {
               name: "wait_for_subagents",
-              arguments: { callIds: [calls.c.callId], timeoutMs: 60_000 }
+              arguments: { callIds: [calls.a.callId, calls.b.callId], timeoutMs: 60_000 }
             };
           }
           if (step === 8) {
             const waited = toolJson(body);
             assert.deepEqual(waited.pending, []);
             assert.equal(waited.timedOut, false);
-            assert.equal(waited.calls.find((call) => call.callId === calls.c.callId).status, "completed");
+            for (const call of [calls.a, calls.b])
+              assert.equal(waited.calls.find((entry) => entry.callId === call.callId).status, "completed");
+            return {
+              name: "bash",
+              arguments: {
+                command: [
+                  "set -e",
+                  `cd "${integration}"`,
+                  `cp "${calls.a.workspace}/export-a.txt" .`,
+                  `cp "${calls.b.workspace}/export-b.txt" .`,
+                  `cp "${calls.a.workspace}/shared.txt" shared-a.txt`,
+                  `cp "${calls.b.workspace}/shared.txt" shared-b.txt`,
+                  "git add -A",
+                  'git commit -m "collect A and B" >/dev/null',
+                  "echo COLLECTED"
+                ].join(" && ")
+              }
+            };
+          }
+          if (step === 9) {
+            assert.match(lastToolText(body), /COLLECTED/);
+            return { name: "get_subagent_status", arguments: {} };
+          }
+          if (step === 10) {
+            const status = toolJson(body);
+            const dependent = status.agents.find((agent) => agent.callId === calls.d.callId);
+            assert.equal(dependent.blocked, undefined, "a finished prerequisite unblocks the dependent item");
+            assert.ok(["running", "succeeded"].includes(dependent.status), dependent.status);
+            return {
+              name: "wait_for_subagents",
+              arguments: { callIds: [calls.d.callId], timeoutMs: 60_000 }
+            };
+          }
+          if (step === 11) {
+            const waited = toolJson(body);
+            assert.equal(waited.calls.find((entry) => entry.callId === calls.d.callId).status, "completed");
+            return {
+              name: "bash",
+              arguments: {
+                command: [
+                  "set -e",
+                  `cd "${integration}"`,
+                  `cp "${calls.d.workspace}/export-d.txt" .`,
+                  "git add -A",
+                  'git commit -m "collect D" >/dev/null',
+                  "echo COLLECTED_D"
+                ].join(" && ")
+              }
+            };
+          }
+          if (step === 12) {
+            assert.match(lastToolText(body), /COLLECTED_D/);
+            return {
+              name: "call_subagent",
+              arguments: {
+                task: "审查者工作项 C：核对汇总现场中的导出产物并返回结论。",
+                mode: "async",
+                role: "reviewer",
+                developmentId
+              }
+            };
+          }
+          if (step === 13) {
+            calls.c = toolJson(body);
+            assert.equal(calls.c.role, "reviewer");
+            assert.notEqual(calls.c.workspace, integration);
+            return {
+              name: "wait_for_subagents",
+              arguments: { callIds: [calls.c.callId], timeoutMs: 60_000 }
+            };
+          }
+          if (step === 14) {
+            const waited = toolJson(body);
+            assert.equal(waited.calls.find((entry) => entry.callId === calls.c.callId).status, "completed");
+            // Reread this async call's stored result through the documented path.
+            return { name: "get_task_status", arguments: { resultCallIds: [calls.c.callId] } };
+          }
+          if (step === 15) {
+            const status = toolJson(body);
+            const reviewer = status.coordination.calls.find((entry) => entry.callId === calls.c.callId);
+            assert.equal(reviewer.status, "completed", JSON.stringify(status).slice(0, 800));
+            assert.match(reviewer.response, /export-a\.txt/);
+            assert.match(reviewer.response, /export-b\.txt/);
+            assert.match(reviewer.response, /export-d\.txt/);
             return { text: "需求已实现并通过检查。" };
           }
           return { text: "需求已实现并通过检查。" };
@@ -263,8 +369,8 @@ test(
             await gate;
             return { name: "write_file", arguments: { path: "export-a.txt", content: "executor a\n" } };
           }
-          finished.add("A");
-          return { text: "A 完成：已写入 export-a.txt。" };
+          if (step === 1) return { name: "write_file", arguments: { path: "shared.txt", content: "a\n" } };
+          return { text: "A 完成：已写入 export-a.txt 与 shared.txt。" };
         }
         if (role === "b") {
           if (step === 0) {
@@ -272,17 +378,35 @@ test(
             arrived.add("B");
             return { name: "write_file", arguments: { path: "export-b.txt", content: "executor b\n" } };
           }
-          finished.add("B");
-          return { text: "B 完成：已写入 export-b.txt。" };
+          if (step === 1) return { name: "write_file", arguments: { path: "shared.txt", content: "b\n" } };
+          return { text: "B 完成：已写入 export-b.txt 与 shared.txt。" };
         }
-        // Reviewer C: it cannot start before both Executors responded.
-        assert.deepEqual([...finished].sort(), ["A", "B"], "the Reviewer started only after both Executors");
-        assert.equal(await readFile(join(devDirectory, "export-a.txt"), "utf8"), "executor a\n");
-        assert.equal(await readFile(join(devDirectory, "export-b.txt"), "utf8"), "executor b\n");
-        return { text: "C 完成：A、B 产物均已在同一现场核对。" };
+        if (role === "d") {
+          if (step === 0) {
+            assert.ok(
+              calls.a?.callId,
+              "the dependent item starts only after the item it waits for was dispatched"
+            );
+            return { name: "write_file", arguments: { path: "export-d.txt", content: "executor d\n" } };
+          }
+          return { text: "D 完成：已写入 export-d.txt。" };
+        }
+        // Reviewer C works in its own checkout forked from the collected site.
+        await waitFor(() => Boolean(calls.c?.workspace), "the Reviewer's checkout was never recorded");
+        const files = {};
+        for (const name of ["feature.txt", "export-a.txt", "export-b.txt", "export-d.txt"])
+          files[name] = await readFile(join(calls.c.workspace, name), "utf8");
+        assert.equal(files["feature.txt"], "main edit\n");
+        assert.equal(files["export-a.txt"], "executor a\n");
+        assert.equal(files["export-b.txt"], "executor b\n");
+        assert.equal(files["export-d.txt"], "executor d\n");
+        return {
+          text: `C 完成：汇总现场包含 feature.txt、export-a.txt、export-b.txt、export-d.txt，内容一致。`
+        };
       } catch (error) {
         failures.push(error.stack ?? error.message);
         release();
+        failTest(error);
         return { text: "原生执行夹具失败。" };
       }
     });
@@ -305,52 +429,67 @@ test(
       prompt: "完成报表导出需求，先在自己的需求现场完成小改动，再按依赖组织子任务。"
     });
     assert.equal(started.status, 202, JSON.stringify(started.body));
-    await settle(request, taskId);
+    await Promise.race([settle(request, taskId), scriptFailure]);
     assert.deepEqual(failures, [], failures.join("\n"));
 
-    // The requirement checkout holds Main's edit and both Executor files; the
-    // user's working tree is untouched apart from the worktree registry.
-    assert.equal(await readFile(join(devDirectory, "feature.txt"), "utf8"), "main edit\n");
-    assert.equal(await readFile(join(devDirectory, "tracked.txt"), "utf8"), "committed\n");
-    assert.equal(await readFile(join(devDirectory, "export-a.txt"), "utf8"), "executor a\n");
-    assert.equal(await readFile(join(devDirectory, "export-b.txt"), "utf8"), "executor b\n");
+    // The integration site keeps Main's direct edit and the collected results.
+    assert.equal(await readFile(join(integration, "feature.txt"), "utf8"), "main edit\n");
+    assert.equal(await readFile(join(integration, "tracked.txt"), "utf8"), "committed\n");
+    assert.equal(await readFile(join(integration, "export-a.txt"), "utf8"), "executor a\n");
+    assert.equal(await readFile(join(integration, "export-b.txt"), "utf8"), "executor b\n");
+    assert.equal(await readFile(join(integration, "export-d.txt"), "utf8"), "executor d\n");
+    // Each parallel writer kept its own copy, untouched by the other.
+    assert.equal(await readFile(join(calls.a.workspace, "shared.txt"), "utf8"), "a\n");
+    assert.equal(await readFile(join(calls.b.workspace, "shared.txt"), "utf8"), "b\n");
+    assert.equal(await readFile(join(calls.a.workspace, "export-a.txt"), "utf8"), "executor a\n");
+    assert.equal(await exists(join(calls.a.workspace, "export-b.txt")), false);
+    assert.equal(await exists(join(calls.b.workspace, "export-a.txt")), false);
+    assert.equal(await exists(join(calls.d.workspace, "export-a.txt")), false);
+    // Work items never saw the integration checkout's uncommitted change.
+    assert.equal(await exists(join(calls.a.workspace, "feature.txt")), false);
+
+    // The user's own working tree is untouched.
     await assert.rejects(readFile(join(repository, "feature.txt"), "utf8"));
     await assert.rejects(readFile(join(repository, "export-a.txt"), "utf8"));
     assert.equal(await readFile(join(repository, "tracked.txt"), "utf8"), "committed\n");
     assert.equal(await git(repository, ["rev-parse", "HEAD"]), baselineHead);
 
-    // Identity, site and progress are readable through the production service...
+    // Identity, role, site and progress are readable through the service and
+    // through the shared controller the UI renders work items from.
     const detail = await request(`/api/tasks/${taskId}`);
     assert.equal(detail.status, 200, JSON.stringify(detail.body));
     const agents = detail.body.progress.agents;
-    assert.equal(agents.length, 3);
     assert.deepEqual(
       agents.map((agent) => agent.callId).sort(),
-      [calls.a.callId, calls.b.callId, calls.c.callId].sort()
+      [calls.a.callId, calls.b.callId, calls.c.callId, calls.d.callId].sort()
     );
-    for (const agent of agents) {
-      assert.equal(agent.workspace, devDirectory, "every work item names its working site");
-      assert.equal(agent.status, "succeeded");
-    }
+    for (const agent of agents) assert.equal(agent.status, "succeeded");
+    assert.equal(new Set(agents.map((agent) => agent.agentId)).size, 4);
     assert.deepEqual(
       agents.filter((agent) => agent.role === "reviewer").map((agent) => agent.callId),
       [calls.c.callId]
     );
-    assert.deepEqual(agents.find((agent) => agent.callId === calls.c.callId).dependsOn, [
-      calls.a.callId,
-      calls.b.callId
-    ]);
-    assert.equal(new Set(agents.map((agent) => agent.agentId)).size, 3, "each work item keeps its identity");
-
-    // ...and through the shared presentation controller the UI renders from.
+    assert.deepEqual(agents.find((agent) => agent.callId === calls.d.callId).dependsOn, [calls.a.callId]);
+    for (const call of [calls.a, calls.b, calls.c, calls.d]) {
+      const recorded = agents.find((agent) => agent.callId === call.callId);
+      assert.equal(recorded.workspace, call.workspace, "the recorded site is the one the item ran in");
+      assert.notEqual(recorded.workspace, integration);
+      assert.equal(recorded.developmentId, developmentId);
+    }
+    assert.equal(
+      new Set(agents.map((agent) => agent.workspace)).size,
+      4,
+      "each work item names its own checkout"
+    );
     const members = teamMembers(detail.body);
     assert.equal(members[0].agentId, "main");
-    for (const callId of [calls.a.callId, calls.b.callId, calls.c.callId]) {
-      const member = members.find((entry) => entry.callId === callId);
-      assert.ok(member, `the controller shows ${callId}`);
-      assert.equal(member.workspace, devDirectory);
-    }
-    assert.equal(members.filter((entry) => entry.role === "reviewer").length, 1);
+    assert.deepEqual(
+      members
+        .filter((member) => member.callId)
+        .map((member) => member.workspace)
+        .sort(),
+      agents.map((agent) => agent.workspace).sort()
+    );
 
     // An internal requirement stays ledger-only: no board item appears.
     assert.deepEqual(
@@ -359,3 +498,75 @@ test(
     );
   }
 );
+
+/**
+ * A work item's checkout is its identity, not a per-attempt copy.
+ *
+ * The same directory and branch are reused on every start, so a retry, a resume
+ * after a restart or a rework keeps the files and commits it already made; an
+ * unrelated directory is preserved and reported rather than deleted.
+ */
+test("a work item's own checkout is reused instead of reset, and never placed inside the integration site", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-p4-site-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repository = await makeRepository(join(root, "repository"));
+  const baseline = await git(repository, ["rev-parse", "HEAD"]);
+  const integration = join(root, "development");
+  await prepareDevelopmentWorkspace({
+    repository,
+    branch: "coworkos/development/fixture",
+    commit: baseline,
+    directory: integration
+  });
+  const site = {
+    developmentDirectory: integration,
+    directory: join(root, "work-items", "call-1"),
+    branch: "coworkos/work/call-1"
+  };
+  await prepareWorkItemSite(site);
+  assert.equal(await git(site.directory, ["rev-parse", "--abbrev-ref", "HEAD"]), site.branch);
+  assert.equal(await git(site.directory, ["rev-parse", "HEAD"]), baseline);
+
+  // The item commits its own work; the integration site does not see it.
+  await writeFile(join(site.directory, "work.txt"), "item work\n");
+  await git(site.directory, ["add", "work.txt"]);
+  await git(site.directory, ["commit", "-m", "item change"]);
+  const itemHead = await git(site.directory, ["rev-parse", "HEAD"]);
+  assert.equal(await exists(join(integration, "work.txt")), false);
+
+  // A later start reuses the checkout: same directory, same branch, same commit,
+  // no second worktree and no reset to the integration site.
+  const worktreesBefore = (await git(repository, ["worktree", "list", "--porcelain"]))
+    .split("\n")
+    .filter((line) => line.startsWith("worktree ")).length;
+  await prepareWorkItemSite(site);
+  assert.equal(await readFile(join(site.directory, "work.txt"), "utf8"), "item work\n");
+  assert.equal(await git(site.directory, ["rev-parse", "HEAD"]), itemHead);
+  const worktreesAfter = (await git(repository, ["worktree", "list", "--porcelain"]))
+    .split("\n")
+    .filter((line) => line.startsWith("worktree ")).length;
+  assert.equal(worktreesAfter, worktreesBefore, "reuse creates no second checkout");
+
+  // A checkout may not live inside the integration site.
+  await assert.rejects(
+    prepareWorkItemSite({
+      developmentDirectory: integration,
+      directory: join(integration, "inside"),
+      branch: "coworkos/work/inside"
+    }),
+    /不能放在需求集成现场内/
+  );
+  // Somebody else's non-empty directory is preserved and reported.
+  const foreign = join(root, "work-items", "call-foreign");
+  await mkdir(foreign, { recursive: true });
+  await writeFile(join(foreign, "user.txt"), "keep me\n");
+  await assert.rejects(
+    prepareWorkItemSite({
+      developmentDirectory: integration,
+      directory: foreign,
+      branch: "coworkos/work/call-foreign"
+    }),
+    /已有内容/
+  );
+  assert.equal(await readFile(join(foreign, "user.txt"), "utf8"), "keep me\n");
+});

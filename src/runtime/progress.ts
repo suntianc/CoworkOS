@@ -20,8 +20,12 @@ export interface SubagentProgress {
   workspace?: string;
   /** Work items this one waits for. */
   dependsOn?: string[];
-  /** True while a prerequisite has not finished; the item has not started work. */
+  /** True while this item is waiting and a prerequisite has not finished. */
   blocked?: boolean;
+  /** The requirement development this item belongs to, when it is bound to one. */
+  developmentId?: string;
+  /** Why the item ended without a result; the durable queue's own reason. */
+  error?: string;
   status: "queued" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled" | "unknown";
   updatedAt?: string;
   latestEvent?: string;
@@ -95,16 +99,18 @@ export async function readSubagentProgress(input: {
       payload?: {
         task?: string;
         delegation?: { role?: string };
-        modelSelection?: { role?: string; model?: string; connectionName?: string | null };
         projectDirectory?: string;
         dependsOn?: string[];
+        developmentId?: string;
       };
+      error?: string;
       createdAt?: string;
       updatedAt?: string;
     }>
   >(join(runRoot, "queue.json"), []);
+  // One predicate for every terminal queue state, matching normalizeStatus.
   const terminalCall = (status: string | undefined) =>
-    status === "completed" || status === "failed" || status === "cancelled";
+    status === "completed" || status === "failed" || status === "cancelled" || status === "timed_out";
   const events = await readJsonLines(join(runRoot, "run_events.jsonl"));
   const inbox = await readJson<Array<{ callId?: string; state: string }>>(
     join(runRoot, "agents", "main", "inbox-store.json"),
@@ -146,12 +152,17 @@ export async function readSubagentProgress(input: {
             )
           : undefined;
         const dependsOn = item.payload?.dependsOn ?? [];
-        const blocked = dependsOn.some(
-          (stepId) => !terminalCall(queue.find((candidate) => candidate.stepId === stepId)?.status)
-        );
+        // This item's own outcome comes first: a cancelled or finished item is
+        // not blocked by a prerequisite that is still running, and its state
+        // must not read as waiting.
+        const blocked =
+          !terminalCall(item.status) &&
+          dependsOn.some(
+            (stepId) => !terminalCall(queue.find((candidate) => candidate.stepId === stepId)?.status)
+          );
         const selected = related.filter((event) => event.type === "call.model_selected").at(-1)?.payload as
           { modelSelection?: { role?: string; model?: string; connectionName?: string | null } } | undefined;
-        const selection = selected?.modelSelection ?? item.payload?.modelSelection;
+        const selection = selected?.modelSelection;
         const role = selection?.role ?? item.payload?.delegation?.role;
         return {
           callId: item.stepId,
@@ -167,6 +178,8 @@ export async function readSubagentProgress(input: {
           ...(item.payload?.projectDirectory ? { workspace: item.payload.projectDirectory } : {}),
           ...(dependsOn.length > 0 ? { dependsOn } : {}),
           ...(blocked ? { blocked: true } : {}),
+          ...(item.payload?.developmentId ? { developmentId: item.payload.developmentId } : {}),
+          ...(item.error ? { error: item.error } : {}),
           updatedAt: item.updatedAt,
           latestEvent: latest?.type,
           lastActivity: trace.lastActivity,

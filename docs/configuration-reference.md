@@ -106,7 +106,7 @@ App 使用 Electron safeStorage 加密客户端会话凭据，保存在桌面数
 - 解析优先级为单次/会话显式选择、当前执行主机的项目覆盖、主机角色默认、现有启用连接。旧 Task 的显式 `model` 仍在没有连接组时作为回退，连接切换与推理参数语义不变。
 - 每次 Run 在准入时固定连接、模型、消息格式与推理参数，并把非敏感来源记录为 `main.run_spawned.modelSelection`；之后修改设置只影响下一次 Run，在途 Run 和原请求重试继续使用已保存的执行归属。
 - 已保存的角色引用找不到连接时给出包含角色、范围和连接 ID 的错误，并拒绝启动，不会改用其他账号。保存接口拒绝新建失效引用。
-- Main 在每次 Run 准入时读取角色；`executor`、`reviewer` 在每次委派工作项实际启动时读取，因此委派运行中途修改绑定只影响之后启动的工作项。两者都没有绑定时工作项沿用 Main 本次 Run 的连接，状态视图不报告固定生效连接。`router` 仍是后续路径的配置键，不由当前运行路径读取。
+- Main 在每次 Run 准入时读取角色；`executor`、`reviewer` 在每次委派工作项实际启动时读取（包括排队等待前置的工作项），因此修改绑定作用于尚未启动的工作项，已启动的尝试保持不变。两者都没有绑定时工作项沿用 Main 本次 Run 的连接，状态视图不报告固定生效连接。`router` 仍是后续路径的配置键，不由当前运行路径读取。
 
 ## 独立视觉连接
 
@@ -171,7 +171,7 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 
 `authority` 与 `engine`、`sqlite`、`postgres` 互斥。客户端启动时用主机凭据换取一个本地会话，之后只出示该会话；凭据保存在服务端配置或 `COWORK_PROJECT_DATA_TOKEN`，不进入界面、工具参数或错误文本。权威服务不可达返回 `storage_unavailable`，会话被撤销返回 `shared_auth_failed`；两者都不伪造认领成功，也不自动转移归属。主会话记录、需求开发记录与看板一样经该客户端共享；Task、Pi 历史、现场检出目录与执行归属仍留在创建它的后端，另一个后端不能为不属于自己的会话记录或结算 Run，也只能读取自己准备的现场。项目合入配置中的仓库与目标分支由配置的执行后端在自己的主机上校验；权威只保存验证后的共享事实，不对远端路径执行 Git。共享项目沿用同一 `projectId`，每个后端只登记自己的本机目录绑定；远端绝对路径不会成为本机执行目录。备份与恢复在权威服务所在后端执行，远程客户端会明确拒绝。
 
-需求现场是目标仓库之外的独立 `git worktree`，按数据根放在 `ATRIA_HOME/runtime/development-workspaces/<developmentId>`（默认 `~/.atria/runtime/development-workspaces`）；它不会放进共享记录，也不会写进用户自己的工作目录。
+需求现场是目标仓库之外的独立 `git worktree`，按数据根放在 `ATRIA_HOME/runtime/development-workspaces/<developmentId>`（默认 `~/.atria/runtime/development-workspaces`）；它不会放进共享记录，也不会写进用户自己的工作目录。绑定需求的工作项在同一层级的 `work-items/<callId>` 分出各自现场，恢复时复用原目录与分支。
 
 SQLite 的默认文件是数据根下的 `project-data.sqlite`（`ATRIA_HOME/runtime/project-data.sqlite`，默认 `~/.atria/runtime/project-data.sqlite`）；`projectData.sqlite.path` 可指定文件，相对路径按数据根解析。PostgreSQL 也可用 `host`、`port`、`database`、`user`、`password`、`ssl` 分开填写。连接凭据只保存在服务端配置或 `COWORK_PROJECT_DATA_URL`，不进入界面、工具参数或错误文本。
 

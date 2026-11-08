@@ -21,7 +21,8 @@ function gitFailure(repository: string, error: unknown): Error {
   return new Error(`git 在 ${repository} 执行失败：${stderr || detail.message || "未知错误"}`);
 }
 
-async function git(repository: string, args: string[]): Promise<string> {
+/** Run one git command in a repository or a linked worktree. */
+export async function git(repository: string, args: string[]): Promise<string> {
   try {
     const { stdout } = await execute("git", ["-C", repository, ...args], {
       timeout: TIMEOUT_MS,
