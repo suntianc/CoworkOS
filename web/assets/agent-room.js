@@ -2,12 +2,22 @@ import { ui } from "./ui/language.js";
 import { agentDisplayName } from "./agent-names.js";
 
 const liveStates = new Set(["running", "leased", "queued", "waiting"]);
+const roleLabels = { executor: "Executor", reviewer: "Reviewer" };
 const terminalStates = new Set(["completed", "succeeded", "failed", "cancelled", "timed_out"]);
 
 export function agentName(agent = {}) {
   if (agent.__main || agent.agentId === "main") return "CoworkOS";
   if (/^subagent[_-]\d+$/.test(agent.agentId || "")) return agentDisplayName(agent.agentId);
   return agent.name || (agent.agentId ? agentDisplayName(agent.agentId) : ui("协作成员"));
+}
+
+/** Role, model and working site of one work item, as display parts. */
+export function agentIdentity(agent = {}) {
+  return {
+    role: roleLabels[agent.role] || "",
+    model: agent.model || "",
+    workspace: agent.workspace || ""
+  };
 }
 
 export function teamMembers(detail = {}) {

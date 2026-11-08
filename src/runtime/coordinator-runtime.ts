@@ -41,6 +41,9 @@ import type { ExperimentRunStatus } from "../domain/experiment.js";
 import type { VisionModelConfig } from "../tools/vision-model.js";
 import { subagentRecoverySummary } from "./subagent-recovery-summary.js";
 import { subagentCallStatuses, type SubagentCallStatus } from "./subagent-call-status.js";
+import { delegationRoleGuidance, resolveWorkItemModel, type WorkItemModel } from "./delegation-model.js";
+import type { DelegatedModelRequest } from "./role-models.js";
+import { prepareWorkItemSite, type WorkItemSite } from "../workspace/work-item-workspace.js";
 
 type DelegatedModelSettings = Pick<
   PiSessionOptions,
@@ -108,6 +111,21 @@ export interface SubagentDispatchInput extends DelegatedModelSettings {
   questionTimeoutMs?: number;
   /** Questions this call may raise. Defaults to the configured value. */
   maxQuestions?: number;
+  /**
+   * Role this work item runs as. Its connection and model are resolved on this
+   * host when the item starts, so a changed binding applies to later starts.
+   * Omitted keeps the caller's connection: ordinary delegations are unchanged.
+   */
+  delegation?: DelegatedModelRequest;
+  /** Work items in this Run that must finish before this one starts. */
+  dependsOn?: string[];
+  /**
+   * The item's own checkout, forked from the requirement's integration site at
+   * its actual start. Two parallel items never share a working tree.
+   */
+  workItemSite?: WorkItemSite;
+  /** The requirement development this item works for, kept for attribution. */
+  developmentId?: string;
 }
 
 /** Identifies the ledger row a delegated call was opened against. */
@@ -587,72 +605,146 @@ export class CoordinatorRuntime {
     // Only queued work is safe to re-drive. A non-expired lease belongs to a
     // live Worker and must not be duplicated by a second recovery process.
     const pending = items.filter((item) => item.status === "queued");
-    const results = await Promise.allSettled(
-      pending.map((item) =>
-        this.dispatch({
-          taskId: input.taskId,
-          runId: input.runId,
-          activateRun: (item.payload as { activateRun?: boolean })?.activateRun,
-          callId: item.stepId,
-          systemPrompt: (item.payload as { systemPrompt?: string })?.systemPrompt,
-          disableTools: (item.payload as { disableTools?: boolean })?.disableTools,
-          agentId: item.agentId,
-          projectDirectory: (item.payload as { projectDirectory?: string })?.projectDirectory,
-          task:
-            typeof (item.payload as { task?: unknown } | undefined)?.task === "string"
-              ? (item.payload as { task: string }).task
-              : "Resume the interrupted Subagent task from its checkpoint.",
-          mode: "async",
-          workspaceRoot: input.workspaceRoot,
-          baseUrl: input.baseUrl,
-          apiKey: input.apiKey,
-          model: input.model,
-          ...delegatedSettings(input, item.payload),
-          visionModel: input.visionModel,
-          thinkingLevel:
-            (item.payload as { thinkingLevel?: PiThinkingLevel })?.thinkingLevel ?? input.thinkingLevel,
-          api: (item.payload as { api?: CoworkModelApi })?.api ?? input.api,
-          thinkingFormat:
-            (item.payload as { thinkingFormat?: CoworkThinkingFormat })?.thinkingFormat ??
-            input.thinkingFormat,
-          supportsReasoningEffort:
-            (item.payload as { supportsReasoningEffort?: boolean })?.supportsReasoningEffort ??
-            input.supportsReasoningEffort,
-          supportsPromptCacheKey:
-            (item.payload as { supportsPromptCacheKey?: boolean })?.supportsPromptCacheKey ??
-            input.supportsPromptCacheKey,
-          supportsImages:
-            (item.payload as { supportsImages?: boolean })?.supportsImages ?? input.supportsImages,
-          // The queue is the only record that survives a crash, so a recovered
-          // dispatch recovers its ledger row from there too. Without this the run
-          // would finish untracked and its iteration would go missing.
-          experimentRef: (item.payload as { experimentRef?: ExperimentRef })?.experimentRef,
-          maxAttempts: input.maxAttempts,
-          leaseMs: input.leaseMs,
-          questionTimeoutMs: input.questionTimeoutMs,
-          maxQuestions: input.maxQuestions,
-          toolFactory: input.toolFactory,
-          commandEnv: input.commandEnv,
-          capabilityProvider: input.capabilityProvider,
-          capabilityGrants: (item.payload as { capabilityGrants?: CapabilityGrant[] })?.capabilityGrants,
-          web: input.web,
-          skillRoots: (item.payload as { skillRoots?: string[] })?.skillRoots ?? input.skillRoots,
-          skillApplications:
-            (item.payload as { skillApplications?: string[] })?.skillApplications ?? input.skillApplications,
-          resume: true
-        })
+    // Each item's own start is attempted concurrently, and a refusal is settled
+    // on that item instead of being dropped by an all-or-nothing settle.
+    const settled = await Promise.all(
+      pending.map(
+        async (item): Promise<{ result: SubagentDispatchResult } | { refused: SubagentDispatchResult }> => {
+          const inputForItem: SubagentDispatchInput = {
+            taskId: input.taskId,
+            runId: input.runId,
+            activateRun: (item.payload as { activateRun?: boolean })?.activateRun,
+            callId: item.stepId,
+            delegation: (item.payload as { delegation?: DelegatedModelRequest })?.delegation,
+            dependsOn: (item.payload as { dependsOn?: string[] })?.dependsOn,
+            workItemSite: (item.payload as { workItemSite?: WorkItemSite })?.workItemSite,
+            developmentId: (item.payload as { developmentId?: string })?.developmentId,
+            systemPrompt: (item.payload as { systemPrompt?: string })?.systemPrompt,
+            disableTools: (item.payload as { disableTools?: boolean })?.disableTools,
+            agentId: item.agentId,
+            projectDirectory: (item.payload as { projectDirectory?: string })?.projectDirectory,
+            task:
+              typeof (item.payload as { task?: unknown } | undefined)?.task === "string"
+                ? (item.payload as { task: string }).task
+                : "Resume the interrupted Subagent task from its checkpoint.",
+            mode: "async",
+            workspaceRoot: input.workspaceRoot,
+            baseUrl: input.baseUrl,
+            apiKey: input.apiKey,
+            model: input.model,
+            ...delegatedSettings(input, item.payload),
+            visionModel: input.visionModel,
+            thinkingLevel:
+              (item.payload as { thinkingLevel?: PiThinkingLevel })?.thinkingLevel ?? input.thinkingLevel,
+            api: (item.payload as { api?: CoworkModelApi })?.api ?? input.api,
+            thinkingFormat:
+              (item.payload as { thinkingFormat?: CoworkThinkingFormat })?.thinkingFormat ??
+              input.thinkingFormat,
+            supportsReasoningEffort:
+              (item.payload as { supportsReasoningEffort?: boolean })?.supportsReasoningEffort ??
+              input.supportsReasoningEffort,
+            supportsPromptCacheKey:
+              (item.payload as { supportsPromptCacheKey?: boolean })?.supportsPromptCacheKey ??
+              input.supportsPromptCacheKey,
+            supportsImages:
+              (item.payload as { supportsImages?: boolean })?.supportsImages ?? input.supportsImages,
+            // The queue is the only record that survives a crash, so a recovered
+            // dispatch recovers its ledger row from there too. Without this the run
+            // would finish untracked and its iteration would go missing.
+            experimentRef: (item.payload as { experimentRef?: ExperimentRef })?.experimentRef,
+            maxAttempts: input.maxAttempts,
+            leaseMs: input.leaseMs,
+            questionTimeoutMs: input.questionTimeoutMs,
+            maxQuestions: input.maxQuestions,
+            toolFactory: input.toolFactory,
+            commandEnv: input.commandEnv,
+            capabilityProvider: input.capabilityProvider,
+            capabilityGrants: (item.payload as { capabilityGrants?: CapabilityGrant[] })?.capabilityGrants,
+            web: input.web,
+            skillRoots: (item.payload as { skillRoots?: string[] })?.skillRoots ?? input.skillRoots,
+            skillApplications:
+              (item.payload as { skillApplications?: string[] })?.skillApplications ??
+              input.skillApplications,
+            resume: true
+          };
+          try {
+            return { result: await this.dispatch(inputForItem) };
+          } catch (error) {
+            return { refused: await this.settleRefusedRecovery(inputForItem, error) };
+          }
+        }
       )
     );
-    return results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+    return settled.map((entry) => ("result" in entry ? entry.result : entry.refused));
+  }
+
+  /**
+   * Settle a recovered item whose start was refused before any worker owned it.
+   *
+   * The durable queue is where a later status, wait and recovery pass look, so
+   * the reason is written there first and the run event, experiment row and Main
+   * callback follow it. Without this the rejection would be dropped: the item
+   * would stay queued, be re-driven on every pass, and never report why.
+   */
+  private async settleRefusedRecovery(
+    input: SubagentDispatchInput,
+    error: unknown
+  ): Promise<SubagentDispatchResult> {
+    const message = error instanceof Error ? error.message : String(error);
+    const callId = input.callId ?? id("call");
+    const call = { ...makeCall(input, callId), resolvedMode: "async" as const };
+    const diagnostics = {
+      tracePath: `sessions/${input.agentId}/${input.runId}.jsonl`,
+      resultPath: `runs/${input.runId}/agents/subagents/${input.agentId}/result.json`
+    };
+    const runPath = join(input.workspaceRoot, input.taskId, "runs", input.runId);
+    const scheduler = new DurableScheduler(join(runPath, "queue.json"));
+    await scheduler.failUnstarted(callId, message);
+    const events = new JsonlEventStore(join(runPath, "run_events.jsonl"));
+    const response = formatSubagentSummary({
+      status: "failed",
+      rawResponse: "",
+      outputFiles: [],
+      diagnostics,
+      error: message
+    });
+    try {
+      await this.append(
+        events,
+        event(input, callId, "run.failed", input.agentId, {
+          callId,
+          error: message,
+          state: "failed",
+          retryScheduled: false,
+          artifacts: [],
+          outputFiles: [],
+          diagnostics
+        })
+      );
+      await this.settleExperimentRun(input, "failed", input.projectDirectory ?? "", "", [], message);
+      await this.writeMainCallback(input, call, response, [], diagnostics, "failed", message);
+    } catch {
+      // The queue row already carries the reason; a projection failure must not
+      // revive an item that can never start.
+    }
+    return {
+      callId,
+      taskId: input.taskId,
+      runId: input.runId,
+      agentId: input.agentId,
+      name: agentDisplayName(input.agentId),
+      status: "failed",
+      response,
+      workingDirectory: input.projectDirectory ?? "",
+      artifacts: [],
+      outputFiles: [],
+      diagnostics,
+      error: message
+    };
   }
 
   async dispatch(input: SubagentDispatchInput): Promise<SubagentDispatchResult> {
-    const thinkingLevel = normalizeReasoningEffort(input.thinkingLevel ?? configuredReasoningEffort());
-    const api = input.api ?? configuredModelApi();
-    const thinkingFormat = input.thinkingFormat ?? configuredThinkingFormat();
-    const supportsReasoningEffort = input.supportsReasoningEffort ?? configuredSupportsReasoningEffort();
-    const supportsPromptCacheKey = input.supportsPromptCacheKey ?? configuredSupportsPromptCacheKey();
-    const supportsImages = input.supportsImages ?? configuredSupportsImages();
+    const dependsOn = [...new Set(input.dependsOn ?? [])];
     const callId = input.callId ?? id("call");
     const workspace = new LocalWorkspaceStore(input.workspaceRoot);
     const runPath =
@@ -661,6 +753,14 @@ export class CoordinatorRuntime {
         : await workspace.createRun(input.taskId, input.runId);
     const events = new JsonlEventStore(join(runPath, "run_events.jsonl"));
     const scheduler = new DurableScheduler(join(runPath, "queue.json"));
+    if (dependsOn.length > 0) {
+      const known = new Set((await scheduler.list()).map((item) => item.stepId));
+      const unknown = dependsOn.filter((stepId) => !known.has(stepId));
+      if (unknown.length > 0)
+        throw new Error(
+          `dependsOn 引用了本 Run 中不存在的工作项：${unknown.join("、")}；只能依赖已委派的 callId`
+        );
+    }
     const checkpointPath = join(runPath, "agents", "subagents", input.agentId, "checkpoint.json");
     const checkpointStore = new CheckpointStore(checkpointPath);
     const previous = await checkpointStore.load(input.runId);
@@ -687,62 +787,26 @@ export class CoordinatorRuntime {
         savedAt: now()
       });
     };
+    // The launching Run's own connection. It is what an item with no role
+    // binding keeps, and it is persisted so a recovered attempt can fall back to
+    // it without reading anything from the process that started the call.
+    const callerThinkingLevel = normalizeReasoningEffort(input.thinkingLevel ?? configuredReasoningEffort());
+    const callerModel: WorkItemModel = {
+      baseUrl: input.baseUrl,
+      apiKey: input.apiKey,
+      ...(input.model ? { model: input.model } : {}),
+      thinkingLevel: callerThinkingLevel,
+      api: input.api ?? configuredModelApi(),
+      thinkingFormat: input.thinkingFormat ?? configuredThinkingFormat(),
+      supportsReasoningEffort: input.supportsReasoningEffort ?? configuredSupportsReasoningEffort(),
+      supportsPromptCacheKey: input.supportsPromptCacheKey ?? configuredSupportsPromptCacheKey(),
+      supportsImages: input.supportsImages ?? configuredSupportsImages(),
+      ...(input.maxTokens === undefined ? {} : { maxTokens: input.maxTokens }),
+      ...(input.contextWindow === undefined ? {} : { contextWindow: input.contextWindow })
+    };
     const call = makeCall(input, callId);
     let leaseToken: string | undefined;
-    await this.transition(events, input, call, "accepted");
-    await this.append(
-      events,
-      event(input, callId, "step.queued", "coordinator", { callId, agentId: input.agentId })
-    );
-    const work = await scheduler.enqueue({
-      stepId: callId,
-      taskId: input.taskId,
-      runId: input.runId,
-      agentId: input.agentId,
-      importance: call.importance,
-      payload: {
-        task: input.task,
-        activateRun: input.activateRun,
-        projectDirectory: input.projectDirectory,
-        systemPrompt: input.systemPrompt,
-        disableTools: input.disableTools,
-        thinkingLevel,
-        api,
-        thinkingFormat,
-        supportsReasoningEffort,
-        supportsPromptCacheKey,
-        supportsImages,
-        ...delegatedSettings(input),
-        experimentRef: input.experimentRef,
-        capabilityGrants: input.capabilityGrants ?? [],
-        skillRoots: input.skillRoots,
-        skillApplications: input.skillApplications
-      },
-      // A Task expecting expensive jobs grants one attempt, so a diverged
-      // training run surfaces as evidence instead of being repeated silently.
-      maxAttempts:
-        input.maxAttempts ??
-        resolveCapabilities((await workspace.readTask(input.taskId).catch(() => undefined))?.capabilities)
-          .maxAttempts
-    });
-    input.onQueued?.();
-    const leaseMs = input.leaseMs ?? 60_000;
-    const leased =
-      work.status !== "completed" && work.status !== "failed"
-        ? await scheduler.claim(`coordinator-${process.pid}`, leaseMs, callId)
-        : undefined;
-    if (!leased?.lease) throw new Error(`unable to lease subagent call ${callId}`);
-    leaseToken = leased.lease.token;
-    await this.append(
-      events,
-      event(input, callId, "step.leased", "coordinator", { callId, lease: leased.lease })
-    );
-    await this.transition(events, input, call, "running");
-    const workingDirectory = await workspace.prepareAgentWorkDir(input.taskId, input.runId, input.agentId);
-    const tracePath = workspace.sessionPath(input.taskId, input.runId, input.agentId);
-    if (!shouldResume) {
-      await saveCheckpoint({ messages: [], compaction: emptyCompaction(), status: "running" });
-    }
+    let workingDirectory = "";
     let session: PiSession | undefined;
     const artifacts: Artifact[] = [];
     let outputFiles: string[] = [];
@@ -752,16 +816,98 @@ export class CoordinatorRuntime {
     };
     let sessionResult: PiSessionResult | undefined;
     let messagePoller: ReturnType<typeof setInterval> | undefined;
-    const heartbeat = setInterval(
-      () => {
-        void scheduler.renew(callId, leaseToken!, leaseMs).catch(() => {
-          // If the lease was reclaimed by another Worker, the terminal write
-          // below will fail with a token mismatch instead of corrupting state.
-        });
-      },
-      Math.max(1_000, Math.floor(leaseMs / 3))
-    );
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
     try {
+      await this.transition(events, input, call, "accepted");
+      await this.append(
+        events,
+        event(input, callId, "step.queued", "coordinator", { callId, agentId: input.agentId })
+      );
+      const work = await scheduler.enqueue({
+        stepId: callId,
+        taskId: input.taskId,
+        runId: input.runId,
+        agentId: input.agentId,
+        importance: call.importance,
+        payload: {
+          task: input.task,
+          activateRun: input.activateRun,
+          projectDirectory: input.projectDirectory,
+          systemPrompt: input.systemPrompt,
+          disableTools: input.disableTools,
+          thinkingLevel: callerThinkingLevel,
+          api: callerModel.api,
+          thinkingFormat: callerModel.thinkingFormat,
+          supportsReasoningEffort: callerModel.supportsReasoningEffort,
+          supportsPromptCacheKey: callerModel.supportsPromptCacheKey,
+          supportsImages: callerModel.supportsImages,
+          ...delegatedSettings(input),
+          // Non-sensitive launch facts: a recovered item re-reads this host's
+          // configuration and re-prepares its own site instead of carrying a
+          // connection, key, endpoint or path fact that is no longer true.
+          delegation: input.delegation,
+          workItemSite: input.workItemSite,
+          developmentId: input.developmentId,
+          dependsOn: dependsOn.length > 0 ? dependsOn : undefined,
+          experimentRef: input.experimentRef,
+          capabilityGrants: input.capabilityGrants ?? [],
+          skillRoots: input.skillRoots,
+          skillApplications: input.skillApplications
+        },
+        // A Task expecting expensive jobs grants one attempt, so a diverged
+        // training run surfaces as evidence instead of being repeated silently.
+        maxAttempts:
+          input.maxAttempts ??
+          resolveCapabilities((await workspace.readTask(input.taskId).catch(() => undefined))?.capabilities)
+            .maxAttempts
+      });
+      input.onQueued?.();
+      const leaseMs = input.leaseMs ?? 60_000;
+      const leased =
+        work.status !== "completed" && work.status !== "failed"
+          ? await scheduler.claim(`coordinator-${process.pid}`, leaseMs, callId)
+          : undefined;
+      if (!leased?.lease) throw new Error(`unable to lease subagent call ${callId}`);
+      leaseToken = leased.lease.token;
+      await this.append(
+        events,
+        event(input, callId, "step.leased", "coordinator", { callId, lease: leased.lease })
+      );
+      await this.transition(events, input, call, "running");
+      heartbeat = setInterval(
+        () => {
+          void scheduler.renew(callId, leaseToken!, leaseMs).catch(() => {
+            // If the lease was reclaimed by another Worker, the terminal write
+            // below will fail with a token mismatch instead of corrupting state.
+          });
+        },
+        Math.max(1_000, Math.floor(leaseMs / 3))
+      );
+      // A work item whose prerequisites are not finished does not start: it
+      // holds its lease, emits no model request and writes no checkpoint.
+      if (dependsOn.length > 0) await this.awaitDependencies({ input, callId, dependsOn, scheduler, events });
+      // ---- the actual start boundary ----
+      // The role binding and the item's own checkout are decided here, after the
+      // prerequisites, immediately before the session exists. A binding changed
+      // or removed while the item waited decides this start; an attempt that has
+      // already started never re-reads it.
+      const execution = resolveWorkItemModel({ delegation: input.delegation, caller: callerModel });
+      if (execution.snapshot)
+        await this.append(
+          events,
+          event(input, callId, "call.model_selected", input.agentId, {
+            callId,
+            modelSelection: execution.snapshot
+          })
+        );
+      const projectDirectory = input.workItemSite
+        ? await this.prepareSite(input.workItemSite, input.projectDirectory)
+        : input.projectDirectory;
+      workingDirectory = await workspace.prepareAgentWorkDir(input.taskId, input.runId, input.agentId);
+      const tracePath = workspace.sessionPath(input.taskId, input.runId, input.agentId);
+      if (!shouldResume) {
+        await saveCheckpoint({ messages: [], compaction: emptyCompaction(), status: "running" });
+      }
       const grants = input.capabilityGrants ?? [];
       if (grants.length && !input.capabilityProvider)
         throw new Error("Delegated capabilities require a provider; refusing to drop the recorded grant");
@@ -773,7 +919,7 @@ export class CoordinatorRuntime {
             agentId: input.agentId,
             workspaceRoot: input.workspaceRoot,
             workingDirectory,
-            supportsImages
+            supportsImages: execution.supportsImages
           })
         : undefined;
       const skills = await discoverSkills(
@@ -790,10 +936,10 @@ export class CoordinatorRuntime {
         : createBuiltinTools({
             rootDirectory: workingDirectory,
             workspaceDirectory: join(input.workspaceRoot, input.taskId),
-            projectDirectory: input.projectDirectory,
+            projectDirectory,
             capabilities,
             commandEnv: { COWORK_API_TOKEN: undefined, ...input.commandEnv },
-            supportsImages,
+            supportsImages: execution.supportsImages,
             visionModel: input.visionModel,
             web: input.web
           });
@@ -830,24 +976,25 @@ export class CoordinatorRuntime {
       // delegated capabilities and runtime-added peer/question tools. Persisted
       // disableTools also keeps recovered async analyses restricted.
       if (input.disableTools) tools.clear();
-      const projectWrites = input.projectDirectory !== undefined && capabilities.projectWrite;
+      const projectWrites = projectDirectory !== undefined && capabilities.projectWrite;
       session = new PiSession({
-        baseUrl: input.baseUrl,
-        apiKey: input.apiKey,
-        model: input.model,
-        thinkingLevel,
-        api,
-        thinkingFormat,
-        supportsReasoningEffort,
-        supportsPromptCacheKey,
-        supportsImages,
+        baseUrl: execution.baseUrl,
+        apiKey: execution.apiKey,
+        model: execution.model,
+        thinkingLevel: normalizeReasoningEffort(execution.thinkingLevel),
+        api: execution.api,
+        thinkingFormat: execution.thinkingFormat,
+        supportsReasoningEffort: execution.supportsReasoningEffort,
+        supportsPromptCacheKey: execution.supportsPromptCacheKey,
+        supportsImages: execution.supportsImages,
         systemPrompt:
           input.systemPrompt ??
           [
             atriaRoleIdentity("Subagent"),
+            ...(input.delegation ? [delegationRoleGuidance(input.delegation)] : []),
             `Your team name is ${agentDisplayName(input.agentId)}. Main and the UI use this stable name to identify your work.`,
             `Your working directory (read_file/write_file/run_command): ${workingDirectory}. Drafts and scripts: ${join(workingDirectory, "work")}. Candidate outputs: ${join(workingDirectory, "deliverables")}.`,
-            `Shared Task workspace (browse_workspace paths start here): ${join(input.workspaceRoot, input.taskId)}.${input.projectDirectory ? ` The user's project directory is ${input.projectDirectory}.` : ""}`,
+            `Shared Task workspace (browse_workspace paths start here): ${join(input.workspaceRoot, input.taskId)}.${projectDirectory ? ` The project directory you may edit is ${projectDirectory}.` : ""}`,
             projectWrites
               ? `You may edit the user's project directly: relative paths resolve there as well as in your own directory, and run_command runs in the project through a shell, supporting pipes and redirection. Foreground command completion also stops ordinary descendants on Unix; use start_job for persistent background work. Some paths are read-only and a write to one fails with the pattern that protects it — evaluation code, test fixtures, this harness and .git are kept outside the loop so results stay trustworthy. Never work around that by writing those paths from a spawned process; if a task seems to require it, say so instead and explain why.`
               : "Execute only the task assigned by Main. Your own working directory is the only place where you may modify files; use browse_workspace (read-only) to inspect shared Task state, prior Agent progress and published artifacts before starting when the task depends on them.",
@@ -871,8 +1018,8 @@ export class CoordinatorRuntime {
           ].join("\n\n"),
         tools,
         maxTurns: input.maxTurns ?? 200,
-        maxTokens: input.maxTokens,
-        contextWindow: input.contextWindow,
+        maxTokens: execution.maxTokens,
+        contextWindow: execution.contextWindow,
         maxLengthContinuations: input.maxLengthContinuations,
         sampling: input.sampling,
         compaction: input.compaction,
@@ -1045,7 +1192,7 @@ export class CoordinatorRuntime {
         diagnostics
       };
     } catch (error) {
-      clearInterval(heartbeat);
+      if (heartbeat) clearInterval(heartbeat);
       clearInterval(messagePoller);
       const message = error instanceof Error ? error.message : String(error);
       const termination = error instanceof SubagentTerminationError ? error.termination : undefined;
@@ -1511,6 +1658,76 @@ export class CoordinatorRuntime {
           status
         })
       );
+    }
+  }
+
+  /**
+   * Prepare the item's own checkout and confirm it is the directory it will run in.
+   *
+   * Prepared at the start boundary for the same reason as the role binding: a
+   * parallel item must fork the integration site as it is *now*, and a resumed
+   * attempt must keep the checkout — and the work in it — it already owns.
+   */
+  private async prepareSite(site: WorkItemSite, projectDirectory?: string): Promise<string> {
+    if (projectDirectory !== site.directory)
+      throw new Error(`工作项现场与项目目录不一致（${site.directory} ≠ ${projectDirectory ?? "未设置"}）`);
+    await prepareWorkItemSite(site);
+    return site.directory;
+  }
+
+  /**
+   * Hold a work item until the calls it depends on are terminal.
+   *
+   * The same durable queue is the only scheduler: a blocked item keeps its
+   * lease (renewed by the dispatch heartbeat) and stays visible as pending, so
+   * Main still waits for it. A cancellation of this call, or a prerequisite
+   * that failed, ends it here — before any model request or session exists.
+   */
+  private async awaitDependencies(context: {
+    input: SubagentDispatchInput;
+    callId: string;
+    dependsOn: string[];
+    scheduler: DurableScheduler;
+    events: JsonlEventStore;
+  }): Promise<void> {
+    const { input, callId, dependsOn, scheduler, events } = context;
+    const terminal = (status: string) =>
+      status === "completed" || status === "failed" || status === "cancelled";
+    await this.append(events, event(input, callId, "call.blocked", input.agentId, { callId, dependsOn }));
+    for (;;) {
+      const items = await scheduler.list();
+      const own = items.find((item) => item.stepId === callId);
+      if (
+        !own ||
+        own.status === "cancelled" ||
+        this.cancelRequests.has(callId) ||
+        input.signal?.aborted === true
+      )
+        throw new SubagentTerminationError("cancelled", "工作项在等待前置工作时被取消，未开始执行");
+      const statusOf = (stepId: string) => items.find((item) => item.stepId === stepId)?.status;
+      const unfinished = dependsOn.filter((stepId) => {
+        const status = statusOf(stepId);
+        return status === undefined || !terminal(status);
+      });
+      if (unfinished.length === 0) {
+        const failed = dependsOn.filter((stepId) => statusOf(stepId) !== "completed");
+        if (failed.length > 0) {
+          await this.append(
+            events,
+            event(input, callId, "call.dependency_failed", input.agentId, { callId, dependsOn, failed })
+          );
+          throw new SubagentTerminationError(
+            "cancelled",
+            `前置工作 ${failed.join("、")} 未成功完成，本工作项未执行`
+          );
+        }
+        await this.append(
+          events,
+          event(input, callId, "call.dependencies_met", input.agentId, { callId, dependsOn })
+        );
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 

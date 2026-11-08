@@ -45,7 +45,7 @@ import { createConversationOperations } from "./assets/controllers/conversation-
 import { createConversationReadState, conversationTaskId } from "./assets/conversation-actions.js";
 import { renderMarkdown } from "./assets/markdown.js";
 import { mergeRuntimeEvents } from "./assets/conversation.js";
-import { agentName, galaxyMembers, isWorking } from "./assets/agent-room.js";
+import { agentIdentity, agentName, galaxyMembers, isWorking } from "./assets/agent-room.js";
 import { createAgentGalaxy } from "./assets/agent-galaxy.js";
 import { renderRunOverview, runElapsed, formatRunDuration } from "./assets/run-overview.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
@@ -306,6 +306,7 @@ const statusLabel = {
   interrupted: ui("已结束")
 };
 const stateText = (value) => statusLabel[value] || value || ui("未知");
+const memberStateText = (member) => (member?.blocked ? ui("等待前置") : stateText(member?.status));
 const updateAgentGalaxy = createAgentGalaxy($("#agent-galaxy"), {
   onSelect: showAgentTrace,
   nameFor: agentName,
@@ -1183,7 +1184,7 @@ function renderAgentRoom(coordination = {}, task = {}, progress) {
   const chipMarkup = members
     .map(
       (member) =>
-        `<button class="member-chip ${agentKey(member) === state.selectedAgent ? "active" : ""}" aria-pressed="${agentKey(member) === state.selectedAgent}" data-agent="${esc(agentKey(member))}">${esc(agentName(member, member.index))}<small>${esc(member.__main ? ui("主智能体") : stateText(member.status))}</small></button>`
+        `<button class="member-chip ${agentKey(member) === state.selectedAgent ? "active" : ""}" aria-pressed="${agentKey(member) === state.selectedAgent}" data-agent="${esc(agentKey(member))}">${esc(agentName(member, member.index))}<small>${esc(member.__main ? ui("主智能体") : memberStateText(member))}</small></button>`
     )
     .join("");
   if (chips.innerHTML !== chipMarkup) {
@@ -1214,7 +1215,15 @@ function renderFocus(agent) {
     root.dataset.member = key;
     root.innerHTML = '<div id="trace-identity"></div><div id="agent-trajectory"></div>';
   }
-  const identity = `<div class="trace-heading"><div class="trace-title"><span class="trace-avatar">${agent.__main ? '<img src="/assets/atria-symbol.png" alt="" />' : '<svg class="ui-icon"><use href="#i-team"/></svg>'}</span><div><strong>${esc(agentName(agent, agent.index))}</strong></div></div><span>${esc(stateText(agent.status))}</span></div><p class="trace-task">${esc(agent.task || ui("等待分派任务"))}</p>`;
+  const identityParts = agentIdentity(agent);
+  const roleModel = [identityParts.role, identityParts.model].filter(Boolean).join(" · ");
+  // The checkout is only worth naming when it is not the Task's own project:
+  // a delegate bound to a requirement's isolated workspace works somewhere else.
+  const isolatedWorkspace =
+    identityParts.workspace && identityParts.workspace !== state.detail?.task?.projectDirectory
+      ? identityParts.workspace
+      : "";
+  const identity = `<div class="trace-heading"><div class="trace-title"><span class="trace-avatar">${agent.__main ? '<img src="/assets/atria-symbol.png" alt="" />' : '<svg class="ui-icon"><use href="#i-team"/></svg>'}</span><div><strong>${esc(agentName(agent, agent.index))}</strong>${roleModel ? `<small>${esc(roleModel)}</small>` : ""}</div></div><span>${esc(memberStateText(agent))}</span></div><p class="trace-task">${esc(agent.task || ui("等待分派任务"))}</p>${isolatedWorkspace ? `<p class="trace-workspace" title="${esc(isolatedWorkspace)}">${esc(isolatedWorkspace)}</p>` : ""}`;
   if ($("#trace-identity").innerHTML !== identity) $("#trace-identity").innerHTML = identity;
   if (!state.selected || !state.detail?.task?.activeRunId) {
     paintTrajectory({ entries: [], total: 0 });

@@ -197,8 +197,22 @@ test("call_subagent keeps task/mode required, scopes resources optionally, and t
     assert.ok(injected.systemPrompt.includes("outputFiles"));
     const tool = pi.tools.get("call_subagent");
     assert.ok(tool, "extension must register call_subagent");
-    assert.deepEqual(Object.keys(tool.parameters.properties), ["task", "attachments", "resources", "mode"]);
-    assert.deepEqual(tool.parameters.required, ["task", "mode"]);
+    assert.deepEqual(Object.keys(tool.parameters.properties), [
+      "task",
+      "attachments",
+      "resources",
+      "mode",
+      "role",
+      "dependsOn",
+      "developmentId",
+      "profileId",
+      "model"
+    ]);
+    assert.deepEqual(
+      tool.parameters.required,
+      ["task", "mode"],
+      "the role, dependency and site stay optional"
+    );
     assert.equal(tool.parameters.additionalProperties, false);
 
     let status;
@@ -231,6 +245,11 @@ test("call_subagent keeps task/mode required, scopes resources optionally, and t
     assert.equal(asyncFinished, false, "async must return before dispatch settles");
 
     const asyncCall = dispatches[0];
+    assert.deepEqual(
+      asyncCall.delegation,
+      { role: "executor" },
+      "an ordinary delegation defaults to the executor role"
+    );
     const inbox = new InboxStore(join(root, taskId, "runs", runId, "agents", "main", "inbox-store.json"));
     await inbox.enqueue({
       messageId: `callback-${asyncCall.callId}-succeeded`,
