@@ -216,6 +216,7 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
   ): Promise<boolean> {
     // A heartbeat for another Run of the same Task is stale evidence about an
     // earlier process, not proof that this slot has no process.
+    // eslint-disable-next-line no-restricted-syntax -- 心跳只是存活性证据之一；读失败后下面仍按本地 pid 和调度时间判断槽位是否还有进程
     const beat = await ports.heartbeat(slot.taskId).catch(() => undefined);
     if (beat && beat.runId === slot.runId && beat.host === host && pidAlive(beat.pid)) return true;
     if (slot.host !== host) return false;
@@ -262,6 +263,7 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
         await ledger.completeStart(entry.requestId);
         continue;
       }
+      // eslint-disable-next-line no-restricted-syntax -- 任务快照是可选证据；启动时读不到就无法确认中断的启动已产生 Run，由下面的 retryStart 把该需求放回队列而不是让恢复崩溃
       const task = await ports.taskState(entry.taskId).catch(() => undefined);
       if (task?.activeRunId === entry.runId) {
         // A Run was recorded before the interruption: never start it twice.
@@ -305,6 +307,7 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
             }
           }
         }
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- repeat 由 dispatch() 在重入时置为 true，TS 在当前 do 块里只看到 repeat = false
       } while (repeat && !stopping);
     })().finally(() => {
       dispatching = undefined;
@@ -425,7 +428,7 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
     };
     if (next.resident > MAIN_CAPACITY_LIMIT || next.continuation > MAIN_CAPACITY_LIMIT)
       throw new ProjectDataInvalidError(`配额不能超过 ${MAIN_CAPACITY_LIMIT}`);
-    if (current?.resident !== next.resident || current?.continuation !== next.continuation) {
+    if (current?.resident !== next.resident || current.continuation !== next.continuation) {
       // Serialize with session creation: a newly saved session must count
       // toward the quota this check is about to accept.
       await withSessionCreateLock(async () => {
@@ -545,13 +548,14 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
         },
         ports.tickMs ?? Number(process.env.COWORK_MAIN_CAPACITY_TICK_MS ?? 2_000)
       );
-      ticker.unref?.();
+      ticker.unref();
     },
 
     async stop(): Promise<void> {
       stopping = true;
       if (ticker) clearInterval(ticker);
       ticker = undefined;
+      // eslint-disable-next-line no-restricted-syntax -- 关闭时必须等在途派发结束，派发失败已由队列里的 retry/failed 行承接，这里等待的是它结束而不是它的结果
       await dispatching?.catch(() => {});
     }
   };

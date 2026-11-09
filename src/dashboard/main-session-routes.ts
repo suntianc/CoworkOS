@@ -20,7 +20,8 @@ export async function handleMainSessionRequest(
   const match = url.pathname.match(PROJECT_PATH);
   if (!match) return false;
   const service = createMainSessionService(ports);
-  const projectId = decodeURIComponent(match[1]!);
+  const projectId = decodeURIComponent(match[1]);
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 第二段路径来自可选捕获组，匹配成功时该分组也可能缺失，这里必须保留 undefined 分支
   const sessionId = match[2] === undefined ? undefined : decodeURIComponent(match[2]);
   response.setHeader("cache-control", "no-store");
   if (request.method === "GET") {

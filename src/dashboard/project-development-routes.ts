@@ -75,7 +75,9 @@ async function handleReviewRequest(
               task
                 ? service.deliveryForTask(task, developmentId)
                 : service.delivery(scope.projectId, developmentId)
-            ).catch(() => undefined)) ?? null
+            )
+              // eslint-disable-next-line no-restricted-syntax -- 交付资格缺失是正常状态；读取失败时列表仍要返回其余字段，这里用 null 表示没有资格记录
+              .catch(() => undefined)) ?? null
         }
       : {}),
     reviews: task
@@ -377,17 +379,19 @@ export async function handleDevelopmentRequest(
   let taskId: string | undefined;
   let scopedTaskId: string | undefined;
   if (projectMatch) {
-    projectId = decodeURIComponent(projectMatch[1]!);
+    projectId = decodeURIComponent(projectMatch[1]);
     const scopedTask = request.headers["x-cowork-task-id"];
     if (scopedTask !== undefined) {
       const task = typeof scopedTask === "string" ? scopedTask : "";
+      // eslint-disable-next-line no-restricted-syntax -- 请求头的任务可能在本机目录里查不到，绑定查询失败按不匹配处理，下面回 403 不越权读取别的项目
       const bound = task ? await ports.taskProject(task).catch(() => undefined) : undefined;
       if (!bound || bound.projectId !== projectId)
         throw new HttpError(403, "开发记录只能访问当前会话所属项目", "project_scope_denied");
       scopedTaskId = task;
     }
   } else {
-    taskId = decodeURIComponent(taskMatch![1]!);
+    taskId = decodeURIComponent(taskMatch![1]);
+    // eslint-disable-next-line no-restricted-syntax -- 任务目录被清理后绑定查询会失败，此时该任务不归属任何项目，下面按未绑定回 404
     const bound = await ports.taskProject(taskId).catch(() => undefined);
     if (!bound) throw new HttpError(404, "会话不属于任何项目", "project_unbound");
     projectId = bound.projectId;

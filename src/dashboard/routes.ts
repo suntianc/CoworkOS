@@ -1,4 +1,4 @@
-import { MainMessageEditConflict, type EditTextFile } from "../runtime/main-message-edit.js";
+import { MainMessageEditConflict } from "../runtime/main-message-edit.js";
 import { readFile } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -175,11 +175,11 @@ export function createDashboardHandler(
    * change into an error response (see createCatalogEvents).
    */
   const publishProject = async <T extends { projectId: string }>(project: T): Promise<T> => {
-    await ports.events?.project(project as unknown as Record<string, unknown>);
+    await ports.events?.project(project);
     return project;
   };
   const publishTask = async <T extends { taskId: string }>(task: T): Promise<T> => {
-    await ports.events?.task(task as unknown as Record<string, unknown>);
+    await ports.events?.task(task);
     return task;
   };
   return async (request, response) => {
@@ -584,7 +584,7 @@ export function createDashboardHandler(
       // Register an application destination without switching or moving any conversation.
       if (url.pathname === "/api/workbench/workspaces" && request.method === "GET") {
         sendJson(response, 200, {
-          workspaces: await (ports.applicationWorkspaceRoots ?? knownWorkspaceRoots)()
+          workspaces: await ports.applicationWorkspaceRoots()
         });
         return;
       }
@@ -630,6 +630,7 @@ export function createDashboardHandler(
           referencingTasks: async () => {
             const found = new Set<string>();
             for (const root of await knownWorkspaceRoots()) {
+              // eslint-disable-next-line no-restricted-syntax -- 已注销或不可读的工作区目录跳过即可，其余根的任务仍要收集出引用者
               for (const task of await new LocalWorkspaceStore(root).listTasks().catch(() => []))
                 found.add(task.taskId);
             }
@@ -836,7 +837,7 @@ export function createDashboardHandler(
               name: file.name,
               text: file.text,
               size: Buffer.byteLength(file.text, "utf8")
-            })) as EditTextFile[]
+            }))
           )
         );
         return;
@@ -1159,6 +1160,7 @@ export function createDashboardHandler(
         if (action === "cancel" && ports.mainSessions && location.projectId && cancelledRunId)
           await ports.mainSessions
             .settle(location.projectId, taskId, cancelledRunId, "cancelled")
+            // eslint-disable-next-line no-restricted-syntax -- 取消已完成，主会话结算失败不能让取消响应变成错误；会话行留待下次读取对账
             .catch(() => undefined);
         sendJson(response, 200, await publishTask(taskListItem({ ...location, task: next })));
         return;
