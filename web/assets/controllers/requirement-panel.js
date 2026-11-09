@@ -47,7 +47,8 @@ export function createRequirementPanel({
   openArtifact,
   openResource,
   openPreview,
-  iconForDocument
+  iconForDocument,
+  onRendered = () => {}
 }) {
   let loaded = null;
   let loading = null;
@@ -437,12 +438,14 @@ export function createRequirementPanel({
 
   function render() {
     if (!$("[data-requirement-panel]")) return;
-    // A collapsed pane keeps its last rendering, as before: reopening it shows
-    // the records it last read instead of rebuilding while hidden.
-    if (document.body.classList.contains("output-collapsed")) return;
+    // The selected requirement's phase also labels the run bar, so the records
+    // are read even while the panel itself is collapsed. The panel keeps its
+    // last rendering for the moment it reopens.
     // A temporary workspace belongs to no project, so it has no requirement
     // records to read; the conversation's own usage still applies.
     if (state.selected && selectedProjectId()) ensure(state.selected);
+    onRendered(loaded?.requirement ? progressOf().label : "");
+    if (document.body.classList.contains("output-collapsed")) return;
     const body = $("[data-requirement-body]");
     const usage = $("[data-requirement-usage]");
     if (!body || !usage) return;

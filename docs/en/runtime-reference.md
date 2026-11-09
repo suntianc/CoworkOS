@@ -10,6 +10,8 @@ The project folder supplies file and command operations; history and recovery da
 
 App/Web persist text, attachments and edit drafts separately by project or conversation. Ordinary messages submitted during execution queue; steering instructions enter at the next model call, after the current call or tool finishes. Stopping cancels unfinished execution while preserving drafts and file changes already made.
 
+Pause is not stop: the request is written to the Task record, and Main reads it after the current tool call or model reply and before the next tool call or model request, preserving the workspace, candidates and requirement records. Once the process exits the Task is `paused` with `pause.pausedAt` and occupies no Main capacity; a boundary that completed the Task stays `completed`. Continuing uses the same Run and Pi session, keeps completed tool results and does not repeat finished steps. Cancelling from `paused` follows the existing terminal cleanup for unfinished delegations and background work.
+
 Editing the latest accepted message runs again from the preceding conversation history with the new input. It does not undo earlier file changes or external actions. See [request retry and context recovery](#request-retry-and-context-recovery) for exact replay of failed requests.
 
 ## Input formats

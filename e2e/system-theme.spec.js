@@ -347,8 +347,7 @@ test("tool outcomes and recovery summaries stay readable in both neutral themes"
         ".tool-subject",
         ".activity-status",
         ".tool-context",
-        ".request-error > strong",
-        ".request-error > p:not([data-error-type])",
+        ".request-error .run-error-head strong",
         ".request-error-actions button"
       ]) {
         const text = page.locator(selector);

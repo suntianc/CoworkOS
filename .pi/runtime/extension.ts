@@ -950,7 +950,9 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
           (parked && Date.parse(parked.parkedAt) >= agentStartedAt)
         )
           await resetMainSupervisorBackoff(workspaceRoot, taskId);
-        if (task.status === "running") {
+        // A paused Task leaves this boundary to the Run's close path, which
+        // records the pause once the process has actually stopped.
+        if (task.status === "running" && !task.pause) {
           const pending = await coordinator.waitForSubagents({
             taskId,
             runId: mainRunId,
@@ -1081,7 +1083,8 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       while (!ctx.signal?.aborted && mainTurns < mainMaxTurns) {
         const task = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId);
         if (
-          ["cancelled", "failed"].includes(task.status) ||
+          ["cancelled", "failed", "paused"].includes(task.status) ||
+          task.pause ||
           (await humanStore.list(taskId, "pending")).length
         )
           return;
@@ -1155,6 +1158,15 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       } catch {
         projectEvidenceRecorder = undefined;
       }
+    }
+    // A user pause is read from the Task record at the boundary between two
+    // steps: the current tool call and model reply have settled, so aborting
+    // here starts no new tool call or model request. The Run's close path
+    // records the pause only if this boundary did not complete the Task.
+    const pausedTask = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId);
+    if (pausedTask.pause || pausedTask.status === "paused") {
+      ctx.abort();
+      return;
     }
     mainTurns += 1;
     if (mainTurns >= mainMaxTurns) {

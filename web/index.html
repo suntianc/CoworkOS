@@ -28,6 +28,7 @@
     <link rel="stylesheet" href="/assets/formicand.css" />
     <link rel="stylesheet" href="/assets/work-sidebar.css" />
     <link rel="stylesheet" href="/assets/styles/requirement-panel.css" />
+    <link rel="stylesheet" href="/assets/styles/run-control.css" />
   </head>
   <body class="output-collapsed">
     <div id="night-sky" class="night-sky" aria-hidden="true">
@@ -222,6 +223,34 @@
         </symbol>
         <symbol id="i-loader-circle" viewBox="0 0 24 24">
           <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </symbol>
+        <symbol id="i-square" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" /></symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24">
+          <rect x="6" y="4" width="4" height="16" rx="1" />
+          <rect x="14" y="4" width="4" height="16" rx="1" />
+        </symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z" /></symbol>
+        <symbol id="i-circle-alert" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v4M12 16h.01" />
+        </symbol>
+        <symbol id="i-rotate-ccw" viewBox="0 0 24 24">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+          <path d="M3 3v5h5" />
+        </symbol>
+        <symbol id="i-cpu" viewBox="0 0 24 24">
+          <rect x="5" y="5" width="14" height="14" rx="2" />
+          <rect x="9" y="9" width="6" height="6" rx="1" />
+          <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
+        </symbol>
+        <symbol id="i-wifi-off" viewBox="0 0 24 24">
+          <path
+            d="M12 20h.01M8.5 16.4a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.2-2.7M19 12.9a10 10 0 0 0-2-1.5M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8a15 15 0 0 0-11.3-3.8M2 2l20 20"
+          />
+        </symbol>
+        <symbol id="i-message-circle-question" viewBox="0 0 24 24">
+          <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+          <path d="M9.1 9a3 3 0 1 1 4.6 2.5c-.8.5-1.2 1-1.2 2M12 17h.01" />
         </symbol>
         <symbol id="i-folder-open" viewBox="0 0 24 24">
           <path
@@ -555,6 +584,47 @@
                   hidden
                 ></section>
                 <div class="composer">
+                  <section id="run-control" class="run-control" aria-label="运行控制" hidden>
+                    <svg class="run-control-spinner" aria-hidden="true"><use href="#i-loader-circle" /></svg>
+                    <span class="run-control-label" data-run-label>Main 正在工作</span>
+                    <span class="run-control-time" data-run-time></span>
+                    <span class="run-control-spacer"></span>
+                    <button
+                      class="run-control-button"
+                      type="button"
+                      data-run-pause
+                      title="暂停"
+                      aria-label="暂停"
+                    >
+                      <svg class="ui-icon" aria-hidden="true"><use href="#i-pause" /></svg><span>暂停</span>
+                    </button>
+                    <button
+                      class="run-control-button is-danger"
+                      type="button"
+                      data-run-cancel
+                      title="取消运行"
+                      aria-label="取消运行"
+                    >
+                      <svg class="ui-icon" aria-hidden="true"><use href="#i-square" /></svg
+                      ><span>取消运行</span>
+                    </button>
+                  </section>
+                  <div
+                    id="run-cancel-confirm"
+                    class="run-cancel-confirm"
+                    role="dialog"
+                    aria-modal="false"
+                    aria-labelledby="run-cancel-title"
+                    hidden
+                  >
+                    <h2 id="run-cancel-title">取消本次运行？</h2>
+                    <div class="run-cancel-actions">
+                      <button class="run-control-button" type="button" data-confirm-continue>继续运行</button>
+                      <button class="run-control-button is-danger" type="button" data-confirm-cancel>
+                        取消运行
+                      </button>
+                    </div>
+                  </div>
                   <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
                   <button class="composer-context" data-composer-context type="button" hidden></button>
                   <textarea
@@ -828,7 +898,7 @@
       </section>
     </div>
     <div class="session-menu" id="session-menu" hidden></div>
-    <div class="toast" id="toast"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="/assets/starfield.js"></script>
     <script type="module" src="/app.js"></script>
   </body>

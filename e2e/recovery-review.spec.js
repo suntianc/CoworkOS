@@ -85,7 +85,7 @@ test("unconfigured Web offers model setup and an authentication failure can be r
     await expect(page.locator(".request-error")).toContainText("模型连接认证失败", { timeout: 30_000 });
     await expect(page.locator(".request-error")).not.toContainText("private provider detail");
     fail = false;
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     await expect(page.locator('[data-answer-kind="final"]')).toContainText("重试成功", { timeout: 30_000 });
     expect(requests).toBe(2);
   } finally {
