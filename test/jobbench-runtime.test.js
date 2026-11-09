@@ -60,23 +60,24 @@ test("delegated model settings are durable and restored through the actual SDK",
     timeoutMs: 5000
   };
   const runtime = new CoordinatorRuntime();
-  await assert.rejects(
-    runtime.dispatch({
-      ...common,
-      mode: "async",
-      maxTurns: 0,
-      maxTokens: 512,
-      contextWindow: 50000,
-      maxLengthContinuations: 1,
-      sampling: { temperature: 0.4, topP: 0.8 },
-      maxToolResponseChars: 100,
-      compaction: { enabled: false },
-      onQueued() {
-        throw new Error("Fixture interruption");
-      }
-    }),
-    /Fixture interruption/
-  );
+  // An interruption after the durable enqueue settles the call record; the
+  // queued item keeps the delegated settings for the next recovery.
+  const interrupted = await runtime.dispatch({
+    ...common,
+    mode: "async",
+    maxTurns: 0,
+    maxTokens: 512,
+    contextWindow: 50000,
+    maxLengthContinuations: 1,
+    sampling: { temperature: 0.4, topP: 0.8 },
+    maxToolResponseChars: 100,
+    compaction: { enabled: false },
+    onQueued() {
+      throw new Error("Fixture interruption");
+    }
+  });
+  assert.equal(interrupted.status, "failed");
+  assert.match(interrupted.error, /Fixture interruption/);
   const queue = await new DurableScheduler(join(root, "task", "runs", "run", "queue.json")).list();
   assert.equal(queue[0].payload.maxTurns, 0);
   assert.equal(queue[0].payload.contextWindow, 50000);

@@ -247,20 +247,21 @@ test(
           timeoutMs: 3000
         };
         // Simulate a process interruption after the durable enqueue, before the first lease.
-        await assert.rejects(
-          new CoordinatorRuntime().dispatch({
-            ...common,
-            callId: "call-recover",
-            task: "Recover the delegated fixture task.",
-            mode: "async",
-            thinkingLevel: "low",
-            supportsReasoningEffort,
-            onQueued: () => {
-              throw new Error("fixture interruption after enqueue");
-            }
-          }),
-          /fixture interruption after enqueue/
-        );
+        // dispatch owns the failure after the call record exists; the queued
+        // item keeps the settings the next recovery reads.
+        const interrupted = await new CoordinatorRuntime().dispatch({
+          ...common,
+          callId: "call-recover",
+          task: "Recover the delegated fixture task.",
+          mode: "async",
+          thinkingLevel: "low",
+          supportsReasoningEffort,
+          onQueued: () => {
+            throw new Error("fixture interruption after enqueue");
+          }
+        });
+        assert.equal(interrupted.status, "failed");
+        assert.match(interrupted.error, /fixture interruption after enqueue/);
         assert.equal(model.requests.length, 0);
         const [saved] = await fixture.queue.list();
         assert.equal(saved.status, "queued");

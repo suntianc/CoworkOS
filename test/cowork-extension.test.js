@@ -205,6 +205,8 @@ test("call_subagent keeps task/mode required, scopes resources optionally, and t
       "role",
       "dependsOn",
       "developmentId",
+      "continueCallId",
+      "reviewId",
       "profileId",
       "model"
     ]);

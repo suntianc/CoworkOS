@@ -396,25 +396,27 @@ test(
       { resourceId: f.resource.resourceId, access: "read" }
     ]);
     const runtime = new CoordinatorRuntime();
-    await assert.rejects(
-      runtime.dispatch({
-        ...model,
-        taskId: f.taskId,
-        runId: f.runId,
-        agentId: "recovered",
-        callId: "recover",
-        workspaceRoot: f.workspaceRoot,
-        task: "Read resource",
-        mode: "async",
-        skillRoots: [],
-        capabilityProvider: f.provider,
-        capabilityGrants: grants,
-        onQueued() {
-          throw new Error("process interruption");
-        }
-      }),
-      /process interruption/
-    );
+    // dispatch owns every failure after the call record exists: the throw from
+    // onQueued settles that record and the queued item stays the durable
+    // identity the next recovery re-drives.
+    const interrupted = await runtime.dispatch({
+      ...model,
+      taskId: f.taskId,
+      runId: f.runId,
+      agentId: "recovered",
+      callId: "recover",
+      workspaceRoot: f.workspaceRoot,
+      task: "Read resource",
+      mode: "async",
+      skillRoots: [],
+      capabilityProvider: f.provider,
+      capabilityGrants: grants,
+      onQueued() {
+        throw new Error("process interruption");
+      }
+    });
+    assert.equal(interrupted.status, "failed");
+    assert.match(interrupted.error, /process interruption/);
     const other = await f.create("bound elsewhere");
     await f.service.bindResource(f.taskId, other.resourceId);
     const result = await new CoordinatorRuntime().recoverRun({

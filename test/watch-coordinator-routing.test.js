@@ -280,7 +280,9 @@ test(
         throw new Error("fixture stopped after durable enqueue");
       }
     };
-    await assert.rejects(new CoordinatorRuntime().dispatch(input), /stopped after durable enqueue/);
+    const interrupted = await new CoordinatorRuntime().dispatch(input);
+    assert.equal(interrupted.status, "failed");
+    assert.match(interrupted.error, /stopped after durable enqueue/);
     assert.deepEqual(await f.store.readTask(TASK), before);
     assert.equal(f.model.requests.length, 0);
     const scheduler = new DurableScheduler(join(f.root, TASK, "runs", runId, "queue.json"));

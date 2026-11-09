@@ -99,20 +99,21 @@ test("queued GLM format survives recovery with different caller settings", async
     thinkingLevel: "max",
     timeoutMs: 5000
   };
-  await assert.rejects(
-    new CoordinatorRuntime().dispatch({
-      ...common,
-      agentId: "reviewer",
-      callId: "call-format",
-      task: "Check recovery",
-      mode: "async",
-      thinkingFormat: "zai",
-      onQueued() {
-        throw new Error("fixture interruption");
-      }
-    }),
-    /fixture interruption/
-  );
+  // The throw stands in for a process interruption after the durable enqueue:
+  // dispatch settles the call record and leaves the queued item for recovery.
+  const interrupted = await new CoordinatorRuntime().dispatch({
+    ...common,
+    agentId: "reviewer",
+    callId: "call-format",
+    task: "Check recovery",
+    mode: "async",
+    thinkingFormat: "zai",
+    onQueued() {
+      throw new Error("fixture interruption");
+    }
+  });
+  assert.equal(interrupted.status, "failed");
+  assert.match(interrupted.error, /fixture interruption/);
   const queue = new DurableScheduler(join(workspaceRoot, common.taskId, "runs", common.runId, "queue.json"));
   assert.equal((await queue.list())[0].payload.thinkingFormat, "zai");
   const result = await new CoordinatorRuntime().recoverRun({ ...common, thinkingFormat: "openai" });

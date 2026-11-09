@@ -234,19 +234,20 @@ test(
         toolFactory: () => tools(),
         skillRoots: []
       };
-      await assert.rejects(
-        new CoordinatorRuntime().dispatch({
-          ...common,
-          supportsImages,
-          task: "Inspect the fixture.",
-          callId: "queued",
-          mode: "async",
-          onQueued: () => {
-            throw new Error("fixture process interruption");
-          }
-        }),
-        /fixture process interruption/
-      );
+      // The interruption settles the call record; the queued item keeps the
+      // original image capability for recovery.
+      const interrupted = await new CoordinatorRuntime().dispatch({
+        ...common,
+        supportsImages,
+        task: "Inspect the fixture.",
+        callId: "queued",
+        mode: "async",
+        onQueued: () => {
+          throw new Error("fixture process interruption");
+        }
+      });
+      assert.equal(interrupted.status, "failed");
+      assert.match(interrupted.error, /fixture process interruption/);
       const recovered = await new CoordinatorRuntime().recoverRun({
         ...common,
         supportsImages: !supportsImages
