@@ -35,9 +35,11 @@ function runCommandHost(): void {
   const child = spawn(options.command, options.args, {
     cwd: options.cwd,
     shell: options.shell,
-    // stdin is a new pipe; the command must not inherit the owner's lifecycle
-    // pipe. Ordinary descendants inherit this host's process group instead.
-    stdio: ["pipe", "inherit", "inherit"]
+    // The command has no input provider: fd 0 is /dev/null so a command that
+    // reads to EOF ends itself. It must not inherit the owner's lifecycle pipe,
+    // and an open pipe would make real readers wait for cancellation.
+    // Ordinary descendants inherit this host's process group instead.
+    stdio: ["ignore", "inherit", "inherit"]
   });
   let failedToStart = false;
   child.on("error", (error) => {
@@ -54,7 +56,6 @@ function runCommandHost(): void {
       if ((error as NodeJS.ErrnoException).code !== "EPIPE") throw error;
       stop();
     }
-    child.stdin?.destroy();
     // Keep the lifecycle pipe open until parent cleanup. If the parent dies
     // immediately after the result, EOF still drains the entire group.
   });
