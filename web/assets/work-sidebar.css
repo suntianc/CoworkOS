@@ -635,10 +635,10 @@ html[data-theme] .composer .composer-project-menu[hidden] {
 /* Add project: local folder or Git clone, measured from the
    「工作 · 添加项目」 board. Two themes share one structure. */
 html[data-theme] .add-project-backdrop {
-  /* The board anchors the dialog 110px below the top at 900px height, so the
-     preview and progress rows stay inside the work column. */
+  /* The board pins the dialog 110px below the top in a 900px window; shorter
+     windows keep it fully visible. */
   place-items: start center;
-  padding-top: min(110px, 12vh);
+  padding-top: clamp(24px, 12.23vh, 110px);
   background: #00000080;
   backdrop-filter: none;
 }
@@ -725,11 +725,8 @@ html[data-theme="light"] .add-project-dialog {
 }
 .add-project-source.is-selected {
   color: var(--color-text);
-  background: #ffffff1f;
+  background: var(--color-surface-3);
   font-weight: 500;
-}
-html[data-theme="light"] .add-project-source.is-selected {
-  background: #00000012;
 }
 .add-project-source:disabled {
   cursor: default;

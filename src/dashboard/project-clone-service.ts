@@ -6,13 +6,18 @@ import { ProcessHost } from "../runtime/process-host.js";
 import { id, now } from "../domain/types.js";
 import { stableJson } from "./management-commands.js";
 
-export type ProjectCloneState = "cloning" | "completed" | "failed" | "cancelled";
+export type ProjectCloneState = "cloning" | "registering" | "completed" | "failed" | "cancelled";
 
 export interface ProjectCloneProject {
   projectId: string;
   projectName: string;
   projectDirectory: string;
 }
+
+type CatalogLookup =
+  | { status: "found"; project: ProjectCloneProject }
+  | { status: "missing" }
+  | { status: "unavailable"; error: string };
 
 export interface ProjectCloneView {
   cloneId: string;
@@ -32,8 +37,6 @@ export interface ProjectCloneInput {
 
 interface ProjectCloneRecord extends ProjectCloneView {
   version: 1;
-  /** Sanitized for diagnostics; credentials never reach this file. */
-  remoteUrl: string;
   destination: string;
   operationId?: string;
   fingerprint: string;
@@ -54,6 +57,8 @@ export class ProjectCloneError extends Error {
 
 interface RunningClone {
   child: ChildProcess;
+  /** Used only to scrub git's own echo; never written or returned. */
+  remoteUrl: string;
   cancelled: boolean;
   percent: number;
   output: string;
@@ -61,6 +66,9 @@ interface RunningClone {
 }
 
 const CLONE_ID = /^[A-Za-z0-9_-]{1,100}$/;
+/** Git may only speak these transports, whatever the host or repository config says. */
+const ALLOWED_PROTOCOLS = ["file", "git", "http", "https", "ssh"];
+const GIT_ALLOW_PROTOCOL = ALLOWED_PROTOCOLS.join(":");
 const OPERATION_ID = /^[A-Za-z0-9._:-]{1,200}$/;
 const URL_LIMIT = 2000;
 const PATH_LIMIT = 4096;
@@ -79,9 +87,34 @@ function text(value: unknown, field: string, limit: number): string {
   return trimmed;
 }
 
-/** A URL shown to a person or written beside the catalog never carries credentials. */
-function safeRemote(value: string): string {
-  return value.replace(/\/\/[^/@\s]+@/g, "//");
+/** URLs are never echoed: a token can live in the path or query, not only in the authority. */
+function redactRemote(value: string, remoteUrl?: string): string {
+  let next = remoteUrl ? value.split(remoteUrl).join("[remote]") : value;
+  next = next.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s'"]+/gi, "[remote]");
+  return next;
+}
+
+/** A remote must name a supported transport or a local filesystem path. */
+function remoteUrlOf(value: string): string {
+  const scheme = value.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  if (scheme) {
+    const protocol = scheme[1].toLowerCase();
+    if (!ALLOWED_PROTOCOLS.includes(protocol))
+      throw new ProjectCloneError(
+        `不支持 ${protocol} 协议；请使用 http、https、ssh、git 或 file 地址`,
+        400,
+        "clone_remote_protocol"
+      );
+    return value;
+  }
+  // scp-like user@host:path keeps using the host's SSH agent and keys.
+  if (/^[^/@\s]+@[^/:\s]+:\S+$/.test(value)) return value;
+  if (isAbsolute(value) || /^\.\.?[\\/]/.test(value) || /^[A-Za-z]:[\\/]/.test(value)) return value;
+  throw new ProjectCloneError(
+    "仓库地址不合法：请使用 http(s)、ssh、git、file 地址或本地路径",
+    400,
+    "clone_remote_invalid"
+  );
 }
 
 function cloneId(value: string): string {
@@ -99,10 +132,10 @@ const NOISE =
   /^(Cloning into|remote:|Receiving objects|Resolving deltas|Updating files|Checking out files|Compressing objects|Enumerating objects|Counting objects|Total )/i;
 
 /** The line that names what went wrong is more useful than git's summary. */
-function failureMessage(output: string, code: number | null): string {
-  // Git may echo the remote it was given; a credential embedded there must not
-  // reach a response, a record or a log.
-  const lines = safeRemote(output)
+function failureMessage(output: string, code: number | null, remoteUrl?: string): string {
+  // Git may echo the remote it was given, including tokens in its path or
+  // query; that text reaches a response and a record, so the URL is removed.
+  const lines = redactRemote(output, remoteUrl)
     .split(/\r?\n/)
     .map((line) => line.trim().replace(/^fatal:\s*/i, ""))
     .filter((line) => line && !NOISE.test(line));
@@ -150,6 +183,8 @@ export interface ProjectCloneService {
 export function createProjectCloneService(options: {
   dataRoot: string;
   createProject: (input: { projectName: string; projectDirectory: string }) => Promise<ProjectCloneProject>;
+  /** The catalog's current project for a folder, if any; recovery must not duplicate one. */
+  projectForDirectory: (directory: string) => Promise<ProjectCloneProject | undefined>;
   gitCommand?: string;
 }): ProjectCloneService {
   const directory = resolve(options.dataRoot);
@@ -177,7 +212,7 @@ export function createProjectCloneService(options: {
       typeof candidate.fingerprint !== "string" ||
       typeof candidate.createdAt !== "string" ||
       typeof candidate.updatedAt !== "string" ||
-      !["cloning", "completed", "failed", "cancelled"].includes(String(candidate.state))
+      !["cloning", "registering", "completed", "failed", "cancelled"].includes(String(candidate.state))
     )
       return undefined;
     return candidate as ProjectCloneRecord;
@@ -240,6 +275,26 @@ export function createProjectCloneService(options: {
     }
   }
 
+  /**
+   * "missing" and "unavailable" are different answers: recovery may delete an
+   * unregistered folder, but never one it could not verify.
+   */
+  async function projectAt(destination: string): Promise<CatalogLookup> {
+    try {
+      const project = await options.projectForDirectory(destination);
+      return project ? { status: "found", project } : { status: "missing" };
+    } catch (error) {
+      return { status: "unavailable", error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** Registration is idempotent: the catalog's existing project wins over a second create. */
+  async function registerProject(destination: string): Promise<ProjectCloneProject> {
+    const lookup = await projectAt(destination);
+    if (lookup.status === "found") return lookup.project;
+    return options.createProject({ projectName: basename(destination), projectDirectory: destination });
+  }
+
   async function finish(record: ProjectCloneRecord, state: RunningClone, failure?: string): Promise<void> {
     running.delete(record.cloneId);
     if (state.cancelled) {
@@ -266,23 +321,35 @@ export function createProjectCloneService(options: {
       });
       return;
     }
+    // A crash inside registration must not look like a half-cloned folder:
+    // the record names this state so recovery keeps the clone and finishes it.
+    await write({
+      ...record,
+      state: "registering",
+      progress: 100,
+      error: undefined,
+      project: undefined,
+      updatedAt: now()
+    });
     let project: ProjectCloneProject;
     try {
-      project = await options.createProject({
-        projectName: basename(record.destination),
-        projectDirectory: record.destination
-      });
+      project = await registerProject(record.destination);
     } catch (error) {
-      await removeDestination(record.destination);
-      await write({
-        ...record,
-        state: "failed",
-        progress: 0,
-        error: `克隆完成但注册项目失败：${error instanceof Error ? error.message : String(error)}`,
-        updatedAt: now(),
-        project: undefined
-      });
-      return;
+      const lookup = await projectAt(record.destination);
+      if (lookup.status !== "found") {
+        // The clone itself is complete. Keep the folder so a catalog failure
+        // never destroys work the person can still use by hand.
+        await write({
+          ...record,
+          state: "failed",
+          progress: 100,
+          error: `克隆完成但注册项目失败：${error instanceof Error ? error.message : String(error)}`,
+          updatedAt: now(),
+          project: undefined
+        });
+        return;
+      }
+      project = lookup.project;
     }
     await write({
       ...record,
@@ -302,7 +369,9 @@ export function createProjectCloneService(options: {
     try {
       child = host.start(`project-clone:${record.cloneId}`, gitCommand, args, {
         cwd: dirname(record.destination),
-        env: process.env,
+        // Keep HOME, SSH_AUTH_SOCK and helpers, but never let a host or repo
+        // setting re-enable a command transport such as ext::.
+        env: { ...process.env, GIT_ALLOW_PROTOCOL },
         stdio: ["ignore", "pipe", "pipe"]
       });
     } catch (error) {
@@ -319,6 +388,7 @@ export function createProjectCloneService(options: {
     let resolveDone = () => {};
     const state: RunningClone = {
       child,
+      remoteUrl,
       cancelled: false,
       percent: 0,
       output: "",
@@ -344,13 +414,64 @@ export function createProjectCloneService(options: {
       const missingGit = (error as NodeJS.ErrnoException).code === "ENOENT";
       settle(missingGit ? "找不到 Git，请先安装 Git 并确认它在 PATH 中" : error.message);
     });
-    child.once("close", (code) => settle(code === 0 ? undefined : failureMessage(state.output, code)));
+    child.once("close", (code) =>
+      settle(code === 0 ? undefined : failureMessage(state.output, code, state.remoteUrl))
+    );
   }
 
   async function recover(): Promise<void> {
     const records = await list();
     for (const record of records) {
-      if (record.state === "cloning") {
+      if (record.state === "cloning" || record.state === "registering") {
+        // A folder the catalog already references is never deleted, whatever
+        // state the record was left in.
+        const lookup = await projectAt(record.destination);
+        if (lookup.status === "found") {
+          await write({
+            ...record,
+            state: "completed",
+            progress: 100,
+            error: undefined,
+            project: lookup.project,
+            updatedAt: now()
+          });
+          continue;
+        }
+        if (lookup.status === "unavailable") {
+          // Deleting here could destroy a folder the catalog may reference.
+          await write({
+            ...record,
+            state: "failed",
+            progress: record.state === "registering" ? 100 : 0,
+            error: `无法确认目标文件夹是否已注册项目，已保留：${lookup.error}`,
+            updatedAt: now()
+          });
+          continue;
+        }
+        if (record.state === "registering") {
+          try {
+            const project = await registerProject(record.destination);
+            await write({
+              ...record,
+              state: "completed",
+              progress: 100,
+              error: undefined,
+              project,
+              updatedAt: now()
+            });
+          } catch (error) {
+            // The clone is complete; keep it and report why registration failed.
+            await write({
+              ...record,
+              state: "failed",
+              progress: 100,
+              error: `克隆完成但注册项目失败：${error instanceof Error ? error.message : String(error)}`,
+              updatedAt: now(),
+              project: undefined
+            });
+          }
+          continue;
+        }
         await removeDestination(record.destination);
         await write({ ...record, state: "failed", progress: 0, error: STALE_ERROR, updatedAt: now() });
         continue;
@@ -365,7 +486,7 @@ export function createProjectCloneService(options: {
   async function normalize(
     input: ProjectCloneInput
   ): Promise<{ remoteUrl: string; destination: string; branch?: string; operationId?: string }> {
-    const remoteUrl = text(input.remoteUrl, "仓库地址", URL_LIMIT);
+    const remoteUrl = remoteUrlOf(text(input.remoteUrl, "仓库地址", URL_LIMIT));
     const destination = resolve(text(input.destination, "克隆位置", PATH_LIMIT));
     if (!isAbsolute(destination))
       throw new ProjectCloneError("克隆位置必须是本机绝对路径", 400, "clone_input_invalid");
@@ -410,7 +531,6 @@ export function createProjectCloneService(options: {
     const record: ProjectCloneRecord = {
       version: 1,
       cloneId: id("clone"),
-      remoteUrl: safeRemote(normalized.remoteUrl),
       destination: normalized.destination,
       ...(normalized.operationId ? { operationId: normalized.operationId } : {}),
       ...(normalized.branch ? { branch: normalized.branch } : {}),

@@ -339,6 +339,16 @@ export function createDashboardApplication(
       });
       await catalogEvents.project(project);
       return project;
+    },
+    projectForDirectory: async (directory) => {
+      const project = await workspaces.applicationProjectForRoot(directory);
+      return project
+        ? {
+            projectId: project.projectId,
+            projectName: project.projectName,
+            projectDirectory: project.projectDirectory
+          }
+        : undefined;
     }
   });
   const computer = new ComputerUse(

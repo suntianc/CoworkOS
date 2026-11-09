@@ -189,7 +189,7 @@ export function createAddProjectController({ api, command, showToast = () => {},
       return;
     }
     if (runEpoch !== epoch) return;
-    if (clone.state === "cloning") {
+    if (clone.state === "cloning" || clone.state === "registering") {
       showProgress(clone.progress);
       timer = setTimeout(() => void poll(runEpoch), POLL_MS);
       return;
