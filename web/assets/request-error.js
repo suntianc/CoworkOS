@@ -6,6 +6,7 @@ function policyCode(error) {
     const body = JSON.parse(raw.slice(start));
     const code = (body?.error || body)?.code;
     if (["cyber_policy", "content_policy_violation", "content_filter"].includes(code)) return code;
+    // eslint-disable-next-line no-restricted-syntax -- 错误文本里的 JSON 片段可能被截断，解析失败时按普通错误继续分类
   } catch {
     // Unstructured errors continue through the normal safe classification.
   }

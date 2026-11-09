@@ -3,6 +3,7 @@ const parse = (value) => {
   if (typeof value !== "string") return value;
   try {
     return JSON.parse(value);
+    // eslint-disable-next-line no-restricted-syntax -- 工具输出不保证是 JSON 文本，解析失败时按原始字符串继续展示
   } catch {
     return value;
   }

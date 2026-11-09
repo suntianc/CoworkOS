@@ -343,6 +343,7 @@ export function createArtifactController({
         if (href && mediaUrls.get(path) === pending) mediaUrls.set(path, Promise.resolve(href));
         return href;
       })
+      // eslint-disable-next-line no-restricted-syntax -- a failed media read drops the cached entry, so the drawer falls back to the plain artifact link
       .catch(() => {
         if (mediaUrls.get(path) === pending) mediaUrls.delete(path);
         return undefined;
@@ -482,6 +483,7 @@ export function createArtifactController({
         if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
         await navigator.clipboard.writeText(preview.content);
         showToast(preview.truncated ? "已复制当前预览内容" : "产出物内容已复制");
+        // eslint-disable-next-line no-restricted-syntax -- the browser refuses clipboard writes outside a secure context or without permission; the toast reports that copy is unavailable
       } catch {
         showToast("当前环境不支持复制");
       }
@@ -504,6 +506,7 @@ export function createArtifactController({
     if (language === "JSON") {
       try {
         normalized = JSON.stringify(JSON.parse(text), null, 2);
+        // eslint-disable-next-line no-restricted-syntax -- artifact content is user data and may not be valid JSON; the raw text is rendered instead
       } catch {
         /* keep malformed JSON readable */
       }

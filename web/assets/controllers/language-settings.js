@@ -24,6 +24,7 @@ export function installLanguageSettings({ prepareClose, storage, reload = () => 
       if (window.bookmanDesktop?.language) await window.bookmanDesktop.language.set(next);
       else storage.setItem(LANGUAGE_KEY, next);
       reload();
+      // eslint-disable-next-line no-restricted-syntax -- setItem throws when storage is blocked or full; the status line reports it and the select is reset
     } catch {
       status.textContent = ui("语言偏好无法保存，请检查本机存储空间。");
     } finally {

@@ -11,6 +11,7 @@ export function createSidebarLayout(
   try {
     const stored = Number(localStorage.getItem(storageKey));
     if (stored > 0 && stored < 1) share = stored;
+    // eslint-disable-next-line no-restricted-syntax -- 受限浏览器读取 localStorage 会抛出，份额回退为默认布局
   } catch {
     /* Storage may be unavailable in a restricted browser. */
   }
@@ -56,6 +57,7 @@ export function createSidebarLayout(
   const save = () => {
     try {
       localStorage.setItem(storageKey, String(share));
+      // eslint-disable-next-line no-restricted-syntax -- 配额耗尽或存储被禁用时 setItem 抛出，宽度仍保留在内存中
     } catch {
       /* Keep the in-memory size. */
     }
@@ -98,6 +100,7 @@ export function createSidebarLayout(
     layout.style.removeProperty("--sidebar-width");
     try {
       localStorage.removeItem(storageKey);
+      // eslint-disable-next-line no-restricted-syntax -- 存储被禁用时 removeItem 抛出，双击只是恢复默认宽度
     } catch {
       /* Optional preference. */
     }

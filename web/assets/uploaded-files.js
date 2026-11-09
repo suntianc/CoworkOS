@@ -16,6 +16,7 @@ export function splitUploadedFiles(source) {
     )
       return { text, files: [] };
     return { text: text.slice(0, boundary), files: manifest.files };
+    // eslint-disable-next-line no-restricted-syntax -- 尾部清单不保证是合法 JSON，解析失败时整段按正文处理
   } catch {
     return { text, files: [] };
   }

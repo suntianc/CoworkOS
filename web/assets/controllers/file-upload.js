@@ -20,6 +20,7 @@ export function defaultUpload(file, { name = file.name, signal, onProgress: prog
       let result;
       try {
         result = JSON.parse(xhr.responseText);
+        // eslint-disable-next-line no-restricted-syntax -- an upload response can be a proxy error page instead of JSON; the upload is rejected with a visible message
       } catch {
         reject(new Error(ui("附件上传响应无效")));
         return;

@@ -75,6 +75,7 @@ function readableSummary(monitor) {
     if (monitor.templateId === "resource-version") return "文件内容已变化并通过稳定性检查。";
     if (monitor.templateId === "job-lifecycle") return "程序运行状态已变化，事件已交给当前会话处理。";
     return "已发现满足监控规则的变化，并交给会话处理。";
+    // eslint-disable-next-line no-restricted-syntax -- a monitor summary is free text, not always JSON; the raw summary is shown when it does not parse
   } catch {
     return text.replace(/^classification[^\n]*\n?/i, "").slice(0, 1000);
   }
@@ -337,6 +338,7 @@ export function createWatchController({ api: transport, state, selectTask, refre
         form.querySelector("[data-error]").textContent = error.message;
       } finally {
         submit.disabled = false;
+        // eslint-disable-next-line no-restricted-syntax -- refreshList already writes its failure into the list error row; it must not replace the form's own save error
         await refreshList().catch(() => {});
       }
     });
@@ -410,6 +412,7 @@ export function createWatchController({ api: transport, state, selectTask, refre
     history = false;
     listOpen = true;
     clearInterval(listTimer);
+    // eslint-disable-next-line no-restricted-syntax -- the 3.5s list poll retries, and refreshList itself shows a failure in the list error row
     listTimer = setInterval(() => void refreshList().catch(() => {}), 3500);
     listModal.open();
     renderList();
@@ -429,6 +432,7 @@ export function createWatchController({ api: transport, state, selectTask, refre
       if (label) label.textContent = goals.length ? "长期任务" : "监控";
       const count = document.querySelector("#monitor-count");
       if (count) count.textContent = `${goals.length || current.length} 项`;
+      // eslint-disable-next-line no-restricted-syntax -- a list refresh triggered by new monitor data is best-effort; refreshList reports its own failure and the poll retries
       void refreshList().catch(() => {});
     }
   };

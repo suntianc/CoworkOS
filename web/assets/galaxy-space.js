@@ -421,6 +421,7 @@ export function createGalaxyPainter(canvas, onRestored) {
   let painter;
   try {
     painter = webglPainter(canvas, particles, onRestored);
+    // eslint-disable-next-line no-restricted-syntax -- 设备无 WebGL 或上下文创建失败时构造会抛出，必须换 canvas 继续渲染
   } catch {
     // A failed GL initialization must not prevent the rest of the workbench
     // from loading. A canvas cannot switch context types once GL owns it.

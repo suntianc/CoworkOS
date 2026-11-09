@@ -52,6 +52,7 @@ export function createBackendConnection({ management, overview, showToast, onRea
   const host = (baseUrl) => {
     try {
       return new URL(baseUrl || location.href).host;
+      // eslint-disable-next-line no-restricted-syntax -- baseUrl may be a remembered value that no longer parses; the raw string is still shown as the backend address
     } catch {
       return baseUrl;
     }

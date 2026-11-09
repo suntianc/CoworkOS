@@ -20,6 +20,7 @@ function startNightSky() {
   try {
     const saved = localStorage.getItem(preferenceKey) ?? localStorage.getItem("atria.galaxy.motion");
     if (saved === "on" || saved === "off") preference = saved;
+    // eslint-disable-next-line no-restricted-syntax -- 受限环境读取 localStorage 抛出，动效偏好退化为跟随系统设置
   } catch {
     /* Session-only preference. */
   }
@@ -251,6 +252,7 @@ function startNightSky() {
     preference = motionEnabled() ? "off" : "on";
     try {
       localStorage.setItem(preferenceKey, preference);
+      // eslint-disable-next-line no-restricted-syntax -- 存储被禁用或已满时 setItem 抛出，本次会话内偏好仍然生效
     } catch {
       /* Session-only preference. */
     }

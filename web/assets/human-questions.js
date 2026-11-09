@@ -84,6 +84,7 @@ export function createHumanQuestions(root, { submit, resume, onVisibility, onErr
       window.bookmanDesktop?.saveComposerDrafts?.();
       pendingStorage.delete(key);
       storageErrors.delete(key);
+      // eslint-disable-next-line no-restricted-syntax -- localStorage 被禁用或配额耗尽时写入抛出，草稿留在内存并由 onError 提示一次
     } catch {
       if (!storageErrors.has(key)) onError?.(storageMessage);
       storageErrors.add(key);
@@ -102,6 +103,7 @@ export function createHumanQuestions(root, { submit, resume, onVisibility, onErr
           // Remove the old tab-only copy only after the durable write succeeds.
           if (legacy !== null) persist(key, draft);
         }
+        // eslint-disable-next-line no-restricted-syntax -- 存储被禁用或草稿 JSON 损坏时读取与解析都会抛出，此时不预选任何答案
       } catch {
         /* An unreadable draft does not preselect an answer. */
       }
