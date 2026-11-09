@@ -139,6 +139,7 @@ async function acquireLock(path) {
     return {
       release: async () => {
         await handle.close();
+        // eslint-disable-next-line no-restricted-syntax -- 释放锁时删除锁文件是尽力清理，残留文件会被下次启动的陈旧锁判定接管
         await unlink(path).catch(() => {});
       }
     };
@@ -150,6 +151,7 @@ async function acquireLock(path) {
       return undefined;
     } catch (stale) {
       if (stale?.code !== "ESRCH" && stale?.code !== "ENOENT") return undefined;
+      // eslint-disable-next-line no-restricted-syntax -- 清理陈旧锁失败时递归重取会按 EEXIST 返回未取到锁，不会误判为已持有
       await unlink(path).catch(() => {});
       return acquireLock(path);
     }

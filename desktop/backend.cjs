@@ -47,6 +47,7 @@ async function readInstance(paths) {
   let value;
   try {
     value = validInstance(JSON.parse(raw));
+    // eslint-disable-next-line no-restricted-syntax -- the instance record is read from disk, so a partially written or corrupt file is not parseable JSON
   } catch {
     value = undefined;
   }

@@ -163,6 +163,7 @@ export async function installDesktop({
     } catch (error) {
       // An interrupted attach can mount the image before its process exits. A failed
       // attach that never mounted must not become a permanent 'unable to detach' lock.
+      // eslint-disable-next-line no-restricted-syntax -- attach 失败后要探测卷是否已被挂载，lstat 不到就说明确实没挂载
       const current = await lstat(mount).catch(() => undefined);
       mounted = Boolean(current && current.dev !== stageIdentity.dev);
       throw error;
@@ -207,11 +208,15 @@ export async function installDesktop({
     try {
       if (mounted) await detach();
     } finally {
+      // eslint-disable-next-line no-restricted-syntax -- 清理时预留目录可能已被安装成功替换，lstat 失败表示无需回收
       if (reservation && sameIdentity(reservation, await lstat(target).catch(() => undefined)))
+        // eslint-disable-next-line no-restricted-syntax -- 预留目录可能已被成功的安装替换，回收失败不能掩盖 finally 抛出的原因
         await rmdir(target).catch(() => {});
       if (!preserveStage) {
+        // eslint-disable-next-line no-restricted-syntax -- 暂存目录可能已被系统清理，探测不到就不再按身份删除别人的目录
         if (stage && sameIdentity(stageIdentity, await lstat(stage).catch(() => undefined)))
           await rm(stage, { recursive: true, force: true });
+        // eslint-disable-next-line no-restricted-syntax -- 安装锁可能已被并发的安装流程取走，探测失败时跳过删除
         if (sameIdentity(lockIdentity, await lstat(lock).catch(() => undefined)))
           await rm(lock, { recursive: true, force: true });
       }

@@ -7,6 +7,7 @@ function isArtifactViewerUrl(value, selectedUrl) {
     if (!value.startsWith(prefix)) return false;
     const id = value.slice(prefix.length);
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    // eslint-disable-next-line no-restricted-syntax -- selectedUrl is the selected backend URL and may not be a parseable origin; an unparsable origin never matches a blob: URL
   } catch {
     return false;
   }

@@ -71,7 +71,9 @@ async function createDesktopUpdateHost(options) {
     if (typeof onStatus !== "function") return;
     try {
       const observed = onStatus(reflect(value));
+      // eslint-disable-next-line no-restricted-syntax -- onStatus is the fire-and-forget window send; its rejection has no consumer and the host transaction continues
       observed?.catch?.(() => {});
+      // eslint-disable-next-line no-restricted-syntax -- the main window may be torn down and onStatus throw synchronously, and publishing must not interrupt the host transaction
     } catch {
       // Window teardown cannot interrupt the host transaction or backend recovery.
     }

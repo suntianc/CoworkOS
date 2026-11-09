@@ -14,6 +14,7 @@ if (
     () => true,
     () => false
   )) &&
+  // eslint-disable-next-line no-restricted-syntax -- 首次构建还没有 .sha256 文件，读不到时按空哈希触发重新编译
   (await readFile(`${output}.sha256`, "utf8").catch(() => "")) === hash
 )
   process.exit(0);

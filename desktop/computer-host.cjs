@@ -77,6 +77,7 @@ function createComputerHost({ expected, inspect, isCurrent = () => true, fetchIm
           typeof value.approval.expiresAt !== "number"
         )
           throw new Error("本机身份验证结果已失效，请重试");
+        // eslint-disable-next-line no-restricted-syntax -- inspect() re-reads the instance record from disk; an unreadable record must take the revoke-and-retry path instead of leaking an fs error
         const latest = await inspect().catch(() => undefined);
         if (
           !isCurrent() ||
@@ -87,6 +88,7 @@ function createComputerHost({ expected, inspect, isCurrent = () => true, fetchIm
           latest.url !== expected.url ||
           latest.startedAt !== expected.startedAt
         ) {
+          // eslint-disable-next-line no-restricted-syntax -- the approval is being discarded and the caller is about to reject the request, so a failed revoke must not mask that error
           await revokeToken(instance, value.approval.token).catch(() => {});
           throw new Error("本机身份验证结果已失效，请重试");
         }

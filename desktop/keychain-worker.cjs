@@ -37,6 +37,7 @@ async function runKeychainWorker({ app, BrowserWindow, safeStorage }) {
           throw new Error();
       }
       reply({ id: request.id, ok: true, value });
+      // eslint-disable-next-line no-restricted-syntax -- the reply carries only ok:false because native Safe Storage errors can embed the secret being decrypted or encrypted
     } catch {
       // Never echo request values or provider/native diagnostics containing a secret.
       reply({ id: request?.id, ok: false });

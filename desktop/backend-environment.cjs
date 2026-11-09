@@ -25,6 +25,7 @@ function desktopBackendEnvironment(source = process.env, platform = process.plat
     if (existing.has(directory)) return false;
     try {
       return statSync(directory).isDirectory();
+      // eslint-disable-next-line no-restricted-syntax -- statSync throws ENOENT for the optional install directories that are absent on this machine
     } catch {
       return false;
     }

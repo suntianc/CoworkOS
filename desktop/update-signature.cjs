@@ -32,6 +32,7 @@ async function isSignedMacApplication(executable, { platform = process.platform,
     if (!/^Authority=Developer ID Application: .+$/m.test(description)) return false;
     await commandRunner({ command: codesign, args: ["--verify", "--deep", "--strict", bundle] });
     return true;
+    // eslint-disable-next-line no-restricted-syntax -- codesign exits non-zero for unsigned or tampered bundles, which is exactly the not-signed result this check reports
   } catch {
     return false;
   }

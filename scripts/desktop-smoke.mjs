@@ -238,6 +238,7 @@ const quit = async () => {
     .evaluate(({ app }) => {
       app.quit();
     })
+    // eslint-disable-next-line no-restricted-syntax -- app.quit 的求值错误由下面的退出超时断言承接，这里只负责发出退出请求
     .catch(() => {});
   await Promise.race([
     exited,
@@ -862,17 +863,22 @@ try {
             text: element.textContent.slice(0, 600)
           }))
         }))
+        // eslint-disable-next-line no-restricted-syntax -- 渲染进程可能已随失败崩溃，取不到现场状态就显示占位文本
         .catch(() => "Renderer unavailable")
     );
+    // eslint-disable-next-line no-restricted-syntax -- 截图只是失败证据，失败原因已在上面的冒烟错误中记录
     await page.screenshot({ path: join(root, "failure.png") }).catch(() => {});
   }
   console.error(
+    // eslint-disable-next-line no-restricted-syntax -- 后端可能在写日志前就退出，缺失日志用占位文本代替
     (await readFile(join(data, "logs/backend.log"), "utf8").catch(() => "No backend log")).slice(-4000)
   );
   process.exitCode = 1;
 } finally {
   for (const gate of reasoningGates) gate.release();
+  // eslint-disable-next-line no-restricted-syntax -- finally 里关闭原生客户端，关闭失败不能覆盖已确定的冒烟结果
   if (native) await native.close().catch(() => {});
+  // eslint-disable-next-line no-restricted-syntax -- 停止应用监视器属于清理步骤，失败不影响已经完成的断言
   await applicationMonitor?.stop().catch(() => {});
   for (const response of held) response.destroy();
   model.closeAllConnections();
@@ -903,6 +909,7 @@ try {
     await promisify(execFile)(
       "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
       ["-u", join(root, "next-release/CoworkOS.app")]
+      // eslint-disable-next-line no-restricted-syntax -- lsregister 反注册是清理辅助步骤，清不掉也不影响随后删除冒烟目录
     ).catch(() => {});
     await rm(root, { recursive: true, force: true });
   }

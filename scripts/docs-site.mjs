@@ -55,8 +55,7 @@ const safeSource = (file) =>
   files.has(file) && !/^(?:config\.json|\.tmp\/|\.cowork\/|applications\/|workspace\/|task-)/.test(file);
 
 function translated(file, english) {
-  if (file === "README.md" || file === "README.zh-CN.md")
-    return english ? "README.md" : "README.zh-CN.md";
+  if (file === "README.md" || file === "README.zh-CN.md") return english ? "README.md" : "README.zh-CN.md";
   if (english) {
     const candidate = file.startsWith("docs/")
       ? file.replace(/^docs\//, "docs/en/")
@@ -370,6 +369,7 @@ if (process.argv.includes("--serve")) {
         "X-Content-Type-Options": "nosniff"
       });
       response.end(request.method === "HEAD" ? undefined : await readFile(resolve(output, file)));
+      // eslint-disable-next-line no-restricted-syntax -- 单个请求读取文件失败改用 400 响应返回，静态服务器不能因一个请求退出
     } catch {
       if (!response.headersSent) response.writeHead(400);
       response.end("Request unavailable");

@@ -44,6 +44,7 @@ function createComputerPolicyStore(userData) {
     save(value) {
       const next = validatePolicy(value);
       const result = pending
+        // eslint-disable-next-line no-restricted-syntax -- pending holds the previous save whose rejection was already returned to its own caller; the queue only orders saves
         .catch(() => {})
         .then(async () => {
           await fs.mkdir(userData, { recursive: true, mode: 0o700 });
