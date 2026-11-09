@@ -1,5 +1,21 @@
 # 测试与审查环境
 
+## 真实模型验收前产品连接未配置
+
+- **Trigger：** 外部执行 CLI 已可用，准备从 OS UI 开始真实 Main/Executor/Reviewer 验收。
+- **What happens：** OS 自身连接仍未配置，真实模型流程无法开始；需要在验收实例中配置产品模型。
+- **Confirm：** 只读核对该实例 `/api/model-settings` 的 `configured`、`credentialUnavailable`，以及已有 Task/Run 是否活跃。P4 配置前 `configured=false`，配置完成后为 true。
+- **Avoid：** 提前核对正确实例的模型设置入口，凭据保留在产品配置；就绪后续接已有任务，避免重复创建 Run。其余不依赖真实模型的检查可继续。
+- **Sources：** 2026-11-09 [P4 产品配置摘录](evidence/os-p4-native-development/checks.md#产品配置前置)、[整轮复盘](../p4-retrospective.md#5-产品模型配置是独立的验收前置)。自动就绪门禁尚未新增。
+
+## 归档目录内仍有用户配置的实例
+
+- **Trigger：** Workloop archive 前，验收服务源码或用户数据仍位于 run scratch/执行工作树。
+- **What happens：** 归档清理可能同时移除仍需使用的配置、样例和服务代码；运行数据与可再生夹具需要分别处理。
+- **Confirm：** 核对实例 PID/cwd/listener、Task/Run 活跃状态、数据根与归档删除集合；确认实际保留目录已在删除集合外，兼容链接仍指向有效数据。
+- **Avoid：** 带用户配置的实例优先使用私有持久目录。已有实例需先确认归属和空闲状态，再保全源码、配置、权限及访问入口并验证恢复；活跃用户工作保持原状，凭据不放进 evidence。清理兼容链接前核对消费者和所有权。
+- **Sources：** 2026-11-09 [P4 保全摘录](evidence/os-p4-native-development/checks.md#保全与审计)、[整轮复盘](../p4-retrospective.md#8-归档前保全带用户配置的验收实例)。Workloop 自动占用预检尚未实施。
+
 ## 依赖软链接触发候选漂移
 
 - **Trigger：** 新工作树复用依赖，将顶层 `node_modules` 设为软链接。
