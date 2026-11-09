@@ -763,7 +763,7 @@ export function createDashboardHandler(
               const taskStore = new LocalWorkspaceStore(root);
               await taskStore.createTask(requested, { goal: goal.slice(0, 4_000) });
               const location = await locateTask(requested);
-              return { status: 201, body: await publishTask(taskListItem(location)) };
+              return { status: 201, body: await publishTask(await taskListItem(location)) };
             }
           })
         );
@@ -1111,7 +1111,7 @@ export function createDashboardHandler(
           response,
           200,
           await publishTask(
-            taskListItem({ ...location, task: await location.store.updateTask(taskId, patch) })
+            await taskListItem({ ...location, task: await location.store.updateTask(taskId, patch) })
           )
         );
         return;
@@ -1162,7 +1162,7 @@ export function createDashboardHandler(
             .settle(location.projectId, taskId, cancelledRunId, "cancelled")
             // eslint-disable-next-line no-restricted-syntax -- 取消已完成，主会话结算失败不能让取消响应变成错误；会话行留待下次读取对账
             .catch(() => undefined);
-        sendJson(response, 200, await publishTask(taskListItem({ ...location, task: next })));
+        sendJson(response, 200, await publishTask(await taskListItem({ ...location, task: next })));
         return;
       }
       sendJson(response, 405, { error: "method not allowed" });

@@ -536,6 +536,42 @@ The UI displays accumulated numeric counts without qualifiers or reporting-statu
 
 Large legacy traces are scanned incrementally with bounded memory and read budgets; `scanning` marks totals still being collected. Missing, malformed, or oversized records can leave coverage partial. There is no monetary estimate because configured model prices are placeholders.
 
+### Activity metrics
+
+Implementation: [activity metrics](../src/runtime/activity-metrics.ts); the catalog entry is assembled by [workspace-directory](../src/dashboard/workspace-directory.ts) and published through the [snapshot and event stream](#snapshot-and-event-recovery).
+
+A Task that has run inside the retained window carries `task.activity`: sampled activity for its running Main and each of its Subagents. The same object appears in `GET /api/tasks`, in the snapshot, in `task.changed` payloads and in the task detail, so one reader can draw a lane from any of them. The samples are derived on the execution host from logs the Run already writes — Main's `runtime-output.log` and each Subagent's `sessions/<agentId>/<runId>.jsonl`. Nothing on the model request path changes, and no conversation text, tool arguments or credentials are carried.
+
+```json
+{
+  "version": 1,
+  "sliceMs": 60000,
+  "windowMs": 7200000,
+  "from": "2026-01-01T00:00:00.000Z",
+  "active": true,
+  "agents": [
+    {
+      "agentId": "main",
+      "name": "CoworkOS",
+      "role": "main",
+      "state": "running",
+      "stage": "working",
+      "stageChangedAt": "2026-01-01T00:01:00.000Z",
+      "lastProgressAt": "2026-01-01T00:03:12.000Z",
+      "samples": [{ "toolCalls": 2, "outputBytes": 812 }]
+    }
+  ]
+}
+```
+
+- `sliceMs` is the fixed slice and `windowMs` the retained window (2 hours). `samples[i]` covers `[from + i*sliceMs, from + (i+1)*sliceMs)`; a quiet slice is `0`/`0`, and the output rate is `outputBytes / (sliceMs / 1000)` bytes per second. `from` is a multiple of `sliceMs` and never earlier than the Run's start or the retained window.
+- `toolCalls` counts tool executions that started in the slice; `outputBytes` counts the UTF-8 bytes of assistant text and tool result text recorded in it.
+- Only finished slices are published, so a live Run changes at most once per slice; `active` is true while Main's Run still executes. A finished Run keeps its frozen samples until the window passes.
+- `agents[]` holds `main` plus one entry per durable work item: `role` is `main` or `subagent`, `workRole` is the dispatched `executor`/`reviewer` role when it had one, and `callId` names that work item.
+- `state` is the durable state (`queued`, `running`, `waiting`, `completed`, `failed`, `cancelled`, `timed_out`). `stage` is what the execution host observed (`starting`, `working`, `idle`, `waiting`, `completed`, `failed`, `cancelled`, `timed_out`): a slice without records turns `working` into `idle`, and `stageChangedAt` is when the current stage began. `lastProgressAt` is the last record the agent wrote, or `null` before it wrote one.
+
+The field is additive: nothing persisted gains a key (the metrics are derived, so no migration or backup rewrite), and a reader that does not know it keeps every field it already used. A Task with no Run in the window has no `activity`, and readers fall back instead of waiting for it.
+
 ### Human questions and continuation
 
 `humanRequests` contains durable `askhuman` questions (`requestId`, `taskId`, `runId`, `question`, optional `context` and `options`, `status`, and answer timestamps). Pending questions appear in the composer area, with explicit single-choice options and a free-text field. No option is preselected or submitted automatically. Drafts survive polling, Task navigation and page reload in the same browser tab. Multiple questions are navigable and the paused run resumes once all pending questions are answered.

@@ -32,7 +32,7 @@ test("empty storage roots are omitted; legacy projects adopt history and project
   const location = await directory.locateTask("session");
   assert.equal(location.workspaceRoot, a);
   assert.equal(location.projectId, b);
-  assert.equal(directory.taskListItem(location).workspaceRoot, b);
+  assert.equal((await directory.taskListItem(location)).workspaceRoot, b);
   assert.equal(await readFile(memory, "utf8"), "不能丢失的历史");
   await directory.updateProject(b, { projectDirectory: a }, (_taskIds, action) => action());
   assert.equal((await directory.globalTaskPayload()).projects[0].workspaceRoot, a);
