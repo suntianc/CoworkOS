@@ -7,6 +7,7 @@ dist
 .cowork
 config.json
 package-lock.json
+eslint-suppressions.json
 benchmarks
 agents
 

@@ -109,6 +109,16 @@ npm run verify
 
 `test:unit` builds by default. Use `--skip-build` only when an existing complete build matches current source. Repeat `--file` to select several tests; see [local testing](testing-local-run.md) for filter semantics. Passing stale `dist/` does not validate changed source.
 
+## Lint baseline
+
+The [ESLint configuration](../../eslint.config.mjs) extends existing checks with `no-unnecessary-condition`, `no-unnecessary-type-assertion` and `no-useless-catch` for TypeScript/Pi, plus targeted `no-restricted-syntax` selectors for TypeScript, Pi, Web, Electron and scripts. The selectors check catches without an error binding or throw, empty catches, and corresponding `.catch()` callbacks. Bound errors that are merely logged or replaced with defaults still need semantic review.
+
+Before standalone lint, run `npm run build:cli` so the `dist` types referenced by `.pi` match current source, then `npm run lint`. Both `verify` and `check:ci` already follow this order. Routine GitHub checks remain manually triggered.
+
+On 2026-11-09, integrating the older configuration onto accepted source `583cbb4` calibrated the [file-level baseline](../../eslint-suppressions.json) for only these newly enabled rules: 237 files and 1037 findings, comprising 321 unnecessary conditions, 641 discarded-error syntax findings and 75 unnecessary assertions. Product logic was unchanged. ESLint counts suppressions by file and rule; review new locations as well. Daily changes add no findings and do not expand the baseline to bypass checks.
+
+When addressing existing findings, check input boundaries and error-handling semantics, then run `npx eslint src web desktop scripts .pi --prune-suppressions` to tighten counts and rerun ordinary lint. ESLint maintains the baseline file; Prettier skips it.
+
 ## Validation layers
 
 | Command                                                   | Scope                                                                                                                        | When                                                                                       |

@@ -27,6 +27,7 @@ npm run test:desktop
 ## 代码与接口规则
 
 - TypeScript strict、ESM、本地 TS 导入 `.js`；Electron 宿主使用 `.cjs`。外部 JSON、文件、HTTP/IPC、模型工具参数在入口验证，动态输入使用 unknown 并缩窄，不新增显式 any。
+- 错误要处理或向上传递；类型已保证的值不再重复判空、可选链或断言。ESLint 拦截丢弃错误和多余条件/断言，存量记录在 `eslint-suppressions.json`；例外写法与基线收紧见 [AGENTS](AGENTS.md)。
 - 共享服务不导入 CLI；运行时/应用不导入 Dashboard。路由不启动进程，Run 不写 HTTP 响应；服务模块导入不打开端口或注册信号。依赖方向由 ESLint 和架构回归检查。
 - 新行为通过现有接口扩展工具、Adapter、驱动、store 或控制器。拆分前明确状态、存储、进程、展示各自负责人；不要把行为重新集中到 Coordinator、Pi 入口或 `web/app.js`。
 - HTTP/事件/Adapter/软件/IPC/持久格式变更同时更新生产者和消费者，写明兼容及恢复方式。可选字段需默认行为；改变旧字段含义、revision 或序列化格式时显式升版本并迁移。

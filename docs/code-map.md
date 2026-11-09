@@ -275,6 +275,8 @@ CLI tgz 随包携带锁文件对应的可移植生产依赖与依赖记录，不
 
 ### 测试
 
+静态规则由 [ESLint 配置](../eslint.config.mjs) 和 [存量基线](../eslint-suppressions.json) 管理；规则范围、类型构建前置与收紧命令见 [开发指南](development.md#lint-存量基线)。修改规则时用临时正反样例核对诊断，再运行已有轻量验证。
+
 运行时的 [零 turn 上限与委派恢复](../test/jobbench-runtime.test.js) 及 [命令退出](../test/command-timeout.test.js) 回归独立验证模型与进程生命周期。
 
 Node 测试的递归发现由 [日常测试入口](../scripts/test.mjs) 的 `discoverNodeTests` 负责，[发布编排](../scripts/release-test-plan.mjs) 共用它，覆盖 `.test.js`、`.test.mjs`、`.test.ts`；发布运行器自测单独执行。发现、编译路径和失败传播变更先验证 [运行器回归](../test/release/runner.test.mjs)，使用与报告边界见 [本地测试指南](testing-local-run.md)。

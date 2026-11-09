@@ -261,6 +261,8 @@ The installed App [update host](../../desktop/update-host.cjs) reports the local
 
 ### Tests and benchmarks
 
+Static rules live in the [ESLint configuration](../../eslint.config.mjs) and [existing-findings baseline](../../eslint-suppressions.json). See the [development guide](development.md#lint-baseline) for rule coverage, type-build prerequisites and pruning. Check changed rules with temporary positive/negative samples, then run existing quick verification.
+
 Runtime tests independently cover [zero turn caps and delegated recovery](../../test/jobbench-runtime.test.js) and [command exit](../../test/command-timeout.test.js).
 
 Recursive Node discovery belongs to `discoverNodeTests` in the [daily runner](../../scripts/test.mjs), shared by [release planning](../../scripts/release-test-plan.mjs) for `.test.js`, `.test.mjs` and `.test.ts`; release-runner self-tests execute separately. Start discovery, compiled-path and failure-propagation changes with [runner regressions](../../test/release/runner.test.mjs). Usage and reporting boundaries are in the [local testing guide](testing-local-run.md).

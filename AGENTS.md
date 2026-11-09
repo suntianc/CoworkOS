@@ -35,6 +35,7 @@
 - 路由只校验、调用服务、映射响应；进程由 Run/ProcessHost 管理。导入服务模块不能启动端口、安装信号或发出模型请求。
 - 按功能职责扩展现有服务、Adapter、控制器或 `.pi/runtime/tools/`。保持入口负责装配，避免把新能力集中到 `web/app.js`、Coordinator 或 Pi 扩展入口。
 - TypeScript 使用 strict 和 ESM，本地 TS 导入保留 `.js` 后缀；桌面宿主保留 `.cjs`。外部 JSON、文件、工具参数、HTTP/IPC 在入口验证，错误必须可定位且不泄露密钥。
+- 错误要处理或向上传递，类型已保证的值直接使用。ESLint 检查丢弃错误、多余条件和类型断言；存量记录在 `eslint-suppressions.json`，新代码保持零新增。确有依据的例外逐处写 `// eslint-disable-next-line <rule> -- <依据>`。构建前置、规则范围与基线收紧见 [Lint 基线](docs/development.md#lint-存量基线)。
 - 持久格式、事件、HTTP、Adapter、IPC 变更同时检查生产者和消费者。破坏兼容时写迁移和恢复策略；不原地改变旧格式字段含义。
 - 不修改 Pi 的 `node_modules` 或生成文件来修产品问题；第三方改动要记录来源、版本和差异。
 - 根目录保留公共入口、许可、示例配置与工具配置。维护中的技术文档放 `docs/`，构建与启动脚本放 `scripts/`；生成产物和本机绑定配置不作为源码提交。

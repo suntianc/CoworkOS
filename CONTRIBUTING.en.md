@@ -27,6 +27,7 @@ Verify owns ordinary local engineering checks. Native, actual model and five-sec
 ## Code and interface rules
 
 - TypeScript strict, ESM and `.js` local TS imports; Electron host remains `.cjs`. Validate external JSON/files/HTTP/IPC/model tool arguments at entry. Narrow unknown inputs; add no explicit any.
+- Handle or propagate errors; use type-guaranteed values without extra checks. ESLint rejects discarded errors and unnecessary conditions/assertions; existing violations live in `eslint-suppressions.json`. See [AGENTS](AGENTS.en.md) for exceptions and baseline pruning.
 - Shared services do not import CLI; runtime/applications do not import Dashboard. Routes spawn no processes, Run writes no HTTP responses, and importing a service opens no port or installs signals. ESLint/architecture tests enforce direction.
 - Extend existing tools/adapters/drivers/stores/controllers. Before splitting, assign ownership for state, persistence, processes and presentation. Do not concentrate new behavior in Coordinator, Pi entry or `web/app.js`.
 - Update producers and consumers for HTTP/event/adapter/software/IPC/persistence changes. Define defaults, compatibility and recovery. Changes to field meanings, revisions or serialization require explicit version/migration.

@@ -109,6 +109,16 @@ npm run verify
 
 `test:unit` 默认准备构建；已有与当前源码一致的完整构建时可显式加 `--skip-build` 缩短反馈。不能用旧 `dist/` 的通过结果证明新源码正确。重复 `--file` 选择多个用例，`--match` 的筛选语义与完整说明见 [本地测试指南](testing-local-run.md)。
 
+## Lint 存量基线
+
+[ESLint 配置](../eslint.config.mjs) 在现有检查上启用以下规则：TypeScript/Pi 的 `no-unnecessary-condition`、`no-unnecessary-type-assertion` 和 `no-useless-catch`，以及 TypeScript、Pi、Web、Electron 和脚本中的定向 `no-restricted-syntax`。后者检查不绑定错误且未抛出的 catch、空 catch，以及相应的 `.catch()` 回调。绑定错误后仅记录日志或返回默认值等处理语义仍需审查。
+
+单独运行 lint 前先 `npm run build:cli`，使 `.pi` 引用的 `dist` 类型与当前源码一致，再执行 `npm run lint`；`verify` 和 `check:ci` 已按这个顺序运行。日常 GitHub 检查仍为手动触发。
+
+2026-11-09 将旧配置接入已验收的 `583cbb4` 代码时，仅为这次新增规则校准 [文件级基线](../eslint-suppressions.json)，记录 237 个文件、1037 项存量：多余条件 321、丢弃错误语法 641、多余类型断言 75。接入未改变产品逻辑。ESLint 基线按文件和规则计数，新增位置仍需代码审查；日常改动保持零新增，不扩充基线来绕过检查。
+
+处理存量先核对输入边界和错误处理语义，修正后执行 `npx eslint src web desktop scripts .pi --prune-suppressions` 收紧计数，再运行常规 lint。基线由 ESLint 维护，Prettier 跳过该文件。
+
 ## 验证分层
 
 | 命令                                                      | 验证范围                                                                                | 使用时机                                                    |

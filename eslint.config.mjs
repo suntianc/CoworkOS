@@ -2,6 +2,27 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import globals from "globals";
 
+const discardedErrors = [
+  {
+    selector: "CatchClause[param=null]:not(:has(ThrowStatement))",
+    message: "catch discards the error without rethrowing. Handle or rethrow it."
+  },
+  {
+    selector: "CatchClause[param!=null] > BlockStatement.body[body.length=0]",
+    message: "Empty catch swallows the error. Handle or rethrow it."
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'][arguments.length=1] > :function.arguments[params.length=0]:not(:has(ThrowStatement))",
+    message: ".catch() callback discards the rejection. Handle or propagate it."
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'][arguments.length=1] > :function.arguments[params.length>0][body.type='BlockStatement'][body.body.length=0]",
+    message: "Empty .catch() callback swallows the rejection. Handle or propagate it."
+  }
+];
+
 export default [
   {
     ignores: [
@@ -37,6 +58,21 @@ export default [
       "@typescript-eslint/no-explicit-any": "error"
     },
     plugins: { "@typescript-eslint": tseslint.plugin }
+  },
+  {
+    files: ["src/**/*.ts", ".pi/**/*.ts"],
+    languageOptions: {
+      parserOptions: { project: "./tsconfig.extensions.json", tsconfigRootDir: import.meta.dirname }
+    },
+    rules: {
+      "@typescript-eslint/no-unnecessary-condition": "error",
+      "@typescript-eslint/no-unnecessary-type-assertion": "error",
+      "no-useless-catch": "error"
+    }
+  },
+  {
+    files: ["src/**/*.ts", ".pi/**/*.ts", "web/**/*.js", "desktop/**/*.cjs", "scripts/**/*.mjs"],
+    rules: { "no-restricted-syntax": ["error", ...discardedErrors] }
   },
   {
     files: ["src/dashboard/*routes.ts"],
