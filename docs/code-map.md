@@ -83,7 +83,7 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 工作侧栏的项目、Main 会话与子 Agent 树由 [项目控制器](../web/assets/controllers/project-controller.js) 渲染，折叠状态存在本地；新会话起始面、项目选择菜单与最近需求由 [新会话控制器](../web/assets/controllers/new-session.js) 持有。待回答问题来自目录条目的 `pendingQuestion`，样式在 [工作侧栏样式](../web/assets/work-sidebar.css)。验收为 [侧栏树](../e2e/p45-work-sidebar.spec.js)、[提问提示](../e2e/p45-question-dot.spec.js) 与[新会话](../e2e/p45-new-session.spec.js)。
 
-没有可用模型连接或没有项目时，工作入口由 [首次使用视图](../web/assets/controllers/first-use.js) 占据：三步状态每次渲染都从模型状态与项目目录推导，不存完成标记；连接模型进入设置的模型与角色页，添加项目打开[添加项目对话框](../web/assets/controllers/add-project.js)。只有缺少模型连接时输入框才不可发送，无项目时仍可发送为临时会话。验收为[首次使用](../e2e/p45-first-use.spec.js)与[空状态](../e2e/p45-empty-states.spec.js)。
+没有可用模型连接或没有项目时，工作入口由 [首次使用视图](../web/assets/controllers/first-use.js) 占据：三步状态每次渲染都从模型状态与项目目录推导，不存完成标记；连接模型进入设置的模型与角色页，添加项目打开[添加项目对话框](../web/assets/controllers/add-project.js)，第三步在引导内保持不可用、前置满足后由新会话起始面接替。只有缺少模型连接时输入框才不可发送，无项目时仍可发送为临时会话。验收为[首次使用](../e2e/p45-first-use.spec.js)与[空状态](../e2e/p45-empty-states.spec.js)。
 
 草稿由 [Composer Session](../web/assets/controllers/composer-session.js) 按 Backend 分区：已有 Task 使用后端内唯一的 Task ID，新建会话使用 `new:<编码后的 Project ID>` 或无项目的 `new`。桌面 [草稿存储](../desktop/composer-drafts.cjs) 镜像这些键并保留删除；迁移前记录来源与目的，失败和重启后重试，来源冲突时保留恢复副本与目的删除标记；无法确认归属的旧键保留。连接前草稿按会话暂存；已关闭的记录保持可恢复，运行实例以临时锁隔离。多个归属不明的记录可通过[恢复草稿](../web/assets/controllers/draft-recovery.js)选择当前后端和目标项目，旧版无租约来源需显式选择并保留副本。上传、查看和下载通过 [管理客户端](../web/assets/controllers/management-client.js) 绑定当前后端。验证 [草稿与文件归属](../test/electron-drafts-files.test.js)和[桌面恢复入口](../e2e/electron-draft-recovery-picker-desktop.spec.js)。P3 引入 Request 时，应以 Backend、Project 和已确认的 Request 身份建立新键；映射确定后先复制旧 Task/新建草稿并验证落盘，再删除来源，无法确定归属的旧记录保留供恢复。
 

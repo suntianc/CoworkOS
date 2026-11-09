@@ -94,14 +94,26 @@ test("a fresh data directory walks the guide from the model to a working session
   }
 });
 
-test("the guide offers no session action until a project exists", async ({ page }) => {
+test("the guide names the session step but leaves its action inactive", async ({ page }) => {
   const dashboard = await startDashboard({ defaultProject: false });
+  const projectDirectory = join(dashboard.root, "second-project");
   try {
+    await mkdir(projectDirectory);
     await page.goto(dashboard.base);
     const sessionStep = page.locator('.first-use-step[data-step="session"]');
     await expect(sessionStep).toHaveAttribute("data-state", "pending");
     await expect(sessionStep.getByRole("button", { name: "新会话" })).toBeDisabled();
     await expect(page.locator(".first-use-step").getByRole("button")).toHaveCount(3);
+
+    // A project alone does not start a session: the connection step still owns
+    // the guide, so the same action stays inactive.
+    const created = await page.request.post(`${dashboard.base}/api/projects`, {
+      data: { projectName: "第二个项目", projectDirectory }
+    });
+    expect(created.ok()).toBe(true);
+    await page.reload();
+    await expect(page.locator('.first-use-step[data-step="project"]')).toHaveAttribute("data-state", "done");
+    await expect(sessionStep.getByRole("button", { name: "新会话" })).toBeDisabled();
   } finally {
     await dashboard.stop();
   }

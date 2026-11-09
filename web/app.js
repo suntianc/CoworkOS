@@ -1615,8 +1615,7 @@ const firstUse = createFirstUseView({
   $,
   projectCount: () => projectController.visibleProjects().length,
   onConnectModel: () => settingsPages.open("models"),
-  onAddProject: () => projectController.openCreate(),
-  onStartSession: () => beginNewConversation()
+  onAddProject: () => projectController.openCreate()
 });
 document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });

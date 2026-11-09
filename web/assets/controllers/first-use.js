@@ -10,17 +10,16 @@ import { escapeHtml as esc } from "../workbench/html.js";
  * render, so no "guide completed" flag is stored. Losing the connection or
  * removing the last project brings the surface back by itself.
  *
- * The third step has no data condition of its own: it is the action that ends
- * the guide. Its button is offered once a project exists, which is also the
- * only case where starting a session can lead anywhere.
+ * The third step is the destination rather than an action of this surface: once
+ * a connection and a project exist the guide is gone and the new-session start
+ * takes over, so its button stays inactive here and only names the next move.
  */
 export function createFirstUseView({
   state,
   $,
   projectCount = () => 0,
   onConnectModel = () => {},
-  onAddProject = () => {},
-  onStartSession = () => {}
+  onAddProject = () => {}
 }) {
   const STEPS = [
     { key: "model", label: () => ui("连接模型"), action: () => ui("前往设置") },
@@ -54,7 +53,7 @@ export function createFirstUseView({
     const action = done
       ? ""
       : `<button class="first-use-action ${current ? "is-primary" : "is-secondary"}" type="button" data-first-use="${step.key}"${
-          step.key === "session" && !projectsReady() ? " disabled" : ""
+          step.key === "session" ? " disabled" : ""
         }>${esc(step.action())}</button>`;
     return `<div class="first-use-step" data-step="${step.key}" data-state="${status}"${
       current ? ' aria-current="step"' : ""
@@ -74,12 +73,10 @@ export function createFirstUseView({
     if (next === rendered && conversation.querySelector(".first-use")) return;
     rendered = next;
     conversation.innerHTML = next;
-    conversation.querySelectorAll("[data-first-use]").forEach((node) =>
+    conversation.querySelectorAll("[data-first-use]:not([disabled])").forEach((node) =>
       node.addEventListener("click", () => {
-        const action = node.dataset.firstUse;
-        if (action === "model") onConnectModel();
-        else if (action === "project") onAddProject();
-        else onStartSession();
+        if (node.dataset.firstUse === "model") onConnectModel();
+        else onAddProject();
       })
     );
   }

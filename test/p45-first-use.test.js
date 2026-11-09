@@ -18,8 +18,7 @@ function fixture(t, { modelConfigured, projectCount = 0 }) {
     $,
     projectCount: () => projects.count,
     onConnectModel: () => calls.push("model"),
-    onAddProject: () => calls.push("project"),
-    onStartSession: () => calls.push("session")
+    onAddProject: () => calls.push("project")
   });
   t.after(() => {
     for (const [key, value] of Object.entries(previous)) {
@@ -69,12 +68,22 @@ test("a configured model completes its step and hands the next action to adding 
   assert.equal(stepOf("model").querySelector("button"), null, "a completed step offers no action");
   assert.equal(stepOf("project").getAttribute("data-state"), "current");
   assert.equal(stepOf("session").getAttribute("data-state"), "pending");
+  assert.equal(stepOf("session").querySelector("button").disabled, true, "no session without a project");
   // A message without a project still starts a temporary session, so the
   // missing project does not take the composer away.
   assert.equal(page.view.blocksSending(), false);
 
   page.view.sync();
   assert.equal(page.$("#composer-input").placeholder, "描述任务，或添加后续要求…");
+});
+
+test("the session step waits while the guide is up, even with a project", (t) => {
+  const page = fixture(t, { modelConfigured: false, projectCount: 1 });
+  page.view.render();
+  const stepOf = step(page);
+  assert.equal(stepOf("session").getAttribute("data-state"), "pending");
+  assert.equal(stepOf("session").querySelector("button").disabled, true);
+  assert.equal(page.view.active(), true, "a missing connection keeps the guide");
 });
 
 test("the guide follows the catalog: it leaves once a project exists and returns when none does", (t) => {

@@ -38,7 +38,9 @@ async function post(page, base, path, data) {
 test("a task catalog slower than the polling period still applies and preserves the later draft", async ({
   page
 }) => {
-  const dashboard = await startDashboard();
+  // A usable connection keeps the new-conversation surface as the idle pane;
+  // this test observes catalog polling and draft retention, not first-use setup.
+  const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });
   const gate = deferred();
   let reads = 0;
   try {

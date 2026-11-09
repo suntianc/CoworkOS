@@ -144,7 +144,6 @@ export default {
   开始使用: "Get started",
   "连接模型并添加项目后即可开始…": "Connect a model and add a project to start…",
   "连接模型后即可开始…": "Connect a model to start…",
-  "添加项目后即可开始…": "Add a project to start…",
   关闭设置: "Close settings",
   已保存的配置: "Saved profiles",
   "Main 角色": "Main role",
