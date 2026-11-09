@@ -16,8 +16,8 @@ import { agentDisplayName } from "./agent-names.js";
 export const REQUIREMENT_STAGE_LABELS = {
   pending: "待认领",
   requirement: "需求记录",
-  development: "开发",
-  review: "审查",
+  development: "开发中",
+  review: "审查中",
   rework: "待返修",
   merge: "待合入",
   merged: "已合入",
@@ -25,6 +25,25 @@ export const REQUIREMENT_STAGE_LABELS = {
   delivered: "已交付",
   withdrawn: "已撤回"
 };
+
+/** A Main that is waiting on a person: the phase is unchanged, its wording is not. */
+export const WAITING_FOR_REPLY_LABEL = "等待回复";
+
+/**
+ * The observation list's tabs, in the design's order.
+ *
+ * `all` holds every requirement; the rest split it by the phase above, so a
+ * requirement appears in exactly one of them. A withdrawn requirement is kept
+ * in the list and in `all` without a tab of its own.
+ */
+export const REQUIREMENT_TABS = [
+  { id: "all", label: "全部" },
+  { id: "pending", label: "待认领" },
+  { id: "active", label: "进行中" },
+  { id: "waiting", label: "等待回复" },
+  { id: "release", label: "待发布" },
+  { id: "delivered", label: "已交付" }
+];
 
 const STEPS = [
   { id: "requirement", label: "需求记录" },
@@ -91,10 +110,47 @@ function stageOf(input) {
   return "pending";
 }
 
-/** The phase id and its label; `waiting` says the handling Main is blocked on a reply. */
+/**
+ * The phase id and its label; `waiting` says the handling Main is blocked on a
+ * reply, which reads as 等待回复 instead of the phase name.
+ */
 export function requirementStage(input = {}) {
   const stage = stageOf(input);
-  return { stage, label: REQUIREMENT_STAGE_LABELS[stage], waiting: Boolean(input.waitingForReply) };
+  const waiting = Boolean(input.waitingForReply);
+  return {
+    stage,
+    label: waiting ? WAITING_FOR_REPLY_LABEL : REQUIREMENT_STAGE_LABELS[stage],
+    waiting
+  };
+}
+
+/**
+ * The one observation tab a requirement belongs to.
+ *
+ * The tab is a grouping of the phase, not a second phase: a waiting Main keeps
+ * its phase and moves to the waiting tab, and every phase still being worked on
+ * — recorded, developing, reviewing, reworking, merging — is 进行中.
+ */
+export function requirementTab(input = {}) {
+  const { stage, waiting } = requirementStage(input);
+  if (waiting) return "waiting";
+  if (stage === "pending") return "pending";
+  if (stage === "release") return "release";
+  if (stage === "delivered") return "delivered";
+  if (stage === "withdrawn") return "withdrawn";
+  return "active";
+}
+
+/** How many requirements each tab holds; `all` counts every one of them. */
+export function requirementTabCounts(inputs = []) {
+  const counts = { all: 0 };
+  for (const tab of REQUIREMENT_TABS) counts[tab.id] = 0;
+  for (const input of Array.isArray(inputs) ? inputs : []) {
+    counts.all += 1;
+    const tab = requirementTab(input);
+    if (tab in counts) counts[tab] += 1;
+  }
+  return counts;
 }
 
 function roleAgent(roles, role) {

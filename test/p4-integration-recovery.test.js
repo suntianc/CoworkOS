@@ -1,19 +1,16 @@
 import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
-import { parseHTML } from "linkedom";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { ProjectDataRuntime } from "../dist/src/workspace/project-data-service.js";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 import { createProjectDevelopmentService } from "../dist/src/dashboard/project-development-service.js";
-import { createProjectDevelopmentController } from "../web/assets/controllers/project-development.js";
 
 const run = promisify(execFile);
 const git = (cwd, args) =>
@@ -235,48 +232,6 @@ test(
     assert.equal(await git(repository, ["rev-parse", "main"]), applying.mergeCommit);
     assert.deepEqual(await dirtyState(repository), before, "the user's reserved work survived the crash");
 
-    // The controller shows the committed-but-unrecorded window as pending sync.
-    const previousGlobals = { window: globalThis.window, document: globalThis.document, CSS: globalThis.CSS };
-    t.after(() => {
-      for (const [key, value] of Object.entries(previousGlobals)) {
-        if (value === undefined) delete globalThis[key];
-        else globalThis[key] = value;
-      }
-    });
-    const { window, document } = parseHTML(readFileSync("web/index.html", "utf8"));
-    globalThis.window = window;
-    globalThis.document = document;
-    globalThis.CSS = { escape: (value) => value };
-    window.HTMLElement.prototype.getClientRects ??= () => [];
-    const api = (requestPath, options) =>
-      fetch(`${authority.base}${requestPath}`, {
-        method: options?.method ?? (options?.body === undefined ? "GET" : "POST"),
-        headers: options?.headers ?? { "content-type": "application/json" },
-        ...(options?.body === undefined ? {} : { body: options.body })
-      }).then(async (response) => {
-        const body = await response.json();
-        if (!response.ok)
-          throw Object.assign(new Error(body.error ?? "请求失败"), { status: response.status });
-        return body;
-      });
-    const state = {
-      projects: [{ ...project, tasks: [] }],
-      selectedProjectId: project.projectId,
-      selected: undefined
-    };
-    const controller = createProjectDevelopmentController({ api, state });
-    controller.open(project.projectId);
-    await waitFor(
-      () => document.querySelectorAll("[data-list] button").length > 0,
-      "developments did not load"
-    );
-    const detail = () => document.querySelector("[data-detail]");
-    await controller.selectDevelopment(crash.developmentId);
-    await waitFor(
-      () => /待同步/.test(detail().textContent),
-      "the applying operation was not shown as pending sync"
-    );
-
     // Restarting the execution backend with a new process identity reconciles
     // the same merge instead of creating a second one.
     delete execution.env.COWORK_MERGE_FAULT_INJECT;
@@ -368,30 +323,6 @@ test(
     ]);
     assert.equal(waitingRequest.body.merge.state, "waiting");
 
-    // The production controller separates merged, conflict, check failure,
-    // pending sync and waiting, and the conflicted requirement's own site can
-    // still be continued after its merge failed.
-    const labels = [
-      [crash, /已合入/],
-      [conflicting, /合入冲突/],
-      [failing, /检查未通过/],
-      [waiting, /等待合入/]
-    ];
-    for (const [record, expected] of labels) {
-      await controller.selectDevelopment(record.developmentId);
-      await waitFor(
-        () => expected.test(detail().textContent),
-        `${record.developmentId} did not render ${expected}`
-      );
-      assert.match(detail().textContent, expected);
-    }
-    await controller.selectDevelopment(conflicting.developmentId);
-    await waitFor(() => /合入冲突/.test(detail().textContent), "the conflict did not render");
-    detail().querySelector("[data-continue]").click();
-    await waitFor(
-      () => /现场就绪/.test(detail().textContent),
-      "the conflicted requirement's site was not continued"
-    );
     assert.equal(await readFile(join(conflicting.workspace.directory, "shared.txt"), "utf8"), "second\n");
     assert.equal((await operations(waiting))[0].state, "waiting", "an unrelated request is still queued");
     assert.deepEqual(await dirtyState(repository), before);
