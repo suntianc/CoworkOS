@@ -31,9 +31,7 @@ const keyframes = (page, name) =>
     return null;
   }, name);
 
-test("reduced motion keeps panel, drawer and list entrances on opacity and stops the loader", async ({
-  page
-}) => {
+test("reduced motion stops every rendered animation while keeping opacity transitions", async ({ page }) => {
   const dashboard = await startDashboard();
   try {
     await page.goto(dashboard.base);
@@ -64,57 +62,52 @@ test("reduced motion keeps panel, drawer and list entrances on opacity and stops
     await expect.poll(async () => (await motion(page)).reduced).toBe(true);
 
     const reduced = await motion(page);
-    expect(reduced.panelAnimation).toBe("formicand-fade-in");
-    expect(reduced.drawerAnimation).toBe("formicand-fade-in");
-    expect(reduced.listAnimation).toBe("formicand-fade-in");
+    expect(reduced.panelAnimation).toBe("none");
+    expect(reduced.drawerAnimation).toBe("none");
+    expect(reduced.listAnimation).toBe("none");
     expect(reduced.panelTransform).toBe("none");
     expect(reduced.drawerTransform).toBe("none");
-    // The fade keyframes carry opacity only; the displacement keyframes stay unused.
-    const fade = await page.evaluate(() => {
-      for (const sheet of document.styleSheets) {
-        let rules;
-        try {
-          rules = sheet.cssRules;
-        } catch {
-          continue;
-        }
-        for (const rule of rules)
-          if (rule.type === CSSRule.KEYFRAMES_RULE && rule.name === "formicand-fade-in")
-            return [...rule.cssRules].map((frame) => frame.style.cssText);
-      }
-      return null;
-    });
-    expect(fade).not.toBeNull();
-    expect(fade.join(" ")).toContain("opacity");
-    expect(fade.join(" ")).not.toContain("transform");
 
     const controls = await page.evaluate(() => {
       const probe = document.createElement("div");
-      probe.className = "ui-panel";
-      probe.style.cssText = "position:fixed;left:-100px;top:0;width:10px;height:10px";
+      probe.innerHTML = `<span class="conversation-activity" data-state="running"></span><span class="conversation-activity" data-state="leased"></span><div class="modal-card app-dialog"><div class="dialog-actions"><button type="button" aria-busy="true">保存</button></div></div><span class="future-loader" style="animation: ui-spin 1s linear infinite"></span>`;
+      probe.style.cssText = "position:fixed;left:-400px;top:0;width:10px;height:10px";
       document.body.append(probe);
+      const panel = document.createElement("div");
+      panel.className = "ui-panel";
+      document.body.append(panel);
       const drawer = document.createElement("div");
       drawer.className = "ui-drawer";
       document.body.append(drawer);
       const spinner = document.createElement("span");
       spinner.className = "thinking-spinner";
-      spinner.dataset.motionProbe = "";
       document.querySelector(".composer").append(spinner);
-      const read = getComputedStyle(probe);
+      const animation = (selector, pseudo) =>
+        getComputedStyle(probe.querySelector(selector), pseudo).animationName;
       const result = {
-        transition: read.transitionProperty,
-        transform: read.transform,
+        runningActivity: animation('[data-state="running"]'),
+        leasedActivity: animation('[data-state="leased"]'),
+        dialogBusyButton: animation('button[aria-busy="true"]', "::before"),
+        futureLoader: animation(".future-loader"),
+        panelTransition: getComputedStyle(panel).transitionProperty,
+        panelTransform: getComputedStyle(panel).transform,
         drawerTransition: getComputedStyle(drawer).transitionProperty,
         spinnerAnimation: getComputedStyle(spinner).animationName,
         spinnerContent: getComputedStyle(spinner, "::after").content,
         spinnerBorder: getComputedStyle(spinner).borderTopWidth
       };
       probe.remove();
+      panel.remove();
       drawer.remove();
+      spinner.remove();
       return result;
     });
-    expect(controls.transition).toBe("opacity");
-    expect(controls.transform).toBe("none");
+    expect(controls.runningActivity).toBe("none");
+    expect(controls.leasedActivity).toBe("none");
+    expect(controls.dialogBusyButton).toBe("none");
+    expect(controls.futureLoader).toBe("none");
+    expect(controls.panelTransition).toBe("opacity");
+    expect(controls.panelTransform).toBe("none");
     expect(controls.drawerTransition).toBe("opacity");
     expect(controls.spinnerAnimation).toBe("none");
     expect(controls.spinnerContent).toBe('"…"');

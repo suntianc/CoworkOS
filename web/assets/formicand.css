@@ -364,8 +364,10 @@ html[data-theme] :is(.app-button.is-primary, .composer .stop-button):hover:not(:
   background: color-mix(in srgb, var(--color-text), var(--color-bg) 12%);
   border-color: transparent;
 }
+/* :where keeps this default at zero specificity so component focus styles,
+   including the invalid-control danger ring, still win. */
 html[data-theme]
-  :is(button, a, [role="button"], [role="tab"], summary, input, select, textarea):focus-visible {
+  :where(button, a, [role="button"], [role="tab"], summary, input, select, textarea):focus-visible {
   outline-color: var(--color-accent);
 }
 .about-product .about-mark {
@@ -502,14 +504,6 @@ html[data-theme] .toast {
     transform: none;
   }
 }
-@keyframes formicand-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
 .agent-pane {
   animation: formicand-panel-in var(--motion-enter);
 }
@@ -533,22 +527,13 @@ html[data-theme] .toast {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-pane,
-  .ui-panel {
-    animation: formicand-fade-in 0.2s ease-out;
-  }
-  .artifact-drawer,
-  .ui-drawer {
-    animation: formicand-fade-in 0.18s ease-out;
-  }
-  .project-list,
-  .ui-list {
-    animation: formicand-fade-in 0.18s ease-out;
-  }
-  .ui-panel,
-  .ui-drawer,
-  .ui-list {
-    transition-property: opacity;
+  /* Every rendered animation stops, including indicators added later; transitions
+     are limited to opacity and no entrance keyframe moves the layout. */
+  html body *,
+  html body *::before,
+  html body *::after {
+    animation: none !important;
+    transition-property: opacity !important;
   }
   /* Static ellipsis replaces a rotating loader. */
   .thinking-spinner,
@@ -558,7 +543,6 @@ html[data-theme] .toast {
     height: auto;
     flex-basis: auto;
     border: 0;
-    animation: none;
   }
   .thinking-spinner::after,
   .tool-progress-spinner::after,

@@ -281,7 +281,16 @@ test("automatic update events show a circular reminder above settings with keybo
     await expect(page.locator("#profile-modal")).toBeHidden();
     await expect(notice).toHaveAccessibleName("发现新版本 0.1.3，查看 Formicand 更新");
     await expect(notice).toHaveCSS("border-radius", "50%");
-    await expect(notice).toHaveCSS("background-color", "rgb(238, 238, 238)");
+    // The reminder uses the theme text token; assert the resolved token, not a literal.
+    const reminderBackground = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "var(--ui-text)";
+      document.body.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    });
+    await expect(notice).toHaveCSS("background-color", reminderBackground);
     const reminderBox = await notice.boundingBox();
     const settingsBox = await page.locator("#user-menu-button").boundingBox();
     expect(reminderBox.width).toBe(32);
