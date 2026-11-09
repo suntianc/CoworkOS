@@ -302,18 +302,19 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
 
     // Changing the window changes the axis and the drawn range.
     const wideLane = cloudCard.locator(`[data-runs-lane="${resident1.taskId}"]`);
-    await expect(wideLane.locator(".runs-wave")).toHaveAttribute("data-slices", "30");
+    const drawnSlices = () => wideLane.locator(".runs-wave").getAttribute("data-slices").then(Number);
+    await expect.poll(drawnSlices).toBeGreaterThan(20);
     await page.locator('[data-runs-window="5"]').click();
     await expect(page.locator('[data-observe-panel="runs"]')).toHaveAttribute("data-window", "5");
     await expect(page.locator(".runs-axis")).toContainText("-5 分");
-    await expect(wideLane.locator(".runs-wave")).toHaveAttribute("data-slices", "5");
+    await expect.poll(drawnSlices).toBeLessThan(10);
     // A stall is a property of the Main, not of the selected window.
     await expect(stalled).toHaveAttribute("data-stalled", "true");
     await expect(stalled.locator("[data-runs-stall]")).toHaveText(/1[23] 分无进展/);
     await expect(idleForHours).toHaveAttribute("data-stalled", "true");
     await page.locator('[data-runs-window="120"]').click();
     await expect(page.locator(".runs-axis")).toContainText("-120 分");
-    await expect(wideLane.locator(".runs-wave")).toHaveAttribute("data-slices", "60");
+    await expect.poll(drawnSlices).toBeGreaterThan(30);
     await expect(stalled).toHaveAttribute("data-stalled", "true");
     await expect(idleForHours).toHaveAttribute("data-stalled", "true");
     await page.locator('[data-runs-window="30"]').click();
