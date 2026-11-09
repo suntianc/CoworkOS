@@ -50,6 +50,7 @@ import { createObserveSidebar } from "./assets/controllers/observe-sidebar.js";
 import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
 import { createRunControl } from "./assets/controllers/run-control.js";
 import { createNewSessionView } from "./assets/controllers/new-session.js";
+import { createFirstUseView } from "./assets/controllers/first-use.js";
 import { createAddProjectController } from "./assets/controllers/add-project.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
@@ -1169,7 +1170,7 @@ function renderConversationList() {
   developmentController.render();
   mainSessionsController.render();
   boardController.render();
-  newSession.sync();
+  syncIdleComposer();
 }
 
 /**
@@ -1242,21 +1243,34 @@ function renderRightPanel() {
 function renderEmpty() {
   renderedDetailSignature = undefined;
   computerUse.syncTask();
-  $("#topbar-task").textContent = ui("新会话");
-  newSession.render();
-  newSession.sync();
+  if (firstUse.active()) firstUse.render();
+  else newSession.render();
+  syncIdleComposer();
   humanQuestions.update(null);
   renderRightPanel();
   paintTopbarContext();
 }
+
+/**
+ * Before a conversation exists the same composer belongs to either the
+ * first-use guide or the new-session start, so one place decides its chrome.
+ */
+function syncIdleComposer() {
+  newSession.sync();
+  firstUse.sync();
+  // The guide's composer cannot start a session, so it offers no project picker;
+  // adding a project is a step above it.
+  if (firstUse.blocksSending()) $("#composer-project").hidden = true;
+}
 function paintTopbarContext() {
   const application = workbenchController.host?.applicationTab;
   const editing = Boolean(application && $("#conversation-pane").hidden);
+  const idleTitle = firstUse.active() ? ui("开始使用") : ui("新会话");
   const name = editing
     ? application.title || appDisplayName(application.appType)
     : state.selected
       ? conversationTitle(state.detail?.task || state.tasks.find((task) => task.taskId === state.selected))
-      : ui("新会话");
+      : idleTitle;
   $("#topbar-task").textContent = truncate(name, 44);
   $("#topbar-task").title = name;
   $("#session-menu-button").hidden = editing;
@@ -1747,6 +1761,13 @@ observeData.subscribe(() => {
   observeSidebar.render();
   settingsPages.refresh();
 });
+const firstUse = createFirstUseView({
+  state,
+  $,
+  projectCount: () => projectController.visibleProjects().length,
+  onConnectModel: () => settingsPages.open("models"),
+  onAddProject: () => projectController.openCreate()
+});
 document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
@@ -2146,26 +2167,35 @@ function updateSendButton() {
   });
   const connecting = workbenchController.connecting;
   const backendReady = Boolean(backendConnection && backendConnection.ready());
+  const awaitingSetup = firstUse.blocksSending();
   $("#send-button").hidden = showStop;
   $("#send-button").disabled =
-    isSending || readingAttachments || connecting || stopping || !state.online || !backendReady;
+    awaitingSetup ||
+    isSending ||
+    readingAttachments ||
+    connecting ||
+    stopping ||
+    !state.online ||
+    !backendReady;
   $("#stop-button").hidden = !showStop;
   $("#stop-button").disabled = stopping;
   $("#stop-button").setAttribute("aria-busy", String(stopping));
   $("#stop-button").setAttribute("aria-label", stopping ? ui("正在停止任务") : ui("停止任务"));
   $("#stop-button").title = stopping ? ui("正在停止任务…") : ui("停止任务");
   $("#model-setup-button").hidden = state.modelConfigured !== false;
-  $("#send-button").title = !backendReady
-    ? ui("后端连接不可用")
-    : connecting
-      ? ui("正在关联文件…")
-      : isSending
-        ? ui("正在发送…")
-        : readingAttachments
-          ? ui("正在读取附件…")
-          : running
-            ? ui("排队发送（当前任务结束后处理）")
-            : ui("发送（Enter）");
+  $("#send-button").title = awaitingSetup
+    ? firstUse.lockReason()
+    : !backendReady
+      ? ui("后端连接不可用")
+      : connecting
+        ? ui("正在关联文件…")
+        : isSending
+          ? ui("正在发送…")
+          : readingAttachments
+            ? ui("正在读取附件…")
+            : running
+              ? ui("排队发送（当前任务结束后处理）")
+              : ui("发送（Enter）");
   $("#send-button").setAttribute("aria-label", running ? ui("排队发送") : ui("发送"));
   if (composerSession.editing) {
     $("#send-button").title = ui("请先保存或取消正在编辑的消息");
@@ -2229,6 +2259,7 @@ async function submitMessageEdit() {
 
 async function sendMessage() {
   if (!$("#human-questions").hidden) return;
+  if (firstUse.blocksSending()) return;
   const input = $("#composer-input");
   const text = input.value.trim() || (state.attachments.length ? ui("请查看这些附件。") : "");
   if (!text) return;
