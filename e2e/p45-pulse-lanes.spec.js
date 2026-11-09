@@ -314,6 +314,8 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await page.locator('[data-runs-window="120"]').click();
     await expect(page.locator(".runs-axis")).toContainText("-120 分");
     await expect(wideLane.locator(".runs-wave")).toHaveAttribute("data-slices", "60");
+    await expect(stalled).toHaveAttribute("data-stalled", "true");
+    await expect(idleForHours).toHaveAttribute("data-stalled", "true");
     await page.locator('[data-runs-window="30"]').click();
     await expect(page.locator(".runs-axis")).toContainText("-30 分");
 
