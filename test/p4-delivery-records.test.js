@@ -1066,12 +1066,14 @@ test(
     assert.deepEqual(await outboxEntries(execution.root), []);
 
     // Stopping the production execution host ends its retry task; no later
-    // merge/delivery requests are issued by it.
-    const before = proxy.mergeRequests();
+    // merge/delivery requests are issued by it. A tick already in flight when
+    // stop is called is drained by stop itself, so the count is sampled after
+    // it resolves: the contract is that nothing is issued once the host stopped.
     await execution.stop();
     stopped = true;
+    const afterStop = proxy.mergeRequests();
     await delay(400);
-    assert.equal(proxy.mergeRequests(), before, "the stopped execution host kept retrying");
+    assert.equal(proxy.mergeRequests(), afterStop, "the stopped execution host kept retrying");
 
     // A new execution service instance can also start while the shared service
     // is still unreachable: its startup retry pass keeps the local fact pending
