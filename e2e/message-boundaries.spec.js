@@ -442,8 +442,6 @@ for (const destination of ["new", "task-b"])
       const refresh = page.waitForResponse(
         (result) => result.url().endsWith("/api/workbench/tabs") && result.request().method() === "GET"
       );
-      if (!(await page.locator(".panel-add").isVisible())) await page.locator("#output-pane-toggle").click();
-      await page.locator(".panel-add").click();
       await finishNavigationResponse(page, await refresh);
       await expect(page.locator("#composer-input")).toHaveValue("后来选择的位置必须保留");
       if (destination === "new") await expect(page.locator(".conversation-item.active")).toHaveCount(0);
