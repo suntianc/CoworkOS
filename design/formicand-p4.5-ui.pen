@@ -1388,7 +1388,8 @@
                       "fill": "$text-3",
                       "content": "观测",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -1901,7 +1902,8 @@
                       "fill": "$text-2",
                       "content": "修复登录超时",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -2011,7 +2013,8 @@
                       "fill": "$text-2",
                       "content": "文档整理",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -2060,7 +2063,8 @@
                       "fill": "$text-2",
                       "content": "依赖升级",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -3063,7 +3067,8 @@
                           "fill": "$text",
                           "content": "需求记录",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -3148,7 +3153,8 @@
                           "fill": "$text",
                           "content": "开发",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -3307,7 +3313,8 @@
                           "fill": "$text-3",
                           "content": "合入",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -3373,7 +3380,8 @@
                           "fill": "$text-3",
                           "content": "交付",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -4187,7 +4195,8 @@
                       "fill": "$text-3",
                       "content": "工作",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -4286,7 +4295,8 @@
                           "fill": "$text-2",
                           "content": "总览",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -4386,7 +4396,8 @@
                           "fill": "$text-2",
                           "content": "运行",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -5116,7 +5127,8 @@
                       "fill": "$text-2",
                       "content": "待认领",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "text",
@@ -5149,7 +5161,8 @@
                       "fill": "$text-2",
                       "content": "进行中",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "text",
@@ -5182,7 +5195,8 @@
                       "fill": "$text-2",
                       "content": "等待回复",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "text",
@@ -5215,7 +5229,8 @@
                       "fill": "$text-2",
                       "content": "待发布",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "text",
@@ -5248,7 +5263,8 @@
                       "fill": "$text-2",
                       "content": "已交付",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "text",
@@ -7556,7 +7572,8 @@
                   "fill": "$text-2",
                   "content": "通用",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -7587,7 +7604,8 @@
                   "fill": "$text-2",
                   "content": "节点连接",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -7663,7 +7681,8 @@
                   "fill": "$text-2",
                   "content": "运行名额",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -7694,7 +7713,8 @@
                   "fill": "$text-2",
                   "content": "成员与通道",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -7725,7 +7745,8 @@
                   "fill": "$text-2",
                   "content": "工具",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             }
@@ -8963,7 +8984,8 @@
                       "fill": "$text-3",
                       "content": "工作",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -9114,7 +9136,8 @@
                           "fill": "$text-2",
                           "content": "需求",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -9162,7 +9185,8 @@
                           "fill": "$text-2",
                           "content": "运行",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -10556,7 +10580,8 @@
                                   "fill": "$text-3",
                                   "content": "·",
                                   "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -10804,7 +10829,8 @@
                                   "fill": "$text-3",
                                   "content": "·",
                                   "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -10849,7 +10875,8 @@
                                   "fill": "$text-3",
                                   "content": "·",
                                   "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -10871,7 +10898,8 @@
                                   "fill": "$text-3",
                                   "content": "·",
                                   "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -12432,7 +12460,8 @@
                       "fill": "$text-3",
                       "content": "工作",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -12531,7 +12560,8 @@
                           "fill": "$text-2",
                           "content": "总览",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -12569,7 +12599,8 @@
                           "fill": "$text-2",
                           "content": "需求",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -13441,7 +13472,8 @@
                           "fill": "$text-2",
                           "content": "5 分",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -13485,7 +13517,8 @@
                           "fill": "$text-2",
                           "content": "2 小时",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -15619,7 +15652,8 @@
                   "fill": "$text-2",
                   "content": "通用",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -15695,7 +15729,8 @@
                   "fill": "$text-2",
                   "content": "模型与角色",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -15726,7 +15761,8 @@
                   "fill": "$text-2",
                   "content": "运行名额",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -15757,7 +15793,8 @@
                   "fill": "$text-2",
                   "content": "成员与通道",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -15788,7 +15825,8 @@
                   "fill": "$text-2",
                   "content": "工具",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             }
@@ -17014,7 +17052,8 @@
                   "fill": "$text-2",
                   "content": "通用",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -17045,7 +17084,8 @@
                   "fill": "$text-2",
                   "content": "节点连接",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -17076,7 +17116,8 @@
                   "fill": "$text-2",
                   "content": "模型与角色",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -17152,7 +17193,8 @@
                   "fill": "$text-2",
                   "content": "成员与通道",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -17183,7 +17225,8 @@
                   "fill": "$text-2",
                   "content": "工具",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             }
@@ -18035,7 +18078,8 @@
                   "fill": "$text-2",
                   "content": "通用",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -18066,7 +18110,8 @@
                   "fill": "$text-2",
                   "content": "节点连接",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -18097,7 +18142,8 @@
                   "fill": "$text-2",
                   "content": "模型与角色",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -18128,7 +18174,8 @@
                   "fill": "$text-2",
                   "content": "运行名额",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -18204,7 +18251,8 @@
                   "fill": "$text-2",
                   "content": "工具",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             }
@@ -20867,7 +20915,8 @@
                       "fill": "$text-3",
                       "content": "观测",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -21000,19 +21049,6 @@
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 13,
                       "fontWeight": "500"
-                    },
-                    {
-                      "type": "text",
-                      "id": "pPa4v",
-                      "name": "Text",
-                      "fill": "$text-3",
-                      "textGrowth": "fixed-width",
-                      "width": 198,
-                      "content": "点击加号添加本地目录，或填写 Git 地址克隆到本机。",
-                      "lineHeight": 1.6,
-                      "fontFamily": "Noto Sans SC",
-                      "fontSize": 12,
-                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -21257,16 +21293,6 @@
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 26,
                       "fontWeight": "600"
-                    },
-                    {
-                      "type": "text",
-                      "id": "nhSD4",
-                      "name": "Text",
-                      "fill": "$text-2",
-                      "content": "和 Main 一起把需求做完：拆解、开发、独立审查、合入，全程留在需求进度里。",
-                      "fontFamily": "Noto Sans SC",
-                      "fontSize": 14,
-                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -21334,16 +21360,6 @@
                               "fontFamily": "Noto Sans SC",
                               "fontSize": 14,
                               "fontWeight": "500"
-                            },
-                            {
-                              "type": "text",
-                              "id": "MxWYS",
-                              "name": "Text",
-                              "fill": "$text-3",
-                              "content": "尚未配置模型连接，Main 无法开始工作",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 12,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -21428,16 +21444,6 @@
                               "fontFamily": "Noto Sans SC",
                               "fontSize": 14,
                               "fontWeight": "500"
-                            },
-                            {
-                              "type": "text",
-                              "id": "ppD6q",
-                              "name": "Text",
-                              "fill": "$text-3",
-                              "content": "选择本地目录，或填写 Git 地址克隆到本机",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 12,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -21522,16 +21528,6 @@
                               "fontFamily": "Noto Sans SC",
                               "fontSize": 14,
                               "fontWeight": "500"
-                            },
-                            {
-                              "type": "text",
-                              "id": "yb7zV",
-                              "name": "Text",
-                              "fill": "$text-3",
-                              "content": "描述需求，Main 会建立需求现场并安排开发与审查",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 12,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -22057,7 +22053,8 @@
                           "fill": "$text",
                           "content": "需求记录",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -22142,7 +22139,8 @@
                           "fill": "$text",
                           "content": "开发",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -22301,7 +22299,8 @@
                           "fill": "$text-3",
                           "content": "合入",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -22367,7 +22366,8 @@
                           "fill": "$text-3",
                           "content": "交付",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -23230,7 +23230,8 @@
                       "fill": "$text-3",
                       "content": "观测",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -23743,7 +23744,8 @@
                       "fill": "$text-2",
                       "content": "修复登录超时",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -23853,7 +23855,8 @@
                       "fill": "$text-2",
                       "content": "文档整理",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -23902,7 +23905,8 @@
                       "fill": "$text-2",
                       "content": "依赖升级",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -24905,7 +24909,8 @@
                           "fill": "$text",
                           "content": "需求记录",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -24990,7 +24995,8 @@
                           "fill": "$text",
                           "content": "开发",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -25149,7 +25155,8 @@
                           "fill": "$text-3",
                           "content": "合入",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -25215,7 +25222,8 @@
                           "fill": "$text-3",
                           "content": "交付",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -25853,16 +25861,6 @@
                       ]
                     }
                   ]
-                },
-                {
-                  "type": "text",
-                  "id": "ruPBE",
-                  "name": "Text",
-                  "fill": "$text-3",
-                  "content": "支持 SSH 与 HTTPS 地址，GitHub、GitLab 与自建仓库通用",
-                  "fontFamily": "Noto Sans SC",
-                  "fontSize": 12,
-                  "fontWeight": "normal"
                 }
               ]
             },
@@ -26033,44 +26031,6 @@
             },
             {
               "type": "frame",
-              "id": "FkmRB",
-              "name": "CredNote",
-              "width": "fill_container",
-              "fill": "$accent-soft",
-              "cornerRadius": 10,
-              "gap": 10,
-              "padding": [
-                10,
-                12
-              ],
-              "children": [
-                {
-                  "type": "icon",
-                  "id": "aPWo3",
-                  "name": "i-key-round",
-                  "width": 15,
-                  "height": 15,
-                  "icon": "key-round",
-                  "library": "lucide",
-                  "fill": "$accent"
-                },
-                {
-                  "type": "text",
-                  "id": "i27kW",
-                  "name": "Text",
-                  "fill": "$text-2",
-                  "textGrowth": "fixed-width",
-                  "width": 430,
-                  "content": "使用本机已有的 Git 凭据（SSH key 或 credential helper）。代码托管账号登录与仓库浏览将在后续版本提供。",
-                  "lineHeight": 1.6,
-                  "fontFamily": "Noto Sans SC",
-                  "fontSize": 12,
-                  "fontWeight": "normal"
-                }
-              ]
-            },
-            {
-              "type": "frame",
               "id": "BFU63",
               "name": "Footer",
               "width": "fill_container",
@@ -26176,7 +26136,7 @@
                   "id": "Br5av",
                   "name": "Text",
                   "fill": "$text-2",
-                  "content": "克隆中 · 正在接收对象 62%（按钮变为“取消克隆”）",
+                  "content": "克隆中 · 62%",
                   "fontFamily": "Noto Sans SC",
                   "fontSize": 12,
                   "fontWeight": "normal"
@@ -26214,7 +26174,7 @@
                   "id": "O8qHca",
                   "name": "Text",
                   "fill": "$text-2",
-                  "content": "克隆失败：Permission denied (publickey) · 检查本机 SSH key 后重试，对话框保留已填内容",
+                  "content": "克隆失败：Permission denied (publickey)",
                   "fontFamily": "Noto Sans SC",
                   "fontSize": 12,
                   "fontWeight": "normal"
@@ -26676,7 +26636,8 @@
                       "fill": "$text-3",
                       "content": "观测",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -27213,7 +27174,8 @@
                       "fill": "$text-2",
                       "content": "修复登录超时",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -27323,7 +27285,8 @@
                       "fill": "$text-2",
                       "content": "文档整理",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -27372,7 +27335,8 @@
                       "fill": "$text-2",
                       "content": "依赖升级",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -27685,16 +27649,6 @@
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 24,
                       "fontWeight": "600"
-                    },
-                    {
-                      "type": "text",
-                      "id": "meGRU",
-                      "name": "Text",
-                      "fill": "$text-2",
-                      "content": "描述需求后，Main 会建立需求现场；需求进度面板在需求记录后出现。",
-                      "fontFamily": "Noto Sans SC",
-                      "fontSize": 14,
-                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -28367,7 +28321,8 @@
                           "fill": "$text",
                           "content": "需求记录",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -28452,7 +28407,8 @@
                           "fill": "$text",
                           "content": "开发",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -28611,7 +28567,8 @@
                           "fill": "$text-3",
                           "content": "合入",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -28677,7 +28634,8 @@
                           "fill": "$text-3",
                           "content": "交付",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -29777,7 +29735,8 @@
                       "fill": "$text-3",
                       "content": "观测",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -30290,7 +30249,8 @@
                       "fill": "$text-2",
                       "content": "修复登录超时",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -30400,7 +30360,8 @@
                       "fill": "$text-2",
                       "content": "文档整理",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -30449,7 +30410,8 @@
                       "fill": "$text-2",
                       "content": "依赖升级",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -31029,19 +30991,6 @@
                           ]
                         },
                         {
-                          "type": "text",
-                          "id": "NPJdt",
-                          "name": "Text",
-                          "fill": "$text-2",
-                          "textGrowth": "fixed-width",
-                          "width": 660,
-                          "content": "需求现场与候选提交 0eb1d60 均已保留。重试会从审查步骤继续，不会重复开发。",
-                          "lineHeight": 1.6,
-                          "fontFamily": "Noto Sans SC",
-                          "fontSize": 13,
-                          "fontWeight": "normal"
-                        },
-                        {
                           "type": "frame",
                           "id": "zRjAR",
                           "name": "Actions",
@@ -31186,7 +31135,7 @@
                           "id": "fJIMk",
                           "name": "Text",
                           "fill": "$text-2",
-                          "content": "你在 14:32 暂停了这次运行，Main 会在当前步骤结束后停下。",
+                          "content": "已暂停 · 14:32",
                           "fontFamily": "Noto Sans SC",
                           "fontSize": 13,
                           "fontWeight": "normal"
@@ -31856,7 +31805,8 @@
                           "fill": "$text",
                           "content": "需求记录",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -31941,7 +31891,8 @@
                           "fill": "$text",
                           "content": "开发",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -32100,7 +32051,8 @@
                           "fill": "$text-3",
                           "content": "合入",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -32166,7 +32118,8 @@
                           "fill": "$text-3",
                           "content": "交付",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -32580,10 +32533,10 @@
           "type": "frame",
           "id": "X2mSc",
           "layoutPosition": "absolute",
-          "x": 690,
-          "y": 580,
+          "x": 752,
+          "y": 630,
           "name": "CancelConfirm",
-          "width": 320,
+          "width": 260,
           "fill": "#22222AF5",
           "cornerRadius": 14,
           "stroke": "$glass-edge",
@@ -32611,19 +32564,6 @@
               "fontFamily": "Noto Sans SC",
               "fontSize": 14,
               "fontWeight": "600"
-            },
-            {
-              "type": "text",
-              "id": "RFZL5",
-              "name": "Text",
-              "fill": "$text-2",
-              "textGrowth": "fixed-width",
-              "width": 288,
-              "content": "正在运行的子 Agent 会停止。已完成的提交和需求记录保留，可稍后在同一会话继续。",
-              "lineHeight": 1.6,
-              "fontFamily": "Noto Sans SC",
-              "fontSize": 12,
-              "fontWeight": "normal"
             },
             {
               "type": "frame",
@@ -32823,7 +32763,7 @@
                       "id": "HLvA2",
                       "name": "Text",
                       "fill": "$text-3",
-                      "content": "修复登录超时 · 侧栏已出现提示点",
+                      "content": "修复登录超时",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -32884,16 +32824,6 @@
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 13,
                       "fontWeight": "500"
-                    },
-                    {
-                      "type": "text",
-                      "id": "ry444",
-                      "name": "Text",
-                      "fill": "$text-3",
-                      "content": "运行不受影响，恢复后自动同步",
-                      "fontFamily": "Noto Sans SC",
-                      "fontSize": 12,
-                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -33354,7 +33284,8 @@
                       "fill": "$text-3",
                       "content": "观测",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -33867,7 +33798,8 @@
                       "fill": "$text-2",
                       "content": "修复登录超时",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -33977,7 +33909,8 @@
                       "fill": "$text-2",
                       "content": "文档整理",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -34026,7 +33959,8 @@
                       "fill": "$text-2",
                       "content": "依赖升级",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -35029,7 +34963,8 @@
                           "fill": "$text",
                           "content": "需求记录",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -35114,7 +35049,8 @@
                           "fill": "$text",
                           "content": "开发",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -35273,7 +35209,8 @@
                           "fill": "$text-3",
                           "content": "合入",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -35339,7 +35276,8 @@
                           "fill": "$text-3",
                           "content": "交付",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -36844,44 +36782,6 @@
                   ]
                 }
               ]
-            },
-            {
-              "type": "frame",
-              "id": "djhbD",
-              "name": "Foot",
-              "width": "fill_container",
-              "stroke": "#FFFFFF14",
-              "strokeWidth": {
-                "top": 1
-              },
-              "gap": 8,
-              "padding": [
-                12,
-                20
-              ],
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "icon",
-                  "id": "V4pozE",
-                  "name": "i-info",
-                  "width": 14,
-                  "height": 14,
-                  "icon": "info",
-                  "library": "lucide",
-                  "fill": "$text-3"
-                },
-                {
-                  "type": "text",
-                  "id": "W0fDt",
-                  "name": "Text",
-                  "fill": "$text-3",
-                  "content": "附件与 diff 只在工作入口内预览；观测入口不提供打开。",
-                  "fontFamily": "Noto Sans SC",
-                  "fontSize": 12,
-                  "fontWeight": "normal"
-                }
-              ]
             }
           ]
         }
@@ -37151,7 +37051,8 @@
                   "fill": "$text-2",
                   "content": "通用",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -37182,7 +37083,8 @@
                   "fill": "$text-2",
                   "content": "节点连接",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -37258,7 +37160,8 @@
                   "fill": "$text-2",
                   "content": "运行名额",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -37289,7 +37192,8 @@
                   "fill": "$text-2",
                   "content": "成员与通道",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -37320,7 +37224,8 @@
                   "fill": "$text-2",
                   "content": "工具",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             }
@@ -37494,16 +37399,6 @@
                                   "fontFamily": "Noto Sans SC",
                                   "fontSize": 14,
                                   "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "s9Wnq8",
-                                  "name": "Text",
-                                  "fill": "$text-3",
-                                  "content": "跟随系统时随 macOS / 浏览器的深浅色切换",
-                                  "fontFamily": "Noto Sans SC",
-                                  "fontSize": 12,
-                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -37622,16 +37517,6 @@
                                   "fontFamily": "Noto Sans SC",
                                   "fontSize": 14,
                                   "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "aA76h",
-                                  "name": "Text",
-                                  "fill": "$text-3",
-                                  "content": "桌面端使用系统半透明材质；Web 端以渐变背景替代",
-                                  "fontFamily": "Noto Sans SC",
-                                  "fontSize": 12,
-                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -37687,16 +37572,6 @@
                                   "content": "减少动态效果",
                                   "fontFamily": "Noto Sans SC",
                                   "fontSize": 14,
-                                  "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "b2RCe",
-                                  "name": "Text",
-                                  "fill": "$text-3",
-                                  "content": "跟随系统设置；开启后脉冲泳道停止流动，改为静态快照",
-                                  "fontFamily": "Noto Sans SC",
-                                  "fontSize": 12,
                                   "fontWeight": "normal"
                                 }
                               ]
@@ -38076,7 +37951,7 @@
                                   "id": "xBd1p",
                                   "name": "Text",
                                   "fill": "$text-3",
-                                  "content": "版本 0.9.0 · 安装包与命令行名称保持不变，P9 统一更名",
+                                  "content": "版本 0.9.0",
                                   "fontFamily": "Noto Sans SC",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
@@ -38356,7 +38231,8 @@
                   "fill": "$text-2",
                   "content": "通用",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -38387,7 +38263,8 @@
                   "fill": "$text-2",
                   "content": "节点连接",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -38463,7 +38340,8 @@
                   "fill": "$text-2",
                   "content": "运行名额",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -38494,7 +38372,8 @@
                   "fill": "$text-2",
                   "content": "成员与通道",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             },
@@ -38538,7 +38417,8 @@
                   "fill": "$text-2",
                   "content": "工具",
                   "fontFamily": "Noto Sans SC",
-                  "fontSize": 14
+                  "fontSize": 14,
+                  "fontWeight": "normal"
                 }
               ]
             }
@@ -38722,16 +38602,6 @@
                                   "fontFamily": "Noto Sans SC",
                                   "fontSize": 14,
                                   "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "o084Wr",
-                                  "name": "Text",
-                                  "fill": "$text-3",
-                                  "content": "Main 与子 Agent 可检索网页，结果附来源",
-                                  "fontFamily": "Noto Sans SC",
-                                  "fontSize": 12,
-                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -38802,16 +38672,6 @@
                                   "fontFamily": "Noto Sans SC",
                                   "fontSize": 14,
                                   "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "IxgzS",
-                                  "name": "Text",
-                                  "fill": "$text-3",
-                                  "content": "跨会话保留偏好与项目约定；可在此查看与清除",
-                                  "fontFamily": "Noto Sans SC",
-                                  "fontSize": 12,
-                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -38881,16 +38741,6 @@
                                   "content": "终端命令",
                                   "fontFamily": "Noto Sans SC",
                                   "fontSize": 14,
-                                  "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "Ynvu8",
-                                  "name": "Text",
-                                  "fill": "$text-3",
-                                  "content": "在需求现场执行命令，危险操作需确认",
-                                  "fontFamily": "Noto Sans SC",
-                                  "fontSize": 12,
                                   "fontWeight": "normal"
                                 }
                               ]
@@ -38978,16 +38828,6 @@
                                   "content": "浏览器与界面操作",
                                   "fontFamily": "Noto Sans SC",
                                   "fontSize": 14,
-                                  "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "S5BFWJ",
-                                  "name": "Text",
-                                  "fill": "$text-3",
-                                  "content": "用于界面验收",
-                                  "fontFamily": "Noto Sans SC",
-                                  "fontSize": 12,
                                   "fontWeight": "normal"
                                 }
                               ]
@@ -39638,7 +39478,8 @@
                       "fill": "$text-3",
                       "content": "工作",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -39737,7 +39578,8 @@
                           "fill": "$text-2",
                           "content": "总览",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -39775,7 +39617,8 @@
                           "fill": "$text-2",
                           "content": "需求",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -40437,7 +40280,7 @@
                       "id": "FQ94q",
                       "name": "Text",
                       "fill": "$warn",
-                      "content": "活动指标未就绪 · 按阶段与时长显示",
+                      "content": "指标未就绪",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -40632,7 +40475,8 @@
                           "fill": "$text-2",
                           "content": "5 分",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -40676,7 +40520,8 @@
                           "fill": "$text-2",
                           "content": "2 小时",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -42847,7 +42692,8 @@
                       "fill": "$text-3",
                       "content": "观测",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -43360,7 +43206,8 @@
                       "fill": "$text-2",
                       "content": "修复登录超时",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -43470,7 +43317,8 @@
                       "fill": "$text-2",
                       "content": "文档整理",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -43519,7 +43367,8 @@
                       "fill": "$text-2",
                       "content": "依赖升级",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
@@ -44522,7 +44371,8 @@
                           "fill": "$text",
                           "content": "需求记录",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -44607,7 +44457,8 @@
                           "fill": "$text",
                           "content": "开发",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -44766,7 +44617,8 @@
                           "fill": "$text-3",
                           "content": "合入",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -44832,7 +44684,8 @@
                           "fill": "$text-3",
                           "content": "交付",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -46690,7 +46543,8 @@
                           "fill": "$text",
                           "content": "需求记录",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -46775,7 +46629,8 @@
                           "fill": "$text",
                           "content": "开发",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -46934,7 +46789,8 @@
                           "fill": "$text-3",
                           "content": "合入",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -47000,7 +46856,8 @@
                           "fill": "$text-3",
                           "content": "交付",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -47924,7 +47781,8 @@
                       "fill": "$text-3",
                       "content": "工作",
                       "fontFamily": "Noto Sans SC",
-                      "fontSize": 13
+                      "fontSize": 13,
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -48075,7 +47933,8 @@
                           "fill": "$text-2",
                           "content": "需求",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -48123,7 +47982,8 @@
                           "fill": "$text-2",
                           "content": "运行",
                           "fontFamily": "Noto Sans SC",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -49517,7 +49377,8 @@
                                   "fill": "$text-3",
                                   "content": "·",
                                   "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -49765,7 +49626,8 @@
                                   "fill": "$text-3",
                                   "content": "·",
                                   "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -49810,7 +49672,8 @@
                                   "fill": "$text-3",
                                   "content": "·",
                                   "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -49832,7 +49695,8 @@
                                   "fill": "$text-3",
                                   "content": "·",
                                   "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
