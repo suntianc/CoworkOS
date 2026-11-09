@@ -31,8 +31,8 @@ test("project collapse responds once and preserves state and keyboard focus thro
     await page.locator('.conversation-item[data-task="shell-a"]').click();
     await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
     await row.focus();
+    // The catalog poll is the only refresh control; the panel no longer has one.
     const refresh = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/tasks");
-    await page.locator(".panel-add").dispatchEvent("click");
     await refresh;
     await expect(row).toBeFocused();
     await expect(page.locator('.conversation-item[data-task="shell-a"]')).toHaveAttribute(
