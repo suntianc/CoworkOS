@@ -47,6 +47,7 @@ export async function analyzeImageWithVisionModel(
   const images = [input, ...(input.additionalImages ?? [])];
   if (images.length > 4 || (input.review && images.length > 1))
     throw new Error("Compare at most four images; structured visual QA requires one page");
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- apiKey/model 来自连接注册表或环境变量，旧配置可能缺失，保留校验以给出连接不完整的错误而不是 TypeError
   if (!config.apiKey?.trim() || !config.model?.trim()) throw new Error("Vision connection is incomplete");
   let url: URL;
   try {
@@ -168,6 +169,7 @@ export function parseVisionReview(text: string): VisionReview {
     review.issues.length > 6 ||
     review.issues.some(
       (issue) =>
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- issues 来自模型返回的 JSON，数组元素可能是 null 或非对象
         !issue ||
         !["major", "minor"].includes(issue.severity) ||
         ![issue.location, issue.problem, issue.fix].every((v) => validString(v, 180))

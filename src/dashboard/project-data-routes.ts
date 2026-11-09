@@ -150,9 +150,10 @@ export async function handleProjectDataRequest(
   let project: LedgerProject;
   let scopedTaskId: string | undefined;
   if (projectMatch) {
-    project = await resolveProject(projectMatch[1]!, request, ports, declared);
+    project = await resolveProject(projectMatch[1], request, ports, declared);
   } else {
-    const taskId = decodeURIComponent(taskMatch![1]!);
+    const taskId = decodeURIComponent(taskMatch![1]);
+    // eslint-disable-next-line no-restricted-syntax -- 任务到项目的绑定查询是目录探测，读不到即视为该任务不归属任何项目，下面按未绑定回 404 而不是把存储错误当 500
     const resolved = await ports.taskProject(taskId).catch(() => undefined);
     if (!resolved) throw new HttpError(404, "会话不属于任何项目", "project_unbound");
     project = resolved;
@@ -268,6 +269,7 @@ export async function handleProjectDataRequest(
     if (body.action === "claim") {
       if (scopedTaskId === undefined && !declared && body.handler !== undefined) {
         const handler = body.handler as Record<string, unknown>;
+        // eslint-disable-next-line no-restricted-syntax -- 认领者会话的归属查询失败时无法证明它属于本项目，下面按 403 拒绝，不能让读目录的失败变成 500
         const bound = await ports.taskProject(String(handler.taskId ?? "")).catch(() => undefined);
         if (!bound || bound.projectId !== project.projectId)
           throw new HttpError(403, "认领者会话不属于当前项目", "board_handler_mismatch");
@@ -390,6 +392,7 @@ async function resolveProject(
   const scopedTask = request.headers["x-cowork-task-id"];
   if (scopedTask !== undefined) {
     const taskId = typeof scopedTask === "string" ? scopedTask : "";
+    // eslint-disable-next-line no-restricted-syntax -- x-cowork-task-id 指向的任务可能已被清理，绑定查询失败按不匹配处理，下面回 403 而不是把存储错误暴露成 500
     const bound = taskId ? await ports.taskProject(taskId).catch(() => undefined) : undefined;
     if (!bound || bound.projectId !== projectId)
       throw new HttpError(403, "台账工具只能访问当前会话所属项目", "project_scope_denied");

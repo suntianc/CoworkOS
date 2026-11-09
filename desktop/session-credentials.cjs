@@ -7,6 +7,7 @@ function createSessionCredentialStore({ userData, storage }) {
   const file = path.join(userData, "client-sessions.json");
   let queue = Promise.resolve();
   const serial = (action) => {
+    // eslint-disable-next-line no-restricted-syntax -- queue holds the previous credential operation whose rejection was already returned to its own caller; the queue only orders access
     const next = queue.catch(() => {}).then(action);
     queue = next;
     return next;

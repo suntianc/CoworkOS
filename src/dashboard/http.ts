@@ -138,6 +138,7 @@ export function trustedClientOrigins(env: NodeJS.ProcessEnv = process.env): stri
         ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname) &&
         parsed.origin === origin &&
         origin.length <= 120;
+      // eslint-disable-next-line no-restricted-syntax -- 配置串不是合法 URL 时必须落到 valid=false 被拒绝，下面按条报出
     } catch {
       valid = false;
     }

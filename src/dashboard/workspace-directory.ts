@@ -104,6 +104,7 @@ export function createWorkspaceDirectory(
         if (reference.workspaceRoot) applications.add(resolve(reference.workspaceRoot));
       const manifest = await readFile(join(root, task.taskId, "applications", "manifest.json"), "utf8")
         .then((body) => JSON.parse(body) as { workspaceRoot?: unknown })
+        // eslint-disable-next-line no-restricted-syntax -- manifest 只是资源发现线索，损坏或不可读时跳过该提示，其它根目录照常发现
         .catch(() => {
           // A discovery hint may be damaged or unreadable. Keep the original
           // bytes and discover other roots through catalogs, mappings and valid Tasks.
@@ -176,6 +177,7 @@ export function createWorkspaceDirectory(
     }> = [];
     for (const root of roots ?? (await knownWorkspaceRoots())) {
       const store = new LocalWorkspaceStore(root);
+      // eslint-disable-next-line no-restricted-syntax -- 已注册的旧工作区根目录可能被删除，该根的列表读取失败按空处理，其它根仍要汇总
       const tasks = await store.listTasks(includeWorkspaces).catch(() => []);
       for (let task of tasks) {
         if (task.kind !== "workspace") {
@@ -300,6 +302,7 @@ export function createWorkspaceDirectory(
           projectName: project.projectName,
           projectDirectory: project.projectDirectory
         };
+        // eslint-disable-next-line no-restricted-syntax -- 任务可能属于其它已注册工作区，本根读取失败就继续查找下一个根
       } catch {
         /* task belongs to another registered workspace */
       }

@@ -17,6 +17,7 @@
     const saved = host ? host.initial : { preference: localStorage.getItem(key) };
     if (valid(saved?.preference)) preference = saved.preference;
     if (validTheme(saved?.effective)) hostEffective = saved.effective;
+    // eslint-disable-next-line no-restricted-syntax -- localStorage.getItem throws in a storage-restricted session; the page must still paint with the system theme
   } catch {
     // Storage-unavailable sessions retain the system fallback, so a browser
     // privacy restriction never locks the page to an unchangeable theme.
@@ -85,6 +86,7 @@
             }
           } else localStorage.setItem(key, preference);
           if (currentRevision === revision) status.textContent = "";
+          // eslint-disable-next-line no-restricted-syntax -- saving the theme fails in private or full-storage sessions; the status line reports it and the previous preference is restored
         } catch {
           if (host && currentRevision === revision) {
             preference = confirmedPreference;

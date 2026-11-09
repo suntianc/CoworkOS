@@ -309,6 +309,7 @@ export class ResourceStore {
         paths.selection,
         "resource_not_found",
         resourceId
+        // eslint-disable-next-line no-restricted-syntax -- 选区是可选的投影，缺失或损坏时 ResourceRead.selection 就是未保存状态
       ).catch(() => undefined);
       const limit = Math.max(1, Math.min(options.limit ?? RESOURCE_LIMITS.historyPage, 1_000));
       const history = await this.history(appType, resourceId).page(options.afterRevision, limit);
@@ -343,6 +344,7 @@ export class ResourceStore {
       try {
         await this.recover(reference.appType, reference.resourceId);
         resources.push(await this.reconcile(reference.appType, reference.resourceId));
+        // eslint-disable-next-line no-restricted-syntax -- 引用可能指向已在别处删除的资源，跳过它由调用方裁剪引用，不能让一条坏引用隐藏其余资源
       } catch {
         /* a deleted or unreadable resource must not hide the rest */
       }
@@ -366,6 +368,7 @@ export class ResourceStore {
       try {
         await this.recover(appType, entry.name);
         resources.push(await this.reconcile(appType, entry.name));
+        // eslint-disable-next-line no-restricted-syntax -- 目录里的单个资源可能刚被删除或 metadata 损坏，跳过它，其余资源仍要返回
       } catch {
         /* as above */
       }
@@ -390,6 +393,7 @@ export class ResourceStore {
         let resource: WorkspaceResource;
         try {
           resource = await this.readMetadata(application, entry.name);
+          // eslint-disable-next-line no-restricted-syntax -- metadata 缺失或损坏时回退到底下的创建日志，这条读取失败由内层 try 承接
         } catch {
           try {
             resource = (
@@ -399,12 +403,13 @@ export class ResourceStore {
                 entry.name
               )
             ).resource;
+            // eslint-disable-next-line no-restricted-syntax -- 已放弃或损坏的 creation 记录与本次导入无关，跳过该目录，导入继续查其余应用
           } catch {
             // An abandoned or damaged unrelated record cannot block imports.
             continue;
           }
         }
-        const imported = await normalizeArtifactImportOrigin(resource?.importedArtifact);
+        const imported = await normalizeArtifactImportOrigin(resource.importedArtifact);
         if (
           imported?.storageRoot === source.storageRoot &&
           imported.taskId === source.taskId &&
@@ -519,7 +524,7 @@ export class ResourceStore {
                   }
                 : {})
             }
-          : results[0]!;
+          : results[0];
       const body = adapter.serialize(applied.content);
       assertSize(body, resourceContentLimit(adapter.definition));
       const revision = resource.revision + 1;
@@ -621,7 +626,7 @@ export class ResourceStore {
     if (!resource.sourceFile) return;
     try {
       await this.assertSourceCurrentLocked(resource);
-      const source = resource.sourceFile!;
+      const source = resource.sourceFile;
       if (source.savedRevision === resource.revision) return;
       const adapter = this.registry.require(resource.appType);
       const body =
@@ -652,7 +657,7 @@ export class ResourceStore {
       throw new ApplicationError(
         "source_file_write_failed",
         `保存原文件失败：${error instanceof Error ? error.message : String(error)}；修改已保留，请重试`,
-        { path: resource.sourceFile?.path }
+        { path: resource.sourceFile.path }
       );
     }
   }
@@ -775,6 +780,7 @@ export class ResourceStore {
       this.paths(appType, resourceId).selection,
       "resource_not_found",
       resourceId
+      // eslint-disable-next-line no-restricted-syntax -- 选区文件缺失或损坏等价于没有选区，调用方把 undefined 当作未保存选区
     ).catch(() => undefined);
   }
 
@@ -980,6 +986,7 @@ export class ResourceStore {
         await stat(join(this.resourceDirectory(definition.appType, id), "metadata.json"));
         this.appTypeById.set(id, definition.appType);
         return definition.appType;
+        // eslint-disable-next-line no-restricted-syntax -- stat 失败表示该应用下没有这个资源，继续探测下一个应用，全部探测完才抛 resource_not_found
       } catch {
         /* not this application's */
       }
@@ -1054,6 +1061,7 @@ export class ResourceStore {
       (!Array.isArray(resource.savedCopies) ||
         resource.savedCopies.some(
           (copy) =>
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- savedCopies 来自 metadata.json 的 JSON.parse，旧文件里可能是不带 path 的 null 元素
             !copy ||
             typeof copy.path !== "string" ||
             !isAbsolute(copy.path) ||
@@ -1193,8 +1201,11 @@ export class ResourceStore {
       });
     };
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- creation 日志用 JSON.parse 从磁盘读取，整个文件可能是 null
       !pending ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- creation 日志可能是另版本的布局，版本字段不匹配就按不可判定处理
       pending.version !== 1 ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同一条磁盘日志里 resource 字段可能缺失，读 resourceId 前要先判空
       pending.resource?.resourceId !== resourceId ||
       pending.resource.appType !== appType ||
       !pending.resource.importedArtifact ||
@@ -1270,20 +1281,28 @@ export class ResourceStore {
       return refuse("重命名意图无法解析");
     }
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 重命名意图用 JSON.parse 从磁盘读取，整个文件可能是 null
       !pending ||
       typeof pending !== "object" ||
       Array.isArray(pending) ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 重命名意图可能来自另版本布局，版本字段不匹配就拒绝恢复
       pending.version !== 1 ||
       pending.resourceId !== resourceId ||
       pending.appType !== appType ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 日志里 source 字段可能缺失，取 source.resourceId 前要先判空
       pending.source?.resourceId !== resourceId ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，source.appType 也可能缺失
       pending.source?.appType !== appType ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 日志里 resource 字段可能缺失，取 resourceId 前要先判空
       pending.resource?.resourceId !== resourceId ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，resource.appType 也可能缺失
       pending.resource?.appType !== appType ||
       pending.resource.revision !== pending.source.revision ||
       pending.expectedContentVersion !== pending.source.contentVersion ||
       pending.expectedContentVersion !== pending.resource.contentVersion ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 文件身份来自旧日志，sourceIdentity 可能整体缺失，缺失即无法核对 inode
       !Number.isSafeInteger(pending.sourceIdentity?.dev) ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，sourceIdentity 缺失时 ino 也读不到
       !Number.isSafeInteger(pending.sourceIdentity?.ino)
     )
       return refuse("重命名意图与资源身份不一致");
@@ -1359,10 +1378,13 @@ export class ResourceStore {
       // An unparseable pending file is itself undecidable: it may describe a
       // half-applied write. Mark the resource rather than dropping the file.
       await this.markRecoveryRequired(appType, resourceId, "pending transaction 无法解析");
+      // eslint-disable-next-line no-restricted-syntax -- 资源已标记为 recovery_required，删掉这个无法判定的日志失败也不改变该状态，下次恢复仍拒绝重放
       await unlink(paths.pending).catch(() => {});
       return;
     }
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- pending 事务用 JSON.parse 从磁盘读取，version/resourceId 可能来自另版本或损坏的文件
     if (pending.version !== 1 || pending.resourceId !== resourceId) {
+      // eslint-disable-next-line no-restricted-syntax -- 版本不符的日志无法重放，删除失败时下次恢复会再走到同一分支并原样丢弃
       await unlink(paths.pending).catch(() => {});
       return;
     }
@@ -1370,6 +1392,7 @@ export class ResourceStore {
       paths.metadata,
       "resource_not_found",
       resourceId
+      // eslint-disable-next-line no-restricted-syntax -- metadata 缺失或被破坏时无法判定中断事务，下面的分支会标记 recovery_required 并记录原因
     ).catch(() => undefined);
     if (!resource) {
       await this.markRecoveryRequired(appType, resourceId, "资源元数据缺失，无法判定中断事务");
@@ -1383,6 +1406,7 @@ export class ResourceStore {
 
     if (resource.revision === target && fileMatchesTarget) {
       if (!logged) await history.append(pending.event);
+      // eslint-disable-next-line no-restricted-syntax -- metadata 与操作日志都已落盘，删除 pending 只是收尾；删不掉时下次恢复命中同一已提交分支，不会重复追加
       await unlink(paths.pending).catch(() => {});
       return;
     }
@@ -1394,6 +1418,7 @@ export class ResourceStore {
       if (fileMatchesTarget) {
         await atomicWrite(paths.metadata, json(pending.resource));
         await history.append(pending.event);
+        // eslint-disable-next-line no-restricted-syntax -- 事务到这里已完整提交，pending 只是收尾；删除失败留给下次恢复重试，不会写第二遍
         await unlink(paths.pending).catch(() => {});
         return;
       }
@@ -1407,6 +1432,7 @@ export class ResourceStore {
         await this.commit(appType, resourceId, pending);
         return;
       }
+      // eslint-disable-next-line no-restricted-syntax -- 文件已被外部修改，事务就此放弃；删除日志失败时下次恢复走到无法判定分支并标记 recovery_required，不会重放覆盖用户修改
       await unlink(paths.pending).catch(() => {});
       await this.reconcileLocked(appType, resourceId);
       return;
@@ -1424,6 +1450,7 @@ export class ResourceStore {
       paths.metadata,
       "resource_not_found",
       resourceId
+      // eslint-disable-next-line no-restricted-syntax -- metadata 读不出来就没有可标记的记录，调用方抛出的错误本身已带上 reason
     ).catch(() => undefined);
     if (!resource) return;
     await atomicWrite(

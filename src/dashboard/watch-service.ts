@@ -51,6 +51,7 @@ export function createWatchService(ports: {
   async function cycle() {
     if (disabled || stopped) return;
     for (const root of await ports.knownWorkspaceRoots()) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stopped 由 stop() 在周期运行期间置位，TS 在 cycle 里看不到这次闭包写入
       if (stopped) break;
       const supervisor = new WatchSupervisor({
         ...ports.runtimeOptions?.(),
@@ -86,6 +87,7 @@ export function createWatchService(ports: {
             )
               await main.runCycle({ taskId: task.taskId });
             await supervisor.runCycle({ taskId: task.taskId, phase });
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stop() 可在 poll 阶段运行期间置位 stopped，此时不能再启动唤醒周期
             if (!stopped && ports.runtimeValue("COWORK_API_KEY") && ports.runtimeValue("COWORK_API_BASE"))
               await main.runCycle({ taskId: task.taskId });
           })()

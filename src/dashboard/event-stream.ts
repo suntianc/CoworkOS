@@ -8,6 +8,7 @@ import { runtimeEventRecord } from "../runtime/conversation-history.js";
 export async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
   try {
     return JSON.parse(await readFile(path, "utf8")) as T;
+    // eslint-disable-next-line no-restricted-syntax -- 文件可能尚未创建或正在被重写，调用方传给的 fallback 就是缺失时的取值
   } catch {
     return fallback;
   }
@@ -57,6 +58,7 @@ export async function readJsonLines(path: string, limit: number): Promise<Array<
         .flatMap((line) => {
           try {
             return [JSON.parse(line) as Record<string, unknown>];
+            // eslint-disable-next-line no-restricted-syntax -- JSONL 末行可能只写了一半，跳过该行并保留它前面的完整记录
           } catch {
             return [];
           }
@@ -64,6 +66,7 @@ export async function readJsonLines(path: string, limit: number): Promise<Array<
     } finally {
       await handle.close();
     }
+    // eslint-disable-next-line no-restricted-syntax -- 打开或读取失败（文件还不存在、任务目录已删）时按无历史返回，调用方继续轮询
   } catch {
     return [];
   }
@@ -140,6 +143,7 @@ async function readRuntimeEventsSince(
         try {
           const value = JSON.parse(line);
           if (value && typeof value === "object") parsed.push(value as Record<string, unknown>);
+          // eslint-disable-next-line no-restricted-syntax -- 运行日志的一行可能在写入中途被读到，跳过它不能中断整条流
         } catch {
           /* retain the stream; malformed lines are not UI-fatal */
         }
@@ -218,6 +222,7 @@ export function streamRunEvents(
           isClosed: () => closed
         });
         ledgerStarted = true;
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，TS 看不到这次写入
         if (closed) return;
         for (const event of events) {
           const eventId = typeof event.eventId === "string" ? event.eventId : "";
@@ -239,7 +244,9 @@ export function streamRunEvents(
       if (now - watchReadAt >= 1000) {
         watchReadAt = now;
         const directory = join(taskWorkspace, taskId, "watch", "programs");
+        // eslint-disable-next-line no-restricted-syntax -- watch/programs 只在有监视程序时存在，缺失就是没有程序
         const programs = await readdir(directory).catch(() => []);
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，readdir 返回后连接可能已断开
         if (closed) return;
         for (const programId of programs) {
           if (!/^[a-zA-Z0-9_-]+$/.test(programId)) continue;
@@ -248,12 +255,15 @@ export function streamRunEvents(
           if (!cursor) {
             const size = await stat(path)
               .then((info) => info.size)
+              // eslint-disable-next-line no-restricted-syntax -- 程序事件文件要到第一条事件才创建，缺失时从文件开头跟随
               .catch(() => 0);
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，stat 期间连接可能已断开
             if (closed) return;
             cursor = { offset: Math.max(0, size - 65_536), pending: "", decoder: new StringDecoder("utf8") };
             watchCursors.set(programId, cursor);
           }
           const events = await readRuntimeEventsSince(path, cursor, { isClosed: () => closed });
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，读文件期间连接可能已断开
           if (closed) return;
           for (const event of events) {
             const eventId = `watch-ui-${createHash("sha256").update(JSON.stringify(event)).digest("hex").slice(0, 32)}`;
@@ -266,12 +276,14 @@ export function streamRunEvents(
       const runtimeEvents = await readRuntimeEventsSince(runtimePath, runtimeReadCursor, {
         isClosed: () => closed
       });
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，读取运行日志期间连接可能已断开
       if (closed) return;
       for (const event of runtimeEvents) {
         const record = runtimeEventRecord(taskId, runId, runtimeCursor, event);
         response.write(`id: ${record.eventId}\ndata: ${JSON.stringify(record)}\n\n`);
         runtimeCursor += 1;
       }
+      // eslint-disable-next-line no-restricted-syntax -- 运行文件要到第一条事件落盘才存在，这一轮按无新事件处理，下一次 tick 重试
     } catch {
       // The run file may not exist until the first event is committed.
     } finally {

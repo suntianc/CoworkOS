@@ -119,6 +119,7 @@ async function logTail(paths: BackendPaths, bytes = 4_000): Promise<string> {
     } finally {
       await handle.close();
     }
+    // eslint-disable-next-line no-restricted-syntax -- 日志文件在启动早期可能尚未创建，读取失败只影响附加的日志尾巴，原始错误仍会抛出
   } catch {
     return "";
   }
@@ -182,6 +183,7 @@ export async function startBackend(
         const spawned = await spawnBackend(paths, env, cwd, claimToken, instanceToken, executable);
         return { kind: "starting", claim, instanceToken, spawned };
       } catch (error) {
+        // eslint-disable-next-line no-restricted-syntax -- 启动失败后放弃归属记录，删除失败不能覆盖将要抛出的 spawn 错误
         await removeBackendStarting(paths, claimToken).catch(() => undefined);
         throw error;
       }
@@ -202,10 +204,12 @@ export async function startBackend(
   } catch (error) {
     await prepared.spawned.terminate();
     await removeBackendInstance(paths, { pid: prepared.spawned.pid, token: prepared.instanceToken }).catch(
+      // eslint-disable-next-line no-restricted-syntax -- 启动失败路径上清理实例记录，删除失败由下面重新抛出的原错误承接
       () => undefined
     );
     throw error;
   } finally {
+    // eslint-disable-next-line no-restricted-syntax -- 无论启动成败都放弃归属记录；记录残留由下一次启动按 pid 存活检查回收
     await removeBackendStarting(paths, prepared.claim.token).catch(() => undefined);
   }
 }
@@ -257,6 +261,7 @@ async function spawnBackend(
     async terminate() {
       try {
         process.kill(pid, "SIGKILL");
+        // eslint-disable-next-line no-restricted-syntax -- 子进程可能已自行退出，ESRCH 无需处理；随后仍会等待 exit 事件
       } catch {
         /* the daemon already exited */
       }
@@ -333,6 +338,7 @@ export async function stopBackend(
       if (forced) {
         try {
           process.kill(instance.pid, "SIGKILL");
+          // eslint-disable-next-line no-restricted-syntax -- 进程可能在存活检查与发送强杀信号之间退出，后续存活轮询会得出同样的结论
         } catch {
           /* the process exited between the check and the signal */
         }
@@ -451,6 +457,7 @@ export async function publishBackendServing(
 
 /** Give up a serving claim that never published an instance record. */
 export async function releaseBackendServing(paths: BackendPaths, claimToken: string): Promise<void> {
+  // eslint-disable-next-line no-restricted-syntax -- 调用方已在启动失败路径上，放弃归属是尽力清理；残留记录由下次启动按 pid 存活检查回收
   await removeBackendStarting(paths, claimToken).catch(() => undefined);
 }
 
@@ -546,6 +553,7 @@ export async function serveBackend(claimToken?: string, executable = process.exe
           ),
         () => process.exit(1)
       )
+      // eslint-disable-next-line no-restricted-syntax -- 进程收尾链上的拒绝已统一映射为退出码 1，此时只剩退出状态可表达，没有可上报通道
       .catch(() => process.exit(1));
   };
   const shutdown = (code: number) => {

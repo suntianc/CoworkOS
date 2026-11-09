@@ -19,7 +19,7 @@ async function canonical(value: string): Promise<string> {
 }
 
 async function inferredDirectory(
-  entries: HistoryEntry[],
+  entries: Array<HistoryEntry | null>,
   storageRoot: string,
   taskId: string
 ): Promise<string | undefined> {
@@ -83,6 +83,7 @@ export async function inferLegacyProjectDirectory(
         .flatMap((line) => {
           try {
             return [JSON.parse(line) as HistoryEntry];
+            // eslint-disable-next-line no-restricted-syntax -- 进程中断会留下半行 JSONL，损坏的单行跳过即可，后面还有其它会话文件可读
           } catch {
             return [];
           }
@@ -105,9 +106,11 @@ export async function applicationProjectEvidence(
   const evidence = new Set<string>();
   for (const root of roots) {
     const applications = join(root, "applications");
+    // eslint-disable-next-line no-restricted-syntax -- 工作区根不一定有 applications 目录，缺目录就是没有应用证据，不能因此让项目列表失败
     for (const app of await readdir(applications, { withFileTypes: true }).catch(() => [])) {
       if (!app.isDirectory() || app.name === "instances") continue;
       const resources = join(applications, app.name, "resources");
+      // eslint-disable-next-line no-restricted-syntax -- 应用没装资源就没有 resources 目录，缺目录表示没有证据可收集
       for (const resource of await readdir(resources, { withFileTypes: true }).catch(() => [])) {
         if (!resource.isDirectory()) continue;
         try {
@@ -132,6 +135,7 @@ export async function applicationProjectEvidence(
             for (const project of projects)
               if (resolve(project.projectDirectory) === resolve(root)) evidence.add(project.projectId);
           }
+          // eslint-disable-next-line no-restricted-syntax -- 目录里的残留 metadata.json 可能已损坏，读不了就不提供证据，且绝不修改这些文件
         } catch {
           /* Unreadable remnants supply no evidence; preserve every original file. */
         }

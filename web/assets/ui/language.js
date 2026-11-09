@@ -4,6 +4,7 @@ export function readLanguage(storage) {
   try {
     const value = storage?.getItem(LANGUAGE_KEY);
     return validLanguage(value) ? value : "zh-CN";
+    // eslint-disable-next-line no-restricted-syntax -- 存储被禁用时 getItem 抛出，语言回退为默认中文
   } catch {
     return "zh-CN";
   }
@@ -11,6 +12,7 @@ export function readLanguage(storage) {
 let storage;
 try {
   storage = globalThis.localStorage;
+  // eslint-disable-next-line no-restricted-syntax -- 受限上下文里读取 localStorage 属性本身就会抛出，此时不持久化语言
 } catch {
   // Restricted storage retains the existing Chinese default.
 }

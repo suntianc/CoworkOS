@@ -268,6 +268,7 @@ export async function processUserMemoryLearning(options: {
           if (checkingForeground || signal.aborted) return;
           checkingForeground = true;
           void checkForeground()
+            // eslint-disable-next-line no-restricted-syntax -- 前台探测失败按“前台活跃”处理并中止本轮，中止信号已让本次学习停止
             .catch(() => {
               if (!signal.aborted) foreground.abort();
             })
@@ -349,6 +350,7 @@ export async function processUserMemoryLearning(options: {
       },
       { timeoutMs: 1000, recoverDeadOwner: true }
     );
+    // eslint-disable-next-line no-restricted-syntax -- 学习租约可能被另一个宿主持有，抢不到锁就跳过本轮，不能由本进程结算别人的工作
   } catch {
     // Another host can own the lease. Never settle its work from this process.
     return 0;
@@ -376,6 +378,7 @@ export function createUserMemoryLearningService(options: {
       isConnectionCurrent: () => JSON.stringify(options.connection()) === JSON.stringify(connection),
       signal: AbortSignal.any([controller.signal, passController.signal])
     })
+      // eslint-disable-next-line no-restricted-syntax -- 后台学习轮次的结果已写进 store（成功提交或 failLearning 记录失败），这里只负责清掉运行标记
       .catch(() => {})
       .finally(() => {
         running = undefined;

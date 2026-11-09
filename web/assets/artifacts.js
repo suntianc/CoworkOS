@@ -54,6 +54,7 @@ export function artifactRequestUrls(taskId, path, version, result = {}) {
         candidate.searchParams.get("path") === path
       )
         url = candidate;
+      // eslint-disable-next-line no-restricted-syntax -- artifact metadata comes from the backend and may hold a malformed URL; the task-local endpoint stays as the fallback
     } catch {
       /* use the task-local endpoint */
     }
@@ -81,6 +82,7 @@ export function resolveArtifactLink(detail, absolutePath) {
   const candidates = [absolutePath];
   try {
     candidates.push(decodeURIComponent(absolutePath));
+    // eslint-disable-next-line no-restricted-syntax -- a clicked href may carry a malformed %-escape and throw URIError; the literal path is still a registered filename
   } catch {
     /* A malformed URL can still name a literal, registered filename. */
   }

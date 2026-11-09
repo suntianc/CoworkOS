@@ -216,6 +216,7 @@ export class ComputerUse {
   }
   /** This method is called only through the trusted host channel, never HTTP. */
   configurePolicy(value: ComputerPolicy) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 策略值来自受信宿主 IPC，旧渲染进程可能缺字段或传错类型
     if (!value || typeof value.enabled !== "boolean" || !["observe", "control"].includes(value.mode))
       throw new ComputerUseError(400, "全局策略不合法");
     if (!value.enabled || value.enabled !== this.policy.enabled || value.mode !== this.policy.mode) {
@@ -284,6 +285,7 @@ export class ComputerUse {
   }
   /** FIFO acquisition holds the desktop across the complete observe/action workflow. */
   select(taskId: string, pid: number, windowId: number, mode: "observe" | "control", signal?: AbortSignal) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mode 由 HTTP/IPC 请求传入，声明为联合类型但运行期可能是任意字符串
     if (mode !== "observe" && mode !== "control")
       return Promise.reject(new ComputerUseError(400, "授权模式不合法"));
     try {
@@ -423,6 +425,7 @@ export class ComputerUse {
     };
   }
   async authorize(taskId: string, pid: number, windowId: number, mode: "observe" | "control") {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mode 由 HTTP/IPC 请求传入，声明为联合类型但运行期可能是任意字符串
     if (mode !== "observe" && mode !== "control") throw new ComputerUseError(400, "授权模式不合法");
     this.paused = false;
     this.cancelledTasks.delete(taskId);
@@ -491,6 +494,7 @@ export class ComputerUse {
     timeoutMs = 15_000
   ): Promise<T> {
     const result = this.tail
+      // eslint-disable-next-line no-restricted-syntax -- 上一个操作已把自身的失败返回给它的调用方，这里只需让队列继续执行下一次操作
       .catch(() => {})
       .then(async () => {
         this.current(taskId);
@@ -530,6 +534,7 @@ export class ComputerUse {
           const value = await work(session, combined);
           if (
             combined.aborted &&
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- work 的泛型返回值 T 没有约束，运行期可能为 null，而 typeof null === "object" 会让后面的 in 抛 TypeError
             value &&
             typeof value === "object" &&
             "dispatchStatus" in value &&
@@ -572,6 +577,7 @@ export class ComputerUse {
   private async captureFrame(session: Session, signal: AbortSignal) {
     const frame = await this.driver.observe(session.target, signal);
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 原生屏幕驱动可能返回空帧，声明类型比运行期窄
       !frame ||
       !Number.isInteger(frame.width) ||
       !Number.isInteger(frame.height) ||
@@ -802,6 +808,7 @@ export class ComputerUse {
           this.record(session, "observe", "completed");
           return { ...result, requiresObservation: false, observation };
         } catch (error) {
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 上面的 throw 分支让 TS 把 combined.aborted 收窄为 false，但 delay 等待期间中止时 catch 仍会带着已中止的 signal 到达这里
           if (combined.aborted) {
             const aborted = combined.reason as Error;
             Object.assign(aborted, {

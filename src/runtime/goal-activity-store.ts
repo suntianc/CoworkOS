@@ -58,17 +58,22 @@ export class GoalActivityStore {
     return this.mutate((state) => {
       const updateId = `update-${key(input.topicKey)}`;
       const old = state.topics[updateId];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- topics 来自 goal-activity.json，首次发布同一 topicKey 时还没有旧条目
       const escalated = !old || rank[input.kind] > rank[old.kind];
       const update: GoalUpdate = {
         ...input,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧条目读自 goal-activity.json，只有它存在时才继承更高等级的标题
         ...(old && rank[old.kind] > rank[input.kind] ? { title: old.title, summary: old.summary } : {}),
         updateId,
         goalRevision: goal.revision,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 goal-activity.json 的条目没有 createdAt，缺失时用当前时间
         createdAt: old?.createdAt ?? now(),
         updatedAt: now(),
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，只有已保存的旧条目才沿用更高等级的 kind
         kind: old && rank[old.kind] > rank[input.kind] ? old.kind : input.kind,
         sources: [
           ...new Map(
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 goal-activity.json 的条目没有 sources，合并时按空数组起步
             [...(old?.sources ?? []), ...input.sources].map((source) => [source.url, source])
           ).values()
         ].slice(-40)
@@ -97,6 +102,7 @@ export class GoalActivityStore {
         } else if (goal.brief.notificationPolicy === "digest" && !state.pendingDigest.includes(updateId))
           state.pendingDigest.push(updateId);
       }
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 新主题（old 不存在）不算重复，old 读自 goal-activity.json 时类型声明看不到缺失
       return { update, notified, duplicate: Boolean(old && !escalated) };
     });
   }
@@ -149,6 +155,7 @@ export class GoalActivityStore {
         sources: [
           ...new Map(
             entry.updateIds
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 通知的 updateIds 可能指向已不在 topics 里的历史条目，取不到时跳过
               .flatMap((id) => state.topics[id]?.sources ?? [])
               .map((source) => [source.url, source])
           ).values()

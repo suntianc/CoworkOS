@@ -176,6 +176,7 @@ function inlineMarkdown(value, options) {
       try {
         const parsed = new URL(url);
         if (!parsed.hostname || parsed.username || parsed.password) return match;
+        // eslint-disable-next-line no-restricted-syntax -- 链接化文本取自消息内容，可能不是合法 URL，此时保留原文不生成链接
       } catch {
         return match;
       }

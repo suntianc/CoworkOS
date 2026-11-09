@@ -372,6 +372,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         git(workspace, ["status", "--porcelain", "--untracked-files=no"])
       ]);
       return { head, tree, changes };
+      // eslint-disable-next-line no-restricted-syntax -- 审查现场尚未准备或已被删除时 Git 读不到，返回 undefined 让调用方按“未准备”继续
     } catch {
       return undefined;
     }
@@ -743,7 +744,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     }
     const timestamp = now();
     for (let index = 0; index < chain.length - 1; index += 1) {
-      const parent = chain[index]!;
+      const parent = chain[index];
       if (!parent.findings.some((finding) => finding.state === "fix_claimed")) continue;
       const evidenceAt = new Map<string, string>();
       for (const rework of parent.reworks)
@@ -1119,12 +1120,14 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         // shared write: if the shared store is unreachable, the delivery and
         // the merged record are completed later from this entry and Git.
         const intent = intentOf(current);
+        // eslint-disable-next-line no-restricted-syntax -- outbox 只是本机补投线索；写不进去时合入记录与 Git 目标仍表达结果，重放按 Git 对账
         if (intent) await deliveryOutbox.put(intent).catch(() => undefined);
         afterApply(current);
         await removeMergeSite(config.repository, mergeSite(merge.mergeId));
         let merged: DevelopmentMerge;
         try {
           merged = await update({ state: "merged", reasons: [], detail: null });
+          // eslint-disable-next-line no-restricted-syntax -- 目标分支已含该提交且 outbox 留住本地事实，共享记录写不进去时返回当前值由补投完成
         } catch {
           // The real Git update is done and the staged row still names it, so
           // the Run is not blocked by a record that cannot be written now.
@@ -1132,6 +1135,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         }
         // The ledger/board are a separate shared write; a failure leaves the
         // delivery pending and visible instead of turning the merge failed.
+        // eslint-disable-next-line no-restricted-syntax -- 交付同步是独立的共享写，失败时 outbox 留住待同步条目，合入结果不变成失败
         await syncDelivery(projectId, merged).catch(() => undefined);
         return merged;
       }
@@ -1152,6 +1156,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
           reasons: ["merge_failed"],
           detail
         })
+        // eslint-disable-next-line no-restricted-syntax -- 合入已失败并抛错，写失败记录写不进去时读取原记录返回，错误已由 Git 与状态表达
         .catch(() => undefined);
       return failed ?? service.getMerge(projectId, merge.mergeId);
     }
@@ -1228,6 +1233,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         state: "failed",
         reasons: ["merge_reconcile_failed"],
         detail
+        // eslint-disable-next-line no-restricted-syntax -- 对账的失败记录写不进去时返回原记录，目标分支的实际状态仍决定下一次对账
       }).catch(() => merge);
     }
   }
@@ -1255,11 +1261,13 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     try {
       const delivery = await (await gateway()).syncDelivery(projectId, receipt);
       if (delivery.state === "synced")
+        // eslint-disable-next-line no-restricted-syntax -- 交付已同步，删不掉本地待投递条目只会让下次重放再确认一次幂等同步
         await deliveryOutbox.remove(projectId, merge.mergeId).catch(() => undefined);
       return delivery;
     } catch (error) {
       await deliveryOutbox
         .fail(projectId, merge.mergeId, error instanceof Error ? error.message : String(error))
+        // eslint-disable-next-line no-restricted-syntax -- 记录失败原因写不进去时条目仍是 pending，下次重放会用同一错误重新标记
         .catch(() => undefined);
       throw error;
     }
@@ -1316,12 +1324,14 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     intent: DeliveryIntent
   ): Promise<DevelopmentMerge | undefined> {
     const service = await gateway();
+    // eslint-disable-next-line no-restricted-syntax -- 共享存储读不到该合入时按“暂无记录”返回，outbox 条目留到下一次重放
     let merge = await service.getMerge(projectId, intent.mergeId).catch(() => undefined);
     if (!merge) return undefined;
     // The outbox belongs to the backend that published the operation; another
     // backend reading the same data root must not complete or drop it.
     if (merge.executionBackendId !== ports.backendId) return undefined;
     if (merge.state === "merged") {
+      // eslint-disable-next-line no-restricted-syntax -- 行已 merged，交付同步失败时该行仍是 pending 待同步，下一次重放接着做
       await syncDelivery(projectId, merge).catch(() => undefined);
       return merge;
     }
@@ -1336,11 +1346,13 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
             expectedTarget: intent.expectedTarget ?? applying.combinedBase ?? null,
             ...(intent.combinedBase && !applying.combinedBase ? { combinedBase: intent.combinedBase } : {})
           })
+          // eslint-disable-next-line no-restricted-syntax -- 补写 mergeCommit 失败时用 outbox 的原记录继续对账，最终状态由目标分支决定
           .catch(() => undefined);
         if (updated) applying = updated;
       }
       const reconciled = await reconcileApplying(projectId, config, applying);
       if (reconciled.state === "merged") {
+        // eslint-disable-next-line no-restricted-syntax -- 对账已确认合入，交付同步失败时该行仍是 pending，下一次重放接着同步
         await syncDelivery(projectId, reconciled).catch(() => undefined);
         return reconciled;
       }
@@ -1348,6 +1360,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         reconciled.state === "waiting" ||
         (reconciled.state === "failed" && reconciled.reasons.includes("target_missing"))
       )
+        // eslint-disable-next-line no-restricted-syntax -- 行已进入等待或目标分支不存在，待投递条目作废；删不掉时下次重放再清理一次
         await deliveryOutbox.remove(projectId, intent.mergeId).catch(() => undefined);
       return reconciled.state === "waiting" ? undefined : reconciled;
     }
@@ -1357,7 +1370,9 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     // configuration the repository is unknown, so keep the local fact for a
     // later read instead of dropping it.
     if (!config) return undefined;
+    // eslint-disable-next-line no-restricted-syntax -- Git 读不到目标分支时分不清“已前移”与“读失败”，按未知保留 outbox 条目等待下次重放
     const tip = await targetTip(config.repository, merge.targetBranch).catch(() => undefined);
+    // eslint-disable-next-line no-restricted-syntax -- 祖先检查失败时按“不在目标上”处理，宁可保留条目也不误判成已合入
     if (tip && (await isAncestor(config.repository, intent.mergedCommit, tip).catch(() => false))) {
       const updated = await service
         .updateMerge(projectId, merge.mergeId, {
@@ -1367,8 +1382,10 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
           detail: null,
           mergeCommit: intent.mergedCommit
         })
+        // eslint-disable-next-line no-restricted-syntax -- 把行改成 merged 失败时保留 outbox 条目，下次重放重新从 Git 确认
         .catch(() => undefined);
       if (updated) {
+        // eslint-disable-next-line no-restricted-syntax -- 共享行已 merged，交付同步失败时由待同步状态在下次重放继续
         await syncDelivery(projectId, updated).catch(() => undefined);
         return updated;
       }
@@ -1376,14 +1393,17 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     }
     // The commit is not on the target: this outbox entry is stale and must not
     // turn into a delivery.
+    // eslint-disable-next-line no-restricted-syntax -- 提交不在目标分支上，条目已作废；删不掉时下次重放按同一 Git 事实再判定一次
     await deliveryOutbox.remove(projectId, intent.mergeId).catch(() => undefined);
     return undefined;
   }
 
   /** Every project with a local pending fact; a startup and periodic pass uses it. */
   async function resumePendingDeliveries(): Promise<void> {
+    // eslint-disable-next-line no-restricted-syntax -- 本地 outbox 目录读失败时这一轮没有待投递项目，条目仍在盘上等下次启动重放
     for (const projectId of await deliveryOutbox.projects().catch(() => [])) {
       if (deliveryRecovery.stopping) return;
+      // eslint-disable-next-line no-restricted-syntax -- 单个项目的补投失败不阻断其余项目，该项目条目留到下一次定期重放
       await replayDeliveries(projectId).catch(() => undefined);
     }
   }
@@ -1405,6 +1425,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     const tick = () => {
       if (deliveryRecovery.stopping || deliveryRecovery.running) return;
       deliveryRecovery.running = resumePendingDeliveries()
+        // eslint-disable-next-line no-restricted-syntax -- 一次定期补投失败时条目仍 pending，下个 interval 的 tick 会再跑一遍
         .catch(() => undefined)
         .finally(() => {
           deliveryRecovery.running = undefined;
@@ -1412,13 +1433,14 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     };
     tick();
     deliveryRecovery.timer = setInterval(tick, delay);
-    deliveryRecovery.timer.unref?.();
+    deliveryRecovery.timer.unref();
   }
 
   async function stopDeliveryRecovery(): Promise<void> {
     deliveryRecovery.stopping = true;
     if (deliveryRecovery.timer) clearInterval(deliveryRecovery.timer);
     deliveryRecovery.timer = undefined;
+    // eslint-disable-next-line no-restricted-syntax -- 停机只等这一轮跑完，失败会把条目留在 outbox 里等下一次进程启动重放
     await deliveryRecovery.running?.catch(() => undefined);
     deliveryRecovery.running = undefined;
   }
@@ -1436,8 +1458,10 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     const task = (async () => {
       try {
         const service = await gateway();
+        // eslint-disable-next-line no-restricted-syntax -- 合入配置读失败时按“无配置”重放，只完成已 merged 的行，需要仓库的条目留到下次
         const config = await service.mergeConfig(projectId).catch(() => undefined);
         for (const intent of await deliveryOutbox.list(projectId)) {
+          // eslint-disable-next-line no-restricted-syntax -- 单条意图恢复失败不阻断其余条目，该 outbox 条目留到下一次重放
           const resumed = await resumeDeliveryIntent(projectId, config, intent).catch(() => undefined);
           if (resumed) resolved.set(resumed.mergeId, resumed);
         }
@@ -1450,9 +1474,11 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
           const deliveries = await service.queryDeliveries(projectId, merge.developmentId);
           if (deliveries.some((entry) => entry.mergeId === merge.mergeId && entry.state === "synced"))
             continue;
+          // eslint-disable-next-line no-restricted-syntax -- 已 merged 但缺交付的行同步失败时保持 pending，下一次读取或应用再重放
           const delivery = await syncDelivery(projectId, merge).catch(() => undefined);
           if (delivery?.state === "synced") resolved.set(merge.mergeId, merge);
         }
+        // eslint-disable-next-line no-restricted-syntax -- 共享存储不可达时 outbox 与 merged 行都保持原样，下一次读取或应用整体重试
       } catch {
         // An unreachable shared store leaves the outbox and merged rows intact;
         // the next read or apply retries them.
@@ -1513,6 +1539,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
           throw error;
         }
         const next = waiting[0];
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- queryMerges 可能返回空数组，waiting[0] 运行期是 undefined，这里就是循环的终止条件
         if (!next) break;
         let claimed: DevelopmentMerge;
         try {
@@ -1581,7 +1608,9 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
           const [additions, deletions, ...path] = line.split("\t");
           return {
             path: path.join("\t"),
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- numstat 行按制表符拆分，字段缺失时运行期为 undefined，?? "" 让缺失字段判为非数字
             additions: /^\d+$/.test(additions ?? "") ? Number(additions) : 0,
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，deletions 字段在二进制或残缺的 numstat 行里可能缺失
             deletions: /^\d+$/.test(deletions ?? "") ? Number(deletions) : 0
           };
         })
@@ -1593,6 +1622,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         ...(merge?.mergeCommit ? { mergedCommit: merge.mergeCommit } : {}),
         files
       };
+      // eslint-disable-next-line no-restricted-syntax -- 工作副本已不在本机时无法产出 diff，共享记录里的提交与检查仍照常可读
     } catch {
       // A checkout this host no longer has cannot produce a diff; the shared
       // commits and checks above remain readable without pretending otherwise.
@@ -1613,6 +1643,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
   ): Promise<DeliveryRoleProgress[]> {
     const known = async (callId: string): Promise<string | undefined> => {
       if (!record.taskId || !ports.call) return undefined;
+      // eslint-disable-next-line no-restricted-syntax -- 工作项队列读不到该 call 时按“本机没有”返回，角色状态回退到已记录的评审状态
       const fact = await ports.call(record.taskId, callId).catch(() => undefined);
       return fact?.status;
     };
@@ -1690,6 +1721,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         : developmentIdentifier(input.requirementId, "需求 ID");
     if (!developmentId && !requirementId)
       throw conflict("交付视图需要 developmentId 或 requirementId", "delivery_view_target_missing");
+    // eslint-disable-next-line no-restricted-syntax -- 补投失败不阻断视图读取，outbox 条目留到下一次读取或定期重放
     await replayDeliveries(projectId).catch(() => undefined);
     const service = await gateway();
     const record = developmentId
@@ -1705,9 +1737,11 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     ]);
     const delivery = deliveries.at(-1);
     const board = boardEntries.find((entry) => entry.requirementId === record.requirementId);
+    // eslint-disable-next-line no-restricted-syntax -- 资格计算读失败时视图省略该字段，合入与交付记录本身仍可读
     const qualification = await deliveryQualification(projectId, record.developmentId).catch(() => undefined);
     const diff = await deliveryDiff(record, delivery, merges, plan, reviews);
     const roles = await deliveryRoles(record, reviews);
+    // eslint-disable-next-line no-restricted-syntax -- 本地 outbox 读失败时视为没有待同步条目，条目仍在盘上等下次重放
     const pending = [...(await deliveryOutbox.list(projectId).catch(() => []))]
       .reverse()
       .find((intent) => intent.developmentId === record.developmentId);
@@ -1760,36 +1794,42 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
 
     async list(projectId: string, backendId = ports.backendId) {
       await project(projectId);
+      // eslint-disable-next-line no-restricted-syntax -- 开发列表读取前的补投失败不阻断列表本身，pending 条目留到下一次读取
       await replayDeliveries(projectId).catch(() => undefined);
       return (await gateway()).queryDevelopments(projectId, backendId);
     },
 
     async listForTask(taskId: string, backendId = ports.backendId) {
       const found = await taskProject(taskId);
+      // eslint-disable-next-line no-restricted-syntax -- Task 视角的开发列表同样只做尽力补投，失败时列表按已存记录返回
       await replayDeliveries(found.projectId).catch(() => undefined);
       return (await gateway()).queryDevelopments(found.projectId, backendId);
     },
 
     async get(projectId: string, developmentId: string, backendId = ports.backendId) {
       await project(projectId);
+      // eslint-disable-next-line no-restricted-syntax -- 单条开发记录读取前的补投失败不阻断读取，条目留到下一次读取
       await replayDeliveries(projectId).catch(() => undefined);
       return (await gateway()).getDevelopment(projectId, developmentId, backendId);
     },
 
     async getForTask(taskId: string, developmentId: string, backendId = ports.backendId) {
       const found = await taskProject(taskId);
+      // eslint-disable-next-line no-restricted-syntax -- Task 视角的单条读取同样不让补投失败变成读取失败
       await replayDeliveries(found.projectId).catch(() => undefined);
       return (await gateway()).getDevelopment(found.projectId, developmentId, backendId);
     },
 
     async find(projectId: string, requirementId: unknown, backendId = ports.backendId) {
       await project(projectId);
+      // eslint-disable-next-line no-restricted-syntax -- 按需求查找前的补投失败不阻断查找，outbox 条目留到下一次读取
       await replayDeliveries(projectId).catch(() => undefined);
       return (await gateway()).findDevelopmentByRequirement(projectId, requirementId, backendId);
     },
 
     async findForTask(taskId: string, requirementId: unknown, backendId = ports.backendId) {
       const found = await taskProject(taskId);
+      // eslint-disable-next-line no-restricted-syntax -- Task 视角的按需求查找同样只做尽力补投，失败不影响返回已存记录
       await replayDeliveries(found.projectId).catch(() => undefined);
       return (await gateway()).findDevelopmentByRequirement(found.projectId, requirementId, backendId);
     },
@@ -1797,6 +1837,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     /** Delivery rows for a project or one development; a pending row is readable with its error. */
     async deliveries(projectId: string, developmentId?: unknown) {
       await project(projectId);
+      // eslint-disable-next-line no-restricted-syntax -- 交付行读取前的补投失败不阻断读取，pending 行仍带原始错误返回
       await replayDeliveries(projectId).catch(() => undefined);
       return (await gateway()).queryDeliveries(
         projectId,
@@ -1806,6 +1847,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
 
     async deliveriesForTask(taskId: string, developmentId?: unknown) {
       const found = await taskProject(taskId);
+      // eslint-disable-next-line no-restricted-syntax -- Task 视角的交付行读取同样只做尽力补投，失败时按已存行返回
       await replayDeliveries(found.projectId).catch(() => undefined);
       return (await gateway()).queryDeliveries(
         found.projectId,
@@ -2058,12 +2100,14 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
 
     async queryMerges(projectId: string, developmentId?: string) {
       await project(projectId);
+      // eslint-disable-next-line no-restricted-syntax -- 合入行读取前的补投失败不阻断读取，outbox 条目留到下一次重放
       await replayDeliveries(projectId).catch(() => undefined);
       return (await gateway()).queryMerges(projectId, developmentId);
     },
 
     async queryMergesForTask(taskId: string, developmentId?: string) {
       const found = await taskProject(taskId);
+      // eslint-disable-next-line no-restricted-syntax -- Task 视角的合入行读取同样只做尽力补投，失败时按已存行返回
       await replayDeliveries(found.projectId).catch(() => undefined);
       return (await gateway()).queryMerges(found.projectId, developmentId);
     },

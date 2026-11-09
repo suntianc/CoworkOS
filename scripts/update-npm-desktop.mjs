@@ -223,6 +223,7 @@ async function downloadTarball({ url, integrity, directory, fetchImpl, signal, o
     onProgress({ phase: "downloaded", message: "npm 桌面包已校验", downloaded, total });
     return path;
   } catch (error) {
+    // eslint-disable-next-line no-restricted-syntax -- 下载失败已在下一行重新抛出，关闭临时文件句柄失败不能覆盖原始原因
     await handle.close().catch(() => {});
     await rm(path, { force: true });
     throw error;

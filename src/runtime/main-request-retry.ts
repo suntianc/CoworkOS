@@ -69,7 +69,7 @@ function refreshReplayMemory(
     const next = projected[index];
     if (
       message.role !== "system" ||
-      next?.role !== "system" ||
+      next.role !== "system" ||
       sectionNames.every(
         (section) => (message.sections?.[section] ?? "") === (next.sections?.[section] ?? "")
       )
@@ -78,7 +78,8 @@ function refreshReplayMemory(
     changed = true;
     return next;
   });
-  const context = normalizeContext({ messages: refreshed as TranscriptContext["messages"] });
+  const context = normalizeContext({ messages: refreshed });
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- changed 在 map 回调里赋值，TS 在读取处看不到回调内的写入
   if (!changed) return { context: original, body: snapshot.body };
   const rendered = (value: TranscriptContext) =>
     resolveTranscript(value, snapshot.model.compat?.supportsMidConvoSystemMessages).messages.flatMap(
@@ -94,7 +95,10 @@ function refreshReplayMemory(
   const messages: { role?: string; content?: unknown }[] | undefined = Array.isArray(body[field])
     ? body[field]
     : undefined;
-  const instructions = messages?.filter((message) => ["system", "developer"].includes(message?.role ?? ""));
+  const instructions = messages?.filter((message) =>
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 消息数组来自归档请求体 JSON，元素不一定是带 role 的对象
+    ["system", "developer"].includes(message?.role ?? "")
+  );
   if (
     !Array.isArray(messages) ||
     before.length !== after.length ||

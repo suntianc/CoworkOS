@@ -213,12 +213,14 @@ export async function validateCuaLive(args = process.argv.slice(2)) {
     const events = (await readFile(outputPath, "utf8")).split(/\r?\n/).flatMap((line) => {
       try {
         return [JSON.parse(line)];
+        // eslint-disable-next-line no-restricted-syntax -- 运行日志里混有非 JSON 行，解析失败的行不进事件统计
       } catch {
         return [];
       }
     });
     Object.assign(receipt, traceFacts(events), fixture.summary());
     const downloads = join(paths.workspaceRoot, taskId, "visual", "downloads");
+    // eslint-disable-next-line no-restricted-syntax -- 任务没有下载目录时按 0 个文件记账，receipt 的 downloads 断言据此判定失败
     const files = await readdir(downloads).catch(() => []);
     receipt.downloadFiles = files.length;
     const actual = files.length === 1 ? await readFile(join(downloads, files[0])) : undefined;
@@ -261,6 +263,7 @@ export async function validateCuaLive(args = process.argv.slice(2)) {
         headers: { "content-type": "application/json", "x-atria-token": backend.token },
         body: JSON.stringify({ action: "cancel" }),
         signal: AbortSignal.timeout(5000)
+        // eslint-disable-next-line no-restricted-syntax -- 取消请求失败已被 receipt 的失败字段记账，清理阶段不再抛错
       }).catch(() => {});
     await backend?.stop();
     await fixture?.close();
@@ -278,6 +281,7 @@ export async function validateCuaLive(args = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url)
+  // eslint-disable-next-line no-restricted-syntax -- 入口失败已经打印原因并设置退出码 1，不再需要向上抛异常
   validateCuaLive().catch(() => {
     console.error("CUA live validation could not start; check arguments and prerequisites.");
     process.exitCode = 1;

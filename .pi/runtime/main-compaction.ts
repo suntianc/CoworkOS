@@ -107,5 +107,5 @@ function excerpt(text: string, budget: number): string {
     tag.replace("<", "&lt;").replace(">", "&gt;")
   );
   const [block] = limitToolContent([{ type: "text", text: safe }], budget);
-  return block?.type === "text" ? block.text : "";
+  return block.type === "text" ? block.text : "";
 }

@@ -57,6 +57,7 @@ export function createComposerSession({
           await held;
         })
       );
+      // eslint-disable-next-line no-restricted-syntax -- a rejected Web Locks request leaves this session without the lease; resolve(null) is the documented "not acquired" result callers already handle
       request.catch(() => resolve(null));
     });
   };
@@ -97,6 +98,7 @@ export function createComposerSession({
     if (memory.has(storageKey)) return memory.get(storageKey);
     try {
       return JSON.parse(storage?.getItem(storageKey) || "null");
+      // eslint-disable-next-line no-restricted-syntax -- a stored draft written by another build may not parse, and an unreadable record is treated as no draft
     } catch {
       return null;
     }
@@ -120,6 +122,7 @@ export function createComposerSession({
       pendingStorage.delete(key);
       if (!pendingStorage.size) warned = false;
       return true;
+      // eslint-disable-next-line no-restricted-syntax -- setItem throws when storage is full or blocked; the draft stays in memory, is queued for retry, and the user is warned once
     } catch {
       pendingStorage.add(key);
       if (!warned) onError?.("草稿暂时无法保存到本机，请保留当前窗口");
@@ -229,6 +232,7 @@ export function createComposerSession({
         if (legacy) legacySources.delete(sourceKey);
         pendingMigrations.delete(destination);
         journalChanged = true;
+        // eslint-disable-next-line no-restricted-syntax -- removeItem throws on blocked storage; the migration stays registered in the journal and the next write retries it
       } catch {
         if (!warned) onError?.("草稿暂时无法保存到本机，请保留当前窗口");
         warned = true;
@@ -251,6 +255,7 @@ export function createComposerSession({
           writeRecord(destination, null);
         }
         journalChanged = true;
+        // eslint-disable-next-line no-restricted-syntax -- the conflict cleanup also touches storage; a throwing read leaves the conflict registered for the next attempt
       } catch {
         if (!warned) onError?.("草稿暂时无法保存到本机，请保留当前窗口");
         warned = true;
@@ -283,6 +288,7 @@ export function createComposerSession({
     let owner;
     try {
       owner = JSON.parse(storage?.getItem(marker) || "null");
+      // eslint-disable-next-line no-restricted-syntax -- the prebind marker is shared with other windows and may be corrupt JSON; null means no owner has claimed it
     } catch {
       owner = null;
     }
@@ -489,6 +495,7 @@ export function createComposerSession({
         }
       }
       finishMigrations();
+      // eslint-disable-next-line no-restricted-syntax -- the migration journal was written by an older launch and may not parse; the session keeps its in-memory drafts and reports the journal as invalid
     } catch {
       invalidJournal = true;
       onError?.("草稿迁移记录无法读取，请保留当前窗口并检查本机存储");
@@ -567,6 +574,7 @@ export function createComposerSession({
                 if (lock && !disposed) finishDeferredGroup(group);
               })
             )
+            // eslint-disable-next-line no-restricted-syntax -- this queued lock only resumes journal cleanup; a rejection leaves the source records in storage for the next launch
             .catch(() => {});
         }
       }
@@ -881,6 +889,7 @@ export function createComposerSession({
             writeRecord(active, null);
           }
           migratePrebind(next);
+          // eslint-disable-next-line no-restricted-syntax -- reading the previous backend's records can throw on blocked storage; its drafts stay under the old prefix instead of being dropped
         } catch {
           /* Keep the original records when their migration cannot be read. */
         }

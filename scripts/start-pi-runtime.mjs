@@ -76,6 +76,7 @@ export async function startPi({ uiCompatibility } = {}) {
     try {
       await access(piBin);
       executable = piBin;
+      // eslint-disable-next-line no-restricted-syntax -- npm 可能把依赖提升到包外，本地 .bin 缺失时改为从已安装模块解析入口
     } catch {
       try {
         // npm may hoist dependencies outside the package; resolve from this installed module.
@@ -84,6 +85,7 @@ export async function startPi({ uiCompatibility } = {}) {
         );
         await access(piEntry);
         executable = piEntry;
+        // eslint-disable-next-line no-restricted-syntax -- 两种定位都失败时已经打印安装提示并以退出码 1 结束，无需再抛异常
       } catch {
         console.error("CoworkOS Agent 运行时未安装完整，请运行 npm ci 或重新安装 CLI。");
         process.exit(1);
@@ -213,6 +215,7 @@ export async function startPi({ uiCompatibility } = {}) {
             projectExecution = await beginProjectExecution(workspaceRoot, taskId);
           }
         );
+        // eslint-disable-next-line no-restricted-syntax -- 定时刷新执行状态失败不影响 CLI 运行，下一个 10 秒周期会自动重试
         projectExecutionTimer = setInterval(() => void projectExecution.refresh().catch(() => {}), 10_000);
         projectExecutionTimer.unref();
         if (selectedSession.sessionPath) {
@@ -225,6 +228,7 @@ export async function startPi({ uiCompatibility } = {}) {
         }
       }
     } catch (error) {
+      // eslint-disable-next-line no-restricted-syntax -- 启动失败即将以退出码 1 结束，释放执行权失败不能覆盖原始错误
       await projectExecution?.release().catch(() => {});
       console.error(error.message);
       process.exit(1);
@@ -257,6 +261,7 @@ export async function startPi({ uiCompatibility } = {}) {
           capacityExecution = { capacity, requestId: decided.requestId };
         }
       } catch (error) {
+        // eslint-disable-next-line no-restricted-syntax -- 名额申请失败即将以退出码 1 结束，释放执行权失败不改变失败结论
         await projectExecution?.release().catch(() => {});
         console.error(error.message);
         process.exit(1);
@@ -280,6 +285,7 @@ export async function startPi({ uiCompatibility } = {}) {
           ...(thinkingIndex >= 0 ? { thinkingLevel } : {})
         });
       } catch (error) {
+        // eslint-disable-next-line no-restricted-syntax -- 模型角色解析失败即将以退出码 1 结束，释放名额失败不改变失败结论
         await capacityExecution?.capacity.release(capacityExecution.requestId).catch(() => {});
         console.error(error.message);
         process.exit(1);
@@ -511,8 +517,10 @@ export async function startPi({ uiCompatibility } = {}) {
     });
   } finally {
     clearInterval(projectExecutionTimer);
+    // eslint-disable-next-line no-restricted-syntax -- CLI 退出的 finally 里释放执行权，失败时进程已结束、状态由下次启动校正
     await projectExecution?.release().catch(() => {});
     if (capacityExecution)
+      // eslint-disable-next-line no-restricted-syntax -- finally 释放名额失败时进程正在退出，租约由执行主机超时回收
       await capacityExecution.capacity.release(capacityExecution.requestId).catch(() => {});
   }
 }
@@ -521,6 +529,7 @@ async function canAccess(path) {
   try {
     await access(path);
     return true;
+    // eslint-disable-next-line no-restricted-syntax -- access 失败就是“不可访问”，这个存在性判断正是要返回 false
   } catch {
     return false;
   }

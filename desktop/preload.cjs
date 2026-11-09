@@ -13,6 +13,7 @@ function reportDraftFailure(error) {
   for (const handler of draftErrorListeners) {
     try {
       handler(draftWarning);
+      // eslint-disable-next-line no-restricted-syntax -- a renderer draft-error listener must not block the close acknowledgement the host is waiting for
     } catch {
       /* A renderer callback must not block the close acknowledgement. */
     }
@@ -56,6 +57,7 @@ if (location.protocol === "http:" || location.protocol === "https:") {
         throw error;
       }
     }
+    // eslint-disable-next-line no-restricted-syntax -- the snapshot restore failed and the warning already tells the user which local storage problem to check
   } catch {
     draftsReady = false;
     draftWarning = "草稿暂时无法恢复，请保留当前窗口并检查本机存储空间";
@@ -71,14 +73,17 @@ function persistComposerDrafts(force = false) {
   try {
     entries = draftSnapshot();
     serialized = JSON.stringify(entries);
+    // eslint-disable-next-line no-restricted-syntax -- localStorage access throws quota or security DOMExceptions that are intentionally replaced by the fixed user-facing message
   } catch {
     return Promise.reject(new Error("草稿暂时无法保存到本机，请保留当前窗口"));
   }
   if (!force && serialized === lastDraftSnapshot) return draftWrites;
   lastDraftSnapshot = serialized;
   draftWrites = draftWrites
+    // eslint-disable-next-line no-restricted-syntax -- draftWrites holds the previous write whose rejection was already reported through reportDraftFailure
     .catch(() => {})
     .then(() => ipcRenderer.invoke("bookman:save-composer-drafts", entries));
+  // eslint-disable-next-line no-restricted-syntax -- the rejection is already reported by reportDraftFailure, so this branch only has to drop the deduplication snapshot for the next attempt
   draftWrites.catch(() => {
     lastDraftSnapshot = undefined;
   });
@@ -87,6 +92,7 @@ function persistComposerDrafts(force = false) {
       draftWarning = undefined;
       lastDraftError = undefined;
     })
+    // eslint-disable-next-line no-restricted-syntax -- the write result is returned to the caller, so this tail only clears the warning after a successful save
     .catch(() => {});
   return draftWrites;
 }
@@ -122,24 +128,28 @@ ipcRenderer.on("bookman:window-state", (_event, value) => {
 let initialAppearance;
 try {
   initialAppearance = ipcRenderer.sendSync("bookman:appearance");
+  // eslint-disable-next-line no-restricted-syntax -- the synchronous reply is null when the sender is untrusted or the host is not ready, and the theme then follows the system
 } catch {
   /* System fallback. */
 }
 let initialLanguage;
 try {
   initialLanguage = ipcRenderer.sendSync("bookman:language");
+  // eslint-disable-next-line no-restricted-syntax -- the synchronous reply is null when the sender is untrusted or the host is not ready, and the language keeps its zh-CN default
 } catch {
   /* Chinese fallback. */
 }
 let capabilities;
 try {
   capabilities = ipcRenderer.sendSync("bookman:capabilities");
+  // eslint-disable-next-line no-restricted-syntax -- the synchronous reply is null when the sender is untrusted or the host is not ready, and capabilities stay null
 } catch {
   capabilities = null;
 }
 let transportNonce;
 try {
   transportNonce = ipcRenderer.sendSync("bookman:transport-nonce");
+  // eslint-disable-next-line no-restricted-syntax -- the synchronous reply is null when the sender is untrusted or the host is not ready, and the transport nonce stays null
 } catch {
   transportNonce = null;
 }

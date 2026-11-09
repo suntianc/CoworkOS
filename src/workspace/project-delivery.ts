@@ -117,7 +117,7 @@ export class ProjectDeliveryRepository {
       "SELECT * FROM project_data_deliveries WHERE project_id = ? AND merge_id = ?",
       [projectId, receipt.mergeId]
     );
-    if (existing.length) return deliveryOf(existing[0]!);
+    if (existing.length) return deliveryOf(existing[0]);
     const timestamp = now();
     const deliveryId = id("delivery");
     await this.transaction.execute(
@@ -231,6 +231,7 @@ export class ProjectDeliveryRepository {
     );
     const merge = rows[0];
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 合入行查询可能返回 0 行，rows[0] 运行期是 undefined（未启用 noUncheckedIndexedAccess，类型看不出来），无行时必须按未合入拒绝
       !merge ||
       merge.state !== "merged" ||
       !merge.merge_commit ||
@@ -255,7 +256,7 @@ export class ProjectDeliveryRepository {
       [projectId, deliveryId]
     );
     if (!rows.length) throw new ProjectDataNotFoundError("找不到该交付记录");
-    return rows[0]!;
+    return rows[0];
   }
 
   private async requireProject(projectId: string): Promise<void> {

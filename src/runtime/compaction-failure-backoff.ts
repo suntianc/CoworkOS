@@ -31,7 +31,10 @@ export class CompactionFailureBackoff {
 
 /** Hash stable coverage and model data; do not include a freshly generated wrapper or retained tail. */
 export function compactionFingerprint(value: unknown): string {
-  return createHash("sha256")
-    .update(JSON.stringify(value) ?? "null")
-    .digest("hex");
+  return (
+    createHash("sha256")
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- value 是未收窄的 unknown，JSON.stringify(undefined) 运行期返回 undefined 而声明只写 string，指纹需要稳定字符串
+      .update(JSON.stringify(value) ?? "null")
+      .digest("hex")
+  );
 }

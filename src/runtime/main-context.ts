@@ -72,10 +72,22 @@ export async function readMainContextState(paths: MainContextPaths): Promise<Mai
       lastClearAt: typeof value.lastClearAt === "string" ? value.lastClearAt : undefined,
       messagesSavedAt: typeof value.messagesSavedAt === "string" ? value.messagesSavedAt : undefined,
       runtimeGoal: typeof value.runtimeGoal === "string" ? value.runtimeGoal : undefined,
-      runtimePhase: value.runtimePhase === "active" || value.runtimePhase === "waiting" || value.runtimePhase === "completed" || value.runtimePhase === "failed" ? value.runtimePhase : undefined,
-      runtimePendingDelegations: Number.isFinite(value.runtimePendingDelegations) ? Math.max(0, value.runtimePendingDelegations as number) : undefined,
-      runtimeRouting: value.runtimeRouting && typeof value.runtimeRouting === "object" ? value.runtimeRouting as MainContextState["runtimeRouting"] : undefined,
-      runtimeLastEvent: value.runtimeLastEvent && typeof value.runtimeLastEvent === "object" ? value.runtimeLastEvent as MainContextState["runtimeLastEvent"] : undefined
+      runtimePhase:
+        value.runtimePhase === "active" ||
+        value.runtimePhase === "waiting" ||
+        value.runtimePhase === "completed" ||
+        value.runtimePhase === "failed"
+          ? value.runtimePhase
+          : undefined,
+      runtimePendingDelegations: Number.isFinite(value.runtimePendingDelegations)
+        ? Math.max(0, value.runtimePendingDelegations as number)
+        : undefined,
+      runtimeRouting:
+        value.runtimeRouting && typeof value.runtimeRouting === "object" ? value.runtimeRouting : undefined,
+      runtimeLastEvent:
+        value.runtimeLastEvent && typeof value.runtimeLastEvent === "object"
+          ? value.runtimeLastEvent
+          : undefined
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyMainContextState();
@@ -84,7 +96,10 @@ export async function readMainContextState(paths: MainContextPaths): Promise<Mai
 }
 
 /** Update only small machine-owned Main state without touching memory.md. */
-export async function updateMainContextRuntime(paths: MainContextPaths, patch: MainRuntimeStatePatch): Promise<MainContextState> {
+export async function updateMainContextRuntime(
+  paths: MainContextPaths,
+  patch: MainRuntimeStatePatch
+): Promise<MainContextState> {
   await ensureMainContext(paths);
   return withFileLock(paths.state, async () => {
     const current = await readMainContextState(paths);
@@ -93,8 +108,15 @@ export async function updateMainContextRuntime(paths: MainContextPaths, patch: M
       runtimeGoal: patch.runtimeGoal ?? current.runtimeGoal,
       runtimePhase: patch.runtimePhase ?? current.runtimePhase,
       runtimePendingDelegations: patch.runtimePendingDelegations ?? current.runtimePendingDelegations,
-      runtimeRouting: patch.runtimeRouting ? { ...patch.runtimeRouting, updatedAt: patch.runtimeRouting.updatedAt ?? new Date().toISOString() } : current.runtimeRouting,
-      runtimeLastEvent: patch.runtimeLastEvent ? { ...patch.runtimeLastEvent, updatedAt: patch.runtimeLastEvent.updatedAt ?? new Date().toISOString() } : current.runtimeLastEvent
+      runtimeRouting: patch.runtimeRouting
+        ? { ...patch.runtimeRouting, updatedAt: patch.runtimeRouting.updatedAt ?? new Date().toISOString() }
+        : current.runtimeRouting,
+      runtimeLastEvent: patch.runtimeLastEvent
+        ? {
+            ...patch.runtimeLastEvent,
+            updatedAt: patch.runtimeLastEvent.updatedAt ?? new Date().toISOString()
+          }
+        : current.runtimeLastEvent
     };
     await atomicWrite(paths.state, `${JSON.stringify(next, null, 2)}\n`);
     return next;
@@ -102,8 +124,9 @@ export async function updateMainContextRuntime(paths: MainContextPaths, patch: M
 }
 
 export async function readMainMemory(paths: MainContextPaths): Promise<string> {
-  try { return await readFile(paths.memory, "utf8"); }
-  catch (error) {
+  try {
+    return await readFile(paths.memory, "utf8");
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
     throw error;
   }
@@ -135,8 +158,11 @@ export async function persistMainContext(
 }
 
 async function ensureFile(path: string, initial: string): Promise<void> {
-  try { await writeFile(path, initial, { flag: "wx" }); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+  try {
+    await writeFile(path, initial, { flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
 }
 
 function defaultMemory(): string {

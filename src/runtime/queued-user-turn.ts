@@ -35,6 +35,7 @@ export function readQueuedUserTurn(content: unknown): QueuedUserTurn | undefined
       messageId: identity.messageId,
       text: text.slice(end + 5)
     };
+    // eslint-disable-next-line no-restricted-syntax -- 前缀标记随外部写入的消息文本到达，JSON 损坏时视为没有 Run 身份，按普通用户输入处理
   } catch {
     return;
   }

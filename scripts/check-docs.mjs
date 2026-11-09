@@ -167,6 +167,7 @@ export function markdownAnchors(markdown) {
 export async function documentationFiles(root) {
   const files = [...maintainedDocumentation];
   // English translations mirror maintained docs; other English files may be added without changing the gate.
+  // eslint-disable-next-line no-restricted-syntax -- 仓库可以没有 docs/en 目录，缺目录时只是没有英文翻译要检查
   const english = await readdir(resolve(root, "docs/en"), { withFileTypes: true }).catch(() => []);
   files.push(
     ...english
@@ -174,6 +175,7 @@ export async function documentationFiles(root) {
       .map((entry) => `docs/en/${entry.name}`)
   );
   async function agents(directory) {
+    // eslint-disable-next-line no-restricted-syntax -- 被扫描的目录在裁剪过的仓库里可能不存在，此时该目录没有 AGENTS.md 可加
     for (const entry of await readdir(resolve(root, directory), { withFileTypes: true }).catch(() => [])) {
       if (entry.name === "node_modules" || entry.name === "generated" || entry.name === "fixtures") continue;
       const file = `${directory}/${entry.name}`;
@@ -210,6 +212,7 @@ export async function checkDocumentation(root, files = undefined) {
       let decoded;
       try {
         decoded = decodeURIComponent(destination);
+        // eslint-disable-next-line no-restricted-syntax -- 解码失败已作为 malformed URL encoding 汇总进 errors，抛错会中断其余链接检查
       } catch {
         errors.push(`${prefix}: malformed URL encoding: ${destination}`);
         continue;
@@ -224,6 +227,7 @@ export async function checkDocumentation(root, files = undefined) {
       }
       try {
         await stat(target);
+        // eslint-disable-next-line no-restricted-syntax -- 目标缺失正是要报告的文档错误，已带链接位置记入 errors 并继续检查
       } catch {
         errors.push(`${prefix}: missing local target: ${destination}`);
         continue;

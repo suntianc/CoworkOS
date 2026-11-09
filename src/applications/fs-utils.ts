@@ -56,5 +56,5 @@ export function jsonLine(value: unknown): string {
 }
 
 export function missing(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException)?.code === "ENOENT";
+  return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 }

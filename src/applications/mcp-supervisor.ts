@@ -232,7 +232,10 @@ export class McpSupervisor {
       description: tool.description ?? tool.name,
       // An absent schema still has to be a valid object schema, or the model
       // provider rejects the whole tool list.
-      parameters: (tool.inputSchema as Record<string, unknown>) ?? { type: "object", properties: {} }
+      parameters: (tool.inputSchema as Record<string, unknown> | undefined) ?? {
+        type: "object",
+        properties: {}
+      }
     }));
   }
 
@@ -308,9 +311,11 @@ export class McpSupervisor {
     const pending = this.sessions.get(key);
     this.sessions.delete(key);
     if (!pending) return;
+    // eslint-disable-next-line no-restricted-syntax -- 启动失败的服务器已由 this.failures 记录原因，这里只需要判断有没有可用 client
     const settled = await pending.catch(() => undefined);
     if (!settled || !("client" in settled)) return;
     const pid = settled.pid;
+    // eslint-disable-next-line no-restricted-syntax -- transport 关闭失败不影响随后的 reap 结束子进程
     await settled.client.close().catch(() => {});
     // Closing the transport normally ends the child. Verify rather than assume:
     // a server that ignores a closed pipe would otherwise linger for the life
@@ -336,9 +341,11 @@ export class McpSupervisor {
     // it started with it rather than orphaning the real work.
     try {
       process.kill(-pid, "SIGKILL");
+      // eslint-disable-next-line no-restricted-syntax -- 子进程组可能已经不存在，此时按单个 pid 再杀一次
     } catch {
       try {
         process.kill(pid, "SIGKILL");
+        // eslint-disable-next-line no-restricted-syntax -- 子进程已退出，SIGKILL 找不到目标属于正常结束
       } catch {
         /* already gone */
       }
@@ -350,6 +357,7 @@ export class McpSupervisor {
     const keys = [...this.sessions.keys()];
     this.windowServer.clear();
     this.users.clear();
+    // eslint-disable-next-line no-restricted-syntax -- 退出流程里单个服务器关闭失败不应阻止其余服务器清理
     await Promise.all(keys.map((key) => this.stopServer(key).catch(() => {})));
   }
 
@@ -360,9 +368,11 @@ export class McpSupervisor {
     const pending = this.sessions.get(key);
     this.sessions.delete(key);
     if (!pending) return;
+    // eslint-disable-next-line no-restricted-syntax -- 该服务器的启动失败已记录在 this.failures，这里没有 client 就无需停止
     const settled = await pending.catch(() => undefined);
     if (!settled || !("client" in settled)) return;
     const pid = settled.pid;
+    // eslint-disable-next-line no-restricted-syntax -- transport 关闭失败不影响随后的 reap 结束子进程
     await settled.client.close().catch(() => {});
     if (pid !== undefined) await this.reap(pid);
   }
@@ -387,6 +397,7 @@ export class McpSupervisor {
   private async session(key: string): Promise<Session | undefined> {
     const pending = this.sessions.get(key);
     if (!pending) return undefined;
+    // eslint-disable-next-line no-restricted-syntax -- 启动失败的原因已由 this.failures 交给 callTool 上报，这里只判断能否拿到 client
     const settled = await pending.catch(() => undefined);
     return settled && "client" in settled ? settled : undefined;
   }

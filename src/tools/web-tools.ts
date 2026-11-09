@@ -277,6 +277,7 @@ async function visitUrl(options: WebConfig, rawInput: unknown, signal: AbortSign
           },
           options.secrets
         );
+      // eslint-disable-next-line no-restricted-syntax -- goal extraction is best-effort: the result below reports extracted: false and returns the source text, while aborts still propagate
     } catch {
       signal.throwIfAborted();
     }
@@ -401,11 +402,11 @@ function normalizeSearchResult(query: string, value: unknown): unknown {
     ? payload.organic.map((value: unknown) => {
         const item = asRecord(value);
         return {
-          position: item?.position,
-          title: item?.title,
-          link: item?.link,
-          snippet: item?.snippet,
-          date: item?.date
+          position: item.position,
+          title: item.title,
+          link: item.link,
+          snippet: item.snippet,
+          date: item.date
         };
       })
     : [];
@@ -421,9 +422,9 @@ function normalizeSearchResult(query: string, value: unknown): unknown {
         date: item.date
       })),
     organic,
-    answerBox: payload?.answerBox ?? undefined,
-    knowledgeGraph: payload?.knowledgeGraph ?? undefined,
-    relatedSearches: payload?.relatedSearches ?? undefined
+    answerBox: payload.answerBox ?? undefined,
+    knowledgeGraph: payload.knowledgeGraph ?? undefined,
+    relatedSearches: payload.relatedSearches ?? undefined
   };
 }
 

@@ -82,6 +82,7 @@ export async function resolveDevelopmentBaseline(input: {
 async function branchCommit(repository: string, branch: string): Promise<string | undefined> {
   try {
     return await git(repository, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`]);
+    // eslint-disable-next-line no-restricted-syntax -- rev-parse 失败只表示该分支尚不存在，调用方据此按新分支创建现场
   } catch {
     return undefined;
   }
@@ -98,6 +99,7 @@ async function worktreeDirectories(repository: string): Promise<string[]> {
 async function samePath(left: string, right: string): Promise<boolean> {
   try {
     return (await realpath(left)) === (await realpath(right));
+    // eslint-disable-next-line no-restricted-syntax -- 任一路径无法解析（多半已不存在）即不是同一个目录，返回 false 是结论本身
   } catch {
     return false;
   }
@@ -121,6 +123,7 @@ export async function developmentWorkspaceIsIntact(input: {
     if (!registered) return false;
     const current = await git(input.directory, ["rev-parse", "--abbrev-ref", "HEAD"]);
     return current === input.branch;
+    // eslint-disable-next-line no-restricted-syntax -- 目录不存在或 git 查询失败都说明现场已不可用，false 就是结论
   } catch {
     return false;
   }
@@ -130,6 +133,7 @@ async function emptyDirectory(path: string): Promise<boolean> {
   try {
     const entries = await readdir(path);
     return entries.length === 0;
+    // eslint-disable-next-line no-restricted-syntax -- 目录不可读时按非空处理，宁可拒绝复用也不覆盖用户内容
   } catch {
     return false;
   }
@@ -154,6 +158,7 @@ export async function prepareDevelopmentWorkspace(input: {
   // Compare the checkout's own path, resolving the parent when it exists, so a
   // workspace can never be created inside the user's working copy.
   const parent = dirname(input.directory);
+  // eslint-disable-next-line no-restricted-syntax -- 目标父目录此时可能还不存在，realpath 失败时回退到未解析路径只用于越界比较
   const resolvedParent = await realpath(parent).catch(() => resolve(parent));
   const target = resolve(resolvedParent, basename(input.directory));
   if (target === repository || target.startsWith(`${repository}${sep}`))

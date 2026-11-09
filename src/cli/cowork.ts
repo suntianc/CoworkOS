@@ -171,6 +171,7 @@ async function main() {
           runId: request.runId,
           reason: "human_answer_submitted"
         });
+        // eslint-disable-next-line no-restricted-syntax -- task 可能已处于 running，状态转移冲突无需处理；答复已落盘并投递到 inbox
       } catch {
         /* task may already be running */
       }

@@ -50,6 +50,7 @@ function createComputerTargetCoordinator({
       if (waitForNavigationRelease && navigationRelease) {
         try {
           await navigationRelease;
+          // eslint-disable-next-line no-restricted-syntax -- navigationRelease rejects when the previous release-sessions call failed; beginSwitch retries the release right below
         } catch {
           // The switch below retries release before changing the target.
         }

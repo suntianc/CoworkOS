@@ -59,6 +59,7 @@ export async function readEventStream(body, onRecord) {
         let record;
         try {
           record = JSON.parse(data);
+          // eslint-disable-next-line no-restricted-syntax -- one malformed frame from the backend is skipped; the stream keeps delivering later records
         } catch {
           continue;
         }
@@ -67,6 +68,7 @@ export async function readEventStream(body, onRecord) {
       }
     }
   } finally {
+    // eslint-disable-next-line no-restricted-syntax -- this runs after the caller aborted or ended the stream; a rejected cancel has nothing left to release
     reader.cancel().catch(() => undefined);
   }
 }
@@ -216,6 +218,7 @@ export function createManagementEventClient({
           try {
             const body = await response.json();
             if (body && typeof body.code === "string") code = body.code;
+            // eslint-disable-next-line no-restricted-syntax -- a 409 refusal body may not be JSON; the default cursor_expired code still triggers the resnapshot below
           } catch {
             /* still a refusal: resnapshot rather than skip events */
           }

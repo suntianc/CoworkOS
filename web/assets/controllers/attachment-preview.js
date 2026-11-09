@@ -63,6 +63,7 @@ export function installAttachmentPreview({ api, mediaUrl } = {}) {
               const image = body.querySelector("img");
               if (image) image.src = href;
             })
+            // eslint-disable-next-line no-restricted-syntax -- when the image bytes cannot be read the preview keeps its text and download link
             .catch(() => undefined);
       } else if (preview.image && preview.mimeType === "image/png")
         body.innerHTML = `<img src="data:image/png;base64,${preview.image.replace(/[^A-Za-z0-9+/=]/g, "")}" alt="第 ${page} 页" />`;

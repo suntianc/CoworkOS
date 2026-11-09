@@ -28,6 +28,7 @@ function versionAt(root: string): string {
   try {
     const value = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
     return typeof value === "string" ? value : "";
+    // eslint-disable-next-line no-restricted-syntax -- harnessRoot 可能不是这个产品的根目录（缺少 package.json 或内容不是 JSON），版本号只用于页眉展示，缺失时显示空串
   } catch {
     return "";
   }
@@ -113,6 +114,7 @@ function detailRecord(result: RuntimeToolResult): Record<string, unknown> {
     const text = result.content.find((part) => part.type === "text");
     const value = text?.type === "text" ? JSON.parse(text.text) : {};
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    // eslint-disable-next-line no-restricted-syntax -- 工具正文是模型可读的自由文本，子任务失败时通常是纯文本而非 JSON；解析失败只表示没有结构化详情
   } catch {
     return {};
   }
@@ -131,9 +133,9 @@ function userResponse(details: Record<string, unknown>): string {
     return response;
   const paths = diagnostics as Record<string, unknown>;
   if (typeof paths.tracePath !== "string" || typeof paths.resultPath !== "string") return response;
-  const files =
+  const files: string[] =
     Array.isArray(details.outputFiles) && details.outputFiles.every((file) => typeof file === "string")
-      ? (details.outputFiles as string[])
+      ? details.outputFiles
       : [];
   const metadata = [`[Coordinator] status=${details.status}`];
   if (files.length)
@@ -206,6 +208,7 @@ export function delegationResultText(
 export function delegationRenderers(debug: () => boolean) {
   return {
     renderCall(args: { task: string; mode: string }, theme: Theme) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- renderCall 在流式渲染时会收到尚未解析完整的参数对象（argsComplete 之前），task 此时可能还没有出现
       const task = clean(args.task ?? "")
         .replaceAll(/\s+/g, " ")
         .trim();

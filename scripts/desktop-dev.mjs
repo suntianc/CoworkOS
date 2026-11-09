@@ -64,6 +64,7 @@ export async function developmentExecutable({ root = projectRoot, toolchain } = 
     // APFS clones share unchanged runtime blocks; no hard links or vendor mutation.
     try {
       await run("/bin/cp", ["-cR", source, bundle]);
+      // eslint-disable-next-line no-restricted-syntax -- 非 APFS 卷不支持 cp -c 克隆，失败后回退为完整复制
     } catch {
       await rm(bundle, { recursive: true, force: true });
       await run("/bin/cp", ["-R", source, bundle]);
@@ -190,6 +191,7 @@ export async function installDevelopmentApp({
   const executable = join(destination, "Contents/MacOS/CoworkOS Dev");
   const marker = join(destination, "Contents/Resources/development-runtime.json");
   const metadata = JSON.stringify({ root, runtime: source, ...tools });
+  // eslint-disable-next-line no-restricted-syntax -- 首次安装还没有运行时元数据文件，读不到时按需要重新安装开发运行时
   if ((await readFile(marker, "utf8").catch(() => "")) === metadata) return executable;
   if (
     await access(destination).then(
@@ -221,6 +223,7 @@ export async function installDevelopmentApp({
   try {
     try {
       await run("/bin/cp", ["-cR", source, bundle]);
+      // eslint-disable-next-line no-restricted-syntax -- 安装流程同样先试 APFS 克隆，目标卷不支持时回退为完整复制
     } catch {
       await rm(bundle, { recursive: true, force: true });
       await run("/bin/cp", ["-R", source, bundle]);

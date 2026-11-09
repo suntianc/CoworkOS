@@ -12,7 +12,7 @@ async function liveGroupMembers(groupPid: number): Promise<number[]> {
   const members: number[] = [];
   for (const line of stdout.split("\n")) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\S+)/u.exec(line);
-    if (match && Number(match[2]) === groupPid && !match[3]!.startsWith("Z")) {
+    if (match && Number(match[2]) === groupPid && !match[3].startsWith("Z")) {
       members.push(Number(match[1]));
     }
   }

@@ -180,6 +180,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
           ? [refreshPermissions()]
           : [])
       ])
+        // eslint-disable-next-line no-restricted-syntax -- a failed 1s poll paints the panel's connection notice below and the next tick retries
         .catch(() => {
           if (version === generation)
             error(native ? "连接中断，可使用人工接管或关闭窗口访问" : "连接中断，无法读取执行主机权限");
@@ -224,6 +225,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
       }
       await Promise.all([refreshAccess(), refreshPermissions()]);
       if (version === generation) error();
+      // eslint-disable-next-line no-restricted-syntax -- the host may still be starting when the panel opens; the error state is painted and the poll retries the read
     } catch {
       if (version === generation)
         error(native ? "连接中断，可使用人工接管或关闭窗口访问" : "连接中断，无法读取执行主机权限");
@@ -257,8 +259,10 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
     } catch (reason) {
       if (version !== generation) return;
       error(reason.message);
+      // eslint-disable-next-line no-restricted-syntax -- this is the recovery read after a failed save whose error is already shown; without a snapshot the previous approval flag stays
       const policy = await native({ operation: "policy-status" }).catch(() => undefined);
       if (version === generation && policy) approvalRequired = policy.approvalRequired === true;
+      // eslint-disable-next-line no-restricted-syntax -- the same recovery path: failing to re-read access leaves the last known values behind the already-reported error
       await Promise.all([refreshAccess(), refreshPermissions()]).catch(() => {});
     } finally {
       if (version === generation) {
@@ -345,6 +349,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
       if (selected === viewedTaskId) return;
       viewedTaskId = selected;
       taskBlocked = false;
+      // eslint-disable-next-line no-restricted-syntax -- selecting a conversation reads access in the background; a failure keeps the last panel state until the next selection or access poll
       void refreshAccess().catch(() => {});
     }
   };

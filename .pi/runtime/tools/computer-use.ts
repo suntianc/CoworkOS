@@ -105,7 +105,7 @@ export function registerComputerTools(pi: ExtensionAPI, taskId: string, taskDire
               : {})
           })
         },
-        ...(delivered ? [{ type: "image" as const, mimeType: "image/png", data: image as string }] : [])
+        ...(delivered ? [{ type: "image" as const, mimeType: "image/png", data: image }] : [])
       ],
       details: { ...metadata, delivered }
     };

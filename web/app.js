@@ -115,6 +115,7 @@ createSidebarLayout($(".app-layout"), $(".conversation-sidebar"), $("#sidebar-di
 let draftStorage;
 try {
   draftStorage = window.localStorage;
+  // eslint-disable-next-line no-restricted-syntax -- the localStorage getter throws SecurityError when the browser blocks storage, and every reader below treats draftStorage as optional
 } catch {
   /* storage may be disabled */
 }
@@ -151,6 +152,7 @@ const management = createManagementClient({
   storage: (() => {
     try {
       return window.sessionStorage;
+      // eslint-disable-next-line no-restricted-syntax -- the sessionStorage getter throws when storage is blocked by privacy settings; the management client then keeps the session in memory
     } catch {
       return undefined;
     }
@@ -200,6 +202,7 @@ const PREFERRED_THINKING_LEVEL_KEY = "atria.reasoning.preferred";
 function readPreferredModel() {
   try {
     return (draftStorage && draftStorage.getItem(PREFERRED_MODEL_KEY)) || "";
+    // eslint-disable-next-line no-restricted-syntax -- getItem throws when the browser blocks storage, and the composer must still start with no preferred model
   } catch {
     return "";
   }
@@ -209,6 +212,7 @@ function writePreferredModel(model) {
     if (!draftStorage) return;
     if (model) draftStorage.setItem(PREFERRED_MODEL_KEY, model);
     else draftStorage.removeItem(PREFERRED_MODEL_KEY);
+    // eslint-disable-next-line no-restricted-syntax -- best-effort preference write: blocked or full storage only loses the remembered model
   } catch {
     /* storage may be disabled */
   }
@@ -219,6 +223,7 @@ function readPreferredThinkingLevel() {
     return value === "off" || ["minimal", "low", "medium", "high", "xhigh", "max"].includes(value)
       ? value
       : null;
+    // eslint-disable-next-line no-restricted-syntax -- getItem throws in blocked-storage sessions, where no preferred reasoning level can be read
   } catch {
     return null;
   }
@@ -228,6 +233,7 @@ function writePreferredThinkingLevel(level) {
     if (!draftStorage) return;
     if (level) draftStorage.setItem(PREFERRED_THINKING_LEVEL_KEY, level);
     else draftStorage.removeItem(PREFERRED_THINKING_LEVEL_KEY);
+    // eslint-disable-next-line no-restricted-syntax -- best-effort preference write: blocked or full storage only loses the remembered reasoning level
   } catch {
     /* storage may be disabled */
   }
@@ -431,6 +437,7 @@ function hydrateUploadImages(root) {
       .then((href) => {
         image.src = href;
       })
+      // eslint-disable-next-line no-restricted-syntax -- a failed media read leaves this one upload image unloaded, and the transcript keeps rendering
       .catch(() => undefined);
   }
 }
@@ -728,6 +735,7 @@ async function loadModels() {
         ? data.current.trim()
         : state.models[0] || "glm-5.3";
     syncModelConnection(defaultModel, data.connectionProfileId);
+    // eslint-disable-next-line no-restricted-syntax -- /api/models is unavailable while the backend restarts or is offline; the picker keeps a usable model instead of an empty list
   } catch {
     state.models = state.model ? [state.model] : ["glm-5.3"];
     state.defaultModel ||= state.models[0];
@@ -934,6 +942,7 @@ function adoptCatalogSnapshot(snapshot) {
   // The snapshot is a catalog read: accept it exactly like `/api/tasks` before
   // deciding which conversation it names.
   projectController.accept(snapshot);
+  // eslint-disable-next-line no-restricted-syntax -- a snapshot whose detail read fails while the backend restarts is re-applied by the 3.5s catalog poll
   void applyCatalog(snapshot).catch(() => undefined);
 }
 

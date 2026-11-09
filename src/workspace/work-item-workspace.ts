@@ -18,6 +18,7 @@ function invalid(message: string): ProjectDataInvalidError {
 async function emptyDirectory(path: string): Promise<boolean> {
   try {
     return (await readdir(path)).length === 0;
+    // eslint-disable-next-line no-restricted-syntax -- 目录不存在或不可读时按非空处理，调用方据此拒绝复用，宁可报冲突也不覆盖别人的内容
   } catch {
     return false;
   }
@@ -26,6 +27,7 @@ async function emptyDirectory(path: string): Promise<boolean> {
 async function branchAt(directory: string, branch: string): Promise<string | undefined> {
   try {
     return await git(directory, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`]);
+    // eslint-disable-next-line no-restricted-syntax -- 工作项分支首次启动时尚不存在，rev-parse 失败返回 undefined 让调用方从集成现场 HEAD 新建
   } catch {
     return undefined;
   }
@@ -49,6 +51,7 @@ export async function prepareWorkItemSite(site: WorkItemSite): Promise<void> {
   await assertRepository(site.developmentDirectory);
   const development = await realpath(site.developmentDirectory);
   const parent = dirname(site.directory);
+  // eslint-disable-next-line no-restricted-syntax -- 父目录此时可能还没有创建，realpath 失败时退回字面路径只用于越界比较，下面的 mkdir 会创建它
   const resolvedParent = await realpath(parent).catch(() => resolve(parent));
   const target = resolve(resolvedParent, basename(site.directory));
   if (target === development || target.startsWith(`${development}${sep}`))
@@ -66,6 +69,7 @@ export async function prepareWorkItemSite(site: WorkItemSite): Promise<void> {
 
   // A directory that is not this item's checkout is somebody else's work: keep
   // it and report the conflict instead of deleting or reusing it.
+  // eslint-disable-next-line no-restricted-syntax -- 现场目录首次创建时还不存在，stat 的 ENOENT 表示没有需要保留的既有目录
   const existing = await stat(site.directory).catch(() => undefined);
   if (existing) {
     if (!existing.isDirectory()) throw invalid(`工作项现场路径不是目录（${site.directory}）`);

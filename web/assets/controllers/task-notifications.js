@@ -19,7 +19,9 @@ export function createTaskNotifications({ notify }) {
         title: ui("任务已完成"),
         body: task.title || task.goal || task.taskId
       });
+      // eslint-disable-next-line no-restricted-syntax -- the desktop host may refuse the notification (permission or focus rules); task state updates continue regardless
       pending?.catch?.(() => {});
+      // eslint-disable-next-line no-restricted-syntax -- a synchronous host notify failure must not interrupt catalog adoption or the unread state
     } catch {
       // Notification failures must not interrupt application state updates.
     }

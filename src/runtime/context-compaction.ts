@@ -79,6 +79,7 @@ export class ContextCompactor {
     try {
       const result = await this.compactIfNeeded(messages, signal);
       return result.messages;
+      // eslint-disable-next-line no-restricted-syntax -- 摘要失败要退回已提交的检查点加原始尾部继续本次请求，否则一次摘要失败会让请求继续溢出而没有模型调用
     } catch {
       // Retain the last committed checkpoint and current raw tail. Replaying
       // an already summarized prefix could make this request overflow again.

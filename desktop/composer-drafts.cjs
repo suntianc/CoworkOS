@@ -130,6 +130,7 @@ function createComposerDraftStore(userData, { limit = maximumBytes } = {}) {
           await fs.rename(path, backup);
           await fs.chmod(backup, 0o600);
           warning = "本机草稿记录损坏，已保留恢复副本；可以重新输入草稿";
+          // eslint-disable-next-line no-restricted-syntax -- a failed backup rename is surfaced as a blocked store and warning, and the fs detail adds nothing the user can act on
         } catch {
           blocked = "本机草稿记录无法读取或备份，请保留当前窗口并检查用户数据目录";
           warning = blocked;
@@ -148,6 +149,7 @@ function createComposerDraftStore(userData, { limit = maximumBytes } = {}) {
         return Promise.reject(error);
       }
       const operation = pending
+        // eslint-disable-next-line no-restricted-syntax -- pending holds the previous save whose rejection was already returned to its own caller; the queue only orders writes
         .catch(() => {})
         .then(async () => {
           const temporary = `${path}.tmp-${randomUUID()}`;
@@ -174,6 +176,7 @@ function createComposerDraftStore(userData, { limit = maximumBytes } = {}) {
             );
             await fs.rename(temporary, path);
           } catch {
+            // eslint-disable-next-line no-restricted-syntax -- the temporary file removal must not replace the save error that is already being reported
             await fs.rm(temporary, { force: true }).catch(() => {});
             throw new Error("草稿暂时无法保存到本机，请保留当前窗口并稍后重试");
           }

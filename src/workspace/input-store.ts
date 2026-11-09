@@ -7,7 +7,7 @@ import { withFileLock } from "../storage/file-lock.js";
 
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 export const MAX_MESSAGE_FILES = 10;
-const formats: Record<string, [string, string]> = {
+const formats: Record<string, [string, string] | undefined> = {
   png: ["image", "image/png"],
   jpg: ["image", "image/jpeg"],
   jpeg: ["image", "image/jpeg"],
@@ -141,6 +141,7 @@ export class InputStore {
       }
       return file;
     } catch (error) {
+      // eslint-disable-next-line no-restricted-syntax -- 写入失败后的关闭只是清理半成品，主错误仍需向上抛出
       await handle.close().catch(() => {});
       await rm(folder, { recursive: true, force: true });
       if (error instanceof TypeError) throw new Error("文件不是有效 UTF-8 文本，未添加");

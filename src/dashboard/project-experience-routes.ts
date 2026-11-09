@@ -67,7 +67,7 @@ export async function handleProjectExperienceRequest(
 ): Promise<boolean> {
   const match = url.pathname.match(/^\/api\/projects\/([^/]+)\/experience$/);
   if (!match) return false;
-  const store = await resolveStore(decodeURIComponent(match[1]!));
+  const store = await resolveStore(decodeURIComponent(match[1]));
   if (!store) throw new HttpError(404, "项目不存在");
   response.setHeader("cache-control", "no-store");
   if (request.method === "GET") {

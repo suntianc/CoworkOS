@@ -36,6 +36,7 @@ export async function verifyNpmRelease({
             signal: AbortSignal.timeout(15000)
           }
         );
+        // eslint-disable-next-line no-restricted-syntax -- 轮询期间网络抖动把该包记为待发布并进入下一个退避周期重试
       } catch {
         pending.push(pkg.name);
         continue;

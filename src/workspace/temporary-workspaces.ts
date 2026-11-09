@@ -84,7 +84,7 @@ export async function readTemporaryWorkspace(root: string): Promise<TemporaryWor
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
-  const value = JSON.parse(raw) as Partial<TemporaryWorkspace>;
+  const value = JSON.parse(raw) as Partial<TemporaryWorkspace> | null;
   if (
     !value ||
     value.version !== 1 ||

@@ -77,6 +77,7 @@ function intentOf(value: unknown, projectId: string): DeliveryIntent | undefined
         ? { attempts: Number(input.attempts) }
         : {})
     };
+    // eslint-disable-next-line no-restricted-syntax -- 单条 outbox 记录校验失败即视为无效，由返回值 undefined 过滤而不是让整个读取失败
   } catch {
     return undefined;
   }
@@ -94,6 +95,7 @@ export class DeliveryOutbox {
     let files: string[];
     try {
       files = await readdir(this.root);
+      // eslint-disable-next-line no-restricted-syntax -- outbox 目录尚未创建（或不可读）时没有待同步项目，空列表由下一次写入自愈
     } catch {
       return [];
     }
@@ -102,6 +104,7 @@ export class DeliveryOutbox {
       try {
         const parsed = JSON.parse(await readFile(join(this.root, file), "utf8")) as Partial<OutboxFile>;
         if (typeof parsed.projectId === "string" && parsed.projectId) projects.add(parsed.projectId);
+        // eslint-disable-next-line no-restricted-syntax -- 单个损坏文件由 list() 改名保留并报告，发现项目不能因此失败
       } catch {
         // A damaged file is reported by list(); discovering projects must not fail.
       }
@@ -115,18 +118,20 @@ export class DeliveryOutbox {
     try {
       raw = await readFile(this.pathFor(projectId), "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
+      // eslint-disable-next-line no-restricted-syntax -- 无法解析的本地记录由 preserve() 改名保留，读取方按空列表继续同步
     } catch {
       await this.preserve(projectId);
       return [];
     }
     const file = parsed as Partial<OutboxFile>;
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 文件内容来自 JSON.parse，顶层可能是 null 或非对象
       !file ||
       typeof file !== "object" ||
       file.version !== FILE_VERSION ||
@@ -154,7 +159,7 @@ export class DeliveryOutbox {
     const entries = await this.list(projectId);
     const index = entries.findIndex((entry) => entry.mergeId === mergeId);
     if (index < 0) return;
-    const entry = entries[index]!;
+    const entry = entries[index];
     entries[index] = {
       ...entry,
       error: message.slice(0, 2000),
@@ -194,6 +199,7 @@ export class DeliveryOutbox {
     const path = this.pathFor(projectId);
     try {
       await rename(path, `${path}.corrupt-${Date.now()}`);
+      // eslint-disable-next-line no-restricted-syntax -- 损坏文件改名失败不影响调用方：原读取错误已经报告并返回空列表
     } catch {
       /* the original read already reported the damage; cleanup is best effort */
     }

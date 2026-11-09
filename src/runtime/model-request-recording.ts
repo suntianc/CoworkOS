@@ -99,6 +99,7 @@ export function recordModelRequests(
               });
             } catch (error) {
               // The SDK cannot close a response that this fetch wrapper never returns.
+              // eslint-disable-next-line no-restricted-syntax -- 这里正在抛出记录失败，取消响应体失败不能替换原始错误
               await response.body?.cancel().catch(() => {});
               throw error;
             }

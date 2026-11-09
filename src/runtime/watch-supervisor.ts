@@ -436,8 +436,10 @@ export class WatchSupervisor {
    * Run, which is the only source that is true by construction.
    */
   private async resolveMainRunId(taskId: string): Promise<string> {
+    // eslint-disable-next-line no-restricted-syntax -- 没有停泊记录时 readSleep 抛错，这里要当作“Main 未停泊”继续向下推断 Run
     const parked = await readSleep(this.options.workspaceRoot, taskId).catch(() => undefined);
     if (parked?.runId) return parked.runId;
+    // eslint-disable-next-line no-restricted-syntax -- 任务目录可能还没落盘，读不到就退回扫描 run 目录，不能用空任务中断唤醒
     const task = await this.workspace.readTask(taskId).catch(() => undefined);
     if (task?.activeRunId) return task.activeRunId;
     const fallback = `main-${taskId}`;
@@ -454,6 +456,7 @@ export class WatchSupervisor {
           join(this.options.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
         )
           .then((info) => info.mtimeMs)
+          // eslint-disable-next-line no-restricted-syntax -- 该 Run 可能没有 inbox 文件，缺失按时间 0 排序，仍作为候选 Run 参与推断
           .catch(() => 0)
       }))
     );
@@ -468,6 +471,7 @@ export class WatchSupervisor {
    * between the two cannot produce a second wake for the same park.
    */
   private async processPark(taskId: string, cycle: WatchSupervisorCycleResult): Promise<void> {
+    // eslint-disable-next-line no-restricted-syntax -- 停泊记录缺失或损坏时 readSleep 抛错，其含义就是“Main 没有停泊”，本轮直接结束
     const parked = await readSleep(this.options.workspaceRoot, taskId).catch(() => undefined);
     if (!parked) return;
     const task = await this.workspace.readTask(taskId);
@@ -750,6 +754,7 @@ export class WatchSupervisor {
             diagnostics: executed.diagnostics
           }
         })
+        // eslint-disable-next-line no-restricted-syntax -- 控制完成的审计事件是旁路记录，写失败不改变已提交的控制结果和状态
         .catch(() => {});
       cycle.processed += 1;
     } catch (error) {
@@ -918,6 +923,7 @@ export class WatchSupervisor {
                 diagnostics: executed.diagnostics
               }
             })
+            // eslint-disable-next-line no-restricted-syntax -- 这次事件分析结果已写进 program 状态，旁路审计事件写失败只少一条记录
             .catch(() => {});
           if (shouldWake) {
             await this.deliverPendingWake(program, monitor, cycle);
@@ -1038,6 +1044,7 @@ export class WatchSupervisor {
       try {
         await readFile(join(runRoot, entry.name, "agents", monitorId, "inbox-store.json"), "utf8");
         ids.push(entry.name);
+        // eslint-disable-next-line no-restricted-syntax -- 这个 Run 下没有该 monitor 的 inbox 文件，读不到就是它不参与候选，继续看下一个 Run
       } catch {
         /* no inbox for this monitor */
       }
@@ -1296,7 +1303,9 @@ export class WatchSupervisor {
         "AGENT.md"
       ),
       "utf8"
-    ).catch(() => "");
+    )
+      // eslint-disable-next-line no-restricted-syntax -- 处理说明 AGENT.md 是可选的，未提供时用空说明继续本次监控分析
+      .catch(() => "");
     if (Buffer.byteLength(handler) > 16_384) throw new Error("monitor handler exceeds 16 KiB");
     const templateAnalysis = Boolean(input.monitor.templateId);
     const prompt = [
@@ -1324,6 +1333,7 @@ export class WatchSupervisor {
           callId: `monitor-call-${input.message.eventId}`,
           reason: "Monitoring host stopped"
         })
+        // eslint-disable-next-line no-restricted-syntax -- 宿主正在停止，取消调用失败可忽略：该 run 已不再推进，也没有别的调用方等它
         .catch(() => {});
     };
     this.options.signal?.addEventListener("abort", cancel, { once: true });
@@ -1332,6 +1342,7 @@ export class WatchSupervisor {
         .then((active) => {
           if (!active) cancel();
         })
+        // eslint-disable-next-line no-restricted-syntax -- 活跃性查询失败就按“已不活跃”处理并取消本次调用，失败后果由取消动作承接
         .catch(() => cancel());
     }, 1000);
     try {
@@ -1537,7 +1548,7 @@ export class WatchSupervisor {
             monitor.monitorId,
             pending.controlMessageIds
           );
-        const summary = (pending.message.payload as { summary?: unknown })?.summary;
+        const summary = (pending.message.payload as { summary?: unknown } | null)?.summary;
         const control = key === "pendingControlWake" || Boolean(pending.controlMessageIds?.length);
         await this.updateStageState(program, monitor, () => ({
           [key]: undefined,

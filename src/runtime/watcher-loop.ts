@@ -23,6 +23,7 @@ export class WatcherLoop {
       await options.onCycle?.(result);
       if (options.once) return;
       await wait(intervalMs, options.signal);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stop() 在 poll/onCycle 的 await 期间被外部调用，TS 控制流在读取处看不到这次赋值
     } while (!this.stopped && !options.signal?.aborted);
   }
 }

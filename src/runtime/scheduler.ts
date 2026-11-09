@@ -64,6 +64,7 @@ export class DurableScheduler {
         .sort(
           (a, b) => priority[a.importance] - priority[b.importance] || a.createdAt.localeCompare(b.createdAt)
         )[0];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 没有排队的工作项时过滤结果为空，索引 [0] 在运行期返回 undefined
       if (!candidate) {
         await this.writeItems(items);
         return undefined;
@@ -247,6 +248,7 @@ export class CheckpointStore {
     await this.withLock(async () => {
       const records = await this.read();
       const previous = records[checkpoint.runId];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 该 run 首次保存时文件里没有记录，Record 索引在运行期返回 undefined
       if (previous && previous.sequence >= checkpoint.sequence) return;
       records[checkpoint.runId] = checkpoint;
       await this.write(records);
@@ -313,6 +315,7 @@ export class InboxStore {
       const message = messages
         .filter((candidate) => candidate.recipientAgentId === recipientAgentId && candidate.state === "ready")
         .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))[0];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 没有可租用的消息时过滤结果为空，索引 [0] 在运行期返回 undefined
       if (!message) {
         await this.write(messages);
         return undefined;

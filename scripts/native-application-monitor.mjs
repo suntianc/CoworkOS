@@ -50,6 +50,7 @@ export async function startNativeApplicationMonitor(directory, { moduleCacheDire
     initial = await ready;
   } catch (error) {
     child.kill("SIGTERM");
+    // eslint-disable-next-line no-restricted-syntax -- 关掉监视器子进程后等其退出，要抛的是原始启动错误而不是退出探测的失败
     await closed.catch(() => {});
     throw error;
   } finally {

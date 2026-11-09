@@ -34,6 +34,7 @@ function createAppearanceHost({ userData, nativeTheme, ipcMain, getWindow, getDa
         try {
           trust(event);
           event.returnValue = snapshot();
+          // eslint-disable-next-line no-restricted-syntax -- trust() throws deliberately for untrusted senders; the synchronous reply is null and the rejection has nothing else to report
         } catch {
           event.returnValue = null;
         }
@@ -42,6 +43,7 @@ function createAppearanceHost({ userData, nativeTheme, ipcMain, getWindow, getDa
         trust(event);
         if (!valid(value)) throw new Error("Invalid appearance preference");
         const save = writes
+          // eslint-disable-next-line no-restricted-syntax -- writes holds the previous save whose rejection was already returned to its caller; the chain only waits for it to settle
           .catch(() => {})
           .then(async () => {
             await fs.mkdir(userData, { recursive: true });

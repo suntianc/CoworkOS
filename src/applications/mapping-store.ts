@@ -104,8 +104,10 @@ export class ResourceMappingStore {
   async tasksFor(resourceId: string): Promise<string[]> {
     const root = resolve(this.workspaceRoot);
     const owners: string[] = [];
+    // eslint-disable-next-line no-restricted-syntax -- 工作区根目录可能还没创建，此时没有任何会话引用该资源
     for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
       if (!entry.isDirectory()) continue;
+      // eslint-disable-next-line no-restricted-syntax -- 某个会话的映射文件读不出来就当作没有引用它，与 read() 的空映射回退一致
       if (await this.references(entry.name, resourceId).catch(() => false)) owners.push(entry.name);
     }
     return owners;
@@ -147,11 +149,12 @@ export class ResourceMappingStore {
 
   private async read(taskId: string): Promise<MappingFile> {
     try {
-      const value = JSON.parse(await readFile(this.path(taskId), "utf8")) as Partial<MappingFile>;
+      const value = JSON.parse(await readFile(this.path(taskId), "utf8")) as Partial<MappingFile> | null;
       if (value?.version !== 1 || !Array.isArray(value.resources)) return { version: 1, resources: [] };
       // Each entry is validated on the way out: a hand-edited file must not be
       // able to turn a reference into a path.
       const resources = value.resources.flatMap((entry) => {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mapping.json 可被手工编辑，条目可能不是对象
         if (!entry || typeof entry.resourceId !== "string" || typeof entry.appType !== "string") return [];
         try {
           return [
@@ -164,6 +167,7 @@ export class ResourceMappingStore {
                 : {})
             }
           ];
+          // eslint-disable-next-line no-restricted-syntax -- 非法 id 的引用条目直接丢弃，不能让它变成可用的路径
         } catch {
           return [];
         }

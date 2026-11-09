@@ -210,6 +210,7 @@ try {
   try {
     commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     dirty = Boolean(execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim());
+    // eslint-disable-next-line no-restricted-syntax -- 源码归档里没有 .git，build-info 记为 unknown 而不是让打包失败
   } catch {
     /* Archives may not contain Git metadata. */
   }

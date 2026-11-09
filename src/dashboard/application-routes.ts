@@ -194,6 +194,7 @@ function instanceResolution(context: ApplicationRouterContext) {
     const found = new Set((await context.workspaceRoots?.())?.map((root) => resolve(root)));
     if (!context.workspaceRoots)
       for (const taskId of await context.referencingTasks()) {
+        // eslint-disable-next-line no-restricted-syntax -- 引用表里的任务可能已被删除，扫描跳过它而不是让整个窗口索引失败
         const task = await context.locate(taskId).catch(() => undefined);
         if (task) found.add(resolve(task.workspaceRoot));
       }
@@ -404,6 +405,7 @@ export async function handleApplicationRequest(
         await reviveWindowServer(context, taskId, appInstanceId);
         const owner = await locatedService(await context.locate(taskId))
           .instances.readInstance(taskId, appInstanceId)
+          // eslint-disable-next-line no-restricted-syntax -- 窗口记录可能已被移除，消费者回退到 instance: 键仍然返回该窗口的工具
           .catch(() => undefined);
         const consumer = owner?.resourceIds[0]
           ? resourceConsumer(owner.resourceIds[0])
@@ -499,6 +501,7 @@ export async function handleApplicationRequest(
                 contentVersion: resource?.contentVersion,
                 title: resource?.title ?? instance.title
               };
+              // eslint-disable-next-line no-restricted-syntax -- 关闭或删除的实例在下次常规刷新时会被裁掉，这里跳过该行即可
             } catch {
               // Closed/deleted instances disappear on the regular tab refresh.
               return undefined;
@@ -1120,6 +1123,7 @@ export async function handleApplicationRequest(
             },
             emit
           );
+          // eslint-disable-next-line no-restricted-syntax -- 资源已经创建成功，窗口服务器启动失败不能把这次创建变成失败响应
           await startWindowServer(context, service, taskId, created.appInstance).catch(() => {});
           send(response, 201, created);
         } finally {
@@ -1161,11 +1165,13 @@ export async function handleApplicationRequest(
         // The window is going away, so its server must too — otherwise every
         // closed editor leaves a process behind for the Dashboard's lifetime.
         if (status === "closed") {
+          // eslint-disable-next-line no-restricted-syntax -- 窗口记录可能已被删除，读不到时按空窗口的消费者键停止即可
           const closing = await service.instances.readInstance(taskId, rest[0]).catch(() => undefined);
           const held = closing?.resourceIds[0];
           // A document may still be open elsewhere, so its consumer is only
           // released when the document itself goes; an empty window owns its
           // consumer outright.
+          // eslint-disable-next-line no-restricted-syntax -- 关闭窗口是清理动作，进程可能已经退出，停止失败不影响本次状态更新
           await context.mcp.stop(held ? resourceConsumer(held) : `instance:${rest[0]}`).catch(() => {});
         }
         send(response, 200, {
@@ -1258,14 +1264,21 @@ async function migrateLegacyTabs(
     if (tab.tabId.startsWith("application:")) {
       const [, taskId, legacyId] = tab.tabId.split(":");
       appInstanceId = legacyId;
+      // eslint-disable-next-line no-restricted-syntax -- 旧版 Tab 可能指向已删除的任务，迁移时跳过这一条
       root = await context.locate(taskId).catch(() => undefined);
-    } else if (appInstanceId) root = await instances.locate(appInstanceId).catch(() => undefined);
-    else if (tab.resourceId) root = await context.locateResource(tab.resourceId).catch(() => undefined);
+    } else if (appInstanceId) {
+      // eslint-disable-next-line no-restricted-syntax -- 旧窗口可能已从实例索引消失，读不到时让 Tab 保持原样等下次刷新
+      root = await instances.locate(appInstanceId).catch(() => undefined);
+    } else if (tab.resourceId) {
+      // eslint-disable-next-line no-restricted-syntax -- 旧版文档 Tab 可能指向已删除的资源，迁移时跳过这一条
+      root = await context.locateResource(tab.resourceId).catch(() => undefined);
+    }
     if (!root) continue;
     const instance = appInstanceId
       ? await instances
           .index(root.workspaceRoot)
-          .then((snapshot) => snapshot?.get(appInstanceId!))
+          .then((snapshot) => snapshot?.get(appInstanceId))
+          // eslint-disable-next-line no-restricted-syntax -- 某个根的快照读不出来时保留该 Tab 原样，下次刷新再迁移
           .catch(() => undefined)
       : await (async () => {
           const service = await standaloneService(context, root.workspaceRoot);
@@ -1337,6 +1350,7 @@ async function withResolvedTabs(
   }> = [];
   for (const taskId of candidates) {
     if (taskId === STANDALONE_TASK_ID) continue;
+    // eslint-disable-next-line no-restricted-syntax -- 候选里包含引用文档的任务，被删掉的那些不该出现在 Tab 条上
     const location = await context.locate(taskId).catch(() => undefined);
     if (!location) continue;
     const service = locatedService(location);
@@ -1348,6 +1362,7 @@ async function withResolvedTabs(
       taskId,
       root: location.workspaceRoot,
       taskStorageRoot: location.taskStorageRoot ?? location.workspaceRoot,
+      // eslint-disable-next-line no-restricted-syntax -- 目标读不出来时标题回退到 taskId，不影响这一行 Tab 存在
       goal: await service.taskGoal(taskId).catch(() => undefined),
       loadedInstanceId: manifest.loadedInstanceId,
       resources: (await service.mapping.list(taskId)).map((r) => ({
@@ -1360,6 +1375,7 @@ async function withResolvedTabs(
   // earlier empty-window snapshot must not hide that first resource.
   instances.refresh();
   const servers = new Map(
+    // eslint-disable-next-line no-restricted-syntax -- 状态读不出来时只是没有 MCP 徽标，Tab 条仍要返回
     (await context.mcp.statuses().catch(() => [])).map((server) => [server.key, server])
   );
   for (const tab of current.tabs) {
@@ -1376,6 +1392,7 @@ async function withResolvedTabs(
       continue;
     }
     if (!tab.appInstanceId) continue;
+    // eslint-disable-next-line no-restricted-syntax -- 实例可能在上面的索引之后被关掉，读不到就把这个 Tab 裁掉
     const found = await instances.read(tab.appInstanceId).catch(() => undefined);
     if (!found) continue;
     const { location, instance } = found;
@@ -1383,7 +1400,10 @@ async function withResolvedTabs(
     if (instance.status === "closed") continue;
     const resourceId = instance.resourceIds[0];
     const resource = resourceId
-      ? await service.resources.readMetadataById(resourceId).catch(() => undefined)
+      ? await service.resources
+          .readMetadataById(resourceId)
+          // eslint-disable-next-line no-restricted-syntax -- 文档可能已被删除或在别的根里重建，读不到就裁掉这个 Tab
+          .catch(() => undefined)
       : undefined;
     if (resourceId && !resource) continue;
     const referencesResource = (entry: (typeof conversations)[number]) =>
@@ -1504,7 +1524,8 @@ async function startWindowServer(
       toolNames: [] as string[],
       error: error instanceof Error ? error.message : String(error)
     }));
-  if (resourceId) await context.mcp.stop?.(`instance:${instance.appInstanceId}`).catch(() => {});
+  // eslint-disable-next-line no-restricted-syntax -- 绑定文档后停掉空窗口的消费者属于清理，失败只会留下一个进程，supervisor 退出时统一回收
+  if (resourceId) await context.mcp.stop(`instance:${instance.appInstanceId}`).catch(() => {});
   return { state: status.state, toolNames: status.toolNames, error: status.error };
 }
 
@@ -1522,12 +1543,14 @@ async function reviveResourceServer(
   appType: string
 ): Promise<void> {
   const consumer = resourceConsumer(resourceId);
+  // eslint-disable-next-line no-restricted-syntax -- 状态读不出来时按未运行处理，ensure 本身是幂等的
   const running = (await context.mcp.statuses().catch(() => [])).find(
     (entry) => entry.key === consumer && entry.state === "running"
   );
   if (running) return;
   const spec = service.registry.definitions().find((entry) => entry.appType === appType)?.mcpServer;
   if (!spec) return;
+  // eslint-disable-next-line no-restricted-syntax -- 工具服务起不来不应让文档路由失败，编辑器仍能读写文档
   await context.mcp.ensure({ consumer, appType, spec }).catch(() => {
     /* usable without tools */
   });
@@ -1549,17 +1572,21 @@ async function reviveWindowServer(
   taskId: string,
   appInstanceId: string
 ): Promise<void> {
+  // eslint-disable-next-line no-restricted-syntax -- 窗口所在的任务可能已被删除，读不到时没有可恢复的服务器
   const location = await context.locate(taskId).catch(() => undefined);
   if (!location) return;
   const service = locatedService(location);
+  // eslint-disable-next-line no-restricted-syntax -- 窗口记录可能已被删除或关闭，读不到时无事可做
   const instance = await service.instances.readInstance(taskId, appInstanceId).catch(() => undefined);
   if (!instance || instance.status === "closed") return;
   const resourceId = instance.resourceIds[0];
   const consumer = resourceId ? resourceConsumer(resourceId) : `instance:${appInstanceId}`;
+  // eslint-disable-next-line no-restricted-syntax -- 状态读不出来时按未运行处理，下面的 ensure 会给出真实结果
   const running = (await context.mcp.statuses().catch(() => [])).find(
     (entry) => entry.key === consumer && entry.state === "running"
   );
   if (running) return;
+  // eslint-disable-next-line no-restricted-syntax -- 窗口在恢复失败后仍要能打开，工具不可用由下一次 ensure 重试
   await startWindowServer(context, service, taskId, instance).catch(() => {
     /* the window stays usable without its tools */
   });

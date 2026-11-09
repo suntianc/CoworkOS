@@ -963,8 +963,8 @@ export class ProjectDataRepository {
     );
     let createdAt = timestamp;
     if (existing.length) {
-      createdAt = existing[0]!.created_at;
-      if (existing[0]!.project_name !== projectName)
+      createdAt = existing[0].created_at;
+      if (existing[0].project_name !== projectName)
         await this.transaction.execute(
           "UPDATE project_data_projects SET project_name = ?, updated_at = ? WHERE project_id = ?",
           [projectName, timestamp, projectId]
@@ -984,7 +984,7 @@ export class ProjectDataRepository {
         "INSERT INTO project_data_bindings (backend_id, project_id, local_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
         [input.backendId, projectId, projectDirectory, timestamp, timestamp]
       );
-    else if (binding[0]!.local_directory !== projectDirectory)
+    else if (binding[0].local_directory !== projectDirectory)
       await this.transaction.execute(
         "UPDATE project_data_bindings SET local_directory = ?, updated_at = ? WHERE backend_id = ? AND project_id = ?",
         [projectDirectory, timestamp, input.backendId, projectId]
@@ -1408,7 +1408,7 @@ export class ProjectDataRepository {
       "SELECT * FROM project_data_main_session_runs WHERE project_id = ? AND session_id = ? AND run_id = ?",
       [projectId, session.sessionId, runId]
     );
-    return runOf(row[0]!);
+    return runOf(row[0]);
   }
 
   /** A settled or cancelled Run keeps its owner; a later state never overwrites one. */
@@ -1439,7 +1439,7 @@ export class ProjectDataRepository {
       "SELECT * FROM project_data_merge_configs WHERE project_id = ?",
       [projectId]
     );
-    return rows.length ? mergeConfigOf(rows[0]!) : undefined;
+    return rows.length ? mergeConfigOf(rows[0]) : undefined;
   }
 
   async setMergeConfig(
@@ -2042,7 +2042,7 @@ export class ProjectDataRepository {
       [projectId, mergeId]
     );
     if (!rows.length) throw new ProjectDataNotFoundError("合入操作不存在");
-    return rows[0]!;
+    return rows[0];
   }
 
   private async requireReview(projectId: string, reviewId: string): Promise<ReviewRow> {
@@ -2052,7 +2052,7 @@ export class ProjectDataRepository {
       [projectId, reviewId]
     );
     if (!rows.length) throw new ProjectDataNotFoundError("审查记录不存在");
-    return rows[0]!;
+    return rows[0];
   }
 
   async mainSessionRuns(
@@ -2102,9 +2102,9 @@ export class ProjectDataRepository {
     if (!rows.length) throw new ProjectDataNotFoundError("找不到该需求的开发记录");
     const titles = await this.transaction.query<{ title: string }>(
       "SELECT title FROM project_data_requirements WHERE project_id = ? AND requirement_id = ?",
-      [projectId, rows[0]!.requirement_id]
+      [projectId, rows[0].requirement_id]
     );
-    return { ...rows[0]!, requirement_title: titles[0]?.title ?? null };
+    return { ...rows[0], requirement_title: titles[0]?.title ?? null };
   }
 
   private async developmentWorkspaceFor(
@@ -2118,7 +2118,7 @@ export class ProjectDataRepository {
       "SELECT * FROM project_data_development_workspaces WHERE project_id = ? AND development_id = ? AND backend_id = ?",
       [projectId, developmentId, backendId]
     );
-    return rows.length ? workspaceOf(rows[0]!) : undefined;
+    return rows.length ? workspaceOf(rows[0]) : undefined;
   }
 
   private async developmentWorkspaces(
@@ -2190,7 +2190,7 @@ export class ProjectDataRepository {
       [projectId, sessionId]
     );
     if (!rows.length) throw new ProjectDataNotFoundError("找不到该 Main 会话");
-    return rows[0]!;
+    return rows[0];
   }
 
   /** Append only the links a requirement does not already carry. */
@@ -2265,7 +2265,7 @@ export class ProjectDataRepository {
       [projectId]
     );
     if (!rows.length) throw new ProjectDataNotFoundError("找不到该项目的共享记录");
-    return rows[0]!;
+    return rows[0];
   }
 
   private async requireRequirement(projectId: string, requirementId: string): Promise<RequirementRow> {
@@ -2276,7 +2276,7 @@ export class ProjectDataRepository {
       [projectId, requirementId]
     );
     if (!rows.length) throw new ProjectDataNotFoundError("找不到该需求");
-    return rows[0]!;
+    return rows[0];
   }
 
   private async decisions(
@@ -2616,9 +2616,11 @@ export class ProjectDataService implements ProjectDataGateway {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await this.transaction((repository) =>
+      const failing = this.transaction((repository) =>
         repository.delivery().fail(projectId, deliveryId, message)
-      ).catch(() => undefined);
+      );
+      // eslint-disable-next-line no-restricted-syntax -- 失败原因写不回台账时仍要抛出原始错误，重试由调用方按 pending 行发起
+      await failing.catch(() => undefined);
       throw error;
     }
   }
@@ -2649,11 +2651,18 @@ export class ProjectDataService implements ProjectDataGateway {
     const sharedProjectId = ledgerProjectId(projectId);
     return this.transaction((repository) => {
       const board = repository.board();
-      if (action === "claim") return board.claim(sharedProjectId, boardId, input, context);
-      if (action === "pause") return board.pause(sharedProjectId, boardId, input, context);
-      if (action === "release") return board.release(sharedProjectId, boardId, input, context);
-      if (action === "cancel") return board.cancel(sharedProjectId, boardId, input, context);
-      throw new ProjectDataInvalidError("未知的看板操作");
+      switch (action) {
+        case "claim":
+          return board.claim(sharedProjectId, boardId, input, context);
+        case "pause":
+          return board.pause(sharedProjectId, boardId, input, context);
+        case "release":
+          return board.release(sharedProjectId, boardId, input, context);
+        case "cancel":
+          return board.cancel(sharedProjectId, boardId, input, context);
+        default:
+          throw new ProjectDataInvalidError("未知的看板操作");
+      }
     });
   }
 
@@ -2739,7 +2748,7 @@ function parseSnapshot(raw: string): ProjectDataSnapshot {
   } catch {
     throw new ProjectDataInvalidError("备份文件不是有效 JSON");
   }
-  const snapshot = value as Partial<ProjectDataSnapshot>;
+  const snapshot = value as Partial<ProjectDataSnapshot> | null;
   if (snapshot && typeof snapshot === "object" && snapshot.version === 1)
     throw new ProjectDataInvalidError("备份文件是旧版本（1），不含看板数据；请用对应版本恢复或重新备份");
   if (snapshot && typeof snapshot === "object" && snapshot.version === 2)
@@ -2772,7 +2781,8 @@ function parseSnapshot(raw: string): ProjectDataSnapshot {
     throw new ProjectDataInvalidError("备份文件格式不完整，未恢复任何数据");
   for (const table of TABLES) {
     const columns = TABLE_COLUMNS[table];
-    for (const row of snapshot.tables[table]!) {
+    for (const row of snapshot.tables[table]) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 记录来自备份 JSON，元素可能是 null、数组或标量，读字段前必须按损坏记录拒绝
       if (!row || typeof row !== "object" || Array.isArray(row))
         throw new ProjectDataInvalidError(`备份文件中的 ${table} 记录损坏，未恢复任何数据`);
       for (const [column, value] of Object.entries(row)) {
@@ -2826,6 +2836,7 @@ export class ProjectDataRuntime {
     this.ready = this.opening.then(() => undefined);
     // A caller that awaits `ready` still sees the failure; this only stops Node
     // reporting it as unhandled before the entrypoint reaches that await.
+    // eslint-disable-next-line no-restricted-syntax -- 失败仍由 service() 返回的 opening 交给调用方，这里只吞掉未处理拒绝的噪音
     this.ready.catch(() => undefined);
   }
 
@@ -2835,6 +2846,7 @@ export class ProjectDataRuntime {
 
   async close(): Promise<void> {
     // `ready` already reported a refused open; teardown must not report it twice.
+    // eslint-disable-next-line no-restricted-syntax -- 打开失败已由 ready 报告，关闭流程不能再因它拒绝，只能跳过 close
     const service = await this.opening.catch(() => undefined);
     await service?.close();
   }

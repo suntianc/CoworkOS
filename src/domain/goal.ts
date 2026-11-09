@@ -10,6 +10,7 @@ const timeZone = z
     try {
       new Intl.DateTimeFormat("en", { timeZone: value });
       return true;
+      // eslint-disable-next-line no-restricted-syntax -- 无效时区使 Intl.DateTimeFormat 抛 RangeError，返回 false 正是这条 zod 校验要的结果
     } catch {
       return false;
     }

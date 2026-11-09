@@ -3,6 +3,7 @@ if (process.argv.includes(require("./keychain-worker.cjs").workerFlag)) {
   const electron = require("electron");
   void require("./keychain-worker.cjs")
     .runKeychainWorker(electron)
+    // eslint-disable-next-line no-restricted-syntax -- a keychain worker that cannot start is fatal for this helper, which exits with code 1 while the host reports the storage error
     .catch(() => electron.app.exit(1));
   return;
 }
@@ -111,6 +112,7 @@ function closeArtifactViewers() {
 const computerNavigation = createComputerNavigationGuard({
   closeViewers: closeArtifactViewers,
   release: () => {
+    // eslint-disable-next-line no-restricted-syntax -- this runs from a navigation event with no error channel; computerTargets.beginSwitch retries the release before the next switch
     void computerTargets.releaseForNavigation().catch(() => {});
   }
 });
@@ -142,6 +144,7 @@ function openExternalLink(url) {
   if (!target) return;
   void shell
     .openExternal(target)
+    // eslint-disable-next-line no-restricted-syntax -- the error box is the user-facing result of a failed shell.openExternal, and the dialog text already says what to do
     .catch(() => dialog.showErrorBox("无法打开链接", "请复制链接后在浏览器中打开。"));
 }
 async function connectSelectedRenderer(selected) {
@@ -235,6 +238,7 @@ function createWindow() {
     }
   });
   const releaseComputerSessions = () => {
+    // eslint-disable-next-line no-restricted-syntax -- this runs from render-process-gone with no error channel; computerTargets.beginSwitch retries the release before the next switch
     void computerTargets.releaseForNavigation().catch(() => {});
   };
   mainWindow.webContents.on("did-start-navigation", (event) => {
@@ -333,6 +337,7 @@ ipcMain.on("bookman:transport-nonce", (event) => {
   try {
     trust(event);
     event.returnValue = sessionTransport.nonce();
+    // eslint-disable-next-line no-restricted-syntax -- trust() throws deliberately for untrusted senders; the transport nonce stays null for them
   } catch {
     event.returnValue = null;
   }
@@ -341,6 +346,7 @@ ipcMain.on("bookman:capabilities", (event) => {
   try {
     trust(event);
     event.returnValue = { notifications: Notification.isSupported(), tray: desktopTray?.supported === true };
+    // eslint-disable-next-line no-restricted-syntax -- trust() throws deliberately for untrusted senders; capabilities stay null for them
   } catch {
     event.returnValue = null;
   }
@@ -405,6 +411,7 @@ ipcMain.on("bookman:composer-drafts", (event) => {
   try {
     trust(event);
     event.returnValue = composerDrafts.snapshot();
+    // eslint-disable-next-line no-restricted-syntax -- trust() throws for untrusted senders and composerDrafts is unset until startup finishes; the reply is the empty snapshot with a warning
   } catch {
     event.returnValue = { entries: {}, warning: "草稿暂时无法恢复，请保留当前窗口并重试" };
   }
@@ -419,6 +426,7 @@ function registerComputerTakeover(enabled) {
   if (!enabled) return null;
   const registered = globalShortcut.register(shortcut, () => {
     globalShortcut.unregister(shortcut);
+    // eslint-disable-next-line no-restricted-syntax -- a global-shortcut callback has no reply channel and the shortcut is already unregistered, so a failed pause cannot be retried from here
     void computerTargets.pauseForTakeover().catch(() => {});
   });
   return registered ? "Ctrl + Option + Esc" : null;
@@ -430,6 +438,7 @@ ipcMain.handle("bookman:computer-use", async (event, input) => {
 });
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
+  // eslint-disable-next-line no-restricted-syntax -- the app is quitting; a failed updater dispose must not block will-quit
   void updates?.dispose().catch(() => {});
 });
 ipcMain.handle("bookman:documents-ready", (event, requestId, saved) => {
@@ -640,6 +649,7 @@ app.on("before-quit", (event) => {
     await restartPromise;
     await updates?.dispose();
     // The backend keeps serving, and with it every task it already accepted.
+    // eslint-disable-next-line no-restricted-syntax -- revoking the host approval cannot block quitting, and the approval dies with this process
     await computerTargets.dispose().catch(() => {});
     await credentialStorage.close?.();
     desktopTray?.dispose();

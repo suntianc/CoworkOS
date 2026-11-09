@@ -153,6 +153,7 @@ async function claimLock(lock, request) {
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
     const directory = await actualDirectory(lock);
+    // eslint-disable-next-line no-restricted-syntax -- a lock directory that was created but not yet populated has no owner.json, which is handled as a corrupt lock
     const owner = await json(path.join(lock, "owner.json")).catch(() => undefined);
     if (!Number.isInteger(owner?.pid) || owner.pid <= 0 || !/^[a-f0-9]{32}$/.test(owner?.requestId)) {
       if (Date.now() - directory.mtimeMs < 10 * 60_000)
@@ -255,6 +256,7 @@ async function readResult(userData) {
       ["installed", "rolled-back", "failed", "waiting", "starting"].includes(value.phase)
       ? value
       : undefined;
+    // eslint-disable-next-line no-restricted-syntax -- install-result.json is written by the installer process and may be absent or half-written
   } catch {
     return undefined;
   }
@@ -314,6 +316,7 @@ function createManagedUpdateInstaller({
       await actualFile(executable);
       try {
         await fs.access(parent, sync.constants.W_OK | sync.constants.X_OK);
+        // eslint-disable-next-line no-restricted-syntax -- the access check fails with EACCES/EPERM, and the message below tells the user the actionable install location
       } catch {
         fail("当前应用所在位置不可写，请将 CoworkOS 安装到个人 Applications 文件夹，或使用系统安装器");
       }
@@ -408,6 +411,7 @@ function createManagedUpdateInstaller({
         try {
           await runner("/usr/bin/hdiutil", ["detach", mount], { timeout: 120_000, maxBuffer: 1024 * 1024 });
         } catch (error) {
+          // eslint-disable-next-line no-restricted-syntax -- the volume may already be detached, so stat fails and the device comparison is skipped
           const volume = await fs.stat(mount).catch(() => undefined),
             parent = await fs.stat(directory);
           if (volume && volume.dev !== parent.dev) {
@@ -422,6 +426,7 @@ function createManagedUpdateInstaller({
     try {
       return await working;
     } catch (error) {
+      // eslint-disable-next-line no-restricted-syntax -- the original stage error must stay the one reported, so a cleanup failure cannot replace it
       await cleanup().catch(() => {});
       throw error;
     } finally {
@@ -489,6 +494,7 @@ function createManagedUpdateInstaller({
     async dispose() {
       disposed = true;
       controller?.abort();
+      // eslint-disable-next-line no-restricted-syntax -- dispose only waits for the aborted stage to settle, and its rejection already went to the stage() caller
       await working?.catch(() => {});
       await cleanup();
     }
@@ -632,7 +638,9 @@ async function runInstaller(file) {
     let ready;
     while (Date.now() - readyStart < c.readyTimeout) {
       if (cancelled) fail("更新已取消");
+      // eslint-disable-next-line no-restricted-syntax -- ready.json is polled while the new version boots and does not exist until that process confirms the launch
       ready = await json(path.join(c.stage, "ready.json")).catch(() => undefined);
+      // eslint-disable-next-line no-restricted-syntax -- launch.json is polled alongside ready.json and does not exist until the new version records its launch
       const launch = await json(path.join(c.stage, "launch.json")).catch(() => undefined);
       if (
         ready?.requestId === c.requestId &&
@@ -664,6 +672,7 @@ async function runInstaller(file) {
       let rolledBack = false;
       try {
         if (promoted) {
+          // eslint-disable-next-line no-restricted-syntax -- the launch receipt may be missing when the new version never started
           const launch = await json(path.join(c.stage, "launch.json")).catch(() => undefined);
           if (
             opened &&
@@ -734,8 +743,11 @@ async function runInstaller(file) {
               timeout: 30_000,
               env: launchEnvironment()
             }
+            // eslint-disable-next-line no-restricted-syntax -- relaunching the rolled-back app is best effort, and the recovery already records its own result
           ).catch(() => {});
+        // eslint-disable-next-line no-restricted-syntax -- the rollback itself failed, so the failure result naming the backup path is the only recovery record left
       } catch {
+        // eslint-disable-next-line no-restricted-syntax -- recording the failure must not throw over the failure that is already being handled
         await writeResult(c, "failed", "更新恢复未完成，请从备份恢复原应用：" + c.backup).catch(() => {});
       }
       if (process.connected)
@@ -743,6 +755,7 @@ async function runInstaller(file) {
     }
     process.exitCode = 1;
   } finally {
+    // eslint-disable-next-line no-restricted-syntax -- the installer is exiting, so a lock release failure must not change the exit code or hide the recorded result
     if (c) await releaseLock(c).catch(() => {});
     if (process.connected) process.disconnect();
   }

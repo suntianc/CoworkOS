@@ -13,6 +13,7 @@ export function isArtifactRawPath(value) {
       url.searchParams.get("raw") === "1" &&
       !url.searchParams.has("download")
     );
+    // eslint-disable-next-line no-restricted-syntax -- the href comes from rendered markup and may be malformed; an unparsable URL is simply not a raw artifact path
   } catch {
     return false;
   }

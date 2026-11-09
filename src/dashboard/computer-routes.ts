@@ -84,13 +84,7 @@ export async function handleComputerRequest(
         sendJson(
           response,
           200,
-          await computer.wait(
-            taskId,
-            body.sessionId,
-            body.condition,
-            body.timeoutMs as number | undefined,
-            controller.signal
-          )
+          await computer.wait(taskId, body.sessionId, body.condition, body.timeoutMs, controller.signal)
         );
       } else {
         if (typeof body.observationId !== "string") throw new ComputerUseError(400, "需要最近观察 ID");

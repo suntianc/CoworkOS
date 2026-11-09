@@ -31,6 +31,7 @@ interface CounterModel {
 function asModel(content: unknown): CounterModel {
   if (content && typeof content === "object" && "counters" in (content as Record<string, unknown>)) {
     const counters = (content as CounterModel).counters;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- content 来自资源文件 JSON，counters 可能是字符串或数字等非对象值
     if (counters && typeof counters === "object") return { counters: { ...counters } };
   }
   return { counters: {} };
@@ -163,7 +164,7 @@ export const dummyCounterAdapter: WorkbenchRuntimeAdapter = {
 
   summarizeSelection({ selection, content }): string {
     const model = asModel(content);
-    const key = (selection.data as { key?: unknown })?.key;
+    const key = (selection.data as { key?: unknown } | undefined)?.key;
     if (typeof key !== "string") return "未选择计数器";
     return `选中计数器 ${key}（当前 ${model.counters[key] ?? 0}）`;
   },

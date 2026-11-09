@@ -41,6 +41,7 @@ function createBundledWebHandler({ root, getOrigin, fetch, authorizeRequest = (r
     let origin;
     try {
       origin = new URL(getOrigin()).origin;
+      // eslint-disable-next-line no-restricted-syntax -- getOrigin() is undefined until an execution host is selected, so new URL() throws and the request goes straight to the network
     } catch {
       return fetch(authorizeRequest(request), { bypassCustomProtocolHandlers: true });
     }
@@ -53,6 +54,7 @@ function createBundledWebHandler({ root, getOrigin, fetch, authorizeRequest = (r
     let relative;
     try {
       relative = document ? "index.html" : decodeURIComponent(url.pathname.slice(1));
+      // eslint-disable-next-line no-restricted-syntax -- decodeURIComponent throws URIError for a malformed request path
     } catch {
       return new Response(null, { status: 400 });
     }

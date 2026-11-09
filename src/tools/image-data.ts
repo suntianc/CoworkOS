@@ -41,6 +41,7 @@ export function imageMimeType(extension: string): ImageMimeType {
     ".webp": "image/webp"
   };
   const type = types[extension.toLowerCase()];
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 扩展名由文件路径决定，未知扩展名在运行期返回 undefined，声明类型没有表达这一点
   if (!type) throw new Error("read_image supports PNG, JPEG, GIF and WebP");
-  return type as ImageMimeType;
+  return type;
 }

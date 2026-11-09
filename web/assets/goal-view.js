@@ -54,6 +54,7 @@ const sourceLinks = (sources = []) =>
         const url = new URL(source.url);
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return "";
         return `<a class="goal-source-link" href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${esc(source.title || url.hostname)} ↗</a>`;
+        // eslint-disable-next-line no-restricted-syntax -- 来源地址来自模型产出，可能不是合法绝对 URL，此时不渲染该来源链接
       } catch {
         return "";
       }

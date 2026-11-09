@@ -28,6 +28,7 @@ export class ProcessHost {
         try {
           if (process.platform !== "win32" && child.pid) process.kill(-child.pid, value);
           else child.kill(value);
+          // eslint-disable-next-line no-restricted-syntax -- 进程组可能已经退出（ESRCH），信号发不出去属预期，shutdown 仍按 close 与超时继续
         } catch {
           /* the process group has exited */
         }

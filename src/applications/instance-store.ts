@@ -282,11 +282,13 @@ export class InstanceStore {
     const belongsHere = workspaceRoot === resolve(this.workspaceRoot);
     let instance =
       value.loadedInstanceId && belongsHere
-        ? await readInstance(value.loadedInstanceId).catch(() => undefined)
+        ? // eslint-disable-next-line no-restricted-syntax -- 清单里的旧实例可能已不存在，按没有加载实例恢复
+          await readInstance(value.loadedInstanceId).catch(() => undefined)
         : undefined;
     if (value.version !== 3 && belongsHere) {
       if (value.boundResourceId) instance = (await instances()).findByResource(value.boundResourceId);
       else if (value.activeInstanceId)
+        // eslint-disable-next-line no-restricted-syntax -- 旧版清单记录的活动实例可能已删除，回退为未加载状态
         instance = await readInstance(value.activeInstanceId).catch(() => undefined);
     }
     return {
@@ -297,7 +299,9 @@ export class InstanceStore {
               (value.instanceHistory ?? []).map(async (id) => {
                 try {
                   safeIdentifier(id, "appInstanceId");
+                  // eslint-disable-next-line no-restricted-syntax -- 历史实例找不到时保留原始 id，窗口列表不能因此丢失
                   return (await readInstance(id).catch(() => undefined))?.appInstanceId ?? id;
+                  // eslint-disable-next-line no-restricted-syntax -- 非法实例 id 是清单里的坏数据，跳过它而不是让整个清单读取失败
                 } catch {
                   return undefined;
                 }
@@ -359,6 +363,7 @@ export class InstanceStore {
       if (!entry.isDirectory() || entry.name === "applications") continue;
       try {
         safeIdentifier(entry.name, "taskId");
+        // eslint-disable-next-line no-restricted-syntax -- 任务目录名不合法就跳过，它不是本应用的存储目录
       } catch {
         continue;
       }
@@ -384,7 +389,7 @@ function normalizeTitle(value: unknown): string {
   );
 }
 function boundUiState(value: Record<string, unknown>): Record<string, unknown> {
-  const serialized = JSON.stringify(value ?? {});
+  const serialized = JSON.stringify(value);
   if (Buffer.byteLength(serialized, "utf8") > RESOURCE_LIMITS.uiStateBytes)
     throw new ApplicationError("resource_too_large", "uiState 超过限制", {});
   return JSON.parse(serialized) as Record<string, unknown>;

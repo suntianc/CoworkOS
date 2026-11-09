@@ -115,9 +115,9 @@ The [ESLint configuration](../../eslint.config.mjs) extends existing checks with
 
 Before standalone lint, run `npm run build:cli` so the `dist` types referenced by `.pi` match current source, then `npm run lint`. Both `verify` and `check:ci` already follow this order. Routine GitHub checks remain manually triggered.
 
-On 2026-11-09, integrating the older configuration onto accepted source `583cbb4` calibrated the [file-level baseline](../../eslint-suppressions.json) for only these newly enabled rules: 237 files and 1037 findings, comprising 321 unnecessary conditions, 641 discarded-error syntax findings and 75 unnecessary assertions. Product logic was unchanged. ESLint counts suppressions by file and rule; review new locations as well. Daily changes add no findings and do not expand the baseline to bypass checks.
+On 2026-11-09, integrating the older configuration onto accepted source `583cbb4` calibrated the [file-level baseline](../../eslint-suppressions.json) for only these newly enabled rules: 237 files and 1037 findings, comprising 321 unnecessary conditions, 641 discarded-error syntax findings and 75 unnecessary assertions. Those findings were then cleaned up and the baseline emptied: conditions and assertions proven redundant are deleted, while real boundaries (tool arguments, persisted reads, closure-written flags) and expected best-effort cleanup use a per-site `eslint-disable-next-line <rule> -- <runtime basis>`. The baseline stays an empty object and daily changes add no findings; a justified local exception names its runtime basis and is reviewed, and neither an error-binding-free catch, an equivalent swallow wrapper nor an expanded baseline bypasses the check.
 
-When addressing existing findings, check input boundaries and error-handling semantics, then run `npx eslint src web desktop scripts .pi --prune-suppressions` to tighten counts and rerun ordinary lint. ESLint maintains the baseline file; Prettier skips it.
+After changing code covered by those rules, run `npx eslint src web desktop scripts .pi --prune-suppressions` to keep the baseline empty, then run ordinary lint. ESLint maintains the baseline file; Prettier skips it.
 
 ## Validation layers
 

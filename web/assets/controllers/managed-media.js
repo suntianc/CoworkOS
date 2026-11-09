@@ -17,6 +17,7 @@ export function createManagedMedia({ read, createObjectURL, revokeObjectURL, lim
           cache.delete(oldPath);
           Promise.resolve(oldValue)
             .then(revokeObjectURL)
+            // eslint-disable-next-line no-restricted-syntax -- the evicted URL is already out of the cache; a failed revoke only leaves the browser to reclaim it on unload
             .catch(() => undefined);
         }
         return href;
@@ -33,6 +34,7 @@ export function createManagedMedia({ read, createObjectURL, revokeObjectURL, lim
     for (const value of cache.values())
       Promise.resolve(value)
         .then(revokeObjectURL)
+        // eslint-disable-next-line no-restricted-syntax -- clear() runs on backend switch and the cache is already emptied; a failed revoke must not block the switch
         .catch(() => undefined);
     cache.clear();
   }

@@ -105,7 +105,9 @@ export function createExaSearchProvider(options: ExaOptions): SearchProvider {
       // Transport/protocol errors can echo response bodies, URLs or credentials.
       throw new ExaFailure("Exa 服务或协议响应失败；稍后重试。未获得搜索结果。");
     } finally {
+      // eslint-disable-next-line no-restricted-syntax -- 连接已进入关闭流程，会话终止或客户端关闭失败不会改变本次结果的成败，也不该覆盖已抛出的错误
       if (transport.sessionId) await transport.terminateSession().catch(() => {});
+      // eslint-disable-next-line no-restricted-syntax -- 传输可能已被远端断开，close 失败时无需上报，http.close 仍会释放本地资源
       await client.close().catch(() => {});
       await http.close();
     }
@@ -178,6 +180,7 @@ export function normalizeExaSources(
   try {
     parsed = JSON.parse(text);
     isJson = true;
+    // eslint-disable-next-line no-restricted-syntax -- 官方托管 MCP 默认返回带标签的 markdown，文本不是 JSON 时按原文解析，属于预期分支
   } catch {
     /* Labelled markdown is the hosted default. */
   }
@@ -283,6 +286,7 @@ function sourceUrl(value: string | undefined): string | undefined {
     return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password
       ? url.href
       : undefined;
+    // eslint-disable-next-line no-restricted-syntax -- 来源 URL 来自服务端响应，非法 URL 由 undefined 表达，调用方按缺少来源处理
   } catch {
     return undefined;
   }

@@ -47,6 +47,7 @@ export class MainRunOutput {
       const value: unknown = JSON.parse(line);
       if (!value || typeof value !== "object" || Array.isArray(value)) return;
       event = value;
+      // eslint-disable-next-line no-restricted-syntax -- Main 进程 stdout 会夹带非 JSON 的日志或半行输出，解析失败只说明该行不是事件，不能据此判定 Run 结束
     } catch {
       return;
     }
