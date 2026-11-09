@@ -1,12 +1,11 @@
-import { test, expect } from "@playwright/test";
-import { createRequire } from "node:module";
-import { startDashboard } from "../test/dashboard-fixture.mjs";
-
-const require = createRequire(import.meta.url);
-const { windowMaterial } = require("../desktop/window-material.cjs");
-// The host decides the macOS material; the renderer only mirrors that capability.
-const host = windowMaterial("darwin");
-const material = host.material;
+import { test, expect, _electron as electron } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
 const layers = (page) =>
   page.evaluate(() => {
@@ -17,6 +16,7 @@ const layers = (page) =>
     const conversation = getComputedStyle(document.querySelector(".chat-pane"));
     const taskPanel = getComputedStyle(document.querySelector(".agent-pane"));
     return {
+      material: window.bookmanDesktop.windowMaterial,
       html: read("html"),
       body: read("body"),
       shell: read(".app-shell"),
@@ -36,31 +36,53 @@ const expectClearPage = (value) => {
   }
 };
 
-test("a macOS window material shows the desktop through the page and keeps the glass panels", async ({
-  page
-}) => {
+test("macOS window material shows the desktop through the page and keeps the glass panels", async () => {
   test.skip(process.platform !== "darwin", "Native window material acceptance requires macOS");
-  expect(material).toBe("under-window");
-  // A clear native canvas is what lets the material show through the window.
-  expect(host.options).toMatchObject({ transparent: true, backgroundColor: "#00000000" });
-  const dashboard = await startDashboard();
+  test.setTimeout(180_000);
+  if (!existsSync("build/atria.icns"))
+    execFileSync(process.execPath, ["scripts/build-desktop-icon.mjs"], { stdio: "inherit" });
+  const root = await mkdtemp(join(tmpdir(), "atria-backdrop-material-"));
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|SERPER_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
+    )
+  );
+  Object.assign(env, {
+    COWORK_DESKTOP_DATA: root,
+    ATRIA_HOME: join(root, "home"),
+    PI_CODING_AGENT_DIR: join(root, "pi"),
+    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    PI_OFFLINE: "1"
+  });
+  const executablePath = await developmentExecutable();
+  let native;
   try {
-    // Preload hands the host material to the renderer before the first paint.
-    await page.addInitScript((value) => {
-      window.bookmanDesktop = { windowMaterial: { material: value } };
-    }, material);
-    await page.goto(dashboard.base);
-    await expect(page.locator("#composer-input")).toBeVisible();
+    native = await electron.launch({
+      executablePath,
+      args: ["--use-mock-keychain", resolve(".")],
+      env,
+      timeout: 90_000
+    });
+    await native.evaluate(({ app, BrowserWindow }) => {
+      app.hide();
+      BrowserWindow.getAllWindows().forEach((window) => window.hide());
+    });
+    const page = await native.firstWindow();
+    await expect(page.locator("#composer-input")).toBeAttached();
     await expect(page.locator("html")).toHaveAttribute("data-window-material", "under-window");
 
-    expectClearPage(await layers(page));
-
-    await page.evaluate(() => localStorage.setItem("atria.appearance", "light"));
-    await page.reload();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect(page.locator("html")).toHaveAttribute("data-window-material", "under-window");
-    expectClearPage(await layers(page));
+    // The real host exposes the material and switches appearance through IPC.
+    for (const theme of ["dark", "light"]) {
+      await page.evaluate((value) => window.bookmanDesktop.appearance.set(value), theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await expect(page.locator("html")).toHaveAttribute("data-window-material", "under-window");
+      const value = await layers(page);
+      expect(value.material).toEqual({ material: "under-window" });
+      expectClearPage(value);
+    }
   } finally {
-    await dashboard.stop();
+    await native?.close();
+    await stopNativeBackend(root);
+    await rm(root, { recursive: true, force: true });
   }
 });
