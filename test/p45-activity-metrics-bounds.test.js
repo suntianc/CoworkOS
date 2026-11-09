@@ -1,6 +1,7 @@
 import "./application-fixture.mjs";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,7 +9,7 @@ import { createCatalogEvents } from "../dist/src/dashboard/catalog-events.js";
 import { EventLedger } from "../dist/src/dashboard/event-ledger.js";
 import { createWorkspaceDirectory } from "../dist/src/dashboard/workspace-directory.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { readTaskActivity } from "../dist/src/runtime/activity-metrics.js";
+import { ACTIVITY_SLICE_MS, readTaskActivity } from "../dist/src/runtime/activity-metrics.js";
 import { createManagementEventClient } from "../web/assets/controllers/management-events.js";
 
 /**
@@ -265,3 +266,156 @@ test(
     assert.equal(view.applied[0].payload.activity.version, 1);
   }
 );
+
+/**
+ * One oversized record must not decide how much a trace may hold.
+ *
+ * A single tool result can be megabytes (an image, a whole file). The reader
+ * parses line by line and carries an unterminated tail into the next read, so a
+ * huge line appended while the Run is being read is exactly the case where an
+ * unbounded tail would grow by one read budget per poll. The measurement runs in
+ * its own process: it needs a cold cache and a forced collection to tell
+ * retained memory from garbage.
+ */
+test("a record past the line budget is dropped instead of buffered", { timeout: 180_000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-activity-huge-line-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const moduleUrl = JSON.stringify(new URL("../dist/src/runtime/activity-metrics.js", import.meta.url).href);
+  const child = spawn(
+    process.execPath,
+    [
+      "--expose-gc",
+      "--input-type=module",
+      "-e",
+      `
+        import { mkdir, mkdtemp, writeFile, appendFile } from "node:fs/promises";
+        import { tmpdir } from "node:os";
+        import { join } from "node:path";
+        import { readTaskActivity } from ${moduleUrl};
+        const storage = await mkdtemp(join(tmpdir(), "atria-activity-huge-workspace-"));
+        const runRoot = join(storage, "task", "runs", "run");
+        await mkdir(runRoot, { recursive: true });
+        const now = Date.now();
+        const started = now - 10 * 60_000;
+        await writeFile(join(runRoot, "run.json"), JSON.stringify({ taskId: "task", runId: "run", createdAt: new Date(started).toISOString() }));
+        await writeFile(join(runRoot, "queue.json"), "[]");
+        const line = (at, text) => JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text }], timestamp: at } }) + "\\n";
+        const log = join(runRoot, "runtime-output.log");
+        await writeFile(log, line(started, "first"));
+        const task = {
+          taskId: "task",
+          status: "running",
+          activeRunId: "run",
+          createdAt: new Date(started).toISOString(),
+          updatedAt: new Date(now).toISOString()
+        };
+        // Read once so the cursor sits before the record appended next: this is
+        // the growing-file case, not a fresh read of an already huge log.
+        await readTaskActivity({ storageRoot: storage, task, nowMs: started + 60_000 });
+        await appendFile(log, line(started + 60_000, "x".repeat(64 * 1024 * 1024)));
+        await appendFile(log, line(started + 120_000, "last"));
+        const retained = () => {
+          global.gc();
+          global.gc();
+          return process.memoryUsage().arrayBuffers;
+        };
+        const before = retained();
+        // Stop while the oversized record is still unterminated: that is the
+        // tail an unbounded reader would keep between polls.
+        for (let attempt = 0; attempt < 4; attempt += 1)
+          await readTaskActivity({ storageRoot: storage, task, nowMs: started + 300_000 });
+        const partial = retained() - before;
+        let activity;
+        for (let attempt = 4; attempt < 12; attempt += 1)
+          activity = await readTaskActivity({ storageRoot: storage, task, nowMs: started + 300_000 });
+        console.log(
+          JSON.stringify({
+            tail: partial,
+            retained: retained() - before,
+            bytes: activity.agents[0].samples.reduce((sum, sample) => sum + sample.outputBytes, 0)
+          })
+        );
+      `
+    ],
+    { cwd: root, encoding: "utf8" }
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const code = await new Promise((done) => child.once("close", done));
+  assert.equal(code, 0, stderr);
+  const measured = JSON.parse(stdout.trim());
+  assert.equal(
+    measured.bytes,
+    "first".length + "last".length,
+    "records around the oversized one are counted and the oversized one is dropped"
+  );
+  assert.ok(
+    measured.tail < 16 * 1024 * 1024,
+    `an unterminated oversized record is not carried between reads: kept ${Math.round(measured.tail / 1024 / 1024)} MB`
+  );
+  assert.ok(
+    measured.retained < 16 * 1024 * 1024,
+    `nothing oversized stays resident after the walk: kept ${Math.round(measured.retained / 1024 / 1024)} MB`
+  );
+});
+
+/**
+ * Event cadence: a Run that writes continuously must not publish once per write.
+ *
+ * The catalog payload is what the ledger digests, so anything that changes per
+ * record turns every reconcile tick into a `task.changed`. Progress is therefore
+ * reported on the sample grid, and a subscriber sees one update per finished
+ * slice (plus one when the stage itself changes).
+ */
+test("continuous output publishes at most one catalog change per slice", { timeout: 180_000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-activity-cadence-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const storage = join(root, "workspace");
+  const store = new LocalWorkspaceStore(storage);
+  await store.createRun("task", "run");
+  const runRoot = join(storage, "task", "runs", "run");
+  const startedMs = Date.now() - 2 * 60 * MINUTE;
+  await writeFile(
+    join(runRoot, "run.json"),
+    `${JSON.stringify({ taskId: "task", runId: "run", createdAt: new Date(startedMs).toISOString() })}\n`
+  );
+  await writeFile(join(runRoot, "queue.json"), "[]\n");
+  const logPath = join(runRoot, "runtime-output.log");
+  await writeFile(logPath, "");
+  const task = await store.readTask("task");
+  const record = (at) =>
+    `${JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "step" }], timestamp: at }
+    })}\n`;
+  let nowMs = startedMs + MINUTE;
+  await writeFile(logPath, record(nowMs));
+  const events = createCatalogEvents({
+    ledger: EventLedger.open(join(root, "events"), "backend-cadence"),
+    readCatalog: async () => ({
+      projects: [],
+      tasks: [{ ...task, activity: await readTaskActivity({ storageRoot: storage, task, nowMs }) }]
+    })
+  });
+  t.after(() => events.close());
+
+  let cursor = (await events.snapshot()).cursor;
+  const slices = 60;
+  const ticks = slices * 4;
+  let published = 0;
+  for (let tick = 1; tick <= ticks; tick += 1) {
+    nowMs += ACTIVITY_SLICE_MS / 4;
+    await appendFile(logPath, record(nowMs));
+    const snapshot = await events.snapshot();
+    published += snapshot.cursor - cursor;
+    cursor = snapshot.cursor;
+  }
+  assert.ok(published <= slices + 2, `${slices} slices of output must not publish ${published} changes`);
+  assert.ok(published >= slices - 2, `each finished slice publishes its sample, got ${published}`);
+});

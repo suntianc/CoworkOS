@@ -20,6 +20,14 @@ const ACTIVITY_IDLE_MS = ACTIVITY_SLICE_MS;
 const ACTIVITY_WINDOW_SLICES = ACTIVITY_WINDOW_MS / ACTIVITY_SLICE_MS;
 /** Bytes read from one trace per refresh; a large older log catches up across reads. */
 const TRACE_READ_BUDGET = 8 * 1024 * 1024;
+/**
+ * Longest single record worth parsing.
+ *
+ * One tool result can be megabytes (an image, a whole file), and an unterminated
+ * line has to be carried into the next read. A record past this budget is
+ * dropped rather than deciding how much memory a trace may hold between reads.
+ */
+const TRACE_LINE_BUDGET = 4 * 1024 * 1024;
 const TRACE_CACHE_LIMIT = 64;
 
 export type ActivityStage =
@@ -49,7 +57,10 @@ export interface AgentActivityMetrics {
   /** What the agent is doing now, or how its work ended. */
   stage: ActivityStage;
   stageChangedAt: string;
-  /** The last record this agent wrote; null before it wrote any. */
+  /**
+   * The last record this agent wrote, reported no later than the end of the
+   * last published slice; null before it wrote any.
+   */
   lastProgressAt: string | null;
   /** `samples[i]` covers `[from + i*sliceMs, from + (i+1)*sliceMs)`. */
   samples: ActivitySample[];
@@ -180,6 +191,11 @@ export async function readTaskActivity(input: {
   const fromSlice = Math.max(startSlice, endSlice - (ACTIVITY_WINDOW_SLICES - 1));
   const slices = Math.max(0, endSlice - fromSlice + 1);
   const from = new Date(fromSlice * ACTIVITY_SLICE_MS).toISOString();
+  // Records only become readable as their slice completes, so progress is
+  // reported no later than the published grid. That keeps the payload changing
+  // once per finished slice instead of once per record: a subscriber's events
+  // follow the sample cadence, not the agent's write rate.
+  const publishedEndMs = (endSlice + 1) * ACTIVITY_SLICE_MS - 1;
 
   const agents = members.map((member, index): AgentActivityMetrics => {
     const state = read[index];
@@ -219,7 +235,9 @@ export async function readTaskActivity(input: {
       stage,
       stageChangedAt: new Date(changedAt).toISOString(),
       lastProgressAt:
-        state.lastProgressMs === undefined ? null : new Date(state.lastProgressMs).toISOString(),
+        state.lastProgressMs === undefined
+          ? null
+          : new Date(Math.max(startedMs, Math.min(state.lastProgressMs, publishedEndMs))).toISOString(),
       samples
     };
   });
@@ -315,11 +333,19 @@ async function refresh(path: string, state: TraceAccumulator): Promise<void> {
     const data = Buffer.concat([state.pending, buffer.subarray(0, filled)]);
     let start = 0;
     for (let newline = data.indexOf(10, start); newline !== -1; newline = data.indexOf(10, start)) {
+      // A record past the budget is dropped whole, the same way a line cut by
+      // the read offset is: one huge tool result must not set the buffer size.
       if (state.skipLine) state.skipLine = false;
-      else consume(state, data.subarray(start, newline).toString("utf8"));
+      else if (newline - start <= TRACE_LINE_BUDGET)
+        consume(state, data.subarray(start, newline).toString("utf8"));
       start = newline + 1;
     }
-    state.pending = Buffer.from(data.subarray(start));
+    // Only a line inside the budget is carried into the next read. Beyond it
+    // the tail is discarded and skipping resumes at the next newline.
+    if (data.length - start > TRACE_LINE_BUDGET || state.skipLine) {
+      state.pending = Buffer.alloc(0);
+      state.skipLine = true;
+    } else state.pending = Buffer.from(data.subarray(start));
     prune(state);
   } finally {
     await handle.close();
