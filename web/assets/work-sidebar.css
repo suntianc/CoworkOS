@@ -1,0 +1,633 @@
+/* Work entry: the project → Main session → Subagent tree and the new-session
+   start surface. Loaded after formicand.css so it owns only these structures. */
+
+html[data-theme] .work-sidebar {
+  gap: 8px;
+}
+html[data-theme] .sidebar-top {
+  flex: 0 0 auto;
+  padding: 0;
+}
+html[data-theme] .new-conversation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 9px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  color: var(--color-text);
+  background: transparent;
+  box-shadow: none;
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+}
+html[data-theme] .new-conversation:hover {
+  background: var(--color-surface-2);
+}
+html[data-theme] .new-conversation.is-current {
+  border-color: var(--color-glass-edge);
+  background: var(--color-surface-3);
+}
+html[data-theme] .new-conversation .new-icon {
+  display: inline-flex;
+  color: var(--color-text);
+}
+html[data-theme] .new-conversation .new-icon .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+html[data-theme] .new-conversation .new-label {
+  flex: 1;
+}
+html[data-theme] .new-conversation .shortcut {
+  margin-left: auto;
+  color: var(--color-text-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+html[data-theme] .sidebar-section-label {
+  flex: 0 0 auto;
+  height: auto;
+  padding: 0 8px 6px;
+  color: var(--color-text-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+html[data-theme] .sidebar-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+html[data-theme] #new-project {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-3);
+  background: transparent;
+  cursor: pointer;
+}
+html[data-theme] #new-project:hover {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+}
+html[data-theme] #new-project .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+
+html[data-theme] .work-sidebar .project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  overflow: auto;
+}
+html[data-theme] .project-group {
+  margin: 0;
+}
+html[data-theme] .project-heading {
+  margin: 0;
+  border-radius: 8px;
+}
+html[data-theme] .project-heading:hover {
+  background: transparent;
+}
+html[data-theme] .project-heading .project-row {
+  gap: 8px;
+  min-height: 32px;
+  padding: 7px 64px 7px 8px;
+  border-radius: 8px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+html[data-theme] .project-heading .project-row:hover {
+  background: var(--color-surface-2);
+}
+html[data-theme] .project-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+}
+html[data-theme] .project-disclosure :is(.project-folder, .project-chevron) {
+  display: inline-flex;
+  place-items: center;
+  flex: 0 0 auto;
+  opacity: 1;
+}
+html[data-theme] .project-disclosure .project-chevron .ui-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--color-text-3);
+}
+html[data-theme] .project-disclosure .project-folder .ui-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--color-text);
+}
+html[data-theme] .project-group.collapsed .project-disclosure .project-folder .ui-icon {
+  color: var(--color-text-2);
+}
+html[data-theme] .project-group.collapsed .project-chevron .ui-icon {
+  transform: rotate(-90deg);
+}
+html[data-theme] .project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme] .project-group.is-selected .project-name {
+  color: var(--color-text);
+}
+html[data-theme] .project-count {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  min-width: 0;
+  margin: 0;
+  transform: translateY(-50%);
+  color: var(--color-text-3);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  text-align: right;
+}
+html[data-theme] .project-question {
+  position: absolute;
+  right: 28px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: var(--color-warn);
+  box-shadow: 0 0 6px var(--color-warn);
+}
+html[data-theme] .project-heading:is(:hover, :has(:focus-visible)) .project-count,
+html[data-theme] .project-heading:is(:hover, :has(:focus-visible)) .project-question {
+  opacity: 0;
+}
+html[data-theme] .project-heading :is(.project-settings, .project-create) {
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+html[data-theme] .project-heading .project-settings {
+  right: 28px;
+}
+html[data-theme] .project-heading .project-create {
+  right: 4px;
+}
+html[data-theme] .project-heading .project-create .ui-icon,
+html[data-theme] .project-heading .project-settings .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+
+html[data-theme] .conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+}
+html[data-theme] .project-group.collapsed .conversation-list {
+  display: none;
+}
+html[data-theme] .conversation-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  padding-left: 14px;
+  border-radius: 8px;
+}
+html[data-theme] .conversation-row + .conversation-row {
+  margin-top: 1px;
+}
+html[data-theme] .conversation-row:is(:hover, :has(:focus-visible)) {
+  background: var(--color-surface-2);
+}
+html[data-theme] .conversation-row:has(.conversation-item.active) {
+  --sidebar-row-bg: var(--selected-fill);
+  background-color: var(--selected-fill);
+  box-shadow:
+    inset 0 0 0 1px var(--selected-edge),
+    0 2px 8px #00000040;
+}
+html[data-theme] .conversation-row:has(.conversation-item.active):hover {
+  background-color: var(--selected-fill);
+}
+html[data-theme] .conversation-row:has(.conversation-menu[aria-expanded="true"]) {
+  background: var(--color-surface-2);
+}
+html[data-theme] .conversation-row:has(.conversation-menu[aria-expanded="true"]) .conversation-item {
+  background: transparent;
+  box-shadow: none;
+}
+html[data-theme] .conversation-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-3);
+  background: transparent;
+  cursor: pointer;
+}
+html[data-theme] .conversation-toggle:hover {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+}
+html[data-theme] .conversation-toggle .ui-icon {
+  width: 12px;
+  height: 12px;
+}
+html[data-theme] .conversation-indent {
+  display: block;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+}
+html[data-theme] .conversation-sidebar .conversation-row .conversation-item {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 36px;
+  margin: 0;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-text-2);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+}
+html[data-theme] .conversation-row:is(:hover, :has(:focus-visible)) .conversation-item,
+html[data-theme] .conversation-sidebar .conversation-row .conversation-item.active {
+  color: var(--color-text);
+  background: transparent;
+  box-shadow: none;
+}
+html[data-theme] .conversation-item.active .conversation-title-text {
+  font-weight: 500;
+}
+html[data-theme] .conversation-sidebar .conversation-item-title {
+  font-size: 13px;
+  line-height: 20px;
+}
+html[data-theme] .conversation-item-title .conversation-question {
+  order: -1;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--color-warn);
+  box-shadow: 0 0 6px var(--color-warn);
+}
+html[data-theme] .conversation-item.active .conversation-question {
+  background: transparent;
+  box-shadow: 0 0 6px var(--color-accent);
+}
+html[data-theme] .conversation-menu {
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+html[data-theme] .conversation-menu .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+
+html[data-theme] .subagent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 8px;
+}
+html[data-theme] .subagent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin: 0;
+  padding: 5px 8px 5px 36px;
+  border-radius: 8px;
+}
+html[data-theme] .subagent-guide {
+  position: relative;
+  flex: 0 0 10px;
+  width: 10px;
+  height: 20px;
+}
+html[data-theme] .subagent-guide::before,
+html[data-theme] .subagent-guide::after {
+  content: "";
+  position: absolute;
+  background: var(--color-line);
+}
+html[data-theme] .subagent-guide::before {
+  left: 0;
+  top: -6px;
+  bottom: -6px;
+  width: 1px;
+}
+html[data-theme] .subagent-guide::after {
+  left: 0;
+  top: 10px;
+  width: 8px;
+  height: 1px;
+}
+html[data-theme] .subagent-row:last-child .subagent-guide::before {
+  bottom: 9px;
+}
+html[data-theme] .subagent-state {
+  display: inline-flex;
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+}
+html[data-theme] .subagent-state .ui-icon {
+  width: 13px;
+  height: 13px;
+}
+html[data-theme] .subagent-state.is-done {
+  color: var(--color-ok);
+}
+html[data-theme] .subagent-state.is-running {
+  color: var(--color-accent);
+}
+html[data-theme] .subagent-state.is-review {
+  color: var(--color-review);
+}
+html[data-theme] .subagent-state.is-idle {
+  color: var(--color-text-3);
+}
+html[data-theme] .subagent-state:is(.is-running, .is-review) .ui-icon {
+  animation: ui-spin 1.2s linear infinite;
+}
+html[data-theme] .subagent-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme] .subagent-role {
+  flex: 0 0 auto;
+  color: var(--color-text-3);
+  font-size: 11px;
+}
+html[data-theme] .project-empty {
+  padding: 6px 8px 10px 36px;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+
+html[data-theme] .sidebar-legacy {
+  flex: 0 0 auto;
+  gap: 1px;
+  margin-top: 2px;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--color-line);
+}
+html[data-theme] .sidebar-legacy .nav-item {
+  min-height: 28px;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--color-text-2);
+  font-size: 12px;
+}
+html[data-theme] .sidebar-legacy .nav-item:is(.active, :hover) {
+  color: var(--color-text);
+  background: var(--color-surface-2);
+}
+html[data-theme] .sidebar-legacy .nav-icon .ui-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-3);
+}
+
+/* New session: one centred start surface above the composer, which keeps the
+   project choice visible where the message is written. */
+html[data-theme] .conversation-pane.is-new-session #conversation {
+  display: flex;
+  padding: 0 24px;
+}
+html[data-theme] .conversation-pane.is-new-session .composer-wrap {
+  padding: 0 24px 24px;
+}
+html[data-theme] .conversation-pane.is-new-session .composer {
+  width: 100%;
+  max-width: 740px;
+  margin: 0 auto;
+}
+.new-session-start {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  width: 100%;
+  min-height: 0;
+  padding: 0 0 120px;
+}
+.new-session-hero,
+.new-session-recent {
+  width: 100%;
+  max-width: 740px;
+}
+.new-session-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.new-session-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.new-session-label {
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+.new-session-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  color: var(--color-text);
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.new-session-recent-row:hover {
+  background: var(--color-surface-2);
+}
+.new-session-recent-row .ui-icon {
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  color: var(--color-text-3);
+}
+.new-session-recent-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.new-session-recent-meta {
+  flex: 0 0 auto;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+
+html[data-theme] .composer .composer-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  max-width: 200px;
+  height: 29px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 33%, transparent);
+  border-radius: 8px;
+  color: var(--color-text);
+  background: var(--color-accent-soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+html[data-theme] .composer .composer-project[hidden] {
+  display: none;
+}
+html[data-theme] .composer .composer-project .ui-icon {
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+  color: var(--color-accent);
+}
+html[data-theme] .composer .composer-project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme] .composer .composer-project .model-chevron {
+  display: inline-flex;
+}
+html[data-theme] .composer {
+  position: relative;
+}
+html[data-theme] .composer .composer-project-menu {
+  left: 50px;
+  right: auto;
+  bottom: calc(100% + 10px);
+  width: 260px;
+  max-width: min(260px, calc(100vw - 40px));
+  max-height: 320px;
+  padding: 6px;
+  overflow: auto;
+  border: 1px solid var(--color-glass-edge);
+  border-radius: 12px;
+  background: var(--popover-fill);
+  box-shadow: 0 12px 36px #00000088;
+}
+html[data-theme] .composer .composer-project-menu[hidden] {
+  display: none;
+}
+.composer-project-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-text);
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.composer-project-option:hover,
+.composer-project-option[aria-selected="true"] {
+  background: var(--color-surface-3);
+}
+.composer-project-option .ui-icon {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-2);
+}
+.composer-project-option span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-project-check {
+  display: inline-flex;
+  flex: 0 0 14px;
+}
+.composer-project-check .ui-icon {
+  color: var(--color-accent);
+}
+.composer-project-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--color-line);
+}
+.composer-project-option.is-add,
+.composer-project-option.is-add .ui-icon {
+  color: var(--color-accent);
+}
+
+@media (max-width: 620px) {
+  html[data-theme] .new-conversation .shortcut {
+    display: none;
+  }
+  html[data-theme] .composer .composer-project-menu {
+    left: 8px;
+    max-width: calc(100vw - 24px);
+  }
+}
+
+/* The narrow composer keeps one action row; #14 owns the project entry there. */
+@container (max-width: 260px) {
+  html[data-theme] .composer .composer-project {
+    display: none;
+  }
+}

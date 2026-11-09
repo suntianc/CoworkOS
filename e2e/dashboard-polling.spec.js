@@ -63,7 +63,7 @@ test("a task catalog slower than the polling period still applies and preserves 
     gate.resolve();
     await expect(page.locator('[data-task="slow-a"]')).toBeVisible();
     await expect(page.locator("#composer-input")).toHaveValue("等待期间写下的新草稿");
-    await expect(page.locator("#topbar-task")).toHaveText("新任务");
+    await expect(page.locator("#topbar-task")).toHaveText("新会话");
     await expect(page.locator('[data-task="slow-a"]')).not.toHaveClass(/active/);
     await page.evaluate(() => {
       window.pollingDraftPrompt = document.querySelector("#topbar-task");
