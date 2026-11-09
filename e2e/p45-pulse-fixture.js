@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 
 /**
@@ -128,4 +129,40 @@ export async function createPulseRequirement(page, dashboard, projectId, title) 
   });
   if (!response.ok()) throw new Error(`requirement creation failed: ${response.status()}`);
   return (await response.json()).requirement;
+}
+
+/**
+ * Seed the host's slot claims, the same durable fact a dispatched Main leaves.
+ *
+ * The pid belongs to the test process and is alive, so the host's own
+ * reconciliation keeps the claim. The Runs view must read occupancy from these
+ * slots, not from the lanes the current filter happens to display.
+ */
+export async function seedCapacitySlots(dashboard, slots) {
+  const directory = join(dashboard.root, "main-capacity");
+  const path = join(directory, "state.json");
+  let state = { version: 1, externalTasks: [], slots: [], queue: [] };
+  try {
+    state = JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  state.slots = [
+    ...(Array.isArray(state.slots) ? state.slots : []),
+    ...slots.map((slot) => ({
+      requestId: `request-${slot.taskId}`,
+      projectId: slot.projectId,
+      sessionId: slot.sessionId,
+      taskId: slot.taskId,
+      runId: slot.runId,
+      kind: slot.kind,
+      ...(slot.requirementId ? { requirementId: slot.requirementId } : {}),
+      host: hostname(),
+      pid: process.pid,
+      startedAt: new Date(slot.startedAt).toISOString()
+    }))
+  ];
+  state.updatedAt = new Date().toISOString();
+  await mkdir(directory, { recursive: true });
+  await writeFile(path, `${JSON.stringify(state, null, 2)}\n`);
 }

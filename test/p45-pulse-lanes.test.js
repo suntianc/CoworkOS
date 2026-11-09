@@ -65,7 +65,7 @@ const session = (overrides) => ({
   ...overrides
 });
 
-function fixture({ nodes, scoped, reads = async () => ({}), reducedMotion = false }) {
+function fixture({ nodes, scoped, reads = async () => ({}), reducedMotion = false, visible = true }) {
   const { window, document } = parseHTML(readFileSync("web/index.html", "utf8"));
   const previous = {
     window: globalThis.window,
@@ -94,10 +94,16 @@ function fixture({ nodes, scoped, reads = async () => ({}), reducedMotion = fals
     }
   };
   const root = document.querySelector('[data-observe-panel="runs"]');
+  const pane = document.querySelector("#observe-entry");
   const header = document.querySelector("[data-observe-runs-controls]");
+  if (visible) {
+    pane.hidden = false;
+    root.hidden = false;
+  }
   const controller = createObserveRuns({ root, header, data, now: () => NOW });
   return {
     root,
+    pane,
     header,
     data,
     controller,
@@ -320,7 +326,12 @@ test("external capacity groups show usage and empty slots, and an offline node c
         return {
           configured: true,
           settings: { resident: 3, continuation: 2 },
-          running: [],
+          running: [
+            { taskId: "resident-1", kind: "regular" },
+            { taskId: "resident-2", kind: "regular" },
+            { taskId: "continuation-1", kind: "continuation" },
+            { taskId: "continuation-2", kind: "continuation" }
+          ],
           queued: []
         };
       if (origin === cloud.origin && path.endsWith("/main-sessions"))
@@ -354,9 +365,19 @@ test("external capacity groups show usage and empty slots, and an offline node c
   assert.ok(empty.includes("常驻 3"));
 
   const idleLane = cloudCard.querySelector('[data-runs-lane="resident-2"]');
-  assert.equal(idleLane.dataset.stage, "idle");
-  assert.equal(idleLane.dataset.stalled, "false");
+  assert.equal(idleLane.dataset.stage, "wait");
+  // Its last record is outside the selected window, but the silence is real.
+  assert.equal(idleLane.dataset.stalled, "true");
   assert.match(idleLane.textContent, /3 小时/);
+  assert.match(idleLane.querySelector("[data-runs-stall]").textContent, /3 小时无进展/);
+  view.header.querySelector('[data-runs-window="5"]').click();
+  assert.equal(view.root.dataset.window, "5");
+  assert.equal(idleLane.dataset.stalled, "true");
+  assert.match(
+    cloudCard.querySelector('[data-runs-lane="resident-2"] [data-runs-stall]').textContent,
+    /3 小时无进展/
+  );
+  view.header.querySelector('[data-runs-window="30"]').click();
 
   const stalledLane = cloudCard.querySelector('[data-runs-lane="continuation-1"]');
   assert.equal(stalledLane.dataset.stage, "wait");
@@ -411,4 +432,91 @@ test("a node without metrics draws stage blocks and marks metrics not ready", as
   // Reduced motion turns the live view into a snapshot refreshed on a timer.
   assert.equal(view.root.dataset.motion, "reduced");
   assert.equal(view.root.dataset.refreshMs, "5000");
+});
+
+test("a hidden runs panel performs no observation reads until it becomes visible", async (t) => {
+  const node = online("http://local.test", "本机", "internal", true);
+  let reads = 0;
+  const view = fixture({
+    nodes: [node],
+    visible: false,
+    scoped: ({ nodeOrigin }) =>
+      nodeOrigin === node.origin
+        ? {
+            projects: [{ projectId: "project-1", projectName: "P4 验收示例项目" }],
+            tasks: [],
+            requirements: []
+          }
+        : { projects: [], tasks: [], requirements: [] },
+    reads: async (origin, path) => {
+      reads += 1;
+      if (path.endsWith("/main-sessions")) return { sessions: [] };
+      return {};
+    }
+  });
+  t.after(() => view.restore());
+
+  await delay(40);
+  assert.equal(reads, 0, "a hidden panel must not poll nodes");
+  assert.equal(view.root.querySelector("[data-runs-node]"), null);
+
+  view.pane.hidden = false;
+  view.root.hidden = false;
+  await delay(40);
+  assert.ok(reads > 0, "opening the view starts the read");
+  assert.ok(view.root.querySelector("[data-runs-node]"));
+});
+
+test("a requirement's stage comes from the project's read-only lists", async (t) => {
+  const node = online("http://local.test", "本机", "internal", true);
+  const requests = [];
+  const lane = task({
+    activity: activity({
+      agents: [agent({ stage: "working", stageChangedAt: at(-40), lastProgressAt: at(-1) })]
+    })
+  });
+  const view = fixture({
+    nodes: [node],
+    scoped: ({ nodeOrigin }) =>
+      nodeOrigin === node.origin
+        ? {
+            projects: [{ projectId: "project-1", projectName: "P4 验收示例项目" }],
+            tasks: [lane],
+            requirements: []
+          }
+        : { projects: [], tasks: [], requirements: [] },
+    reads: async (origin, path, options) => {
+      requests.push({ path, options });
+      if (path.endsWith("/main-sessions")) return { sessions: [session({})] };
+      if (path.endsWith("/developments"))
+        return {
+          developments: [
+            {
+              developmentId: "development-1",
+              requirementId: "requirement-1",
+              createdAt: at(-40),
+              updatedAt: at(-20)
+            }
+          ]
+        };
+      if (path.endsWith("/reviews"))
+        return { reviews: [{ developmentId: "development-1", state: "passed", createdAt: at(-20) }] };
+      if (path.endsWith("/merges"))
+        return { merges: [{ developmentId: "development-1", state: "waiting", createdAt: at(-12) }] };
+      if (path.endsWith("/deliveries")) return { deliveries: [] };
+      return {};
+    }
+  });
+  t.after(() => view.restore());
+
+  await delay(80);
+  const row = view.root.querySelector('[data-runs-lane="task-1"]');
+  assert.equal(row.dataset.stage, "wait");
+  assert.match(row.textContent, /等待合入/);
+  // The same read-only lists the dashboard derives its stage from; no POST
+  // delivery view that would replay the outbox or inspect a checkout.
+  const paths = requests.map((request) => request.path);
+  assert.ok(paths.some((path) => path.endsWith("/developments")));
+  assert.ok(paths.some((path) => path.endsWith("/merges")));
+  assert.ok(requests.every((request) => request.method === undefined || request.method === "GET"));
 });

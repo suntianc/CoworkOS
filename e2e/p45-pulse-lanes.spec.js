@@ -7,6 +7,7 @@ import {
   createPulseRequirement,
   createPulseSession,
   pulseClock,
+  seedCapacitySlots,
   seedPulseLane
 } from "./p45-pulse-fixture.js";
 
@@ -47,6 +48,7 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     });
     const projectA = await createProject(page, a, "P4 验收示例项目", `${a.root}/p4-project`);
     const projectB = await createProject(page, b, "官网", `${b.root}/site-project`);
+    const projectB2 = await createProject(page, b, "官网分站", `${b.root}/site-second`);
     const requirementA1 = await createPulseRequirement(page, a, projectA.projectId, "按分数文件汇总总分");
     const requirementA2 = await createPulseRequirement(page, a, projectA.projectId, "文档整理");
     const requirementB1 = await createPulseRequirement(page, b, projectB.projectId, "客户 A 登录问题");
@@ -72,7 +74,7 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
       kind: "regular"
     });
     const resident2 = await createPulseSession(page, b, {
-      projectId: projectB.projectId,
+      projectId: projectB2.projectId,
       title: "常驻 2",
       entryKind: "external",
       kind: "regular"
@@ -145,6 +147,53 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
       main: { from: -18, to: 1 }
     });
 
+    // The host's own slot claims keep occupancy truthful when the filter hides
+    // a lane. The pid is this test process, so reconciliation keeps the claim.
+    await seedCapacitySlots(b, [
+      {
+        taskId: resident1.taskId,
+        projectId: projectB.projectId,
+        sessionId: resident1.sessionId,
+        runId: "run-resident-1",
+        kind: "regular",
+        requirementId: requirementB1.requirementId,
+        startedAt: clock.ago(-60)
+      },
+      {
+        taskId: resident2.taskId,
+        projectId: projectB2.projectId,
+        sessionId: resident2.sessionId,
+        runId: "run-resident-2",
+        kind: "regular",
+        startedAt: clock.ago(-180)
+      },
+      {
+        taskId: continuation1.taskId,
+        projectId: projectB.projectId,
+        sessionId: continuation1.sessionId,
+        runId: "run-continuation-1",
+        kind: "continuation",
+        requirementId: requirementB2.requirementId,
+        startedAt: clock.ago(-26)
+      },
+      {
+        taskId: continuation2.taskId,
+        projectId: projectB.projectId,
+        sessionId: continuation2.sessionId,
+        runId: "run-continuation-2",
+        kind: "continuation",
+        requirementId: requirementB3.requirementId,
+        startedAt: clock.ago(-18)
+      }
+    ]);
+
+    const developmentRequests = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (!/^\/api\/projects\/[^/]+\/(developments|reviews|merges|deliveries)$/.test(url.pathname)) return;
+      developmentRequests.push({ method: request.method(), path: url.pathname, origin: url.origin });
+    });
+
     const offlineOrigin = `http://127.0.0.1:${closedPort}`;
     await page.addInitScript(
       ([key, records]) => localStorage.setItem(key, JSON.stringify(records)),
@@ -164,7 +213,16 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
 
     await page.goto(a.base);
     await expect(page.locator("#composer-input")).toBeVisible();
+    // The Runs view is hidden at first; a hidden panel must not read the
+    // project's development facts (or anything else) on a timer.
+    await page.waitForTimeout(1200);
+    expect(developmentRequests).toHaveLength(0);
+
     await page.getByRole("tab", { name: "观测", exact: true }).click();
+    await page.locator('[data-observe-view="requirements"]').click();
+    await page.waitForTimeout(600);
+    expect(developmentRequests).toHaveLength(0);
+
     await page.locator('[data-observe-view="runs"]').click();
     await expect(page.locator("[data-observe-runs-controls]")).toBeVisible();
 
@@ -178,6 +236,15 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await expect(cloudCard).toContainText("对外");
     await expect(page.locator("[data-runs-live]")).toBeVisible();
 
+    // Stage facts are list reads only; the delivery-view read that replays the
+    // outbox and inspects a checkout is never issued from observation.
+    await expect.poll(() => developmentRequests.length).toBeGreaterThan(0);
+    expect(developmentRequests.every((request) => request.method === "GET")).toBe(true);
+    expect(developmentRequests.some((request) => request.path.endsWith("/deliveries"))).toBe(true);
+    const readsAfterOpen = developmentRequests.length;
+    await page.waitForTimeout(11_000);
+    expect(developmentRequests).toHaveLength(readsAfterOpen);
+
     // Main lanes with their session, stage, project · requirement and duration.
     const pulseLane = localCard.locator(`[data-runs-lane="${pulse.taskId}"]`);
     await expect(pulseLane).toHaveCount(1, { timeout: 20_000 });
@@ -185,7 +252,7 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await expect(pulseLane).toContainText("评分汇总验收");
     await expect(pulseLane).toContainText("审查");
     await expect(pulseLane).toContainText("P4 验收示例项目 · 按分数文件汇总总分");
-    await expect(pulseLane).toContainText("24 分");
+    await expect(pulseLane).toContainText(/2[45] 分/);
     await expect(pulseLane.locator(".runs-pulse.is-dev")).toHaveCount(1);
     await expect(pulseLane.locator(".runs-pulse.is-idle")).toHaveCount(1);
     await expect(pulseLane.locator(".runs-pulse.is-review")).toHaveCount(1);
@@ -200,7 +267,7 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await expect(reviewer).toContainText("Reviewer");
     await expect(reviewer).toContainText("Circinus");
     await expect(reviewer.locator(".runs-head")).toHaveCount(1);
-    await expect(localCard.locator(`[data-runs-lane="${document.taskId}"]`)).toContainText("12 分");
+    await expect(localCard.locator(`[data-runs-lane="${document.taskId}"]`)).toContainText(/1[23] 分/);
 
     // External node: usage bars, empty slots as flat lines, and the four lanes.
     const regular = cloudCard.locator('[data-runs-slot="regular"]');
@@ -213,15 +280,19 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await expect(cloudCard.locator("[data-runs-empty]")).toContainText("常驻 3");
     await expect(cloudCard.locator("[data-runs-empty] .runs-flat")).toHaveCount(1);
     await expect(cloudCard.locator(`[data-runs-lane="${resident1.taskId}"]`)).toContainText("1 小时");
-    await expect(cloudCard.locator(`[data-runs-lane="${resident2.taskId}"]`)).toContainText("空闲");
-    await expect(cloudCard.locator(`[data-runs-lane="${resident2.taskId}"]`)).toContainText("3 小时");
-    await expect(cloudCard.locator(`[data-runs-lane="${continuation2.taskId}"]`)).toContainText("18 分");
+    const idleForHours = cloudCard.locator(`[data-runs-lane="${resident2.taskId}"]`);
+    await expect(idleForHours).toContainText("等待");
+    await expect(idleForHours).toContainText("3 小时");
+    // Its last record is outside every selected window, but the silence is real.
+    await expect(idleForHours).toHaveAttribute("data-stalled", "true");
+    await expect(idleForHours.locator("[data-runs-stall]")).toHaveText(/3 小时无进展/);
+    await expect(cloudCard.locator(`[data-runs-lane="${continuation2.taskId}"]`)).toContainText(/1[89] 分/);
 
     // A Main whose writes stopped is highlighted with how long it has been quiet.
     const stalled = cloudCard.locator(`[data-runs-lane="${continuation1.taskId}"]`);
     await expect(stalled).toHaveAttribute("data-stalled", "true");
     await expect(stalled).toHaveAttribute("data-stage", "wait");
-    await expect(stalled.locator("[data-runs-stall]")).toHaveText(/12 分无进展/);
+    await expect(stalled.locator("[data-runs-stall]")).toHaveText(/1[23] 分无进展/);
 
     // The offline node folds to one row with its last-seen time.
     const offline = page.locator(`[data-runs-node="${offlineOrigin}"]`);
@@ -236,11 +307,30 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await expect(page.locator('[data-observe-panel="runs"]')).toHaveAttribute("data-window", "5");
     await expect(page.locator(".runs-axis")).toContainText("-5 分");
     await expect(wideLane.locator(".runs-wave")).toHaveAttribute("data-slices", "5");
+    // A stall is a property of the Main, not of the selected window.
+    await expect(stalled).toHaveAttribute("data-stalled", "true");
+    await expect(stalled.locator("[data-runs-stall]")).toHaveText(/1[23] 分无进展/);
+    await expect(idleForHours).toHaveAttribute("data-stalled", "true");
     await page.locator('[data-runs-window="120"]').click();
     await expect(page.locator(".runs-axis")).toContainText("-120 分");
     await expect(wideLane.locator(".runs-wave")).toHaveAttribute("data-slices", "60");
     await page.locator('[data-runs-window="30"]').click();
     await expect(page.locator(".runs-axis")).toContainText("-30 分");
+
+    // Occupancy comes from the host's slots, so hiding a lane with the project
+    // filter must not free its place or draw an extra empty line.
+    await page.locator(`button[data-observe-project="${projectB2.projectId}"]`).click();
+    await expect(page.locator("#observe-entry")).toHaveAttribute("data-observe-project", projectB2.projectId);
+    await expect(cloudCard.locator(`[data-runs-lane="${resident2.taskId}"]`)).toHaveCount(1);
+    await expect(cloudCard.locator(`[data-runs-lane="${resident1.taskId}"]`)).toHaveCount(0);
+    await expect(cloudCard.locator(`[data-runs-lane="${continuation1.taskId}"]`)).toHaveCount(0);
+    await expect(cloudCard.locator('[data-runs-slot="regular"]')).toContainText("2/3");
+    await expect(cloudCard.locator('[data-runs-slot="regular"] .runs-slot-seg.is-regular')).toHaveCount(2);
+    await expect(cloudCard.locator('[data-runs-slot="continuation"]')).toContainText("2/2");
+    await expect(cloudCard.locator("[data-runs-empty]")).toHaveCount(1);
+    await expect(cloudCard.locator("[data-runs-empty]")).toContainText("常驻 3");
+    await page.locator(`button[data-observe-project="${projectB2.projectId}"]`).click();
+    await expect(cloudCard.locator(`[data-runs-lane="${resident1.taskId}"]`)).toHaveCount(1);
 
     // The header controls belong to this view only.
     await page.locator('[data-observe-view="requirements"]').click();

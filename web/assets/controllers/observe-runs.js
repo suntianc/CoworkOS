@@ -151,6 +151,34 @@ function pushSegment(list, kind, from, to) {
   else list.push({ kind, from, to });
 }
 
+/**
+ * The same stage the delivery view reports, rebuilt from the read-only lists.
+ *
+ * `deliveryStage` in the dashboard service compares the newest delivery, any
+ * merged/waiting merge, and the newest review. Reading the lists keeps that
+ * rule without replaying the delivery outbox or diffing a checkout.
+ */
+function stageViewFor(records, requirementId) {
+  const development = records.developments.find((entry) => entry.requirementId === requirementId);
+  if (!development) return undefined;
+  const reviews = records.reviews.filter((entry) => entry.developmentId === development.developmentId);
+  const merges = records.merges.filter((entry) => entry.developmentId === development.developmentId);
+  const delivery = records.deliveries
+    .filter((entry) => entry.developmentId === development.developmentId)
+    .at(-1);
+  const stage =
+    delivery?.state === "synced"
+      ? "delivered"
+      : delivery?.state === "pending" || merges.some((entry) => entry.state === "merged")
+        ? "merged"
+        : merges.some((entry) => ["waiting", "applying"].includes(entry.state))
+          ? "merge_pending"
+          : reviews.at(-1)?.state === "in_review"
+            ? "reviewing"
+            : "developing";
+  return { stage, development, reviews, merges, delivery };
+}
+
 /** The phase a Main is in, the moment it began, and whether it is stalled. */
 function resolveStage({ activity, main, subs, view, now, windowStart, fallbackStart }) {
   const stage = view?.stage;
@@ -173,10 +201,7 @@ function resolveStage({ activity, main, subs, view, now, windowStart, fallbackSt
     };
   }
   const lastProgress = nowMsOf(main?.lastProgressAt);
-  // An idle Main outside the selected window has simply had nothing to do;
-  // only a stopped record inside the window is a stall worth flagging.
-  const stalled =
-    lastProgress !== undefined && lastProgress >= windowStart && now - lastProgress > STALL_THRESHOLD_MS;
+  const stalled = lastProgress !== undefined && now - lastProgress > STALL_THRESHOLD_MS;
   const reviewer = subs.find(
     (agent) => agent.workRole === "reviewer" && ["queued", "running"].includes(agent.state)
   );
@@ -354,11 +379,12 @@ export function createObserveRuns({
   now = () => Date.now(),
   refreshMs = 10_000,
   reducedRefreshMs = 5_000,
-  readIntervalMs = 10_000
+  readIntervalMs = 10_000,
+  developmentReadMs = 60_000
 } = {}) {
   if (!root) return { render() {}, dispose() {} };
   const sessions = new Map();
-  const stages = new Map();
+  const developmentData = new Map();
   const capacities = new Map();
   const details = new Map();
   let minutes = 30;
@@ -397,37 +423,42 @@ export function createObserveRuns({
     return entry.promise;
   };
 
-  const stageFor = (origin, projectId, requirementId) => {
-    if (!requirementId) return;
-    const key = `${origin}|${projectId}|${requirementId}`;
-    const cached = stages.get(key);
+  // Stage facts come from the project's read-only lists. The delivery view
+  // endpoint is deliberately not used: it replays the outbox and reads diffs,
+  // which would turn an observation page into periodic work on the remote host.
+  const developmentDataFor = (origin, projectId) => {
+    const key = `${origin}|${projectId}`;
+    const cached = developmentData.get(key);
     if (cached?.promise) return cached.promise;
-    if (cached && Date.now() - cached.at < readIntervalMs) return null;
+    if (cached && Date.now() - cached.at < developmentReadMs) return null;
+    const read = (path) => data.read(origin, path, { cache: "no-store" }).then((result) => result ?? {});
     const entry = { at: Date.now(), value: cached?.value, promise: undefined };
-    entry.promise = data
-      .read(origin, `/api/projects/${encodeURIComponent(projectId)}/deliveries`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "view", requirementId }),
-        cache: "no-store"
-      })
-      .then((result) => {
-        entry.value = result?.view;
+    entry.promise = Promise.all([
+      read(`/api/projects/${encodeURIComponent(projectId)}/developments`),
+      read(`/api/projects/${encodeURIComponent(projectId)}/reviews`),
+      read(`/api/projects/${encodeURIComponent(projectId)}/merges`),
+      read(`/api/projects/${encodeURIComponent(projectId)}/deliveries`)
+    ])
+      .then(([developments, reviews, merges, deliveries]) => {
+        entry.value = {
+          developments: Array.isArray(developments.developments) ? developments.developments : [],
+          reviews: Array.isArray(reviews.reviews) ? reviews.reviews : [],
+          merges: Array.isArray(merges.merges) ? merges.merges : [],
+          deliveries: Array.isArray(deliveries.deliveries) ? deliveries.deliveries : []
+        };
         entry.at = Date.now();
         return entry.value;
       })
       .catch((error) => {
-        // A requirement without a development record is the normal state; a
-        // failed read keeps the activity-derived stage instead of failing.
-        if (error?.status !== 404) entry.error = error?.message || "";
-        entry.value = entry.value ?? null;
+        entry.value = entry.value ?? undefined;
+        entry.error = error?.message || "";
         entry.at = Date.now();
         return entry.value;
       })
       .finally(() => {
         entry.promise = undefined;
       });
-    stages.set(key, entry);
+    developmentData.set(key, entry);
     return entry.promise;
   };
 
@@ -523,9 +554,10 @@ export function createObserveRuns({
               samples: []
             }));
         const requirementId = session?.currentRequirementId;
-        const view = requirementId
-          ? stages.get(`${node.origin}|${project?.projectId}|${requirementId}`)?.value
+        const projectData = project
+          ? developmentData.get(`${node.origin}|${project.projectId}`)?.value
           : undefined;
+        const view = requirementId && projectData ? stageViewFor(projectData, requirementId) : undefined;
         const stage = resolveStage({
           activity,
           main,
@@ -556,11 +588,9 @@ export function createObserveRuns({
           kind,
           capacityEntry,
           duration: laneDuration(task, capacityEntry, at),
-          stalled:
-            !degraded &&
-            lastProgress !== undefined &&
-            lastProgress >= at - minutes * SLICE_MS &&
-            at - lastProgress > STALL_THRESHOLD_MS,
+          // The tag always names the real silence; a moment outside the
+          // selected window is anchored at the window edge instead of hidden.
+          stalled: !degraded && lastProgress !== undefined && at - lastProgress > STALL_THRESHOLD_MS,
           lastProgress,
           startedAt:
             nowMsOf(capacityEntry?.startedAt) ?? nowMsOf(task.createdAt) ?? nowMsOf(activity?.from) ?? at,
@@ -593,26 +623,30 @@ export function createObserveRuns({
   }
 
   function pendingReads(plan) {
+    if (!visible()) return [];
     const reads = [];
     for (const card of plan.cards) {
-      for (const project of data.scoped({
-        nodeOrigin: card.node.origin,
-        projectId: filter.projectId
-      }).projects ?? []) {
+      const projects =
+        data.scoped({
+          nodeOrigin: card.node.origin,
+          projectId: filter.projectId
+        }).projects ?? [];
+      for (const project of projects) {
         const pending = sessionsFor(card.node.origin, project.projectId);
         if (pending) reads.push(pending);
+        const lanes = card.lanes.filter((lane) => lane.project?.projectId === project.projectId);
+        if (lanes.some((lane) => lane.requirementId)) {
+          const facts = developmentDataFor(card.node.origin, project.projectId);
+          if (facts) reads.push(facts);
+        }
       }
       if (card.node.role === "external") {
         const pending = capacityFor(card.node.origin);
         if (pending) reads.push(pending);
       }
       for (const lane of card.lanes) {
-        if (lane.degraded) {
-          const pending = detailFor(card.node.origin, lane.task.taskId);
-          if (pending) reads.push(pending);
-        }
-        if (!lane.requirementId || !lane.project?.projectId) continue;
-        const pending = stageFor(card.node.origin, lane.project.projectId, lane.requirementId);
+        if (!lane.degraded) continue;
+        const pending = detailFor(card.node.origin, lane.task.taskId);
         if (pending) reads.push(pending);
       }
     }
@@ -864,6 +898,11 @@ export function createObserveRuns({
     const { node, lanes, capacity } = card;
     const external = node.role === "external";
     const settings = capacity?.settings;
+    const running = capacity?.running ?? [];
+    const usedByKind = {
+      regular: running.filter((entry) => entry.kind === "regular").length,
+      continuation: running.filter((entry) => entry.kind === "continuation").length
+    };
     let body = "";
     if (external && settings) {
       for (const [kind, label, tone] of [
@@ -872,7 +911,9 @@ export function createObserveRuns({
       ]) {
         const quota = Number(settings[kind === "regular" ? "resident" : "continuation"]) || 0;
         const kindLanes = lanes.filter((lane) => lane.kind === kind);
-        const used = kindLanes.length;
+        // Occupancy is what the host's slots say, not what the current filter
+        // happens to show: hiding a lane must not free its place.
+        const used = usedByKind[kind];
         body += slotMarkup(label, quota, used, tone);
         body += kindLanes.map((lane) => laneMarkup(lane, plan)).join("");
         for (let index = used; index < quota; index += 1) body += emptyLaneMarkup(`${label} ${index + 1}`);
@@ -945,7 +986,7 @@ export function createObserveRuns({
   }
 
   function render() {
-    if (disposed) return;
+    if (disposed || !visible()) return;
     const plan = collect();
     paint(plan);
     void hydrate();
@@ -1027,6 +1068,18 @@ export function createObserveRuns({
     render();
   });
 
+  // A hidden panel does no reads. The store flips the hidden attribute on the
+  // pane (entry switch) and on this view (view switch), so watch both.
+  const Observer = globalThis.window?.MutationObserver;
+  const visibilityObserver = Observer
+    ? new Observer(() => {
+        if (visible()) render();
+      })
+    : undefined;
+  for (const node of new Set([root, root.closest("[data-entry-panel]")]))
+    if (node && visibilityObserver)
+      visibilityObserver.observe(node, { attributes: true, attributeFilter: ["hidden"] });
+
   const media = globalThis.window?.matchMedia?.("(prefers-reduced-motion: reduce)");
   const onMedia = () => applyMotion();
   media?.addEventListener?.("change", onMedia);
@@ -1042,6 +1095,7 @@ export function createObserveRuns({
     dispose() {
       disposed = true;
       if (timer) clearInterval(timer);
+      visibilityObserver?.disconnect();
       header?.removeEventListener("click", onHeaderClick);
       media?.removeEventListener?.("change", onMedia);
       stopPreferences?.();

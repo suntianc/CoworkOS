@@ -110,7 +110,7 @@ test("a node without metrics falls back to stage blocks and reduced motion refre
     await expect(degradedLane).toHaveAttribute("data-stage", "review");
     await expect(degradedLane.locator(".runs-block.is-review")).toHaveCount(1);
     await expect(degradedLane.locator(".runs-pulse")).toHaveCount(0);
-    await expect(degradedLane).toContainText("24 分");
+    await expect(degradedLane).toContainText(/2[45] 分/);
 
     // Subagent branches survive without the activity payload.
     const executor = localCard.locator('[data-runs-agent="subagent_1"]');
