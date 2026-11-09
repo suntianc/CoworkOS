@@ -45,6 +45,7 @@ import { renderMarkdown } from "./assets/markdown.js";
 import { mergeRuntimeEvents } from "./assets/conversation.js";
 import { createEntryController } from "./assets/controllers/entry-controller.js";
 import { createNewSessionView } from "./assets/controllers/new-session.js";
+import { createAddProjectController } from "./assets/controllers/add-project.js";
 import { renderRunOverview, runElapsed, formatRunDuration } from "./assets/run-overview.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
@@ -492,6 +493,7 @@ const workspaceDisplayName = (value) => {
 const projectExperienceController = createProjectExperienceController({ api, showToast });
 const projectController = createProjectController({
   openProjectExperience: (project) => projectExperienceController.open(project),
+  openAddProject: () => addProjectController.open(),
   state,
   $,
   api,
@@ -534,6 +536,16 @@ const projectController = createProjectController({
       workbenchController.host?.navigationToken
     ]),
   onUpdated: () => void refresh()
+});
+const addProjectController = createAddProjectController({
+  api,
+  command: (path, options) => (api.command ? api.command(path, options) : api(path, options)),
+  showToast,
+  onCreated: async (project) => {
+    await refresh();
+    projectController.select(project.projectId);
+    beginNewConversation(project.projectId);
+  }
 });
 const newSession = createNewSessionView({
   state,

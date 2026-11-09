@@ -67,6 +67,7 @@ import { createDashboardRunService } from "./run-service.js";
 import { LocalAccess } from "./local-access.js";
 import { FileCommandRunner } from "./management-commands.js";
 import { createCatalogEvents } from "./catalog-events.js";
+import { createProjectCloneService } from "./project-clone-service.js";
 import { EventLedger } from "./event-ledger.js";
 import { createWorkspaceDirectory } from "./workspace-directory.js";
 import { createMainSessionService } from "./main-session-service.js";
@@ -324,6 +325,21 @@ export function createDashboardApplication(
     ...(process.env.COWORK_EVENT_RECONCILE_MS
       ? { reconcileMs: Number(process.env.COWORK_EVENT_RECONCILE_MS) }
       : {})
+  });
+  /**
+   * Git clones for the add-project dialog. The record carries the operation
+   * identity; a project exists only after git exits successfully.
+   */
+  const projectClones = createProjectCloneService({
+    dataRoot: join(dirname(globalIndexPath), "project-clones"),
+    createProject: async (input) => {
+      const project = await workspaces.createProject({
+        projectName: input.projectName,
+        projectDirectory: input.projectDirectory
+      });
+      await catalogEvents.project(project);
+      return project;
+    }
   });
   const computer = new ComputerUse(
     options.computerDriver ?? computerDriver,
@@ -917,6 +933,7 @@ export function createDashboardApplication(
     projectData,
     mainSessions,
     developments,
+    projectClones,
     mainCapacity,
     launchMainRun,
     access,
@@ -1013,6 +1030,7 @@ export function createDashboardApplication(
       computer.close();
       await watchers.stop();
       server.closeAllConnections();
+      await projectClones.stop();
       // Stop admitting before the processes exit, so no shutdown release
       // starts the next demand while the service is going away.
       await mainCapacity.stop();

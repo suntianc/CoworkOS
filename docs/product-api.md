@@ -35,6 +35,9 @@ POST /api/workspace/choose
 POST /api/projects
 PATCH /api/projects/:projectId
 POST /api/projects/choose-directory
+POST /api/project-clones
+GET  /api/project-clones/:cloneId
+POST /api/project-clones/:cloneId/cancel
 GET  /api/projects/:projectId/experience
 POST /api/projects/:projectId/experience
 ```
@@ -54,6 +57,8 @@ Create a project with `POST /api/projects { projectName, projectDirectory, proje
 Folder changes apply to every associated conversation. Active Main/subagents, waiting work, scheduled wakeups, or command jobs reject directory changes with 409; renaming is allowed. Project changes and run startup are serialized to prevent changing a running conversation's CWD.
 
 `POST /api/projects/choose-directory` opens the local picker and returns `{ cancelled, projectDirectory? }`; choosing a folder does not save a project.
+
+`POST /api/project-clones { remoteUrl, destination, branch?, operationId? }` starts a Git clone on the execution host and returns 202 `{ clone: { cloneId, state, progress } }`; `GET /api/project-clones/:cloneId` reports the same shape with `state` `cloning`, `completed`, `failed` or `cancelled`, a 0–100 `progress`, a readable `error` for failures, and the registered `project` after completion. The clone uses the host's own Git credentials (SSH agent/key or credential helper); URLs and credentials are never returned, and the durable record keeps only a credential-free URL. Git only registers the project after it exits successfully; a failed or cancelled clone removes the folder it created and registers nothing. `POST .../cancel` stops the Git process and removes the incomplete folder. A destination that already exists is refused with 409. The optional `operationId` is the clone's durable identity: a retry with the same id and content returns the existing clone, and the same id with different content returns 409. A clone still marked `cloning` when a later process starts has no owner, so startup reports it as failed and removes its folder.
 
 Empty migrated records without valid history or application documents are omitted from `GET /api/tasks`, while their persisted indexes and files remain intact. An otherwise empty legacy project with a real document exposes `hasApplications: true`. Internal editor holding Tasks do not establish projects; empty legacy groups derived only from Task storage are omitted. Explicit creation or editing adopts the project as a user choice, so it remains visible when empty.
 
