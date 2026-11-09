@@ -297,6 +297,7 @@ export function createWorkbenchHost({
     for (const controller of mounted.values()) {
       try {
         if (typeof controller?.flush === "function") controller.flush();
+        // eslint-disable-next-line no-restricted-syntax -- 页面正在卸载，没有可用的上报通道，其余应用的 flush 仍要继续执行
       } catch {
         /* nothing better is available here */
       }
@@ -538,6 +539,7 @@ export function createWorkbenchHost({
     try {
       controller?.setVisible?.(false);
       await controller?.unmount?.();
+      // eslint-disable-next-line no-restricted-syntax -- 标签已经关闭，卸载失败后挂载容器仍会被移除
     } catch {
       /* the container is removed regardless */
     }
@@ -751,6 +753,7 @@ export function createWorkbenchHost({
       const persisted = activeTab()?.draft ? null : (selected ?? null);
       try {
         await api.activateTab?.(persisted);
+        // eslint-disable-next-line no-restricted-syntax -- 离线或服务不可用时 activateTab 失败，可见选择不能因此回退或阻塞
       } catch {
         // Offline persistence must never change or stall the visible choice.
         return;
@@ -1100,6 +1103,7 @@ export function createWorkbenchHost({
       try {
         const controller = await mounted.get(tabId);
         return controller?.canClose ? await controller.canClose() : !drafts.get(tabId);
+        // eslint-disable-next-line no-restricted-syntax -- 应用 canClose 回调自身可能抛出，无法确认可关闭时按不可关闭处理
       } catch {
         return false;
       }
@@ -1109,6 +1113,7 @@ export function createWorkbenchHost({
         const controller = await entry;
         try {
           if (controller?.canClose && !(await controller.canClose())) return false;
+          // eslint-disable-next-line no-restricted-syntax -- 某个应用 canClose 抛出时不能当作可以关闭，整批关闭返回 false
         } catch {
           return false;
         }

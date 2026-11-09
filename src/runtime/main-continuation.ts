@@ -40,6 +40,7 @@ export async function readMainInput(path: string): Promise<MainInput | undefined
   try {
     const input = JSON.parse(await readFile(path, "utf8")) as Partial<MainInput>;
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 文件内容可能是 JSON null，解析结果并非一定是对象
       !input ||
       input.version !== 1 ||
       typeof input.prompt !== "string" ||

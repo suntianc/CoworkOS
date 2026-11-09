@@ -64,10 +64,9 @@ export class WorkbenchTabStore {
 
   async read(): Promise<TabDocument> {
     try {
-      const value = JSON.parse(await readFile(this.filePath, "utf8")) as Partial<TabDocument> & {
-        version?: number;
-      };
-      if (!Array.isArray(value?.tabs)) return this.empty();
+      const value = JSON.parse(await readFile(this.filePath, "utf8")) as
+        (Partial<TabDocument> & { version?: number }) | null;
+      if (!value || !Array.isArray(value.tabs)) return this.empty();
       // A version 1 file keyed document tabs by conversation and window, which
       // this store can no longer interpret: it cannot tell whether an instance
       // holds a resource. `migrateLegacyTabs` in the route layer does that
@@ -77,6 +76,7 @@ export class WorkbenchTabStore {
         (tab): tab is WorkbenchTabRecord =>
           Boolean(tab) &&
           typeof tab.tabId === "string" &&
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- tabs.json 由 JSON.parse 读取，行里的 kind 可能是旧版或未知取值，必须只认这两种
           (tab.kind === "conversation" || tab.kind === "application") &&
           (tab.kind === "conversation"
             ? typeof tab.taskId === "string"
@@ -94,6 +94,7 @@ export class WorkbenchTabStore {
         ...(detached ? { detached: true } : {}),
         updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString()
       };
+      // eslint-disable-next-line no-restricted-syntax -- tabs.json 首次打开时还不存在（ENOENT），读不出来就给空标签栏，不能因此让页面加载失败
     } catch {
       // No strip yet, or an unreadable one: an empty strip is the correct
       // starting state, not an error worth failing a page load over.
@@ -192,7 +193,7 @@ export class WorkbenchTabStore {
       // user somewhere unrelated.
       const next =
         document.activeTabId === id
-          ? (tabs[index] ?? tabs[index - 1] ?? tabs[0])?.tabId
+          ? (tabs.at(index) ?? tabs.at(index - 1) ?? tabs.at(0))?.tabId
           : document.activeTabId;
       return { ...document, tabs, activeTabId: next };
     });

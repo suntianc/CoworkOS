@@ -96,6 +96,7 @@ export class WatchProgramStore {
       if (!entry.isDirectory() || !/^[a-zA-Z0-9._-]+$/.test(entry.name)) continue;
       try {
         programs.push(await this.readProgram(taskId, entry.name));
+        // eslint-disable-next-line no-restricted-syntax -- 未完成的草稿目录里没有可解析的 program.json，跳过它，其余监控目标照常列出
       } catch {
         /* incomplete draft */
       }
@@ -347,6 +348,7 @@ export class WatchProgramStore {
       if (entry.isDirectory()) {
         try {
           return await this.readProgram(entry.name, programId);
+          // eslint-disable-next-line no-restricted-syntax -- 这个 task 目录里没有该 program 是命中失败的一部分，继续扫描下一个目录
         } catch {
           /* not this task */
         }

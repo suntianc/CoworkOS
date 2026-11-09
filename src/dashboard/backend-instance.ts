@@ -126,6 +126,7 @@ async function readRecord<T>(
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
+    // eslint-disable-next-line no-restricted-syntax -- 记录来自磁盘，损坏的 JSON 由返回值的 invalid 字段交给调用方报冲突
   } catch {
     return { exists: true, invalid: "记录不是合法 JSON" };
   }

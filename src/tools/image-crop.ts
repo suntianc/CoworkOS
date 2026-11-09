@@ -16,6 +16,7 @@ export function cropPng(input: {
   const region = input.region,
     scale = input.scale ?? 1;
   if (
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- region 来自工具参数，运行期可能是缺失或非对象的 region，索引前必须校验
     !region ||
     ![region.x, region.y].every((value) => Number.isSafeInteger(value) && value >= 0) ||
     ![region.width, region.height].every((value) => Number.isSafeInteger(value) && value > 0)

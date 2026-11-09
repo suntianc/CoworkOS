@@ -37,6 +37,7 @@ export class SqliteDatabase implements SqlDatabase {
       // one retry instead of failing immediately.
       // The ledger is private host data; keep the file itself owner-only like
       // the other stores, even where the process umask would widen it.
+      // eslint-disable-next-line no-restricted-syntax -- 数据库文件已经创建可写；chmod 受挂载点或 ACL 限制失败时数据仍可读写，不能因此报告数据库打不开
       await chmod(path, 0o600).catch(() => undefined);
       database.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
       database.exec("PRAGMA foreign_keys = ON");
@@ -77,6 +78,7 @@ export class SqliteDatabase implements SqlDatabase {
       } catch (error) {
         try {
           this.database.exec("ROLLBACK");
+          // eslint-disable-next-line no-restricted-syntax -- 事务已因原始错误失败；引擎可能已经自行中止，回滚失败由下面 rethrow 的原始错误表达
         } catch {
           /* the engine already aborted it; the original failure is what matters */
         }

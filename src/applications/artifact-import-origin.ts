@@ -20,6 +20,7 @@ export async function normalizeArtifactImportOrigin(
   )
     return undefined;
   return {
+    // eslint-disable-next-line no-restricted-syntax -- 工作区目录可能已被移走，realpath 失败时保留记录里的绝对路径
     storageRoot: await realpath(root).catch(() => resolve(root)),
     taskId: source.taskId,
     relativePath: source.relativePath,

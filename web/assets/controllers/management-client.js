@@ -54,6 +54,7 @@ function readJson(storage, key, fallback) {
   try {
     const raw = storage?.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
+    // eslint-disable-next-line no-restricted-syntax -- a session or target record written by an older build may not parse; the caller starts from its fallback
   } catch {
     return fallback;
   }
@@ -62,6 +63,7 @@ function readJson(storage, key, fallback) {
 function writeJson(storage, key, value) {
   try {
     storage?.setItem(key, JSON.stringify(value));
+    // eslint-disable-next-line no-restricted-syntax -- best-effort persistence: blocked or full storage only loses the remembered value while the in-memory state stays authoritative
   } catch {
     /* storage may be disabled; the in-memory value is still authoritative */
   }
@@ -141,6 +143,7 @@ export function createManagementClient({
   if (hostManagedSession) {
     try {
       storage?.removeItem(SESSION_STORE);
+      // eslint-disable-next-line no-restricted-syntax -- the desktop host owns this session; a storage that refuses the stale-record removal cannot affect it
     } catch {
       // An unavailable session store does not affect the host-owned session.
     }
@@ -567,6 +570,7 @@ export function createManagementClient({
     events.onReset?.({ reason: "backend_switched", backendId: null, nextBaseUrl: target });
     try {
       writeJson(targetStorage, TARGET_STORE, target);
+      // eslint-disable-next-line no-restricted-syntax -- a disabled storage only loses the remembered backend choice; the switch itself still connects
     } catch {
       /* a disabled storage only loses the remembered choice */
     }
@@ -718,6 +722,7 @@ export function createManagementClient({
         let result;
         try {
           result = JSON.parse(xhr.responseText);
+          // eslint-disable-next-line no-restricted-syntax -- an upload response can be a proxy error page instead of JSON; the upload is rejected with invalid_response
         } catch {
           reject(new ManagementClientError("上传响应无效", { code: "invalid_response" }));
           return;

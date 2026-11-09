@@ -84,6 +84,7 @@ export async function startJob(
       ...record,
       spawnError: message,
       finishedAt: new Date().toISOString()
+      // eslint-disable-next-line no-restricted-syntax -- 正在上抛启动失败，记录写失败不能让原始错误丢失或被替换
     }).catch(() => {});
     throw new Error(message, { cause: error });
   }
@@ -125,6 +126,7 @@ export async function startJob(
     };
     void recorded
       .then(() => writeRecord(input.directory, finished))
+      // eslint-disable-next-line no-restricted-syntax -- 退出记录写失败时日志与 pid 检查仍是权威证据，不能让它变成未处理的 rejection
       .catch(() => {
         /* the log and the pid check remain authoritative */
       });
@@ -150,6 +152,7 @@ export async function jobStatus(
     const info = await stat(record.logPath);
     logBytes = info.size;
     modifiedMs = info.mtimeMs;
+    // eslint-disable-next-line no-restricted-syntax -- 任务刚启动时日志文件可能还不存在，缺失由 logBytes=0 和 tail 空串表达
   } catch {
     /* the job may not have written anything yet */
   }
@@ -193,6 +196,7 @@ export async function listJobs(input: JobsOptions): Promise<JobStatus[]> {
       statuses.push(
         await jobStatus({ directory: input.directory, jobId: entry.replace(/\.json$/, ""), tailBytes: 400 })
       );
+      // eslint-disable-next-line no-restricted-syntax -- 单条记录不可读（被截断或来自其它版本）时跳过该 job，其它记录仍要列出
     } catch {
       /* skip an unreadable record */
     }
@@ -224,6 +228,7 @@ export async function killJob(input: JobsOptions & { jobId: string; graceMs?: nu
         ...current,
         signal: "SIGTERM",
         finishedAt: new Date().toISOString()
+        // eslint-disable-next-line no-restricted-syntax -- 进程已被杀死，这里补写的退出记录失败时 jobStatus 仍会按 pid 与日志报告状态
       }).catch(() => {});
     }
   }
@@ -242,9 +247,11 @@ function pidAlive(pid: number): boolean {
 function signalGroup(pid: number, signal: NodeJS.Signals): void {
   try {
     process.kill(-pid, signal);
+    // eslint-disable-next-line no-restricted-syntax -- 进程组可能已不存在（kill 抛 ESRCH），需要回退到单个 pid 再试一次
   } catch {
     try {
       process.kill(pid, signal);
+      // eslint-disable-next-line no-restricted-syntax -- 进程已退出，信号无法送达属预期结果，调用方无需区分
     } catch {
       /* already gone */
     }
@@ -258,6 +265,7 @@ async function nextJobId(directory: string): Promise<string> {
       const match = /^job-(\d+)\.json$/.exec(name);
       if (match) highest = Math.max(highest, Number(match[1]));
     }
+    // eslint-disable-next-line no-restricted-syntax -- 任务目录可能还不存在，视为还没有 job，从 job-1 开始编号
   } catch {
     /* first job in a fresh directory */
   }
@@ -306,6 +314,7 @@ async function readTail(path: string, bytes: number): Promise<string> {
     } finally {
       await handle.close();
     }
+    // eslint-disable-next-line no-restricted-syntax -- 日志可能已被轮转或删除，读不到时返回空尾，jobStatus 的 logBytes 已经表达缺失
   } catch {
     return "";
   }

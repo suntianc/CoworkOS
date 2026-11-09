@@ -65,6 +65,7 @@ function digest(value: string): string {
 
 /** Stable JSON: object key order must not change a command's identity. */
 export function stableJson(value: unknown): string {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 入参是 unknown，undefined、函数与 symbol 经 JSON.stringify 返回 undefined，这里必须保留 "null" 才能继续返回字符串
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   const record = value as Record<string, unknown>;
@@ -130,6 +131,7 @@ export class FileCommandRunner implements CommandRunner {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
+      // eslint-disable-next-line no-restricted-syntax -- 回执文件可能被截断，解析失败不等于没有执行过；下面把 parsed 置空后按路径报 500，禁止重跑命令
     } catch {
       parsed = undefined;
     }

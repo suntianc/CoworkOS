@@ -36,6 +36,7 @@ export function createProjectController({
   const selectedKey = "atria.selected-project.v1";
   try {
     state.selectedProjectId ||= storage?.getItem(selectedKey) || null;
+    // eslint-disable-next-line no-restricted-syntax -- the remembered selection is optional; blocked storage just leaves the first visible project selected
   } catch {
     /* optional persistence */
   }
@@ -76,6 +77,7 @@ export function createProjectController({
     state.selectedProjectId = project.projectId;
     try {
       storage?.setItem(selectedKey, project.projectId);
+      // eslint-disable-next-line no-restricted-syntax -- remembering the selection is optional; blocked or full storage must not fail the selection itself
     } catch {
       /* navigation still works */
     }
@@ -312,6 +314,7 @@ export function createProjectController({
       state.selectedProjectId = null;
       try {
         storage?.removeItem(selectedKey);
+        // eslint-disable-next-line no-restricted-syntax -- clearing the remembered project is optional; a storage that refuses the removal must not fail the backend reset
       } catch {
         /* optional persistence */
       }

@@ -187,12 +187,14 @@ export function createDashboardRunService({
   const taskOperations = new Map<string, Promise<unknown>>();
   function serialize<T>(taskId: string, action: () => Promise<T>): Promise<T> {
     const previous = taskOperations.get(taskId) ?? Promise.resolve();
+    // eslint-disable-next-line no-restricted-syntax -- 上一次操作的失败已返回给它的调用方，串行队列只需让下一个动作继续执行
     const next = previous.catch(() => {}).then(action);
     taskOperations.set(taskId, next);
     void next
       .finally(() => {
         if (taskOperations.get(taskId) === next) taskOperations.delete(taskId);
       })
+      // eslint-disable-next-line no-restricted-syntax -- 这条清理链只删除 taskOperations 映射，动作结果已由 next 返回给调用方
       .catch(() => {});
     return next;
   }
@@ -353,6 +355,7 @@ export function createDashboardRunService({
     if (!prompt.trim() && !continuation) throw new Error("prompt must not be empty");
     if (continuation && !task.activeRunId) throw new Error("没有可继续的请求，请先发送消息。");
     // Shutdown may begin while task/configuration validation is awaiting I/O.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stopping 只由返回的 stop() 置位，TS 看不到启动路径等待期间的闭包写入
     if (stopping) throw new Error("Runtime is shutting down");
     if (
       (task.status === "running" || task.status === "waiting") &&
@@ -492,6 +495,7 @@ export function createDashboardRunService({
               : (readQueuedUserTurn(prompt)?.text ?? prompt)),
           projectDirectory: task.projectDirectory
         })
+        // eslint-disable-next-line no-restricted-syntax -- 前台学习是已接受运行的附带记忆信号，写入失败不应让这次启动失败
         .catch(() => {});
       submission?.onAcceptedInput?.(input.messageId!);
     }
@@ -513,6 +517,7 @@ export function createDashboardRunService({
       resumed: continueSession,
       ...(continuation ? { continuation: true } : {})
     });
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 关闭可能在上面的 await 写入期间开始，stopping 由 stop() 置位而 TS 看不到该闭包赋值
     if (stopping) {
       // This request claimed a Run before shutdown, but never acquired a process.
       // Settle it here: no child close event exists to persist its waiting state.
@@ -680,6 +685,7 @@ export function createDashboardRunService({
             pendingHumanRequests: (await new HumanRequestStore(taskWorkspace).list(taskId, "pending")).length,
             pendingSubagentQuestions: (await new SubagentQuestionStore(taskWorkspace).list(taskId, "pending"))
               .length,
+            // eslint-disable-next-line no-restricted-syntax -- 睡眠标记读不到时按未挂起处理，完成评估继续走正常判定
             parkedForWake: Boolean(await readSleep(taskWorkspace, taskId).catch(() => undefined)),
             hasFinalAnswer: isFinalAssistantMessage(last)
           });
@@ -712,6 +718,7 @@ export function createDashboardRunService({
                   : "interrupted"
               }
             });
+            // eslint-disable-next-line no-restricted-syntax -- 终态事件已经落盘，状态转换失败不能让这次 Run 收尾中断
           } catch {
             /* preserve event */
           }
@@ -736,12 +743,14 @@ export function createDashboardRunService({
               error,
               reason: recover ? "watch_main_retry" : "dashboard_main_exit"
             });
+            // eslint-disable-next-line no-restricted-syntax -- 失败事件的原始错误已落盘，状态转换失败不能覆盖或中断收尾
           } catch {
             /* preserve original failure */
           }
         }
         const finalized = await location.store.readTask(taskId);
         if (finalized.activeRunId === runId && ["completed", "failed"].includes(finalized.status)) {
+          // eslint-disable-next-line no-restricted-syntax -- 调用方的收尾回调失败不能跳过后面的容量释放与内存记账
           await onRunFinalized({ ...location, task: finalized }, runId).catch(() => {});
         }
       })()
@@ -751,6 +760,7 @@ export function createDashboardRunService({
           )
         )
         .finally(async () => {
+          // eslint-disable-next-line no-restricted-syntax -- 进程已退出，记忆占用释放失败不能让 finalization 记录残留
           await userMemory?.taskForegroundIdle(taskId, memoryActivityId).catch(() => {});
           // Keep the request active until its durable completion state is saved.
           finalizations.delete(finalization);
@@ -803,6 +813,7 @@ export function createDashboardRunService({
   ) {
     const activityId = randomUUID();
     const admission: MainLaunchAdmission = { spawned: false };
+    // eslint-disable-next-line no-restricted-syntax -- 前台活动标记只是记忆提示，写入失败不应拒绝这次启动
     await userMemory?.taskForegroundActive(args[0], activityId).catch(() => {});
     try {
       return await launchMainRunWithActivity(
@@ -820,9 +831,12 @@ export function createDashboardRunService({
       // A Run that never reached a process owns no slot; one that did keeps its
       // slot until the process exits, and only its queue row is settled here.
       if (admission.requestId && mainCapacity) {
+        // eslint-disable-next-line no-restricted-syntax -- 启动失败要原样抛给调用方，容量记账失败不能替换这个错误
         if (admission.spawned) await mainCapacity.markStarted(admission.requestId).catch(() => {});
+        // eslint-disable-next-line no-restricted-syntax -- 启动失败要原样抛给调用方，释放容量失败不能替换这个错误
         else await mainCapacity.release(admission.requestId).catch(() => {});
       }
+      // eslint-disable-next-line no-restricted-syntax -- 错误路径必须抛出原始启动失败，记忆占用释放失败不能替换它
       await userMemory?.taskForegroundIdle(args[0], activityId).catch(() => {});
       throw error;
     }
@@ -850,8 +864,8 @@ export function createDashboardRunService({
           if (
             JSON.stringify(repeated.target) !== JSON.stringify(request) ||
             input?.body !== body ||
-            JSON.stringify(attachmentIds) !== JSON.stringify(input?.attachmentIds) ||
-            JSON.stringify(textAttachments) !== JSON.stringify(input?.textAttachments ?? [])
+            JSON.stringify(attachmentIds) !== JSON.stringify(input.attachmentIds) ||
+            JSON.stringify(textAttachments) !== JSON.stringify(input.textAttachments ?? [])
           )
             throw new MainMessageEditConflict("该重发标识已用于其他输入，请刷新后重试。");
           return {
@@ -1104,6 +1118,7 @@ export function createDashboardRunService({
         )
           throw new ProjectCatalogError("请先停止项目中的会话及后台工作，再更改项目文件夹", 409);
         const privateAgents = join(location.workspaceRoot, taskId, "agents", "subagents");
+        // eslint-disable-next-line no-restricted-syntax -- 没有 subagents 目录表示该会话没有私有子代理，按空列表继续检查
         for (const agent of await readdir(privateAgents).catch(() => [])) {
           if (
             (await listJobs({ directory: join(privateAgents, agent, "logs", "jobs") })).some(
@@ -1128,6 +1143,7 @@ export function createDashboardRunService({
           if (coordination.pending.length || coordination.callbackPending.length)
             throw new ProjectCatalogError("请先停止项目中的后台协作，再更改项目文件夹", 409);
           const agents = join(location.workspaceRoot, taskId, "runs", runId, "agents");
+          // eslint-disable-next-line no-restricted-syntax -- 该 Run 可能从未启动子代理，subagents 目录缺失按空列表继续
           const subagents = await readdir(join(agents, "subagents")).catch(() => []);
           for (const agent of [
             join(agents, "main"),
@@ -1146,6 +1162,7 @@ export function createDashboardRunService({
   function cancelTask(taskId: string) {
     return serialize(taskId, async () => {
       cancellations.add(taskId);
+      // eslint-disable-next-line no-restricted-syntax -- 取消要继续停止进程，容量队列清理失败由进程退出时的 release 承接
       await mainCapacity?.cancelTask(taskId).catch(() => {});
       humanWakeups.delete(taskId);
       try {
@@ -1216,6 +1233,7 @@ export function createDashboardRunService({
         });
         await attempt(() => processes.stopKey(taskId));
         await attempt(async () => taskFinalizations.get(taskId));
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- failed 由 attempt 的 catch 回调置位，TS 在读取处看不到这次闭包写入
         if (failed) throw failure;
         return (await locateTask(taskId)).task;
       } finally {
@@ -1234,6 +1252,7 @@ export function createDashboardRunService({
       (message) =>
         message.kind === "human_command" &&
         message.state !== "consumed" &&
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- payload 来自 inbox-store.json 的持久化消息，旧记录可能没有该字段，直接读会抛错
         (message.payload as { type?: string })?.type === "human.answer"
     );
   }

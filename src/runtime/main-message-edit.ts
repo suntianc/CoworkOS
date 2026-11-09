@@ -119,6 +119,7 @@ export async function readMessageVersions(root: string, taskId: string): Promise
     const value = JSON.parse(await readFile(versionsPath(root, taskId), "utf8")) as Versions;
     const sessionDirectory = join(resolve(root), taskId, "sessions", "main", "pi");
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- versions.json 从磁盘读出，旧版本文件的 version 不是 1 时必须拒绝恢复
       value.version !== 1 ||
       value.taskId !== taskId ||
       dirname(resolve(value.sessionFile)) !== sessionDirectory ||
@@ -318,6 +319,7 @@ export async function latestEditableMessage(root: string, taskId: string, runId?
       })
   ].sort((a, b) => b.time - a.time);
   const latest = accepted[0];
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- accepted 由输入事件与快照拼出，任务还没有任何用户输入时数组为空
   if (!latest) return;
   const entry = session.getBranch().find((entry) => {
     if (userText(entry) !== latest.text || Date.parse(entry.timestamp) < latest.time - 1000) return false;

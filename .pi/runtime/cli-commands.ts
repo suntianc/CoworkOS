@@ -110,7 +110,7 @@ export function registerCliCommands(
   return {
     configure(ctx: ExtensionContext) {
       if (ctx.mode !== "tui") return;
-      ctx.ui.addAutocompleteProvider?.((current) => ({
+      ctx.ui.addAutocompleteProvider((current) => ({
         triggerCharacters: current.triggerCharacters,
         async getSuggestions(...args) {
           const suggestions = await current.getSuggestions(...args);
@@ -131,11 +131,11 @@ export function registerCliCommands(
         const editor = previous
           ? previous(tui, theme, keybindings)
           : new CustomEditor(tui, theme, keybindings);
-        const getText = editor.getText?.bind(editor);
+        const getText = editor.getText.bind(editor);
         const getExpandedText = editor.getExpandedText?.bind(editor);
         // Follow-up and compaction submissions read directly from the editor
         // without onSubmit. Project those public reads before command dispatch.
-        if (getText) editor.getText = () => atriaCommandInput(getText());
+        editor.getText = () => atriaCommandInput(getText());
         if (getExpandedText) editor.getExpandedText = () => atriaCommandInput(getExpandedText());
         let submit = editor.onSubmit;
         // The SDK assigns onSubmit after the factory returns. Intercept the common

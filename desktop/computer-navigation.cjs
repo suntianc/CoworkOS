@@ -22,6 +22,7 @@ function createComputerNavigationGuard({ release, closeViewers }) {
       try {
         const pathname = new URL(event.url).pathname;
         mainDocument = pathname === "/" || pathname === "/index.html";
+        // eslint-disable-next-line no-restricted-syntax -- new URL() throws for the malformed navigation URL, and that URL is never a trusted main document
       } catch {
         // Malformed navigation is never a trusted main document.
       }

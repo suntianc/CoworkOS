@@ -15,6 +15,7 @@ function createLanguageHost({ userData, ipcMain, getWindow, getDashboardUrl, onC
       try {
         const saved = JSON.parse(await fs.readFile(file, "utf8"));
         if (valid(saved.language)) language = saved.language;
+        // eslint-disable-next-line no-restricted-syntax -- language.json may be missing or hold unparsable JSON, and the product keeps its zh-CN default
       } catch {
         // Missing or invalid preferences preserve the product's Chinese default.
       }
@@ -24,6 +25,7 @@ function createLanguageHost({ userData, ipcMain, getWindow, getDashboardUrl, onC
         try {
           trust(event);
           event.returnValue = language;
+          // eslint-disable-next-line no-restricted-syntax -- trust() throws deliberately for untrusted senders; the synchronous reply is null for them
         } catch {
           event.returnValue = null;
         }
@@ -32,6 +34,7 @@ function createLanguageHost({ userData, ipcMain, getWindow, getDashboardUrl, onC
         trust(event);
         if (!valid(value)) throw new Error("Invalid language preference");
         const save = writes
+          // eslint-disable-next-line no-restricted-syntax -- writes holds the previous save whose rejection was already returned to its caller; the chain only waits for it to settle
           .catch(() => {})
           .then(async () => {
             try {

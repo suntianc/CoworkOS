@@ -41,6 +41,7 @@ function renderMath(latex, original, displayMode) {
       maxExpand: 1000,
       maxSize: 20
     });
+    // eslint-disable-next-line no-restricted-syntax -- 非法公式或超出 maxSize/maxExpand 时 KaTeX 抛出，回退为转义原文
   } catch {
     return `<span class="math-fallback">${esc(original)}</span>`;
   }

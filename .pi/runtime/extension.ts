@@ -142,6 +142,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   const visionModel = visionModelConfig(config);
   const supportsReasoningEffort = configuredSupportsReasoningEffort(runtimeEnv);
   const currentThinkingLevel = (): PiThinkingLevel =>
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 Pi 宿主不提供 getThinkingLevel，缺方法时回退到配置的推理强度
     normalizeReasoningEffort(pi.getThinkingLevel?.() ?? configuredReasoningEffort(runtimeEnv));
   const baseUrl = process.env.COWORK_API_BASE ?? config.baseUrl ?? config.apiBase;
   const apiKey = process.env.COWORK_API_KEY ?? config.apiKey;
@@ -199,6 +200,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       const store = await projectStoreNow();
       if (store) learnedSkillPaths = (await store.readProfile()).skills.map((skill) => skill.path);
       for (const path of learnedSkillPaths) seenLearnedPaths.add(path);
+      // eslint-disable-next-line no-restricted-syntax -- 项目经验库是可选上下文，读取失败时保持 learnedSkillPaths 为空并继续用基础 skill
     } catch {
       /* Optional project knowledge fails closed. */
     }
@@ -292,6 +294,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     await memoryLearning?.stop();
     await projectLearning?.stop();
+    // eslint-disable-next-line no-restricted-syntax -- 关闭会话时进程即将退出，前台标记写入失败不影响退出，下次启动会重新登记
     await userMemoryStore.taskForegroundIdle(taskId, mainRunId).catch(() => {});
   });
   let mainContext: ReturnType<typeof mainContextPaths> | undefined;
@@ -309,6 +312,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       .then(async () => {
         await updateMainContextRuntime(mainContext ?? mainContextPaths(workspaceRoot, taskId), patch);
       })
+      // eslint-disable-next-line no-restricted-syntax -- runtime 快照只是进度记录，写入失败不能中断串行链和当前 Turn
       .catch(() => {});
     return runtimeWrites;
   };
@@ -331,6 +335,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         agentId: input.agentId,
         objective: input.objective
       });
+      // eslint-disable-next-line no-restricted-syntax -- 实验台账是旁路记录，打开失败时本次委派照常进行，只是不记指标
     } catch {
       return undefined;
     }
@@ -353,6 +358,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         occurredAt: new Date().toISOString(),
         payload: { path, pattern, toolName }
       });
+      // eslint-disable-next-line no-restricted-syntax -- 拒绝写入已经通过 tool_call 返回给模型，诊断事件写入失败只少了事后记录
     } catch {
       /* diagnostics only */
     }
@@ -390,6 +396,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       if (results.length) {
         try {
           ctx.ui.notify(`Recovered ${results.length} pending Subagent call(s)`, "info");
+          // eslint-disable-next-line no-restricted-syntax -- 恢复可能比启动它的 Main 上下文存活更久，通知失败不影响已恢复的委派
         } catch {
           // Recovery may outlive the Main context that started it.
         }
@@ -398,6 +405,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     } catch (error) {
       try {
         ctx.ui.notify(`Subagent recovery failed: ${errorMessage(error)}`, "warning");
+        // eslint-disable-next-line no-restricted-syntax -- 恢复失败已尝试用 warning 上报，通知本身失败时持久化调用仍可被下一个 Main 接手
       } catch {
         // Durable calls and callbacks remain available to the next Main.
       }
@@ -418,6 +426,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     const granted = await new LocalWorkspaceStore(workspaceRoot)
       .readTask(taskId)
       .then((task) => task.capabilities?.evalPaths ?? [])
+      // eslint-disable-next-line no-restricted-syntax -- 任务记录读取失败时不授予任何 eval 路径，默认保护规则仍然生效
       .catch(() => [] as string[]);
     return configuredProtectedPaths(projectDirectory, process.env, [atriaInstallRoot()], granted);
   };
@@ -429,6 +438,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     new LocalWorkspaceStore(workspaceRoot)
       .readTask(taskId)
       .then((task) => task.capabilities)
+      // eslint-disable-next-line no-restricted-syntax -- 任务记录缺失时按没有能力授予处理，长任务工具因此保持禁用
       .catch(() => undefined);
   // Read per call for the same reason as the guard: a grant made mid-session
   // has to work on the next call, not the next process.
@@ -449,6 +459,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       (await currentCapabilities())?.projectWrite === true
         ? projectDirectory
         : join(taskWorkspace, "agents", "main", "work");
+    // eslint-disable-next-line no-restricted-syntax -- 创建 work 目录是尽力而为，失败时由 spawn 返回真实错误，不在这里中断工具调用
     await mkdir(directory, { recursive: true }).catch(() => {});
     return directory;
   };
@@ -478,6 +489,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   const applicationBridge = createApplicationBridge({ pi, workspaceRoot, taskId, mainRunId, harnessRoot });
   /** Count running jobs and queue a wake for any that finished since the last check. */
   const pollJobs = async (): Promise<number> => {
+    // eslint-disable-next-line no-restricted-syntax -- 作业目录首次运行时还不存在，读取失败等价于当前没有作业
     const jobs = await listJobs({ directory: jobsDirectory }).catch(() => []);
     let running = 0;
     for (const job of jobs) {
@@ -521,6 +533,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
           },
           createdAt: new Date().toISOString()
         })
+        // eslint-disable-next-line no-restricted-syntax -- 入队失败只丢失这次唤醒通知，作业与日志仍在磁盘上，轮询继续
         .catch(() => undefined);
     }
     return running;
@@ -641,6 +654,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     memoryTurnActive = true;
     memoryLearning?.pause();
     projectLearning?.pause();
+    // eslint-disable-next-line no-restricted-syntax -- 前台标记供记忆学习让路使用，写入失败不应阻塞本轮模型请求
     await userMemoryStore.taskForegroundActive(taskId, mainRunId).catch(() => {});
     userMemoryRequest = readQueuedUserTurn(event.prompt)?.text ?? event.prompt;
     userMemoryLearningRequest = userMemoryRequest;
@@ -655,6 +669,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
               : userMemoryRequest;
         userMemoryLearningRequest = userMemoryRequest;
       }
+      // eslint-disable-next-line no-restricted-syntax -- 宿主输入文件不可读时无法确认用户文本，记忆学习请求按空文本继续
     } catch {
       // An unreadable host input cannot establish which text came from the user.
       userMemoryRequest = "";
@@ -671,13 +686,16 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         text: userMemoryLearningRequest,
         projectDirectory
       })
+      // eslint-disable-next-line no-restricted-syntax -- 记忆学习队列是旁路任务，入队失败不能影响本轮对话
       .catch(() => {});
     memoryLearning?.start();
     projectLearning?.start();
     await refreshLearnedSkills();
     const sections = await prepareMainTurnSections();
     const options = event.systemPromptOptions;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- systemPromptOptions 在旧版 Pi 调用方可能缺失，缺省时按项目默认身份处理
     projectDefaultIdentity = !options?.customPrompt && options?.forceSystemPrompt === undefined;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 Pi 调用方可能只提供 event.systemPrompt，缺少该系统选项时走下面的回退分支
     if (options) {
       sdkSkills = options.skills;
       options.skills = (await mainApplicationSkills(skillScopeNow(), options.skills)).filter(
@@ -730,7 +748,8 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
           memory: runtime.contextEpoch > 0 ? await readMainMemory(mainContext) : "",
           experimentDigest:
             runtime.contextEpoch > 0
-              ? await experimentDigest(workspaceRoot, taskId).catch(() => undefined)
+              ? // eslint-disable-next-line no-restricted-syntax -- 实验摘要是可选上下文，读取失败时快照里只是不带这一段
+                await experimentDigest(workspaceRoot, taskId).catch(() => undefined)
               : undefined
         });
       } catch (error) {
@@ -742,6 +761,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     let memory = "";
     try {
       memory = await userMemoryContext(userMemoryStore, projectDirectory);
+      // eslint-disable-next-line no-restricted-syntax -- 用户记忆损坏不能让普通对话失败，记忆工具会单独报告该错误
     } catch {
       /* A corrupt profile must not prevent ordinary chat; the tool reports the error. */
     }
@@ -753,6 +773,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         experience = await projectExperienceContext(store);
         projectSkills = await projectExperienceSkillCatalog(store);
       }
+      // eslint-disable-next-line no-restricted-syntax -- 项目经验与 skill 目录都是可选上下文，读取失败时本轮不带这两段
     } catch {
       /* Optional context must not stop Main. */
     }
@@ -767,7 +788,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     const skillSection = currentSkillsSection;
     const scoped = skillSection
       ? refreshed.map((message) =>
-          message.role === "system" && message.sections
+          message.role === "system"
             ? { ...message, sections: { ...message.sections, skills: skillSection } }
             : message
         )
@@ -914,6 +935,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         for (const entry of applicationBridge.injectedResources) {
           await applicationBridge.workbench.context
             .recordAcknowledged(taskId, "main", entry.resourceId, entry.revision)
+            // eslint-disable-next-line no-restricted-syntax -- 确认写入失败只会让同一份注入在下一轮再出现一次，不阻塞本轮结束
             .catch(() => {});
         }
         applicationBridge.injectedResources = [];
@@ -921,6 +943,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       try {
         const taskStore = new LocalWorkspaceStore(workspaceRoot);
         const task = await taskStore.readTask(taskId);
+        // eslint-disable-next-line no-restricted-syntax -- sleep 记录缺失或损坏时按未 park 处理，settle 流程继续
         const parked = await readSleep(workspaceRoot, taskId).catch(() => undefined);
         if (
           isFinalAssistantMessage(lastMainMessage) ||
@@ -940,6 +963,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
             pendingCallbacks: Math.max(inboxDelivery.queuedCount, pending.callbackPending.length),
             pendingHumanRequests: (await humanStore.list(taskId, "pending")).length,
             pendingSubagentQuestions: (await questionStore.list(taskId, "pending")).length,
+            // eslint-disable-next-line no-restricted-syntax -- 没有 sleep 记录或记录损坏时按未 park 处理，完成判定走正常路径
             parkedForWake: Boolean(await readSleep(workspaceRoot, taskId).catch(() => undefined)),
             hasFinalAnswer: isFinalAssistantMessage(lastMainMessage) && !pendingContextClear
           });
@@ -981,6 +1005,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
                   runId: mainRunId
                 });
               }
+              // eslint-disable-next-line no-restricted-syntax -- 后台经验入库失败只影响学习，不改变已经写定的任务完成状态
             } catch {
               /* Background intake never changes task completion. */
             }
@@ -1020,6 +1045,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     memoryTurnActive = true;
     memoryLearning?.pause();
     projectLearning?.pause();
+    // eslint-disable-next-line no-restricted-syntax -- 前台标记只用于跨进程让记忆学习让路，写入失败最多多派一次学习，不阻塞本轮启动
     await userMemoryStore.taskForegroundActive(taskId, mainRunId).catch(() => {});
     awaitingInitialPrompt = false;
     lastMainMessage = undefined;
@@ -1063,6 +1089,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         // rather than waiting for the next one.
         const runningJobs = await pollJobs();
         await deliverCallbacks(true);
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 Pi 宿主没有 hasPendingMessages，缺方法时只能依赖 Inbox 队列计数
         if (inboxDelivery.queuedCount || ctx.hasPendingMessages?.()) return;
         const pending = await coordinator.waitForSubagents({
           taskId,
@@ -1100,6 +1127,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       }
     } finally {
       memoryTurnActive = false;
+      // eslint-disable-next-line no-restricted-syntax -- 本轮结束标记写入失败时，下一个前台 Turn 会重新写入活动/空闲状态，不阻塞收尾
       await userMemoryStore.taskForegroundIdle(taskId, mainRunId).catch(() => {});
       if (mainTimeoutTimer) clearTimeout(mainTimeoutTimer);
       mainTimeoutTimer = undefined;
@@ -1123,6 +1151,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
           }
           projectEvidenceRecorder.record([event.message, ...event.toolResults]);
         } else projectEvidenceRecorder = undefined;
+        // eslint-disable-next-line no-restricted-syntax -- 项目证据只是学习输入，记录失败时丢弃 recorder，任务结论仍由任务记录表达
       } catch {
         projectEvidenceRecorder = undefined;
       }
@@ -1414,6 +1443,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     const endOfOptions = cliArgs.indexOf("--");
     const startupArgs = endOfOptions < 0 ? cliArgs : cliArgs.slice(0, endOfOptions);
     if (event.reason !== "reload" && event.reason !== "fork" && !startupArgs.includes("--thinking")) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 Pi 宿主不提供 setThinkingLevel，缺方法时保留宿主已有的 thinking 级别
       pi.setThinkingLevel?.(configuredReasoningEffort(runtimeEnv));
     }
     if (!baseUrl || !apiKey)
@@ -1488,6 +1518,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       const pollMs = Math.max(1_000, Number(process.env.COWORK_INBOX_POLL_MS ?? 3_000));
       inboxPoller = setInterval(
         () =>
+          // eslint-disable-next-line no-restricted-syntax -- Pi 可能在子任务结束前销毁 Main，发送失败会释放 Inbox 租约并由下一次启动重新投递
           void pollMainInbox().catch(() => {
             // Pi can dispose Main before its children finish. Failed sends
             // release their leases; the next Main recovers the durable Inbox.
@@ -1497,17 +1528,19 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       // Do not keep Pi --print alive solely because the background poller is
       // scheduled. An interactive Pi process remains alive normally, while a
       // one-shot session can exit once its turn has settled.
-      inboxPoller.unref?.();
+      inboxPoller.unref();
       // Tell any supervisor that this Task already has a Main. Without this a
       // supervisor would read "no Main" while one is running and start a
       // second, putting two agents on the same project.
+      // eslint-disable-next-line no-restricted-syntax -- 心跳只是给 supervisor 的存活提示，写入失败不应中断 session_start 的其余装配
       void writeHeartbeat(workspaceRoot, taskId, mainRunId).catch(() => {});
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = setInterval(
+        // eslint-disable-next-line no-restricted-syntax -- 定时心跳写入失败时下一次 tick 会重写心跳文件，单次失败不影响 interval 本身
         () => void writeHeartbeat(workspaceRoot, taskId, mainRunId).catch(() => {}),
         Math.max(1_000, Math.floor(HEARTBEAT_STALE_MS / 3))
       );
-      heartbeatTimer.unref?.();
+      heartbeatTimer.unref();
       const supervisor =
         process.env.COWORK_SUPERVISOR_AUTOSTART === "1"
           ? "Watch Supervisor auto-started"

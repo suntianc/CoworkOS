@@ -85,6 +85,7 @@ export function createGoalController({
           tab: tabs.has(parts[3]) ? parts[3] : "progress"
         };
       return { view: "goals" };
+      // eslint-disable-next-line no-restricted-syntax -- the hash is user-editable, so decodeURIComponent can throw on a malformed escape; the goals list is the safe view
     } catch {
       return { view: "goals" };
     }
@@ -476,7 +477,9 @@ export function createGoalController({
         await api(
           `${path(current)}/notifications/${encodeURIComponent(answeredNotice.notificationId)}/read`,
           { method: "POST", body: {} }
-        ).catch(() => {});
+        )
+          // eslint-disable-next-line no-restricted-syntax -- the answer already reached the backend; a failed read receipt only leaves the notice unread and must not fail the response
+          .catch(() => {});
       decisionDrafts.delete(`${identity(current)}:${current.goal?.decisionRequestId}`);
       node.elements.answer.value = "";
     } catch (error) {

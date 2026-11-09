@@ -39,6 +39,7 @@ async function read(root: string, taskId: string): Promise<EditTransaction | und
   if (bytes === null) return;
   const value = JSON.parse(bytes) as EditTransaction;
   if (
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 事务文件从磁盘读出，旧版本写入的 version 不是 1 时必须拒绝恢复
     value.version !== 1 ||
     value.taskId !== taskId ||
     !/^[a-zA-Z0-9._-]+$/.test(value.runId) ||

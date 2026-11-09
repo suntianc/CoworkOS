@@ -260,6 +260,7 @@ function prettyValue(value) {
   if (typeof value === "string") return value;
   try {
     return JSON.stringify(value, null, 2);
+    // eslint-disable-next-line no-restricted-syntax -- tool payloads may hold values JSON cannot serialize (cycles, BigInt); falling back to String keeps the activity readable
   } catch {
     return String(value);
   }

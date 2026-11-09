@@ -82,12 +82,14 @@ export function validMainRequestExecutionScope(value: unknown): value is MainReq
     Array.isArray(entries) && entries.every((name) => typeof name === "string" && name.length > 0);
   const app = scope.application;
   return Boolean(
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- value 是重试快照里的 unknown 载荷，声明为 MainRequestExecutionScope 只是断言
     scope.version === 1 &&
     typeof scope.taskStorageRoot === "string" &&
     isAbsolute(scope.taskStorageRoot) &&
     typeof scope.projectDirectory === "string" &&
     isAbsolute(scope.projectDirectory) &&
     (app === null ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 归属记录来自旧版本持久化 JSON，application 字段可能整体缺失，此时应返回 false 而不是读取 undefined
       (app &&
         typeof app.resourceId === "string" &&
         app.resourceId.length > 0 &&

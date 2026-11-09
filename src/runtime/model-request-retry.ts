@@ -46,7 +46,10 @@ export async function readModelRequestRetry(path: string): Promise<ModelRequestR
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw new Error("失败请求归档无法读取，原始记录已保留。", { cause: error });
   }
+  // The archive is unvalidated JSON: an older or truncated file may have no model block at all.
+  const model = value.model as RetryModel | undefined;
   if (
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 归档文件由 JSON.parse 读取，可能解析出 null 或旧版本内容，必须先判空再比较 version
     value?.version !== 1 ||
     typeof value.taskId !== "string" ||
     typeof value.runId !== "string" ||
@@ -54,21 +57,23 @@ export async function readModelRequestRetry(path: string): Promise<ModelRequestR
     !["pending", "failed", "interrupted", "completed"].includes(value.state) ||
     typeof value.body !== "string" ||
     typeof value.endpoint !== "string" ||
-    typeof value.model?.id !== "string" ||
-    typeof value.model?.provider !== "string" ||
-    typeof value.model?.reasoning !== "boolean" ||
-    !Array.isArray(value.model?.input) ||
-    !value.model.input.every((input) => ["text", "image"].includes(input)) ||
-    !Number.isSafeInteger(value.model?.contextWindow) ||
-    value.model.contextWindow < 1 ||
-    !Number.isSafeInteger(value.model?.maxTokens) ||
-    value.model.maxTokens < 1 ||
-    typeof value.model?.baseUrl !== "string" ||
-    !["openai-completions", "openai-responses"].includes(value.model?.api) ||
+    !model ||
+    typeof model.id !== "string" ||
+    typeof model.provider !== "string" ||
+    typeof model.reasoning !== "boolean" ||
+    !Array.isArray(model.input) ||
+    !model.input.every((input) => ["text", "image"].includes(input)) ||
+    !Number.isSafeInteger(model.contextWindow) ||
+    model.contextWindow < 1 ||
+    !Number.isSafeInteger(model.maxTokens) ||
+    model.maxTokens < 1 ||
+    typeof model.baseUrl !== "string" ||
+    !["openai-completions", "openai-responses"].includes(model.api) ||
     typeof value.systemPrompt !== "string" ||
     !Array.isArray(value.tools) ||
     !value.tools.every(
       (tool) =>
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- tools 元素来自归档 JSON，可能是 null，直接读 tool.name 会抛 TypeError 而不是归档不完整错误
         typeof tool?.name === "string" &&
         typeof tool.description === "string" &&
         tool.parameters &&

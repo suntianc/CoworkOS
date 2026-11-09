@@ -50,6 +50,7 @@ export function subagentRecoverySummary(messages: readonly AgentMessage[]): stri
     if (!["write_file", "apply_patch"].includes(operation.call.name) || !operation.result) continue;
     const data = resultData(operation.result);
     if (toolFailed(operation.result, data) || data.changed !== true) continue;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 中断的调用可能在记录参数前就结束，arguments 运行期是 null
     const path = data.path ?? operation.call.arguments?.path;
     if (typeof path !== "string") continue;
     changes.delete(path);
@@ -99,6 +100,7 @@ function section<T>(
 }
 
 function operationLabel(operation: Operation): string {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 中断的调用可能没有记录参数，arguments 运行期是 null，按空参数渲染标签
   const args = operation.call.arguments ?? {};
   const locator: Record<string, unknown> = {};
   // Never serialize arbitrary arguments: write/patch content can be enormous,
@@ -169,6 +171,7 @@ function resultData(result: ToolResultMessage): Record<string, unknown> {
       const parsed: unknown = JSON.parse(text);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
         return parsed as Record<string, unknown>;
+      // eslint-disable-next-line no-restricted-syntax -- 回执文本可能是被截断的 JSON，解析失败就按纯文本摘要处理，不能中断恢复汇总
     } catch {
       // A textual or truncated receipt remains an excerpt, not structured data.
     }
@@ -195,5 +198,5 @@ function resultText(result: ToolResultMessage): string {
 
 function clip(text: string, maxChars: number): string {
   const [block] = limitToolContent([{ type: "text", text }], maxChars);
-  return block?.type === "text" ? block.text : "";
+  return block.type === "text" ? block.text : "";
 }

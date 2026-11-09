@@ -195,6 +195,7 @@ export async function processProjectExperienceLearning(
           (() => {
             try {
               return JSON.parse(job.text);
+              // eslint-disable-next-line no-restricted-syntax -- job.text 是落盘的历史记录，可能被截断或来自旧格式，解析失败按没有可处理引用处理
             } catch {
               return undefined;
             }
@@ -221,6 +222,7 @@ export async function processProjectExperienceLearning(
           if (checking || signal.aborted) return;
           checking = true;
           void check()
+            // eslint-disable-next-line no-restricted-syntax -- check() 失败时本轮已被 foreground.abort() 终止，具体错误由外层 catch 统一记 failLearning
             .catch(() => {
               if (!signal.aborted) foreground.abort();
             })
@@ -350,12 +352,12 @@ export async function processProjectExperienceLearning(
           const verified: boolean[] = [];
           for (const [index, proposal] of proposals.entries()) {
             const decisions = review.decisions.filter((decision) => decision.index === index);
-            if (decisions.length !== 1 || !decisions[0]!.supported || !decisions[0]!.durable) continue;
+            if (decisions.length !== 1 || !decisions[0].supported || !decisions[0].durable) continue;
             const validated = Boolean(
               evidence.status === "completed" &&
               proposal.validationQuote &&
               supportedQuote(evidence, proposal.validationQuote, true) &&
-              decisions[0]!.validationRelevant
+              decisions[0].validationRelevant
             );
             verified.push(validated);
             changes.push(proposal);
@@ -384,6 +386,7 @@ export async function processProjectExperienceLearning(
       },
       { timeoutMs: 1000, recoverDeadOwner: true }
     );
+    // eslint-disable-next-line no-restricted-syntax -- 租约竞争、记录损坏与前台取消都表示本轮不学习，返回 0 让下一次 tick 重试
   } catch {
     // Lease contention, corrupt records and canceled foreground work stay silent.
     return 0;
@@ -413,7 +416,7 @@ export function createProjectExperienceLearningService(options: {
     running = (async () => {
       const stores = await options.stores();
       if (!stores.length || signal.aborted) return;
-      const store = stores[cursor++ % stores.length]!;
+      const store = stores[cursor++ % stores.length];
       await processProjectExperienceLearning({
         ...options,
         store,
@@ -422,6 +425,7 @@ export function createProjectExperienceLearningService(options: {
         isConnectionCurrent: () => JSON.stringify(options.connection()) === connectionSnapshot
       });
     })()
+      // eslint-disable-next-line no-restricted-syntax -- 单次后台 pass 失败由下一次 15s tick 重新调度，失败类型已在 processProjectExperienceLearning 内部记账
       .catch(() => {})
       .finally(() => {
         running = undefined;

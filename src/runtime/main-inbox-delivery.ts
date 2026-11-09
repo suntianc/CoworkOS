@@ -180,13 +180,16 @@ export class MainInboxDelivery {
                   error: error instanceof Error ? error.message : String(error)
                 }
               })
+              // eslint-disable-next-line no-restricted-syntax -- 这条事件本身就是清理失败的记录，写不进事件流时投递仍必须继续
               .catch(() => {});
           });
           // A callback that settled a measured round is the moment Main decides
           // what to try next, so the recorded series travels with it. Main is
           // not asked to look it up, and nothing here reads the trend for it.
           const digest = payload.experimentRunId
-            ? await experimentDigest(this.workspaceRoot, this.taskId).catch(() => undefined)
+            ? await experimentDigest(this.workspaceRoot, this.taskId)
+                // eslint-disable-next-line no-restricted-syntax -- 实验趋势是附加信息，读不到时消息照常投递，只是不带趋势段落
+                .catch(() => undefined)
             : undefined;
           await send(
             {
@@ -224,6 +227,7 @@ export class MainInboxDelivery {
         }
       }
     });
+    // eslint-disable-next-line no-restricted-syntax -- 上次投递的拒绝已经由返回的 delivery 交给调用方，串行链只需保持可继续排队
     this.delivery = delivery.catch(() => {});
     return delivery;
   }
@@ -237,10 +241,11 @@ export class MainInboxDelivery {
       const message = entry.type === "message" ? entry.message : entry;
       if (!message) continue;
       const user = message;
-      if (user?.role === "toolResult" && user.toolName === "wait_for_subagents" && !user.isError) {
+      if (user.role === "toolResult" && user.toolName === "wait_for_subagents" && !user.isError) {
         const receipts = user.details?._coworkInboxMessages;
         for (const receipt of Array.isArray(receipts) ? receipts : []) {
           if (
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 回执数组来自 Pi 会话上下文，历史 transcript 里可能混入 null 条目
             receipt?.taskId !== this.taskId ||
             typeof receipt.messageId !== "string" ||
             typeof receipt.runId !== "string"
@@ -259,7 +264,7 @@ export class MainInboxDelivery {
           }
         }
       }
-      const initial = user?.role === "user" ? readQueuedUserTurn(user.content) : undefined;
+      const initial = user.role === "user" ? readQueuedUserTurn(user.content) : undefined;
       if (initial?.taskId === this.taskId) {
         if (initial.runId === this.runId) ids.add(initial.messageId);
         else
@@ -310,6 +315,7 @@ export class MainInboxDelivery {
           events.some(
             (event) =>
               event.type === type &&
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 事件从 run_events.jsonl 读出，payload 声明为 unknown，旧记录可能没有 payload
               (event.payload as { messageId?: string })?.messageId === message.messageId
           )
         )

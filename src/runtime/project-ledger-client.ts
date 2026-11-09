@@ -64,6 +64,7 @@ export function createProjectLedgerClient(options: {
       ...(input === undefined ? {} : { body: JSON.stringify(input) }),
       signal: AbortSignal.timeout(TIMEOUT_MS)
     });
+    // eslint-disable-next-line no-restricted-syntax -- 失败响应可能不是 JSON（代理或网关返回 HTML），解析失败用空对象兜底，错误文案退回 HTTP 状态码
     const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) {
       const error = new Error(

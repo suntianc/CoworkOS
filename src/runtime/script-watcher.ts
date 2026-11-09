@@ -85,6 +85,7 @@ export class ScriptWatcher implements WatcherPoller {
   private async readCheckpoint(): Promise<Checkpoint> {
     try {
       const value = JSON.parse(await readFile(this.checkpointPath, "utf8")) as Checkpoint;
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checkpoint.json 是磁盘文件，旧版本写入的格式版本和事件数组必须按运行期内容校验
       if (value.formatVersion !== 1 || !Array.isArray(value.events))
         throw new Error("unsupported watcher checkpoint");
       return value;
@@ -105,6 +106,7 @@ export class ScriptWatcher implements WatcherPoller {
       try {
         await access(path);
         return path;
+        // eslint-disable-next-line no-restricted-syntax -- access 失败只表示这个候选文件名不存在，继续试下一个，最终返回 undefined 表示没有入口
       } catch {
         /* next supported filename */
       }

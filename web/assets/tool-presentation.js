@@ -65,6 +65,7 @@ const parse = (value) => {
   if (typeof value !== "string") return value;
   try {
     return JSON.parse(value);
+    // eslint-disable-next-line no-restricted-syntax -- 工具参数可能是任意非 JSON 字符串，解析失败时按原值处理
   } catch {
     return value;
   }

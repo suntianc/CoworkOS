@@ -48,9 +48,16 @@ export async function callRemoteTool(
     });
     const text = await response.text();
     let payload: unknown;
-    try { payload = JSON.parse(text); } catch { payload = { content: text }; }
-    if (!response.ok) throw new Error(`remote tool ${toolName} failed (${response.status}): ${JSON.stringify(payload)}`);
-    if (payload && typeof payload === "object" && "error" in payload) throw new Error(String((payload as { error?: unknown }).error));
+    try {
+      payload = JSON.parse(text);
+      // eslint-disable-next-line no-restricted-syntax -- 远端工具响应可能是纯文本，解析失败时按原文包装，下面的 content 分支会把原文交给模型
+    } catch {
+      payload = { content: text };
+    }
+    if (!response.ok)
+      throw new Error(`remote tool ${toolName} failed (${response.status}): ${JSON.stringify(payload)}`);
+    if (payload && typeof payload === "object" && "error" in payload)
+      throw new Error(String((payload as { error?: unknown }).error));
     // The bridge envelope carries routing metadata for the transport, but the
     // model should receive the environment's original tool content. Keeping
     // this normalization here makes `/manifest` + `/call` reusable without
@@ -60,7 +67,11 @@ export async function callRemoteTool(
       if (typeof content === "string") return content;
       if (Array.isArray(content)) {
         const text = content
-          .map((part) => part && typeof part === "object" && "text" in part ? String((part as { text?: unknown }).text ?? "") : String(part ?? ""))
+          .map((part) =>
+            part && typeof part === "object" && "text" in part
+              ? String((part as { text?: unknown }).text ?? "")
+              : String(part ?? "")
+          )
           .join("");
         return text || content;
       }

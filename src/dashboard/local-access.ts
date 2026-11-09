@@ -138,13 +138,14 @@ export class LocalAccess {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
+      // eslint-disable-next-line no-restricted-syntax -- 会话文件是旁路记录，解析失败只记录位置并在无会话状态启动
     } catch {
       // A client can re-authorize; refusing to serve would take the whole
       // backend down for a damaged side record. Say where and start without it.
       console.error(`[cowork] 本地会话记录无法解析，已按无会话启动：${this.sessionsPath}`);
       return;
     }
-    const document = parsed as Partial<SessionDocument>;
+    const document = parsed as Partial<SessionDocument> | null;
     if (document?.version !== 1 || !Array.isArray(document.sessions)) {
       console.error(`[cowork] 本地会话记录格式不完整，已按无会话启动：${this.sessionsPath}`);
       return;
@@ -166,6 +167,7 @@ export class LocalAccess {
     // A failed write already reported to its caller must not poison the queue:
     // the next session change still has to reach the disk.
     this.persisting = this.persisting
+      // eslint-disable-next-line no-restricted-syntax -- 上一次写入的失败已经抛给调用方，队列清掉它后续会话变更才能继续落盘
       .catch(() => undefined)
       .then(async () => {
         const document: SessionDocument = { version: 1, sessions: [...this.sessions.values()] };

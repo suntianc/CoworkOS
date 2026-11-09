@@ -58,11 +58,13 @@ const hash = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 function validateSource(source?: ImageSource): ImageSource | undefined {
   if (source === undefined) return undefined;
   if (
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- source 来自磁盘上的 image 记录 JSON 或工具参数，可能是 null 而声明类型只覆盖 undefined
     !source ||
     !["file", "computer", "browser", "derived"].includes(source.kind) ||
     (source.label !== undefined && (typeof source.label !== "string" || source.label.length > 512)) ||
     (source.sourceObservationId !== undefined &&
       (typeof source.sourceObservationId !== "string" || source.sourceObservationId.length > 200)) ||
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 记录 JSON 里的 historical 可能是 false 或字符串，声明类型只允许字面量 true
     (source.historical !== undefined && source.historical !== true)
   )
     throw new Error("Invalid historical image source");
@@ -76,8 +78,10 @@ function validateSource(source?: ImageSource): ImageSource | undefined {
 function validateMapping(mapping?: ImageMapping): ImageMapping | undefined {
   if (mapping === undefined) return undefined;
   if (
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mapping 来自磁盘上的 image 记录 JSON，损坏记录里可能是 null
     !mapping ||
     !REF.test(mapping.sourceImageRef) ||
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 记录 JSON 里的 region 可能缺失或不是对象，索引前必须校验
     !mapping.region ||
     ![mapping.sourceWidth, mapping.sourceHeight, mapping.region.width, mapping.region.height].every(
       (value) => Number.isSafeInteger(value) && value > 0
@@ -208,7 +212,9 @@ export function createImageArchive(options: ImageArchiveOptions) {
       throw error;
     }
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- record 由 JSON.parse 得到，被截断或改写过的记录文件可能解析出 null
       !record ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 磁盘上的记录文件可能来自其它版本，version 运行期不保证为 1
       record.version !== 1 ||
       record.imageRef !== imageRef ||
       !/^[0-9a-f]{64}$/.test(record.imageHash) ||
@@ -303,9 +309,11 @@ export function createImageArchive(options: ImageArchiveOptions) {
           // Atomic, exclusive publication after bytes and metadata are complete.
           // A crash's .pending file remains budgeted but never becomes a record.
           await link(pendingPath, recordPath);
+          // eslint-disable-next-line no-restricted-syntax -- 记录已原子发布，.pending 只是中间文件，删除失败不影响已提交的 imageRef
           await unlink(pendingPath).catch(() => {});
           return record;
         } catch (error) {
+          // eslint-disable-next-line no-restricted-syntax -- 正在上抛写入失败，逐个清理已创建文件是 best-effort，清理失败不应覆盖原始错误
           await Promise.all(created.map((file) => unlink(file).catch(() => {})));
           throw error;
         }

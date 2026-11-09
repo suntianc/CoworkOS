@@ -360,6 +360,7 @@ export function createMainSessionService(ports: MainSessionServicePorts) {
     async hasHistory(location: { workspaceRoot: string; task: { taskId: string } }): Promise<boolean> {
       const files = await readdir(
         join(location.workspaceRoot, location.task.taskId, "sessions", "main", "pi")
+        // eslint-disable-next-line no-restricted-syntax -- 会话目录在首次 Main 启动前尚未创建，读取失败就意味着没有历史可接续，启动器按全新会话处理
       ).catch(() => []);
       return files.some((name) => name.endsWith(".jsonl"));
     },

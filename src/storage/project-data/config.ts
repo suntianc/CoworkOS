@@ -184,6 +184,7 @@ export async function openProjectDataDatabase(
       const software = await database.query<{ version: string }>("SELECT sqlite_version() AS version");
       return { database, serverVersion: software[0]?.version ?? "unknown", schemaVersion: version };
     } catch (error) {
+      // eslint-disable-next-line no-restricted-syntax -- 这里关闭的是迁移失败的 SQLite 连接；close 自身的失败不能覆盖下面要抛出的原始迁移错误
       await database.close().catch(() => undefined);
       throw error;
     }
@@ -193,6 +194,7 @@ export async function openProjectDataDatabase(
     const version = await migrateProjectData(database);
     return { database, serverVersion: await database.probe(), schemaVersion: version };
   } catch (error) {
+    // eslint-disable-next-line no-restricted-syntax -- 这里关闭的是迁移失败的 PostgreSQL 连接池；close 自身的失败不能覆盖下面要抛出的原始迁移错误
     await database.close().catch(() => undefined);
     throw error;
   }

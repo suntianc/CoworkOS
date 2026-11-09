@@ -21,6 +21,7 @@ function createDesktopTray({ Tray, Menu, nativeImage, icon, platform, language, 
     tray.on("click", show);
     setLanguage(language);
     return { supported: true, setLanguage, dispose: () => tray.destroy() };
+    // eslint-disable-next-line no-restricted-syntax -- a nativeImage/Tray construction failure leaves the app without a tray, which is exactly what the supported flag reports
   } catch {
     tray?.destroy();
     return { supported: false, setLanguage() {}, dispose() {} };

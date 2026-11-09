@@ -63,6 +63,7 @@ export async function isSourceCheckout(root) {
   try {
     const { git } = commands({ root });
     return (await realpath(await git("rev-parse", "--show-toplevel"))) === (await realpath(root));
+    // eslint-disable-next-line no-restricted-syntax -- 不是 Git 仓库或 rev-parse 失败就判定为“非源码检出”，不是更新错误
   } catch {
     return false;
   }
@@ -327,6 +328,7 @@ export async function updateSource(options) {
       try {
         if (swap.published) await rm(swap.live, { recursive: true, force: true });
         if (swap.moved) await rename(swap.previous, swap.live);
+        // eslint-disable-next-line no-restricted-syntax -- 回滚失败会把 preserve 置位并升级为“需要人工恢复”错误，这里不能吞掉该结论
       } catch {
         preserve = true;
       }
@@ -346,6 +348,7 @@ export async function updateSource(options) {
           await git("read-tree", "-u", "-m", result.remoteCommit, result.currentCommit);
           await git("update-ref", "HEAD", result.currentCommit, result.remoteCommit);
         } else await cleanCheckout(root, git);
+        // eslint-disable-next-line no-restricted-syntax -- 恢复 Git 状态失败同样置 preserve，最终抛出需人工恢复错误而不是原始异常
       } catch {
         preserve = true;
       }

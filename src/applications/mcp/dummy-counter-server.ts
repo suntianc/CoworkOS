@@ -50,7 +50,9 @@ server.registerTool(
     const entries = Object.entries(counters).sort((left, right) => right[1] - left[1]);
     const top = entries[0];
     return {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- counters 来自资源的 HTTP 响应，可能一个计数器都没有
       content: [{ type: "text", text: top ? `${top[0]} = ${top[1]}` : "没有计数器" }],
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- counters 来自资源的 HTTP 响应，可能一个计数器都没有
       structuredContent: { atria: { key: top?.[0], value: top?.[1] } }
     };
   }
@@ -65,6 +67,7 @@ server.registerTool(
   async ({ amount }, extra) => {
     const counters = await readCounters(boundResource(extra));
     const top = Object.entries(counters).sort((left, right) => right[1] - left[1])[0];
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- counters 来自资源的 HTTP 响应，可能一个计数器都没有
     if (!top) return { content: [{ type: "text", text: "没有计数器可以递增" }], isError: true };
     return {
       content: [{ type: "text", text: `${top[0]} += ${amount}` }],

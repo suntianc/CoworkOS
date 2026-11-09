@@ -174,6 +174,7 @@ export function createCatalogEvents(options: CatalogEventsOptions): CatalogEvent
             // A writer that does not publish (a Run transition, an MCP edit)
             // becomes an event while someone is listening.
             await sync();
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- settled 由 settle() 在 request/response 的 close 监听里置位，TS 看不到这次写入
             if (settled) return;
           }
           for (;;) {
@@ -202,6 +203,7 @@ export function createCatalogEvents(options: CatalogEventsOptions): CatalogEvent
             }
           }
         } catch (error) {
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- settled 由 settle() 在 close 监听里置位，客户端断开后不再上报刷新失败
           if (!settled)
             console.error(
               `[cowork] 事件流刷新失败：${error instanceof Error ? error.message : String(error)}`

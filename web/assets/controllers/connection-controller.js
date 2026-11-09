@@ -70,6 +70,7 @@ export function createConnectionController({
         })
       );
       if (changedTabs) await refreshWorkbench?.();
+      // eslint-disable-next-line no-restricted-syntax -- the 500ms application-revision poll retries on the next tick and the mounted editor keeps its drafts meanwhile
     } catch {
       // Keep the mounted editor and its drafts; the next check retries.
     } finally {
@@ -196,6 +197,7 @@ export function createConnectionController({
         },
         onRecord: (record) => applyRecord(record, isCurrent)
       })
+        // eslint-disable-next-line no-restricted-syntax -- a failed stream is not reported here: the finally block re-reads the detail, which reconnects or marks the backend offline
         .catch(() => undefined)
         .finally(() => {
           if (!isCurrent()) return;
@@ -221,6 +223,7 @@ export function createConnectionController({
       let record;
       try {
         record = JSON.parse(message.data);
+        // eslint-disable-next-line no-restricted-syntax -- a single malformed SSE frame from the backend is skipped; the stream keeps delivering later records
       } catch {
         return;
       }

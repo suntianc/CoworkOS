@@ -79,6 +79,7 @@ export function commandOutputFeedback(name: string, value: unknown, maxChars: nu
     const path = value[`${stream}ReadPath`];
     if (path && path !== value[`${stream}Path`]) add(`${stream} log (read_file): ${JSON.stringify(path)}\n`);
   }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- omitted 只由上面的 add/addExcerpt 闭包在预算不足时置为 true，TS 在读取处看不到闭包里的赋值
   if (omitted) add("...[metadata omitted: budget]...\n");
 
   const streams = (["stdout", "stderr"] as const).filter((stream) => value[stream].length > 0);

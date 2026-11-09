@@ -19,6 +19,7 @@ if (process.platform === "darwin") {
     .update(await readFile(renderer))
     .update(await readFile(new URL(import.meta.url)))
     .digest("hex");
+  // eslint-disable-next-line no-restricted-syntax -- 首次构建还没有 marker 文件，读不到时用空哈希强制重新渲染图标
   const previous = await readFile(marker, "utf8").catch(() => "");
   const outputsExist = await Promise.all([access(master), access(runtime), access(icns)]).then(
     () => true,

@@ -42,13 +42,17 @@ export async function readTaskRuntimeEvents(
       .map(async (entry) => {
         const path = join(directory, entry.name);
         const [metadata, output, ledger] = await Promise.all([
+          // eslint-disable-next-line no-restricted-syntax -- 早期 Run 从未写过 run.json，缺失时按空元数据继续，createdAt 留空并由 runId 兜底排序
           readFile(join(path, "run.json"), "utf8").catch(() => "{}"),
+          // eslint-disable-next-line no-restricted-syntax -- 启动即失败的 Run 可能没有 runtime-output.log，缺失时按无事件继续回放其余 Run
           readFile(join(path, "runtime-output.log"), "utf8").catch(() => ""),
+          // eslint-disable-next-line no-restricted-syntax -- 同上，run_events.jsonl 可能尚未创建，缺失只表示该 Run 没有账本事件
           readFile(join(path, "run_events.jsonl"), "utf8").catch(() => "")
         ]);
         let createdAt = "";
         try {
           createdAt = JSON.parse(metadata).createdAt || "";
+          // eslint-disable-next-line no-restricted-syntax -- 更早版本的 run.json 没有 createdAt，解析失败只影响排序键，必须继续回放该 Run 的事件
         } catch {
           /* older runs may lack metadata */
         }
@@ -56,6 +60,7 @@ export async function readTaskRuntimeEvents(
           try {
             const value = JSON.parse(line);
             return value && typeof value === "object" ? [value as Record<string, unknown>] : [];
+            // eslint-disable-next-line no-restricted-syntax -- 日志按行追加，崩溃或并发写入可能留下半行，跳过它才能回放同一文件里其余完整事件
           } catch {
             return [];
           }
@@ -71,6 +76,7 @@ export async function readTaskRuntimeEvents(
             ].includes(value.type) || /^main\.run_(completed|failed|waiting|cancelled)$/.test(value.type)
               ? [value]
               : [];
+            // eslint-disable-next-line no-restricted-syntax -- 账本是追加写的，末行可能不完整；单行解析失败不能让整个会话历史丢失
           } catch {
             return [];
           }
@@ -94,12 +100,12 @@ export function messagesWithRuntimeHistory(
   const cancelled = new Set(
     events
       .filter((event) => event.type === "user.message_cancelled")
-      .map((event) => (event.payload as { messageId?: string })?.messageId)
+      .map((event) => (event.payload as { messageId?: string } | undefined)?.messageId)
   );
   const consumed = new Map<string | undefined, string>();
   for (const record of events) {
     if (record.type !== "inbox.consumed") continue;
-    const messageId = (record.payload as { messageId?: string })?.messageId;
+    const messageId = (record.payload as { messageId?: string } | undefined)?.messageId;
     const occurredAt = record.occurredAt;
     if (typeof messageId !== "string" || !messageId || typeof occurredAt !== "string") continue;
     const timestamp = Date.parse(occurredAt);
@@ -114,19 +120,19 @@ export function messagesWithRuntimeHistory(
       .filter(
         (event) =>
           ["user.message_promoted", "inbox.consumed"].includes(String(event.type)) &&
-          (event.payload as { delivery?: string })?.delivery === "steer"
+          (event.payload as { delivery?: string } | undefined)?.delivery === "steer"
       )
       .map((event) => (event.payload as { messageId?: string }).messageId)
   );
   const history = events.flatMap((record) => {
     if (record.type === "user.interjected") {
-      const payload = record.payload as {
+      const payload = (record.payload ?? {}) as {
         message?: string;
         messageId?: string;
         createdAt?: string;
         delivery?: "steer" | "followUp";
       };
-      if (typeof payload?.message !== "string" || cancelled.has(payload.messageId)) return [];
+      if (typeof payload.message !== "string" || cancelled.has(payload.messageId)) return [];
       const promoted = payload.messageId && promotedIds.has(payload.messageId);
       const delivery = promoted ? "steer" : payload.delivery;
       return [
@@ -143,7 +149,8 @@ export function messagesWithRuntimeHistory(
         }
       ];
     }
-    const event = record.type === "runtime_event" ? (record.payload as Record<string, unknown>) : record;
+    const event =
+      record.type === "runtime_event" ? (record.payload as Record<string, unknown> | undefined) : record;
     if (event?.type !== "message_end") return [];
     const projected = conversationMessages([event.message]);
     const incoming = event.message as { role?: string; customType?: string } | undefined;

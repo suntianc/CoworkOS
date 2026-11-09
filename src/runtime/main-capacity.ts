@@ -66,6 +66,7 @@ export function createMainCapacityLedger({
     identifier(request.sessionId, "会话 ID");
     identifier(request.taskId, "Task ID");
     identifier(request.runId, "Run ID");
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- request 来自 HTTP/CLI 外部载荷，kind 声明为两值联合但运行时可能带别的值
     if (request.kind !== "regular" && request.kind !== "continuation")
       throw new ProjectDataInvalidError("外部 Main 类型须为 regular 或 continuation");
     if (typeof request.prompt !== "string" || !request.prompt.trim() || request.prompt.includes("\0"))
@@ -367,7 +368,7 @@ export function createMainCapacityLedger({
       return store.update((state) => {
         const index = state.slots.findIndex((entry) => entry.requestId === requestId);
         if (index < 0) return false;
-        const slot = state.slots[index]!;
+        const slot = state.slots[index];
         if (
           slot.runId !== expected.runId ||
           slot.host !== expected.host ||

@@ -58,6 +58,7 @@ async function matchingBinding(session, workspaceRoot, projectDirectory) {
       continue;
     if ((await canonical(data.sessionFile)) !== (await canonical(sessionFile))) continue;
     if ((await canonical(data.workspaceRoot)) !== workspace) continue;
+    // eslint-disable-next-line no-restricted-syntax -- 旧绑定指向的 Task 可能已被删除，读不到时跳过这条记录而不能中断会话发现
     const task = await new LocalWorkspaceStore(workspace).readTask(data.taskId).catch(() => undefined);
     if (!task) continue;
     // A catalog project may change its working folder while retaining this
@@ -260,7 +261,8 @@ export async function resolveCliSession({
     binding?.taskId ??
     (hasBinding ? undefined : await legacyTask(session, workspaceRoot, selectedProject));
   const task = taskId
-    ? await new LocalWorkspaceStore(workspaceRoot).readTask(taskId).catch(() => undefined)
+    ? // eslint-disable-next-line no-restricted-syntax -- 会话绑定的 Task 快照可能已被删除，读不到就按没有任务继续解析工作目录
+      await new LocalWorkspaceStore(workspaceRoot).readTask(taskId).catch(() => undefined)
     : undefined;
   return {
     taskId,
@@ -281,6 +283,7 @@ export async function recordCliSessionBinding({
   allowOverride = false
 }) {
   if (!sessionManager.getSessionFile?.()) return { status: "skipped" };
+  // eslint-disable-next-line no-restricted-syntax -- 记录绑定前 Task 可能已被删除，读不到时没有项目目录可比对，继续写入绑定
   const task = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId).catch(() => undefined);
   if (
     task?.projectDirectory &&

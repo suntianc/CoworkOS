@@ -76,6 +76,7 @@ export async function listProjectExperienceIdentities(
         JSON.parse(await readFile(join(root, name, "identity.json"), "utf8"))
       );
       if (identityKey(identity) === name) identities.push(identity);
+      // eslint-disable-next-line no-restricted-syntax -- 单个身份目录可能损坏或来自其它版本，跳过它，其它项目的经验仍要可列
     } catch {
       /* A broken private store cannot enable learning or block other projects. */
     }

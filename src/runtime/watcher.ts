@@ -115,9 +115,7 @@ export class WatcherRuntime {
         type: "watch.program_event_received",
         payload: {
           monitorId: observation.watcherId,
-          ...(event.payload && typeof event.payload === "object"
-            ? (event.payload as Record<string, unknown>)
-            : { value: event.payload })
+          ...(event.payload && typeof event.payload === "object" ? event.payload : { value: event.payload })
         }
       });
     }
@@ -181,6 +179,7 @@ export function validateObservation(observation: WatcherEvent): void {
     throw new Error("watcher occurredAt must be a valid timestamp");
   if (observation.priority !== undefined && !Number.isFinite(observation.priority))
     throw new Error("watcher priority must be finite");
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- payload 是 unknown，为 undefined 时 JSON.stringify 返回 undefined，必须先回退成 "null" 才能算字节数
   if (Buffer.byteLength(JSON.stringify(observation.payload) ?? "null") > 65_536)
     throw new Error("watcher evidence exceeds 64 KiB");
   for (const [name, value] of Object.entries({

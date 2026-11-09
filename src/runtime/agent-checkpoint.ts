@@ -16,8 +16,19 @@ export function emptyCompaction(): ContextCompactionState {
 export function readAgentCheckpoint(value: unknown): PersistedAgentState | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<PersistedAgentState>;
-  if (candidate.version !== 1 || !Array.isArray(candidate.messages) || typeof candidate.prompt !== "string") return undefined;
-  if (candidate.status !== "running" && candidate.status !== "succeeded" && candidate.status !== "failed") return undefined;
-  const compaction = candidate.compaction && typeof candidate.compaction === "object" ? candidate.compaction : emptyCompaction();
-  return { version: 1, status: candidate.status, prompt: candidate.prompt, messages: candidate.messages, compaction: compaction as ContextCompactionState };
+  if (candidate.version !== 1 || !Array.isArray(candidate.messages) || typeof candidate.prompt !== "string")
+    return undefined;
+  if (candidate.status !== "running" && candidate.status !== "succeeded" && candidate.status !== "failed")
+    return undefined;
+  const compaction =
+    candidate.compaction && typeof candidate.compaction === "object"
+      ? candidate.compaction
+      : emptyCompaction();
+  return {
+    version: 1,
+    status: candidate.status,
+    prompt: candidate.prompt,
+    messages: candidate.messages,
+    compaction
+  };
 }

@@ -76,6 +76,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         const request = await context.humanStore.create({
           taskId: context.taskId,
           runId: context.mainRunId,
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- askhuman 的 question 由模型以 JSON 参数传入，运行期可能缺失；空串回退让 humanStore.create 始终收到字符串
           question: String(params.question ?? ""),
           context: typeof params.context === "string" ? params.context : undefined,
           options,
@@ -103,11 +104,13 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         if (settled.status === "answered") {
           // The question is closed, so the durable answer must not also arrive
           // through the Inbox and be read as a second, unprompted instruction.
+          // eslint-disable-next-line no-restricted-syntax -- 答案已经由 waitForAnswer 作为工具结果返回，这里只是把 Inbox 重复副本标记为已消费；去重写失败不能让已回答的调用失败，残留消息仍带同一 requestId
           await context.humanStore.consumeAnswerMessage(context.taskId, request.requestId).catch(() => {
             /* nothing was queued */
           });
           await new LocalWorkspaceStore(context.workspaceRoot)
             .transitionTask(context.taskId, "running", { runId: context.mainRunId, reason: "human_answered" })
+            // eslint-disable-next-line no-restricted-syntax -- 同步持久状态是回答后的尽力更新；runtime 事件已发出，写盘失败时下一次生命周期钩子按实际状态重算，不能因此丢掉答案结果
             .catch(() => {});
           context.updateRuntime({
             runtimePhase: "active",
@@ -137,12 +140,14 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         // left pending: pending means someone is blocked on it, and the completion
         // gate treats that as outstanding work — so the turn could never finish.
         // A late answer still reaches Main through the durable path.
+        // eslint-disable-next-line no-restricted-syntax -- 超时分支必须把超时结果返回给模型；标记 unanswered 失败时请求仍是 pending，门禁和下一次等待会重新读到它，写盘异常不能中断这次返回
         await context.humanStore.markUnanswered(context.taskId, request.requestId).catch(() => {});
         await new LocalWorkspaceStore(context.workspaceRoot)
           .transitionTask(context.taskId, "running", {
             runId: context.mainRunId,
             reason: "human_answer_timeout"
           })
+          // eslint-disable-next-line no-restricted-syntax -- 超时后回到 running 的持久迁移同样是尽力更新；runtime 事件已更新，写盘失败由后续生命周期钩子重算，不能阻断超时结果返回
           .catch(() => {});
         context.updateRuntime({
           runtimePhase: "active",
@@ -273,6 +278,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       }
       const sleep = {
         runId: context.mainRunId,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- sleep_until 的 reason 由模型以 JSON 参数传入，运行期可能缺失；空串回退让 MainSleep.reason 始终是字符串
         reason: String(params.reason ?? "").trim(),
         ...(wakeInSeconds ? { wakeAt: new Date(Date.now() + wakeInSeconds * 1_000).toISOString() } : {}),
         monitorIds: requested.length > 0 ? requested : wakeInSeconds ? [] : active,
@@ -410,11 +416,14 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<RuntimeToolResult> {
       if (!context.baseUrl || !context.apiKey)
         throw new Error("Cowork requires COWORK_API_BASE/COWORK_API_KEY or .cowork/config.json");
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- task 由模型以 JSON 参数传入，运行期可能缺失；空串回退后由下面的 !goal 拒绝，否则 String(undefined) 会变成 "undefined" 通过校验
       const goal = String(params.task ?? "").trim();
       if (!goal) throw new Error("call_subagent requires task");
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mode 来自模型传入的工具参数 JSON，schema 只在声明层约束；显式拒绝未知值，避免把拼错的 mode 当成 sync 执行
       if (params.mode !== "sync" && params.mode !== "async")
         throw new Error("call_subagent mode must be sync or async");
       const role = params.role ?? "executor";
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- role 同样来自模型传入的工具参数，运行期可能是 schema 之外的值；这里拒绝未知 role，而不是把它当成 executor 静默执行
       if (role !== "executor" && role !== "reviewer")
         throw new Error("call_subagent role must be executor or reviewer");
       const dependsOn = Array.isArray(params.dependsOn)
@@ -600,6 +609,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
               context.deliverCallbacks().catch((error) => {
                 try {
                   ctx.ui.notify(`Async callback delivery deferred: ${errorMessage(error)}`, "warning");
+                  // eslint-disable-next-line no-restricted-syntax -- notify 在 Main 已停止时会抛错；回调已留在 Inbox 并释放租约，下一次 Main 会重新投递，警告显示失败不能变成未处理拒绝
                 } catch {
                   // Main may have stopped while the Subagent was still running.
                   // Delivery releases its Inbox lease, so the next Main can recover it.
@@ -611,6 +621,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
               if (!acceptedDurably) return;
               try {
                 ctx.ui.notify(`Subagent start failed: ${errorMessage(error)}`, "warning");
+                // eslint-disable-next-line no-restricted-syntax -- 启动失败已由工具结果和队列记录表达；Main 退出后 notify 会抛错，这条 UI 警告不能反过来拒绝脱钩的投递链
               } catch {
                 /* the Main that started it may already be gone */
               }
@@ -623,6 +634,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
             });
             try {
               ctx.ui.setStatus("cowork", context.active ? `子任务运行中（${context.active}）` : "");
+              // eslint-disable-next-line no-restricted-syntax -- 清理阶段的 setStatus 在 UI 已释放时会抛错；active 计数和 runtime 状态已在前面更新，状态刷新失败不能拒绝脱钩的清理 promise
             } catch {
               // A disposed UI must not reject this detached cleanup promise.
             }
@@ -713,7 +725,9 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       )
     }),
     async execute(_toolCallId, params): Promise<RuntimeToolResult> {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- callId 由模型以 JSON 参数传入，运行期可能缺失；空串回退后由下面的 !callId 检查拒绝
       const callId = String(params.callId ?? "");
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- message 同样来自模型参数，缺失时按空串处理并交给下面的 !message 检查拒绝
       const message = String(params.message ?? "").trim();
       if (!callId || !message) throw new Error("send_subagent_message requires callId and message");
       const questionId =
@@ -721,6 +735,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           ? params.questionId.trim()
           : undefined;
       if (questionId) {
+        // eslint-disable-next-line no-restricted-syntax -- 问题记录不存在或读取失败对调用方是同一个结果：下一行按 unknown question 拒绝，存储异常不必再单独抛出
         const question = await context.questionStore.read(context.taskId, questionId).catch(() => undefined);
         if (!question) throw new Error(`unknown question: ${questionId}`);
         // A mismatched pair means the answer was aimed at the wrong collaborator,
@@ -836,6 +851,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       reason: Type.Optional(Type.String({ description: "Short reason for cancelling the work." }))
     }),
     async execute(_toolCallId, params): Promise<RuntimeToolResult> {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancel_subagent 的 callId 由模型以 JSON 参数传入，运行期可能缺失；空串会落到找不到 monitor/call 的分支，不能把 undefined 传给存储查询
       const callId = String(params.callId ?? "");
       const persistent = await context.watchStore.findVirtualAgent(context.taskId, callId);
       const result = persistent
@@ -938,6 +954,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       });
       // Unrelated callbacks remain durable for a later poll. A failed send
       // must not discard the only wait result carrying our claimed evidence.
+      // eslint-disable-next-line no-restricted-syntax -- 投递失败时 Inbox 消息仍是 durable 的 queued 状态，下一次轮询或下一个 Main 会重新投递；本次等待结果带着已领取的 callback 证据，不能因投递异常丢失
       await context.deliverCallbacks().catch(() => {});
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],
@@ -963,6 +980,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       )
     }),
     async execute(_toolCallId, params): Promise<RuntimeToolResult> {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 工具可被无参数直接调用（测试与中断恢复路径），此时 params 为 undefined，取字段会抛 TypeError
       const resultCallIds = Array.isArray(params?.resultCallIds)
         ? params.resultCallIds.filter((callId): callId is string => typeof callId === "string")
         : [];
@@ -982,6 +1000,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         (await context.experimentStore.listPrograms(context.taskId)).map(async (program) => {
           const runs = await context.experimentStore
             .listRuns(context.taskId, program.experimentId)
+            // eslint-disable-next-line no-restricted-syntax -- 运行记录读取失败时该实验按 0 次运行展示；get_task_status 是只读快照，单个实验的存储损坏不该让整份状态查询失败
             .catch(() => []);
           const series = metricSeries(runs);
           return {
@@ -1050,7 +1069,9 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         const result = { completed: false, reason: assessment.reason, coordination };
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: result, isError: true };
       }
+      // eslint-disable-next-line no-restricted-syntax -- 停车记录损坏（非 ENOENT 的读取错误）不该阻止完成任务；完成本身取代停车，读不到只是少一个 supersededPark 字段
       const parked = await readSleep(context.workspaceRoot, context.taskId).catch(() => undefined);
+      // eslint-disable-next-line no-restricted-syntax -- 清理停车记录失败时残留文件不会再被安排唤醒：任务紧接着迁移为 completed 并结束监控程序
       if (parked) await clearSleep(context.workspaceRoot, context.taskId).catch(() => {});
       const taskStore = new LocalWorkspaceStore(context.workspaceRoot);
       const summary = String(

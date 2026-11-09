@@ -51,7 +51,9 @@ function createDesktopUpdates(options) {
     if (!disposed && typeof onStatus === "function") {
       try {
         const observed = onStatus(status());
+        // eslint-disable-next-line no-restricted-syntax -- the status listener is a fire-and-forget notification, so its rejection must not surface as an unhandled rejection of the update run
         observed?.catch?.(() => {});
+        // eslint-disable-next-line no-restricted-syntax -- onStatus forwards to webContents.send, which throws once the trusted window is gone, and a closing window must not abort the running update
       } catch {
         // A closing renderer cannot interrupt installation or source promotion.
       }
@@ -332,6 +334,7 @@ function createDesktopUpdates(options) {
       disposed = true;
       releaseAbort?.abort();
       cancelNative?.();
+      // eslint-disable-next-line no-restricted-syntax -- the in-flight operation already published its own error phase, and dispose only has to wait for it to settle
       await pending?.catch(() => {});
     }
   };

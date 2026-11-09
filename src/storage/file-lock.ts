@@ -20,9 +20,10 @@ interface LockOwner {
 async function readOwner(path: string): Promise<{ owner?: LockOwner; raw?: string }> {
   try {
     const raw = await readFile(path, "utf8");
-    let value: Partial<LockOwner>;
+    let value: Partial<LockOwner> | null;
     try {
-      value = JSON.parse(raw) as Partial<LockOwner>;
+      value = JSON.parse(raw) as Partial<LockOwner> | null;
+      // eslint-disable-next-line no-restricted-syntax -- owner.json 可能被并发写入者截断或损坏，此时没有可用的 owner 记录，只把原始文本交给调用方做一致性比较
     } catch {
       return { raw };
     }
@@ -234,6 +235,7 @@ export async function withFileLock<T>(
               await utimes(lockPath, time, time);
             }
           })
+          // eslint-disable-next-line no-restricted-syntax -- 心跳在定时器回调里刷新锁目录时间戳；锁可能已被接管者删除或 owner.json 正在被替换，失败只丢失一次续期，不能变成未处理的拒绝终止进程
           .catch(() => {});
       }, options.heartbeatMs)
     : undefined;

@@ -30,10 +30,12 @@ export function createVisiblePoll({
     let result;
     try {
       result = run({ resume });
+      // eslint-disable-next-line no-restricted-syntax -- run 可能同步抛出，失败后由下一次可见 tick 重试
     } catch {
       /* A later visible tick can retry. */
     }
     void Promise.resolve(result)
+      // eslint-disable-next-line no-restricted-syntax -- 读请求的失败由下一次可见 tick 重试，finally 仍要复位 running 并重新排期
       .catch(() => {})
       .finally(() => {
         running = false;

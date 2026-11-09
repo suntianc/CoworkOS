@@ -50,6 +50,7 @@ export async function runWatchEvent(input: {
     return result;
   } catch (error) {
     if (!recordingFailure) {
+      // eslint-disable-next-line no-restricted-syntax -- 写入失败状态本身可能再次失败，此时保留并抛出原始执行错误，inbox 输入在 finally 独立释放
       await failure(error instanceof Error ? error.message : String(error)).catch(() => {
         // Preserve the execution/write error; the input is released independently.
       });

@@ -51,7 +51,7 @@ export function projectCompactionMessages<T extends AgentMessage>(messages: read
     projected[messageIndex - 1] = {
       ...message,
       content: [...message.content, { type: "text", text: unmatchedCallReceipt(calls) }]
-    } as T;
+    };
   }
   return projected;
 }
@@ -146,5 +146,5 @@ function quoted(value: string | number | boolean, maxChars: number): string {
 
 function clip(text: string, maxChars: number): string {
   const [block] = limitToolContent([{ type: "text", text }], maxChars);
-  return block?.type === "text" ? block.text : "";
+  return block.type === "text" ? block.text : "";
 }

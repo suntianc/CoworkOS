@@ -72,8 +72,8 @@ export class BrowserUse {
     signal?: AbortSignal
   ): Promise<Record<string, unknown>> {
     const schema = browserInputs[operation];
-    const parsed = schema?.safeParse(input);
-    if (!parsed?.success)
+    const parsed = schema.safeParse(input);
+    if (!parsed.success)
       return Promise.reject(new BrowserUseError("invalid_argument", `Invalid ${operation} input`));
     const generation = this.generation;
     const queued = this.tail.then(async () => {
@@ -101,6 +101,7 @@ export class BrowserUse {
       let dispatched: Dispatch = "not_sent",
         deadlineExceeded = false;
       const abort = () => {
+        // eslint-disable-next-line no-restricted-syntax -- 中止触发的关闭是尽力清理；clear() 已先重置浏览器与页面状态，操作本身会以 cancelled 抛出
         void this.clear().catch(() => {});
       };
       combined.addEventListener("abort", abort, { once: true });
@@ -136,6 +137,7 @@ export class BrowserUse {
             await page.goto(url, { waitUntil: "domcontentloaded", timeout: remaining(), signal: combined });
           } catch (error) {
             this.pages.delete(pageId);
+            // eslint-disable-next-line no-restricted-syntax -- 导航失败的页面已被移出 pages，关闭失败由下面重新抛出的导航错误承接
             await page.close().catch(() => {});
             throw error;
           }
@@ -195,7 +197,7 @@ export class BrowserUse {
           else if (action.type === "scroll") {
             await page.mouse.move(action.x, action.y);
             await page.mouse.wheel(action.deltaX, action.deltaY);
-          } else if (action.type === "drag") {
+          } else {
             await page.mouse.move(action.from.x, action.from.y);
             await page.mouse.down();
             try {
@@ -247,6 +249,7 @@ export class BrowserUse {
             } finally {
               listening.abort();
               this.expectedDownloads.delete(page);
+              // eslint-disable-next-line no-restricted-syntax -- 下载已落盘或操作已失败；取消未保存的下载属清理，失败不影响已经确定的返回或抛出结果
               if (received && !download) await received.cancel().catch(() => {});
             }
           } else {
@@ -286,7 +289,9 @@ export class BrowserUse {
         if (combined.aborted) {
           await this.clear();
           throw new BrowserUseError(
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- deadlineExceeded 由下面的 setTimeout 回调写入，TS 在读取处只看到初值 false
             deadlineExceeded ? "timeout" : "cancelled",
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同一超时标记：中止来自定时器时为 timeout，来自调用方 signal 时为 cancelled
             deadlineExceeded
               ? "Browser operation timed out"
               : "Browser operation cancelled; owned context closed",
@@ -311,6 +316,7 @@ export class BrowserUse {
         if (this.active === local) this.active = undefined;
       }
     });
+    // eslint-disable-next-line no-restricted-syntax -- 队列尾只用于串行化后续操作，本次操作的失败由返回的 queued 交给调用方；尾部必须变为已兑现，否则后续操作会被前一次失败短路
     this.tail = queued.catch(() => {});
     return queued;
   }
@@ -341,6 +347,7 @@ export class BrowserUse {
     if (existing) return existing;
     if (this.pages.size >= 8 || this.disposed) {
       this.event({ type: "popup", status: "closed_page_limit", url: page.url().slice(0, 2048) });
+      // eslint-disable-next-line no-restricted-syntax -- 超出页面上限的弹出页只做关闭清理，关闭失败不影响已记录 closed_page_limit 事件与后续登记流程
       const closing = page.close().catch(() => {});
       this.registrations.add(closing);
       void closing.finally(() => this.registrations.delete(closing));
@@ -366,6 +373,7 @@ export class BrowserUse {
     page.on("download", (download) => {
       if (!this.expectedDownloads.has(page)) {
         this.event({ type: "download", status: "cancelled_unrequested" });
+        // eslint-disable-next-line no-restricted-syntax -- 未请求的下载已被拒绝，取消失败不影响已记录 cancelled_unrequested 事件，页面继续可用
         void download.cancel().catch(() => {});
       }
     });
@@ -378,6 +386,7 @@ export class BrowserUse {
           this.event({ type: "popup", status: "opened", url: page.url().slice(0, 2048) });
         }
       })
+      // eslint-disable-next-line no-restricted-syntax -- opener 查询只是补充 openerPageId 元数据；注册 Promise 会被 observe 的 Promise.all 等待，失败必须就地结束而不是让观察失败
       .catch(() => {});
     this.registrations.add(registration);
     void registration.finally(() => this.registrations.delete(registration));
@@ -468,6 +477,7 @@ export class BrowserUse {
           this.context = context;
           context.on("page", (page) => {
             if (generation === this.generation) this.registerPage(page);
+            // eslint-disable-next-line no-restricted-syntax -- 代次已变化的弹出页属于上一次会话，关闭失败不影响当前会话；页面不进入 pages 索引
             else void page.close().catch(() => {});
           });
           browser.once("disconnected", () => {
@@ -481,6 +491,7 @@ export class BrowserUse {
             }
           });
         } catch (error) {
+          // eslint-disable-next-line no-restricted-syntax -- 启动失败路径上关闭刚拉起的浏览器，关闭失败由下面重新抛出的启动错误承接
           if (browser && browser !== this.browser) await browser.close().catch(() => {});
           throw error;
         }
@@ -725,6 +736,7 @@ export class BrowserUse {
       signal.throwIfAborted();
       return { path: `visual/downloads/${leaf}`, scope: "task", filename, bytes, sha256: hash.digest("hex") };
     } catch (error) {
+      // eslint-disable-next-line no-restricted-syntax -- 删除未完成的下载目标是失败路径上的清理；unlink 失败不能覆盖下面重新抛出的原始错误
       if (created && destination) await unlink(destination).catch(() => {});
       throw error;
     } finally {
@@ -745,7 +757,9 @@ export class BrowserUse {
     this.expectedDownloads.clear();
     this.events.length = 0;
     this.cleaning = (async () => {
+      // eslint-disable-next-line no-restricted-syntax -- 启动失败的拒绝已交给当初 await launching 的调用方；清理仍需继续以确保浏览器被关闭
       if (launching) await launching.catch(() => {});
+      // eslint-disable-next-line no-restricted-syntax -- 浏览器与页面状态已在上方重置，关闭失败不影响调用方看到的已清理状态
       if (browser) await browser.close().catch(() => {});
     })().finally(() => {
       this.cleaning = undefined;

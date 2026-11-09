@@ -24,6 +24,7 @@ export class GuiService {
     signal?: AbortSignal
   ): Promise<T> {
     const result = this.tail
+      // eslint-disable-next-line no-restricted-syntax -- 上一个操作已把自身的失败返回给它的调用方，这里只需让共享桌面队列继续执行下一次操作
       .catch(() => {})
       .then(async () => {
         signal?.throwIfAborted();

@@ -7,6 +7,7 @@ let base = process.env.FORMAT_BASE;
 if (base) {
   try {
     execFileSync("git", ["rev-parse", "--verify", `${base}^{commit}`], { stdio: "ignore" });
+    // eslint-disable-next-line no-restricted-syntax -- FORMAT_BASE 指向的提交在本地可能不存在（如只 fetch 了默认分支），此时回退到 HEAD
   } catch {
     base = "HEAD";
   }

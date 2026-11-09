@@ -106,11 +106,13 @@ export class RunService {
     const userMemory = new UserMemoryStore();
     const isMain = (input.agentId ?? "main") === "main";
     try {
+      // eslint-disable-next-line no-restricted-syntax -- 前台租约只是用户记忆调度的提示，登记失败不能让本次 Run 无法开始
       if (isMain) await userMemory.taskForegroundActive(input.taskId, input.runId).catch(() => {});
       return await this.runPiSession(input, userMemory);
     } finally {
       // Initialization and prepare can fail before a Pi session exists. Release
       // only this Run's foreground lease, leaving any newer Run's lease intact.
+      // eslint-disable-next-line no-restricted-syntax -- 释放租约失败不能覆盖本次 Run 的返回值或异常；租约按 Run 归属，下一次 Run 会重新登记
       if (isMain) await userMemory.taskForegroundIdle(input.taskId, input.runId).catch(() => {});
     }
   }
@@ -159,6 +161,7 @@ export class RunService {
           text: input.prompt,
           projectDirectory: input.projectDirectory
         })
+        // eslint-disable-next-line no-restricted-syntax -- 前台记忆入队是后台整理的可选步骤，失败只影响这一轮记忆学习，Run 的会话与事件已落盘
         .catch(() => {});
     }
     let checkpointSequence = previous?.sequence ?? 0;
@@ -247,6 +250,7 @@ export class RunService {
       let projectSkillToolAvailable = tools.has("load_skill");
       try {
         projectSkillToolAvailable ||= Boolean((await projectExperience?.readProfile())?.skills.length);
+        // eslint-disable-next-line no-restricted-syntax -- 经验库是可选的，读取失败按没有学到技能处理，load_skill 仍按普通技能可用
       } catch {
         /* Optional knowledge never adds a broken tool. */
       }
@@ -266,6 +270,7 @@ export class RunService {
               const skills = await discoverSkills(profile.skills.map((skill) => skill.path));
               if (skills.some((skill) => skill.name === name))
                 return await createLoadSkillTool(skills).execute(params);
+              // eslint-disable-next-line no-restricted-syntax -- 可选经验库读取失败时回退到内置技能，随后的 unknown skill 错误仍会把失败告知模型
             } catch {
               /* Failed optional knowledge never changes normal skills. */
             }
@@ -295,6 +300,7 @@ export class RunService {
                   return projectExperience
                     ? await projectExperienceContext(projectExperience, projectSkillToolAvailable)
                     : "";
+                  // eslint-disable-next-line no-restricted-syntax -- 项目经验是可选上下文，读取失败时该段落留空，模型仍按原有系统提示继续
                 } catch {
                   return "";
                 }
@@ -302,6 +308,7 @@ export class RunService {
               prepareUserMemory: async () => {
                 try {
                   return await userMemoryContext(new UserMemoryStore(), input.projectDirectory);
+                  // eslint-disable-next-line no-restricted-syntax -- 用户记忆是可选上下文，读取失败时该段落留空，本次 Run 仍要正常进行
                 } catch {
                   return "";
                 }
@@ -375,6 +382,7 @@ export class RunService {
               reason: `main_run_${result.termination}_resumable`,
               completion: { signal: "interrupted" }
             });
+            // eslint-disable-next-line no-restricted-syntax -- 紧接着要抛出携带终止原因的 interruption 错误，任务状态写入失败不能替换它
           } catch {
             /* preserve the original interruption */
           }
@@ -425,6 +433,7 @@ export class RunService {
           workspaceRoot: this.workspaceRoot,
           taskId: input.taskId,
           runId: input.runId
+          // eslint-disable-next-line no-restricted-syntax -- Run 已提交完成，经验入队是后台整理，失败时只是少一条待学习记录
         }).catch(() => {});
       }
       return {
@@ -443,6 +452,7 @@ export class RunService {
         termination: "failed",
         messages: session?.agent.state.messages ?? [],
         error: error instanceof Error ? error.message : String(error)
+        // eslint-disable-next-line no-restricted-syntax -- 正在上抛原始执行失败，诊断结果写不进去不能替换或吞掉这个错误
       }).catch(() => {
         /* Preserve the original execution failure if diagnostics cannot be written. */
       });
@@ -466,6 +476,7 @@ export class RunService {
             error: error instanceof Error ? error.message : String(error),
             reason: "main_run_failed"
           });
+          // eslint-disable-next-line no-restricted-syntax -- 正在上抛原始 Run 失败，任务状态写入失败不能替换它
         } catch {
           /* preserve the original run failure */
         }

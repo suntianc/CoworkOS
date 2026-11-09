@@ -214,6 +214,7 @@ export class EventLedger {
       let parsed: unknown;
       try {
         parsed = JSON.parse(line);
+        // eslint-disable-next-line no-restricted-syntax -- 被截断的末行是未完成 append 的尾巴，其状态由下一次对账重新发布
       } catch {
         // A torn final line is the tail of an append that never completed; the
         // state it described is recovered by the next reconciliation.
@@ -237,6 +238,7 @@ export class EventLedger {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
+      // eslint-disable-next-line no-restricted-syntax -- 索引文件损坏时返回 undefined，由保留的日志重建索引
     } catch {
       return undefined;
     }
@@ -319,6 +321,7 @@ export class EventLedger {
    */
   private serialize<T>(action: () => Promise<T>): Promise<T> {
     const run = this.queue.then(action, action);
+    // eslint-disable-next-line no-restricted-syntax -- 队列只负责排序，本次失败仍通过返回的 run 抛给调用方
     this.queue = run.catch(() => undefined);
     return run;
   }
@@ -473,6 +476,7 @@ export class EventLedger {
   }
 
   async close(): Promise<void> {
+    // eslint-disable-next-line no-restricted-syntax -- 关闭只等队列排空，各次写失败已经由它们自己的调用方处理
     await this.queue.catch(() => undefined);
     await this.handle?.close();
     this.handle = undefined;

@@ -284,6 +284,7 @@ export function createWorkbenchController({
       else if (!navigation.current()) await workbench?.persistSelection();
       // Creating/opening the document has succeeded. An auxiliary catalog
       // outage must not turn it into a failed creation or leave an empty view.
+      // eslint-disable-next-line no-restricted-syntax -- 项目列表只是辅助目录，失败已由 toast 告知，文档本身已创建成功
       void refreshProjects().catch(() => {
         showToast(ui("文档已打开；项目列表暂时无法刷新，请稍后重试。"));
       });
@@ -372,6 +373,7 @@ export function createWorkbenchController({
         for (const kind of application.resourceKinds || []) editableKinds.add(kind);
         for (const format of application.fileImportFormats || []) editableKinds.add(format.mimeType);
       }
+      // eslint-disable-next-line no-restricted-syntax -- 应用目录请求失败时面板只是不提供编辑入口，与目录为空的表现一致
     } catch {
       /* without the catalog the panel simply offers no edit affordance */
     }
@@ -717,6 +719,7 @@ export function createWorkbenchController({
       // Keep mounted editors (and their unsaved contents) intact.
       await workbench?.showConversation({ navigation: navigation.navigation, persist: false });
       if (!navigation.current()) return;
+      // eslint-disable-next-line no-restricted-syntax -- 会话标签以服务端登记为准，重复或过期的 openTab 拒绝不影响随后 refreshTabs 的读取
       await applicationApi.openTab({ kind: "conversation", taskId }).catch(() => {});
       if (!navigation.current()) return;
       await refreshTabs();
@@ -788,6 +791,7 @@ export function createWorkbenchController({
         ],
         { duration: 140, easing: "cubic-bezier(.55, 0, 1, .45)", fill: "forwards" }
       );
+      // eslint-disable-next-line no-restricted-syntax -- 该退场动画随后会被 cancel，finished 因取消而拒绝是这条取消路径的预期结果
       await animation.finished.catch(() => {});
       animation.cancel();
       if (!current() || document.body.classList.contains("output-collapsed") !== wasCollapsed) return;
@@ -802,6 +806,7 @@ export function createWorkbenchController({
           ],
           { duration: 220, easing: "cubic-bezier(.16, 1, .3, 1)" }
         );
+        // eslint-disable-next-line no-restricted-syntax -- 进场动画在 finally 里被 cancel 换取响应性，finished 的拒绝不代表翻页失败
         await animation.finished.catch(() => {});
       }
     } finally {

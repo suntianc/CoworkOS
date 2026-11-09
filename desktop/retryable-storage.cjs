@@ -15,6 +15,7 @@ function createRetryableStorage({ executable, args = [], env = process.env, time
   let sequence = 0;
   let queue = Promise.resolve();
   const serial = (operation) => {
+    // eslint-disable-next-line no-restricted-syntax -- queue holds the previous storage operation whose rejection was already returned to its own caller; the queue only orders requests
     const next = queue.catch(() => {}).then(operation);
     queue = next;
     return next;
@@ -65,6 +66,7 @@ function createRetryableStorage({ executable, args = [], env = process.env, time
         const message = JSON.parse(line.slice("atria-keychain:".length));
         if (message.id !== worker.id) throw new Error();
         worker.finish?.(message);
+        // eslint-disable-next-line no-restricted-syntax -- an unparsable or mismatched worker line rejects the pending request with the storage error instead of leaking the parse detail
       } catch {
         worker.reject?.(storageError());
       }

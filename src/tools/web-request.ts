@@ -61,6 +61,7 @@ export async function requestWebText(
       truncated
     };
   } catch {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- timedOut 只在 setTimeout 回调里写入，取消/超时后才进入的 catch 能看到它为 true，TS 在读取处只看到初始的 false
     if (timedOut) throw new DOMException("Web request timed out", "TimeoutError");
     if (options.signal?.aborted) throw new DOMException("Web request cancelled", "AbortError");
     // Provider/proxy errors may contain credentials or response bodies.
@@ -69,6 +70,7 @@ export async function requestWebText(
     clearTimeout(timer);
     options.signal?.removeEventListener("abort", cancel);
     if (rejectAbort) controller.signal.removeEventListener("abort", rejectAbort);
+    // eslint-disable-next-line no-restricted-syntax -- 请求已结束（含失败/取消），取消读取器只是释放连接，失败不影响已经决定的结果
     await reader?.cancel().catch(() => {});
     reader?.releaseLock();
     await transport.close();
@@ -98,6 +100,7 @@ export async function withWebDeadline<T>(
   try {
     return await Promise.race([work(controller.signal), aborted]);
   } catch (error) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- timedOut 只在 setTimeout 回调里写入，超时后才进入的 catch 能看到它为 true，TS 在读取处只看到初始的 false
     if (timedOut) throw new DOMException("Web operation timed out", "TimeoutError");
     if (signal?.aborted) throw new DOMException("Web operation cancelled", "AbortError");
     throw error;

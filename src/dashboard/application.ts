@@ -233,6 +233,7 @@ export function createDashboardApplication(
       ? { retryBaseMs: Number(process.env.COWORK_MAIN_CAPACITY_RETRY_MS) }
       : {}),
     taskState: async (taskId) => {
+      // eslint-disable-next-line no-restricted-syntax -- 容量查询的 taskId 可能刚被删除，定位失败按没有活动 Run 处理
       const location = await locateTask(taskId).catch(() => undefined);
       if (!location) return undefined;
       return {
@@ -241,6 +242,7 @@ export function createDashboardApplication(
       };
     },
     heartbeat: async (taskId) => {
+      // eslint-disable-next-line no-restricted-syntax -- 心跳只在任务仍可定位时读取，定位失败视为没有心跳
       const location = await locateTask(taskId).catch(() => undefined);
       if (!location) return undefined;
       const beat = await readHeartbeat(location.workspaceRoot, taskId);
@@ -266,6 +268,7 @@ export function createDashboardApplication(
       : {}),
     // Review identity comes from this Task's own durable queue, never a body.
     call: async (taskId, callId) => {
+      // eslint-disable-next-line no-restricted-syntax -- 评审引用的任务可能已被删除，定位失败按调用不存在返回 undefined
       const location = await workspaces.locateTask(taskId).catch(() => undefined);
       if (!location) return undefined;
       return findSubagentCall({ workspaceRoot: location.workspaceRoot, taskId, callId });
@@ -281,6 +284,7 @@ export function createDashboardApplication(
         : undefined;
     },
     taskProject: async (taskId) => {
+      // eslint-disable-next-line no-restricted-syntax -- 项目归属查询对已删除的任务返回 undefined，调用方按无项目处理
       const location = await workspaces.locateTask(taskId).catch(() => undefined);
       if (!location?.projectId) return undefined;
       const project = await workspaces.applicationProjectForId(location.projectId);
@@ -542,6 +546,7 @@ export function createDashboardApplication(
       try {
         await new ApplicationService(root).resources.appTypeOf(resourceId);
         return { workspaceRoot: root };
+        // eslint-disable-next-line no-restricted-syntax -- 逐个工作区探测，资源不在这个根时抛出的错误正是继续下一个根的依据
       } catch {
         /* the resource belongs to another registered workspace */
       }
@@ -560,6 +565,7 @@ export function createDashboardApplication(
   async function publishToReferencers(resourceId: string, event: ApplicationEvent): Promise<void> {
     const notified = new Set<string>();
     for (const root of await knownWorkspaceRoots()) {
+      // eslint-disable-next-line no-restricted-syntax -- 一个根的映射读不出来时仍要通知其它根的引用者，不能因此整轮放弃
       for (const taskId of await new ResourceMappingStore(root).tasksFor(resourceId).catch(() => [])) {
         if (notified.has(taskId)) continue;
         notified.add(taskId);
@@ -657,11 +663,13 @@ export function createDashboardApplication(
       runtimeEvents
     );
     const progress = runId
-      ? await readSubagentProgress({ taskId, runId, workspaceRoot: taskWorkspace }).catch(() => null)
+      ? // eslint-disable-next-line no-restricted-syntax -- 进度只是详情里的可选项，读取失败按无进度返回
+        await readSubagentProgress({ taskId, runId, workspaceRoot: taskWorkspace }).catch(() => null)
       : null;
     const jobs = runId
       ? await listJobs({
           directory: join(taskWorkspace, taskId, "runs", runId, "agents", "main", "jobs")
+          // eslint-disable-next-line no-restricted-syntax -- 作业目录要到第一个后台调用才创建，缺失时按空列表展示
         }).catch(() => [])
       : [];
     const active =
@@ -671,7 +679,8 @@ export function createDashboardApplication(
     const requestStore = new MainRequestStore(mainRequestPath(taskWorkspace, taskId), taskId);
     const retry =
       !active && ["failed", "waiting"].includes(task.status)
-        ? await requestStore.pending().catch(() => {
+        ? // eslint-disable-next-line no-restricted-syntax -- 请求记录损坏时置 damagedRetry，由 retryRequestUnavailable 告知前端需要重发
+          await requestStore.pending().catch(() => {
             damagedRetry = true;
             return undefined;
           })
@@ -689,7 +698,8 @@ export function createDashboardApplication(
       { failure?: { kind?: string } } | undefined;
     const legacyRetry =
       !retry && !active && ["failed", "waiting"].includes(task.status)
-        ? await requestStore.legacyPending().catch(() => {
+        ? // eslint-disable-next-line no-restricted-syntax -- 旧版请求记录损坏同样置 damagedRetry，旧版读取只用于判断能否重试
+          await requestStore.legacyPending().catch(() => {
             damagedRetry = true;
             return undefined;
           })
@@ -698,6 +708,7 @@ export function createDashboardApplication(
       !active &&
       ["failed", "waiting"].includes(task.status) &&
       !retryRequest &&
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- damagedRetry 在上面的 catch 回调里赋值，TS 在读取处看不到这次写入
       (damagedRetry ||
         (retry && (!retry.executionScope || !retry.endpoint)) ||
         (legacyRetry?.taskId === taskId && legacyRetry.runId === runId) ||
@@ -715,6 +726,7 @@ export function createDashboardApplication(
     // detail must still return when it does.
     const applications = await (async () => {
       const service = await applicationServiceForTask(taskWorkspace, taskId);
+      // eslint-disable-next-line no-restricted-syntax -- 工作区损坏时 taskSummary 会抛错，详情仍要返回其余字段
       const summary = await service.taskSummary(taskId).catch(() => undefined);
       if (!summary) return undefined;
       // The outputs panel is a view over two kinds of thing: published files
@@ -725,6 +737,7 @@ export function createDashboardApplication(
       // and hashes every document, and this ran three times per poll.
       const deliverables = await service
         .deliverables(taskId, artifacts, summary.resources)
+        // eslint-disable-next-line no-restricted-syntax -- 产出物清单读不出来时省略该字段，不阻塞任务详情返回
         .catch(() => undefined);
       return {
         ...summary,
@@ -736,6 +749,7 @@ export function createDashboardApplication(
     let editableMessageError;
     try {
       editableMessage = (await latestEditableMessage(taskWorkspace, taskId, runId))?.target;
+      // eslint-disable-next-line no-restricted-syntax -- 校验失败的原因已经由 editableMessageError 反馈给用户，历史消息保留
     } catch {
       editableMessageError = "原消息或附件记录无法校验，历史已保留，请重新添加有效附件并主动发送新消息。";
     }

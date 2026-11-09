@@ -120,6 +120,7 @@ export class ApplicationService {
     ).flat();
     if (resources.length !== references.length) {
       const alive = new Set(resources.map((entry) => entry.resourceId));
+      // eslint-disable-next-line no-restricted-syntax -- 剪枝只是顺带清理悬挂引用，失败时下次读取仍会丢弃它们
       await this.mapping.prune(taskId, (reference) => alive.has(reference.resourceId)).catch(() => {});
     }
     return resources;
@@ -779,7 +780,7 @@ export class ApplicationService {
     resources: WorkspaceResource[]
   ): WorkspaceResource | undefined {
     const source = artifact.sourceResource;
-    const resourceId = source?.sha256 === artifact.sha256 ? source?.resourceId : undefined;
+    const resourceId = source?.sha256 === artifact.sha256 ? source.resourceId : undefined;
     return resources.find((resource) => resource.resourceId === resourceId);
   }
 
@@ -1452,6 +1453,7 @@ export class ApplicationService {
   > {
     // Reuse an already-listed set to avoid reading and hashing every document
     // more than once per task-detail poll.
+    // eslint-disable-next-line no-restricted-syntax -- 列举失败时退回空资源集，文件类产出物仍要显示在任务详情里
     const resources = known ?? (await this.listResources(taskId).catch(() => []));
     const storageRoot = await realpath(this.taskStorageRoot);
     const importedSourceOf = (artifact: (typeof artifacts)[number]) =>
@@ -1507,7 +1509,7 @@ export class ApplicationService {
       // source file still has a current, editable import in this conversation.
       const imported = importedSourceOf(artifact);
       const key = imported && importedDocumentKey(imported);
-      if (key && imported?.resourceId === source.resourceId) currentImports.set(key, imported.resourceId);
+      if (key && imported.resourceId === source.resourceId) currentImports.set(key, imported.resourceId);
     }
     const previousVersions = new Map<
       string,

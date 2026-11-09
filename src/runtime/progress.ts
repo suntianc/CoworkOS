@@ -76,6 +76,7 @@ export function createSubagentStatusTool(input: {
       const value = params as { agentId?: unknown };
       const snapshot = await readSubagentProgress({
         ...input,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- params 来自模型工具调用，声明类型比运行期窄，缺失 params 时不能直接读 agentId
         agentId: typeof value?.agentId === "string" ? value.agentId : undefined
       });
       return { content: [{ type: "text", text: JSON.stringify(snapshot) }], details: snapshot };
@@ -238,6 +239,7 @@ export async function findSubagentCall(input: {
   let entries;
   try {
     entries = await readdir(runsRoot, { withFileTypes: true });
+    // eslint-disable-next-line no-restricted-syntax -- runs 目录可能还不存在（Run 尚未创建），读不到按没有 Run 处理，调用方会继续下一个 Task
   } catch {
     return undefined;
   }
@@ -248,6 +250,7 @@ export async function findSubagentCall(input: {
         runId: entry.name,
         mtime: await stat(join(runsRoot, entry.name))
           .then((info) => info.mtimeMs)
+          // eslint-disable-next-line no-restricted-syntax -- 目录可能在 readdir 与 stat 之间被清理，mtime 0 让它排在最后，其余 Run 仍要返回
           .catch(() => 0)
       }))
   );
@@ -315,6 +318,7 @@ async function readJsonLines(
       .flatMap((line) => {
         try {
           return [JSON.parse(line) as { type?: string; callId?: string; payload?: unknown }];
+          // eslint-disable-next-line no-restricted-syntax -- run_events.jsonl 的行可能被截断或来自其它版本，跳过该行，其余事件仍要计入进度
         } catch {
           return [];
         }
@@ -434,6 +438,7 @@ function consumeTraceSummary(summary: TraceSummary, line: string): void {
   };
   try {
     record = JSON.parse(line) as typeof record;
+    // eslint-disable-next-line no-restricted-syntax -- trace 行可能因进程退出而被截断，跳过这一行，摘要继续按已解析的记录累计
   } catch {
     return;
   }

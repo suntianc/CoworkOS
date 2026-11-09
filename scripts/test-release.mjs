@@ -20,6 +20,7 @@ const help = `本地发布验收：npm run test:release -- [选项]
 function git(args) {
   try {
     return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+    // eslint-disable-next-line no-restricted-syntax -- 发布验收可在没有 Git 元数据的源码归档里运行，取不到信息按 null 记录
   } catch {
     return null;
   }
@@ -37,6 +38,7 @@ async function sourceStamp() {
     hash.update(file);
     try {
       hash.update(await readFile(join(root, file)));
+      // eslint-disable-next-line no-restricted-syntax -- 已跟踪但磁盘上缺失的文件用固定标记参与摘要，不能让报告生成中断
     } catch {
       hash.update("<missing>");
     }
@@ -80,6 +82,7 @@ async function runStep(step, directory, options) {
       try {
         if (process.platform === "win32") child.kill(value);
         else process.kill(-child.pid, value);
+        // eslint-disable-next-line no-restricted-syntax -- 终止子进程时它可能已经退出，kill 失败不影响超时终止流程
       } catch {}
     };
     signal("SIGTERM");
@@ -149,6 +152,7 @@ async function runStep(step, directory, options) {
         skipped: result.stats.skipped
       };
       if (!stats.tests) stats = null;
+      // eslint-disable-next-line no-restricted-syntax -- 浏览器步骤没有可解析的 JSON 报告时按 stats=null 处理，退出码仍是结论
     } catch {
       stats = null;
     }
@@ -234,6 +238,7 @@ async function main() {
   for (const step of report.steps.filter(
     (item) => item.id.endsWith("-package") && item.status === "passed"
   )) {
+    // eslint-disable-next-line no-restricted-syntax -- 打包步骤可能没有产出 release 目录，按空文件列表继续生成报告
     const files = await readdir(join(root, "release")).catch(() => []);
     for (const file of files.filter((name) =>
       step.id === "cli-package" ? name.endsWith(".tgz") : name.endsWith(".dmg")

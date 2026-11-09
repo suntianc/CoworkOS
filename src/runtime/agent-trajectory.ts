@@ -130,6 +130,7 @@ export async function readAgentTrajectory(
         for (const line of lines) {
           try {
             consume(current, JSON.parse(line));
+            // eslint-disable-next-line no-restricted-syntax -- 事件日志按行追加，进程中断或正在写入的最后一行可能不完整，跳过它才能继续读取后续真实事件
           } catch {
             /* interrupted or malformed trace line */
           }

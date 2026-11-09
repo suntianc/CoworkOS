@@ -237,6 +237,7 @@ export class MainSupervisor {
         attempts: Number.isFinite(value.attempts) ? Math.max(0, value.attempts as number) : 0,
         lastAttemptAt: typeof value.lastAttemptAt === "string" ? value.lastAttemptAt : ""
       };
+      // eslint-disable-next-line no-restricted-syntax -- relaunch.json 尚未写入或已损坏时按首次失败放行，成功心跳会重新清零退避
     } catch {
       return { attempts: 0, lastAttemptAt: "" };
     }
@@ -252,6 +253,7 @@ export class MainSupervisor {
   }
 
   private async clearRelaunch(taskId: string): Promise<void> {
+    // eslint-disable-next-line no-restricted-syntax -- 清理失败只影响退避计数，下一次失败仍按原计数重试，成功心跳会再次清零
     await this.writeRelaunch(taskId, { attempts: 0, lastAttemptAt: "" }).catch(() => {});
   }
 
@@ -270,6 +272,7 @@ export class MainSupervisor {
   private async appendEvent(taskId: string, runId: string, type: string, payload: unknown): Promise<void> {
     await new JsonlEventStore(join(this.options.workspaceRoot, taskId, "runs", runId, "run_events.jsonl"))
       .append({ eventId: id("event"), type, taskId, runId, agentId: "main", occurredAt: now(), payload })
+      // eslint-disable-next-line no-restricted-syntax -- 追加的是仅供诊断的监督者事件，写失败不能中断监督循环
       .catch(() => {
         /* diagnostics only */
       });

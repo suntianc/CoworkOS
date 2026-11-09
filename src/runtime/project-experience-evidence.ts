@@ -56,6 +56,7 @@ async function boundedRead(root: string, path: string, limit: number, tail = fal
     } finally {
       await file.close();
     }
+    // eslint-disable-next-line no-restricted-syntax -- 工作区文件可能不存在，或在校验与读取之间被替换/删除，读不到用空文本表达缺失，取证继续
   } catch {
     return "";
   }
@@ -64,6 +65,7 @@ async function boundedRead(root: string, path: string, limit: number, tail = fal
 function json(text: string): unknown {
   try {
     return JSON.parse(text);
+    // eslint-disable-next-line no-restricted-syntax -- 日志与回执行可能被截断成半行，解析失败按“没有该记录”处理，不让整次取证失败
   } catch {
     return undefined;
   }
@@ -106,8 +108,7 @@ function validationCommand(command: string): boolean {
   if (!command.trim() || command.length > 2000 || /[\r\n`$\\]/.test(command)) return false;
   const parts = command.trim().split(/\s*&&\s*/);
   if (parts.length > 2) return false;
-  if (parts.length === 2 && !/^cd\s+(?:"[^"]+"|'[^']+'|[A-Za-z0-9_./:@%+=,-]+)$/.test(parts[0]!))
-    return false;
+  if (parts.length === 2 && !/^cd\s+(?:"[^"]+"|'[^']+'|[A-Za-z0-9_./:@%+=,-]+)$/.test(parts[0])) return false;
   const invocation = parts.at(-1)!;
   if (/[;|&<>]/.test(invocation)) return false;
   const tokens = invocation.match(/"[^"]*"|'[^']*'|[^\s"']+/g);
@@ -153,7 +154,7 @@ function messageSources(
     }
     const rawText = textContent(message.content);
     const text = projectExperienceText(
-      message.role === "user" ? rawText.split("\n\nAttached files:\n")[0]! : rawText
+      message.role === "user" ? rawText.split("\n\nAttached files:\n")[0] : rawText
     ).slice(-1500);
     if (!text) continue;
     if (message.role === "user" || message.role === "assistant") {
@@ -255,6 +256,7 @@ export async function readProjectExperienceEvidence(
     root = await realpath(join(reference.workspaceRoot, reference.taskId));
     const workspace = await realpath(reference.workspaceRoot);
     if (relative(workspace, root) !== reference.taskId) return undefined;
+    // eslint-disable-next-line no-restricted-syntax -- Task 目录可能已被清理或不属于当前工作区，realpath 失败即视为没有可读证据
   } catch {
     return undefined;
   }
@@ -268,18 +270,21 @@ export async function readProjectExperienceEvidence(
       projectDirectory: typeof task?.projectDirectory === "string" ? task.projectDirectory : undefined,
       projectCatalogPath: typeof task?.projectCatalogPath === "string" ? task.projectCatalogPath : undefined
     });
+    // eslint-disable-next-line no-restricted-syntax -- task.json 可能缺少项目字段或来自其它版本，身份算不出来时该 Run 不产生经验
   } catch {
     return undefined;
   }
   const directoryMatches =
     typeof task?.projectDirectory === "string" &&
     (resolve(task.projectDirectory) === resolve(reference.identity.projectDirectory) ||
+      // eslint-disable-next-line no-restricted-syntax -- 任务的项目目录可能已不存在，空串在下方比较中恒不相等，等价于目录不匹配
       (await realpath(task.projectDirectory).catch(() => "")) ===
+        // eslint-disable-next-line no-restricted-syntax -- 参考身份的项目目录可能已不存在，"missing" 是哨兵值，不会与真实路径相等
         (await realpath(reference.identity.projectDirectory).catch(() => "missing")));
   if (
     task?.taskId !== reference.taskId ||
     run?.taskId !== reference.taskId ||
-    run?.runId !== reference.runId ||
+    run.runId !== reference.runId ||
     task.temporaryWorkspaceRoot ||
     task.kind === "workspace" ||
     taskIdentity?.projectId !== reference.identity.projectId ||

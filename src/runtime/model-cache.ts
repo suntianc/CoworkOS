@@ -138,6 +138,7 @@ function observeUsage(
               consume(cacheUsageReport(usage, api), parsed);
             }
           }
+          // eslint-disable-next-line no-restricted-syntax -- 解析不了的事件只是让统计停止，原始字节仍原样转发给 SDK
         } catch {
           // JSON parse errors stop the SDK before it can consume any subsequent usage.
           stopped = true;
@@ -179,6 +180,7 @@ function observeUsage(
       append(text.slice(start, index));
       if (!droppingLine) line(pending);
       pending = "";
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stopped 由 line 闭包在处理上一个事件时置位，TS 在读取处看不到那次写入
       if (stopped) return;
       droppingLine = false;
       if (text[index] === "\r") {
@@ -234,6 +236,7 @@ export function withModelCache(
               let official = false;
               try {
                 official = new URL(model.baseUrl).hostname === "api.openai.com";
+                // eslint-disable-next-line no-restricted-syntax -- baseUrl 是用户配置，解析失败时按非官方地址保留 SDK 默认行为，错误由 provider 请求本身报出
               } catch {
                 /* invalid URL is rejected by the provider */
               }

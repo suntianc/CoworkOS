@@ -27,6 +27,7 @@ async function readAssignments(filePath: string): Promise<ProjectRecord[]> {
 }
 
 function assignment(projects: ProjectRecord[], projectId: string): ProjectRecord | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 归属数组来自磁盘 JSON，元素可能是 null，这里跳过而不是抛异常
   const record = projects.find((project) => project?.projectId === projectId);
   if (!record) return undefined;
   if (typeof record.projectDirectory !== "string" || !isAbsolute(record.projectDirectory))

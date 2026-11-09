@@ -141,6 +141,7 @@ export function createApplicationBridge({
           ...event.payload
         }
       })
+      // eslint-disable-next-line no-restricted-syntax -- 资源写入已经成功；事件流通知失败时没有任何后续步骤依赖它，不能因此把成功的工具调用报告为失败
       .catch(() => {
         /* a missed notification must not fail the write that succeeded */
       });
@@ -219,6 +220,7 @@ export function createApplicationBridge({
             ...(process.env.COWORK_API_TOKEN ? { "x-atria-token": process.env.COWORK_API_TOKEN } : {})
           }
         });
+    // eslint-disable-next-line no-restricted-syntax -- 响应正文可能不是 JSON（网关错误页、空 body），此时仍要按 status 报错而不是抛出解析异常
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = (payload as { error?: { message?: string } }).error?.message;
@@ -246,6 +248,7 @@ export function createApplicationBridge({
         description: tool.description ?? tool.name,
         parameters: tool.parameters ?? { type: "object", properties: {} }
       }));
+      // eslint-disable-next-line no-restricted-syntax -- 绑定窗口的 MCP 服务器没启动是常见情况，本轮就是没有应用工具；失败已由空工具列表表达，不中断对话
     } catch {
       // A window whose server never started is the common case here, not an
       // error worth interrupting the turn for.
@@ -294,6 +297,7 @@ export function createApplicationBridge({
       }
       await discoverMcpTools();
       registerAdapterTools();
+      // eslint-disable-next-line no-restricted-syntax -- 损坏的资源或读取失败只应让本轮少一段应用上下文，主对话必须继续回答；下面已把状态复位为空上下文
     } catch {
       pendingApplicationContext = "";
       injectedResources = [];
@@ -410,8 +414,8 @@ export function createApplicationBridge({
                 protectedReplayScope?.application ?? undefined
               );
               const applied = outcome.applied;
-              const images = outcome.images ?? [];
-              const imageInput = ctx?.model?.input.includes("image") ?? false;
+              const images = outcome.images;
+              const imageInput = ctx.model?.input.includes("image") ?? false;
               const payload = {
                 ok: true,
                 result: outcome.result,
@@ -549,6 +553,7 @@ export function createApplicationBridge({
                 applied.push({ revision: result.resource.revision, summary: result.event.summary });
                 await workbench.context
                   .recordAcknowledged(taskId, "main", bound.resourceId, result.resource.revision)
+                  // eslint-disable-next-line no-restricted-syntax -- 操作已提交成功；这一行只推进“已读”游标，写失败时下一轮会重新注入未读变更
                   .catch(() => {});
               }
               const payload = { ok: true, result: outcome.result, ...(applied.length ? { applied } : {}) };
@@ -612,9 +617,11 @@ export function createApplicationBridge({
       try {
         structuredClone(payload);
         return payload;
+        // eslint-disable-next-line no-restricted-syntax -- 工具结果可能含不可结构化克隆的值（函数、句柄），此时改用 JSON 归约而不是让整轮会话记录失败
       } catch {
         try {
           return JSON.parse(JSON.stringify(payload));
+          // eslint-disable-next-line no-restricted-syntax -- 含循环引用或 BigInt 的结果连 JSON 也无法序列化，只能退化为说明文本交给模型
         } catch {
           return { note: "工具结果无法序列化，已省略细节" };
         }
@@ -701,6 +708,7 @@ export function createApplicationBridge({
       }),
       async execute(_toolCallId, params): Promise<RuntimeToolResult> {
         try {
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 资源 ID 来自模型或直接调用给出的工具参数，缺失时保留空串，让 read_resource 用原来的资源校验错误拒绝而不是把 "undefined" 当 ID
           const read = await workbench.readResource(taskId, String(params.resourceId ?? ""), {
             afterRevision: typeof params.afterRevision === "number" ? params.afterRevision : undefined,
             limit: typeof params.limit === "number" ? params.limit : undefined
@@ -775,7 +783,9 @@ export function createApplicationBridge({
           const created = await workbench.createResource(
             {
               taskId,
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 资源类型与标题来自工具参数，缺失时保留空串，create_resource 才能按原来的字段校验拒绝
               kind: String(params.kind ?? ""),
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 标题来自工具参数，缺失时保留空串，create_resource 才能按原来的标题校验拒绝
               title: String(params.title ?? ""),
               initialContent: params.initialContent,
               appType: typeof params.appType === "string" && params.appType ? params.appType : undefined,
@@ -788,6 +798,7 @@ export function createApplicationBridge({
           // back as an unread user change.
           await workbench.context
             .recordAcknowledged(taskId, "main", created.resource.resourceId, created.resource.revision)
+            // eslint-disable-next-line no-restricted-syntax -- 资源与标签页已创建成功；游标写失败时这份新资源只会作为未读变更再注入一次
             .catch(() => {});
           // The tool's own description promises the tab is open, so opening it
           // is part of the act, not a follow-up the UI has to notice.
@@ -863,10 +874,12 @@ export function createApplicationBridge({
       async execute(_toolCallId, params, signal): Promise<RuntimeToolResult> {
         try {
           signal?.throwIfAborted();
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 资源 ID 来自模型或直接调用给出的工具参数，缺失时保留空串，render_for_download 才能按原来的资源校验拒绝
           const resourceId = String(params.resourceId ?? "");
           const exported = await workbench.renderForDownload({
             taskId,
             resourceId,
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 导出格式来自工具参数，缺失时保留空串，render_for_download 才能按原来的格式校验拒绝
             format: String(params.format ?? ""),
             options: params.options,
             signal
@@ -940,6 +953,7 @@ export function createApplicationBridge({
       }),
       async execute(_toolCallId, params): Promise<RuntimeToolResult> {
         try {
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 资源 ID 来自模型或直接调用给出的工具参数，缺失时保留空串，apply_operation 才能按原来的资源校验拒绝
           const resourceId = String(params.resourceId ?? "");
           // Referenced, not owned: the conversation must have a reference to
           // this resource, but the resource itself belongs to its application
@@ -960,6 +974,7 @@ export function createApplicationBridge({
                 typeof params.operationId === "string" && params.operationId
                   ? params.operationId
                   : `op_${randomUUID().replace(/-/g, "").slice(0, 24)}`,
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 操作类型来自工具参数，缺失时保留空串，apply_operation 才能按原来的操作类型校验拒绝
               operationType: String(params.operationType ?? ""),
               baseRevision: Number(params.baseRevision),
               payload: params.payload,
@@ -969,6 +984,7 @@ export function createApplicationBridge({
           );
           await workbench.context
             .recordAcknowledged(taskId, "main", resourceId, outcome.resource.revision)
+            // eslint-disable-next-line no-restricted-syntax -- 操作已按版本提交成功；游标写失败只影响“已读”标记，下一轮会重新注入该变更
             .catch(() => {});
           return ok({
             revision: outcome.resource.revision,

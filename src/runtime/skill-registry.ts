@@ -83,6 +83,7 @@ export function createLoadSkillTool(skills: SkillMetadata[]): RuntimeTool {
       if (!skill) throw new Error(`unknown skill: ${name}`);
       const body = await readFile(skill.path, "utf8");
       const scripts = await readdir(join(skill.directory, "scripts"), { withFileTypes: true }).catch(
+        // eslint-disable-next-line no-restricted-syntax -- scripts 子目录是可选约定，没有它技能照常可用，空列表就是真实结果
         () => []
       );
       return {
@@ -120,6 +121,7 @@ async function scanRoot(
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });
+    // eslint-disable-next-line no-restricted-syntax -- 配置的 skill 根目录可能不存在或不可读，跳过它继续扫描其余根目录
   } catch {
     return;
   }
@@ -164,6 +166,7 @@ async function parseSkill(path: string): Promise<ParsedSkill | undefined> {
       application:
         typeof frontmatter.application === "string" ? frontmatter.application.trim() || undefined : undefined
     };
+    // eslint-disable-next-line no-restricted-syntax -- 单个 SKILL.md 读不出或 frontmatter 损坏时跳过该技能，其余目录继续被发现
   } catch {
     return undefined;
   }

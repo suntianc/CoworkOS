@@ -51,7 +51,12 @@ export class SubagentQuestionStore {
    * tool call replayed after a crash reuses the existing record instead of
    * opening a second one for the same moment in the Subagent's transcript.
    */
-  async create(input: Pick<SubagentQuestion, "questionId" | "taskId" | "runId" | "callId" | "agentId" | "agentName" | "question" | "assumption">): Promise<SubagentQuestion> {
+  async create(
+    input: Pick<
+      SubagentQuestion,
+      "questionId" | "taskId" | "runId" | "callId" | "agentId" | "agentName" | "question" | "assumption"
+    >
+  ): Promise<SubagentQuestion> {
     const question: SubagentQuestion = {
       questionId: safe(input.questionId),
       taskId: safe(input.taskId),
@@ -65,7 +70,8 @@ export class SubagentQuestionStore {
       createdAt: now()
     };
     if (!question.question) throw new Error("subagent question must not be empty");
-    if (!question.assumption) throw new Error("subagent question requires the assumption it will follow if unanswered");
+    if (!question.assumption)
+      throw new Error("subagent question requires the assumption it will follow if unanswered");
     await mkdir(this.directory(question.taskId), { recursive: true });
     try {
       await writeFile(this.path(question.taskId, question.questionId), json(question), { flag: "wx" });
@@ -82,15 +88,22 @@ export class SubagentQuestionStore {
 
   async list(taskId: string, status?: SubagentQuestionStatus): Promise<SubagentQuestion[]> {
     let entries;
-    try { entries = await readdir(this.directory(safe(taskId)), { withFileTypes: true }); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+    try {
+      entries = await readdir(this.directory(safe(taskId)), { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
     const questions: SubagentQuestion[] = [];
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       try {
         const question = await this.read(taskId, entry.name.slice(0, -5));
         if (!status || question.status === status) questions.push(question);
-      } catch { /* ignore an incomplete temporary file */ }
+        // eslint-disable-next-line no-restricted-syntax -- 写到一半或损坏的问题文件读不出 JSON，跳过这条，目录中其余记录继续列出
+      } catch {
+        /* ignore an incomplete temporary file */
+      }
     }
     return questions.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
@@ -104,7 +117,12 @@ export class SubagentQuestionStore {
       // An answer that arrives after the Subagent gave up is not an error: the
       // caller decides how to deliver it, and this record stays expired.
       if (question.status === "expired") return question;
-      const next: SubagentQuestion = { ...question, status: "answered", answer: answer.trim(), answeredAt: now() };
+      const next: SubagentQuestion = {
+        ...question,
+        status: "answered",
+        answer: answer.trim(),
+        answeredAt: now()
+      };
       if (!next.answer) throw new Error("subagent question answer must not be empty");
       await atomicWrite(path, json(next));
       return next;
@@ -135,6 +153,7 @@ export class SubagentQuestionStore {
     const pending = (await this.list(taskId, "pending")).filter((question) => question.callId === callId);
     const expired: SubagentQuestion[] = [];
     for (const question of pending) {
+      // eslint-disable-next-line no-restricted-syntax -- expire 写盘失败时保留原记录，未决状态由下次 list 重新判定，不能因此中断收尾
       expired.push(await this.expire(taskId, question.questionId).catch(() => question));
     }
     return expired;
@@ -149,7 +168,11 @@ export class SubagentQuestionStore {
    * would wait for itself. Cancellation is polled for the same reason the reply
    * is: this tool never receives the agent's AbortSignal.
    */
-  async waitForAnswer(taskId: string, questionId: string, options: WaitForAnswerOptions): Promise<WaitForAnswerResult> {
+  async waitForAnswer(
+    taskId: string,
+    questionId: string,
+    options: WaitForAnswerOptions
+  ): Promise<WaitForAnswerResult> {
     // A coarse interval would add its own latency to every answered question,
     // leaving the Subagent idle after Main has already decided.
     const pollMs = Math.max(50, options.pollMs ?? 250);
@@ -188,7 +211,9 @@ function safe(value: string): string {
   return value;
 }
 
-function json(value: unknown): string { return `${JSON.stringify(value, null, 2)}\n`; }
+function json(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
 
 async function atomicWrite(path: string, content: string): Promise<void> {
   const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;

@@ -30,6 +30,7 @@ function parseConnectionUrl(connectionString: string | undefined): URL | undefin
   if (!connectionString || !/^postgres(ql)?:\/\//i.test(connectionString)) return undefined;
   try {
     return new URL(connectionString);
+    // eslint-disable-next-line no-restricted-syntax -- 连接串可能是 key=value DSN 或写错的 URL；解析失败按"没有可用 URL"返回 undefined，调用方随后回退到 host/port 字段
   } catch {
     return undefined;
   }
@@ -82,6 +83,7 @@ export class PostgresDatabase implements SqlDatabase {
   /** Run one cheap read so an unreachable or rejected database fails at startup. */
   async probe(): Promise<string> {
     const { rows } = await this.run<{ server_version: string }>("SHOW server_version");
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- rows 的类型是 T[]，空结果集在类型上无法表达；驱动返回零行或省略字段时仍要回退到 unknown
     return rows[0]?.server_version ?? "unknown";
   }
 
@@ -114,6 +116,7 @@ export class PostgresDatabase implements SqlDatabase {
     } catch (error) {
       try {
         await client.query("ROLLBACK");
+        // eslint-disable-next-line no-restricted-syntax -- 事务已因原始错误失败，连接可能已经不可用；回滚失败由下面 rethrow 的原始错误表达
       } catch {
         /* the connection is already unusable; the original failure is what matters */
       }
@@ -132,6 +135,7 @@ export class PostgresDatabase implements SqlDatabase {
     params: readonly SqlParameter[] = []
   ): Promise<QueryResult & { rows: T[] }> {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- pg 的 QueryResult<QueryResultRow> 与 rows: T[] 互不可赋值，去掉 as unknown 中转就编译不过；断言只用于把驱动行恢复成调用方声明的 T[]
       return (await this.pool.query(postgresPlaceholders(sql), [...params])) as unknown as QueryResult & {
         rows: T[];
       };
@@ -146,7 +150,7 @@ export class PostgresDatabase implements SqlDatabase {
     params: readonly SqlParameter[]
   ): Promise<QueryResult> {
     try {
-      return (await client.query(postgresPlaceholders(sql), [...params])) as QueryResult;
+      return await client.query(postgresPlaceholders(sql), [...params]);
     } catch (error) {
       throw storageFailure("postgres", this.label, error, this.secret);
     }
@@ -159,6 +163,7 @@ export async function openPostgresDatabase(target: PostgresTarget): Promise<Post
     await database.probe();
     return database;
   } catch (error) {
+    // eslint-disable-next-line no-restricted-syntax -- 探测失败的连接池正在被丢弃；close 自身的失败不能覆盖下面要抛出的连接失败，否则用户看不到真实的连接原因
     await database.close().catch(() => undefined);
     throw error instanceof ProjectDataError
       ? error

@@ -1,6 +1,7 @@
 function isDashboardUrl(value, dashboardUrl) {
   try {
     return new URL(value).origin === new URL(dashboardUrl).origin;
+    // eslint-disable-next-line no-restricted-syntax -- dashboardUrl is undefined before an execution host is selected, so new URL() throws and nothing can be trusted
   } catch {
     return false;
   }
@@ -20,6 +21,7 @@ function externalNavigationUrl(value, dashboardUrl) {
     )
       return;
     return target.href;
+    // eslint-disable-next-line no-restricted-syntax -- value is the page-supplied URL argument and is not necessarily an absolute, parseable URL
   } catch {
     return;
   }

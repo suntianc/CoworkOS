@@ -221,10 +221,12 @@ export async function testModelConnection(input: ModelConnectionInput, options: 
     );
   const calls = result.content.filter((block) => block.type === "toolCall");
   const call = calls.find((block) => block.name === "atria_connection_check");
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 工具调用由服务商响应体解析而来，SDK 类型声明 id 必填但实际可能缺失
   if (result.stopReason !== "toolUse" || calls.length !== 1 || !call?.id?.trim())
     throw new Error("模型未返回有效的工具调用，当前连接无法用于 Agent 任务");
   const args = call.arguments;
   if (
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 工具参数同样来自服务商响应，arguments 可能是 null 而不是对象
     !args ||
     args.status !== "connected" ||
     typeof args.color !== "string" ||

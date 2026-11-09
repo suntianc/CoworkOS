@@ -264,6 +264,7 @@ export async function checkLegacyRelease({
     let candidate;
     try {
       candidate = parseUpdateVersion(version);
+      // eslint-disable-next-line no-restricted-syntax -- GitHub release 的 tag 未必是版本号，解析失败就跳过这一条
     } catch {
       continue;
     }

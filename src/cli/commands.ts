@@ -215,13 +215,14 @@ export function cliHelp(command?: string, action?: string): string {
 
 export function parseCliCommand(command: string, input: string[]) {
   const definition = commands[command];
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- command 来自 argv，命令表里没有该键时查表结果为 undefined
   if (!definition) throw new Error(`Unknown command: ${command}. Run coworkos --help.`);
   const allowed = {
     ...definition.options,
     ...Object.assign({}, ...Object.values(definition.actions || {}).map((action) => action.options))
   } as Record<string, Option>;
   const positionals: string[] = [];
-  const options: Record<string, string> = {};
+  const options: Record<string, string | undefined> = {};
   let help = false;
   let endOptions = false;
   for (let index = 0; index < input.length; index++) {
@@ -242,14 +243,19 @@ export function parseCliCommand(command: string, input: string[]) {
     const name = match?.[1];
     const option = name ? allowed[name] : undefined;
     if (!name || !option) throw new Error(`Unknown option: ${argument}. Run coworkos ${command} --help.`);
-    let value = match?.[2];
+    // The `=value` group is optional in the pattern, so it can be absent at runtime.
+    let value = match[2];
     if (option.kind === "boolean") {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 可选分组 `(?:=(.*))?` 未参与匹配时该位置为 undefined，类型却按 string 声明
       if (value === undefined && ["true", "false"].includes(input[index + 1])) value = input[++index];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上：`--flag` 不带 `=value` 时分组缺失，默认取 true
       value ??= "true";
       if (!["true", "false"].includes(value)) throw new Error(`--${name} requires true or false.`);
     } else {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上：`--opt` 不带 `=value` 时分组缺失，必须读取下一个 argv 元素
       if (value === undefined) {
         value = input[++index];
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- argv 在该位置可能没有下一个元素，越界读取得到 undefined
         if (value === undefined || value.startsWith("--") || value === "-h")
           throw new Error(`--${name} requires a value.`);
       }
@@ -292,7 +298,7 @@ function validateOperands(
   command: string,
   action: string | undefined,
   positionals: string[],
-  options: Record<string, string>
+  options: Record<string, string | undefined>
 ) {
   const operands = action ? positionals.slice(1) : positionals;
   const requireOptions = (...names: string[]) => {
