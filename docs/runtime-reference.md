@@ -30,6 +30,8 @@ Browser/CUA 对象属于当前 Pi 会话，退出或切换时清理。恢复工�
 
 `run_command` / `run_tests` 的非零退出、启动失败和超时返回工具错误。`cwd` 使用相对目录，默认按当前智能体的工作目录解析；启用项目写入时才以项目目录为默认。Main 和子智能体的私有工作目录可能不同。
 
+这两个工具没有交互式输入：实际命令的 stdin 为空设备，读取到 EOF 即自行结束，不需要取消；显式 shell 重定向和管道仍使用命令自身提供的数据。宿主进程之间的 stdin 只作生命周期信号，不传给实际命令。
+
 内置 `run_command` / `run_tests` 分别把 stdout、stderr 的原始字节写入当前智能体的 `logs/commands/<id>/`，每条流默认最多 64 MiB；超过硬上限会停止命令并返回错误。返回的 `stdout` / `stderr` 默认各保留最多 8,000 字节的头尾预览，省略提示计入预算；预览截断本身不会中止命令。取消、超时和写盘错误仍保留已有输出及可用日志；日志写盘失败返回工具错误，同时保留已观察到的真实命令退出码，包括 `0`。
 
 命令结果保留退出状态、`stdoutBytes` / `stderrBytes`（管道已观察字节）、`stdoutLogBytes` / `stderrLogBytes`（实际写入日志字节）、预览截断标志和日志引用。`stdoutPath` / `stderrPath` 通常相对 Task，使用 `browse_workspace({mode:"read",path,offset})` 按字节偏移分页；Task 与智能体目录不同时另有 `stdoutReadPath` / `stderrReadPath` 供 `read_file` 使用。独立程序化根使用 `logPathBase:"agent"` 明确路径相对智能体。日志超限或写盘失败时，已落盘日志可能不完整。

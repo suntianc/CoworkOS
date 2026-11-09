@@ -51,7 +51,9 @@ export async function executeForegroundCommand(
           cwd: options.cwd,
           env: { ...process.env, ...options.env },
           shell: options.shell,
-          stdio: "pipe"
+          // No input provider here either: /dev/null gives a reader EOF instead
+          // of an open pipe that waits for cancellation.
+          stdio: ["ignore", "pipe", "pipe"]
         });
   } catch (error) {
     await output.close();
