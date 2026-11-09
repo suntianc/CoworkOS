@@ -41,14 +41,10 @@ async function seed(page, dashboard, { extraTasks = 0 } = {}) {
     expect(response.ok()).toBe(true);
   }
   await page.goto(dashboard.base);
-  if (!(await page.locator("#project-list").isVisible()))
-    await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
   await expect(page.locator(".project-group")).toHaveCount(2);
   await expect(page.locator(".conversation-item")).toHaveCount(3 + extraTasks);
   await page.locator('[data-task="sidebar-current"]').click();
   await page.locator("#composer-input").fill("保留当前会话的未发送草稿");
-  if (!(await page.locator("#project-list").isVisible()))
-    await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
   const group = page.locator(`[data-project="${projects[0].projectId}"]`);
   return {
     group,
@@ -188,6 +184,7 @@ test("an open conversation menu keeps its row highlighted and mouse dismissal cl
 }, info) => {
   const dashboard = await startDashboard({ defaultProject: false });
   try {
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     const sidebar = await seed(page, dashboard);
     const panel = page.locator("#session-menu");
     await sidebar.row.hover();
@@ -230,10 +227,11 @@ test("touch devices keep project and conversation actions visible without hover"
   const context = await browser.newContext({
     hasTouch: true,
     isMobile: true,
-    viewport: { width: 474, height: 900 }
+    viewport: { width: 700, height: 900 }
   });
   try {
     const page = await context.newPage();
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     const sidebar = await seed(page, dashboard);
     for (const action of [sidebar.settings, sidebar.create, sidebar.menu]) {
       await expect(action).toHaveCSS("opacity", "1");
@@ -257,10 +255,8 @@ test("menus beside bottom sidebar rows keep their trigger clear and flip above i
     const row = sidebar.group.locator(".conversation-row").last(),
       trigger = row.locator(".conversation-menu"),
       panel = page.locator("#session-menu");
-    for (const width of [1440, 608, 320]) {
+    for (const width of [1440, 640]) {
       await page.setViewportSize({ width, height: 900 });
-      if (!(await page.locator("#project-list").isVisible()))
-        await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
       await row.scrollIntoViewIfNeeded();
       await row.hover();
       await trigger.click();

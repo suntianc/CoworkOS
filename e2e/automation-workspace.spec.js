@@ -13,7 +13,6 @@ test("automation workspace hides empty app controls and preserves conversation d
     expect(
       (await (await page.request.get(`${dashboard.base}/api/applications`)).json()).applications
     ).toEqual([]);
-    await expect(page.locator("#apps-nav")).toBeHidden();
     await expect(page.locator("#app-bind-select")).toBeHidden();
     const draft = "请自动整理附件并生成报告。";
     await page.locator("#composer-input").fill(draft);
@@ -31,7 +30,6 @@ test("automation workspace hides empty app controls and preserves conversation d
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 900 });
-        await expect(page.locator("#apps-nav")).toBeHidden();
         await expect(page.locator("#composer-input")).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
         await page.screenshot({ path: info.outputPath(`${theme}-${width}.png`) });

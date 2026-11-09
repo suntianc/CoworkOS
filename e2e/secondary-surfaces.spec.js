@@ -20,6 +20,7 @@ test("new project keeps a quiet form and keyboard-accessible folder chooser in b
   try {
     const directory = join(dashboard.root, "new-project");
     await mkdir(directory);
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(dashboard.base);
     await page.locator("#composer-input").fill("创建项目之前的草稿");
     await page.evaluate((directory) => {
@@ -29,8 +30,6 @@ test("new project keeps a quiet form and keyboard-accessible folder chooser in b
       for (const width of [1440, 320]) {
         await page.setViewportSize({ width, height: 720 });
         await page.emulateMedia({ colorScheme: theme });
-        if (!(await page.locator("#new-project").isVisible()))
-          await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
         await page.locator("#new-project").click();
         const dialog = page.getByRole("dialog", { name: "新建项目", exact: true });
         const name = dialog.getByRole("textbox", { name: "项目名称", exact: true });
@@ -85,6 +84,7 @@ test("project dialogs and project experience confirmations use shared controls w
       data: { projectName: "视觉检查项目", projectDirectory }
     });
     const { project } = await created.json();
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(dashboard.base);
     await expect(page.locator(`[data-project="${project.projectId}"]`)).toBeVisible();
     for (const [width, theme] of [
@@ -96,8 +96,6 @@ test("project dialogs and project experience confirmations use shared controls w
       await page.setViewportSize({ width, height: 720 });
       await page.emulateMedia({ colorScheme: theme });
       const trigger = page.locator(`[data-project-settings="${project.projectId}"]`);
-      if (!(await trigger.isVisible()))
-        await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
       await trigger.locator("..").hover();
       await trigger.click();
       const dialog = page.getByRole("dialog", { name: "项目设置", exact: true });
@@ -152,6 +150,7 @@ test("attachment previews retain file content and styled page controls at deskto
 }, info) => {
   const dashboard = await startDashboard();
   try {
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(dashboard.base);
     await page.locator("#composer-input").fill("预览结束后保留的草稿");
     await page.locator("#file-input").setInputFiles({

@@ -29,13 +29,15 @@ test("project rows keep disclosure, titles and actions aligned across widths and
       });
       expect(task.ok()).toBeTruthy();
     }
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(dashboard.base);
+    await page.waitForFunction(
+      () => getComputedStyle(document.querySelector(".project-list")).transform === "none"
+    );
     const headings = page.locator(".project-heading");
     await expect(headings).toHaveCount(3);
     for (const width of [1440, 1100]) {
       await page.setViewportSize({ width, height: 900 });
-      if (!(await page.locator("#project-list").isVisible()))
-        await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
       for (const colorScheme of ["light", "dark"]) {
         await page.emulateMedia({ colorScheme });
         await expect(page.locator("html")).toHaveAttribute("data-theme", colorScheme);
@@ -71,7 +73,7 @@ test("project rows keep disclosure, titles and actions aligned across widths and
     }
     await headings.first().hover();
     await headings.first().locator(".project-create").click();
-    await expect(page.locator("#project-context")).not.toBeEmpty();
+    await expect(page.locator(".project-group.is-selected")).toHaveCount(1);
     await headings.first().hover();
     await headings.first().locator(".project-settings").click();
     await expect(page.getByRole("dialog", { name: "项目设置", exact: true })).toBeVisible();

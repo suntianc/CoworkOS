@@ -20,7 +20,6 @@ async function desktopSettingsFixture(page) {
 
 async function openOverview(page) {
   const button = page.getByRole("button", { name: "设置", exact: true });
-  if (!(await button.isVisible())) await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
   await button.click();
 }
 

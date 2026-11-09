@@ -2010,7 +2010,6 @@ textarea {
   .account-name,
   .conversation-item-title,
   .output-file strong,
-  .team-member-name,
   .model-name,
   .session-menu button,
   .modal-card label,
@@ -2027,7 +2026,6 @@ textarea {
   .output-heading small,
   .output-section-title,
   .output-file small,
-  .team-member-role,
   .model-provider,
   .model-menu-label,
   .attachment-chip small
@@ -2070,7 +2068,6 @@ textarea {
   .modal-card button,
   .output-copy strong,
   .output-file strong,
-  .team-member-name,
   .app-tile-copy strong,
   .apps-group-label
 ) {
@@ -2425,14 +2422,6 @@ body {
 }
 .workbench-tabs {
   background: var(--ui-bg);
-}
-.galaxy-eyebrow {
-  gap: 8px;
-  letter-spacing: 0.3px;
-}
-.galaxy-count {
-  flex-shrink: 0;
-  letter-spacing: 0;
 }
 /* The input occupies its own row instead of covering conversation content. */
 .composer-wrap,

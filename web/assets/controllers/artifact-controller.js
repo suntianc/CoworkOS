@@ -1,4 +1,4 @@
-import { agentName } from "../agent-room.js";
+import { agentName } from "../agent-names.js";
 import {
   artifactParentPath,
   artifactRequestUrls,

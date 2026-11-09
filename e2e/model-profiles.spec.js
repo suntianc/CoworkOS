@@ -113,7 +113,7 @@ for (const native of [false, true]) {
         await page.locator("#project-directory").fill(root);
         await page.locator("#project-submit").click();
         await expect(page.locator("#project-modal")).toBeHidden();
-        await expect(page.locator("#project-context")).toHaveText("连接切换验收项目");
+        await expect(page.locator(".project-group.is-selected .project-name")).toHaveText("连接切换验收项目");
       }
       await page.locator("#composer-input").fill("请记住暗号蓝鲸");
       await page.locator("#send-button").click();

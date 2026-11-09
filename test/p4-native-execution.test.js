@@ -9,7 +9,6 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
-import { teamMembers } from "../web/assets/agent-room.js";
 import { prepareDevelopmentWorkspace } from "../dist/src/workspace/development-workspace.js";
 import { prepareWorkItemSite } from "../dist/src/workspace/work-item-workspace.js";
 
@@ -454,8 +453,7 @@ test(
     assert.equal(await readFile(join(repository, "tracked.txt"), "utf8"), "committed\n");
     assert.equal(await git(repository, ["rev-parse", "HEAD"]), baselineHead);
 
-    // Identity, role, site and progress are readable through the service and
-    // through the shared controller the UI renders work items from.
+    // Identity, role, site and progress are readable through the service.
     const detail = await request(`/api/tasks/${taskId}`);
     assert.equal(detail.status, 200, JSON.stringify(detail.body));
     const agents = detail.body.progress.agents;
@@ -481,16 +479,6 @@ test(
       4,
       "each work item names its own checkout"
     );
-    const members = teamMembers(detail.body);
-    assert.equal(members[0].agentId, "main");
-    assert.deepEqual(
-      members
-        .filter((member) => member.callId)
-        .map((member) => member.workspace)
-        .sort(),
-      agents.map((agent) => agent.workspace).sort()
-    );
-
     // An internal requirement stays ledger-only: no board item appears.
     assert.deepEqual(
       (await request(`/api/projects/${encodeURIComponent(project.projectId)}/board`)).body.entries,

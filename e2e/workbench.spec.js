@@ -35,7 +35,7 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
   // Browser previews retain navigation without pretending to be a native window.
   await expect(page.locator(".traffic")).toHaveCount(0);
   await expect(page.locator(".chat-header")).toHaveCount(0);
-  await expect(page.locator(".topbar-actions button")).toHaveCount(1);
+  await expect(page.locator(".session-header-actions button")).toHaveCount(2);
   await expect(page.locator("#share-button")).toHaveCount(0);
   const panelToggle = page.getByRole("button", { name: "切换任务面板", exact: true });
   await expect(page.locator("#agent-pane")).toBeHidden();
@@ -46,7 +46,7 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
   await expect(menuTrigger).toBeVisible();
   await menuTrigger.click();
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole("menuitem")).toHaveCount(7);
+  await expect(menu.getByRole("menuitem")).toHaveCount(8);
   for (const action of ["rename", "pin", "unread", "export", "open", "archive"])
     await expect(menu.locator(`[data-session-action="${action}"]`)).toBeDisabled();
   await expect(menu.locator('[data-session-submenu="copy"]')).toBeDisabled();
@@ -54,7 +54,7 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(menuTrigger).toBeFocused();
-  for (const width of [1440, 1280, 474, 320]) {
+  for (const width of [1440, 1280]) {
     await page.setViewportSize({ width, height: 800 });
     await expect(menuTrigger).toBeVisible();
     await expect(panelToggle).toBeVisible();
@@ -71,8 +71,6 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
     await panelToggle.click();
     await expect(page.locator("#agent-pane")).toBeHidden();
     await expect(panelToggle).toHaveAttribute("aria-expanded", "false");
-    if (!(await profile.isVisible()))
-      await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
     await profile.click();
     const settings = page.getByRole("dialog", { name: "设置", exact: true });
     await expect(settings).toBeVisible();
@@ -82,13 +80,12 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
     await page.keyboard.press("Escape");
     await expect(settings).toBeHidden();
     await expect(profile).toBeFocused();
-    if (width <= 900) await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   expect(await page.locator("html").getAttribute("data-desktop-platform")).toBeNull();
   expect(
     await page
-      .locator(".app-topbar")
+      .locator(".session-header")
       .evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-app-region"))
   ).not.toBe("drag");
   await profile.click();

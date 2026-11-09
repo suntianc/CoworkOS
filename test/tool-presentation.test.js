@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseHTML } from "linkedom";
 import { presentToolCall, toolArgumentSummary, friendlyToolName } from "../web/assets/tool-presentation.js";
-import { friendlyToolName as legacyFriendlyToolName } from "../web/assets/work-log.js";
 import { escapeHtml } from "../web/assets/workbench/html.js";
 
 const args = { command: "python3 agents/main/work/create_harness_ppt.py", timeout: 120 };
@@ -193,7 +192,6 @@ test("delegation names the concrete task without exposing coordination parameter
   assert.equal(presentation.subject, "Ara");
   assert.equal(presentation.summary, "核对 README 启动步骤");
   assert.match(presentation.details, /"mode": "async"/);
-  assert.equal(legacyFriendlyToolName("read"), friendlyToolName("read"));
 });
 
 test("specific failures require actual diagnostics, including the real missing script and syntax scenarios", () => {
@@ -374,7 +372,6 @@ test("application and runtime tools have readable names and unfamiliar tools exp
   ]) {
     assert.equal(friendlyToolName(name), title);
     assert.equal(presentToolCall({ name }).title, title);
-    assert.equal(legacyFriendlyToolName(name), title);
   }
   assert.equal(friendlyToolName(""), "准备调用工具");
 });

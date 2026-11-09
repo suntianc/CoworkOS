@@ -12,8 +12,6 @@ test("window access keeps desktop-only controls behind its settings row and pres
     await page.locator("#composer-input").fill("尚未发送的测试草稿");
     for (const width of [1440, 1280, 474, 320]) {
       await page.setViewportSize({ width, height: 800 });
-      if (!(await page.locator("#user-menu-button").isVisible()))
-        await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
       await page.locator("#user-menu-button").click();
       const settings = page.getByRole("dialog", { name: "设置", exact: true });
       await expect(settings).toBeVisible();

@@ -86,7 +86,9 @@ for (const reasoningEffort of ["off", "max"]) {
           await page.locator("#project-directory").fill(root);
           await page.locator("#project-submit").click();
           await expect(page.locator("#project-modal")).toBeHidden();
-          await expect(page.locator("#project-context")).toHaveText("模型协议验收项目");
+          await expect(page.locator(".project-group.is-selected .project-name")).toHaveText(
+            "模型协议验收项目"
+          );
         }
         await page.locator("#composer-input").fill(`验证 ${api} 会话`);
         await page.locator("#send-button").click();

@@ -20,7 +20,6 @@ export function createProjectController({
   getNavigationIdentity,
   onSelectionChanged = () => {},
   getApplicationWorkspaces = () => [],
-  isContextVisible = () => true,
   isTaskVisible = () => true,
   isUnread = () => false,
   openProjectExperience = () => {},
@@ -81,22 +80,8 @@ export function createProjectController({
     } catch {
       /* navigation still works */
     }
-    paintContext();
     if (automatic) onSelectionChanged(project);
     return project;
-  }
-  function paintContext() {
-    const project = state.tasks.find((task) => task.taskId === state.selected)?.temporaryWorkspaceRoot
-      ? undefined
-      : state.selected
-        ? projectForTask(state.tasks.find((task) => task.taskId === state.selected)) || current()
-        : current();
-    const label = $("#project-context");
-    if (label) {
-      label.hidden = !project || !isContextVisible();
-      label.textContent = project?.projectName || "";
-      label.title = project?.projectDirectory || project?.workspaceRoot || "";
-    }
   }
   function render() {
     const root = $("#project-list");
@@ -136,7 +121,6 @@ export function createProjectController({
         })
         .join("") ||
         (temporary.length ? "" : ui('<div class="sidebar-empty">拖入文件或发送消息，开始临时协作</div>')));
-    paintContext();
     if (root.conversationMarkup === markup) return;
     root.conversationMarkup = markup;
     root.innerHTML = markup;
@@ -285,7 +269,6 @@ export function createProjectController({
   }
   $("#new-project").addEventListener("click", () => openSettings());
   return {
-    paintContext,
     render,
     currentProject: current,
     async ensureProject(projectDirectory, projectName) {

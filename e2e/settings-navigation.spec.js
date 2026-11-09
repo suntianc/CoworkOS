@@ -3,7 +3,6 @@ import { startDashboard } from "../test/dashboard-fixture.mjs";
 
 async function openOverview(page) {
   const button = page.getByRole("button", { name: "设置", exact: true });
-  if (!(await button.isVisible())) await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
   await button.click();
   return page.getByRole("dialog", { name: "设置", exact: true });
 }

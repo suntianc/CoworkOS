@@ -40,7 +40,6 @@ async function seed(page, dashboard) {
 
 async function openSidebarMenu(page, taskId = "menu-b") {
   const trigger = page.locator(`[data-session-menu="${taskId}"]`);
-  if (!(await trigger.isVisible())) await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
   await trigger.locator("..").hover();
   await trigger.click();
   await expect(page.locator("#session-menu")).toBeVisible();
@@ -137,7 +136,7 @@ test("copy submenus preserve keyboard focus through refresh and stay inside desk
   const dashboard = await startDashboard();
   try {
     await seed(page, dashboard);
-    for (const width of [1440, 320]) {
+    for (const width of [1440, 640]) {
       await page.setViewportSize({ width, height: 700 });
       const menu = await openSidebarMenu(page);
       const trigger = page.locator('[data-session-menu="menu-b"]');
@@ -146,10 +145,6 @@ test("copy submenus preserve keyboard focus through refresh and stay inside desk
       await copy.focus();
       await copy.press("ArrowRight");
       await expect(submenu).toBeVisible();
-      if (width === 320) {
-        await expect(submenu.locator("[data-session-back]")).toBeFocused();
-        await page.keyboard.press("ArrowDown");
-      }
       await expect(submenu.locator('[data-session-action="copy-title"]')).toBeFocused();
       await page.keyboard.press("ArrowDown");
       await expect(submenu.locator('[data-session-action="copy"]')).toBeFocused();

@@ -66,7 +66,7 @@ test("a task catalog slower than the polling period still applies and preserves 
     await expect(page.locator("#topbar-task")).toHaveText("新任务");
     await expect(page.locator('[data-task="slow-a"]')).not.toHaveClass(/active/);
     await page.evaluate(() => {
-      window.pollingDraftPrompt = document.querySelector("#conversation .starter-prompts button");
+      window.pollingDraftPrompt = document.querySelector("#topbar-task");
     });
     const next = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/tasks");
     await page.clock.fastForward(4000);
@@ -100,7 +100,7 @@ test("unchanged detail polls retain current controls and a collapsed output pane
     await expect(page.locator("#output-list [data-resource-row]")).toHaveCount(1);
     await page.evaluate(() => {
       window.pollingNodes = [
-        document.querySelector("#conversation .starter-prompts button"),
+        document.querySelector("#topbar-task"),
         document.querySelector("#output-list [data-resource-row]")
       ];
     });

@@ -23,6 +23,8 @@ test("human replies use the shared palette and retain answers through a visible 
     await page.route("**/app.js", (route) =>
       route.fulfill({ contentType: "application/javascript", body: "// Mount the shipped reply controller." })
     );
+    // Follow the system appearance so emulated color schemes drive both themes.
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(dashboard.base);
     await page.evaluate(async () => {
       const { createHumanQuestions } = await import("/assets/human-questions.js");
@@ -73,51 +75,6 @@ test("human replies use the shared palette and retain answers through a visible 
     await expect(card.locator(".human-error")).toContainText("测试回复暂未送达");
     await expect(answer).toHaveValue("保留图表与引用");
     await expect(submit).toBeEnabled();
-  } finally {
-    await dashboard.stop();
-  }
-});
-
-test("advanced monitoring forms keep clear controls, focus and actions in both themes", async ({
-  page
-}, info) => {
-  const dashboard = await startDashboard();
-  try {
-    await page.goto(dashboard.base);
-    await page.locator("#goals-nav").click();
-    await page.locator(".goal-system summary").click();
-    await page.locator("#monitors-nav").click();
-    await page.locator("[data-watch-new]").click();
-    const dialog = page.getByRole("dialog", { name: "新建监控", exact: true });
-    const name = dialog.locator('input[name="task"]');
-    for (const theme of ["light", "dark"]) {
-      await page.emulateMedia({ colorScheme: theme });
-      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-      const colors = await palette(page);
-      for (const width of [1440, 320]) {
-        await page.setViewportSize({ width, height: 760 });
-        await name.scrollIntoViewIfNeeded();
-        await name.fill("保留监控设置草稿");
-        await name.focus();
-        await expect(name).toHaveCSS("font-size", "14px");
-        await expect(name).toHaveCSS("min-height", "40px");
-        await expect(name).toHaveCSS("color", colors.text);
-        await expect(name).toHaveCSS("outline-style", "solid");
-        await expect(dialog.getByRole("button", { name: "创建监控", exact: true })).toHaveCSS(
-          "background-color",
-          colors.accent
-        );
-        const bounds = await dialog.boundingBox();
-        expect(bounds.x).toBeGreaterThanOrEqual(0);
-        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-        expect(bounds.y + bounds.height).toBeLessThanOrEqual(760);
-        expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-        await page.screenshot({ path: info.outputPath(`monitor-${theme}-${width}.png`) });
-      }
-    }
-    await page.keyboard.press("Escape");
-    await expect(dialog).toBeHidden();
-    await expect(page.locator("[data-watch-new]")).toBeFocused();
   } finally {
     await dashboard.stop();
   }

@@ -19,7 +19,7 @@ test.beforeAll(async () => {
           #conversation { width: 40%; } #workbench { position: relative; flex: 1; }
           .workbench-app { position: absolute; inset: 0; }
           [hidden] { display: none !important; }
-        </style></head><body><button id="apps-nav">应用</button><aside id="apps-panel" hidden></aside>
+        </style></head><body>
           <main><section id="conversation"></section><section id="workbench"></section></main></body></html>`);
         return;
       }

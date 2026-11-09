@@ -424,8 +424,6 @@ test("update details stay reachable on narrow screens", async ({ page }, testInf
     for (const width of [474, 320]) {
       await page.setViewportSize({ width, height: 600 });
       const settings = page.getByRole("button", { name: "设置", exact: true });
-      if (!(await settings.isVisible()))
-        await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
       await page.locator("[data-update-notice]").click();
       const dialog = page.getByRole("dialog", { name: "设置", exact: true });
       await expect(dialog).toBeVisible();

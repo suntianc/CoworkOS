@@ -32,8 +32,6 @@ for (const desktop of [false, true]) {
         for (const width of [1440, 320]) {
           await page.setViewportSize({ width, height: 760 });
           const opener = page.getByRole("button", { name: "设置", exact: true });
-          if (!(await opener.isVisible()))
-            await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
           await opener.click();
           await expect(dialog.getByRole("heading", { name: "通用", exact: true })).toBeVisible();
           await expect(dialog.locator("#profile-settings-general [data-memory-use]")).toBeVisible();
