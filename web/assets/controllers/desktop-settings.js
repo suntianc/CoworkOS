@@ -206,19 +206,30 @@ export function installDesktopSettings({
   };
 
   const roleBinding = (value, role) => (value.modelRoles?.roles || []).find((entry) => entry.role === role);
+  // A change made on this section may fail after the person looked away from
+  // the row; the reason stays with the row until its next change.
+  const roleErrors = new Map();
+  const effortProfileFor = (value, role) => {
+    const profiles = value.profiles || [];
+    const entry = roleBinding(value, role);
+    return (
+      profiles.find((profile) => profile.id === entry?.host?.profileId) ||
+      profiles.find((profile) => profile.active)
+    );
+  };
 
   const renderRoles = (value) => {
     if (!roleRows) return;
     const profiles = value.profiles || [];
-    const activeProfile = profiles.find((profile) => profile.active);
     roleRows.innerHTML = ROLE_META.map(({ role, label, hint, fallback }) => {
       const entry = roleBinding(value, role);
       const bound = profiles.find((profile) => profile.id === entry?.host?.profileId);
       const option = (profile) =>
         `<option value="${esc(profile.id)}"${profile.id === bound?.id ? " selected" : ""}>${esc(`${profile.name} / ${profile.model}`)}</option>`;
-      const effortProfile = bound || activeProfile;
+      const effortProfile = effortProfileFor(value, role);
       const effort = effortProfile?.reasoningEffort ?? "off";
-      return `<div class="settings-row" data-model-role="${role}">
+      const failure = roleErrors.get(role);
+      return `<div class="settings-row${failure ? " has-error" : ""}" data-model-role="${role}">
         <span class="settings-row-line settings-role-name"><span class="settings-row-name">${label}</span><span class="settings-info" title="${esc(hint)}">${icon("info")}</span></span>
         <span class="settings-row-spacer"></span>
         <select class="settings-select is-model" data-role-model="${role}" aria-label="${esc(`${label} 的模型连接`)}"${profiles.length ? "" : " disabled"}>
@@ -227,6 +238,7 @@ export function installDesktopSettings({
         <select class="settings-select is-effort" data-role-effort="${role}" aria-label="${esc(`${label} 的推理强度`)}" title="${esc("推理强度属于所选的模型连接")}"${effortProfile ? "" : " disabled"}>
           ${REASONING.map((level) => `<option value="${level}"${level === effort ? " selected" : ""}>${esc(REASONING_LABEL[level])}</option>`).join("")}
         </select>
+        <span class="settings-row-error" role="alert" data-role-error="${role}"${failure ? "" : " hidden"}>${failure ? esc(failure) : ""}</span>
       </div>`;
     }).join("");
   };
@@ -244,37 +256,55 @@ export function installDesktopSettings({
     }
   };
 
-  const changeEffort = async (role, level) => {
-    const entry = roleBinding(listed, role);
-    const profiles = listed.profiles || [];
-    const profile =
-      profiles.find((item) => item.id === entry?.host?.profileId) || profiles.find((item) => item.active);
-    if (!profile) return;
+  /**
+   * Save one change made on this section and answer on the row itself.
+   *
+   * A failure must not go to the connection dialog's error line: that dialog is
+   * closed, so nothing would be visible. The row keeps the reason, and the
+   * controls go back to what the host persisted.
+   */
+  let roleSaving = false;
+  const saveRoleFromSection = async (role, work) => {
+    if (roleSaving) return;
+    roleSaving = true;
+    roleErrors.delete(role);
+    if (listed.profiles) renderRoles(listed);
+    settingsBackend.bind();
     try {
-      await save({
+      await work();
+    } catch (error) {
+      roleErrors.set(role, errorMessage(error));
+      // Show the last persisted values at once, then confirm with the host.
+      if (listed.profiles) renderRoles(listed);
+    } finally {
+      roleSaving = false;
+    }
+    await refreshList();
+  };
+
+  roleRows?.addEventListener("change", (event) => {
+    const modelSelect = event.target.closest("[data-role-model]");
+    if (modelSelect) {
+      const role = modelSelect.dataset.roleModel;
+      void saveRoleFromSection(role, () => saveRole({ role, profileId: modelSelect.value }));
+      return;
+    }
+    const effortSelect = event.target.closest("[data-role-effort]");
+    if (!effortSelect) return;
+    const role = effortSelect.dataset.roleEffort;
+    const level = effortSelect.value;
+    const profile = effortProfileFor(listed, role);
+    if (!profile) return;
+    void saveRoleFromSection(role, () =>
+      save({
         profileId: profile.id,
         profileName: profile.name,
         baseUrl: profile.baseUrl,
         model: profile.model,
         api: profile.api,
         reasoningEffort: level
-      });
-      await refreshList();
-    } catch (error) {
-      panel.querySelector("[data-model-error]").textContent = errorMessage(error);
-    }
-  };
-
-  roleRows?.addEventListener("change", (event) => {
-    const modelSelect = event.target.closest("[data-role-model]");
-    if (modelSelect) {
-      void changeRole({ role: modelSelect.dataset.roleModel, profileId: modelSelect.value }).then(() =>
-        refreshList()
-      );
-      return;
-    }
-    const effortSelect = event.target.closest("[data-role-effort]");
-    if (effortSelect) void changeEffort(effortSelect.dataset.roleEffort, effortSelect.value);
+      })
+    );
   });
   modelsRows?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-model-edit]");

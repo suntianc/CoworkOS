@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { startConfiguredDashboard, startDashboard } from "../test/dashboard-fixture.mjs";
 
 const section = (page, name) => page.locator(`[data-settings-panel="${name}"]`);
 const navItem = (page, name) => page.locator(`[data-settings-section="${name}"]`);
@@ -246,6 +246,41 @@ test("node connections, tools and members show only the information each section
     const members = page.locator("#settings-member-rows");
     await expect(members).toContainText("我");
     await expect(members.locator(".settings-chip.is-accent")).toHaveText("负责人");
+  } finally {
+    await dashboard.stop();
+  }
+});
+
+test("a refused role change reports on its row and restores the saved connection", async ({ page }) => {
+  const dashboard = await startConfiguredDashboard();
+  try {
+    const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
+    const connection = status.profiles[0];
+    await page.goto(dashboard.base);
+    await expect(page.locator("#composer-input")).toBeVisible();
+    await page.locator("#user-menu-button").click();
+    await page.locator('[data-settings-section="models"]').click();
+    const main = page.locator('[data-role-model="main"]');
+    const row = page.locator('[data-model-role="main"]');
+    await expect(main).toHaveValue("");
+
+    // Save one binding so the refused change has a persisted value to return to.
+    await main.selectOption(connection.id);
+    await expect(main).toHaveValue(connection.id);
+
+    await page.route("**/api/model-settings/roles", (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "保存被拒绝：连接不可用" })
+      })
+    );
+    await main.selectOption("");
+    await expect(row.locator("[data-role-error]")).toHaveText(/保存被拒绝/);
+    await expect(row).toHaveClass(/has-error/);
+    await expect(main).toHaveValue(connection.id);
+    // The failure belongs to the section, never to the closed connection form.
+    expect(await page.locator("[data-model-error]").innerText()).toBe("");
   } finally {
     await dashboard.stop();
   }

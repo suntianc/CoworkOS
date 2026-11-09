@@ -481,3 +481,131 @@ test("the production settings view configures Main and shows which source is in 
   assert.equal(f.state.host, "b");
   assert.equal(f.state.project, null);
 });
+
+test("a role change that fails on the settings page reports on its row and restores the saved value", async (t) => {
+  const { window, document } = parseHTML(`<html><body><div id="settings-entry">
+    <div class="settings-nav-items"></div>
+    <div class="settings-rows" id="profile-settings-connections"></div>
+    <div class="settings-rows" id="settings-role-rows"></div>
+    <div class="settings-rows" id="profile-settings-tools"></div>
+  </div></body></html>`);
+  const previous = { window: globalThis.window, document: globalThis.document };
+  Object.assign(globalThis, { window, document });
+  t.after(() => Object.assign(globalThis, previous));
+  window.HTMLElement.prototype.getClientRects = function () {
+    return this.closest("[hidden]") ? [] : [{ width: 1, height: 1 }];
+  };
+  const state = {
+    profiles: [
+      {
+        id: "a",
+        name: "连接 A",
+        baseUrl: "https://a.example.test/v1",
+        model: "model-a",
+        api: "openai-completions",
+        reasoningEffort: "low",
+        configured: true,
+        active: true
+      }
+    ],
+    host: null,
+    executor: null
+  };
+  const status = () => ({
+    ...state.profiles[0],
+    activeProfileId: "a",
+    visionProfileId: "",
+    profiles: state.profiles,
+    managedByEnvironment: false,
+    modelRoles: {
+      projectId: null,
+      roles: [
+        {
+          role: "main",
+          wired: true,
+          host: state.host ? { profileId: state.host } : null,
+          project: null,
+          effective: null
+        },
+        {
+          role: "executor",
+          wired: true,
+          host: state.executor ? { profileId: state.executor } : null,
+          project: null,
+          effective: null
+        },
+        { role: "reviewer", wired: true, host: null, project: null, effective: null },
+        { role: "router", wired: false, host: null, project: null, effective: null }
+      ]
+    }
+  });
+  const requests = [];
+  const handlers = [];
+  const saved = [];
+  installDesktopSettings({
+    showToast() {},
+    host: {
+      close: () => true,
+      open() {},
+      onSection: (name, handler) => {
+        if (name === "models") handlers.push(handler);
+        return () => {};
+      }
+    },
+    identity: () => "backend-a",
+    async api(path, options) {
+      const body = options.body ? JSON.parse(options.body) : undefined;
+      requests.push({ path, method: options.method, body });
+      if (path === "/api/model-settings/roles") {
+        // A refused write leaves the saved binding untouched.
+        if (body.role === "main") throw new Error("保存被拒绝：连接不可用");
+        if (body.role === "executor") state.executor = body.profileId || null;
+        else state.host = body.profileId || null;
+        return status();
+      }
+      if (path === "/api/model-settings" && options.method === "POST")
+        throw new Error("推理强度保存失败：连接不可用");
+      return status();
+    }
+  });
+  const tick = async () => {
+    for (let index = 0; index < 8; index++) await new Promise((done) => setTimeout(done, 0));
+  };
+  assert.equal(handlers.length, 1, "the section refresh hook is registered");
+  handlers[0]();
+  await tick();
+  const roleRow = (role) => document.querySelector(`[data-model-role="${role}"]`);
+  const errorOf = (role) => roleRow(role).querySelector("[data-role-error]");
+  assert.equal(document.querySelector('[data-role-effort="main"]').value, "low");
+  assert.equal(errorOf("main").hidden, true);
+
+  // The effort select keeps the persisted value when the write is refused, and
+  // the reason is on the row instead of the closed connection dialog.
+  const effort = document.querySelector('[data-role-effort="main"]');
+  effort.querySelector('option[value="high"]').selected = true;
+  effort.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await tick();
+  assert.equal(
+    requests.filter((request) => request.path === "/api/model-settings" && request.method === "POST").length,
+    1
+  );
+  assert.equal(document.querySelector('[data-role-effort="main"]').value, "low");
+  assert.equal(errorOf("main").hidden, false);
+  assert.match(errorOf("main").textContent, /推理强度保存失败/);
+  assert.equal(roleRow("main").classList.contains("has-error"), true);
+  assert.equal(
+    document.querySelector("[data-model-error]").textContent,
+    "",
+    "the closed connection dialog must not carry the failure"
+  );
+
+  // A later change clears the reason and saves normally.
+  const model = document.querySelector('[data-role-model="executor"]');
+  model.querySelector('option[value="a"]').selected = true;
+  model.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await tick();
+  assert.equal(errorOf("executor").hidden, true);
+  saved.push(...requests.filter((request) => request.path === "/api/model-settings/roles"));
+  assert.deepEqual(saved.at(-1).body, { role: "executor", profileId: "a" });
+  assert.equal(document.querySelector('[data-role-model="executor"]').value, "a");
+});

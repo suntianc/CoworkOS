@@ -633,6 +633,19 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   font: 400 12px/1.4 var(--ui-font);
   cursor: pointer;
 }
+.settings-row.has-error {
+  flex-wrap: wrap;
+}
+.settings-row-error {
+  flex: 0 0 100%;
+  margin-top: 4px;
+  color: var(--color-danger);
+  font: 400 12px/1.5 var(--ui-font);
+}
+.settings-row-error[hidden] {
+  display: none;
+}
+
 .settings-stepper {
   display: inline-flex;
   align-items: center;
