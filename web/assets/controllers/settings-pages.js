@@ -2,6 +2,7 @@ import { icon } from "../ui/icons.js";
 import { ui } from "../ui/language.js";
 import { escapeHtml as esc } from "../workbench/html.js";
 import { createModal } from "../ui/modal.js";
+import { formatStamp } from "../ui/time-format.js";
 
 /**
  * The settings surface: one page with a left navigation, replacing the old
@@ -75,7 +76,7 @@ export function createSettingsPages({
   };
   const remoteNodes = () => (Array.isArray(nodes()) ? nodes() : []).filter((node) => node && !node.local);
   const capacityNodes = () => remoteNodes().filter((node) => node.role === "external");
-  const nodeStatus = (node) => node.status ?? (node.state === "offline" ? "offline" : "online");
+  const nodeStatus = (node) => node.status ?? "online";
   const nodeState = (node) => NODE_STATE[nodeStatus(node)] ?? NODE_STATE.offline;
   const nodeAddress = (node) => {
     if (node.address) return node.address;
@@ -93,8 +94,8 @@ export function createSettingsPages({
     const status = nodeStatus(node);
     const state = nodeState(node);
     const retry = !node.local && ["offline", "failed", "disconnected"].includes(status);
-    const info = node.local ? "只在这台机器上运行，不对外提供 Main" : "通过授权连接的另一台节点";
-    return `<div class="settings-row" data-node="${esc(node.origin)}">
+    const lastSeen = status === "offline" && node.lastSeen ? ` · ${formatStamp(node.lastSeen)}` : "";
+    return `<div class="settings-row"${node.local ? " data-local-node" : ""} data-node="${esc(node.origin)}">
       <span class="settings-icon-box">${icon(node.local ? "laptop" : "server")}</span>
       <span class="settings-row-text">
         <span class="settings-row-line"><span class="settings-row-name">${esc(node.name)}</span><span class="settings-role">${ui(ROLE_LABEL[node.role] ?? ROLE_LABEL.internal)}</span></span>
@@ -102,7 +103,7 @@ export function createSettingsPages({
       </span>
       <span class="settings-row-spacer"></span>
       <span class="settings-dot ${state.tone}" aria-hidden="true"></span>
-      <span class="settings-row-state">${esc(ui(state.label))}</span>
+      <span class="settings-row-state">${esc(ui(state.label))}${esc(lastSeen)}</span>
       ${
         retry
           ? `<button class="settings-retry" type="button" data-node-reconnect="${esc(node.origin)}">${ui("重连")}</button>`
@@ -110,18 +111,28 @@ export function createSettingsPages({
       }
       ${
         node.local
-          ? `<span class="settings-info" title="${esc(info)}">${icon("info")}</span>`
+          ? `<span class="settings-info" title="只在这台机器上运行，不对外提供 Main">${icon("info")}</span>`
           : `<button class="settings-icon-button" type="button" data-node-menu="${esc(node.origin)}" aria-label="${esc(ui("节点操作"))}" aria-haspopup="menu" aria-expanded="false">${icon("more")}</button>`
       }
     </div>`;
   }
 
-  function renderNodes() {
-    $("#settings-node-local").innerHTML = nodeRow(localNode());
+  function renderNodes({ force = false } = {}) {
+    const localBox = $("#settings-node-local");
+    const remoteBox = $("#settings-node-remote");
+    // A row control keeps focus while a status notify arrives; the next
+    // focusout (or section open) brings the rows up to date.
+    if (!force && remoteBox.contains(document.activeElement)) return;
+    const localMarkup = nodeRow(localNode());
+    const local = localBox.querySelector("[data-local-node]");
+    // The host appends its backend-switcher row here, so replace only this
+    // row instead of rewriting the box.
+    if (local) local.outerHTML = localMarkup;
+    else localBox.insertAdjacentHTML("afterbegin", localMarkup);
     const remote = remoteNodes();
     $("#settings-node-remote-group").hidden = !remote.length && !addNode;
-    $("#settings-node-remote").hidden = !remote.length;
-    $("#settings-node-remote").innerHTML = remote.map(nodeRow).join("");
+    remoteBox.hidden = !remote.length;
+    remoteBox.innerHTML = remote.map(nodeRow).join("");
     $("#settings-node-add").hidden = !addNode;
     if (!$("#settings-node-data").childElementCount)
       $("#settings-node-data").innerHTML = `<div class="settings-row">
@@ -348,6 +359,9 @@ export function createSettingsPages({
       showToast(ui(error?.message || "节点操作未完成"));
       return;
     }
+    // A user action owns the row it changed, so it updates even while that
+    // row's control holds focus.
+    if (opened && section === "nodes") renderNodes({ force: true });
     if (action === "remove") {
       const add = $("#settings-node-add");
       (add.hidden ? root.querySelector('[data-settings-section="nodes"]') : add)?.focus();
@@ -683,11 +697,20 @@ export function createSettingsPages({
     }
     const retry = event.target.closest("[data-node-reconnect]");
     if (retry)
-      void reconnectNode?.(retry.dataset.nodeReconnect).catch((error) =>
-        showToast(ui(error?.message || "节点操作未完成"))
-      );
+      void reconnectNode?.(retry.dataset.nodeReconnect)
+        .then(() => {
+          if (opened && section === "nodes") renderNodes({ force: true });
+        })
+        .catch((error) => showToast(ui(error?.message || "节点操作未完成")));
   });
   $("#settings-mcp-add").addEventListener("click", () => addMcp?.());
+
+  // Rows paused a notify while one of their controls held focus; bring them
+  // up to date as soon as focus leaves.
+  $("#settings-node-remote").addEventListener("focusout", (event) => {
+    if ($("#settings-node-remote").contains(event.relatedTarget)) return;
+    if (opened && section === "nodes") refresh();
+  });
 
   $("#settings-capacity-nodes").addEventListener("click", (event) => {
     const group = event.target.closest("[data-capacity-node]");

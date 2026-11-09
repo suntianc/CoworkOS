@@ -230,6 +230,13 @@ test("node connections, tools and members show only the information each section
     await expect(local).toContainText("对内");
     await expect(local).toContainText("在线");
     await expect(page.locator("#settings-node-data")).toContainText("SQLite · 由本机提供");
+    // The host appends its backend-switcher row to this box; rendering the
+    // local node must not remove it.
+    await expect(page.locator("#settings-node-local [data-backend-open]")).toHaveCount(1);
+    await page.locator("#settings-node-local [data-backend-open]").click();
+    await expect(page.getByRole("dialog", { name: "后端" })).toBeVisible();
+    await page.locator("[data-backend-close]").click();
+    await expect(page.getByRole("dialog", { name: "后端" })).toBeHidden();
     // No remote node is stored yet: the group only offers the add action.
     await expect(page.locator("#settings-node-remote-group")).toBeVisible();
     await expect(page.locator("#settings-node-add")).toBeVisible();

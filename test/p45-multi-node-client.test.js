@@ -400,6 +400,38 @@ test("adding, renaming, disconnecting, reauthorizing and removing a node keep it
   port.dispose();
 });
 
+test("a node read only accepts relative paths so its token cannot reach another origin", async () => {
+  const a = fakeBackend({
+    origin: "http://127.0.0.1:4001",
+    backendId: "backend-a",
+    projects: [project("pa", "甲项目")],
+    requirements: { pa: [{ requirementId: "ra", title: "甲需求", status: "open" }] }
+  });
+  const other = fakeBackend({ origin: "http://127.0.0.1:4002", backendId: "backend-other" });
+  const port = createPort({
+    backends: new Map([
+      [a.origin, a],
+      [other.origin, other]
+    ]),
+    local: localProvider({ projects: [], tasks: [] })
+  });
+  port.start();
+  await port.addNode({ baseUrl: a.origin, name: "甲节点" });
+  await until(() => port.statusOf(a.origin) === "online", "node A never came online");
+  const requestsBefore = other.requests.length;
+
+  await assert.rejects(port.read(a.origin, `${other.origin}/api/tasks`), /相对路径/);
+  await assert.rejects(port.read(a.origin, "//127.0.0.1:4002/api/tasks"), /相对路径/);
+  assert.equal(
+    other.requests.length,
+    requestsBefore,
+    "an absolute path must never send this node's token to another origin"
+  );
+  const ledger = await port.read(a.origin, "/api/projects/pa/ledger");
+  assert.equal(ledger.requirements[0].requirementId, "ra");
+  port.dispose();
+});
+
 test("the local node follows the page's own connection and snapshot without a second event channel", async () => {
   let status = "offline";
   let tasks = [];

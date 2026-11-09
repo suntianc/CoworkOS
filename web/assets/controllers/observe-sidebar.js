@@ -11,6 +11,9 @@ import { escapeHtml as esc } from "../workbench/html.js";
  * that project. The filter is exposed on the observation pane as
  * `data-observe-node` and `data-observe-project` for the views to read, so no
  * view holds a node connection of its own.
+ *
+ * Rows are patched in place when the same nodes/projects are still listed: a
+ * catalog event during a run must not replace the button the keyboard is on.
  */
 
 const STATUS_LABEL = {
@@ -21,21 +24,32 @@ const STATUS_LABEL = {
   disconnected: "已断开"
 };
 
-export function createObserveSidebar({ root, pane, data, addNode, addProject } = {}) {
+export function createObserveSidebar({ root, pane, data, addNode } = {}) {
   if (!root) return { render() {}, dispose() {} };
   const filter = { nodeOrigin: "", projectId: "" };
   const $ = (selector) => root.querySelector(selector);
 
   function nodeRow(node) {
-    const online = node.status === "online";
     const label = STATUS_LABEL[node.status];
     return `<button class="observe-item" type="button" data-observe-node="${esc(node.origin)}" aria-pressed="${filter.nodeOrigin === node.origin}">
       ${icon(node.local ? "laptop" : "server")}
       <span class="observe-item-name">${esc(node.name)}</span>
       <span class="observe-item-spacer"></span>
-      ${label ? `<span class="observe-item-state">${esc(ui(label))}</span>` : ""}
-      <span class="observe-dot ${online ? "is-ok" : node.status === "unauthorized" ? "is-alert" : ""}" aria-hidden="true"></span>
+      <span class="observe-item-state"${label ? "" : " hidden"}>${label ? esc(ui(label)) : ""}</span>
+      <span class="observe-dot" aria-hidden="true"></span>
     </button>`;
+  }
+
+  function updateNodeRow(button, node) {
+    button.setAttribute("aria-pressed", String(filter.nodeOrigin === node.origin));
+    button.querySelector(".observe-item-name").textContent = node.name;
+    const state = button.querySelector(".observe-item-state");
+    const label = STATUS_LABEL[node.status];
+    state.textContent = label ? ui(label) : "";
+    state.hidden = !label;
+    button.querySelector(".observe-dot").className = `observe-dot ${
+      node.status === "online" ? "is-ok" : node.status === "unauthorized" ? "is-alert" : ""
+    }`.trim();
   }
 
   function projectRow(project, count) {
@@ -43,8 +57,32 @@ export function createObserveSidebar({ root, pane, data, addNode, addProject } =
       ${icon("folder")}
       <span class="observe-item-name">${esc(project.projectName)}</span>
       <span class="observe-item-spacer"></span>
-      ${count > 0 ? `<span class="observe-item-count">${esc(String(count))}</span>` : ""}
+      <span class="observe-item-count"${count > 0 ? "" : " hidden"}>${count > 0 ? esc(String(count)) : ""}</span>
     </button>`;
+  }
+
+  function updateProjectRow(button, project, count) {
+    button.setAttribute("aria-pressed", String(filter.projectId === project.projectId));
+    button.querySelector(".observe-item-name").textContent = project.projectName;
+    const badge = button.querySelector(".observe-item-count");
+    badge.textContent = count > 0 ? String(count) : "";
+    badge.hidden = count <= 0;
+  }
+
+  /** The listed identities still match, so rows can be patched without a rebuild. */
+  function sameRows(list, keys, attribute) {
+    return (
+      list.children.length === keys.length &&
+      [...list.children].every((child, index) => child.dataset[attribute] === keys[index])
+    );
+  }
+
+  function renderList(list, rows, keys, attribute, update) {
+    if (!sameRows(list, keys, attribute)) {
+      list.innerHTML = rows.map((row) => row.markup).join("");
+      return;
+    }
+    rows.forEach((row, index) => update(list.children[index], row.value));
   }
 
   function setCount(view, value) {
@@ -76,12 +114,26 @@ export function createObserveSidebar({ root, pane, data, addNode, addProject } =
     const counts = data.counts(filter);
     setCount("requirements", counts.requirements);
     setCount("runs", counts.runs);
-    $("[data-observe-node-list]").innerHTML = data.nodes().map(nodeRow).join("");
+    const nodes = data.nodes();
+    renderList(
+      $("[data-observe-node-list]"),
+      nodes.map((node) => ({ markup: nodeRow(node), value: node })),
+      nodes.map((node) => node.origin),
+      "observeNode",
+      updateNodeRow
+    );
     const listCounts = data.counts({ nodeOrigin: filter.nodeOrigin, projectId: "" }).projects;
     const projects = data.scoped({ nodeOrigin: filter.nodeOrigin, projectId: "" }).projects;
-    $("[data-observe-project-list]").innerHTML = projects
-      .map((project) => projectRow(project, listCounts.get(project.projectId) || 0))
-      .join("");
+    renderList(
+      $("[data-observe-project-list]"),
+      projects.map((project) => ({
+        markup: projectRow(project, listCounts.get(project.projectId) || 0),
+        value: project
+      })),
+      projects.map((project) => project.projectId),
+      "observeProject",
+      (button, project) => updateProjectRow(button, project, listCounts.get(project.projectId) || 0)
+    );
     if (pane) {
       pane.dataset.observeNode = filter.nodeOrigin;
       pane.dataset.observeProject = filter.projectId;
@@ -115,14 +167,9 @@ export function createObserveSidebar({ root, pane, data, addNode, addProject } =
       return;
     }
     if (event.target.closest("[data-observe-add-node]")) addNode?.();
-    else if (event.target.closest("[data-observe-add-project]")) addProject?.();
   };
   root.addEventListener("click", onClick);
 
-  const addProjectButton = root.querySelector("[data-observe-add-project]");
-  if (addProjectButton) {
-    addProjectButton.hidden = !addProject;
-  }
   const addNodeButton = root.querySelector("[data-observe-add-node]");
   if (addNodeButton) addNodeButton.hidden = !addNode;
 

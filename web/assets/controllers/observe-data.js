@@ -22,6 +22,21 @@ import { readNodes, writeNodes } from "./node-registry.js";
  */
 
 const LEDGER_PATH = (projectId) => `/api/projects/${encodeURIComponent(projectId)}/ledger`;
+const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:/i;
+
+/**
+ * A node read is always a path on that node.
+ *
+ * The management client passes an absolute URL through to `fetch`, so an
+ * absolute or protocol-relative value here would send this node's credential
+ * to another origin. The port therefore accepts only a rooted, single-slash
+ * path.
+ */
+function nodePath(path) {
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || ABSOLUTE_URL.test(path))
+    throw new Error("节点读取只接受相对路径");
+  return path;
+}
 
 function nodeStorage(base, origin) {
   const prefix = `cowork.node.${origin}:`;
@@ -95,8 +110,7 @@ export function createObserveData({
       local: entry.local,
       status: entry.status,
       lastSeen: entry.lastSeen,
-      error: entry.error,
-      projectCount: Array.isArray(entry.snapshot?.projects) ? entry.snapshot.projects.length : 0
+      error: entry.error
     };
   }
 
@@ -121,7 +135,6 @@ export function createObserveData({
         origin: value.origin,
         name: value.name,
         role: value.role,
-        state: value.status === "online" ? "online" : "offline",
         ...(value.lastSeen ? { lastSeen: value.lastSeen } : {})
       }));
     writeNodes(storage, records);
@@ -278,25 +291,23 @@ export function createObserveData({
   }
 
   async function readEntry(entry, path, options) {
-    if (entry.local) return local.request(path, options);
-    return entry.client.request(path, options);
+    const target = nodePath(path);
+    if (entry.local) return local.request(target, options);
+    return entry.client.request(target, options);
   }
 
   async function connectEntry(entry, { reauthorize = false } = {}) {
     if (entry.disposed || disposed || !entry.wanted) return entry;
     clearRetry(entry);
-    entry.connecting = true;
     if (entry.status !== "unauthorized") setStatus(entry, "connecting");
     let state;
     try {
       state = await entry.client.connect({ baseUrl: entry.origin, reuse: !reauthorize });
     } catch (error) {
-      entry.connecting = false;
       if (!entry.disposed) setStatus(entry, "offline", describeError(error));
       scheduleRetry(entry);
       return entry;
     }
-    entry.connecting = false;
     if (entry.disposed || disposed) return entry;
     if (state?.status === "connected" || entry.client.state().status === "connected") {
       setStatus(entry, "online");

@@ -185,6 +185,7 @@ const management = createManagementClient({
   onStateChange: (state) => {
     backendConnection?.apply(state);
     updateSendButton();
+    observeData.localChanged();
   }
 });
 const artifactViewer = createArtifactViewer({
@@ -836,6 +837,7 @@ async function refreshState({ poll = false, isCurrent = () => true } = {}) {
     const data = await readProjectCatalog(requestSequence, isCurrent);
     if (!isCurrent() || requestSequence !== listRequestSequence) return;
     await applyCatalog(data, { poll });
+    observeData.localChanged();
   } catch (error) {
     // A request from the backend this page switched away from is not an outage.
     if (error?.stale || error?.code === "stale_client") return;
@@ -848,6 +850,7 @@ async function refreshState({ poll = false, isCurrent = () => true } = {}) {
     state.online = false;
     backendConnection?.setOnline(false);
     updateSendButton();
+    observeData.localChanged();
   }
 }
 
@@ -1597,6 +1600,10 @@ const observeData = createObserveData({
     name: ui("本机"),
     role: "internal",
     status: () => {
+      // The same "online" flag the page's offline banner uses: a catalog read
+      // that could not reach the backend means the local node is offline even
+      // while the management client still reports its old session.
+      if (!state.online) return "offline";
       const status = management.state().status;
       if (status === "connected") return "online";
       if (status === "connecting" || status === "idle") return "connecting";

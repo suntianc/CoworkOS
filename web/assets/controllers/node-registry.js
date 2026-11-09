@@ -33,7 +33,6 @@ export function readNodes(storage) {
       origin: node.origin,
       name: node.name.trim(),
       role: node.role,
-      ...(node.state === "offline" ? { state: "offline" } : { state: "online" }),
       ...(typeof node.lastSeen === "string" ? { lastSeen: node.lastSeen } : {})
     }));
 }
@@ -54,7 +53,6 @@ export function writeNodes(storage, nodes) {
       origin: node.origin,
       name: node.name.trim(),
       role: node.role,
-      ...(node.state === "offline" ? { state: "offline" } : { state: "online" }),
       ...(typeof node.lastSeen === "string" ? { lastSeen: node.lastSeen } : {})
     }));
   try {

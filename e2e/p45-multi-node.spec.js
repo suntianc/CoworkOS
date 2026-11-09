@@ -137,17 +137,33 @@ test("two local nodes aggregate in observation while work stays on this machine"
     // brings it back with a fresh snapshot.
     await page.locator(`button[data-observe-node="${b.base}"]`).click();
     await page.locator(`button[data-observe-project="${remoteProject.projectId}"]`).click();
+    // The list updates in place: a node going offline keeps the keyboard
+    // focus on its own row instead of replacing the list.
+    const remoteNodeRow = page.locator(`button[data-observe-node="${b.base}"]`);
+    await remoteNodeRow.focus();
     await stopChild(b, b.child);
-    await expect(page.locator(`button[data-observe-node="${b.base}"]`)).toContainText("离线", {
-      timeout: 15_000
-    });
+    await expect(remoteNodeRow).toContainText("离线", { timeout: 15_000 });
+    await expect(remoteNodeRow).toBeFocused();
     await expect(page.locator(`button[data-observe-node="${a.base}"]`)).not.toContainText("离线");
     await expect(page.locator('[data-observe-count="requirements"]')).toHaveText("2");
 
+    // The settings row keeps its last-online timestamp and the host's backend
+    // row, and a notify never takes focus away from a row control.
+    await page.locator("#user-menu-button").click();
+    await page.locator('[data-settings-section="nodes"]').click();
+    const remoteSettingsRow = page.locator(`#settings-node-remote [data-node="${b.base}"]`);
+    await expect(remoteSettingsRow).toContainText(/离线 · /);
+    await expect(page.locator("#settings-node-local [data-backend-open]")).toHaveCount(1);
+    const nodeMenuButton = remoteSettingsRow.locator("[data-node-menu]");
+    await nodeMenuButton.focus();
     await b.restart();
-    await expect(page.locator(`button[data-observe-node="${b.base}"]`)).not.toContainText("离线", {
-      timeout: 20_000
-    });
+    await expect(remoteNodeRow).not.toContainText("离线", { timeout: 20_000 });
+    await expect(nodeMenuButton).toBeFocused();
+    await page.locator('[data-settings-section="general"]').click();
+    await page.locator('[data-settings-section="nodes"]').click();
+    await expect(remoteSettingsRow).toContainText("在线");
+    await expect(page.locator("#settings-node-local [data-backend-open]")).toHaveCount(1);
+    await page.locator("#settings-back").click();
     await expect(page.locator("[data-observe-project-list]")).toContainText("远程项目");
     await expect(page.locator('[data-observe-count="requirements"]')).toHaveText("3");
 
@@ -166,6 +182,7 @@ test("two local nodes aggregate in observation while work stays on this machine"
     await page.locator(`[data-node-menu="${b.base}"]`).click();
     await page.locator('.settings-node-menu [data-node-action="disconnect"]').click();
     await expect(page.locator(`#settings-node-remote [data-node="${b.base}"]`)).toContainText("已断开");
+    await expect(page.locator("#settings-node-local [data-backend-open]")).toHaveCount(1);
     await page.locator("#settings-back").click();
     await expect(page.locator(`button[data-observe-node="${b.base}"]`)).toContainText("已断开");
     await expect(page.locator("[data-observe-project-list]")).not.toContainText("远程项目");
@@ -190,9 +207,20 @@ test("two local nodes aggregate in observation while work stays on this machine"
     await page.locator(`[data-node-menu="${b.base}"]`).click();
     await page.locator('.settings-node-menu [data-node-action="remove"]').click();
     await expect(page.locator(`#settings-node-remote [data-node="${b.base}"]`)).toHaveCount(0);
+    await expect(page.locator("#settings-node-local [data-backend-open]")).toHaveCount(1);
     await page.locator("#settings-back").click();
     await expect(page.locator(`button[data-observe-node="${b.base}"]`)).toHaveCount(0);
     await expect(page.locator("button[data-observe-node]")).toHaveCount(1);
+
+    // The local node reports a stopped backend as offline and recovers.
+    await stopChild(a, a.child);
+    await expect(page.locator(`button[data-observe-node="${a.base}"]`)).toContainText("离线", {
+      timeout: 20_000
+    });
+    await a.restart();
+    await expect(page.locator(`button[data-observe-node="${a.base}"]`)).not.toContainText("离线", {
+      timeout: 20_000
+    });
 
     // Work still uses only this machine's node.
     await page.getByRole("tab", { name: "工作", exact: true }).click();

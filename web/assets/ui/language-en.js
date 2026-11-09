@@ -1097,6 +1097,7 @@ export default {
   该节点已经添加: "This node is already added",
   节点名称不能为空: "The node name cannot be empty",
   找不到该节点: "This node could not be found",
+  "未知节点：": "Unknown node: ",
   项目数据: "Project data",
   共享台账与看板: "Shared ledger and board",
   在线: "Online",
