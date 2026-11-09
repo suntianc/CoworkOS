@@ -46,6 +46,7 @@ import { mergeRuntimeEvents } from "./assets/conversation.js";
 import { createEntryController } from "./assets/controllers/entry-controller.js";
 import { createSettingsPages } from "./assets/controllers/settings-pages.js";
 import { createObserveData } from "./assets/controllers/observe-data.js";
+import { createObserveRuns } from "./assets/controllers/observe-runs.js";
 import { createObserveSidebar } from "./assets/controllers/observe-sidebar.js";
 import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
 import { createNewSessionView } from "./assets/controllers/new-session.js";
@@ -1644,6 +1645,11 @@ observeSidebar = createObserveSidebar({
   pane: $("#observe-entry"),
   data: observeData,
   addNode: () => settingsPages.addNodeDialog()
+});
+createObserveRuns({
+  root: $('[data-observe-panel="runs"]'),
+  header: $("[data-observe-runs-controls]"),
+  data: observeData
 });
 observeData.subscribe(() => {
   observeSidebar.render();

@@ -44,6 +44,7 @@ export function createEntryController({ root, storage, onChange } = {}) {
       button.setAttribute("aria-selected", String(selected));
       button.tabIndex = selected ? 0 : -1;
     }
+    root.dataset.observeViewName = state.observeView;
     for (const panel of root.querySelectorAll("[data-observe-panel]"))
       panel.hidden = panel.dataset.observePanel !== state.observeView;
     for (const button of root.querySelectorAll("[data-observe-view]")) {

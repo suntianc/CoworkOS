@@ -1186,5 +1186,23 @@ export default {
   "Token 未知": "Tokens unknown",
   改动文件: "Changed files",
   "改动较大，仅显示前部分内容。下载可查看完整改动。":
-    "This change is large; only the first part is shown. Download to see all of it."
+    "This change is large; only the first part is shown. Download to see all of it.",
+  开发: "Develop",
+  审查: "Review",
+  合入: "Merge",
+  等待: "Waiting",
+  空闲: "Idle",
+  常驻: "Resident",
+  指标未就绪: "Metrics not ready",
+  等待合入: "Waiting to merge",
+  等新需求: "Awaiting requirements",
+  阶段: "Stage",
+  时间窗口: "Time window",
+  现在: "Now",
+  "2 小时": "2 h",
+  " 分": " min",
+  " 小时": " h",
+  " 分无进展": " min without progress",
+  " 小时无进展": " h without progress",
+  "没有运行中的 Main": "No running Mains"
 };
