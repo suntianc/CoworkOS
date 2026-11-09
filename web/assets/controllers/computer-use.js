@@ -124,7 +124,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
             permissions.available
               ? `屏幕录制：${permissions.screenRecording ? "已开启" : "未开启"} · 辅助功能：${permissions.accessibility ? "已开启" : "未开启"}${permissions.accessibility && permissions.postEventAccess === false ? " · 输入事件：未开启" : ""}${permissions.controlAvailable === false ? `。${permissions.reason || "桌面暂不可操作"}` : ""}`
               : permissions.reason || "窗口访问不可用"
-          }。请在执行主机的 CoworkOS 桌面版处理权限。`
+          }。请在执行主机的 Formicand 桌面版处理权限。`
         : !permissions.available
           ? permissions.reason || "当前电脑操作不可用"
           : [

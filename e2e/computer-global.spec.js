@@ -108,7 +108,7 @@ test("web settings show only the selected execution host's permission state", as
     await openSettings(page);
     const permissions = page.locator("[data-computer-permissions]");
     await expect(permissions).toContainText("执行主机：屏幕录制：未开启 · 辅助功能：已开启");
-    await expect(permissions).toContainText("请在执行主机的 CoworkOS 桌面版处理权限");
+    await expect(permissions).toContainText("请在执行主机的 Formicand 桌面版处理权限");
     await expect(page.locator(".computer-permission-actions")).toBeHidden();
     status = {
       available: true,

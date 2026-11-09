@@ -1237,7 +1237,7 @@ function renderFocus(agent) {
     identityParts.workspace && identityParts.workspace !== state.detail?.task?.projectDirectory
       ? identityParts.workspace
       : "";
-  const identity = `<div class="trace-heading"><div class="trace-title"><span class="trace-avatar">${agent.__main ? '<img src="/assets/atria-symbol.png" alt="" />' : '<svg class="ui-icon"><use href="#i-team"/></svg>'}</span><div><strong>${esc(agentName(agent, agent.index))}</strong>${roleModel ? `<small>${esc(roleModel)}</small>` : ""}</div></div><span>${esc(memberStateText(agent))}</span></div><p class="trace-task">${esc(agent.task || ui("等待分派任务"))}</p>${isolatedWorkspace ? `<p class="trace-workspace" title="${esc(isolatedWorkspace)}">${esc(isolatedWorkspace)}</p>` : ""}`;
+  const identity = `<div class="trace-heading"><div class="trace-title"><span class="trace-avatar">${agent.__main ? '<svg class="avatar-mark" aria-hidden="true"><use href="#i-formicand-mark-small" /></svg>' : '<svg class="ui-icon"><use href="#i-team"/></svg>'}</span><div><strong>${esc(agentName(agent, agent.index))}</strong>${roleModel ? `<small>${esc(roleModel)}</small>` : ""}</div></div><span>${esc(memberStateText(agent))}</span></div><p class="trace-task">${esc(agent.task || ui("等待分派任务"))}</p>${isolatedWorkspace ? `<p class="trace-workspace" title="${esc(isolatedWorkspace)}">${esc(isolatedWorkspace)}</p>` : ""}`;
   if ($("#trace-identity").innerHTML !== identity) $("#trace-identity").innerHTML = identity;
   if (!state.selected || !state.detail?.task?.activeRunId) {
     paintTrajectory({ entries: [], total: 0 });
@@ -1456,7 +1456,7 @@ function renderEmpty() {
   goalView.update(null);
   $("#topbar-task").textContent = ui("新任务");
   $("#conversation").innerHTML =
-    ui`<div class="welcome-empty"><div class="welcome-symbol"><img src="/assets/atria-symbol.png" alt="" /></div><h2>有什么可以帮忙的？</h2><div class="starter-prompts"><button data-prompt="帮我梳理这个项目的结构"><span class="prompt-icon">${icon("folder")}</span>梳理项目结构 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="检查最近的代码改动并运行测试"><span class="prompt-icon">${icon("check")}</span>检查代码改动 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="研究这个主题并整理一份简报"><span class="prompt-icon">${icon("search")}</span>研究并整理简报 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="读取我提供的文件，整理关键信息并生成一份报告。"><span class="prompt-icon">${icon("apps")}</span>整理文件并生成报告 <span class="prompt-arrow">${icon("arrow")}</span></button></div></div>`;
+    ui`<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2><div class="starter-prompts"><button data-prompt="帮我梳理这个项目的结构"><span class="prompt-icon">${icon("folder")}</span>梳理项目结构 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="检查最近的代码改动并运行测试"><span class="prompt-icon">${icon("check")}</span>检查代码改动 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="研究这个主题并整理一份简报"><span class="prompt-icon">${icon("search")}</span>研究并整理简报 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="读取我提供的文件，整理关键信息并生成一份报告。"><span class="prompt-icon">${icon("apps")}</span>整理文件并生成报告 <span class="prompt-arrow">${icon("arrow")}</span></button></div></div>`;
   bindStarterPrompts();
   state.selectedAgent = null;
   renderAgentRoom({ calls: [] }, { status: "created" }, null);

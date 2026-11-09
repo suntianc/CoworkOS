@@ -55,8 +55,8 @@ test("rename uses the shared dialog controls in light and dark at desktop and na
         await expect(input).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
         await expect(input).toHaveCSS("border-radius", "12px");
         await expect(input).toHaveCSS("outline-width", "2px");
-        await expect(dialog).toHaveCSS("border-top-width", "0px");
-        await expect(dialog).toHaveCSS("border-radius", "24px");
+        await expect(dialog).toHaveCSS("border-top-width", "1px");
+        await expect(dialog).toHaveCSS("border-radius", "16px");
         await expect(cancel).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
         await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
         await expect(save).toHaveCSS("font-size", "14px");
@@ -80,10 +80,12 @@ test("rename uses the shared dialog controls in light and dark at desktop and na
           };
         });
         expect(Math.abs(controls.inputWidth - controls.fieldWidth)).toBeLessThan(1);
-        expect(controls.primaryBackground).toBe(theme === "light" ? "rgb(38, 38, 38)" : "rgb(237, 237, 237)");
-        expect(controls.primaryColor).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(32, 32, 32)");
-        expect(controls.panelBackground).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(25, 25, 25)");
-        expect(controls.backdrop).toBe("none");
+        expect(controls.primaryBackground).toBe(theme === "light" ? "rgb(28, 28, 34)" : "rgb(236, 236, 238)");
+        expect(controls.primaryColor).toBe(theme === "light" ? "rgb(244, 244, 248)" : "rgb(14, 14, 15)");
+        expect(controls.panelBackground).toBe(
+          theme === "light" ? "rgba(251, 251, 253, 0.95)" : "rgba(16, 16, 20, 0.88)"
+        );
+        expect(controls.backdrop).toBe("blur(20px)");
         await expect(save).toBeInViewport();
         await expect(cancel).toBeInViewport();
         await page.screenshot({ path: info.outputPath(`rename-${theme}-${width}.png`) });

@@ -348,7 +348,7 @@ test("a failed backend recovery releases the transaction with an actionable pers
   await assert.rejects(f.host.apply(), /本地服务无法恢复/);
   assert.equal(f.host.status().busy, false);
   assert.equal(f.host.status().applying, false);
-  assert.match(f.host.status().error, /请重新打开 CoworkOS/);
+  assert.match(f.host.status().error, /请重新打开 Formicand/);
   assert.doesNotMatch(f.host.status().error, /private/);
   assert.ok(!f.calls.includes("quit"));
 });

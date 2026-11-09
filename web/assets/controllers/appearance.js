@@ -2,6 +2,7 @@
 (() => {
   const key = "atria.appearance";
   const host = window.bookmanDesktop?.appearance;
+  const windowMaterial = window.bookmanDesktop?.windowMaterial?.material;
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   const valid = (value) => ["system", "light", "dark"].includes(value);
   const validTheme = (value) => ["light", "dark"].includes(value);
@@ -28,12 +29,15 @@
     effective = preference === "system" ? (hostEffective ?? (media.matches ? "dark" : "light")) : preference;
     document.documentElement.dataset.appearance = preference;
     document.documentElement.dataset.theme = effective;
+    // A host window material replaces the painted gradient; the browser keeps it.
+    document.documentElement.dataset.windowMaterial =
+      typeof windowMaterial === "string" && windowMaterial !== "none" ? windowMaterial : "none";
     document.documentElement.style.colorScheme = effective;
     const select = document.querySelector("#appearance-select");
     if (select) select.value = preference;
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
       meta.removeAttribute("media");
-      meta.content = effective === "dark" ? "#0d0d0d" : "#f7f7f8";
+      meta.content = effective === "dark" ? "#0e0e0f" : "#f4f4f8";
     });
     window.dispatchEvent(new CustomEvent("atria:appearance", { detail: { preference, effective } }));
   }

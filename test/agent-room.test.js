@@ -33,7 +33,7 @@ test("agent names remain unique through concurrent delegation, follow-ups and re
       reordered.map(agentName),
       agents.toReversed().map((agent) => agent.name)
     );
-    assert.equal(agentName({ agentId: "main" }), "CoworkOS");
+    assert.equal(agentName({ agentId: "main" }), "Formicand");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

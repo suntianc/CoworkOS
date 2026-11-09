@@ -1,7 +1,7 @@
 const taskStatuses = new Set(["created", "running", "waiting", "completed", "failed", "cancelled"]);
 
 /** Save the renderer only after confirming idle execution, then confirm it again before host shutdown. */
-async function prepareDesktopChange({ backend, documents, action = "更新 CoworkOS", fetchImpl = fetch }) {
+async function prepareDesktopChange({ backend, documents, action = "更新 Formicand", fetchImpl = fetch }) {
   const unavailable = () => new Error(`无法确认任务运行状态，暂时不能${action}，请稍后重试。`);
   const running = () => new Error(`仍有任务正在运行，请等待任务结束或取消任务后再${action}。`);
   let base;

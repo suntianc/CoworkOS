@@ -152,9 +152,9 @@ export function createBindingControl({
     button.classList.toggle("is-bound", Boolean(model.selected));
     button.classList.toggle("is-empty", !model.hasOptions);
     button.title = model.selected
-      ? ui`本轮对话加载「${model.label}」，CoworkOS 会收到它的选区和改动`
+      ? ui`本轮对话加载「${model.label}」，Formicand 会收到它的选区和改动`
       : model.hasOptions
-        ? ui("未加载应用：CoworkOS 只收到你的消息。点击选择要加载的应用。")
+        ? ui("未加载应用：Formicand 只收到你的消息。点击选择要加载的应用。")
         : ui("这个对话还没有打开的应用");
   }
 

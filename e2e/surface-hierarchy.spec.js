@@ -110,7 +110,11 @@ for (const theme of ["light", "dark"]) {
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         const resting = await surfaceGeometry(page);
         expectCardSpacing(resting, width);
-        for (const [selector, borders] of Object.entries(resting.visibleBorders))
+        // The glass conversation panel owns one continuous edge in both themes.
+        expect(resting.visibleBorders[".chat-pane"]).toEqual(["Top", "Right", "Bottom", "Left"]);
+        for (const [selector, borders] of Object.entries(resting.visibleBorders).filter(
+          ([selector]) => selector !== ".chat-pane"
+        ))
           expect(borders, `${width}px ${selector} permanent borders`).toEqual([]);
         await page.screenshot({ path: info.outputPath(`${theme}-${width}-resting.png`) });
 

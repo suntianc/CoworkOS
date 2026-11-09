@@ -378,7 +378,7 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
     const newConversation = sidebar.locator("#new-conversation");
     const sidebarToggle = page.getByRole("button", { name: "切换侧栏", exact: true });
     await expect(sidebar.locator(".brand-chevron")).toHaveCount(0);
-    await expect(sidebar.locator(".brand-lockup")).toHaveText("CoworkOS");
+    await expect(sidebar.locator(".brand-lockup")).toHaveText("Formicand");
     await expect(sidebar.locator(".conversation-item-meta")).toHaveCount(0);
     await expect(selected).toHaveText("设计方案 A");
     await expect(selected).toHaveAttribute("aria-description", /已创建/);

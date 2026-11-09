@@ -43,7 +43,7 @@ async function assertContained(dialog, page) {
 }
 
 for (const theme of ["dark", "light"]) {
-  test(`settings use solid neutral surfaces and keep their controls reachable in ${theme}`, async ({
+  test(`settings use glass neutral surfaces and keep their controls reachable in ${theme}`, async ({
     page
   }, testInfo) => {
     test.setTimeout(60_000);
@@ -69,17 +69,19 @@ for (const theme of ["dark", "light"]) {
             text: style.color
           };
         });
-        expect(surface.background).toBe(theme === "dark" ? "rgb(25, 25, 25)" : "rgb(255, 255, 255)");
-        expect(surface.image).toBe("none");
-        expect(surface.filter).toBe("none");
-        expect(surface.text).toBe(theme === "dark" ? "rgb(238, 238, 238)" : "rgb(36, 36, 36)");
+        expect(surface.background).toBe(
+          theme === "dark" ? "rgba(16, 16, 20, 0.88)" : "rgba(251, 251, 253, 0.95)"
+        );
+        expect(surface.image).toContain("linear-gradient");
+        expect(surface.filter).toBe("blur(20px)");
+        expect(surface.text).toBe(theme === "dark" ? "rgb(236, 236, 238)" : "rgb(28, 28, 34)");
         await expect(overview.locator("#profile-close")).toHaveCSS(
           "color",
-          theme === "dark" ? "rgb(194, 194, 199)" : "rgb(85, 86, 90)"
+          theme === "dark" ? "rgb(161, 161, 168)" : "rgb(86, 86, 99)"
         );
         await expect(overview.locator("#desktop-model-settings")).toHaveCSS(
           "color",
-          theme === "dark" ? "rgb(194, 194, 199)" : "rgb(85, 86, 90)"
+          theme === "dark" ? "rgb(161, 161, 168)" : "rgb(86, 86, 99)"
         );
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-overview.png`) });
 
@@ -122,7 +124,7 @@ for (const theme of ["dark", "light"]) {
   });
 }
 
-test("settings stay solid with reduced transparency and keep keyboard focus inside the dialog", async ({
+test("settings drop blur with reduced transparency and keep keyboard focus inside the dialog", async ({
   page
 }) => {
   const dashboard = await startDashboard();
@@ -138,7 +140,7 @@ test("settings stay solid with reduced transparency and keep keyboard focus insi
     await openOverview(page);
     const dialog = page.getByRole("dialog", { name: "设置", exact: true });
     await expect(dialog).toHaveCSS("backdrop-filter", "none");
-    await expect(dialog).toHaveCSS("background-color", "rgb(25, 25, 25)");
+    await expect(dialog).toHaveCSS("background-color", "rgb(14, 14, 15)");
     await expect(dialog).toHaveCSS("background-image", "none");
     await page.locator("#profile-close").focus();
     await page.keyboard.press("Shift+Tab");

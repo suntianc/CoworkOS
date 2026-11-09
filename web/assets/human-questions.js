@@ -50,7 +50,7 @@ export function renderHumanQuestion(
 ) {
   return ui`<form class="human-question-form"><div class="human-card-heading"><span class="human-waiting-dot"></span><strong>需要你的回复</strong>${total > 1 ? ui`<div class="human-question-pages"><button type="button" data-human-page="-1" aria-label="上一个问题" ${index === 0 ? "disabled" : ""}>‹</button><span>${index + 1} / ${total}</span><button type="button" data-human-page="1" aria-label="下一个问题" ${index === total - 1 ? "disabled" : ""}>›</button></div>` : ""}</div>
     <div class="human-card-body"><h3 id="human-question-title">${esc(request.question)}</h3>${request.context ? `<p class="human-question-context">${esc(request.context)}</p>` : ""}
-    <fieldset ${busy ? "disabled" : ""}><legend class="sr-only">你的回答</legend>${request.options?.length ? ui`<div class="human-options" role="radiogroup" aria-label="回答选项">${request.options.map((option, index) => `<label class="human-option${index === request.recommended ? " is-recommended" : ""}"><input type="radio" name="human-choice" value="${index}" ${draft.choice === index ? "checked" : ""}/><span>${esc(option)}</span>${index === request.recommended ? ui('<em class="human-option-mark" title="没有回复时 CoworkOS 会按这个继续">推荐</em>') : ""}</label>`).join("")}</div>` : ""}
+    <fieldset ${busy ? "disabled" : ""}><legend class="sr-only">你的回答</legend>${request.options?.length ? ui`<div class="human-options" role="radiogroup" aria-label="回答选项">${request.options.map((option, index) => `<label class="human-option${index === request.recommended ? " is-recommended" : ""}"><input type="radio" name="human-choice" value="${index}" ${draft.choice === index ? "checked" : ""}/><span>${esc(option)}</span>${index === request.recommended ? ui('<em class="human-option-mark" title="没有回复时 Formicand 会按这个继续">推荐</em>') : ""}</label>`).join("")}</div>` : ""}
     <label class="human-text-label" for="human-answer-text">${request.options?.length ? ui("其他回答或补充说明") : ui("你的回答")}</label><textarea id="human-answer-text" name="human-text" rows="2">${esc(draft.text || "")}</textarea></fieldset></div>
     <div class="human-card-footer"><p class="human-error" role="status">${esc(error)}</p><button class="human-submit" type="submit" ${busy || !humanAnswer(request, draft) ? "disabled" : ""}>${busy ? ui("正在提交…") : ui("提交并继续")}</button></div></form>`;
 }
@@ -181,7 +181,7 @@ export function createHumanQuestions(root, { submit, resume, onVisibility, onErr
       return;
     }
     if (!request) {
-      root.innerHTML = ui`<div class="human-card-heading"><strong>回答已保存</strong></div><p class="human-question-context">CoworkOS 尚未继续运行，可以重试。</p><div class="human-card-footer"><p class="human-error" role="status">${esc(error)}</p><button class="human-submit" data-human-resume ${busy.has(key) ? "disabled" : ""}>${busy.has(key) ? ui("正在继续…") : ui("继续运行")}</button></div>`;
+      root.innerHTML = ui`<div class="human-card-heading"><strong>回答已保存</strong></div><p class="human-question-context">Formicand 尚未继续运行，可以重试。</p><div class="human-card-footer"><p class="human-error" role="status">${esc(error)}</p><button class="human-submit" data-human-resume ${busy.has(key) ? "disabled" : ""}>${busy.has(key) ? ui("正在继续…") : ui("继续运行")}</button></div>`;
       root.querySelector("[data-human-resume]").addEventListener("click", () => void send(taskId, key));
       restoreFocus(key, ownedFocus);
       return;

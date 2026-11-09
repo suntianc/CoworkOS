@@ -41,7 +41,7 @@ async function readInstance(paths) {
   try {
     raw = await fs.readFile(instancePath(paths), "utf8");
   } catch (error) {
-    if (error.code === "ENOENT") throw new Error("本地服务的实例记录不存在，请重启 CoworkOS");
+    if (error.code === "ENOENT") throw new Error("本地服务的实例记录不存在，请重启 Formicand");
     throw error;
   }
   let value;

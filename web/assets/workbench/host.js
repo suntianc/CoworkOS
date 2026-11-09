@@ -140,7 +140,7 @@ export function renderTabStrip({ tabs, activeTabId, icons = {}, compact = false 
       const marks = [
         tab.dirty ? ui('<span class="tab-dirty" title="有未保存的修改">●</span>') : "",
         tab.unread > 0
-          ? ui`<span class="tab-unread" title="${tab.unread} 项修改 CoworkOS 尚未读取">${esc(tab.unread)}</span>`
+          ? ui`<span class="tab-unread" title="${tab.unread} 项修改 Formicand 尚未读取">${esc(tab.unread)}</span>`
           : ""
       ].join("");
       // The close control is a sibling, not a nested button: a button inside a
