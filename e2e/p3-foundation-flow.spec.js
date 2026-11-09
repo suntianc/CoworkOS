@@ -284,10 +284,7 @@ test("a person moves between project, ledger, board, sessions, capacity and mode
     await conversation(page, externalOne.taskId).click();
     await page.locator("#composer-input").fill("处理外部需求一 [tag:run-one]");
     await page.locator("#send-button").click();
-    await expect(conversation(page, externalOne.taskId).locator(".conversation-activity")).toHaveAttribute(
-      "data-state",
-      "running"
-    );
+    await expect(conversation(page, externalOne.taskId)).toHaveAttribute("data-status", "running");
     await page.locator("#main-capacity-nav").click();
     capacity = dialogNamed(page, "外部容量");
     await expect(capacity.locator("[data-running]")).toContainText(externalOne.taskId);
@@ -321,10 +318,7 @@ test("a person moves between project, ledger, board, sessions, capacity and mode
     // Returning to the first project shows its Run still there and the other
     // project's conversation has no borrowed answer.
     await conversation(page, externalOne.taskId).click();
-    await expect(conversation(page, externalOne.taskId).locator(".conversation-activity")).toHaveAttribute(
-      "data-state",
-      "running"
-    );
+    await expect(conversation(page, externalOne.taskId)).toHaveAttribute("data-status", "running");
     await expect(page.locator("#conversation")).not.toContainText("模型回复 run-two");
 
     // Finishing the running demand advances the queued one, in order.

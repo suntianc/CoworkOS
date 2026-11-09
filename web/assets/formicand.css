@@ -52,17 +52,6 @@
   --type-nav: 13px;
   --type-caption: 12px;
   --motion-enter: 0.2s cubic-bezier(0.2, 0, 0, 1);
-
-  --backdrop-image:
-    radial-gradient(310px 310px at 10% 10%, #5b66ff77, transparent),
-    radial-gradient(320px 320px at 90% 93%, #a55bff59, transparent),
-    radial-gradient(260px 260px at 57% -2%, #2fb3c43d, transparent),
-    radial-gradient(210px 210px at 50% 68%, #ff7ab829, transparent),
-    linear-gradient(-133.594deg, #1a1f45 16.554%, #141428 46.655%, #22142e 83.446%);
-  --window-wash:
-    radial-gradient(620px 620px at -3% 8%, #5b66ff55, transparent 70%),
-    radial-gradient(640px 640px at 104% 92%, #a55bff44, transparent 70%),
-    linear-gradient(-137.269deg, #171b36a8 17.615%, #0e0e1899 50%, #22142ea8 82.385%);
 }
 
 html[data-theme="light"] {
@@ -102,16 +91,6 @@ html[data-theme="light"] {
   --selected-edge: #00000014;
   --segmented-fill: #0000000d;
   --segmented-active: #ffffffe6;
-
-  --backdrop-image:
-    radial-gradient(310px 310px at 10% 10%, #8c95ff80, transparent),
-    radial-gradient(320px 320px at 90% 93%, #c79bff6b, transparent),
-    radial-gradient(260px 260px at 57% -2%, #7fd6e06b, transparent),
-    radial-gradient(210px 210px at 50% 68%, #ffb3d46b, transparent),
-    linear-gradient(-137.269deg, #e8ebfa 17.615%, #f6f3fa 82.385%);
-  --window-wash:
-    radial-gradient(620px 620px at -3% 8%, #8c95ff44, transparent 70%),
-    linear-gradient(-137.269deg, #f2f4ffcc 17.615%, #faf8fccc 82.385%);
 }
 
 html[data-theme] {
@@ -155,8 +134,7 @@ html {
 }
 html[data-theme] body {
   background-color: var(--color-bg);
-  background-image: var(--backdrop-image);
-  background-attachment: fixed;
+  background-image: none;
   color: var(--color-text);
 }
 /* The old radial wash duplicated the backdrop. */
@@ -168,9 +146,6 @@ html[data-window-material]:not([data-window-material="none"]),
 html[data-window-material]:not([data-window-material="none"]) body {
   background-color: transparent;
   background-image: none;
-}
-html[data-window-material]:not([data-window-material="none"]) .app-shell {
-  background-image: var(--window-wash);
 }
 
 /* Shell chrome sits on the backdrop; the conversation and task panel float. */

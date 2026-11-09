@@ -45,6 +45,7 @@ import { renderMarkdown } from "./assets/markdown.js";
 import { mergeRuntimeEvents } from "./assets/conversation.js";
 import { createEntryController } from "./assets/controllers/entry-controller.js";
 import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
+import { createNewSessionView } from "./assets/controllers/new-session.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
@@ -57,6 +58,7 @@ const state = {
   tasks: [],
   projects: [],
   collapsedProjects: new Set(),
+  collapsedSessions: new Set(),
   models: [],
   defaultModel: null,
   model: null,
@@ -98,7 +100,6 @@ let latestListRead;
 const catalogReads = createCoalescedRead((_key, options) => refreshState(options));
 const detailReads = createCoalescedRead(readDetail);
 let renderedDetailSignature;
-let renderedEmpty = false;
 
 const $ = (selector) => document.querySelector(selector);
 createComposerLayout($("#composer-input"));
@@ -518,7 +519,6 @@ const projectController = createProjectController({
   isUnread: (taskId) => conversationReadState.isUnread(taskId),
   selectConversation,
   conversationTitle,
-  stateText,
   taskMenuOpen: () => sessionMenu.isOpen,
   openTaskMenu: (node, taskId, last) => {
     sessionMenu.open(node, taskId, { last });
@@ -543,6 +543,18 @@ const projectController = createProjectController({
       workbenchController.host?.navigationToken
     ]),
   onUpdated: () => void refresh()
+});
+const newSession = createNewSessionView({
+  state,
+  $,
+  titleFor: (task) => conversationTitle(task),
+  onOpenTask: (taskId) => {
+    const task = state.tasks.find((entry) => entry.taskId === taskId);
+    if (task) projectController.selectTask(task);
+    selectConversation(taskId);
+  },
+  onSelectProject: (projectId) => beginNewConversation(projectId),
+  onAddProject: () => projectController.openCreate()
 });
 const ledgerController = createProjectLedgerController({ api, state, showToast });
 $("#ledger-nav").addEventListener("click", () => ledgerController.open());
@@ -811,7 +823,7 @@ async function applyCatalog(data, { poll = false } = {}) {
     connectEventStream(state.selected);
     if (linkedTaskId && state.selected === linkedTaskId && linkedConversationNavigation?.current())
       await activateConversationTab(linkedTaskId, linkedConversationNavigation);
-  } else if (!poll || !renderedEmpty) renderEmpty();
+  } else renderEmpty();
   updateSendButton();
 }
 
@@ -898,7 +910,6 @@ function resetBackendView() {
   state.selectedProjectId = null;
   state.composingNew = false;
   renderedDetailSignature = undefined;
-  renderedEmpty = false;
   projectController.reset();
   composerSession.detach();
   renderConversationList();
@@ -1064,6 +1075,7 @@ function renderConversationList() {
   mainSessionsController.render();
   mainCapacityController.render();
   boardController.render();
+  newSession.sync();
 }
 
 function selectConversation(taskId) {
@@ -1089,7 +1101,6 @@ function selectConversation(taskId) {
 }
 
 function renderAll() {
-  renderedEmpty = false;
   computerUse.syncTask();
   const detail = state.detail || {};
   const task = detail.task || {};
@@ -1114,12 +1125,11 @@ function renderRightPanel() {
   renderArtifactDrawer();
 }
 function renderEmpty() {
-  renderedEmpty = true;
   renderedDetailSignature = undefined;
   computerUse.syncTask();
-  $("#topbar-task").textContent = ui("新任务");
-  $("#conversation").innerHTML =
-    ui`<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2></div>`;
+  $("#topbar-task").textContent = ui("新会话");
+  newSession.render();
+  newSession.sync();
   humanQuestions.update(null);
   renderRightPanel();
   paintTopbarContext();
@@ -1131,7 +1141,7 @@ function paintTopbarContext() {
     ? application.title || appDisplayName(application.appType)
     : state.selected
       ? conversationTitle(state.detail?.task || state.tasks.find((task) => task.taskId === state.selected))
-      : ui("新任务");
+      : ui("新会话");
   $("#topbar-task").textContent = truncate(name, 44);
   $("#topbar-task").title = name;
   $("#session-menu-button").hidden = editing;

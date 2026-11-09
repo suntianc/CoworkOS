@@ -544,10 +544,7 @@ test("a requirement runs through the work surface, an independent review, a rewo
         "完成报表导出需求：仓库根目录提供 generate.sh，输出首行 name,score 并至少包含一行数据；完成后独立审查并按项目入口合入。"
       );
     await page.locator("#send-button").click();
-    await expect(conversation(taskId).locator(".conversation-activity")).toHaveAttribute(
-      "data-state",
-      "running"
-    );
+    await expect(conversation(taskId)).toHaveAttribute("data-status", "running");
 
     // The delegated work is visible while it runs: the requirement view shows
     // the Executor finished and the independent Reviewer still working.
