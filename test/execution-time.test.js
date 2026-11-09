@@ -46,6 +46,18 @@ test("wake intervals on the same run exclude the paused time", () => {
   );
 });
 
+test("pause closes an interval and resume opens a new one for the same run", () => {
+  assert.equal(
+    executionElapsedMs(runtime("paused"), [
+      boundary("paused", "spawned", 0),
+      boundary("paused", "paused", 3000),
+      boundary("paused", "spawned", 100_000),
+      boundary("paused", "completed", 108_000)
+    ]),
+    11_000
+  );
+});
+
 test("multiple runs sum actual execution and exclude idle gaps between runs", () => {
   const ledger = [
     boundary("one", "spawned", 0),
