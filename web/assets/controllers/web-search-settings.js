@@ -4,7 +4,7 @@ import { icon } from "../ui/icons.js";
 import { createSettingsBackend } from "./settings-backend.js";
 
 /** Search credentials are submitted once. Both hosts use the same choices and status vocabulary. */
-export function installWebSearchSettings({ showToast, overview, api, identity = () => location.origin }) {
+export function installWebSearchSettings({ showToast, host, api, identity = () => location.origin }) {
   const transport = async (path, options) => {
     if (api) return api(path, options);
     const response = await fetch(path, options);
@@ -25,7 +25,7 @@ export function installWebSearchSettings({ showToast, overview, api, identity = 
   const row = document.createElement("div");
   row.className = "profile-setting";
   row.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("search")}</span><span><strong>联网搜索</strong><small data-search-status></small></span></span><button type="button" class="app-button is-secondary" data-search-open aria-label="管理联网搜索">配置${icon("chevron-right")}</button>`;
-  document.querySelector("#profile-settings-connections").append(row);
+  document.querySelector("#profile-settings-tools").append(row);
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
   panel.hidden = true;
@@ -45,7 +45,7 @@ export function installWebSearchSettings({ showToast, overview, api, identity = 
     <footer class="modal-actions"><button type="submit" class="app-button is-primary">保存设置</button></footer></form></section>`;
   document.body.append(panel);
   const dialog = createSettingsModal(panel, panel.querySelector("[data-search-close]"), {
-    overview,
+    host,
     returnFocus: () => row.querySelector("[data-search-open]").focus()
   });
   const form = panel.querySelector("form");

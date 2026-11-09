@@ -74,10 +74,12 @@ test("the entry switch works from the keyboard and settings opens from either en
 
     await observeTab.click();
     await page.getByRole("button", { name: "设置", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "设置", exact: true });
-    await expect(dialog).toBeVisible();
+    await expect(page.locator("#settings-entry")).toBeVisible();
+    await expect(page.locator("#app-layout")).toBeHidden();
     await page.keyboard.press("Escape");
-    await expect(dialog).toBeHidden();
+    await expect(page.locator("#settings-entry")).toBeHidden();
+    await expect(page.locator("#app-layout")).toBeVisible();
+    await expect(observeTab).toHaveAttribute("aria-selected", "true");
   } finally {
     await dashboard.stop();
   }

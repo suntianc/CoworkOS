@@ -3,7 +3,7 @@ import { createSettingsModal } from "./settings-modal.js";
 import { icon } from "../ui/icons.js";
 
 /** One profile editor. Drafts and revision conflicts never silently overwrite user input. */
-export function createUserMemoryViewer({ overview, returnFocus, api }) {
+export function createUserMemoryViewer({ host, returnFocus, api }) {
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
   panel.hidden = true;
@@ -60,7 +60,7 @@ export function createUserMemoryViewer({ overview, returnFocus, api }) {
     controller?.abort();
   };
   const dialog = createSettingsModal(panel, panel.querySelector("[data-memory-close]"), {
-    overview,
+    host,
     returnFocus,
     onClose: cancel
   });

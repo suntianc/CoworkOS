@@ -327,7 +327,7 @@ test("the local configuration rejects a malformed role section instead of ignori
 
 function settingsFixture(t) {
   const { window, document } = parseHTML(
-    '<html><body><div id="profile-settings-general"></div><div id="profile-settings-connections"></div></body></html>'
+    '<html><body><div id="profile-settings-connections"></div><div id="settings-role-rows"></div><div id="profile-settings-tools"></div></body></html>'
   );
   const previous = { window: globalThis.window, document: globalThis.document };
   Object.assign(globalThis, { window, document });
@@ -389,9 +389,9 @@ function settingsFixture(t) {
     };
   };
   const requests = [];
-  installDesktopSettings({
+  const settings = installDesktopSettings({
     showToast() {},
-    overview: { close: () => true, open() {} },
+    host: { close: () => true, open() {}, onSection: () => () => {} },
     identity: () => "backend-a",
     projectId: () => state.projectId,
     async api(path, options) {
@@ -431,7 +431,7 @@ function settingsFixture(t) {
     projectField: projectSelect.closest("label"),
     effective: () => panel.querySelector("[data-role-effective]").textContent,
     async open() {
-      document.querySelector("#desktop-model-settings").click();
+      void settings.open();
       await tick();
     },
     async choose(select, value) {
