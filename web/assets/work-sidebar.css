@@ -415,31 +415,6 @@ html[data-theme] .sidebar-empty-state {
   font-weight: 500;
 }
 
-html[data-theme] .sidebar-legacy {
-  flex: 0 0 auto;
-  gap: 1px;
-  margin-top: 2px;
-  padding: 8px 0 0;
-  border-top: 1px solid var(--color-line);
-}
-html[data-theme] .sidebar-legacy .nav-item {
-  min-height: 28px;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  color: var(--color-text-2);
-  font-size: 12px;
-}
-html[data-theme] .sidebar-legacy .nav-item:is(.active, :hover) {
-  color: var(--color-text);
-  background: var(--color-surface-2);
-}
-html[data-theme] .sidebar-legacy .nav-icon .ui-icon {
-  width: 14px;
-  height: 14px;
-  color: var(--color-text-3);
-}
-
 /* New session: one centred start surface above the composer, which keeps the
    project choice visible where the message is written. */
 html[data-theme] .conversation-pane.is-new-session #conversation {

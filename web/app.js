@@ -34,7 +34,6 @@ import { createTaskNotifications } from "./assets/controllers/task-notifications
 import { createBackendConnection } from "./assets/controllers/backend-connection.js";
 import { createProjectExperienceController } from "./assets/controllers/project-experience.js";
 import { createProjectController } from "./assets/controllers/project-controller.js";
-import { createMainSessionsController } from "./assets/controllers/main-sessions.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
 import { createConversationReadState, conversationTaskId } from "./assets/conversation-actions.js";
@@ -43,6 +42,7 @@ import { mergeRuntimeEvents } from "./assets/conversation.js";
 import { createEntryController } from "./assets/controllers/entry-controller.js";
 import { createSettingsPages } from "./assets/controllers/settings-pages.js";
 import { createObserveData } from "./assets/controllers/observe-data.js";
+import { createObserveOverview } from "./assets/controllers/observe-overview.js";
 import { createObserveRuns } from "./assets/controllers/observe-runs.js";
 import { createObserveSidebar } from "./assets/controllers/observe-sidebar.js";
 import { createObserveRequirements } from "./assets/controllers/observe-requirements.js";
@@ -96,6 +96,7 @@ let readingAttachments = false;
 let fileUpload;
 let attachmentPreview;
 let observeRequirements;
+let observeOverview;
 const creatingTasks = new Map();
 const stoppingTasks = new Set();
 const continuingTasks = new Set();
@@ -132,7 +133,10 @@ const conversationReadState = createConversationReadState(draftStorage);
 const entryController = createEntryController({
   root: $(".app-layout"),
   storage: draftStorage,
-  onChange: (next) => observeRequirements?.applyEntry(next)
+  onChange: (next) => {
+    observeOverview?.applyEntry(next);
+    observeRequirements?.applyEntry(next);
+  }
 });
 for (const button of document.querySelectorAll("[data-entry-mode]"))
   button.addEventListener("click", () => entryController.setMode(button.dataset.entryMode));
@@ -205,6 +209,7 @@ window.addEventListener(
   () => {
     artifactViewer.dispose();
     clearManagedMedia();
+    observeOverview?.dispose();
     observeRequirements?.dispose();
     observeData.dispose();
     management.stop();
@@ -595,16 +600,6 @@ const newSession = createNewSessionView({
   onSelectProject: (projectId) => beginNewConversation(projectId),
   onAddProject: () => projectController.openCreate()
 });
-const mainSessionsController = createMainSessionsController({
-  api,
-  state,
-  openSession: ({ projectId, taskId }) => {
-    const project = state.projects.find((entry) => entry.projectId === projectId);
-    if (project) projectController.select(project.projectId);
-    selectConversation(taskId);
-  }
-});
-$("#main-sessions-nav").addEventListener("click", () => mainSessionsController.open());
 const draftRecovery = createDraftRecovery({
   button: $("#recover-drafts"),
   session: composerSession,
@@ -1155,7 +1150,6 @@ function renderConversationList() {
     if (url.href !== location.href) history.replaceState(null, "", url.href);
   }
   projectController.render();
-  mainSessionsController.render();
   syncIdleComposer();
 }
 
@@ -1760,6 +1754,12 @@ createObserveRuns({
   header: $("[data-observe-runs-controls]"),
   data: observeData
 });
+observeOverview = createObserveOverview({
+  root: $('[data-observe-panel="overview"]'),
+  data: observeData,
+  onOpenView: (view) => entryController.setObserveView(view)
+});
+observeOverview.applyEntry(entryController.state());
 observeData.subscribe(() => {
   observeSidebar.render();
   settingsPages.refresh();

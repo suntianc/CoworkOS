@@ -15,7 +15,6 @@
     <link rel="stylesheet" href="/assets/workbench.css" />
     <link rel="stylesheet" href="/assets/starfield.css" />
     <link rel="stylesheet" href="/assets/ui.css" />
-    <link rel="stylesheet" href="/assets/main-sessions.css" />
     <link rel="stylesheet" href="/assets/system-theme.css" />
     <link rel="stylesheet" href="/assets/settings.css" />
     <link rel="stylesheet" href="/assets/styles/project-experience.css" />
@@ -29,6 +28,7 @@
     <link rel="stylesheet" href="/assets/styles/observe-requirements.css" />
     <link rel="stylesheet" href="/assets/styles/run-control.css" />
     <link rel="stylesheet" href="/assets/styles/observe-runs.css" />
+    <link rel="stylesheet" href="/assets/styles/observe-overview.css" />
   </head>
   <body class="output-collapsed">
     <div id="night-sky" class="night-sky" aria-hidden="true">
@@ -243,6 +243,16 @@
         <symbol id="i-circle-alert" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="10" />
           <path d="M12 8v4M12 16h.01" />
+        </symbol>
+        <symbol id="i-circle-x" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" />
+          <path d="m15 9-6 6M9 9l6 6" />
+        </symbol>
+        <symbol id="i-inbox" viewBox="0 0 24 24">
+          <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+          <path
+            d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"
+          />
         </symbol>
         <symbol id="i-git-branch" viewBox="0 0 24 24">
           <path d="M6 3v12" />
@@ -480,19 +490,6 @@
               </button>
             </div>
             <div class="project-list" id="project-list" aria-label="项目、Main 会话与子 Agent"></div>
-            <nav class="sidebar-nav sidebar-legacy" aria-label="工具">
-              <button
-                class="nav-item"
-                id="main-sessions-nav"
-                type="button"
-                aria-haspopup="dialog"
-                aria-label="Main 会话"
-              >
-                <span class="nav-icon"
-                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg></span
-                ><span>Main 会话</span>
-              </button>
-            </nav>
           </div>
           <nav class="observe-nav" data-entry-panel="observe" aria-label="观测视图" hidden>
             <div class="observe-views">
