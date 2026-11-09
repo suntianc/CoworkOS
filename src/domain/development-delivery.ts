@@ -88,6 +88,27 @@ export interface DeliveryDiff {
 }
 
 /**
+ * The unified patch behind one committed change.
+ *
+ * It is the same base/head pair as `DeliveryDiff`, with the text a read-only
+ * preview shows. A large change is cut at a boundary and reported as
+ * `truncated`, so the reader knows the preview is partial instead of receiving
+ * a silently shortened file.
+ */
+export interface DeliveryPatch {
+  base: string;
+  head: string;
+  candidateCommit: string;
+  mergedCommit?: string;
+  /** Present when the preview was narrowed to one changed file. */
+  path?: string;
+  patch: string;
+  truncated: boolean;
+  /** The changed files' text at the previewed commit; binary or large files are left out. */
+  contents: Array<{ path: string; content: string }>;
+}
+
+/**
  * Everything a project, Task or requirement reader needs to see one delivery.
  *
  * It joins the existing shared records instead of duplicating them: the

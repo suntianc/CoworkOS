@@ -150,7 +150,8 @@ test("copy submenus preserve keyboard focus through refresh and stay inside desk
       await expect(submenu.locator('[data-session-action="copy"]')).toBeFocused();
       if (width === 1440) {
         await page.request.patch(`${dashboard.base}/api/tasks/menu-b`, { data: { pinned: true } });
-        await page.locator(".panel-add").dispatchEvent("click");
+        // The catalog poll is the refresh the panel used to offer.
+        await page.waitForResponse((response) => new URL(response.url()).pathname === "/api/tasks");
         await expect(page.locator('[data-task="menu-b"]')).toContainText("★");
         await expect(submenu).toBeVisible();
         await expect(submenu.locator('[data-session-action="copy"]')).toBeFocused();
