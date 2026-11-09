@@ -50,3 +50,32 @@ test("a Main question marks its session and its folded project until the person 
     await dashboard.stop();
   }
 });
+
+test("deleting the selected conversation clears its question card", async ({ page }) => {
+  const dashboard = await startDashboard();
+  try {
+    await createTask(page, dashboard, {
+      taskId: "question-deleted",
+      goal: "删除前请确认",
+      projectId: dashboard.projectId
+    });
+    await markTaskRunning(dashboard, { taskId: "question-deleted", runId: "run-deleted" });
+    await writeHumanQuestion(dashboard, {
+      taskId: "question-deleted",
+      runId: "run-deleted",
+      question: "这个会话删除后，问题卡还留着吗？"
+    });
+    await page.goto(dashboard.base);
+    const session = page.locator('.conversation-item[data-task="question-deleted"]');
+    await session.click();
+    await expect(page.locator("#human-questions")).toContainText("这个会话删除后，问题卡还留着吗？");
+
+    const deleted = await page.request.delete(`${dashboard.base}/api/tasks/question-deleted`);
+    expect(deleted.ok()).toBe(true);
+    await expect(page.locator("#human-questions")).toBeHidden({ timeout: 15_000 });
+    await expect(page.locator(".new-session-start")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.conversation-item[data-task="question-deleted"]')).toHaveCount(0);
+  } finally {
+    await dashboard.stop();
+  }
+});

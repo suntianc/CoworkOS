@@ -96,7 +96,6 @@ let latestListRead;
 const catalogReads = createCoalescedRead((_key, options) => refreshState(options));
 const detailReads = createCoalescedRead(readDetail);
 let renderedDetailSignature;
-let renderedEmpty = false;
 
 const $ = (selector) => document.querySelector(selector);
 createComposerLayout($("#composer-input"));
@@ -801,10 +800,6 @@ async function applyCatalog(data, { poll = false } = {}) {
   if (state.selected && !state.tasks.some((task) => task.taskId === state.selected))
     state.selected = defaultTask?.taskId || null;
   renderConversationList();
-  if (!state.selected) {
-    renderedEmpty = true;
-    newSession.render();
-  }
   if (state.selected) {
     const listed = state.tasks.find((task) => task.taskId === state.selected);
     const loaded = state.detail?.task;
@@ -819,7 +814,7 @@ async function applyCatalog(data, { poll = false } = {}) {
     connectEventStream(state.selected);
     if (linkedTaskId && state.selected === linkedTaskId && linkedConversationNavigation?.current())
       await activateConversationTab(linkedTaskId, linkedConversationNavigation);
-  } else if (!poll || !renderedEmpty) renderEmpty();
+  } else renderEmpty();
   updateSendButton();
 }
 
@@ -906,7 +901,6 @@ function resetBackendView() {
   state.selectedProjectId = null;
   state.composingNew = false;
   renderedDetailSignature = undefined;
-  renderedEmpty = false;
   projectController.reset();
   composerSession.detach();
   renderConversationList();
@@ -1090,7 +1084,6 @@ function selectConversation(taskId) {
 }
 
 function renderAll() {
-  renderedEmpty = false;
   computerUse.syncTask();
   const detail = state.detail || {};
   const task = detail.task || {};
@@ -1229,7 +1222,6 @@ function renderRightPanel() {
 }
 
 function renderEmpty() {
-  renderedEmpty = true;
   renderedDetailSignature = undefined;
   computerUse.syncTask();
   $("#topbar-task").textContent = ui("新会话");

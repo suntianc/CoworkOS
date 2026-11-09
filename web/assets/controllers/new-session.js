@@ -90,7 +90,7 @@ export function createNewSessionView({
     if (focus) $("#composer-project").focus();
   }
   function openMenu() {
-    if (!state.composingNew || state.selected) return;
+    if (state.selected) return;
     renderMenu();
     menuOpen = true;
     $("#composer-project-menu").hidden = false;

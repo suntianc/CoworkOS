@@ -60,3 +60,23 @@ test("new sessions start from the sidebar, the project plus and ⌘K, and land i
     await dashboard.stop();
   }
 });
+
+test("the project picker opens and switches projects before any session exists", async ({ page }) => {
+  const dashboard = await startConfiguredDashboard({ defaultProject: false });
+  try {
+    const first = await createProject(page, dashboard, "首个项目", `${dashboard.root}/first-project`);
+    const second = await createProject(page, dashboard, "另一个项目", `${dashboard.root}/other-project`);
+    await page.goto(dashboard.base);
+    await expect(page.locator(".new-session-start")).toBeVisible();
+    const chip = page.locator("#composer-project");
+    await expect(chip).toBeVisible();
+    await chip.click();
+    const menu = page.locator("#composer-project-menu");
+    await expect(menu).toBeVisible();
+    await expect(menu.locator(`[data-project-choice="${first.projectId}"]`)).toBeVisible();
+    await menu.locator(`[data-project-choice="${second.projectId}"]`).click();
+    await expect(chip).toContainText("另一个项目");
+  } finally {
+    await dashboard.stop();
+  }
+});
