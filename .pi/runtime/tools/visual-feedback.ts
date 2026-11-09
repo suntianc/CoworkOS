@@ -45,7 +45,7 @@ export function createVisualFeedback(taskDirectory: string) {
     return {
       content: [
         { type: "text", text: JSON.stringify(details) },
-        ...(delivered ? [{ type: "image" as const, mimeType: "image/png", data: image as string }] : [])
+        ...(delivered ? [{ type: "image" as const, mimeType: "image/png", data: image }] : [])
       ],
       details
     };

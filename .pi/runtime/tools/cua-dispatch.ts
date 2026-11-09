@@ -112,6 +112,7 @@ export function createCuaDispatcher(pi: ExtensionAPI) {
         name,
         arguments: params as ToolCall["arguments"]
       });
+      // eslint-disable-next-line no-restricted-syntax -- 校验失败已转成 invalid_argument 工具结果；脚本侧要的是 failed() 的错误码，重抛会绕过这一结构化失败
     } catch {
       return failed("invalid_argument", `${name} 参数不符合工具接口`);
     }

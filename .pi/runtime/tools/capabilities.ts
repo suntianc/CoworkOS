@@ -130,12 +130,15 @@ export function registerCapabilityTools(
     }
     const task = await new LocalWorkspaceStore(input.workspaceRoot)
       .readTask(input.taskId)
+      // eslint-disable-next-line no-restricted-syntax -- 任务记录缺失时按没有 capabilities 的默认配置启用工具
       .catch(() => undefined);
     const capabilities = resolveCapabilities(task?.capabilities);
     const uploads = await readdir(join(input.workspaceRoot, input.taskId, "inputs"), {
       withFileTypes: true
+      // eslint-disable-next-line no-restricted-syntax -- 任务首次运行还没有 inputs 目录，读目录失败等价于没有上传
     }).catch(() => []);
     // A damaged optional application reference must not disable generic task work.
+    // eslint-disable-next-line no-restricted-syntax -- 应用资源目录损坏时按无资源处理，否则通用任务工具会全部失效
     const resources = await input.hasResources().catch(() => false);
     let desktop: DesktopSession | null = null;
     let policy: { enabled?: boolean; mode?: string } | undefined;
@@ -156,6 +159,7 @@ export function registerCapabilityTools(
           policy = result.access?.policy;
           policyPaused = Boolean(result.access?.paused || result.access?.taskBlocked);
         }
+        // eslint-disable-next-line no-restricted-syntax -- Dashboard 不可达时视为没有授予桌面访问，工具发现继续
       } catch {
         /* No desktop access is granted by an unreachable host. */
       }
@@ -167,7 +171,7 @@ export function registerCapabilityTools(
     available = {};
     for (const [name, group] of Object.entries(groups)) {
       const wanted =
-        requested.has(name as Group) ||
+        requested.has(name) ||
         (name === "attachments" &&
           uploads.some((entry) => entry.isDirectory() && entry.name.startsWith("upload-"))) ||
         (name === "applications" && resources) ||
@@ -217,7 +221,7 @@ export function registerCapabilityTools(
     async execute(_id, params) {
       for (const name of params.groups ?? []) {
         if (!Object.hasOwn(groups, name)) throw new Error(`Unknown capability group: ${name}`);
-        requested.add(name as Group);
+        requested.add(name);
       }
       if (params.groups?.length)
         await atomicWrite(statePath, JSON.stringify({ version: 1, groups: [...requested] }));
@@ -234,7 +238,7 @@ export function registerCapabilityTools(
     refresh,
     async restoreSelection(names: string[]) {
       for (const [name, group] of Object.entries(groups))
-        if (group.tools.some((tool) => names.includes(tool))) requested.add(name as Group);
+        if (group.tools.some((tool) => names.includes(tool))) requested.add(name);
       await atomicWrite(statePath, JSON.stringify({ version: 1, groups: [...requested] }));
       await refresh();
       const active = new Set(pi.getActiveTools());

@@ -5,6 +5,7 @@ export function createApplicationToolQueue() {
   const pending = new Map<string, Promise<unknown>>();
   return async function run<T>(resourceId: string, execute: () => Promise<T>): Promise<T> {
     const previous = pending.get(resourceId) ?? Promise.resolve();
+    // eslint-disable-next-line no-restricted-syntax -- 队列只负责顺序：上一次调用的拒绝已经交给它自己的调用方，这里必须继续执行本次工具，否则一次失败会卡死同一资源的后续调用
     const result = previous.catch(() => {}).then(execute);
     pending.set(resourceId, result);
     try {
