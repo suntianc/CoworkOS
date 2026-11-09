@@ -424,6 +424,12 @@ export function createSettingsPages({
     }
   });
 
+  // A timestamp already on screen follows the format preference immediately.
+  window.atriaPreferences?.onChange?.(() => {
+    if (section === "nodes") renderNodes();
+    if (section === "members") renderMembers();
+  });
+
   renderNodes();
   renderMembers();
   renderMcp();
