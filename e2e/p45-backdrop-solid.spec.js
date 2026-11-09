@@ -60,9 +60,9 @@ test("Web paints one solid backdrop per theme with no gradients and keeps the gl
     }
 
     await page.locator("#user-menu-button").click();
-    const dialog = page.getByRole("dialog", { name: "设置", exact: true });
-    await expect(dialog).toBeVisible();
-    await dialog.locator("#appearance-select").selectOption("light");
+    const settings = page.locator("#settings-entry");
+    await expect(settings).toBeVisible();
+    await settings.locator('[data-appearance-value="light"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
     const light = await surfaces(page);
@@ -75,7 +75,7 @@ test("Web paints one solid backdrop per theme with no gradients and keeps the gl
     }
 
     // Switching back keeps the painted page solid and the panels untouched.
-    await dialog.locator("#appearance-select").selectOption("dark");
+    await settings.locator('[data-appearance-value="dark"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     expectSolidBackdrop(await surfaces(page), "rgb(14, 14, 15)");
   } finally {
