@@ -82,6 +82,7 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 工作与观测两个入口的状态由 [入口控制器](../web/assets/controllers/entry-controller.js) 持有：入口、观测视图与刷新后的恢复都经它读写，`web/index.html` 里带 `data-entry-panel`、`data-entry-mode`、`data-observe-view` 的元素是 #03、#09 起各票的挂载点。验收为 [入口控制器回归](../test/p45-entry-shell.test.js) 与[浏览器切换](../e2e/p45-entry-shell.spec.js)。
 
 观测的只读数据由[观测数据端口](../web/assets/controllers/observe-data.js)统一提供：每个已连接节点各持一份会话、目录快照与事件流，按节点汇总项目、需求计数与运行数；本机节点复用页面现有的管理客户端，不另开事件通道。侧栏由[观测侧栏控制器](../web/assets/controllers/observe-sidebar.js)渲染视图计数、节点与项目，选择写入 `#observe-entry` 的 `data-observe-node`/`data-observe-project`，视图只读端口而不持有连接。设置的节点连接页经同一端口添加、重命名、重新授权、重连、断开与移除节点，节点记录和每个 origin 的令牌分开保存，一个节点失败不影响其他节点。验收为[多节点端口](../test/p45-multi-node-client.test.js)与[两个本机后端实例](../e2e/p45-multi-node.spec.js)。
+运行视图由[运行泳道控制器](../web/assets/controllers/observe-runs.js)渲染：按节点读 Main 会话与运行中的 Task，从 `task.activity` 画阶段波形、子 Agent 分支与无进展标记，对外节点按常驻/接续名额分组并留出空名额平线；节点不提供活动指标时改画阶段色块并显示"指标未就绪"，减少动态效果时改为固定间隔的静态快照。验收为[泳道控制器回归](../test/p45-pulse-lanes.test.js)、[两个节点下的泳道](../e2e/p45-pulse-lanes.spec.js)与[指标未就绪/减少动态效果](../e2e/p45-pulse-lanes-degraded.spec.js)。
 
 工作侧栏的项目、Main 会话与子 Agent 树由 [项目控制器](../web/assets/controllers/project-controller.js) 渲染，折叠状态存在本地；新会话起始面、项目选择菜单与最近需求由 [新会话控制器](../web/assets/controllers/new-session.js) 持有。待回答问题来自目录条目的 `pendingQuestion`，样式在 [工作侧栏样式](../web/assets/work-sidebar.css)。验收为 [侧栏树](../e2e/p45-work-sidebar.spec.js)、[提问提示](../e2e/p45-question-dot.spec.js) 与[新会话](../e2e/p45-new-session.spec.js)。
 
