@@ -1,5 +1,6 @@
 import { recoverMessageEditTransaction } from "../runtime/main-message-edit-transaction.js";
 import { readTaskActivity, type TaskActivityMetrics } from "../runtime/activity-metrics.js";
+import { HumanRequestStore } from "../runtime/human.js";
 import { withFileLock } from "../storage/file-lock.js";
 export interface TaskListItem {
   taskId: string;
@@ -21,6 +22,8 @@ export interface TaskListItem {
   projectDirectory: string;
   /** Sampled activity of Main and its Subagents; absent when nothing ran in the retained window. */
   activity?: TaskActivityMetrics;
+  /** Main stopped on a question for the user; the sidebar marks this session until answered. */
+  pendingQuestion?: true;
 }
 
 export interface ProjectListItem {
@@ -326,6 +329,11 @@ export function createWorkspaceDirectory(
       storageRoot: location.workspaceRoot,
       task: location.task
     });
+    // Only a Task that can still be waiting on a person is checked, so the
+    // catalog does not read a request directory for every archived session.
+    const pendingQuestion =
+      ["running", "waiting"].includes(location.task.status) &&
+      (await new HumanRequestStore(location.workspaceRoot).list(location.task.taskId, "pending")).length > 0;
     return {
       ...location.task,
       workspaceRoot: location.projectDirectory,
@@ -333,7 +341,8 @@ export function createWorkspaceDirectory(
       projectId: location.task.temporaryWorkspaceRoot ? null : location.projectId,
       projectName: location.projectName,
       projectDirectory: location.projectDirectory,
-      ...(activity ? { activity } : {})
+      ...(activity ? { activity } : {}),
+      ...(pendingQuestion ? { pendingQuestion: true as const } : {})
     };
   }
 

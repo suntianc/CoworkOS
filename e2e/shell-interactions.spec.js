@@ -31,8 +31,8 @@ test("project collapse responds once and preserves state and keyboard focus thro
     await page.locator('.conversation-item[data-task="shell-a"]').click();
     await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
     await row.focus();
+    // The catalog poll is the only refresh control; the panel no longer has one.
     const refresh = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/tasks");
-    await page.locator(".panel-add").dispatchEvent("click");
     await refresh;
     await expect(row).toBeFocused();
     await expect(page.locator('.conversation-item[data-task="shell-a"]')).toHaveAttribute(
@@ -340,7 +340,8 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
     await expect(sidebar.locator(".brand-lockup")).toHaveText("Formicand");
     await expect(sidebar.locator(".conversation-item-meta")).toHaveCount(0);
     await expect(selected).toHaveText("设计方案 A");
-    await expect(selected).toHaveAttribute("aria-description", /已创建/);
+    await expect(selected).toHaveAttribute("data-status", "created");
+    await expect(selected).not.toHaveAttribute("aria-description");
     for (const width of [1440, 1280, 1024, 700]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(sidebar).toBeVisible();

@@ -327,6 +327,16 @@ async function handleDeliveryRequest(
         : await service.deliveryView(scope.projectId, body);
       return reply(response, 200, { view });
     }
+    case "diff": {
+      // The patch is read from the checkout this backend owns. A remote
+      // reader asks its own execution host, so the authority never runs Git
+      // against another backend's directory.
+      if (scope.declared) throw new HttpError(403, "diff 只能在需求现场所在后端读取", "delivery_owner_only");
+      const patch = task
+        ? await service.deliveryPatchForTask(task, body)
+        : await service.deliveryPatch(scope.projectId, body);
+      return reply(response, 200, { diff: patch });
+    }
     case "retry": {
       if (typeof body.deliveryId === "string") {
         const delivery = task

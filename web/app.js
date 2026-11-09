@@ -46,6 +46,8 @@ import { mergeRuntimeEvents } from "./assets/conversation.js";
 import { createEntryController } from "./assets/controllers/entry-controller.js";
 import { createSettingsPages } from "./assets/controllers/settings-pages.js";
 import { readNodes } from "./assets/controllers/node-registry.js";
+import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
+import { createNewSessionView } from "./assets/controllers/new-session.js";
 import { renderRunOverview, runElapsed, formatRunDuration } from "./assets/run-overview.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
@@ -59,6 +61,7 @@ const state = {
   tasks: [],
   projects: [],
   collapsedProjects: new Set(),
+  collapsedSessions: new Set(),
   models: [],
   defaultModel: null,
   model: null,
@@ -68,6 +71,10 @@ const state = {
   selected: null,
   detail: null,
   previewPath: null,
+  drawerTab: null,
+  drawerFile: null,
+  drawerDiff: null,
+  drawerTrigger: null,
   artifactDrawerOpen: false,
   openFiles: [],
   artifactCache: new Map(),
@@ -96,7 +103,6 @@ let latestListRead;
 const catalogReads = createCoalescedRead((_key, options) => refreshState(options));
 const detailReads = createCoalescedRead(readDetail);
 let renderedDetailSignature;
-let renderedEmpty = false;
 
 const $ = (selector) => document.querySelector(selector);
 createComposerLayout($("#composer-input"));
@@ -367,6 +373,7 @@ const {
   ensureBinding,
   syncBindingFromTabs
 } = workbenchController;
+let requirementPanel;
 const artifacts = createArtifactController({
   state,
   $,
@@ -375,23 +382,27 @@ const artifacts = createArtifactController({
   renderRightPanel,
   getWorkbench: () => workbenchController,
   mediaUrl: mediaObjectUrl,
-  openArtifactViewer: (path) => artifactViewer.open(path)
+  openArtifactViewer: (path) => artifactViewer.open(path),
+  getDelivery: () => requirementPanel?.records()
 });
 const {
-  fileBaseName,
-  artifactSource,
   openArtifact,
   appDisplayName,
   openResourceInEditor,
-  editArtifact,
   closeArtifactDrawer,
-  closeArtifact,
-  ensureArtifactLoaded,
   renderArtifactDrawer,
-  renderOutputActions,
-  bindOutputActions,
-  closeOutputMenu
+  openPreview
 } = artifacts;
+requirementPanel = createRequirementPanel({
+  state,
+  $,
+  api,
+  onCollapse: () => void toggleOutputPane(),
+  openArtifact,
+  openResource: openResourceInEditor,
+  openPreview,
+  iconForDocument: (row) => workbenchController.iconForDocument(row)
+});
 const conversationView = createConversationView({
   state,
   $,
@@ -511,7 +522,6 @@ const projectController = createProjectController({
   isUnread: (taskId) => conversationReadState.isUnread(taskId),
   selectConversation,
   conversationTitle,
-  stateText,
   taskMenuOpen: () => sessionMenu.isOpen,
   openTaskMenu: (node, taskId, last) => {
     sessionMenu.open(node, taskId, { last });
@@ -536,6 +546,18 @@ const projectController = createProjectController({
       workbenchController.host?.navigationToken
     ]),
   onUpdated: () => void refresh()
+});
+const newSession = createNewSessionView({
+  state,
+  $,
+  titleFor: (task) => conversationTitle(task),
+  onOpenTask: (taskId) => {
+    const task = state.tasks.find((entry) => entry.taskId === taskId);
+    if (task) projectController.selectTask(task);
+    selectConversation(taskId);
+  },
+  onSelectProject: (projectId) => beginNewConversation(projectId),
+  onAddProject: () => projectController.openCreate()
 });
 const ledgerController = createProjectLedgerController({ api, state, showToast });
 $("#ledger-nav").addEventListener("click", () => ledgerController.open());
@@ -802,7 +824,7 @@ async function applyCatalog(data, { poll = false } = {}) {
     connectEventStream(state.selected);
     if (linkedTaskId && state.selected === linkedTaskId && linkedConversationNavigation?.current())
       await activateConversationTab(linkedTaskId, linkedConversationNavigation);
-  } else if (!poll || !renderedEmpty) renderEmpty();
+  } else renderEmpty();
   updateSendButton();
 }
 
@@ -889,7 +911,6 @@ function resetBackendView() {
   state.selectedProjectId = null;
   state.composingNew = false;
   renderedDetailSignature = undefined;
-  renderedEmpty = false;
   projectController.reset();
   composerSession.detach();
   renderConversationList();
@@ -989,7 +1010,11 @@ async function readDetail(taskId, { poll = false, isCurrent = () => true } = {})
       state.openFiles = [];
       state.artifactCache.clear();
       state.previewPath = null;
+      state.drawerTab = null;
+      state.drawerFile = null;
+      state.drawerDiff = null;
       state.artifactDrawerOpen = false;
+      requirementPanel.reset();
     }
     if (state.detail?.task?.taskId === taskId) {
       if (state.detail.conversationVersion === detail.conversationVersion)
@@ -1050,6 +1075,7 @@ function renderConversationList() {
   developmentController.render();
   mainSessionsController.render();
   boardController.render();
+  newSession.sync();
 }
 
 function selectConversation(taskId) {
@@ -1059,11 +1085,15 @@ function selectConversation(taskId) {
   state.selected = taskId;
   state.composingNew = false;
   state.previewPath = null;
+  state.drawerTab = null;
+  state.drawerFile = null;
+  state.drawerDiff = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
   state.artifactCache.clear();
   state.viewerTaskId = null;
   state.localMessages = [];
+  requirementPanel.reset();
   connectEventStream(taskId);
   renderConversationList();
   void loadDetail(taskId);
@@ -1071,16 +1101,10 @@ function selectConversation(taskId) {
 }
 
 function renderAll() {
-  renderedEmpty = false;
   computerUse.syncTask();
   const detail = state.detail || {};
   const task = detail.task || {};
-  const coordination = detail.coordination || { calls: [], pending: [], callbackPending: [] };
-  const events = detail.events || [];
-  const artifacts = detail.artifacts || [];
-  const progress = detail.progress;
   $("#topbar-task").textContent = truncate(conversationTitle(task), 44);
-  $("#agent-count").textContent = progress?.summary?.total ?? coordination.calls.length;
   if (detail.runtime?.model) setModelLabel(detail.runtime.model);
   updateSendButton();
   renderConversation(detail.messages || [], task);
@@ -1091,131 +1115,21 @@ function renderAll() {
 }
 
 function renderRightPanel() {
-  const { artifacts = [], statistics } = state.detail || {};
-  $("#workspace-view").classList.toggle("is-empty-task", !state.selected);
-  $("#workspace-artifact-count").textContent =
-    state.detail?.applications?.deliverables?.length ?? artifacts.length;
-  const body = $("#detail-body");
-  const outputList = $("#output-list");
+  const artifacts = state.detail?.artifacts || [];
   const artifactPaths = new Set(artifacts.map((artifact) => artifact.relativePath));
   invalidateArtifactCache(state.artifactCache, artifacts);
   state.openFiles = state.openFiles.filter((path) => artifactPaths.has(path));
   if (state.previewPath && !artifactPaths.has(state.previewPath))
     state.previewPath = state.openFiles.at(-1) || null;
-  if (!state.previewPath) state.artifactDrawerOpen = false;
-  if (document.body.classList.contains("output-collapsed")) {
-    closeOutputMenu();
-    renderArtifactDrawer();
-    return;
-  }
-  if (outputList) {
-    // The panel shows two kinds of thing: live resources, which carry a
-    // revision and open in an editor, and published files, which are read-only
-    // downloads. A resource keeps its own home on disk so the same document can
-    // appear in more than one conversation, so this list comes from the
-    // server's assembled view rather than one directory.
-    const deliverables = state.detail?.applications?.deliverables;
-    const rows =
-      deliverables ??
-      artifacts.map((artifact) => ({
-        kind: "file",
-        name: artifact.displayName || fileBaseName(artifact.relativePath),
-        relativePath: artifact.relativePath,
-        mimeType: artifact.mimeType,
-        size: artifact.size,
-        editable:
-          Boolean(state.detail?.applications) && workbenchController.editableKinds.has(artifact.mimeType)
-      }));
-    outputList.innerHTML = rows.length
-      ? rows
-          .map((row) => {
-            const open = row.relativePath ? state.openFiles.includes(row.relativePath) : false;
-            const meta =
-              row.kind === "resource"
-                ? `<span>r${esc(row.revision)}</span><span>${esc(appDisplayName(row.appType))}</span>`
-                : `<span>${esc(artifactParentPath(row.relativePath) || "artifacts/")}</span><span>${esc(formatArtifactSize(row.size))}</span>`;
-            const download = renderOutputActions(row);
-            const action =
-              row.kind === "resource"
-                ? ui`<span class="output-edit" role="button" tabindex="0" data-open-resource="${esc(row.resourceId)}" title="在编辑器中打开">打开</span>`
-                : row.editable
-                  ? ui`<span class="output-edit" role="button" tabindex="0" data-edit-artifact="${esc(row.relativePath)}" title="在应用中打开">打开</span>`
-                  : "";
-            // The row is a span, not a button: it carries a control of its own, and a
-            // button inside a button is invalid HTML that browsers hoist out.
-            return `<span class="output-row ${open ? "is-open" : ""} ${row.kind === "resource" ? "is-resource" : ""}" role="button" tabindex="0" ${row.relativePath ? `data-artifact="${esc(row.relativePath)}"` : `data-resource-row="${esc(row.resourceId)}"`} title="${esc(row.name)}"><span class="output-file"><svg class="ui-icon"><use href="#${esc(workbenchController.iconForDocument(row))}"/></svg></span><span class="output-copy"><strong>${esc(row.name)}</strong><small>${meta}</small></span><span class="output-actions">${action}${download}</span><span class="output-open-mark">${open ? "●" : ""}</span></span>`;
-          })
-          .join("")
-      : ui(
-          '<div class="output-empty"><span class="output-file"><svg class="ui-icon"><use href="#i-folder"/></svg></span><span>还没有产出物</span></div>'
-        );
-    bindOutputActions(outputList, rows);
-    outputList.querySelectorAll("[data-artifact]").forEach((node) => {
-      const open = (event) => {
-        if (event.target.closest("[data-edit-artifact]")) return;
-        openArtifact(node.dataset.artifact);
-      };
-      node.addEventListener("click", open);
-      node.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          open(event);
-        }
-      });
-    });
-    outputList.querySelectorAll("[data-edit-artifact]").forEach((node) => {
-      const edit = (event) => {
-        event.stopPropagation();
-        void editArtifact(node.dataset.editArtifact);
-      };
-      node.addEventListener("click", edit);
-      node.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          edit(event);
-        }
-      });
-    });
-    for (const selector of ["[data-open-resource]", "[data-resource-row]"]) {
-      outputList.querySelectorAll(selector).forEach((node) => {
-        const open = (event) => {
-          if (event.target.closest("[data-output-download]")) return;
-          event.stopPropagation();
-          void openResourceInEditor(node.dataset.openResource || node.dataset.resourceRow);
-        };
-        node.addEventListener("click", open);
-        node.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            open(event);
-          }
-        });
-      });
-    }
-  }
-  $("#run-statistics-status").textContent = statistics ? (statistics.active ? ui("实时") : "") : "";
-  const { elapsedMs: _elapsed, observedAt: _observed, ...overview } = statistics || {};
-  const signature = JSON.stringify([state.selected, overview]);
-  if (body.dataset.signature !== signature) {
-    const expanded =
-      body.dataset.task === state.selected && Boolean(body.querySelector("[data-usage-breakdown][open]"));
-    body.dataset.signature = signature;
-    body.dataset.task = state.selected || "";
-    body.innerHTML = renderRunOverview(statistics);
-    if (expanded) body.querySelector("[data-usage-breakdown]")?.setAttribute("open", "");
-  }
-  const timer = body.querySelector("[data-run-elapsed]");
-  if (timer) timer.textContent = formatRunDuration(runElapsed(statistics));
+  requirementPanel.render();
   renderArtifactDrawer();
 }
-
 function renderEmpty() {
-  renderedEmpty = true;
   renderedDetailSignature = undefined;
   computerUse.syncTask();
-  $("#topbar-task").textContent = ui("新任务");
-  $("#conversation").innerHTML =
-    ui`<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2></div>`;
+  $("#topbar-task").textContent = ui("新会话");
+  newSession.render();
+  newSession.sync();
   humanQuestions.update(null);
   renderRightPanel();
   paintTopbarContext();
@@ -1227,7 +1141,7 @@ function paintTopbarContext() {
     ? application.title || appDisplayName(application.appType)
     : state.selected
       ? conversationTitle(state.detail?.task || state.tasks.find((task) => task.taskId === state.selected))
-      : ui("新任务");
+      : ui("新会话");
   $("#topbar-task").textContent = truncate(name, 44);
   $("#topbar-task").title = name;
   $("#session-menu-button").hidden = editing;
@@ -1280,10 +1194,14 @@ function beginNewConversation(projectId, applicationWorkspace) {
   setThinkingLabel(state.thinkingLevel);
   state.localMessages = [];
   state.previewPath = null;
+  state.drawerTab = null;
+  state.drawerFile = null;
+  state.drawerDiff = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
   state.artifactCache.clear();
   state.viewerTaskId = null;
+  requirementPanel.reset();
   state.workspacePath = state.workspaceRoot;
   state.workspaceLabel = state.workspaceRoot ? workspaceDisplayName(state.workspaceRoot) : null;
   renderConversationList();
@@ -1575,7 +1493,7 @@ $("#composer-input").addEventListener("keydown", (event) => {
 });
 $("#new-conversation").addEventListener("click", beginNewConversation);
 $("#output-pane-toggle").addEventListener("click", toggleOutputPane);
-$("#artifact-drawer-scrim")?.addEventListener("click", closeArtifactDrawer);
+$("[data-panel-collapse]")?.addEventListener("click", () => void toggleOutputPane());
 document.addEventListener("keydown", (event) => {
   const modifier = event.metaKey || event.ctrlKey;
   const modalOpen =
@@ -1589,7 +1507,7 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     beginNewConversation();
   }
-  if (event.key === "Escape" && state.artifactDrawerOpen) closeArtifactDrawer();
+  if (event.key === "Escape" && state.artifactDrawerOpen) closeArtifactDrawer(true);
 });
 
 $("#model-select").addEventListener("click", () => void toggleModelMenu());
@@ -1659,7 +1577,6 @@ createMenu($("#app-bind-select"), $("#app-bind-menu"), {
   toggleOnClick: false,
   onClose: () => workbenchController.binding?.close()
 });
-$(".panel-add").addEventListener("click", () => void refresh());
 const settingsPages = createSettingsPages({
   root: $("#settings-entry"),
   app: $("#app-layout"),
@@ -2263,11 +2180,6 @@ async function retryFailedRequest(taskId) {
   }
 }
 
-setInterval(() => {
-  const timer = $("[data-run-elapsed]");
-  if (timer && state.detail?.statistics?.active)
-    timer.textContent = formatRunDuration(runElapsed(state.detail.statistics));
-}, 1000);
 composerSession.activate(state.selected, { projectId: state.selectedProjectId });
 // Opening a conversation link is a navigation choice. Reserve it before the
 // first tab poll can restore a different conversation or independent editor.

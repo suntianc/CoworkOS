@@ -92,8 +92,8 @@ test("long sidebar titles keep their geometry while project and conversation act
     await expectStableBox(title, titleBox);
     for (const action of [sidebar.settings, sidebar.create, sidebar.menu]) {
       const box = await action.boundingBox();
-      expect(box.width).toBe(32);
-      expect(box.height).toBe(32);
+      expect(box.width).toBe(24);
+      expect(box.height).toBe(24);
     }
     await sidebar.menu.click();
     await page.locator('[data-session-action="unread"]').click();
@@ -188,12 +188,12 @@ test("an open conversation menu keeps its row highlighted and mouse dismissal cl
     const sidebar = await seed(page, dashboard);
     const panel = page.locator("#session-menu");
     await sidebar.row.hover();
-    const hoverBackground = await sidebar.task.evaluate((node) => getComputedStyle(node).backgroundColor);
+    const hoverBackground = await sidebar.row.evaluate((node) => getComputedStyle(node).backgroundColor);
     expect(hoverBackground).not.toBe("rgba(0, 0, 0, 0)");
     await sidebar.menu.click();
     await expect(panel).toBeVisible();
     await moveOutside(page);
-    await expect(sidebar.task).toHaveCSS("background-color", hoverBackground);
+    await expect(sidebar.row).toHaveCSS("background-color", hoverBackground);
     await expect(sidebar.menu).toHaveAttribute("aria-expanded", "true");
     for (const theme of ["dark", "light"]) {
       await page.emulateMedia({ colorScheme: theme });
@@ -264,7 +264,7 @@ test("menus beside bottom sidebar rows keep their trigger clear and flip above i
       const rowBox = await row.boundingBox(),
         anchorBox = await trigger.boundingBox(),
         menuBox = await panel.boundingBox();
-      expect(anchorBox.y).toBeGreaterThan(600);
+      expect(anchorBox.y).toBeGreaterThan(500);
       expect(menuBox.x).toBeGreaterThanOrEqual(8);
       expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(width - 8);
       expect(menuBox.y).toBeGreaterThanOrEqual(8);

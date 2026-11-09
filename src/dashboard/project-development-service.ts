@@ -25,6 +25,7 @@ import {
   deliveryFromMerge,
   deliveryReceipt,
   type DeliveryDiff,
+  type DeliveryPatch,
   type DeliveryRoleProgress,
   type DeliveryStage,
   type DeliveryView,
@@ -105,6 +106,11 @@ export interface ProjectDevelopmentPorts {
   /** A call this Task's own durable queue recorded; never an identity the model supplied. */
   call?(taskId: string, callId: string): Promise<WorkItemCallFact | undefined>;
 }
+
+/** Longest patch text one preview reads; a larger change is cut and marked truncated. */
+const DELIVERY_PATCH_LIMIT = 200_000;
+/** Longest single file the preview renders as content; a larger file is read from its patch. */
+const DELIVERY_FILE_LIMIT = 120_000;
 
 /**
  * The development-record service: shared goal, criteria, route and baseline,
@@ -1698,19 +1704,11 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     return "developing";
   }
 
-  /**
-   * The delivery view one project, Task or requirement can read.
-   *
-   * It reuses the authoritative records and only adds what a reader needs to
-   * follow the delivery: the phase, role progress, the committed diff this host
-   * can read, the merge receipt and its synchronization state, and the board
-   * projection (present only for an external demand).
-   */
-  async function deliveryView(
+  /** One requirement's records and the diff this host can read them against. */
+  async function resolvedDelivery(
     projectId: string,
     input: { developmentId?: unknown; requirementId?: unknown }
-  ): Promise<DeliveryView> {
-    await project(projectId);
+  ) {
     const developmentId =
       input.developmentId === undefined || input.developmentId === null
         ? undefined
@@ -1735,8 +1733,31 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       service.queryDeliveries(projectId, record.developmentId),
       service.boardEntries(projectId)
     ]);
-    const delivery = deliveries.at(-1);
-    const board = boardEntries.find((entry) => entry.requirementId === record.requirementId);
+    return {
+      service,
+      record,
+      plan,
+      reviews,
+      merges,
+      delivery: deliveries.at(-1),
+      board: boardEntries.find((entry) => entry.requirementId === record.requirementId)
+    };
+  }
+
+  /**
+   * The delivery view one project, Task or requirement can read.
+   *
+   * It reuses the authoritative records and only adds what a reader needs to
+   * follow the delivery: the phase, role progress, the committed diff this host
+   * can read, the merge receipt and its synchronization state, and the board
+   * projection (present only for an external demand).
+   */
+  async function deliveryView(
+    projectId: string,
+    input: { developmentId?: unknown; requirementId?: unknown }
+  ): Promise<DeliveryView> {
+    await project(projectId);
+    const { record, plan, reviews, merges, delivery, board } = await resolvedDelivery(projectId, input);
     // eslint-disable-next-line no-restricted-syntax -- 资格计算读失败时视图省略该字段，合入与交付记录本身仍可读
     const qualification = await deliveryQualification(projectId, record.developmentId).catch(() => undefined);
     const diff = await deliveryDiff(record, delivery, merges, plan, reviews);
@@ -1767,6 +1788,53 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       ...(diff ? { diff } : {}),
       roles,
       ...(waitingSync ? { pendingSync: waitingSync } : {})
+    };
+  }
+
+  /**
+   * The unified patch of the accepted change, for the read-only preview.
+   *
+   * Only a file the delivery diff already lists can be read, and only from the
+   * checkout this backend owns: the request names a path inside the change, not
+   * a file on the machine. A workspace this host no longer has reports that
+   * instead of returning an empty patch that looks like "no changes".
+   */
+  async function deliveryPatch(
+    projectId: string,
+    input: { developmentId?: unknown; requirementId?: unknown; path?: unknown }
+  ): Promise<DeliveryPatch> {
+    await project(projectId);
+    const { record, plan, reviews, merges, delivery } = await resolvedDelivery(projectId, input);
+    const workspace = record.workspace;
+    if (!workspace || workspace.state !== "ready")
+      throw conflict("需求现场不在这台设备上，无法显示 diff", "delivery_patch_unavailable");
+    const diff = await deliveryDiff(record, delivery, merges, plan, reviews);
+    if (!diff) throw conflict("这台设备读不到需求现场，无法显示 diff", "delivery_patch_unavailable");
+    const path = typeof input.path === "string" ? input.path : undefined;
+    if (path !== undefined && !diff.files.some((file) => file.path === path))
+      throw conflict("该文件不在这次改动中", "delivery_patch_path_unknown");
+    const raw = await git(workspace.directory, [
+      "diff",
+      "--no-color",
+      "--unified=3",
+      `${diff.base}..${diff.head}`,
+      ...(path === undefined ? [] : ["--", path])
+    ]);
+    const truncated = raw.length > DELIVERY_PATCH_LIMIT;
+    const contents: Array<{ path: string; content: string }> = [];
+    for (const file of path === undefined ? diff.files : diff.files.filter((entry) => entry.path === path)) {
+      const text = await git(workspace.directory, ["show", `${diff.head}:${file.path}`])
+        // eslint-disable-next-line no-restricted-syntax -- 该提交里读不到这个文件（例如二进制或被删除）时省略它的正文，diff 本身仍然完整
+        .catch(() => undefined);
+      if (text === undefined || text.includes("\0") || text.length > DELIVERY_FILE_LIMIT) continue;
+      contents.push({ path: file.path, content: text });
+    }
+    return {
+      ...diff,
+      ...(path === undefined ? {} : { path }),
+      patch: truncated ? raw.slice(0, DELIVERY_PATCH_LIMIT) : raw,
+      truncated,
+      contents
     };
   }
 
@@ -1908,6 +1976,15 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     async deliveryViewForTask(taskId: string, input: Record<string, unknown>) {
       const found = await taskProject(taskId);
       return deliveryView(found.projectId, input);
+    },
+
+    async deliveryPatch(projectId: string, input: Record<string, unknown>) {
+      return deliveryPatch(projectId, input);
+    },
+
+    async deliveryPatchForTask(taskId: string, input: Record<string, unknown>) {
+      const found = await taskProject(taskId);
+      return deliveryPatch(found.projectId, input);
     },
 
     /** Record the receipt a remote execution backend produced for a real merge. */
