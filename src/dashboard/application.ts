@@ -754,7 +754,7 @@ export function createDashboardApplication(
       editableMessageError = "原消息或附件记录无法校验，历史已保留，请重新添加有效附件并主动发送新消息。";
     }
     return {
-      task: taskListItem(location),
+      task: await taskListItem(location),
       workspaceRoot: location.projectDirectory,
       storageRoot: taskWorkspace,
       projectId: location.projectId,

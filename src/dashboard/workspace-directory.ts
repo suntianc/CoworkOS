@@ -1,4 +1,5 @@
 import { recoverMessageEditTransaction } from "../runtime/main-message-edit-transaction.js";
+import { readTaskActivity, type TaskActivityMetrics } from "../runtime/activity-metrics.js";
 import { withFileLock } from "../storage/file-lock.js";
 export interface TaskListItem {
   taskId: string;
@@ -18,6 +19,8 @@ export interface TaskListItem {
   projectId: string | null;
   projectName: string;
   projectDirectory: string;
+  /** Sampled activity of Main and its Subagents; absent when nothing ran in the retained window. */
+  activity?: TaskActivityMetrics;
 }
 
 export interface ProjectListItem {
@@ -127,27 +130,35 @@ export function createWorkspaceDirectory(
         { ...project, workspaceRoot: project.projectDirectory, tasks: [] as TaskListItem[] }
       ])
     );
-    const temporaryTasks = locations
-      .filter((location) => location.task.temporaryWorkspaceRoot)
-      .map((location) =>
-        taskListItem({
-          ...location,
-          projectId: "",
-          projectName: "",
-          projectDirectory: location.task.temporaryWorkspaceRoot!
+    const temporaryTasks = await Promise.all(
+      locations
+        .filter((location) => location.task.temporaryWorkspaceRoot)
+        .map((location) =>
+          taskListItem({
+            ...location,
+            projectId: "",
+            projectName: "",
+            projectDirectory: location.task.temporaryWorkspaceRoot!
+          })
+        )
+    );
+    const assigned = await Promise.all(
+      locations
+        .filter((location) => !location.task.temporaryWorkspaceRoot)
+        .map(async (location) => {
+          const project = resolveProject(location.task, location.workspaceRoot, records);
+          return {
+            project,
+            task: await taskListItem({
+              ...location,
+              projectId: project.projectId,
+              projectName: project.projectName,
+              projectDirectory: project.projectDirectory
+            })
+          };
         })
-      );
-    for (const location of locations.filter((location) => !location.task.temporaryWorkspaceRoot)) {
-      const project = resolveProject(location.task, location.workspaceRoot, records);
-      grouped.get(project.projectId)!.tasks.push(
-        taskListItem({
-          ...location,
-          projectId: project.projectId,
-          projectName: project.projectName,
-          projectDirectory: project.projectDirectory
-        })
-      );
-    }
+    );
+    for (const { project, task } of assigned) grouped.get(project.projectId)!.tasks.push(task);
     const evidence = records.some((project) => project.legacy)
       ? await applicationProjectEvidence(await applicationRoots(roots, stored, records), records, initialRoot)
       : new Set<string>();
@@ -310,14 +321,19 @@ export function createWorkspaceDirectory(
     throw new Error(`unknown task: ${taskId}`);
   }
 
-  function taskListItem(location: TaskLocation): TaskListItem {
+  async function taskListItem(location: TaskLocation): Promise<TaskListItem> {
+    const activity = await readTaskActivity({
+      storageRoot: location.workspaceRoot,
+      task: location.task
+    });
     return {
       ...location.task,
       workspaceRoot: location.projectDirectory,
       storageRoot: location.workspaceRoot,
       projectId: location.task.temporaryWorkspaceRoot ? null : location.projectId,
       projectName: location.projectName,
-      projectDirectory: location.projectDirectory
+      projectDirectory: location.projectDirectory,
+      ...(activity ? { activity } : {})
     };
   }
 
