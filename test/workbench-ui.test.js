@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseHTML } from "linkedom";
 import { buildTabs, renderTabStrip } from "../web/assets/workbench/host.js";
-import { appsPanelModel, renderAppsPanel } from "../web/assets/workbench/apps-panel.js";
 import { bindingModel, renderBindingMenu, UNBOUND } from "../web/assets/workbench/binding.js";
 
 function instance(id, title, resourceId, status = "open", conversations = [{ taskId: "task-a" }]) {
@@ -257,179 +256,6 @@ test("tab titles and task labels from the server are escaped", () => {
   assert.equal(markup.includes("<button"), false);
 });
 
-test("the apps panel lists applications from the server rather than a hard-coded set", () => {
-  const model = appsPanelModel({
-    applications: [
-      {
-        appType: "text-editor",
-        displayName: "文本编辑器",
-        resourceKinds: ["text/plain", "text/markdown"],
-        capabilities: ["view", "edit", "select"]
-      },
-      // A second application with an unrelated data model must appear with no
-      // change to the panel: the same property the platform core must hold.
-      {
-        appType: "cad",
-        displayName: "CAD",
-        resourceKinds: ["model/cad+json"],
-        capabilities: ["view", "edit"]
-      },
-      // Declaring no edit capability means it cannot create anything.
-      { appType: "viewer", displayName: "只读预览", resourceKinds: ["text/plain"], capabilities: ["view"] }
-    ],
-    resources: [{ resourceId: "res_1", title: "proposal.md", appType: "text-editor", revision: 4 }],
-    openResourceIds: ["res_1"]
-  });
-  assert.deepEqual(
-    model.available.map((entry) => entry.appType),
-    ["text-editor", "cad"]
-  );
-  assert.equal(model.available[0].defaultKind, "text/plain");
-  assert.equal(model.available[1].defaultKind, "model/cad+json");
-  assert.equal(model.available[0].resourceCount, 1, "an app shows how many resources it already owns");
-  assert.equal(model.resources[0].alreadyOpen, true, "an open resource is marked rather than offered as new");
-
-  const markup = renderAppsPanel(model, { appLabels: { "text-editor": "文本编辑器" } });
-  assert.match(markup, /data-create-app="text-editor"/);
-  assert.match(markup, /data-create-app="cad"/);
-  assert.equal(markup.includes('data-create-app="viewer"'), false);
-  assert.match(markup, /data-open-resource="res_1"/);
-});
-
-test("unsupported applications are omitted from the launcher", () => {
-  const model = appsPanelModel({
-    applications: [
-      { appType: "cad", displayName: "CAD", resourceKinds: ["model/cad+json"], capabilities: ["edit"] },
-      { appType: "viewer", displayName: "未接入应用", resourceKinds: ["text/plain"], capabilities: ["view"] },
-      { appType: "empty", displayName: "空应用", resourceKinds: [], capabilities: ["edit"] }
-    ]
-  });
-  assert.deepEqual(
-    model.available.map((entry) => entry.appType),
-    ["cad"]
-  );
-  const markup = renderAppsPanel(model);
-  assert.equal((markup.match(/data-create-app="cad"/g) ?? []).length, 1);
-  assert.doesNotMatch(markup, /未接入|空应用|is-planned|Python|STEP|新建应用实例/);
-});
-
-test("compatibility apps leave the launcher while their documents stay reachable", () => {
-  const model = appsPanelModel({
-    applications: [
-      {
-        appType: "blender",
-        displayName: "Blender",
-        resourceKinds: ["model/blender"],
-        capabilities: ["edit"]
-      },
-      {
-        appType: "blender-harness",
-        displayName: "Blender Harness",
-        resourceKinds: ["application/blender-session+json"],
-        capabilities: ["edit"],
-        catalogVisibility: "compatibility"
-      },
-      {
-        appType: "custom",
-        displayName: "自定义应用",
-        resourceKinds: ["application/custom"],
-        capabilities: ["edit"]
-      }
-    ],
-    resources: [
-      { resourceId: "legacy", appType: "blender-harness", title: "旧场景", accessTaskId: "old-task" }
-    ]
-  });
-  assert.deepEqual(
-    model.available.map((app) => app.appType),
-    ["blender", "custom"]
-  );
-  const { document } = parseHTML(renderAppsPanel(model));
-  assert.equal(document.querySelector('[data-create-app="blender-harness"]'), null);
-  const legacy = document.querySelector('[data-open-resource="legacy"]');
-  assert.equal(legacy.getAttribute("data-resource-access"), "old-task");
-  assert.equal(legacy.textContent.trim(), "旧场景");
-  assert.equal(legacy.querySelector("use").getAttribute("href"), "#i-file");
-});
-
-test("custom apps use generic file glyphs and distinguish empty application tabs", () => {
-  for (const [appType, glyph] of [["custom-editor", "i-file"]]) {
-    const model = appsPanelModel({
-      applications: [
-        { appType, displayName: appType, resourceKinds: ["application/test"], capabilities: ["edit"] }
-      ],
-      resources: [{ resourceId: "file", appType, title: "文件" }]
-    });
-    const panel = parseHTML(renderAppsPanel(model)).document;
-    for (const selector of ["[data-toggle-instances]", "[data-open-resource]"]) {
-      const control = panel.querySelector(selector);
-      assert.equal(control.querySelector("use").getAttribute("href"), `#${glyph}`);
-      assert.equal(control.querySelector("svg").getAttribute("aria-hidden"), "true");
-      assert.equal(control.querySelector("img"), null);
-    }
-    const binding = parseHTML(
-      renderBindingMenu(bindingModel({ instances: [{ ...instance("app", "文件", "file"), appType }] }))
-    ).document;
-    assert.equal(binding.querySelector(".binding-option-icon use").getAttribute("href"), `#${glyph}`);
-    const { tabs, activeTabId } = buildTabs({
-      tabs: [
-        appTab(null, "empty", appType, { appType, hasResource: false, resourceId: undefined }),
-        appTab(null, "document", "文件", { appType })
-      ]
-    });
-    const strip = parseHTML(renderTabStrip({ tabs, activeTabId })).document;
-    const rendered = [...strip.querySelectorAll("[role=tab]")];
-    assert.equal(rendered.length, 2);
-    for (const tab of rendered) {
-      assert.equal(
-        tab.querySelector(".tab-icon use").getAttribute("href"),
-        tab.getAttribute("data-tab-kind") === "application" ? "#i-apps" : "#i-file"
-      );
-      assert.ok(tab.getAttribute("aria-label"));
-    }
-  }
-});
-
-test("apps panel titles from the server are escaped", () => {
-  const markup = renderAppsPanel(
-    appsPanelModel({
-      applications: [
-        {
-          appType: "x",
-          displayName: "<img src=x onerror=alert(1)>",
-          resourceKinds: ["a/b"],
-          capabilities: ["edit"]
-        }
-      ],
-      resources: [{ resourceId: "res_1", title: '"><script>alert(2)</script>', appType: "x", revision: 1 }]
-    })
-  );
-  assert.equal(markup.includes("<img"), false);
-  assert.equal(markup.includes("<script"), false);
-  for (const value of [...markup.matchAll(/"([^"]*)"/g)].map((entry) => entry[1])) {
-    assert.equal(value.includes("<"), false, `attribute must not contain a raw <: ${value}`);
-  }
-});
-
-test("an application without documents shows only its launch control", () => {
-  const markup = renderAppsPanel(
-    appsPanelModel({
-      applications: [
-        {
-          appType: "text-editor",
-          displayName: "文本编辑器",
-          resourceKinds: ["text/markdown"],
-          capabilities: ["edit"]
-        }
-      ],
-      resources: []
-    })
-  );
-  assert.doesNotMatch(markup, /可从应用内新建或打开文件|apps-empty|apps-context-hint/);
-  assert.equal(markup.includes("data-open-resource"), false);
-  assert.match(markup, /data-create-app="text-editor"/);
-});
-
 test("the binding control names the bound application and offers detaching", () => {
   const instances = [instance("app_1", "产品方案.md", "res_1"), instance("app_2", "会议记录.md", "res_2")];
   const bound = bindingModel({ instances, boundResourceId: "res_2" });
@@ -466,7 +292,7 @@ test("with no application open the control stays reachable and says so", () => {
   const markup = renderBindingMenu(model);
   assert.match(markup, /当前工作区没有打开的应用/);
   const { document } = parseHTML(markup);
-  assert.equal(document.querySelector("[data-bind-open-apps]").textContent, "打开应用");
+  assert.equal(document.querySelector("[data-bind-open-apps]"), null, "applications open from attachments");
   assert.equal(markup.includes("data-bind-instance"), false, "there is nothing to select yet");
 
   // A closed tab is not bindable either, and reads the same way.

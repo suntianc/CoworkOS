@@ -54,4 +54,4 @@ HTTP 字段、分页和冲突状态以 [Product API](product-api.md#long-term-go
 
 旧 WatchProgram、来源与监控 HTTP 接口保留；旧监控按有效暂停/结束状态归类。用户结束最后一个独立后台目标时，Dashboard 停止其 Task 下的 Main/工作；会话内结束只影响该目标。
 
-修改从 [代码地图](code-map.md) 定位生产者、消费者与回归。相关入口为 [领域与持久恢复](../test/long-term-goals.test.js)、[真实 Pi 目标工具](../test/goal-tools.test.js)、[暂停](../test/monitoring-pause.test.js)、[前后端目标](../e2e/long-term-goals.spec.js) 和 [目标工作区](../e2e/goal-workspace.spec.js)。这些是验证入口，不表示当前版本已执行或通过。实际模型、真实来源、macOS 服务和多周驻留分别验收，结果绑定版本与环境写入 PR 或发行记录。
+修改从 [代码地图](code-map.md) 定位生产者、消费者与回归。相关入口为 [领域与持久恢复](../test/long-term-goals.test.js)、[真实 Pi 目标工具](../test/goal-tools.test.js) 与 [暂停](../test/monitoring-pause.test.js)。P4.5 已移除目标与监控的界面入口，界面验收用例随前端模块删除。这些是验证入口，不表示当前版本已执行或通过。实际模型、真实来源、macOS 服务和多周驻留分别验收，结果绑定版本与环境写入 PR 或发行记录。

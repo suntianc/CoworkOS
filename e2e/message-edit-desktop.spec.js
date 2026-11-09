@@ -54,7 +54,7 @@ test("native edit restores an attachment-only message and survives relaunch with
     await page.locator("#project-directory").fill(root);
     await page.locator("#project-submit").click();
     await expect(page.locator("#project-modal")).toBeHidden();
-    await expect(page.locator("#project-context")).toContainText("修改重发验收");
+    await expect(page.locator(".project-group.is-selected .project-name")).toContainText("修改重发验收");
     await page.locator("#composer-input").fill("UPLOAD_READINESS");
     await page.locator("#composer-input").fill("");
     const attachmentPath = join(root, "native.txt");

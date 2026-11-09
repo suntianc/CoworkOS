@@ -641,22 +641,6 @@ test("a projectless new conversation begins immediately and preserves its draft"
   assert.deepEqual(page.failures, []);
 });
 
-test("goal navigation owns its hash while ordinary conversation clicks keep an inactive goal route unchanged", async (t) => {
-  const page = await boot();
-  t.after(page.restore);
-  assert.equal(page.$(".goal-workspace").hidden, true);
-  page.$("#goals-nav").click();
-  assert.equal(page.window.location.hash, "#goals");
-  assert.equal(page.$(".goal-workspace").hidden, false);
-  assert.equal(page.historyCalls.length, 1);
-  page.$("#new-conversation").click();
-  assert.equal(page.window.location.hash, "");
-  assert.equal(page.$(".goal-workspace").hidden, true);
-  assert.equal(page.historyCalls.length, 2);
-  page.$("#new-conversation").click();
-  assert.equal(page.historyCalls.length, 2);
-});
-
 test("a late Task creation uses its original project and preserves the later project's draft", async (t) => {
   const projects = ["a", "b"].map((id) => ({
     projectId: id,
@@ -690,7 +674,7 @@ test("a late Task creation uses its original project and preserves the later pro
   page.$("#composer-input").value = "B 项目未发送";
   release();
   await new Promise((resolve) => setTimeout(resolve, 150));
-  assert.equal(page.$("#project-context").textContent, "项目 b");
+  assert.equal(page.$(".project-group.is-selected").dataset.project, "b");
   assert.equal(page.$("#composer-input").value, "B 项目未发送");
   assert.equal(page.$(".conversation-item.active"), null);
   assert.equal(page.server.state.created[0].projectId, "a");
@@ -713,10 +697,10 @@ test("clicking project rows restores both projects' independent new-conversation
   assert.equal(page.$("#composer-input").value, "");
   page.$("#composer-input").value = "B 的独立草稿";
   page.$('[data-project-id="a"]').click();
-  assert.equal(page.$("#project-context").textContent, "项目 a");
+  assert.equal(page.$(".project-group.is-selected").dataset.project, "a");
   assert.equal(page.$("#composer-input").value, "A 的独立草稿");
   page.$('[data-project-id="b"]').click();
-  assert.equal(page.$("#project-context").textContent, "项目 b");
+  assert.equal(page.$(".project-group.is-selected").dataset.project, "b");
   assert.equal(page.$("#composer-input").value, "B 的独立草稿");
   assert.deepEqual(page.server.state.created, []);
   assert.deepEqual(page.failures, []);
@@ -880,7 +864,6 @@ test("with the workbench off the page still loads and the controls stay hidden",
   assert.equal(loadError, undefined, "a 404 on the workbench routes must not break the page");
   assert.deepEqual(failures, []);
   assert.equal(view.$("#workbench").hidden, true, "the strip stays hidden");
-  assert.equal(view.$("#apps-nav").hidden, true);
   assert.equal(view.$("#app-bind-select").hidden, true);
   assert.equal(view.$("#conversation-pane").hidden, false, "the conversation is unaffected");
 });

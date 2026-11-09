@@ -248,7 +248,7 @@ test(
         dialog.showErrorBox = (title) => globalThis.__fixtureWarnings.push(title);
       });
       const page = await desktop.firstWindow();
-      await page.locator("#apps-nav").waitFor();
+      await page.locator("#entry-work").waitFor();
       assert.equal(
         await desktop.evaluate(({ app }) => process.env.COWORK_DESKTOP_SOURCE_ROOT || app.getAppPath()),
         resolve(".")
@@ -272,7 +272,7 @@ test(
       await modelDialog.locator('[name="api"]').selectOption("openai-completions");
       await modelDialog.getByRole("button", { name: "保存连接", exact: true }).click();
       await modelDialog.waitFor({ state: "hidden" });
-      await page.locator("#apps-nav").waitFor();
+      await page.locator("#entry-work").waitFor();
       await page.locator("#composer-input").fill("development relaunch draft");
       assert.deepEqual(await desktop.evaluate(() => globalThis.__fixtureWarnings), []);
       await desktop.close();

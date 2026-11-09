@@ -145,26 +145,6 @@ test("rename retains its field and focus while saving fails, and recent conversa
     await expect(save).toBeEnabled();
     await page.screenshot({ path: info.outputPath("rename-save-failed.png") });
     await page.keyboard.press("Escape");
-    const goals = page.getByRole("button", { name: "长期任务", exact: true });
-    if (!(await goals.isVisible())) await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
-    await goals.click();
-    await page.getByRole("button", { name: "最近会话 ↗", exact: true }).click();
-    const recent = page.getByRole("dialog", { name: "最近会话", exact: true });
-    await expect(recent).toBeVisible();
-    await expect(recent.locator(".dialog-list button")).toHaveCount(2);
-    await expect(recent.getByRole("button", { name: "关闭", exact: true })).toHaveCSS(
-      "border-top-color",
-      "rgba(0, 0, 0, 0)"
-    );
-    await page.setViewportSize({ width: 320, height: 420 });
-    await contained(recent, 320, 420);
-    const title = await recent.locator(".dialog-list button > span").first().boundingBox();
-    const status = await recent.locator(".dialog-list button > small").first().boundingBox();
-    expect(Math.abs(title.y + title.height / 2 - status.y - status.height / 2)).toBeLessThan(1);
-    await page.screenshot({ path: info.outputPath("recent-320.png") });
-    await recent.getByRole("button", { name: "可以继续处理的会话 B" }).click();
-    await expect(recent).toHaveCount(0);
-    await expect(page.locator("#topbar-task")).toHaveText("可以继续处理的会话 B");
     await page.goto(`${dashboard.base}/?task=dialog-a`);
     await expect(page.locator("#composer-input")).toHaveValue("打开弹窗前保留的草稿");
   } finally {

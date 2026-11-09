@@ -12,11 +12,8 @@
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/assets/math.css" />
     <link rel="stylesheet" href="/assets/workbench.css" />
-    <link rel="stylesheet" href="/assets/agent-galaxy.css" />
     <link rel="stylesheet" href="/assets/starfield.css" />
     <link rel="stylesheet" href="/assets/ui.css" />
-    <link rel="stylesheet" href="/assets/watch.css" />
-    <link rel="stylesheet" href="/assets/goal.css" />
     <link rel="stylesheet" href="/assets/ledger.css" />
     <link rel="stylesheet" href="/assets/main-sessions.css" />
     <link rel="stylesheet" href="/assets/main-capacity.css" />
@@ -48,6 +45,25 @@
           <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6M8 13h8M8 17h5" />
         </symbol>
         <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></symbol>
+        <symbol id="i-radar" viewBox="0 0 24 24">
+          <path d="M17.4 5.3a9 9 0 1 0 1.3 1.4" />
+          <path d="M14.4 8.6a4.5 4.5 0 1 0 1 1.1" />
+          <path d="m12 12 6.5-6.5" />
+          <circle cx="12" cy="12" r="1" />
+        </symbol>
+        <symbol id="i-list-checks" viewBox="0 0 24 24">
+          <path d="m3 5 2 2 3-3M3 13l2 2 3-3M3 21l2 2 3-3" />
+          <path d="M13 6h8M13 14h8M13 22h8" />
+        </symbol>
+        <symbol id="i-panel-right" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M15 4v16" />
+        </symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24">
+          <path d="M5 7h14M5 17h14" />
+          <circle cx="9" cy="7" r="2" />
+          <circle cx="15" cy="17" r="2" />
+        </symbol>
         <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
         <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 19 19 5M9 5h10v10" /></symbol>
         <symbol id="i-search" viewBox="0 0 24 24">
@@ -256,52 +272,8 @@
       </defs>
     </svg>
     <div class="app-shell">
-      <header class="app-topbar">
-        <div class="window-controls">
-          <button class="window-nav" aria-label="切换侧栏" aria-controls="conversation-sidebar">
-            <svg class="ui-icon"><use href="#i-layout" /></svg></button
-          ><button class="window-nav" aria-label="后退">
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-left" /></svg></button
-          ><button class="window-nav disabled" aria-label="前进" disabled>
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
-          </button>
-        </div>
-        <div class="topbar-context">
-          <svg class="ui-icon context-icon"><use href="#i-folder" /></svg
-          ><span id="project-context" hidden></span><strong id="topbar-task">新任务</strong>
-          <button
-            class="topbar-button square"
-            id="session-menu-button"
-            type="button"
-            title="会话菜单"
-            aria-label="会话菜单"
-            aria-haspopup="menu"
-            aria-controls="session-menu"
-            aria-expanded="false"
-            hidden
-          >
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-more" /></svg>
-          </button>
-          <div id="connection-state" role="status" hidden></div>
-          <span id="workspace-path" hidden>Connected</span>
-        </div>
-        <div class="topbar-actions">
-          <button
-            class="topbar-button square"
-            id="output-pane-toggle"
-            type="button"
-            title="切换任务面板"
-            aria-label="切换任务面板"
-            aria-controls="agent-pane"
-            aria-expanded="false"
-          >
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-layout" /></svg>
-          </button>
-        </div>
-      </header>
-
-      <div class="app-layout">
-        <aside class="conversation-sidebar" id="conversation-sidebar">
+      <div class="app-layout" id="app-layout" data-entry="work">
+        <aside class="conversation-sidebar" id="conversation-sidebar" aria-label="工作与观测">
           <div class="sidebar-header">
             <div class="brand-lockup">
               <svg class="brand-symbol" role="img" aria-label="Formicand">
@@ -311,93 +283,140 @@
             </div>
             <div class="sidebar-header-actions">
               <button
-                class="sidebar-icon sidebar-view-toggle sidebar-view-toggle-compact"
-                data-sidebar-view="tasks"
-                title="显示任务面板"
-                aria-label="显示任务面板"
-                aria-controls="agent-pane"
-                hidden
-              >
-                <svg class="ui-icon" aria-hidden="true"><use href="#i-switch" /></svg>
-              </button>
-              <button
                 class="sidebar-icon"
                 title="搜索"
                 aria-label="搜索"
                 aria-haspopup="dialog"
                 aria-keyshortcuts="Control+P Meta+P"
               >
-                <svg class="ui-icon"><use href="#i-search" /></svg></button
-              ><button class="sidebar-icon" title="任务动态" aria-label="任务动态">
-                <svg class="ui-icon"><use href="#i-bell" /></svg>
+                <svg class="ui-icon"><use href="#i-search" /></svg>
               </button>
             </div>
           </div>
-          <div class="sidebar-top">
-            <button class="new-conversation" id="new-conversation" disabled>
-              <span class="new-icon"
-                ><svg class="ui-icon"><use href="#i-arrow" /></svg></span
-              ><span>新对话</span><span class="shortcut">⌘ K</span>
+          <div class="entry-switch ui-segmented" role="tablist" aria-label="入口">
+            <button
+              class="entry-switch-option"
+              type="button"
+              role="tab"
+              id="entry-work"
+              data-entry-mode="work"
+              aria-label="工作"
+              aria-selected="true"
+              aria-controls="work-entry"
+              tabindex="0"
+            >
+              <svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg><span>工作</span>
+            </button>
+            <button
+              class="entry-switch-option"
+              type="button"
+              role="tab"
+              id="entry-observe"
+              data-entry-mode="observe"
+              aria-label="观测"
+              aria-selected="false"
+              aria-controls="observe-entry"
+              tabindex="-1"
+            >
+              <svg class="ui-icon" aria-hidden="true"><use href="#i-radar" /></svg><span>观测</span>
             </button>
           </div>
-          <nav class="sidebar-nav">
-            <button class="nav-item active">
-              <span class="nav-icon"
-                ><svg class="ui-icon"><use href="#i-grid" /></svg></span
-              >工作台</button
-            ><button
+          <div class="work-sidebar" data-entry-panel="work">
+            <div class="sidebar-top">
+              <button class="new-conversation" id="new-conversation" aria-label="新对话" disabled>
+                <span class="new-icon"
+                  ><svg class="ui-icon"><use href="#i-plus" /></svg></span
+                ><span>新对话</span><span class="shortcut">⌘ K</span>
+              </button>
+            </div>
+            <nav class="sidebar-nav" aria-label="工具">
+              <button
+                class="nav-item"
+                id="ledger-nav"
+                type="button"
+                aria-haspopup="dialog"
+                aria-label="需求台账"
+              >
+                <span class="nav-icon"
+                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-file" /></svg></span
+                ><span>需求台账</span>
+              </button>
+              <button
+                class="nav-item"
+                id="development-nav"
+                type="button"
+                aria-haspopup="dialog"
+                aria-label="需求现场"
+              >
+                <span class="nav-icon"
+                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-code" /></svg></span
+                ><span>需求现场</span>
+              </button>
+              <button
+                class="nav-item"
+                id="main-sessions-nav"
+                type="button"
+                aria-haspopup="dialog"
+                aria-label="Main 会话"
+              >
+                <span class="nav-icon"
+                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg></span
+                ><span>Main 会话</span>
+              </button>
+              <button
+                class="nav-item"
+                id="main-capacity-nav"
+                type="button"
+                aria-haspopup="dialog"
+                aria-label="外部容量"
+              >
+                <span class="nav-icon"
+                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-activity" /></svg></span
+                ><span>外部容量</span>
+              </button>
+              <button
+                class="nav-item"
+                id="board-nav"
+                type="button"
+                aria-haspopup="dialog"
+                aria-label="需求看板"
+              >
+                <span class="nav-icon"
+                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-grid" /></svg></span
+                ><span>需求看板</span>
+              </button>
+            </nav>
+            <div class="sidebar-section-label">
+              <span>项目 <span id="conversation-count" hidden>0</span></span
+              ><button id="new-project" type="button" aria-label="新建项目" title="新建项目">
+                <svg class="ui-icon"><use href="#i-plus" /></svg>
+              </button>
+            </div>
+            <div class="project-list" id="project-list" aria-label="项目与对话列表"></div>
+          </div>
+          <nav class="observe-nav" data-entry-panel="observe" aria-label="观测视图" hidden>
+            <button
               class="nav-item"
-              id="apps-nav"
               type="button"
-              aria-expanded="false"
-              aria-controls="apps-panel"
-              hidden
+              data-observe-view="overview"
+              aria-label="总览"
+              aria-current="page"
             >
               <span class="nav-icon"
-                ><svg class="ui-icon"><use href="#i-apps" /></svg></span
-              >应用<span class="nav-chevron"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-              ></span>
+                ><svg class="ui-icon" aria-hidden="true"><use href="#i-grid" /></svg></span
+              ><span>总览</span>
             </button>
-            <div class="apps-panel" id="apps-panel" hidden></div>
-            <button class="nav-item" id="goals-nav" type="button" aria-current="false">
+            <button class="nav-item" type="button" data-observe-view="requirements" aria-label="需求">
               <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-bell" /></svg></span
-              ><span>长期任务</span><span id="goals-unread" class="goal-unread" hidden></span>
+                ><svg class="ui-icon" aria-hidden="true"><use href="#i-list-checks" /></svg></span
+              ><span>需求</span>
             </button>
-            <button class="nav-item" id="ledger-nav" type="button" aria-haspopup="dialog">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-file" /></svg></span
-              ><span>需求台账</span>
-            </button>
-            <button class="nav-item" id="development-nav" type="button" aria-haspopup="dialog">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-code" /></svg></span
-              ><span>需求现场</span>
-            </button>
-            <button class="nav-item" id="main-sessions-nav" type="button" aria-haspopup="dialog">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg></span
-              ><span>Main 会话</span>
-            </button>
-            <button class="nav-item" id="main-capacity-nav" type="button" aria-haspopup="dialog">
+            <button class="nav-item" type="button" data-observe-view="runs" aria-label="运行">
               <span class="nav-icon"
                 ><svg class="ui-icon" aria-hidden="true"><use href="#i-activity" /></svg></span
-              ><span>外部容量</span>
-            </button>
-            <button class="nav-item" id="board-nav" type="button" aria-haspopup="dialog">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-grid" /></svg></span
-              ><span>需求看板</span>
+              ><span>运行</span>
             </button>
           </nav>
-          <div class="sidebar-section-label">
-            <span>项目 <span id="conversation-count" hidden>0</span></span
-            ><button id="new-project" type="button" aria-label="新建项目" title="新建项目">
-              <svg class="ui-icon"><use href="#i-plus" /></svg>
-            </button>
-          </div>
-          <div class="project-list" id="project-list" aria-label="项目与对话列表"></div>
           <div class="sidebar-bottom">
             <button class="account-row" id="recover-drafts" type="button" hidden>恢复草稿</button>
             <button
@@ -407,11 +426,8 @@
               aria-haspopup="dialog"
               aria-controls="profile-modal"
             >
-              <svg class="ui-icon account-icon" aria-hidden="true"><use href="#i-sliders" /></svg
-              ><span class="account-name">设置</span
-              ><span class="account-more"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-right" /></svg
-              ></span>
+              <svg class="ui-icon account-icon" aria-hidden="true"><use href="#i-settings" /></svg
+              ><span class="account-name">设置</span>
             </button>
           </div>
         </aside>
@@ -425,195 +441,209 @@
           aria-orientation="vertical"
           title="拖动调整侧栏宽度，双击恢复默认"
         ></div>
-        <main class="chat-pane">
-          <div id="workbench" class="workbench" hidden>
-            <div
-              class="workbench-header"
-              data-workbench-header
-              aria-describedby="workbench-session-status"
-              hidden
-            >
-              <nav class="workbench-rail" data-tab-rail aria-label="打开的文件与应用" hidden></nav>
-              <span id="workbench-session-status" class="sr-only" data-app-task-status role="status"></span>
-              <div class="workbench-view-actions">
-                <button class="app-button" data-app-expand aria-label="全屏编辑" title="全屏编辑">
-                  <svg class="ui-icon" aria-hidden="true"><use href="#i-fit" /></svg>
-                </button>
-                <button
-                  class="app-button"
-                  data-app-collaborate
-                  aria-label="在对话中使用"
-                  title="在对话中使用"
-                >
-                  <svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg>
-                </button>
-              </div>
-            </div>
-            <div class="workbench-tabs" data-tab-strip role="tablist" aria-label="工作台标签"></div>
-          </div>
-          <div
-            class="workspace-divider"
-            data-workspace-divider
-            role="separator"
-            aria-label="调整对话与工作台宽度"
-            aria-orientation="vertical"
-            tabindex="0"
-            hidden
-          ></div>
-          <div id="conversation-pane" class="conversation-pane">
-            <section class="chat-scroll" id="conversation">
-              <div class="welcome-empty">
-                <div class="welcome-symbol">
-                  <svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg>
-                </div>
-                <h2>有什么可以帮忙的？</h2>
-                <div class="starter-prompts">
-                  <button data-prompt="帮我梳理这个项目的结构">
-                    <span class="prompt-icon"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-folder" /></svg></span
-                    >梳理项目结构
-                    <span class="prompt-arrow"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
-                    ></span></button
-                  ><button data-prompt="检查最近的代码改动并运行测试">
-                    <span class="prompt-icon"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-check" /></svg></span
-                    >检查代码改动
-                    <span class="prompt-arrow"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
-                    ></span></button
-                  ><button data-prompt="研究这个主题并整理一份简报">
-                    <span class="prompt-icon"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-search" /></svg></span
-                    >研究并整理简报
-                    <span class="prompt-arrow"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
-                    ></span>
-                  </button>
-                  <button data-prompt="读取我提供的文件，整理关键信息并生成一份报告。">
-                    <span class="prompt-icon"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-apps" /></svg
-                    ></span>
-                    整理文件并生成报告
-                    <span class="prompt-arrow"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
-                    ></span>
-                  </button>
-                </div>
-              </div>
-            </section>
-            <div class="composer-wrap">
-              <section
-                id="human-questions"
-                class="human-questions"
-                aria-label="需要你的回复"
+        <main class="chat-pane" id="work-entry" data-entry-panel="work">
+          <header class="session-header">
+            <h1 class="session-title" id="topbar-task">新任务</h1>
+            <div class="session-header-actions">
+              <button
+                class="session-header-button"
+                id="session-menu-button"
+                type="button"
+                title="会话菜单"
+                aria-label="会话菜单"
+                aria-haspopup="menu"
+                aria-controls="session-menu"
+                aria-expanded="false"
                 hidden
-              ></section>
-              <div class="composer">
-                <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
-                <button class="composer-context" data-composer-context type="button" hidden></button>
-                <textarea
-                  id="composer-input"
-                  rows="3"
-                  aria-label="任务描述"
-                  placeholder="描述任务，或添加后续要求…"
-                ></textarea>
-                <div id="upload-status" class="upload-status" role="status" hidden></div>
-                <div id="attachment-strip" class="attachment-strip" hidden></div>
-                <div class="composer-bar">
-                  <div class="composer-left">
-                    <button
-                      class="attach-button"
-                      title="添加文件 · 支持图片、PDF、Office，也可拖拽或粘贴截图"
-                      aria-label="添加文件"
-                    >
-                      <svg class="ui-icon"><use href="#i-plus" /></svg>
-                    </button>
-                    <button id="model-setup-button" type="button" hidden>连接模型</button>
-                    <button
-                      class="model-select"
-                      id="model-select"
-                      type="button"
-                      title="切换模型"
-                      aria-haspopup="listbox"
-                      aria-expanded="false"
-                    >
-                      <span class="model-logo"
-                        ><svg class="brand-symbol" aria-hidden="true">
-                          <use href="#i-formicand-mark-small" /></svg
-                      ></span>
-                      <span class="model-name">Formicand Main</span
-                      ><span class="model-chevron"
-                        ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-                      ></span>
-                    </button>
-                    <button
-                      class="reasoning-select"
-                      id="reasoning-select"
-                      type="button"
-                      title="设置推理强度"
-                      aria-label="推理强度：自动"
-                      aria-haspopup="listbox"
-                      aria-expanded="false"
-                    >
-                      <span class="reasoning-name">自动</span
-                      ><span class="model-chevron"
-                        ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-                      ></span>
-                    </button>
+              >
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-more" /></svg>
+              </button>
+              <button
+                class="session-header-button"
+                id="output-pane-toggle"
+                type="button"
+                title="切换任务面板"
+                aria-label="切换任务面板"
+                aria-controls="agent-pane"
+                aria-expanded="false"
+              >
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-panel-right" /></svg>
+              </button>
+            </div>
+          </header>
+          <div class="chat-body">
+            <div id="workbench" class="workbench" hidden>
+              <div
+                class="workbench-header"
+                data-workbench-header
+                aria-describedby="workbench-session-status"
+                hidden
+              >
+                <nav class="workbench-rail" data-tab-rail aria-label="打开的文件与应用" hidden></nav>
+                <span id="workbench-session-status" class="sr-only" data-app-task-status role="status"></span>
+                <div class="workbench-view-actions">
+                  <button class="app-button" data-app-expand aria-label="全屏编辑" title="全屏编辑">
+                    <svg class="ui-icon" aria-hidden="true"><use href="#i-fit" /></svg>
+                  </button>
+                  <button
+                    class="app-button"
+                    data-app-collaborate
+                    aria-label="在对话中使用"
+                    title="在对话中使用"
+                  >
+                    <svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="workbench-tabs" data-tab-strip role="tablist" aria-label="工作台标签"></div>
+            </div>
+            <div
+              class="workspace-divider"
+              data-workspace-divider
+              role="separator"
+              aria-label="调整对话与工作台宽度"
+              aria-orientation="vertical"
+              tabindex="0"
+              hidden
+            ></div>
+            <div id="conversation-pane" class="conversation-pane">
+              <section class="chat-scroll" id="conversation">
+                <div class="welcome-empty">
+                  <div class="welcome-symbol">
+                    <svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg>
                   </div>
-                  <div class="composer-right">
-                    <button
-                      class="app-bind-select"
-                      id="app-bind-select"
-                      type="button"
-                      title="指定本轮对话加载的应用"
-                      aria-label="加载应用"
-                      aria-haspopup="listbox"
-                      aria-expanded="false"
+                  <h2>有什么可以帮忙的？</h2>
+                </div>
+              </section>
+              <div class="composer-wrap">
+                <section
+                  id="human-questions"
+                  class="human-questions"
+                  aria-label="需要你的回复"
+                  hidden
+                ></section>
+                <div class="composer">
+                  <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
+                  <button class="composer-context" data-composer-context type="button" hidden></button>
+                  <textarea
+                    id="composer-input"
+                    rows="3"
+                    aria-label="任务描述"
+                    placeholder="描述任务，或添加后续要求…"
+                  ></textarea>
+                  <div id="upload-status" class="upload-status" role="status" hidden></div>
+                  <div id="attachment-strip" class="attachment-strip" hidden></div>
+                  <div class="composer-bar">
+                    <div class="composer-left">
+                      <button
+                        class="attach-button"
+                        title="添加文件 · 支持图片、PDF、Office，也可拖拽或粘贴截图"
+                        aria-label="添加文件"
+                      >
+                        <svg class="ui-icon"><use href="#i-plus" /></svg>
+                      </button>
+                      <button id="model-setup-button" type="button" hidden>连接模型</button>
+                      <button
+                        class="model-select"
+                        id="model-select"
+                        type="button"
+                        title="切换模型"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                      >
+                        <span class="model-logo"
+                          ><svg class="brand-symbol" aria-hidden="true">
+                            <use href="#i-formicand-mark-small" /></svg
+                        ></span>
+                        <span class="model-name">Formicand Main</span
+                        ><span class="model-chevron"
+                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="reasoning-select"
+                        id="reasoning-select"
+                        type="button"
+                        title="设置推理强度"
+                        aria-label="推理强度：自动"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                      >
+                        <span class="reasoning-name">自动</span
+                        ><span class="model-chevron"
+                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
+                        ></span>
+                      </button>
+                    </div>
+                    <div class="composer-right">
+                      <button
+                        class="app-bind-select"
+                        id="app-bind-select"
+                        type="button"
+                        title="指定本轮对话加载的应用"
+                        aria-label="加载应用"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                        hidden
+                      >
+                        <span class="app-bind-icon"
+                          ><svg class="ui-icon"><use href="#i-apps" /></svg></span
+                        ><span class="app-bind-name">未加载应用</span
+                        ><span class="model-chevron"
+                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        id="stop-button"
+                        class="stop-button"
+                        type="button"
+                        aria-label="停止任务"
+                        title="停止任务"
+                        hidden
+                      >
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-stop" /></svg>
+                      </button>
+                      <button id="send-button" class="send-button" aria-label="发送">
+                        <svg class="ui-icon"><use href="#i-send" /></svg>
+                      </button>
+                    </div>
+                    <div class="model-menu" id="model-menu" role="listbox" aria-label="可用模型" hidden></div>
+                    <div
+                      class="model-menu reasoning-menu"
+                      id="reasoning-menu"
+                      role="listbox"
+                      aria-label="推理强度"
                       hidden
-                    >
-                      <span class="app-bind-icon"
-                        ><svg class="ui-icon"><use href="#i-apps" /></svg></span
-                      ><span class="app-bind-name">未加载应用</span
-                      ><span class="model-chevron"
-                        ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-                      ></span>
-                    </button>
-                    <button
-                      id="stop-button"
-                      class="stop-button"
-                      type="button"
-                      aria-label="停止任务"
-                      title="停止任务"
+                    ></div>
+                    <div
+                      class="model-menu app-bind-menu"
+                      id="app-bind-menu"
+                      role="listbox"
+                      aria-label="可加载的应用"
                       hidden
-                    >
-                      <svg class="ui-icon" aria-hidden="true"><use href="#i-stop" /></svg>
-                    </button>
-                    <button id="send-button" class="send-button" aria-label="发送">
-                      <svg class="ui-icon"><use href="#i-send" /></svg>
-                    </button>
+                    ></div>
                   </div>
-                  <div class="model-menu" id="model-menu" role="listbox" aria-label="可用模型" hidden></div>
-                  <div
-                    class="model-menu reasoning-menu"
-                    id="reasoning-menu"
-                    role="listbox"
-                    aria-label="推理强度"
-                    hidden
-                  ></div>
-                  <div
-                    class="model-menu app-bind-menu"
-                    id="app-bind-menu"
-                    role="listbox"
-                    aria-label="可加载的应用"
-                    hidden
-                  ></div>
                 </div>
               </div>
             </div>
           </div>
         </main>
+        <section
+          class="observe-pane"
+          id="observe-entry"
+          data-entry-panel="observe"
+          aria-labelledby="observe-title"
+          hidden
+        >
+          <header class="observe-header">
+            <h1 id="observe-title" tabindex="-1">总览</h1>
+          </header>
+          <div class="observe-body">
+            <section class="observe-view" data-observe-panel="overview"></section>
+            <section class="observe-view" data-observe-panel="requirements" hidden></section>
+            <section class="observe-view" data-observe-panel="runs" hidden></section>
+          </div>
+        </section>
 
         <aside class="agent-pane" id="agent-pane" aria-label="任务工作空间">
           <div class="agent-pane-header">
@@ -642,7 +672,7 @@
             <div class="workspace-start">
               <strong>从一个任务或文档开始</strong>
               <p>先在输入框准备任务，或打开应用编辑文档。运行任务前，连接模型并选择项目文件夹。</p>
-              <small>开始协作后，这里会显示产出物、运行用量和智能体团队。</small>
+              <small>开始协作后，这里会显示产出物和运行用量。</small>
             </div>
             <div class="output-section">
               <div class="output-section-title">
@@ -654,41 +684,11 @@
               <span>会话运行概览</span><span id="run-statistics-status"></span>
             </div>
             <div class="right-body" id="detail-body"></div>
-            <section id="team-view" class="team-section" aria-labelledby="team-heading">
-              <h3 class="output-section-title" id="team-heading">智能体团队</h3>
-              <div
-                class="agent-galaxy"
-                id="agent-galaxy"
-                role="group"
-                aria-label="智能体星系，点击星体查看执行轨迹"
-              ></div>
-              <div class="team-summary">
-                <div>
-                  <span class="team-status-dot" id="team-status-dot"></span
-                  ><strong id="team-caption-text">空闲中</strong
-                  ><small id="team-count-label">等待新任务</small>
-                </div>
-              </div>
-              <div class="member-history">
-                <span>成员记录</span>
-                <div id="team-members" aria-label="查看成员轨迹"></div>
-              </div>
-              <details id="team-trace-details" class="team-trace-details">
-                <summary>查看执行轨迹<span>⌄</span></summary>
-                <section class="team-trace" id="agent-focus" aria-label="智能体执行轨迹"></section>
-              </details>
-            </section>
-            <section id="monitor-section" class="watch-section" aria-label="本会话的监控" hidden>
-              <button id="monitor-manage" class="watch-session-link" type="button" aria-haspopup="dialog">
-                <svg class="ui-icon" aria-hidden="true"><use href="#i-bell" /></svg>
-                <span id="monitor-label">监控</span><span id="monitor-count"></span>
-                <svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
-              </button>
-            </section>
           </div>
         </aside>
       </div>
     </div>
+    <div id="connection-state" role="status" hidden></div>
     <div id="artifact-drawer-scrim" class="artifact-drawer-scrim" hidden></div>
     <aside id="artifact-drawer" class="artifact-drawer" aria-label="产出物详情" hidden></aside>
     <input

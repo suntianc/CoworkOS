@@ -13,6 +13,6 @@
 
 ## 现行验证入口
 
-[目标模型](../test/long-term-goals.test.js)、[目标工具/Pi](../test/goal-tools.test.js)、[可靠性](../test/watch-reliability.test.js)、[恢复](../test/watch-supervisor-recovery.test.js)、[采样活性](../test/watch-sampling-liveness.test.js)、[暂停](../test/monitoring-pause.test.js)、[服务定义](../test/monitor-service.test.js)、[目标浏览器](../e2e/long-term-goals.spec.js) 与 [监控浏览器](../e2e/watchers.spec.js)。本次文档合并未执行这些测试。
+[目标模型](../test/long-term-goals.test.js)、[目标工具/Pi](../test/goal-tools.test.js)、[可靠性](../test/watch-reliability.test.js)、[恢复](../test/watch-supervisor-recovery.test.js)、[采样活性](../test/watch-sampling-liveness.test.js)、[暂停](../test/monitoring-pause.test.js)、[服务定义](../test/monitor-service.test.js)、目标与监控的浏览器用例已随 P4.5 移除界面入口删除。本次文档合并未执行这些测试。
 
 真实模型、来源、macOS 服务安装/退出与多日驻留各自记录证据，不把协议夹具、命令定义或成功构建写成实际用户环境已通过。

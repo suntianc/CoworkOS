@@ -125,7 +125,7 @@ test("project drafts inherit the selected project and canceling settings preserv
     await page.keyboard.press("Escape");
     await newConversationFor(page, b.projectId).locator("..").hover();
     await newConversationFor(page, b.projectId).click();
-    await expect(page.locator("#project-context")).toHaveText("项目 B");
+    await expect(page.locator(".project-group.is-selected .project-name")).toHaveText("项目 B");
     await expect(page.locator("#composer-input")).toHaveValue("");
     await page.locator("#composer-input").fill("项目 B 的新会话草稿");
     await newConversationFor(page, a.projectId).locator("..").hover();
@@ -137,7 +137,7 @@ test("project drafts inherit the selected project and canceling settings preserv
     expect((await (await page.request.get(`${dashboard.base}/api/tasks`)).json()).tasks).toHaveLength(1);
     expect(provider.requests).toHaveLength(0);
     await page.locator("#new-conversation").click();
-    await expect(page.locator("#project-context")).toHaveText("项目 B");
+    await expect(page.locator(".project-group.is-selected .project-name")).toHaveText("项目 B");
     await page.locator("#composer-input").fill("在项目 B 中开始");
     await page.locator("#send-button").click();
     await expect(page.locator("#conversation")).toContainText("项目会话已创建", { timeout: 30_000 });
@@ -153,7 +153,7 @@ test("project drafts inherit the selected project and canceling settings preserv
     });
     await page.locator('.conversation-item[data-task="original"]').click();
     await expect(page.locator("#composer-input")).toHaveValue("原会话草稿");
-    await expect(page.locator("#project-context")).toHaveText("项目 A");
+    await expect(page.locator(".project-group.is-selected .project-name")).toHaveText("项目 A");
   } finally {
     await dashboard.stop();
     await provider.close();
@@ -294,7 +294,7 @@ test("legacy directory groups keep their identities while explicit empty project
     ).toBe(410);
     await page.reload();
     await expect(page.locator("#composer-input")).toHaveValue("旧会话的未发送草稿");
-    await expect(page.locator("#project-context")).toHaveAttribute("title", legacy);
+    await expect(page.locator(".project-group.is-selected .project-row")).toHaveAttribute("title", legacy);
     await page.request.patch(`${dashboard.base}/api/tasks/legacy`, { data: { archived: true } });
     await page.reload();
     await expect(groupFor(page, legacy)).toHaveCount(0);

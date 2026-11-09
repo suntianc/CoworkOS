@@ -3,8 +3,6 @@ import { startDashboard } from "../test/dashboard-fixture.mjs";
 
 async function settings(page, name = "设置") {
   const button = page.getByRole("button", { name, exact: true });
-  if (!(await button.isVisible()))
-    await page.locator(".window-nav[aria-controls='conversation-sidebar']").click();
   await button.click();
   return page.getByRole("dialog", { name, exact: true });
 }

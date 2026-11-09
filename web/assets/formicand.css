@@ -393,6 +393,11 @@ html[data-theme]
   color: color-mix(in srgb, var(--color-accent), var(--color-text) 24%);
   background: transparent;
 }
+/* The conversation menu owns a fixed-position copy submenu, and backdrop-filter
+   would make the menu its containing block instead of the viewport. */
+html[data-theme] .session-menu.conversation-context-menu {
+  backdrop-filter: none;
+}
 html[data-theme] .settings-backdrop .settings-card.modal-card {
   background-color: var(--popover-fill);
   background-image: var(--popover-sheen);
@@ -568,9 +573,358 @@ html[data-theme] .toast {
     background-image: none;
     backdrop-filter: none;
   }
+  /* The conversation menu owns a fixed-position copy submenu, and backdrop-filter
+   would make the menu its containing block instead of the viewport. */
+  html[data-theme] .session-menu.conversation-context-menu {
+    backdrop-filter: none;
+  }
   html[data-theme] .settings-backdrop .settings-card.modal-card {
     background-color: var(--color-bg);
     background-image: none;
     backdrop-filter: none;
+  }
+}
+
+/* P4.5 entry shell: sidebar + one main panel per entry, all reaching the
+   window top so only the page margin remains outside them. */
+html[data-theme] .app-layout {
+  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) minmax(0, 360px);
+  gap: 10px;
+  height: 100dvh;
+  min-height: 0;
+  padding: 10px 10px 10px 0;
+  background: transparent;
+}
+html[data-theme] body.output-collapsed .app-layout,
+html[data-theme] .app-layout[data-entry="observe"] {
+  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) 0;
+}
+html[data-theme] .app-layout[data-entry="observe"] .agent-pane {
+  display: none;
+}
+html[data-theme] .conversation-sidebar {
+  height: auto;
+  min-height: 0;
+  padding: 16px 12px;
+  gap: 16px;
+  overflow: hidden;
+  background: transparent;
+}
+html[data-theme] :is(.conversation-sidebar, .chat-pane, .observe-pane, .agent-pane) {
+  min-height: 0;
+}
+html[data-theme] .agent-pane {
+  position: relative;
+  inset: auto;
+  width: auto;
+  height: auto;
+}
+html[data-theme] .sidebar-header {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0;
+}
+html[data-theme] .sidebar-header-actions {
+  gap: 2px;
+}
+/* macOS keeps its traffic lights over the sidebar; the brand row starts below them. */
+html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .conversation-sidebar {
+  padding-top: 44px;
+}
+html[data-desktop-platform] :is(.app-shell, .app-layout) {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+html[data-desktop-platform] .conversation-sidebar,
+html[data-desktop-platform] :is(.chat-pane, .observe-pane, .agent-pane) {
+  -webkit-app-region: no-drag;
+}
+html[data-desktop-platform] :is(button, a, input, select, textarea, [role="button"], [role="tab"], summary) {
+  -webkit-app-region: no-drag;
+}
+
+/* Entry switch: the two product entries, one active at a time. */
+.entry-switch {
+  display: flex;
+  flex: 0 0 auto;
+  width: 100%;
+}
+.entry-switch > .entry-switch-option {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 35px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--color-text-3);
+  background: transparent;
+  font: inherit;
+  font-size: var(--type-nav);
+  line-height: 19px;
+}
+.entry-switch > .entry-switch-option .ui-icon {
+  width: 15px;
+  height: 15px;
+}
+.entry-switch > .entry-switch-option:hover {
+  color: var(--color-text-2);
+}
+.entry-switch > .entry-switch-option[aria-selected="true"] {
+  color: var(--color-text);
+  background: var(--segmented-active);
+  border-color: var(--selected-edge);
+  box-shadow: 0 2px 8px #00000040;
+  font-weight: 600;
+}
+
+/* Sidebar content per entry. The settings entry sits outside both, pinned at the bottom. */
+.work-sidebar,
+.observe-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.work-sidebar[hidden],
+.observe-nav[hidden] {
+  display: none;
+}
+html[data-theme] .sidebar-nav,
+html[data-theme] .observe-nav {
+  flex: 0 0 auto;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+}
+html[data-theme] .observe-nav .nav-item {
+  min-height: 36px;
+  padding: 8px;
+  gap: 10px;
+  font-size: 14px;
+}
+html[data-theme] .observe-nav .nav-item[aria-current="page"] {
+  color: var(--color-text);
+  background: var(--selected-fill);
+  box-shadow:
+    inset 0 0 0 1px var(--selected-edge),
+    0 2px 8px #00000040;
+}
+html[data-theme] .work-sidebar .project-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+html[data-theme] .conversation-sidebar > .sidebar-bottom {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+html[data-theme] .sidebar-bottom .account-row {
+  width: 100%;
+  gap: 10px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-text-2);
+  background: transparent;
+  font-size: 14px;
+}
+html[data-theme] .sidebar-bottom .account-row:hover {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+}
+html[data-theme] .sidebar-bottom .account-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* Main panel header: the only place a session title and menu appear. */
+.session-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 24px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--color-line);
+}
+.session-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.session-header-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: var(--color-text-2);
+  background: transparent;
+  cursor: pointer;
+}
+.session-header-button:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+}
+.session-header-button[hidden] {
+  display: none;
+}
+.chat-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.chat-pane.is-collaborating .chat-body {
+  display: grid;
+  grid-template-columns: minmax(320px, var(--chat-share, 42%)) 6px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+html[data-theme] .composer :is(#model-setup-button, .model-select, .reasoning-select) {
+  white-space: nowrap;
+}
+
+/* Observation skeleton: one panel with a view title until its content lands. */
+.observe-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--radius-panel);
+  background-color: var(--panel-fill);
+  background-image: var(--panel-sheen);
+  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: var(--panel-shadow);
+}
+.observe-pane[hidden] {
+  display: none;
+}
+.observe-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 56px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--color-line);
+}
+.observe-header h1 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.observe-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 24px 32px;
+  overflow: auto;
+}
+.observe-view[hidden] {
+  display: none;
+}
+
+html[data-theme] #connection-state {
+  top: 72px;
+}
+
+@media (max-width: 899px) {
+  html[data-theme] .app-layout,
+  html[data-theme] body.output-collapsed .app-layout,
+  html[data-theme] .app-layout[data-entry="observe"] {
+    grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
+  }
+  html[data-theme] .sidebar-divider {
+    display: block;
+  }
+  html[data-theme] .conversation-sidebar {
+    display: flex;
+  }
+  html[data-theme] .agent-pane,
+  html[data-theme] #output-pane-toggle {
+    display: none;
+  }
+}
+/* Until the narrow-window icon rail lands (#14), the sidebar stays rendered. */
+@media (max-width: 620px) {
+  /* Before the narrow-window rail of #14, keep the entry, navigation and
+     settings reachable as an icon column instead of squeezing the main panel. */
+  html[data-theme] .app-layout,
+  html[data-theme] body.output-collapsed .app-layout,
+  html[data-theme] .app-layout[data-entry="observe"] {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+  html[data-theme] .conversation-sidebar {
+    display: flex;
+    gap: 8px;
+    padding: 12px 6px;
+  }
+  html[data-theme] .sidebar-header {
+    justify-content: center;
+  }
+  html[data-theme] .brand-lockup strong,
+  html[data-theme] .sidebar-header-actions,
+  html[data-theme] .entry-switch > .entry-switch-option span,
+  html[data-theme] .new-conversation > span:not(.new-icon),
+  html[data-theme] .sidebar-nav .nav-item span:not(.nav-icon),
+  html[data-theme] .observe-nav .nav-item span:not(.nav-icon),
+  html[data-theme] .sidebar-section-label,
+  html[data-theme] .project-list,
+  html[data-theme] .account-name,
+  html[data-theme] .account-more {
+    display: none;
+  }
+  html[data-theme] .entry-switch {
+    flex-direction: column;
+  }
+  html[data-theme] .entry-switch > .entry-switch-option {
+    flex: 0 0 35px;
+    height: 35px;
+    padding: 0;
+  }
+  html[data-theme] .new-conversation,
+  html[data-theme] .sidebar-nav .nav-item,
+  html[data-theme] .observe-nav .nav-item,
+  html[data-theme] .sidebar-bottom .account-row {
+    justify-content: center;
+    padding: 9px 0;
+  }
+  html[data-theme] .session-header {
+    gap: 6px;
+    padding: 0 8px;
+  }
+  html[data-theme] .session-header-actions {
+    gap: 0;
+  }
+  html[data-theme] .session-header-button {
+    width: 24px;
+    height: 24px;
   }
 }

@@ -123,17 +123,8 @@ test("reading columns stay within the viewport across desktop and mobile breakpo
     await page.locator("#composer-input").fill("边界窗口保留草稿");
     for (const width of [900, 901, 959, 960, 1024]) {
       await page.setViewportSize({ width, height: 900 });
-      for (const [left, right] of [
-        [false, false],
-        [true, false],
-        [true, true],
-        [false, true]
-      ]) {
+      for (const right of [false, true]) {
         const body = page.locator("body");
-        const leftClass = width <= 900 ? "sidebar-mobile-open" : "sidebar-collapsed";
-        const desiredLeft = width <= 900 ? !left : left;
-        if ((await body.evaluate((node, name) => node.classList.contains(name), leftClass)) !== desiredLeft)
-          await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
         if ((await body.evaluate((node) => node.classList.contains("output-collapsed"))) !== right) {
           await page.locator("#output-pane-toggle").click();
         }
@@ -148,10 +139,8 @@ test("reading columns stay within the viewport across desktop and mobile breakpo
           await page.locator(".chat-message.main pre").evaluate((node) => node.scrollWidth > node.clientWidth)
         ).toBe(true);
         await expect(page.locator("#composer-input")).toHaveValue("边界窗口保留草稿");
-        await page.screenshot({
-          path: info.outputPath(`boundary-${width}-${Number(left)}-${Number(right)}.png`)
-        });
-        if (width > 900 && !left) {
+        await page.screenshot({ path: info.outputPath(`boundary-${width}-${Number(right)}.png`) });
+        if (width > 900) {
           const divider = page.locator("#sidebar-divider");
           await divider.focus();
           await divider.press("End");

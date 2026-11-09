@@ -1,8 +1,6 @@
 import { ui, localizeShell } from "./assets/ui/language.js";
 import { installLanguageSettings } from "./assets/controllers/language-settings.js";
 import { createCoalescedRead } from "./assets/controllers/coalesced-read.js";
-import { createGoalController } from "./assets/controllers/goal-controller.js";
-import { createWatchController } from "./assets/controllers/watch-controller.js";
 import { createMessageEditController } from "./assets/controllers/message-edit.js";
 import { createComposerClipboard } from "./assets/controllers/composer-clipboard.js";
 import { createComposerSession } from "./assets/controllers/composer-session.js";
@@ -45,17 +43,13 @@ import { createConversationOperations } from "./assets/controllers/conversation-
 import { createConversationReadState, conversationTaskId } from "./assets/conversation-actions.js";
 import { renderMarkdown } from "./assets/markdown.js";
 import { mergeRuntimeEvents } from "./assets/conversation.js";
-import { agentIdentity, agentName, galaxyMembers, isWorking } from "./assets/agent-room.js";
-import { createAgentGalaxy } from "./assets/agent-galaxy.js";
+import { createEntryController } from "./assets/controllers/entry-controller.js";
 import { renderRunOverview, runElapsed, formatRunDuration } from "./assets/run-overview.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
 
 localizeShell(document.body);
-
-const trajectoryCache = new Map();
-const trajectoryRequests = new Set();
 
 const state = {
   online: true,
@@ -71,7 +65,6 @@ const state = {
   thinkingLevelByTask: new Map(),
   selected: null,
   detail: null,
-  selectedAgent: null,
   previewPath: null,
   artifactDrawerOpen: false,
   openFiles: [],
@@ -102,13 +95,10 @@ const catalogReads = createCoalescedRead((_key, options) => refreshState(options
 const detailReads = createCoalescedRead(readDetail);
 let renderedDetailSignature;
 let renderedEmpty = false;
-const navigationHistory = [];
-let navigationIndex = -1;
 
 const $ = (selector) => document.querySelector(selector);
 createComposerLayout($("#composer-input"));
 createSidebarLayout($(".app-layout"), $(".conversation-sidebar"), $("#sidebar-divider"), {
-  sidebarToggle: $(ui('.window-nav[aria-label="切换侧栏"]')),
   outputPane: $(".agent-pane"),
   outputToggle: $("#output-pane-toggle")
 });
@@ -120,6 +110,18 @@ try {
   /* storage may be disabled */
 }
 const conversationReadState = createConversationReadState(draftStorage);
+const entryController = createEntryController({ root: $(".app-layout"), storage: draftStorage });
+for (const button of document.querySelectorAll("[data-entry-mode]"))
+  button.addEventListener("click", () => entryController.setMode(button.dataset.entryMode));
+$(".entry-switch")?.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+  event.preventDefault();
+  const next = entryController.state().mode === "work" ? "observe" : "work";
+  entryController.setMode(next);
+  $(`[data-entry-mode="${next}"]`)?.focus();
+});
+for (const button of document.querySelectorAll("[data-observe-view]"))
+  button.addEventListener("click", () => entryController.setObserveView(button.dataset.observeView));
 let initialConversationTaskId = conversationTaskId(location.href);
 let linkedConversationNavigation;
 let lastReadSelection;
@@ -295,7 +297,6 @@ const esc = (value) =>
     /[&<>"']/g,
     (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]
   );
-const safeClass = (value) => String(value ?? "created").replace(/[^a-z0-9_-]/gi, "");
 const statusLabel = {
   created: ui("已创建"),
   idle: ui("空闲中"),
@@ -312,13 +313,6 @@ const statusLabel = {
   interrupted: ui("已结束")
 };
 const stateText = (value) => statusLabel[value] || value || ui("未知");
-const memberStateText = (member) => (member?.blocked ? ui("等待前置") : stateText(member?.status));
-const updateAgentGalaxy = createAgentGalaxy($("#agent-galaxy"), {
-  onSelect: showAgentTrace,
-  nameFor: agentName,
-  stateFor: stateText,
-  keyFor: agentKey
-});
 
 /**
  * The workbench, created only once a Task reports application state.
@@ -341,7 +335,6 @@ const workbenchController = createWorkbenchController({
   onViewChanged: paintTopbarContext,
   onShowTaskPanel: ({ focus = false } = {}) => {
     document.body.classList.remove("output-collapsed");
-    renderAgentRoom();
     renderRightPanel();
     if (focus) $("#panel-heading")?.focus();
   },
@@ -369,7 +362,6 @@ const {
   enterConversation,
   activateConversationTab,
   ensureWorkbench,
-  ensureAppsPanel,
   ensureBinding,
   syncBindingFromTabs
 } = workbenchController;
@@ -401,7 +393,6 @@ const {
 const conversationView = createConversationView({
   state,
   $,
-  bindStarterPrompts,
   textContent,
   openArtifact,
   openSettings: () => modelSettings.open(),
@@ -513,7 +504,6 @@ const projectController = createProjectController({
     (workbenchController.host?.openTabs || [])
       .filter((tab) => tab.kind === "application")
       .map((tab) => tab.workspaceRoot),
-  isContextVisible: () => !$("#conversation-pane").hidden,
   isTaskVisible: (task) =>
     task.monitoring?.scope !== "background" || task.pinned || task.taskId === state.selected,
   isUnread: (taskId) => conversationReadState.isUnread(taskId),
@@ -643,30 +633,6 @@ function renameConversation(task = state.detail?.task) {
   dialog.open();
   panel.querySelector("input").select();
 }
-function openTaskActivity() {
-  const panel = document.createElement("div");
-  panel.className = "modal-backdrop app-dialog-backdrop";
-  panel.hidden = true;
-  const tasks = state.tasks
-    .filter(
-      (task) =>
-        !task.archived &&
-        (task.monitoring?.scope !== "background" || task.pinned || task.taskId === state.selected)
-    )
-    .slice(0, 12);
-  panel.innerHTML = ui`<section class="modal-card app-dialog" role="dialog" aria-modal="true" aria-labelledby="activity-title"><h2 id="activity-title">最近会话</h2><div class="dialog-list">${tasks.length ? tasks.map((task) => `<button class="search-result" data-activity-task="${esc(task.taskId)}"><span>${esc(conversationTitle(task))}</span><small>${esc(stateText(task.status))}</small></button>`).join("") : ui('<p class="dialog-help">暂无会话</p>')}</div><div class="dialog-actions"><button class="app-button is-secondary" type="button" data-close>关闭</button></div></section>`;
-  document.body.append(panel);
-  const dialog = createModal(panel, panel.querySelector("[data-close]"), { onClose: () => panel.remove() });
-  panel.querySelectorAll("[data-activity-task]").forEach((button) =>
-    button.addEventListener("click", () => {
-      dialog.close();
-      panel.remove();
-      void activateConversationTab(button.dataset.activityTask);
-    })
-  );
-  dialog.open();
-}
-
 function setModelLabel(value) {
   const label = String(value || "").trim();
   if (!label) return;
@@ -813,7 +779,6 @@ async function applyCatalog(data, { poll = false } = {}) {
   }
   state.online = true;
   backendConnection?.setOnline(true);
-  $("#workspace-path").textContent = "Connected";
   const defaultTask = state.tasks.find((task) => !task.archived && task.monitoring?.scope !== "background");
   const linkedTaskId = initialConversationTaskId;
   initialConversationTaskId = null;
@@ -906,7 +871,6 @@ function resetBackendView() {
   state.projects = [];
   state.projectsLoaded = false;
   state.localMessages = [];
-  state.selectedAgent = null;
   state.previewPath = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
@@ -1081,7 +1045,6 @@ function renderConversationList() {
     else url.searchParams.delete("task");
     if (url.href !== location.href) history.replaceState(null, "", url.href);
   }
-  syncNavigationHistory();
   projectController.render();
   ledgerController.render();
   developmentController.render();
@@ -1096,7 +1059,6 @@ function selectConversation(taskId) {
   document.body.classList.remove("sidebar-mobile-open");
   state.selected = taskId;
   state.composingNew = false;
-  state.selectedAgent = null;
   state.previewPath = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
@@ -1108,38 +1070,6 @@ function selectConversation(taskId) {
   void loadDetail(taskId);
   void enterConversation(taskId);
 }
-
-const selectGoalTask = async (taskId) => {
-  sessionMenu.close();
-  document.body.classList.remove("sidebar-mobile-open");
-  state.selected = taskId;
-  state.composingNew = false;
-  state.selectedAgent = null;
-  state.viewerTaskId = null;
-  state.localMessages = [];
-  state.previewPath = null;
-  state.artifactDrawerOpen = false;
-  state.openFiles = [];
-  state.artifactCache.clear();
-  connectEventStream(taskId);
-  renderConversationList();
-  const loading = loadDetail(taskId);
-  // loadDetail activates this task's composer synchronously. Reserve navigation
-  // before yielding so an earlier tab's pending activation cannot select it back.
-  const navigation = workbenchController.captureNavigation();
-  await loading;
-  if (state.selected !== taskId || !navigation.current()) return;
-  await activateConversationTab(taskId, navigation);
-};
-const watchView = createWatchController({ api, state, refresh, selectTask: selectGoalTask });
-const goalView = createGoalController({
-  api,
-  state,
-  refresh,
-  watchView,
-  selectTask: selectGoalTask,
-  openRecentActivity: openTaskActivity
-});
 
 function renderAll() {
   renderedEmpty = false;
@@ -1155,175 +1085,10 @@ function renderAll() {
   if (detail.runtime?.model) setModelLabel(detail.runtime.model);
   updateSendButton();
   renderConversation(detail.messages || [], task);
-  renderAgentRoom(coordination, task, progress);
   humanQuestions.update(detail);
-  watchView.update(detail);
-  goalView.update(detail);
   renderRightPanel();
   syncBindingFromTabs();
   renderedDetailSignature = detailViewSignature(detail);
-}
-
-function bindStarterPrompts() {
-  $("#conversation")
-    .querySelectorAll("[data-prompt]")
-    .forEach((node) =>
-      node.addEventListener("click", () => {
-        $("#composer-input").value = node.dataset.prompt;
-        composerSession.save();
-        $("#composer-input").focus();
-      })
-    );
-}
-
-function renderAgentRoom(coordination = {}, task = {}, progress) {
-  if (document.body.classList.contains("output-collapsed")) return;
-  const detail = state.detail || { coordination, task, progress };
-  const members = galaxyMembers(detail);
-  if (!members.some((member) => agentKey(member) === state.selectedAgent)) state.selectedAgent = "main";
-  const active = members.filter(isWorking).length;
-  const queued = members.filter((member) => member.status === "queued" || member.status === "waiting").length;
-  const humanPending = (detail.humanRequests || []).filter((request) => request.status === "pending").length;
-  $("#team-caption-text").textContent = humanPending
-    ? ui("等待你的回复")
-    : active
-      ? ui`${active} 位智能体工作中`
-      : queued
-        ? ui`${queued} 位智能体等待中`
-        : ui("空闲中");
-  $("#team-status-dot").classList.toggle("working", active > 0);
-  $("#team-count-label").textContent = humanPending ? ui`${humanPending} 个问题待回答` : "";
-  updateAgentGalaxy({ task: state.selected || "new", members, selected: state.selectedAgent });
-  const chips = $("#team-members");
-  const chipMarkup = members
-    .map(
-      (member) =>
-        `<button class="member-chip ${agentKey(member) === state.selectedAgent ? "active" : ""}" aria-pressed="${agentKey(member) === state.selectedAgent}" data-agent="${esc(agentKey(member))}">${esc(agentName(member, member.index))}<small>${esc(member.__main ? ui("主智能体") : memberStateText(member))}</small></button>`
-    )
-    .join("");
-  if (chips.innerHTML !== chipMarkup) {
-    chips.innerHTML = chipMarkup;
-    chips
-      .querySelectorAll("[data-agent]")
-      .forEach((node) => node.addEventListener("click", () => showAgentTrace(node.dataset.agent)));
-  }
-  renderFocus(members.find((member) => agentKey(member) === state.selectedAgent));
-}
-
-function showAgentTrace(agentKey) {
-  state.selectedAgent = agentKey;
-  $("#team-trace-details").open = true;
-  renderAgentRoom();
-  $("#team-trace-details").scrollIntoView({ behavior: "smooth", block: "nearest" });
-}
-
-function trajectoryKey(agent) {
-  return `${state.selected || "new"}:${state.detail?.task?.activeRunId || "none"}:${agent?.agentId || "main"}`;
-}
-
-function renderFocus(agent) {
-  if (!agent) return;
-  const root = $("#agent-focus");
-  const key = trajectoryKey(agent);
-  if (root.dataset.member !== key) {
-    root.dataset.member = key;
-    root.innerHTML = '<div id="trace-identity"></div><div id="agent-trajectory"></div>';
-  }
-  const identityParts = agentIdentity(agent);
-  const roleModel = [identityParts.role, identityParts.model].filter(Boolean).join(" · ");
-  // The checkout is only worth naming when it is not the Task's own project:
-  // a delegate bound to a requirement's isolated workspace works somewhere else.
-  const isolatedWorkspace =
-    identityParts.workspace && identityParts.workspace !== state.detail?.task?.projectDirectory
-      ? identityParts.workspace
-      : "";
-  const identity = `<div class="trace-heading"><div class="trace-title"><span class="trace-avatar">${agent.__main ? '<svg class="avatar-mark" aria-hidden="true"><use href="#i-formicand-mark-small" /></svg>' : '<svg class="ui-icon"><use href="#i-team"/></svg>'}</span><div><strong>${esc(agentName(agent, agent.index))}</strong>${roleModel ? `<small>${esc(roleModel)}</small>` : ""}</div></div><span>${esc(memberStateText(agent))}</span></div><p class="trace-task">${esc(agent.task || ui("等待分派任务"))}</p>${isolatedWorkspace ? `<p class="trace-workspace" title="${esc(isolatedWorkspace)}">${esc(isolatedWorkspace)}</p>` : ""}`;
-  if ($("#trace-identity").innerHTML !== identity) $("#trace-identity").innerHTML = identity;
-  if (!state.selected || !state.detail?.task?.activeRunId) {
-    paintTrajectory({ entries: [], total: 0 });
-    return;
-  }
-  const cached = trajectoryCache.get(key);
-  if (cached) paintTrajectory(cached);
-  else $("#agent-trajectory").innerHTML = ui('<div class="trace-empty">正在读取执行轨迹…</div>');
-  if (!$("#team-trace-details").open || trajectoryRequests.has(key)) return;
-  trajectoryRequests.add(key);
-  const taskId = state.selected;
-  api(`/api/tasks/${encodeURIComponent(taskId)}/agents/${encodeURIComponent(agent.agentId)}/trajectory`)
-    .then((result) => {
-      trajectoryCache.set(key, result);
-      if (trajectoryCache.size > 30) trajectoryCache.delete(trajectoryCache.keys().next().value);
-      if (root.dataset.member === key && trajectoryKey(agent) === key) paintTrajectory(result);
-    })
-    .catch((error) => {
-      if (root.dataset.member === key && trajectoryKey(agent) === key && !cached)
-        $("#agent-trajectory").innerHTML =
-          ui`<div class="trace-empty">轨迹读取失败：${esc(error.message)}</div>`;
-    })
-    .finally(() => trajectoryRequests.delete(key));
-}
-
-function paintTrajectory(result) {
-  const body = $("#agent-trajectory");
-  if (!body) return;
-  const signature = JSON.stringify(result);
-  if (body.dataset.signature === signature) return;
-  const opened = new Set([...body.querySelectorAll("details[open]")].map((node) => node.dataset.entry));
-  body.dataset.signature = signature;
-  const entries = result.entries || [];
-  body.innerHTML = entries.length
-    ? `${result.total > entries.length ? ui`<div class="trace-note">显示最近 ${entries.length} 条轨迹</div>` : ""}${entries
-        .map((entry) => {
-          const presentation =
-            entry.kind === "tool"
-              ? presentToolCall(
-                  {
-                    name: entry.title,
-                    arguments: entry.text,
-                    result: entry.result,
-                    completed: entry.status !== "running",
-                    failed: entry.status === "failed"
-                  },
-                  {
-                    active: Boolean(state.detail?.runtime?.active),
-                    workspaceRoot: state.detail?.storageRoot || state.detail?.workspaceRoot,
-                    taskId: state.selected,
-                    detail: state.detail
-                  }
-                )
-              : undefined;
-          const title = presentation?.title || entry.title;
-          const time = entry.time ? shortDate(entry.time) : "";
-          const cleanMessage =
-            entry.kind === "message"
-              ? assistantDisplayContent(entry.text)
-                  .map((part) =>
-                    part.type === "thinking" ? normalizeReasoningDisplay(part.thinking) : part.text || ""
-                  )
-                  .join("\n\n")
-              : entry.text;
-          const resultContext = /^(?:命令执行完成|已完成|调用成功)[。.!]?$/.test(
-            presentation?.resultSummary || ""
-          )
-            ? ""
-            : presentation?.resultSummary;
-          const text = presentation
-            ? [
-                ...new Set(
-                  [
-                    presentation.subject,
-                    presentation.summary,
-                    presentation.failureReason || resultContext
-                  ].filter(Boolean)
-                )
-              ].join(" · ")
-            : cleanMessage;
-          return `<div class="trace-entry ${safeClass(presentation?.status || entry.status)}"><span class="trace-marker"></span><details data-entry="${esc(entry.id)}" ${opened.has(entry.id) ? "open" : ""}><summary><strong>${esc(title)}</strong><time>${esc(time)}</time><em>${esc(presentation?.statusLabel || stateText(entry.status))}</em></summary>${entry.text ? `<pre>${esc(entry.text)}</pre>` : ""}${entry.result ? `<pre>${esc(entry.result)}</pre>` : ""}</details>${text ? (entry.kind === "message" ? `<div class="trace-preview markdown-body">${renderMarkdown(text, { preserveMath: true })}</div>` : `<p class="trace-preview">${esc(text)}</p>`) : ""}</div>`;
-        })
-        .join("")}`
-    : ui(
-        '<div class="trace-empty"><svg class="ui-icon"><use href="#i-activity"/></svg>还没有执行记录<br>开始任务后，工具调用和执行结果会出现在这里。</div>'
-      );
 }
 
 function renderRightPanel() {
@@ -1439,9 +1204,6 @@ function renderRightPanel() {
     body.dataset.task = state.selected || "";
     body.innerHTML = renderRunOverview(statistics);
     if (expanded) body.querySelector("[data-usage-breakdown]")?.setAttribute("open", "");
-    body
-      .querySelectorAll("[data-usage-agent]")
-      .forEach((node) => node.addEventListener("click", () => showAgentTrace(node.dataset.usageAgent)));
   }
   const timer = body.querySelector("[data-run-elapsed]");
   if (timer) timer.textContent = formatRunDuration(runElapsed(statistics));
@@ -1452,16 +1214,10 @@ function renderEmpty() {
   renderedEmpty = true;
   renderedDetailSignature = undefined;
   computerUse.syncTask();
-  watchView.update(null);
-  goalView.update(null);
   $("#topbar-task").textContent = ui("新任务");
   $("#conversation").innerHTML =
-    ui`<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2><div class="starter-prompts"><button data-prompt="帮我梳理这个项目的结构"><span class="prompt-icon">${icon("folder")}</span>梳理项目结构 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="检查最近的代码改动并运行测试"><span class="prompt-icon">${icon("check")}</span>检查代码改动 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="研究这个主题并整理一份简报"><span class="prompt-icon">${icon("search")}</span>研究并整理简报 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="读取我提供的文件，整理关键信息并生成一份报告。"><span class="prompt-icon">${icon("apps")}</span>整理文件并生成报告 <span class="prompt-arrow">${icon("arrow")}</span></button></div></div>`;
-  bindStarterPrompts();
-  state.selectedAgent = null;
-  renderAgentRoom({ calls: [] }, { status: "created" }, null);
+    ui`<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2></div>`;
   humanQuestions.update(null);
-  $("#team-trace-details").open = false;
   renderRightPanel();
   paintTopbarContext();
 }
@@ -1477,7 +1233,6 @@ function paintTopbarContext() {
   $("#topbar-task").title = name;
   $("#session-menu-button").hidden = editing;
   $("#session-menu-button").title = state.selected ? ui("会话菜单") : ui("会话菜单 · 发送消息后可管理会话");
-  projectController.paintContext();
   if (
     sessionMenu.trigger === $("#session-menu-button") &&
     sessionMenu.context !== currentSessionMenuContext()
@@ -1495,9 +1250,6 @@ function shortDate(value) {
   return Number.isNaN(date.valueOf())
     ? value
     : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-function agentKey(agent) {
-  return agent?.callId || agent?.agentId || "agent";
 }
 function truncate(value, length) {
   const text = String(value ?? "");
@@ -1532,7 +1284,6 @@ function beginNewConversation(projectId, applicationWorkspace) {
   state.thinkingLevel = defaultThinkingLevelForNewConversation();
   setThinkingLabel(state.thinkingLevel);
   state.localMessages = [];
-  state.selectedAgent = null;
   state.previewPath = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
@@ -1762,61 +1513,10 @@ function chooseThinkingLevel(value) {
   closeThinkingMenu();
 }
 
-function toggleSidebar() {
-  if (workbenchController.toggleSidebarVisibility()) return;
-  if (window.matchMedia("(max-width: 900px)").matches) {
-    document.body.classList.toggle("sidebar-mobile-open");
-    return;
-  }
-  document.body.classList.toggle("sidebar-collapsed");
-}
-
 async function toggleOutputPane() {
   if (await workbenchController.toggleWorkspace()) return;
   document.body.classList.toggle("output-collapsed");
-  if (!document.body.classList.contains("output-collapsed")) {
-    renderAgentRoom();
-    renderRightPanel();
-  }
-}
-
-function navigateTask(direction) {
-  const nextIndex = navigationIndex + direction;
-  if (nextIndex < 0 || nextIndex >= navigationHistory.length) return;
-  sessionMenu.close();
-  const taskId = navigationHistory[nextIndex];
-  navigationIndex = nextIndex;
-  if (!taskId) return beginNewConversation();
-  state.selected = taskId;
-  state.composingNew = false;
-  state.localMessages = [];
-  state.previewPath = null;
-  state.artifactDrawerOpen = false;
-  state.openFiles = [];
-  state.artifactCache.clear();
-  state.viewerTaskId = null;
-  void enterConversation(taskId);
-  renderConversationList();
-  connectEventStream(state.selected);
-  void loadDetail(state.selected);
-}
-
-function syncNavigationHistory() {
-  const taskId = state.selected || null;
-  if (navigationIndex < 0 || navigationHistory[navigationIndex] !== taskId) {
-    navigationHistory.splice(navigationIndex + 1);
-    navigationHistory.push(taskId);
-    navigationIndex = navigationHistory.length - 1;
-  }
-  for (const [label, enabled] of [
-    [ui("后退"), navigationIndex > 0],
-    [ui("前进"), navigationIndex < navigationHistory.length - 1]
-  ]) {
-    const button = document.querySelector(`.window-nav[aria-label="${label}"]`);
-    if (!button) continue;
-    button.disabled = !enabled;
-    button.classList.toggle("disabled", !enabled);
-  }
+  if (!document.body.classList.contains("output-collapsed")) renderRightPanel();
 }
 
 function openProfileMenu() {
@@ -1851,9 +1551,6 @@ function clearAttachments() {
   renderAttachments();
 }
 
-$("#team-trace-details").addEventListener("toggle", () => {
-  if ($("#team-trace-details").open) renderAgentRoom();
-});
 createConversationLayout($("#conversation"));
 async function stopTask(taskId = state.selected) {
   if (!taskId || isTaskStopping(taskId)) return;
@@ -1886,18 +1583,7 @@ $("#composer-input").addEventListener("keydown", (event) => {
   }
 });
 $("#new-conversation").addEventListener("click", beginNewConversation);
-document.querySelector(ui('.window-nav[aria-label="切换侧栏"]'))?.addEventListener("click", toggleSidebar);
-document
-  .querySelector(ui('.window-nav[aria-label="后退"]'))
-  ?.addEventListener("click", () => navigateTask(-1));
-document
-  .querySelector(ui('.window-nav[aria-label="前进"]'))
-  ?.addEventListener("click", () => navigateTask(1));
 $("#output-pane-toggle").addEventListener("click", toggleOutputPane);
-document
-  .querySelector(ui('.sidebar-icon[title="任务动态"]'))
-  ?.addEventListener("click", () => goalView.open(null, "activity"));
-document.querySelector(".nav-item")?.addEventListener("click", () => showToast(ui("当前已在工作台")));
 $("#artifact-drawer-scrim")?.addEventListener("click", closeArtifactDrawer);
 document.addEventListener("keydown", (event) => {
   const modifier = event.metaKey || event.ctrlKey;
@@ -1921,7 +1607,6 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest("#model-select, #model-menu")) closeModelMenu();
   if (!event.target.closest("#reasoning-select, #reasoning-menu")) closeThinkingMenu();
 });
-$("#apps-nav")?.addEventListener("click", () => void ensureAppsPanel()?.toggle());
 $("#app-bind-select")?.addEventListener("click", () => ensureBinding()?.toggle());
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#app-bind-select, #app-bind-menu")) workbenchController.binding?.close();
@@ -1967,7 +1652,7 @@ window.addEventListener("storage", (event) => {
 });
 window.addEventListener("popstate", () => {
   const taskId = conversationTaskId(location.href);
-  if (location.hash.startsWith("#goals") || !taskId || taskId === state.selected) return;
+  if (!taskId || taskId === state.selected) return;
   if (state.tasks.some((task) => task.taskId === taskId)) selectConversation(taskId);
 });
 createMenu($("#model-select"), $("#model-menu"), { toggleOnClick: false, onClose: closeModelMenu });
@@ -2169,7 +1854,6 @@ async function createTaskFromDraft(
   state.composingNew = false;
   state.detail = { task, messages: [] };
   state.localMessages = [];
-  state.selectedAgent = null;
   state.previewPath = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
