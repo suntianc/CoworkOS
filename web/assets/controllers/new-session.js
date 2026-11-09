@@ -5,6 +5,7 @@ import { escapeHtml as esc } from "../workbench/html.js";
 const statusLabel = {
   created: "未开始",
   running: "开发中",
+  paused: "已暂停",
   waiting: "开发中",
   completed: "已完成",
   failed: "失败",

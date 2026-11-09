@@ -160,8 +160,7 @@ export function createProjectController({
             .join("") || ui('<div class="project-empty" data-project-empty>还没有对话</div>')
         }</div></section>`;
         })
-        .join("") ||
-        (temporary.length ? "" : ui('<div class="sidebar-empty">拖入文件或发送消息，开始临时协作</div>')));
+        .join("") || (temporary.length ? "" : ui('<div class="sidebar-empty-state">还没有项目</div>')));
     if (root.conversationMarkup === markup) return;
     root.conversationMarkup = markup;
     root.innerHTML = markup;
@@ -323,6 +322,8 @@ export function createProjectController({
   $("#new-project").addEventListener("click", () => openCreateDialog());
   return {
     render,
+    /** The projects the tree actually shows; the work entry follows the same list. */
+    visibleProjects,
     currentProject: current,
     async ensureProject(projectDirectory, projectName) {
       const existing = projects().find((project) => project.projectDirectory === projectDirectory);

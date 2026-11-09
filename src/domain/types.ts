@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 export type AgentRole = "main" | "coordinator" | "subagent";
-export type TaskStatus = "created" | "running" | "waiting" | "completed" | "failed" | "cancelled";
+export type TaskStatus = "created" | "running" | "paused" | "waiting" | "completed" | "failed" | "cancelled";
 export type CompletionPolicy = "natural" | "explicit";
 export type CompletionSignal = "none" | "finish_task" | "natural_stop" | "interrupted";
 export type CallMode = "sync" | "async" | "auto";
@@ -108,6 +108,19 @@ export interface TaskCompletion {
 }
 
 /**
+ * A person's request to stop Main between steps, and the boundary it stopped at.
+ *
+ * The request is durable so the Main process reads it from its own Task record
+ * rather than through a second control channel. `pausedAt` is written only
+ * when the current tool call or model reply has ended and the Run has stopped.
+ */
+export interface RunPause {
+  requestedAt: string;
+  requestedBy: "user";
+  pausedAt?: string;
+}
+
+/**
  * What Agents on this Task are allowed to do beyond their private directory.
  *
  * Capabilities are granted per Task, after the work is understood, rather than
@@ -170,6 +183,8 @@ export interface TaskRecord {
   /** Absent means the safe default: Agents write only their own directories. */
   capabilities?: TaskCapabilities;
   activeRunId?: string;
+  /** A user pause waiting for the current step, then the recorded pause boundary. */
+  pause?: RunPause;
   lastError?: string;
   createdAt: string;
   updatedAt: string;
@@ -207,8 +222,9 @@ export function transitionCall(call: Call, next: CallState): Call {
 
 const allowedTaskTransitions: Record<TaskStatus, TaskStatus[]> = {
   created: ["running", "cancelled"],
-  running: ["waiting", "completed", "failed", "cancelled"],
-  waiting: ["running", "completed", "failed", "cancelled"],
+  running: ["paused", "waiting", "completed", "failed", "cancelled"],
+  paused: ["running", "completed", "cancelled"],
+  waiting: ["running", "paused", "completed", "failed", "cancelled"],
   failed: ["running", "cancelled"],
   cancelled: ["running"],
   completed: ["running"]
@@ -220,11 +236,15 @@ export function transitionTask(task: TaskRecord, next: TaskStatus): TaskRecord {
     throw new Error(`invalid task transition: ${task.status} -> ${next}`);
   }
   const timestamp = now();
+  const terminal = next === "completed" || next === "failed" || next === "cancelled";
   return {
     ...task,
     status: next,
+    // A fresh run or a settled Task no longer carries a pause request; the
+    // paused record keeps it so the interface can show where Main stopped.
+    pause: terminal || next === "running" ? undefined : task.pause,
     updatedAt: timestamp,
-    completedAt: next === "completed" || next === "failed" || next === "cancelled" ? timestamp : undefined,
+    completedAt: terminal ? timestamp : undefined,
     lastError: next === "failed" ? task.lastError : undefined,
     version: task.version + 1
   };

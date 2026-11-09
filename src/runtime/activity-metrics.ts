@@ -112,6 +112,8 @@ const traces = new Map<string, TraceAccumulator>();
 const MAIN_STATE: Record<TaskRecord["status"], ActivityState> = {
   created: "queued",
   running: "running",
+  // A paused Main has no process and waits for its person, like a waiting Run.
+  paused: "waiting",
   waiting: "waiting",
   completed: "completed",
   failed: "failed",

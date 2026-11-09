@@ -70,12 +70,12 @@ html[data-theme] #new-project {
   padding: 0;
   border: 0;
   border-radius: 5px;
-  color: var(--color-text-3);
+  color: var(--color-accent);
   background: transparent;
   cursor: pointer;
 }
 html[data-theme] #new-project:hover {
-  color: var(--color-text);
+  color: var(--color-accent);
   background: var(--color-surface-3);
 }
 html[data-theme] #new-project .ui-icon {
@@ -405,6 +405,15 @@ html[data-theme] .project-empty {
   color: var(--color-text-3);
   font-size: 12px;
 }
+html[data-theme] .sidebar-empty-state {
+  margin: 0;
+  padding: 14px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+}
 
 html[data-theme] .sidebar-legacy {
   flex: 0 0 auto;
@@ -512,6 +521,115 @@ html[data-theme] .conversation-pane.is-new-session .composer {
   flex: 0 0 auto;
   color: var(--color-text-3);
   font-size: 12px;
+}
+
+/* First use: three steps between the welcome title and the composer until a
+   model connection and a project exist. Sizes follow the design board. */
+.first-use {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  width: 100%;
+  min-height: 0;
+  padding: 0 48px;
+}
+.first-use-hero {
+  width: 100%;
+  text-align: center;
+}
+.first-use-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.first-use-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 620px;
+}
+.first-use-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 61px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-surface);
+}
+.first-use-step[data-state="current"] {
+  border-color: color-mix(in srgb, var(--color-warn) 33%, transparent);
+  background: var(--color-warn-soft);
+}
+.first-use-num {
+  display: grid;
+  flex: 0 0 26px;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  color: var(--color-text-2);
+  background: var(--color-surface-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+.first-use-step[data-state="current"] .first-use-num {
+  color: var(--color-bg);
+  background: var(--color-warn);
+}
+.first-use-num.is-done {
+  color: var(--color-ok);
+  background: var(--color-ok-soft);
+}
+.first-use-num .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+.first-use-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+.first-use-step[data-state="done"] .first-use-label {
+  color: var(--color-text-2);
+}
+.first-use-action {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.first-use-action.is-primary {
+  color: var(--color-bg);
+  background: var(--color-text);
+}
+.first-use-action.is-primary:hover {
+  background: color-mix(in srgb, var(--color-text), var(--color-bg) 12%);
+}
+.first-use-action.is-secondary {
+  color: var(--color-text-2);
+  background: var(--color-surface-3);
+}
+.first-use-action.is-secondary:hover {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+  border-color: var(--color-line-strong);
+}
+.first-use-action:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 html[data-theme] .composer .composer-project {

@@ -1000,6 +1000,7 @@ export function createDashboardApplication(
     normalizeModel,
     runtimeValue,
     startMainRun,
+    pauseTask: runs.pauseTask,
     editMainMessage: runs.editMainMessage,
     messageVersion: async (taskId, versionId) => {
       const location = await locateTask(taskId);

@@ -193,6 +193,10 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
       if (!/^\/api\/projects\/[^/]+\/(developments|reviews|merges|deliveries)$/.test(url.pathname)) return;
       developmentRequests.push({ method: request.method(), path: url.pathname, origin: url.origin });
     });
+    // The work entry legitimately reads its own conversation's project. The
+    // remote node is read only by this view, so P3 is asserted on it alone.
+    const remoteReads = () =>
+      developmentRequests.filter((request) => request.origin === new URL(b.base).origin);
 
     const offlineOrigin = `http://127.0.0.1:${closedPort}`;
     await page.addInitScript(
@@ -216,12 +220,12 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     // The Runs view is hidden at first; a hidden panel must not read the
     // project's development facts (or anything else) on a timer.
     await page.waitForTimeout(1200);
-    expect(developmentRequests).toHaveLength(0);
+    expect(remoteReads()).toHaveLength(0);
 
     await page.getByRole("tab", { name: "观测", exact: true }).click();
     await page.locator('[data-observe-view="requirements"]').click();
     await page.waitForTimeout(600);
-    expect(developmentRequests).toHaveLength(0);
+    expect(remoteReads()).toHaveLength(0);
 
     await page.locator('[data-observe-view="runs"]').click();
     await expect(page.locator("[data-observe-runs-controls]")).toBeVisible();
@@ -238,12 +242,12 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
 
     // Stage facts are list reads only; the delivery-view read that replays the
     // outbox and inspects a checkout is never issued from observation.
-    await expect.poll(() => developmentRequests.length).toBeGreaterThan(0);
-    expect(developmentRequests.every((request) => request.method === "GET")).toBe(true);
-    expect(developmentRequests.some((request) => request.path.endsWith("/deliveries"))).toBe(true);
-    const readsAfterOpen = developmentRequests.length;
+    await expect.poll(() => remoteReads().length).toBeGreaterThan(0);
+    expect(remoteReads().every((request) => request.method === "GET")).toBe(true);
+    expect(remoteReads().some((request) => request.path.endsWith("/deliveries"))).toBe(true);
+    const readsAfterOpen = remoteReads().length;
     await page.waitForTimeout(11_000);
-    expect(developmentRequests).toHaveLength(readsAfterOpen);
+    expect(remoteReads()).toHaveLength(readsAfterOpen);
 
     // Main lanes with their session, stage, project · requirement and duration.
     const pulseLane = localCard.locator(`[data-runs-lane="${pulse.taskId}"]`);

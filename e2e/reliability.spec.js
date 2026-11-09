@@ -7,7 +7,9 @@ import { startDashboard } from "../test/dashboard-fixture.mjs";
 test("composer drafts and complete attachments survive conversations, refresh and rejection", async ({
   page
 }) => {
-  const dashboard = await startDashboard();
+  // A usable connection keeps the send action available; this test observes
+  // draft and attachment recovery, not first-use setup.
+  const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   try {

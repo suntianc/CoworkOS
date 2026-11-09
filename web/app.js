@@ -49,7 +49,9 @@ import { createObserveData } from "./assets/controllers/observe-data.js";
 import { createObserveRuns } from "./assets/controllers/observe-runs.js";
 import { createObserveSidebar } from "./assets/controllers/observe-sidebar.js";
 import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
+import { createRunControl } from "./assets/controllers/run-control.js";
 import { createNewSessionView } from "./assets/controllers/new-session.js";
+import { createFirstUseView } from "./assets/controllers/first-use.js";
 import { createAddProjectController } from "./assets/controllers/add-project.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
@@ -97,6 +99,7 @@ let fileUpload;
 let attachmentPreview;
 const creatingTasks = new Map();
 const stoppingTasks = new Set();
+const continuingTasks = new Set();
 const stopEpochs = new Map();
 const promotingMessages = new Set();
 let detailRequestSequence = 0;
@@ -313,6 +316,7 @@ const statusLabel = {
   created: ui("已创建"),
   idle: ui("空闲中"),
   running: ui("工作中"),
+  paused: ui("已暂停"),
   waiting: ui("等待中"),
   completed: ui("已完成"),
   failed: ui("失败"),
@@ -378,6 +382,7 @@ const {
   syncBindingFromTabs
 } = workbenchController;
 let requirementPanel;
+let runControl;
 const artifacts = createArtifactController({
   state,
   $,
@@ -405,17 +410,29 @@ requirementPanel = createRequirementPanel({
   openArtifact,
   openResource: openResourceInEditor,
   openPreview,
-  iconForDocument: (row) => workbenchController.iconForDocument(row)
+  iconForDocument: (row) => workbenchController.iconForDocument(row),
+  onRendered: (stage) => runControl?.setRequirementStage(stage)
 });
 const conversationView = createConversationView({
   state,
   $,
   textContent,
   openArtifact,
-  openSettings: () => modelSettings.open(),
+  // The recovery card's model action switches the composer's model; the
+  // settings surface remains one click away from the composer selector.
+  openSettings: () => setTimeout(() => void toggleModelMenu(), 0),
   retry: (taskId) => void retryFailedRequest(taskId),
+  continueRun: (taskId) => void continuePausedRun(taskId),
   messageEdit,
   edit: (taskId, target) => messageEdit.begin(taskId, target)
+});
+runControl = createRunControl({
+  state,
+  $,
+  api,
+  showToast,
+  onChanged: () => refresh(),
+  cancelRun: (taskId) => stopTask(taskId)
 });
 /**
  * Backend files shown as images or iframes.
@@ -767,12 +784,33 @@ async function humanAction(taskId, action, body) {
   return result;
 }
 
-function showToast(message) {
+/**
+ * One transient notice card.
+ *
+ * Every caller gets the same stack: a title, an optional second line and a
+ * tone. The stack keeps at most three cards so notices about another session,
+ * a question or a connection never cover the whole conversation.
+ */
+function showToast(message, options = {}) {
   const toast = $("#toast");
-  toast.textContent = message;
-  toast.classList.add("visible");
-  clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove("visible"), 2600);
+  if (!toast) return;
+  const tone = ["success", "warn", "info", "danger"].includes(options.tone) ? options.tone : "info";
+  const iconName = {
+    success: "circle-check",
+    warn: "message-circle-question",
+    danger: "wifi-off",
+    info: "info"
+  }[tone];
+  const card = document.createElement("div");
+  card.className = `toast-card is-${tone}`;
+  card.innerHTML = ui`${icon(iconName)}<span class="toast-copy"><span class="toast-title">${esc(message)}</span>${options.detail ? ui`<span class="toast-detail">${esc(options.detail)}</span>` : ""}</span>`;
+  toast.append(card);
+  while (toast.children.length > 3) toast.firstElementChild.remove();
+  requestAnimationFrame(() => card.classList.add("visible"));
+  setTimeout(() => {
+    card.classList.remove("visible");
+    setTimeout(() => card.remove(), 200);
+  }, options.duration ?? 3200);
 }
 
 function readProjectCatalog(requestSequence = ++listRequestSequence, isCurrent = () => true) {
@@ -793,12 +831,52 @@ function refresh(options) {
 }
 
 /**
+ * The connection is one state with one transition notice.
+ *
+ * Repeated polling failures must not stack identical warnings; the reconnect
+ * notice is the same state turning back on, and the catalog read that follows
+ * it refreshes every conversation from the backend rather than from memory.
+ */
+function setOnlineState(online) {
+  const changed = state.online !== online;
+  state.online = online;
+  backendConnection?.setOnline(online);
+  if (!changed) return;
+  if (online) showToast(ui("本机节点已重新连接"), { tone: "success" });
+  else showToast(ui("本机节点连接中断，正在重连…"), { tone: "danger" });
+}
+
+/**
+ * A Main question in another conversation is a notification, not a reason to
+ * switch: the selected conversation keeps its place and the sidebar carries
+ * the dot. The first catalog seeds the set so opening the page is quiet.
+ */
+let catalogQuestionsSeen = false;
+const pendingQuestionIds = new Set();
+function announcePendingQuestions() {
+  const current = new Set();
+  for (const task of state.tasks) {
+    if (!task.pendingQuestion) continue;
+    current.add(task.taskId);
+    if (catalogQuestionsSeen && task.taskId !== state.selected && !pendingQuestionIds.has(task.taskId))
+      showToast(ui("Main 有问题等你回答"), {
+        detail: conversationTitle(task),
+        tone: "warn"
+      });
+  }
+  pendingQuestionIds.clear();
+  for (const taskId of current) pendingQuestionIds.add(taskId);
+  catalogQuestionsSeen = true;
+}
+
+/**
  * Adopt one authoritative catalog, whether it came from `/api/tasks` or from a
  * snapshot the event client took. Replacing the lists here is what makes a
  * reconnect consistent: the sequence and revisions move in the same step.
  */
 async function applyCatalog(data, { poll = false } = {}) {
   if (!data || typeof data !== "object") return;
+  announcePendingQuestions();
   if (typeof data.workspaceRoot === "string" && data.workspaceRoot.trim()) {
     state.workspaceRoot = data.currentWorkspaceRoot || data.workspaceRoot;
     if (!state.workspacePath) state.workspacePath = state.workspaceRoot;
@@ -814,8 +892,7 @@ async function applyCatalog(data, { poll = false } = {}) {
       if (!state.selected || !state.modelByTask.has(state.selected)) setModelLabel(state.model);
     }
   }
-  state.online = true;
-  backendConnection?.setOnline(true);
+  setOnlineState(true);
   const defaultTask = state.tasks.find((task) => !task.archived && task.monitoring?.scope !== "background");
   const linkedTaskId = initialConversationTaskId;
   initialConversationTaskId = null;
@@ -859,8 +936,7 @@ async function refreshState({ poll = false, isCurrent = () => true } = {}) {
       updateSendButton();
       return;
     }
-    state.online = false;
-    backendConnection?.setOnline(false);
+    setOnlineState(false);
     updateSendButton();
     observeData.localChanged();
   }
@@ -984,6 +1060,7 @@ function applyCatalogEvent(record) {
         (project.tasks || []).some((entry) => entry.taskId === task.taskId)
     );
   }
+  announcePendingQuestions();
   renderConversationList();
   if (state.selected) connectEventStream(state.selected);
   updateSendButton();
@@ -1094,14 +1171,33 @@ function renderConversationList() {
   developmentController.render();
   mainSessionsController.render();
   boardController.render();
-  newSession.sync();
+  syncIdleComposer();
+}
+
+/**
+ * Switching away never stops the previous Main; say so once so the choice is
+ * not mistaken for a cancellation.
+ */
+function announceBackgroundRun(previousTaskId, nextTitle) {
+  if (!previousTaskId || previousTaskId === state.selected) return;
+  const previous = state.tasks.find((task) => task.taskId === previousTaskId);
+  if (!previous || !["running", "waiting"].includes(previous.status)) return;
+  showToast(`${ui("已切换到")}“${nextTitle}”`, {
+    detail: `“${conversationTitle(previous)}”${ui(" 仍在后台运行")}`,
+    tone: "success"
+  });
 }
 
 function selectConversation(taskId) {
+  const previousTaskId = state.selected;
   sessionMenu.close();
   conversationReadState.setUnread(taskId, false);
   document.body.classList.remove("sidebar-mobile-open");
   state.selected = taskId;
+  if (taskId !== previousTaskId) {
+    const next = state.tasks.find((task) => task.taskId === taskId);
+    announceBackgroundRun(previousTaskId, next ? conversationTitle(next) : ui("新的对话"));
+  }
   state.composingNew = false;
   state.previewPath = null;
   state.drawerTab = null;
@@ -1113,6 +1209,7 @@ function selectConversation(taskId) {
   state.viewerTaskId = null;
   state.localMessages = [];
   requirementPanel.reset();
+  runControl?.reset();
   connectEventStream(taskId);
   renderConversationList();
   void loadDetail(taskId);
@@ -1126,6 +1223,7 @@ function renderAll() {
   $("#topbar-task").textContent = truncate(conversationTitle(task), 44);
   if (detail.runtime?.model) setModelLabel(detail.runtime.model);
   updateSendButton();
+  runControl?.render();
   renderConversation(detail.messages || [], task);
   humanQuestions.update(detail);
   renderRightPanel();
@@ -1146,21 +1244,34 @@ function renderRightPanel() {
 function renderEmpty() {
   renderedDetailSignature = undefined;
   computerUse.syncTask();
-  $("#topbar-task").textContent = ui("新会话");
-  newSession.render();
-  newSession.sync();
+  if (firstUse.active()) firstUse.render();
+  else newSession.render();
+  syncIdleComposer();
   humanQuestions.update(null);
   renderRightPanel();
   paintTopbarContext();
 }
+
+/**
+ * Before a conversation exists the same composer belongs to either the
+ * first-use guide or the new-session start, so one place decides its chrome.
+ */
+function syncIdleComposer() {
+  newSession.sync();
+  firstUse.sync();
+  // The guide's composer cannot start a session, so it offers no project picker;
+  // adding a project is a step above it.
+  if (firstUse.blocksSending()) $("#composer-project").hidden = true;
+}
 function paintTopbarContext() {
   const application = workbenchController.host?.applicationTab;
   const editing = Boolean(application && $("#conversation-pane").hidden);
+  const idleTitle = firstUse.active() ? ui("开始使用") : ui("新会话");
   const name = editing
     ? application.title || appDisplayName(application.appType)
     : state.selected
       ? conversationTitle(state.detail?.task || state.tasks.find((task) => task.taskId === state.selected))
-      : ui("新会话");
+      : idleTitle;
   $("#topbar-task").textContent = truncate(name, 44);
   $("#topbar-task").title = name;
   $("#session-menu-button").hidden = editing;
@@ -1207,6 +1318,7 @@ function beginNewConversation(projectId, applicationWorkspace) {
   state.selected = null;
   state.detail = null;
   state.composingNew = true;
+  runControl?.reset();
   state.model = defaultModelForNewConversation();
   setModelLabel(state.model);
   state.thinkingLevel = defaultThinkingLevelForNewConversation();
@@ -1655,6 +1767,13 @@ observeData.subscribe(() => {
   observeSidebar.render();
   settingsPages.refresh();
 });
+const firstUse = createFirstUseView({
+  state,
+  $,
+  projectCount: () => projectController.visibleProjects().length,
+  onConnectModel: () => settingsPages.open("models"),
+  onAddProject: () => projectController.openCreate()
+});
 document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
@@ -2054,26 +2173,35 @@ function updateSendButton() {
   });
   const connecting = workbenchController.connecting;
   const backendReady = Boolean(backendConnection && backendConnection.ready());
+  const awaitingSetup = firstUse.blocksSending();
   $("#send-button").hidden = showStop;
   $("#send-button").disabled =
-    isSending || readingAttachments || connecting || stopping || !state.online || !backendReady;
+    awaitingSetup ||
+    isSending ||
+    readingAttachments ||
+    connecting ||
+    stopping ||
+    !state.online ||
+    !backendReady;
   $("#stop-button").hidden = !showStop;
   $("#stop-button").disabled = stopping;
   $("#stop-button").setAttribute("aria-busy", String(stopping));
   $("#stop-button").setAttribute("aria-label", stopping ? ui("正在停止任务") : ui("停止任务"));
   $("#stop-button").title = stopping ? ui("正在停止任务…") : ui("停止任务");
   $("#model-setup-button").hidden = state.modelConfigured !== false;
-  $("#send-button").title = !backendReady
-    ? ui("后端连接不可用")
-    : connecting
-      ? ui("正在关联文件…")
-      : isSending
-        ? ui("正在发送…")
-        : readingAttachments
-          ? ui("正在读取附件…")
-          : running
-            ? ui("排队发送（当前任务结束后处理）")
-            : ui("发送（Enter）");
+  $("#send-button").title = awaitingSetup
+    ? firstUse.lockReason()
+    : !backendReady
+      ? ui("后端连接不可用")
+      : connecting
+        ? ui("正在关联文件…")
+        : isSending
+          ? ui("正在发送…")
+          : readingAttachments
+            ? ui("正在读取附件…")
+            : running
+              ? ui("排队发送（当前任务结束后处理）")
+              : ui("发送（Enter）");
   $("#send-button").setAttribute("aria-label", running ? ui("排队发送") : ui("发送"));
   if (composerSession.editing) {
     $("#send-button").title = ui("请先保存或取消正在编辑的消息");
@@ -2137,6 +2265,7 @@ async function submitMessageEdit() {
 
 async function sendMessage() {
   if (!$("#human-questions").hidden) return;
+  if (firstUse.blocksSending()) return;
   const input = $("#composer-input");
   const text = input.value.trim() || (state.attachments.length ? ui("请查看这些附件。") : "");
   if (!text) return;
@@ -2190,6 +2319,30 @@ async function sendMessage() {
     finishSubmission(submission);
     renderAll();
     updateSendButton();
+  }
+}
+
+async function continuePausedRun(taskId = state.selected) {
+  const detail = state.detail?.task?.taskId === taskId ? state.detail : null;
+  if (
+    !taskId ||
+    state.selected !== taskId ||
+    !detail ||
+    detail.runtime?.active ||
+    detail.task.status !== "paused" ||
+    continuingTasks.has(taskId)
+  )
+    return;
+  continuingTasks.add(taskId);
+  try {
+    await launchPrompt(taskId, undefined, { resume: true });
+    await refresh();
+  } catch (error) {
+    showToast(ui`继续失败：${requestErrorMessage(error)}`);
+    await refresh();
+  } finally {
+    continuingTasks.delete(taskId);
+    renderAll();
   }
 }
 

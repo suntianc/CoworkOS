@@ -56,7 +56,7 @@ import { normalizeReasoningEffort, type PiThinkingLevel } from "../runtime/runti
 import type { MainCapacityDecision, MainCapacityRequest } from "../domain/main-capacity.js";
 import { modelRoleSnapshot, type ModelRoleRequest, type ResolvedModelRole } from "../runtime/role-models.js";
 
-import { now, type TaskStatus } from "../domain/types.js";
+import { now, type TaskRecord, type TaskStatus } from "../domain/types.js";
 import type { TaskLocation } from "./workspace-directory.js";
 
 /** A fresh object per Main process; runId alone can be reused after a stop. */
@@ -327,7 +327,8 @@ export function createDashboardRunService({
     const runId =
       requestedRunId?.trim() ||
       (retryRequestId ? retryRequest?.runId : undefined) ||
-      ((task.status === "running" || task.status === "waiting") && task.activeRunId
+      ((task.status === "running" || task.status === "waiting" || task.status === "paused") &&
+      task.activeRunId
         ? task.activeRunId
         : `main-${Date.now()}`);
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(runId)) throw new Error("unsafe run id");
@@ -358,7 +359,7 @@ export function createDashboardRunService({
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stopping 只由返回的 stop() 置位，TS 看不到启动路径等待期间的闭包写入
     if (stopping) throw new Error("Runtime is shutting down");
     if (
-      (task.status === "running" || task.status === "waiting") &&
+      (task.status === "running" || task.status === "waiting" || task.status === "paused") &&
       task.activeRunId &&
       task.activeRunId !== runId &&
       !submission?.edit
@@ -507,7 +508,8 @@ export function createDashboardRunService({
     await location.store.updateTask(taskId, {
       goal: edit?.goalForTask ?? (task.goal || prompt.slice(0, 4_000)),
       model,
-      activeRunId: runId
+      activeRunId: runId,
+      ...(task.pause ? { pause: undefined } : {})
     });
     await location.store.createRun(taskId, runId);
     await appendRunEvent(taskWorkspace, taskId, runId, "main.run_spawned", {
@@ -634,13 +636,11 @@ export function createDashboardRunService({
       const finalization = (async () => {
         await outputWrites;
         runOutput.finish();
-        if (cancellations.has(taskId) || (await location.store.readTask(taskId)).status === "cancelled")
-          return;
-        if (
-          activeRunIds.get(taskId) !== runId ||
-          (await location.store.readTask(taskId)).activeRunId !== runId
-        )
-          return;
+        const settledTask = await location.store.readTask(taskId);
+        if (cancellations.has(taskId) || settledTask.status === "cancelled") return;
+        // A pause this backend already recorded has no second close to settle.
+        if (settledTask.status === "paused") return;
+        if (activeRunIds.get(taskId) !== runId || settledTask.activeRunId !== runId) return;
         // A launch failure or truncated stream can leave the persisted context
         // unchanged. Only this process's terminal event can complete/fail it;
         // previous successful or failed turns remain diagnostic history.
@@ -651,6 +651,33 @@ export function createDashboardRunService({
         if (stopping) {
           if (await prepareRunTransition(location, runId, "waiting"))
             await location.store.transitionTask(taskId, "waiting", { runId, reason: "desktop_shutdown" });
+          return;
+        }
+        const settlePause = async (request: NonNullable<TaskRecord["pause"]>) => {
+          if (!(await prepareRunTransition(location, runId, "paused"))) return;
+          // The status is the fact the next resume reads; the event only
+          // explains it, so it is appended after the transition.
+          await location.store.transitionTask(taskId, "paused", {
+            runId,
+            reason: "ui_pause"
+          });
+          await appendRunEvent(taskWorkspace, taskId, runId, "main.run_paused", {
+            code,
+            signal,
+            reason: "ui_pause",
+            requestedAt: request.requestedAt
+          });
+          const paused = await location.store.readTask(taskId);
+          if (paused.pause && !paused.pause.pausedAt)
+            await location.store.updateTask(taskId, {
+              pause: { ...paused.pause, pausedAt: new Date().toISOString() }
+            });
+        };
+        // Aborting at the step boundary surfaces through Pi as an aborted
+        // operation. The durable pause request identifies it, while a model
+        // error that happened to overlap a pause still shows its own failure.
+        if (settledTask.pause && modelFailed && /abort/i.test(last.errorMessage ?? "")) {
+          await settlePause(settledTask.pause);
           return;
         }
         if ((code === 0 || interrupted) && !modelFailed) {
@@ -691,6 +718,17 @@ export function createDashboardRunService({
           });
           if (assessment.ready && (await parkBackgroundWatchGoal(taskWorkspace, taskId, runId)))
             assessment = { ready: false, reason: "parked_for_wake" };
+          // A user pause owns this boundary only when the step did not finish
+          // the Task. Completed work stays completed rather than becoming a
+          // pause a person would have to resume.
+          // A pause can arrive while completion checks were awaiting jobs or
+          // delegations, so read the request again at the boundary we are
+          // about to write. Completion still wins when the step finished it.
+          const pauseNow = assessment.ready ? undefined : (await location.store.readTask(taskId)).pause;
+          if (pauseNow) {
+            await settlePause(pauseNow);
+            return;
+          }
           const current = await prepareRunTransition(
             location,
             runId,
@@ -1112,7 +1150,7 @@ export function createDashboardRunService({
         if (
           activeRuns.has(taskId) ||
           taskFinalizations.has(taskId) ||
-          ["running", "waiting"].includes(location.task.status) ||
+          ["running", "paused", "waiting"].includes(location.task.status) ||
           (await readSleep(location.workspaceRoot, taskId)) ||
           (await projectExecutionIsAlive(location.workspaceRoot, taskId))
         )
@@ -1157,6 +1195,36 @@ export function createDashboardRunService({
       return action();
     }
     return lockTasks(0);
+  }
+
+  /**
+   * Ask the running Main to stop after its current step.
+   *
+   * The request is durable on the Task record, which the Main process reads at
+   * the next tool/model boundary. It changes no Run state by itself: the close
+   * path records the pause only after the in-flight step has settled.
+   */
+  function pauseTask(taskId: string) {
+    return serialize(taskId, async () => {
+      const location = await locateTask(taskId);
+      if (location.task.status === "paused") return { task: location.task };
+      if (location.task.status !== "running" || !activeRuns.has(taskId) || !location.task.activeRunId)
+        return { refused: "no_active_run" as const };
+      if (!location.task.pause) {
+        const task = await location.store.updateTask(taskId, {
+          pause: { requestedAt: new Date().toISOString(), requestedBy: "user" }
+        });
+        await appendRunEvent(
+          location.workspaceRoot,
+          taskId,
+          location.task.activeRunId,
+          "main.run_pause_requested",
+          { reason: "ui_pause" }
+        );
+        return { task };
+      }
+      return { task: location.task };
+    });
   }
 
   function cancelTask(taskId: string) {
@@ -1320,6 +1388,7 @@ export function createDashboardRunService({
     activeRuns,
     isBusy: () => activeRuns.size > 0 || taskOperations.size > 0 || finalizations.size > 0,
     startMainRun,
+    pauseTask,
     editMainMessage,
     interjectionTarget,
     queueInterjection,
