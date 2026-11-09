@@ -223,7 +223,7 @@ export class ProjectBoardRepository {
         WHERE b.project_id = ? AND b.publish_request_id = ?`,
       [projectId, requestId]
     );
-    if (replay.length) return entryOf(replay[0]!);
+    if (replay.length) return entryOf(replay[0]);
     const requirement = await this.ledger.createRequirement(projectId, {
       title: input.title,
       content: input.content,
@@ -524,7 +524,7 @@ export class ProjectBoardRepository {
       [projectId, requestId]
     );
     if (!existing.length) return undefined;
-    const event = existing[0]!;
+    const event = existing[0];
     if (event.board_id !== boardId || event.kind !== kind)
       throw new ProjectDataConflictError(
         "requestId 已用于另一看板操作；请为新操作生成新的 requestId",
@@ -624,7 +624,7 @@ export class ProjectBoardRepository {
       [projectId, boardId]
     );
     if (!rows.length) throw new ProjectDataNotFoundError("找不到该看板需求");
-    return rows[0]!;
+    return rows[0];
   }
 
   private rows(sql: string, params: Array<string | number | null>): Promise<BoardRow[]> {

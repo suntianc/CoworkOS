@@ -159,6 +159,7 @@ export class ResourceFiles {
         }
       } finally {
         await handle.close();
+        // eslint-disable-next-line no-restricted-syntax -- 临时文件在本目录内，删除失败不影响已写入的目标文件
         await unlink(temporary).catch(() => {});
       }
     }

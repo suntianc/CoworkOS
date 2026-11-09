@@ -178,12 +178,12 @@ export class RemoteProjectDataService implements ProjectDataGateway {
         projectDirectory: ledgerProjectDirectory(input.projectDirectory)
       }
     });
-    return result.project as unknown as ProjectIdentity;
+    return result.project as ProjectIdentity;
   }
 
   async projects(): Promise<SharedProject[]> {
     const result = await this.request("/api/project-data/projects");
-    return (result.projects as SharedProject[]) ?? [];
+    return (result.projects as SharedProject[] | undefined) ?? [];
   }
 
   async createRequirement(projectId: unknown, input: RequirementCreate): Promise<RequirementDetail> {
@@ -238,7 +238,7 @@ export class RemoteProjectDataService implements ProjectDataGateway {
     const result = await this.request(projectPath(projectId, "/ledger"), {
       body: { action: "query", q: query.text, status: query.status, limit: query.limit }
     });
-    return (result.requirements as RequirementSummary[]) ?? [];
+    return (result.requirements as RequirementSummary[] | undefined) ?? [];
   }
 
   /**
@@ -286,7 +286,7 @@ export class RemoteProjectDataService implements ProjectDataGateway {
 
   async listMainSessions(projectId: unknown): Promise<MainSessionRecord[]> {
     const result = await this.request(projectPath(projectId, "/main-sessions"));
-    return (result.records as MainSessionRecord[]) ?? [];
+    return (result.records as MainSessionRecord[] | undefined) ?? [];
   }
 
   async getMainSession(projectId: unknown, sessionId: unknown): Promise<MainSessionRecord> {
@@ -412,7 +412,7 @@ export class RemoteProjectDataService implements ProjectDataGateway {
 
   async queryDevelopments(projectId: unknown, _backendId?: string): Promise<DevelopmentRecord[]> {
     const result = await this.request(projectPath(projectId, "/developments"));
-    return (result.developments as DevelopmentRecord[]) ?? [];
+    return (result.developments as DevelopmentRecord[] | undefined) ?? [];
   }
 
   async findDevelopmentByRequirement(
@@ -496,7 +496,7 @@ export class RemoteProjectDataService implements ProjectDataGateway {
       action: "query",
       ...(developmentId === undefined ? {} : { developmentId })
     });
-    return (result.reviews as DevelopmentReview[]) ?? [];
+    return (result.reviews as DevelopmentReview[] | undefined) ?? [];
   }
 
   private reviewRequest(projectId: unknown, body: Record<string, unknown>) {
@@ -533,7 +533,7 @@ export class RemoteProjectDataService implements ProjectDataGateway {
       action: "query",
       ...(developmentId === undefined ? {} : { developmentId })
     });
-    return (result.merges as DevelopmentMerge[]) ?? [];
+    return (result.merges as DevelopmentMerge[] | undefined) ?? [];
   }
 
   async claimMerge(projectId: unknown, mergeId: unknown, input: unknown): Promise<DevelopmentMerge> {
@@ -573,7 +573,7 @@ export class RemoteProjectDataService implements ProjectDataGateway {
       action: "query",
       ...(developmentId === undefined ? {} : { developmentId })
     });
-    return (result.deliveries as DevelopmentDelivery[]) ?? [];
+    return (result.deliveries as DevelopmentDelivery[] | undefined) ?? [];
   }
 
   async getDelivery(projectId: unknown, deliveryId: unknown): Promise<DevelopmentDelivery> {
@@ -594,7 +594,7 @@ export class RemoteProjectDataService implements ProjectDataGateway {
 
   async boardEntries(projectId: unknown): Promise<BoardEntry[]> {
     const result = await this.request(projectPath(projectId, "/board"));
-    return (result.entries as BoardEntry[]) ?? [];
+    return (result.entries as BoardEntry[] | undefined) ?? [];
   }
 
   async boardEntry(projectId: unknown, boardId: unknown): Promise<BoardEntry> {
@@ -608,7 +608,7 @@ export class RemoteProjectDataService implements ProjectDataGateway {
     const result = await this.request(
       projectPath(projectId, `/board/${encodeURIComponent(String(boardId))}`)
     );
-    return (result.events as BoardEvent[]) ?? [];
+    return (result.events as BoardEvent[] | undefined) ?? [];
   }
 
   async publishBoardEntry(
@@ -679,6 +679,7 @@ async function call(
   } catch (error) {
     throw unavailable(origin, error);
   }
+  // eslint-disable-next-line no-restricted-syntax -- 权威服务的错误响应可能不是 JSON（网关错误页），解析失败时改用状态码消息
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   const message =
     typeof body.error === "string" && body.error

@@ -279,6 +279,7 @@ export class LocalWorkspaceStore implements WorkspaceStore {
         const task = await this.readTask(entry.name, readOptions);
         if (!includeWorkspaces && task.kind === "workspace") continue;
         tasks.push(task);
+        // eslint-disable-next-line no-restricted-syntax -- 根目录下还混着非任务目录和写坏的 task.json，读不了只跳过这一项，其余会话照常列出
       } catch {
         /* ignore unrelated directories */
       }

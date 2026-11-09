@@ -9,6 +9,7 @@ export async function inspectSourceFile(
   definition: ApplicationDefinition,
   input: { path: string; contentVersion: string }
 ): Promise<NonNullable<WorkspaceResource["sourceFile"]>> {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- sourceFile 来自 create 请求体（HTTP/工具参数），调用方可能传 null 或非字符串 path
   if (!input || typeof input.path !== "string" || !/^[a-f0-9]{64}$/.test(input.contentVersion))
     throw new ApplicationError("invalid_operation", "原文件路径或版本无效", {});
   const path = await files.adoptExternalPath(input.path);

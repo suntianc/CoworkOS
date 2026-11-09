@@ -23,6 +23,7 @@ export type PublishResult =
 export async function targetTip(repository: string, branch: string): Promise<string | undefined> {
   try {
     return await git(repository, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`]);
+    // eslint-disable-next-line no-restricted-syntax -- 配置的目标分支被删掉时 rev-parse 以非零退出，undefined 正是调用方判断分支不存在的约定
   } catch {
     return undefined;
   }
@@ -33,6 +34,7 @@ export async function isAncestor(repository: string, ancestor: string, commit: s
   try {
     await git(repository, ["merge-base", "--is-ancestor", ancestor, commit]);
     return true;
+    // eslint-disable-next-line no-restricted-syntax -- merge-base --is-ancestor 用退出码 1 表示"不是祖先"，这里必须得到 false 而不是抛错
   } catch {
     return false;
   }
@@ -42,6 +44,7 @@ export async function commitExists(repository: string, commit: string): Promise<
   try {
     await git(repository, ["cat-file", "-e", `${commit}^{commit}`]);
     return true;
+    // eslint-disable-next-line no-restricted-syntax -- 候选提交不在仓库里时 cat-file -e 以非零退出，false 表示这份候选不可用于合入
   } catch {
     return false;
   }
@@ -67,8 +70,10 @@ export async function targetWorktree(repository: string, branch: string): Promis
 export async function removeMergeSite(repository: string, directory: string): Promise<void> {
   try {
     await git(repository, ["worktree", "remove", "--force", "--force", directory]);
+    // eslint-disable-next-line no-restricted-syntax -- worktree 登记损坏或目录已被删时 remove 会失败，下面的 rm 与 prune 才是这一现场真正的清理路径
   } catch {
     await rm(directory, { recursive: true, force: true });
+    // eslint-disable-next-line no-restricted-syntax -- prune 只清理失效的 worktree 登记，rm 已经把目录删掉，登记清理失败不影响清理结果
     await git(repository, ["worktree", "prune"]).catch(() => undefined);
   }
 }
@@ -101,7 +106,9 @@ export async function mergeCandidate(input: {
     const detail = error instanceof Error ? error.message : String(error);
     const paths = await git(input.directory, ["diff", "--name-only", "--diff-filter=U"])
       .then((listing) => listing.split("\n").filter(Boolean))
+      // eslint-disable-next-line no-restricted-syntax -- 冲突文件列表读不到时按 failed 汇报，原始 git 错误仍作为 detail 返回给调用方
       .catch(() => [] as string[]);
+    // eslint-disable-next-line no-restricted-syntax -- 走到这里说明合入已失败，工作树可能已没有可中止的合并，abort 失败不改变下面返回的 conflict/failed 结果
     await git(input.directory, ["merge", "--abort"]).catch(() => undefined);
     return paths.length
       ? { status: "conflict", baseCommit, paths, detail }

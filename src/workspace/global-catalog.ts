@@ -44,11 +44,24 @@ export class GlobalWorkspaceCatalog {
       const value = JSON.parse(await readFile(this.filePath, "utf8")) as Partial<CatalogDocument>;
       const workspaces = Array.isArray(value.workspaces)
         ? value.workspaces.flatMap((entry) => {
-          if (!entry || typeof entry !== "object" || typeof entry.workspaceRoot !== "string" || !entry.workspaceRoot.trim()) return [];
-          const root = resolve(entry.workspaceRoot);
-          const now = new Date().toISOString();
-          return [{ workspaceRoot: root, firstSeenAt: typeof entry.firstSeenAt === "string" ? entry.firstSeenAt : now, lastSeenAt: typeof entry.lastSeenAt === "string" ? entry.lastSeenAt : now }];
-        })
+            if (
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- workspaces 来自磁盘 JSON，数组元素可能是 null 或非对象
+              !entry ||
+              typeof entry !== "object" ||
+              typeof entry.workspaceRoot !== "string" ||
+              !entry.workspaceRoot.trim()
+            )
+              return [];
+            const root = resolve(entry.workspaceRoot);
+            const now = new Date().toISOString();
+            return [
+              {
+                workspaceRoot: root,
+                firstSeenAt: typeof entry.firstSeenAt === "string" ? entry.firstSeenAt : now,
+                lastSeenAt: typeof entry.lastSeenAt === "string" ? entry.lastSeenAt : now
+              }
+            ];
+          })
         : [];
       return { version: 1, workspaces };
     } catch (error) {

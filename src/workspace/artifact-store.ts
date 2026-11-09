@@ -165,12 +165,13 @@ async function readJson(path: string): Promise<unknown> {
 
 async function readCache(paths: TaskPaths): Promise<ArtifactCache> {
   try {
-    const value = (await readJson(paths.index)) as Partial<ArtifactCache>;
+    const value = (await readJson(paths.index)) as Partial<ArtifactCache> | null;
     if (value?.version === 1 && Array.isArray(value.entries)) {
       return {
         version: 1,
         entries: value.entries.filter(
           (entry) =>
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 缓存来自磁盘 JSON，旧文件数组元素可能是 null 或缺少 artifact
             entry?.artifact &&
             typeof entry.artifact.relativePath === "string" &&
             typeof entry.artifact.sha256 === "string"
@@ -327,7 +328,7 @@ async function indexFile(
   const sourceResource = metadata.sourceResourceId
     ? { resourceId: metadata.sourceResourceId, sha256 }
     : (previous?.artifact.sourceResource ??
-      (legacyResourceId && previous?.artifact.displayName === basename(relativePath).slice(9)
+      (legacyResourceId && previous.artifact.displayName === basename(relativePath).slice(9)
         ? { resourceId: legacyResourceId, sha256: previous.artifact.sha256 }
         : undefined));
   const artifact: Artifact = {
@@ -622,6 +623,7 @@ export async function migrateLegacyTaskArtifacts(input: TaskLocation): Promise<A
     let journal: MigrationJournal = { version: 1, paths: [] };
     try {
       const prior = (await readJson(journalPath)) as MigrationJournal;
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 迁移日志从磁盘 JSON 读取，旧文件的 version 不一定是 1
       if (prior.version === 1 && Array.isArray(prior.paths)) journal = prior;
     } catch (error) {
       if (!missing(error) && !(error instanceof SyntaxError)) throw error;
@@ -668,7 +670,7 @@ export async function migrateLegacyTaskArtifacts(input: TaskLocation): Promise<A
       false
     );
     await record(backup);
-    for (const entry of manifest as Artifact[]) {
+    for (const entry of manifest) {
       let destination;
       try {
         destination = legacyDestination(entry);
@@ -723,7 +725,7 @@ export async function migrateLegacyTaskArtifacts(input: TaskLocation): Promise<A
     await withFileLock(paths.index, async () => {
       const cache = await readCache(paths);
       const entries = new Map(cache.entries.map((entry) => [entry.artifact.relativePath, entry]));
-      for (const previous of manifest as Artifact[]) {
+      for (const previous of manifest) {
         try {
           const { entry } = await indexFile(
             paths,

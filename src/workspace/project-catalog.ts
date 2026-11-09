@@ -288,6 +288,7 @@ export class GlobalProjectCatalog {
     try {
       const value = JSON.parse(await readFile(this.filePath, "utf8")) as ProjectDocument;
       if (
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 索引文件来自磁盘 JSON，旧文件或损坏文件的 version 可能不是 1
         value.version !== 1 ||
         !Array.isArray(value.projects) ||
         !value.projects.every(validRecord) ||
@@ -303,6 +304,7 @@ export class GlobalProjectCatalog {
           !Array.isArray(pending.tasks) ||
           !pending.tasks.every(
             (task) =>
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 待完成更新来自磁盘 JSON，tasks 数组元素可能是 null
               task &&
               typeof task.storageRoot === "string" &&
               isAbsolute(task.storageRoot) &&

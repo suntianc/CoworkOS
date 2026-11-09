@@ -18,8 +18,10 @@ const MAX_EVENT_BYTES = 128 * 1024 * 1024;
 export const HISTORY_PAGE_BYTES = 8 * 1024 * 1024;
 
 export interface StoredOperation {
-  format: typeof FORMAT;
-  event: AppOperationEvent;
+  /** Validated against FORMAT when read back from the log; the file is not trusted. */
+  format: string;
+  /** Validated when read back: a persisted header may predate or lack the event. */
+  event?: AppOperationEvent;
   details: string;
   bytes: number;
 }
@@ -71,9 +73,10 @@ export class OperationHistory {
     let chunks: Buffer[] = [];
     let length = 0;
     const entry = (line: Buffer): HistoryEntry | undefined => {
-      let parsed: AppOperationEvent | StoredOperation;
+      let parsed: AppOperationEvent | StoredOperation | null;
       try {
-        parsed = JSON.parse(line.toString("utf8")) as AppOperationEvent | StoredOperation;
+        parsed = JSON.parse(line.toString("utf8")) as AppOperationEvent | StoredOperation | null;
+        // eslint-disable-next-line no-restricted-syntax -- 崩溃可能留下半行 JSONL，丢掉这一行后由恢复流程补写完整回执
       } catch {
         // Recovery appends a complete receipt after a torn tail.
         return undefined;
@@ -186,7 +189,7 @@ export class OperationHistory {
         await handle.close();
       }
     }
-    const details = JSON.parse(await this.readBlob(entry.details)) as OperationDetails;
+    const details = JSON.parse(await this.readBlob(entry.details)) as Partial<OperationDetails>;
     if (details.version !== 1 || !details.event || !Array.isArray(details.strings))
       throw this.unreadable("操作历史内容格式无效", entry.details);
     const strings = new Map<string, string>();

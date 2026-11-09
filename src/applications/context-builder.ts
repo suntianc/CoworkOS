@@ -72,11 +72,13 @@ export class ApplicationContextBuilder {
     const resources = this.resourceStoreFor
       ? await this.resourceStoreFor(input.taskId, resourceId)
       : this.resources;
+    // eslint-disable-next-line no-restricted-syntax -- 资源可能已被删除，读不到 appType 就当作没有可注入的上下文
     const appType = await resources.appTypeOf(resourceId).catch(() => undefined);
     if (!appType) return undefined;
 
     const read = await resources
       .readResource(appType, resourceId, { limit: CONTEXT_BUDGET.changes * 2 })
+      // eslint-disable-next-line no-restricted-syntax -- 资源读不出来时本轮不注入上下文，下一轮会重新尝试
       .catch(() => undefined);
     if (!read) return undefined;
     const adapter = this.registry.require(read.resource.appType);
@@ -140,6 +142,7 @@ export class ApplicationContextBuilder {
     const cursors = (await this.readCursorFile(input.taskId, input.agentId)).cursors;
     return Promise.all(
       resources.map(async (resource) => {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 游标来自磁盘 JSON，首次出现的新资源没有条目
         const acknowledged = cursors[resource.resourceId]?.lastAcknowledgedRevision ?? 0;
         const store = this.resourceStoreFor
           ? await this.resourceStoreFor(input.taskId, resource.resourceId)
@@ -261,10 +264,11 @@ export class ApplicationContextBuilder {
     try {
       const value = JSON.parse(
         await readFile(this.cursorPath(taskId, agentId), "utf8")
-      ) as Partial<CursorFile>;
+      ) as Partial<CursorFile> | null;
       if (value?.version !== 1 || !value.cursors || typeof value.cursors !== "object")
         return { version: 1, cursors: {} };
-      return { version: 1, cursors: value.cursors as Record<string, AgentCursor> };
+      return { version: 1, cursors: value.cursors };
+      // eslint-disable-next-line no-restricted-syntax -- 游标文件不存在或损坏时从零开始注入，损坏的进度不值得中断 Agent 运行
     } catch {
       return { version: 1, cursors: {} };
     }

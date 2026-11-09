@@ -21,7 +21,8 @@ export interface ResourceGrant {
   baseRevision: number;
 }
 interface Candidate {
-  version: 1;
+  /** Written as 1; a receipt read back from deliverables is validated against that version. */
+  version: number;
   taskId: string;
   runId: string;
   callId: string;
@@ -62,6 +63,7 @@ export class ApplicationToolSession {
   ) {
     const previous = this.pending.get(resourceId) ?? Promise.resolve();
     const result = previous
+      // eslint-disable-next-line no-restricted-syntax -- 上一次同资源调用的失败已作为它自己的返回值抛给调用方，这里只需等它结束后再排队
       .catch(() => {})
       .then(() => this.executeOrdered(resourceId, definition, params, signal, expectedTarget));
     this.pending.set(resourceId, result);
@@ -184,7 +186,7 @@ export class ApplicationToolSession {
     } else if (outcome.operations?.length) {
       const operation =
         outcome.operations.length === 1
-          ? outcome.operations[0]!
+          ? outcome.operations[0]
           : { operationType: "resource.batch", payload: { operations: outcome.operations } };
       const result = await service.applyOperation(
         {
@@ -202,6 +204,7 @@ export class ApplicationToolSession {
       );
       revision = result.resource.revision;
       applied = [{ revision, summary: result.event.summary }];
+      // eslint-disable-next-line no-restricted-syntax -- 游标只是上下文注入的进度标记，写入失败时下次仍会重算未读变更
       await this.service.context.recordAcknowledged(taskId, actor.id, resourceId, revision).catch(() => {});
     }
     if (definition.name === adapter.definition.entryReadTool || applied.length)
@@ -251,6 +254,7 @@ export function applicationCapabilityProvider(
         throw new Error(`Unsupported delegated capability: ${grant.provider}`);
       for (const item of grant.scope as ResourceGrant[]) {
         if (
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 委派作用域来自持久化队列里的 JSON，条目可能缺失或为 null
           !item ||
           !["read", "candidate"].includes(item.access) ||
           !Number.isSafeInteger(item.baseRevision) ||
@@ -420,7 +424,8 @@ export async function acceptResourceCandidate(
   const item = (await new DurableScheduler(join(taskRoot, "runs", runId, "queue.json")).list()).find(
     (entry) => entry.stepId === callId && entry.agentId === agentId
   );
-  const grants = (item?.payload as { capabilityGrants?: CapabilityGrant[] })?.capabilityGrants ?? [];
+  const grants =
+    (item?.payload as { capabilityGrants?: CapabilityGrant[] } | undefined)?.capabilityGrants ?? [];
   const allowed = grants.some(
     (grant) =>
       grant.provider === "applications" &&
