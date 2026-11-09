@@ -113,7 +113,8 @@ export function createMainSessionService(ports: MainSessionServicePorts) {
       projectDirectory: project.projectDirectory,
       local: Boolean(task),
       // A finished Run is history; only an unfinished one is still owned now.
-      activeRunId: task && ["running", "waiting"].includes(task.status) ? (task.activeRunId ?? null) : null,
+      activeRunId:
+        task && ["running", "paused", "waiting"].includes(task.status) ? (task.activeRunId ?? null) : null,
       ...(task ? { status: task.status } : {}),
       runs: record.runs
     };

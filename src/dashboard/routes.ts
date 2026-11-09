@@ -128,6 +128,7 @@ export interface DashboardRoutePorts {
   normalizeModel(value: unknown): string | undefined;
   runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
   startMainRun: RunService["startMainRun"];
+  pauseTask: RunService["pauseTask"];
   launchMainRun: MainRunLauncher;
   editMainMessage: RunService["editMainMessage"];
   messageVersion(taskId: string, versionId: string): Promise<unknown>;
@@ -163,6 +164,7 @@ export function createDashboardHandler(
     normalizeModel,
     runtimeValue,
     startMainRun,
+    pauseTask,
     activeRuns,
     cancelTask,
     resumeHumanAnswers,
@@ -1124,10 +1126,19 @@ export function createDashboardHandler(
       if (request.method === "POST" && url.pathname.endsWith("/action")) {
         const body = await readJsonBody(request);
         const action = body.action;
-        if (action !== "cancel" && action !== "resume" && action !== "complete")
+        if (action !== "pause" && action !== "cancel" && action !== "resume" && action !== "complete")
           throw new Error("unsupported task action");
         const location = await locateTask(taskId);
         const task = location.task;
+        if (action === "pause") {
+          const paused = await pauseTask(taskId);
+          if (paused.refused) {
+            sendJson(response, 409, { error: "当前没有运行中的 Main" });
+            return;
+          }
+          sendJson(response, 200, await publishTask(await taskListItem({ ...location, task: paused.task })));
+          return;
+        }
         if (action === "complete") {
           if ((await new HumanRequestStore(location.workspaceRoot).list(taskId, "pending")).length) {
             sendJson(response, 409, { error: "任务仍有待回答的问题" });

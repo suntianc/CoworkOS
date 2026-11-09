@@ -245,6 +245,43 @@ test("large legacy usage scans catch up without passing a tail sample off as a t
   assert.equal(result.usage.coverage, "complete");
 });
 
+test("duration excludes the pause gap between spawn, paused and the resumed spawn", () => {
+  const events = [
+    { type: "main.run_spawned", occurredAt: time(10) },
+    { type: "main.run_paused", occurredAt: time(30) },
+    { type: "main.run_spawned", occurredAt: time(100) },
+    { type: "main.run_completed", occurredAt: time(130) }
+  ];
+  const timing = runTiming({
+    task: { ...task, completedAt: time(130), updatedAt: time(130) },
+    createdAt: time(10),
+    events,
+    active: false,
+    nowMs: Date.parse(time(200))
+  });
+  assert.equal(timing.elapsedMs, 50_000, "only 20s before the pause and 30s after continuing");
+  assert.equal(timing.startedAt, time(10));
+  assert.equal(timing.endedAt, time(130));
+  const pausedOnly = runTiming({
+    task: { ...task, completedAt: undefined, updatedAt: time(300) },
+    createdAt: time(10),
+    events: events.slice(0, 2),
+    active: false,
+    nowMs: Date.parse(time(400))
+  });
+  assert.equal(pausedOnly.elapsedMs, 20_000, "a later unrelated Task update cannot extend the pause");
+  assert.equal(pausedOnly.endedAt, time(30));
+  const resumed = runTiming({
+    task,
+    createdAt: time(10),
+    events: events.slice(0, 3),
+    active: true,
+    nowMs: Date.parse(time(140))
+  });
+  assert.equal(resumed.elapsedMs, 60_000, "an active resumed run counts from the second spawn");
+  assert.equal(resumed.active, true);
+});
+
 test("duration excludes idle gaps on resume and freezes after completion, failure, cancellation or inactivity", () => {
   const events = [
     { type: "main.run_spawned", occurredAt: time(10) },

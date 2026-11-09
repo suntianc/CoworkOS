@@ -1,0 +1,375 @@
+/* P4.5 run feedback: run bar, paused boundary, cancel confirmation, error card
+   and notifications. Geometry and type follow the「工作 · 运行反馈」board. */
+
+.run-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 10px;
+  margin: 0 0 8px;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-text);
+}
+.run-control[hidden] {
+  display: none;
+}
+.run-control-spinner {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--color-accent);
+  animation: run-control-spin 1s linear infinite;
+}
+@keyframes run-control-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.run-control-label {
+  font-size: 13px;
+  color: var(--color-text);
+}
+.run-control-time {
+  font-size: 12px;
+  color: var(--color-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.run-control-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+.run-control-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-surface-3);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 17px;
+  cursor: pointer;
+}
+.run-control-button svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.run-control-button:hover:not(:disabled) {
+  background: var(--color-line-strong);
+}
+.run-control-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.run-control-button.is-danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.run-control-button.is-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+}
+.run-control-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Cancel is confirmed where the run is: a small popover above its button,
+   title and two choices only. */
+.run-cancel-confirm {
+  position: absolute;
+  right: 18px;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  display: flex;
+  width: 260px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--color-glass-edge);
+  border-radius: 14px;
+  background: var(--popover-fill);
+  background-image: var(--popover-sheen);
+  box-shadow: 0 12px 36px #00000088;
+  backdrop-filter: blur(var(--panel-blur));
+}
+.run-cancel-confirm[hidden] {
+  display: none;
+}
+.run-cancel-confirm h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.run-cancel-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* The paused boundary stays with the transcript, so reopening the
+   conversation shows where Main stopped and the single action that resumes. */
+.run-paused {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+}
+.run-paused > svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--color-warn);
+}
+.run-paused-text {
+  color: var(--color-text-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.run-paused-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+/* Model failure recovery keeps the old read-only classifications but takes
+   the board's single card: cause and retry count, three actions, folded detail. */
+.request-error {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 42%, transparent);
+  border-radius: 12px;
+  background: var(--color-danger-soft);
+  color: var(--color-text);
+}
+.run-error-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.run-error-head > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--color-danger);
+}
+.run-error-head strong {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.run-error-retry {
+  margin-left: auto;
+  flex: none;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+.request-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.request-error-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-surface-3);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 17px;
+  cursor: pointer;
+}
+.request-error-actions button svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.request-error-actions button:hover {
+  background: var(--color-line-strong);
+}
+.request-error-actions [data-retry-request] {
+  background: var(--color-text);
+  color: var(--color-bg);
+}
+.request-error-actions [data-retry-request]:hover {
+  background: color-mix(in srgb, var(--color-text) 88%, transparent);
+}
+.request-error-actions button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.run-error-detail {
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--color-danger) 24%, transparent);
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.run-error-detail[hidden] {
+  display: none;
+}
+.run-error-detail p {
+  margin: 0 0 6px;
+}
+.run-error-detail p:last-child {
+  margin-bottom: 0;
+}
+.run-error-detail [data-error-type] {
+  color: var(--color-text-2);
+  font-weight: 500;
+}
+
+/* One stack for every transient notice. Cards are separate so the session,
+   question and connection notices can coexist as in the board. */
+html[data-theme] #toast.toast {
+  position: fixed;
+  top: 24px;
+  right: 30px;
+  bottom: auto;
+  left: auto;
+  z-index: 60;
+  display: flex;
+  width: 340px;
+  max-width: calc(100vw - 36px);
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  opacity: 1;
+  pointer-events: none;
+  transform: none;
+}
+.toast-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-glass-edge);
+  border-radius: 12px;
+  background: var(--popover-fill);
+  background-image: var(--popover-sheen);
+  box-shadow: 0 8px 24px #00000066;
+  backdrop-filter: blur(var(--panel-blur));
+  color: var(--color-text);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    opacity var(--motion-enter),
+    transform var(--motion-enter);
+}
+.toast-card.visible {
+  opacity: 1;
+  transform: none;
+}
+.toast-card > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+}
+.toast-card.is-success > svg {
+  color: var(--color-ok);
+}
+.toast-card.is-warn > svg {
+  color: var(--color-warn);
+}
+.toast-card.is-danger > svg {
+  color: var(--color-danger);
+}
+.toast-card.is-info > svg {
+  color: var(--color-text-2);
+}
+.toast-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.toast-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+}
+.toast-detail {
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+@media (max-width: 640px) {
+  html[data-theme] #toast.toast {
+    top: 12px;
+    right: 12px;
+    width: calc(100vw - 24px);
+  }
+  .run-cancel-confirm {
+    right: 8px;
+    width: min(260px, calc(100vw - 32px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-control-spinner {
+    display: none;
+  }
+  .run-control[data-state] .run-control-label::before {
+    content: "… ";
+    color: var(--color-accent);
+  }
+  .toast-card {
+    transform: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .run-control {
+    gap: 6px;
+  }
+  .run-control-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .run-control-time {
+    display: none;
+  }
+}
+@media (max-width: 380px) {
+  .run-control-button {
+    gap: 0;
+    padding: 6px 9px;
+  }
+  .run-control-button span {
+    display: none;
+  }
+  .run-control-button svg {
+    width: 14px;
+    height: 14px;
+  }
+}
