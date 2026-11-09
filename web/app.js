@@ -44,6 +44,7 @@ import { createConversationReadState, conversationTaskId } from "./assets/conver
 import { renderMarkdown } from "./assets/markdown.js";
 import { mergeRuntimeEvents } from "./assets/conversation.js";
 import { createEntryController } from "./assets/controllers/entry-controller.js";
+import { createNewSessionView } from "./assets/controllers/new-session.js";
 import { renderRunOverview, runElapsed, formatRunDuration } from "./assets/run-overview.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
@@ -57,6 +58,7 @@ const state = {
   tasks: [],
   projects: [],
   collapsedProjects: new Set(),
+  collapsedSessions: new Set(),
   models: [],
   defaultModel: null,
   model: null,
@@ -509,7 +511,6 @@ const projectController = createProjectController({
   isUnread: (taskId) => conversationReadState.isUnread(taskId),
   selectConversation,
   conversationTitle,
-  stateText,
   taskMenuOpen: () => sessionMenu.isOpen,
   openTaskMenu: (node, taskId, last) => {
     sessionMenu.open(node, taskId, { last });
@@ -534,6 +535,18 @@ const projectController = createProjectController({
       workbenchController.host?.navigationToken
     ]),
   onUpdated: () => void refresh()
+});
+const newSession = createNewSessionView({
+  state,
+  $,
+  titleFor: (task) => conversationTitle(task),
+  onOpenTask: (taskId) => {
+    const task = state.tasks.find((entry) => entry.taskId === taskId);
+    if (task) projectController.selectTask(task);
+    selectConversation(taskId);
+  },
+  onSelectProject: (projectId) => beginNewConversation(projectId),
+  onAddProject: () => projectController.openCreate()
 });
 const ledgerController = createProjectLedgerController({ api, state, showToast });
 $("#ledger-nav").addEventListener("click", () => ledgerController.open());
@@ -788,6 +801,10 @@ async function applyCatalog(data, { poll = false } = {}) {
   if (state.selected && !state.tasks.some((task) => task.taskId === state.selected))
     state.selected = defaultTask?.taskId || null;
   renderConversationList();
+  if (!state.selected) {
+    renderedEmpty = true;
+    newSession.render();
+  }
   if (state.selected) {
     const listed = state.tasks.find((task) => task.taskId === state.selected);
     const loaded = state.detail?.task;
@@ -1051,6 +1068,7 @@ function renderConversationList() {
   mainSessionsController.render();
   mainCapacityController.render();
   boardController.render();
+  newSession.sync();
 }
 
 function selectConversation(taskId) {
@@ -1214,9 +1232,9 @@ function renderEmpty() {
   renderedEmpty = true;
   renderedDetailSignature = undefined;
   computerUse.syncTask();
-  $("#topbar-task").textContent = ui("新任务");
-  $("#conversation").innerHTML =
-    ui`<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2></div>`;
+  $("#topbar-task").textContent = ui("新会话");
+  newSession.render();
+  newSession.sync();
   humanQuestions.update(null);
   renderRightPanel();
   paintTopbarContext();
@@ -1228,7 +1246,7 @@ function paintTopbarContext() {
     ? application.title || appDisplayName(application.appType)
     : state.selected
       ? conversationTitle(state.detail?.task || state.tasks.find((task) => task.taskId === state.selected))
-      : ui("新任务");
+      : ui("新会话");
   $("#topbar-task").textContent = truncate(name, 44);
   $("#topbar-task").title = name;
   $("#session-menu-button").hidden = editing;
