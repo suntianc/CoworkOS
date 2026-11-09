@@ -319,13 +319,8 @@ html[data-theme]
   box-shadow: var(--panel-shadow);
   color: var(--color-text);
 }
-:is(.settings-overview-rows, .output-section, .detail-body) {
+:is(.output-section, .detail-body) {
   border-color: var(--color-line);
-}
-.settings-overview-rows {
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
 }
 /* Controls */
 html[data-theme]
@@ -506,29 +501,45 @@ html[data-theme] .toast {
     transform 0.18s ease;
 }
 
+/* Every rendered animation stops, including indicators added later; transitions
+   are limited to opacity and no entrance keyframe moves the layout. The system
+   preference applies unless settings explicitly turn it off, and settings can
+   ask for it on a system that has no preference. */
 @media (prefers-reduced-motion: reduce) {
-  /* Every rendered animation stops, including indicators added later; transitions
-     are limited to opacity and no entrance keyframe moves the layout. */
-  html body *,
-  html body *::before,
-  html body *::after {
+  :root:not([data-reduced-motion="off"]) body *,
+  :root:not([data-reduced-motion="off"]) body *::before,
+  :root:not([data-reduced-motion="off"]) body *::after {
     animation: none !important;
     transition-property: opacity !important;
   }
-  /* Static ellipsis replaces a rotating loader. */
-  .thinking-spinner,
-  .tool-progress-spinner,
-  .workflow-progress-spinner {
+  :root:not([data-reduced-motion="off"])
+    :is(.thinking-spinner, .tool-progress-spinner, .workflow-progress-spinner) {
     width: auto;
     height: auto;
     flex-basis: auto;
     border: 0;
   }
-  .thinking-spinner::after,
-  .tool-progress-spinner::after,
-  .workflow-progress-spinner::after {
+  :root:not([data-reduced-motion="off"])
+    :is(.thinking-spinner, .tool-progress-spinner, .workflow-progress-spinner)::after {
     content: "…";
   }
+}
+:root[data-reduced-motion="reduce"] body *,
+:root[data-reduced-motion="reduce"] body *::before,
+:root[data-reduced-motion="reduce"] body *::after {
+  animation: none !important;
+  transition-property: opacity !important;
+}
+:root[data-reduced-motion="reduce"]
+  :is(.thinking-spinner, .tool-progress-spinner, .workflow-progress-spinner) {
+  width: auto;
+  height: auto;
+  flex-basis: auto;
+  border: 0;
+}
+:root[data-reduced-motion="reduce"]
+  :is(.thinking-spinner, .tool-progress-spinner, .workflow-progress-spinner)::after {
+  content: "…";
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -536,6 +547,7 @@ html[data-theme] .toast {
     :is(
       .chat-pane,
       .agent-pane,
+      .settings-content,
       .composer,
       .modal-card,
       .session-menu,

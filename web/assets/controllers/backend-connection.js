@@ -11,11 +11,11 @@ import { normalizeBackendUrl } from "./management-client.js";
  * that speaks this client's protocol. They are not background diagnostics, so
  * they never report a command's result — only the connection itself.
  */
-export function createBackendConnection({ management, overview, showToast, onReady }) {
+export function createBackendConnection({ management, settingsHost, showToast, onReady }) {
   const row = document.createElement("div");
   row.className = "profile-setting";
   row.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("grid")}</span><span><strong>后端</strong><small data-backend-status>正在连接…</small></span></span><button type="button" class="app-button is-secondary" data-backend-open aria-label="切换后端">切换${icon("chevron-right")}</button>`;
-  document.querySelector("#profile-settings-connections").append(row);
+  document.querySelector("#settings-node-local").append(row);
 
   const banner = document.querySelector("#connection-state");
   banner.classList.add("backend-banner");
@@ -34,7 +34,7 @@ export function createBackendConnection({ management, overview, showToast, onRea
   const stateLine = panel.querySelector("[data-backend-state]");
   const errorLine = panel.querySelector("[data-backend-error]");
   const dialog = createSettingsModal(panel, panel.querySelector("[data-backend-close]"), {
-    overview,
+    host: settingsHost,
     returnFocus: () => row.querySelector("[data-backend-open]").focus()
   });
   const desktopBackend = window.bookmanDesktop?.backend;

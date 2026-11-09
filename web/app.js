@@ -15,6 +15,7 @@ import { createSidebarLayout } from "./assets/sidebar-layout.js";
 import { icon } from "./assets/ui/icons.js";
 import { createMenu } from "./assets/ui/menu.js";
 import { createModal } from "./assets/ui/modal.js";
+import { formatStamp } from "./assets/ui/time-format.js";
 import { createVisiblePoll } from "./assets/ui/visible-poll.js";
 import { installDesktopSettings } from "./assets/controllers/desktop-settings.js";
 import { installUserMemorySettings } from "./assets/controllers/user-memory-settings.js";
@@ -36,7 +37,6 @@ import { createProjectController } from "./assets/controllers/project-controller
 import { createProjectLedgerController } from "./assets/controllers/project-ledger.js";
 import { createProjectDevelopmentController } from "./assets/controllers/project-development.js";
 import { createMainSessionsController } from "./assets/controllers/main-sessions.js";
-import { createMainCapacityController } from "./assets/controllers/main-capacity.js";
 import { createProjectBoardController } from "./assets/controllers/project-board.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
@@ -44,9 +44,12 @@ import { createConversationReadState, conversationTaskId } from "./assets/conver
 import { renderMarkdown } from "./assets/markdown.js";
 import { mergeRuntimeEvents } from "./assets/conversation.js";
 import { createEntryController } from "./assets/controllers/entry-controller.js";
+import { createSettingsPages } from "./assets/controllers/settings-pages.js";
+import { readNodes } from "./assets/controllers/node-registry.js";
 import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
 import { createRunControl } from "./assets/controllers/run-control.js";
 import { createNewSessionView } from "./assets/controllers/new-session.js";
+import { createAddProjectController } from "./assets/controllers/add-project.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
@@ -517,6 +520,7 @@ const workspaceDisplayName = (value) => {
 const projectExperienceController = createProjectExperienceController({ api, showToast });
 const projectController = createProjectController({
   openProjectExperience: (project) => projectExperienceController.open(project),
+  openAddProject: () => addProjectController.open(),
   state,
   $,
   api,
@@ -560,6 +564,16 @@ const projectController = createProjectController({
     ]),
   onUpdated: () => void refresh()
 });
+const addProjectController = createAddProjectController({
+  api,
+  command: (path, options) => (api.command ? api.command(path, options) : api(path, options)),
+  showToast,
+  onCreated: async (project) => {
+    await refresh();
+    projectController.select(project.projectId);
+    beginNewConversation(project.projectId);
+  }
+});
 const newSession = createNewSessionView({
   state,
   $,
@@ -591,8 +605,6 @@ const mainSessionsController = createMainSessionsController({
   }
 });
 $("#main-sessions-nav").addEventListener("click", () => mainSessionsController.open());
-const mainCapacityController = createMainCapacityController({ api, state, showToast });
-$("#main-capacity-nav").addEventListener("click", () => mainCapacityController.open());
 const boardController = createProjectBoardController({
   api,
   state,
@@ -1149,7 +1161,6 @@ function renderConversationList() {
   ledgerController.render();
   developmentController.render();
   mainSessionsController.render();
-  mainCapacityController.render();
   boardController.render();
   newSession.sync();
 }
@@ -1255,11 +1266,7 @@ function textContent(content) {
   return content.map((part) => (typeof part === "string" ? part : part?.text || "")).join("");
 }
 function shortDate(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf())
-    ? value
-    : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return formatStamp(value, window.atriaPreferences?.format() ?? "relative");
 }
 function truncate(value, length) {
   const text = String(value ?? "");
@@ -1534,10 +1541,6 @@ async function toggleOutputPane() {
   if (!document.body.classList.contains("output-collapsed")) renderRightPanel();
 }
 
-function openProfileMenu() {
-  profileDialog.open();
-}
-
 function renderAttachments() {
   const strip = $("#attachment-strip");
   if (!strip) return;
@@ -1683,16 +1686,14 @@ createMenu($("#app-bind-select"), $("#app-bind-menu"), {
   toggleOnClick: false,
   onClose: () => workbenchController.binding?.close()
 });
-const profileDialog = createModal($("#profile-modal"), $("#profile-close"));
-const settingsOverview = {
-  open: () => profileDialog.open(),
-  close: () => {
-    if ($("#profile-close").disabled) return false;
-    profileDialog.close();
-    return true;
-  }
-};
-$("#user-menu-button").addEventListener("click", openProfileMenu);
+const settingsPages = createSettingsPages({
+  root: $("#settings-entry"),
+  app: $("#app-layout"),
+  api,
+  showToast,
+  nodes: () => readNodes(draftStorage),
+  members: () => [{ id: "self", name: ui("我"), owner: true }]
+});
 document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
@@ -2374,7 +2375,7 @@ async function prepareInterfaceClose() {
 }
 backendConnection = createBackendConnection({
   management,
-  overview: settingsOverview,
+  settingsHost: settingsPages.host,
   showToast,
   onReady: async ({ backendId }) => {
     adoptBackendIdentity(backendId);
@@ -2386,9 +2387,9 @@ backendConnection = createBackendConnection({
 });
 window.bookmanDesktop?.onPrepareClose(prepareInterfaceClose);
 installLanguageSettings({ prepareClose: prepareInterfaceClose, storage: draftStorage });
-installDesktopUpdates({ overview: settingsOverview });
+installDesktopUpdates({ host: settingsPages.host });
 const modelSettings = installDesktopSettings({
-  overview: settingsOverview,
+  host: settingsPages.host,
   showToast,
   api,
   projectId: () => state.selectedProjectId ?? "",
@@ -2405,4 +2406,4 @@ const modelSettings = installDesktopSettings({
   }
 });
 $("#model-setup-button").addEventListener("click", () => void modelSettings.open());
-installUserMemorySettings({ overview: settingsOverview, showToast, api });
+installUserMemorySettings({ host: settingsPages.host, showToast, api });

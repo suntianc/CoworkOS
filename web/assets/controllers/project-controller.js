@@ -22,6 +22,7 @@ export function createProjectController({
   isTaskVisible = () => true,
   isUnread = () => false,
   openProjectExperience = () => {},
+  openAddProject,
   onUpdated = () => {}
 }) {
   /** Change commands carry an operation id; the fallback keeps partial handlers working. */
@@ -318,7 +319,8 @@ export function createProjectController({
     dialog.open();
     $("#project-name").focus();
   }
-  $("#new-project").addEventListener("click", () => openSettings());
+  const openCreateDialog = () => (openAddProject ? openAddProject() : openSettings());
+  $("#new-project").addEventListener("click", () => openCreateDialog());
   return {
     render,
     currentProject: current,
@@ -398,7 +400,7 @@ export function createProjectController({
       state.projectsLoaded = true;
       $("#new-conversation").disabled = false;
     },
-    openCreate: () => openSettings(),
+    openCreate: () => openCreateDialog(),
     addTask(task) {
       localTasks.set(task.taskId, task);
       let project = projectForTask(task);

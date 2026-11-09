@@ -3,7 +3,7 @@ import { icon } from "../ui/icons.js";
 import { createUserMemoryViewer } from "./user-memory-viewer.js";
 
 /** Inline controls with an on-demand view of saved memories. */
-export function installUserMemorySettings({ showToast, overview, api }) {
+export function installUserMemorySettings({ showToast, host, api }) {
   const row = document.createElement("div");
   row.className = "user-memory-settings";
   row.innerHTML = ui`<div class="profile-setting user-memory-setting"><span class="settings-row-copy"><span class="settings-row-icon">${icon("history")}</span><span><strong>个人记忆</strong><small role="status" data-memory-status></small></span></span><span class="user-memory-actions"><label class="settings-toggle user-memory-switch"><input type="checkbox" aria-label="使用个人记忆" data-memory-use></label><button type="button" class="app-button is-secondary" data-memory-open aria-label="查看记忆">查看${icon("chevron-right")}</button></span></div>
@@ -13,14 +13,11 @@ export function installUserMemorySettings({ showToast, overview, api }) {
       <label class="settings-field">每小时请求上限<input type="number" data-memory-limit aria-label="每小时请求上限" min="2" max="24" step="1" value="6"><small class="settings-help">提取和压缩各计一次；达到上限后保留输入，稍后继续。</small></label>
       <button type="submit" class="app-button is-secondary" disabled>保存学习设置</button><p role="status" data-memory-options-result></p>
     </form></div></details>`;
-  (
-    document.querySelector("#profile-settings-general") ||
-    document.querySelector("#profile-settings-connections")
-  ).append(row);
+  document.querySelector("#profile-settings-tools").append(row);
   let viewer;
   const open = row.querySelector("[data-memory-open]");
   open.addEventListener("click", () => {
-    viewer ??= createUserMemoryViewer({ overview, returnFocus: () => open.focus(), api });
+    viewer ??= createUserMemoryViewer({ host, returnFocus: () => open.focus(), api });
     viewer.open();
   });
   const use = row.querySelector("[data-memory-use]");
@@ -131,7 +128,7 @@ export function installUserMemorySettings({ showToast, overview, api }) {
     });
   });
   // Re-read when the existing settings surface opens (including changes made in chat).
-  const panel = document.querySelector("#profile-modal");
+  const panel = document.querySelector("#settings-entry");
   if (panel)
     new MutationObserver(() => {
       if (!panel.hidden) void refresh();

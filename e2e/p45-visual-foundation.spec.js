@@ -55,9 +55,8 @@ const tokens = (page) =>
 
 async function openSettings(page) {
   await page.locator("#user-menu-button").click();
-  const dialog = page.getByRole("dialog", { name: "设置", exact: true });
-  await expect(dialog).toBeVisible();
-  return dialog;
+  await expect(page.locator("#settings-entry")).toBeVisible();
+  return page.locator("#settings-entry");
 }
 
 test("Web keeps one token set for both themes and floats glass panels over its solid backdrop", async ({
@@ -107,8 +106,8 @@ test("Web keeps one token set for both themes and floats glass panels over its s
     expect(surface.brandColor).toBe("rgb(236, 236, 238)");
 
     // Switching the existing preference keeps the same component tokens.
-    const dialog = await openSettings(page);
-    await dialog.locator("#appearance-select").selectOption("light");
+    const settings = await openSettings(page);
+    await settings.locator('[data-appearance-value="light"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     expect(await tokens(page)).toEqual(light);
     const lightBackdrop = await page.evaluate(() => {
@@ -124,7 +123,7 @@ test("Web keeps one token set for both themes and floats glass panels over its s
     expect(lightBackdrop.color).toBe("rgb(244, 244, 248)");
     expect(lightBackdrop.panel).toBe("rgba(255, 255, 255, 0.55)");
     expect(lightBackdrop.text).toBe("rgb(28, 28, 34)");
-    await dialog.locator("#appearance-select").selectOption("dark");
+    await settings.locator('[data-appearance-value="dark"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   } finally {
     await dashboard.stop();
@@ -148,8 +147,8 @@ test("Formicand replaces the old name in the title, sidebar, mark and about row"
     expect(iconResponse.ok()).toBe(true);
     expect(iconResponse.headers()["content-type"]).toContain("svg");
 
-    const dialog = await openSettings(page);
-    const about = dialog.locator(".about-product");
+    const settings = await openSettings(page);
+    const about = settings.locator(".about-product");
     await expect(about).toContainText("Formicand");
     await expect(about.locator(".about-mark use")).toHaveAttribute("href", "#i-formicand-mark");
     await expect(about.locator("[data-update-action]")).toBeHidden();

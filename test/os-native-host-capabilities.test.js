@@ -765,7 +765,7 @@ test("web settings show execution-host permissions without requesting the client
   });
   const token = session.body.session.token;
   const { window, document } = parseHTML(`
-    <div id="profile-modal"><div id="profile-settings-tools"></div></div>
+    <div id="settings-entry"><div id="profile-settings-tools"></div></div>
     <button id="user-menu-button"></button><main id="conversation"></main>`);
   const previous = { window: globalThis.window, document: globalThis.document };
   globalThis.window = window;

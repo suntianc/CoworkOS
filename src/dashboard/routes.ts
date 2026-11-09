@@ -61,6 +61,8 @@ import type { WatchCreation } from "../runtime/watch-management.js";
 import type { createWebSearchSettings } from "./web-search-settings.js";
 import type { createModelSettings } from "./model-settings.js";
 import type { createDashboardRunService, RunServicePorts } from "./run-service.js";
+import { ProjectCloneError, type ProjectCloneService } from "./project-clone-service.js";
+import { handleProjectCloneRequest } from "./project-clone-routes.js";
 import type { createWorkspaceDirectory } from "./workspace-directory.js";
 import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
 
@@ -82,6 +84,8 @@ export interface DashboardRoutePorts {
   mainSessions?: ReturnType<typeof createMainSessionService>;
   /** Requirement development records and their isolated Git checkouts. */
   developments?: ProjectDevelopmentService;
+  /** Git clones behind the add-project dialog; absent in partial handlers. */
+  projectClones?: ProjectCloneService;
   mainCapacity?: MainCapacityService;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
@@ -522,6 +526,7 @@ export function createDashboardHandler(
         });
         return;
       }
+      if (await handleProjectCloneRequest(request, response, url, ports.projectClones)) return;
       if (request.method === "POST" && url.pathname === "/api/projects/choose-directory") {
         const directory = await chooseLocalDirectory();
         sendJson(response, 200, {
@@ -1185,6 +1190,7 @@ export function createDashboardHandler(
           error instanceof MainMessageEditConflict ||
             error instanceof HttpError ||
             error instanceof ProjectCatalogError ||
+            error instanceof ProjectCloneError ||
             error instanceof ProjectDataError ||
             error instanceof MainRequestConflictError ||
             error instanceof MainRequestSnapshotError

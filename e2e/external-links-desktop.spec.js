@@ -47,10 +47,10 @@ test("desktop response links leave through the system browser and local viewers 
     await expect.poll(() => page.url()).not.toBe(oldUrl);
     await expect(page.locator("#model-select")).toContainText("protocol-fixture");
     await page.locator("#new-project").click();
-    await page.locator("#project-name").fill("链接验收项目");
-    await page.locator("#project-directory").fill(project);
-    await page.locator("#project-submit").click();
-    await expect(page.locator("#project-modal")).toBeHidden();
+    await page.locator("#add-project-name").fill("链接验收项目");
+    await page.locator("#add-project-directory").fill(project);
+    await page.locator("#add-project-submit").click();
+    await expect(page.locator("#add-project-modal")).toBeHidden();
     await native.evaluate(({ shell }) => {
       globalThis.openedExternalLinks = [];
       // Observe routing without launching or navigating the user's browser.
