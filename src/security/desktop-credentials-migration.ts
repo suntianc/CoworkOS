@@ -166,7 +166,9 @@ export async function migrateDesktopCredentials(
   const legacyApiKey = legacySecret ? await decryptValue(options.decrypt, legacySecret) : undefined;
 
   const migrated = structuredClone(config);
-  const nextProfiles = (migrated.modelConnections as { profiles?: Array<Record<string, unknown>> })?.profiles;
+  const nextProfiles = (
+    migrated.modelConnections as { profiles?: Array<Record<string, unknown>> } | undefined
+  )?.profiles;
   if (Array.isArray(nextProfiles)) for (const profile of nextProfiles) delete profile.encryptedApiKey;
   const nextSearch = migrated.webSearch as Record<string, unknown> | undefined;
   // The search key belongs only to the host store; the public file keeps the provider.
@@ -185,6 +187,7 @@ export async function migrateDesktopCredentials(
   await copyFile(configPath, backupPath, constants.COPYFILE_EXCL).catch((error) => {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   });
+  // eslint-disable-next-line no-restricted-syntax -- 备份已由 copyFile 写成，收紧备份文件权限受挂载点/ACL 限制时只影响备份元数据，不能中断仍可完成迁移的流程
   await chmod(backupPath, 0o600).catch(() => {});
   // The host store commits first; a failed public write leaves the backup and the
   // already-migrated keys, so re-running finishes the conversion without duplicates.

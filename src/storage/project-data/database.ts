@@ -38,7 +38,7 @@ export function postgresPlaceholders(sql: string): string {
   let ordinal = 0;
   let quoted = false;
   while (index < sql.length) {
-    const character = sql[index]!;
+    const character = sql[index];
     if (character === "'") {
       quoted = !quoted;
       result += character;
@@ -76,7 +76,7 @@ export function storageFailure(
 ): ProjectDataError {
   const raw = error instanceof Error ? error.message : String(error);
   const message = redactSecret(raw, secret);
-  const code = (error as { code?: unknown })?.code;
+  const code = (error as { code?: unknown } | null | undefined)?.code;
   if (code === "23505" || /UNIQUE constraint failed/i.test(message))
     return new ProjectDataConflictError(`项目数据已存在（${label}）`, undefined, "duplicate");
   if (code === "23503" || /FOREIGN KEY constraint failed/i.test(message))

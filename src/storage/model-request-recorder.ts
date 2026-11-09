@@ -47,6 +47,7 @@ export class ModelRequestRecorder {
       await appendFile(this.filePath, `${line}\n`, { encoding: "utf8", mode: 0o600 });
     });
     // One failed write must not poison every future attempt. The caller still sees it.
+    // eslint-disable-next-line no-restricted-syntax -- 调用方拿到的是上面的 write（本次失败仍会上报），这里只让串行链继续接受后续记录，不能因为一次落盘失败让之后的归档全部拒绝
     this.writes = write.catch(() => {});
     return write;
   }
@@ -69,6 +70,7 @@ export function sanitizeRecording(value: unknown, secrets: readonly string[] = [
         const parsed = JSON.parse(value);
         const sanitized = sanitizeRecording(parsed, secrets);
         if (JSON.stringify(sanitized) !== JSON.stringify(parsed)) return JSON.stringify(sanitized);
+        // eslint-disable-next-line no-restricted-syntax -- 该字符串只是形如 JSON 的普通文本，解析失败时按脱敏后的原文本返回，不改变记录内容
       } catch {
         // Plain text that resembles JSON remains plain text.
       }
@@ -105,6 +107,7 @@ export async function recordingProducer() {
         piAi: pkg.dependencies?.["@earendil-works/pi-ai"],
         piCodingAgent: pkg.dependencies?.["@earendil-works/pi-coding-agent"]
       };
+      // eslint-disable-next-line no-restricted-syntax -- 源码直跑或打包布局下候选位置可能没有可读的 package.json，失败时继续尝试另一种布局，最终回退到 unknown 版本
     } catch {
       // An unavailable manifest does not discard the request itself.
     }

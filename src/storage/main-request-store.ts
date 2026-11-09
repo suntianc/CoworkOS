@@ -44,7 +44,7 @@ export const mainRequestPath = (workspaceRoot: string, taskId: string): string =
 const hash = (body: string) => createHash("sha256").update(body).digest("hex");
 const checksum = (snapshot: Partial<MainRequestSnapshot>) =>
   hash(JSON.stringify(Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== "checksum"))));
-const validModel = (model: MainRequestModel) =>
+const validModel = (model: MainRequestModel | null | undefined) =>
   model &&
   typeof model.id === "string" &&
   typeof model.provider === "string" &&
@@ -77,6 +77,7 @@ export class MainRequestStore {
       throw new MainRequestSnapshotError("原请求快照无法读取，已保留记录。请检查后重试。", { cause: error });
     }
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 快照来自磁盘上的 JSON，可能是 null 或非对象；直接读 version 会抛 TypeError 而不是按损坏快照报告
       snapshot?.version !== 1 ||
       snapshot.taskId !== this.taskId ||
       typeof snapshot.runId !== "string" ||
@@ -87,8 +88,11 @@ export class MainRequestStore {
           snapshot.goalDelegationRequestId.length > 512)) ||
       !["pending", "failed", "completed"].includes(snapshot.state) ||
       !validModel(snapshot.model) ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版快照可能没有 context 字段，缺失时须按损坏快照报错而不是抛 TypeError
       !Array.isArray(snapshot.context?.messages) ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版快照可能没有 environment 字段，缺失时须按损坏快照报错而不是抛 TypeError
       typeof snapshot.environment?.projectDirectory !== "string" ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，environment 可能整段缺失；缺 binding 时按损坏快照报错
       typeof snapshot.environment?.binding !== "string" ||
       (snapshot.executionScope !== undefined && !validMainRequestExecutionScope(snapshot.executionScope)) ||
       (snapshot.endpoint !== undefined && typeof snapshot.endpoint !== "string") ||

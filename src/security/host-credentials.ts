@@ -41,28 +41,29 @@ function parseCredentials(path: string, raw: string): HostCredentials {
     throw unavailable(path);
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw unavailable(path);
-  const record = value as Partial<HostCredentials>;
+  const record = value as Record<string, unknown>;
   if (record.version !== 1) throw unavailable(path);
-  const models = record.modelConnections ?? {};
+  const models: unknown = record.modelConnections ?? {};
   if (!models || typeof models !== "object" || Array.isArray(models)) throw unavailable(path);
   const entries: Array<[string, string]> = [];
-  for (const [id, secret] of Object.entries(models)) {
+  for (const [id, secret] of Object.entries(models as Record<string, unknown>)) {
     if (!id || typeof secret !== "string" || !secret || /[\r\n\0]/.test(secret)) throw unavailable(path);
     entries.push([id, secret]);
   }
-  const search = record.webSearch;
+  const search: unknown = record.webSearch;
+  let exaApiKey: string | undefined;
   if (search !== undefined) {
     if (!search || typeof search !== "object" || Array.isArray(search)) throw unavailable(path);
-    if (
-      search.exaApiKey !== undefined &&
-      (typeof search.exaApiKey !== "string" || !search.exaApiKey || /[\r\n\0]/.test(search.exaApiKey))
-    )
-      throw unavailable(path);
+    const candidate = (search as { exaApiKey?: unknown }).exaApiKey;
+    if (candidate !== undefined) {
+      if (typeof candidate !== "string" || !candidate || /[\r\n\0]/.test(candidate)) throw unavailable(path);
+      exaApiKey = candidate;
+    }
   }
   return {
     version: 1,
     modelConnections: Object.fromEntries(entries),
-    ...(search?.exaApiKey ? { webSearch: { exaApiKey: search.exaApiKey } } : {})
+    ...(exaApiKey ? { webSearch: { exaApiKey } } : {})
   };
 }
 

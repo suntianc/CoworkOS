@@ -3,6 +3,7 @@ import { SoftwareProtocolError, type ResourceTarget, type SoftwareProvider } fro
 export class SoftwareProviderRegistry {
   private readonly providers = new Map<string, SoftwareProvider>();
   register(provider: SoftwareProvider): void {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- provider 是安装期加载的外部驱动，可能是按旧协议构建的模块；协议号 2 只是本仓类型约定，运行时必须拒绝旧协议
     if (provider.protocolVersion !== 2 || this.providers.has(provider.id))
       throw new Error("Unsupported protocol or duplicate software provider");
     this.providers.set(provider.id, provider);

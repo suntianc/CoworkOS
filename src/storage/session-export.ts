@@ -189,7 +189,7 @@ export async function createSessionExport(input: SessionExportInput) {
           result.metadata.toolCallId === part.id &&
           belongsToCall(result.messageId, message.messageId, part.id)
       );
-      const preferred = results.find((result) => result.inCurrentBranch) ?? results[0];
+      const preferred = results.find((result) => result.inCurrentBranch) ?? results.at(0);
       toolCalls.push({
         toolCallId: part.id,
         name: part.name,
