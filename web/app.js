@@ -48,7 +48,7 @@ import { createSettingsPages } from "./assets/controllers/settings-pages.js";
 import { readNodes } from "./assets/controllers/node-registry.js";
 import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
 import { createNewSessionView } from "./assets/controllers/new-session.js";
-import { renderRunOverview, runElapsed, formatRunDuration } from "./assets/run-overview.js";
+import { createAddProjectController } from "./assets/controllers/add-project.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
@@ -504,6 +504,7 @@ const workspaceDisplayName = (value) => {
 const projectExperienceController = createProjectExperienceController({ api, showToast });
 const projectController = createProjectController({
   openProjectExperience: (project) => projectExperienceController.open(project),
+  openAddProject: () => addProjectController.open(),
   state,
   $,
   api,
@@ -546,6 +547,16 @@ const projectController = createProjectController({
       workbenchController.host?.navigationToken
     ]),
   onUpdated: () => void refresh()
+});
+const addProjectController = createAddProjectController({
+  api,
+  command: (path, options) => (api.command ? api.command(path, options) : api(path, options)),
+  showToast,
+  onCreated: async (project) => {
+    await refresh();
+    projectController.select(project.projectId);
+    beginNewConversation(project.projectId);
+  }
 });
 const newSession = createNewSessionView({
   state,

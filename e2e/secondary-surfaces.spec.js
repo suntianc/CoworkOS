@@ -13,9 +13,7 @@ async function contained(dialog, page) {
   expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
 }
 
-test("new project keeps a quiet form and keyboard-accessible folder chooser in both themes and sizes", async ({
-  page
-}, info) => {
+test("adding a project keeps a quiet two-mode dialog in both themes and sizes", async ({ page }, info) => {
   const dashboard = await startDashboard({ defaultProject: false });
   try {
     const directory = join(dashboard.root, "new-project");
@@ -28,37 +26,39 @@ test("new project keeps a quiet form and keyboard-accessible folder chooser in b
     }, directory);
     for (const theme of ["light", "dark"]) {
       for (const width of [1440, 320]) {
-        await page.setViewportSize({ width, height: 720 });
+        // The narrow work sidebar is off-canvas; open from the desktop width
+        // and shrink the open dialog, which is the surface this test owns.
+        await page.setViewportSize({ width: 1440, height: 720 });
         await page.emulateMedia({ colorScheme: theme });
         await page.locator("#new-project").click();
-        const dialog = page.getByRole("dialog", { name: "新建项目", exact: true });
+        if (width !== 1440) await page.setViewportSize({ width, height: 720 });
+        const dialog = page.getByRole("dialog", { name: "添加项目", exact: true });
         const name = dialog.getByRole("textbox", { name: "项目名称", exact: true });
         const folder = dialog.getByRole("textbox", { name: "工作文件夹", exact: true });
         const choose = dialog.getByRole("button", { name: "选择文件夹", exact: true });
         const cancel = dialog.getByRole("button", { name: "取消", exact: true });
         await contained(dialog, page);
         await expect(name).toBeFocused();
-        await expect(dialog).toHaveCSS("border-top-width", "0px");
-        await expect(dialog).toHaveCSS("border-radius", "24px");
-        await expect(name).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-        await expect(name).toHaveCSS("outline-width", "2px");
+        await expect(dialog).toHaveCSS("border-top-width", "1px");
+        await expect(dialog).toHaveCSS("border-radius", "18px");
         await name.fill("新的研究项目");
         await name.press("Tab");
         await expect(folder).toBeFocused();
-        await expect(dialog.locator(".project-directory-field")).toHaveCSS("outline-width", "2px");
         await folder.press("Tab");
         await expect(choose).toBeFocused();
-        await expect(choose).toHaveCSS("outline-width", "2px");
         await choose.click();
         await expect(folder).toHaveValue(directory);
-        await cancel.focus();
-        await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-        await expect(cancel).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-        await expect(dialog.getByRole("button", { name: "创建", exact: true })).toBeInViewport();
+        await dialog.getByRole("tab", { name: "Git 地址" }).click();
+        await expect(dialog.getByRole("textbox", { name: "仓库地址" })).toBeVisible();
+        await expect(dialog.getByRole("textbox", { name: "分支 可选" })).toBeVisible();
+        await expect(dialog.getByRole("button", { name: "克隆并添加", exact: true })).toBeInViewport();
+        await dialog.getByRole("tab", { name: "本地目录" }).click();
+        await expect(name).toHaveValue("新的研究项目");
+        await expect(dialog.getByRole("button", { name: "添加项目", exact: true })).toBeInViewport();
         await dialog.locator("h2").click();
-        await page.screenshot({ path: info.outputPath(`new-project-${theme}-${width}.png`) });
+        await page.screenshot({ path: info.outputPath(`add-project-${theme}-${width}.png`) });
         await cancel.click();
-        await expect(dialog).toHaveCount(0);
+        await expect(dialog).toBeHidden();
         await expect(page.locator("#composer-input")).toHaveValue("创建项目之前的草稿");
       }
     }

@@ -56,10 +56,10 @@ test("native App after normal model setup performs anonymous search and source f
     expect(status.authenticated).toBe(false);
     expect(status).not.toHaveProperty("exaApiKey");
     await page.locator("#new-project").click();
-    await page.locator("#project-name").fill("搜索验收项目");
-    await page.locator("#project-directory").fill(root);
-    await page.locator("#project-submit").click();
-    await expect(page.locator("#project-modal")).toBeHidden();
+    await page.locator("#add-project-name").fill("搜索验收项目");
+    await page.locator("#add-project-directory").fill(root);
+    await page.locator("#add-project-submit").click();
+    await expect(page.locator("#add-project-modal")).toBeHidden();
     await page.locator("#composer-input").fill("搜索相关论文，读取来源并附链接");
     await page.locator("#send-button").click();
     await expect(page.locator("#conversation")).toContainText("来源读取成功", { timeout: 30_000 });

@@ -260,10 +260,10 @@ test("a packaged App checks the public feed, downloads in the background and ins
     await onboarding.getByRole("button", { name: "关闭设置", exact: true }).click();
     await expect(page.locator("#composer-input")).toBeVisible();
     await page.locator("#new-project").click();
-    await page.locator("#project-name").fill("Native public update fixture");
-    await page.locator("#project-directory").fill(join(root, "project"));
-    await page.locator("#project-submit").click();
-    await expect(page.locator("#project-modal")).toBeHidden();
+    await page.locator("#add-project-name").fill("Native public update fixture");
+    await page.locator("#add-project-directory").fill(join(root, "project"));
+    await page.locator("#add-project-submit").click();
+    await expect(page.locator("#add-project-modal")).toBeHidden();
     await page.locator("#new-conversation").click();
     await expect
       .poll(async () => (await page.evaluate(() => window.bookmanDesktop.updateStatus())).busy, {

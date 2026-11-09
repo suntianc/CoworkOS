@@ -82,10 +82,10 @@ for (const reasoningEffort of ["off", "max"]) {
         expect(status).not.toHaveProperty("apiKey");
         if (api === "openai-completions") {
           await page.locator("#new-project").click();
-          await page.locator("#project-name").fill("模型协议验收项目");
-          await page.locator("#project-directory").fill(root);
-          await page.locator("#project-submit").click();
-          await expect(page.locator("#project-modal")).toBeHidden();
+          await page.locator("#add-project-name").fill("模型协议验收项目");
+          await page.locator("#add-project-directory").fill(root);
+          await page.locator("#add-project-submit").click();
+          await expect(page.locator("#add-project-modal")).toBeHidden();
           await expect(page.locator(".project-group.is-selected .project-name")).toHaveText(
             "模型协议验收项目"
           );

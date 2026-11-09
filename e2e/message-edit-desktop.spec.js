@@ -50,10 +50,10 @@ test("native edit restores an attachment-only message and survives relaunch with
     await expect(page.locator(".model-select")).toContainText("native-edit-fixture");
     await expect(page.getByRole("dialog", { name: "连接模型" })).toBeHidden();
     await page.locator("#new-project").click();
-    await page.locator("#project-name").fill("修改重发验收");
-    await page.locator("#project-directory").fill(root);
-    await page.locator("#project-submit").click();
-    await expect(page.locator("#project-modal")).toBeHidden();
+    await page.locator("#add-project-name").fill("修改重发验收");
+    await page.locator("#add-project-directory").fill(root);
+    await page.locator("#add-project-submit").click();
+    await expect(page.locator("#add-project-modal")).toBeHidden();
     await expect(page.locator(".project-group.is-selected .project-name")).toContainText("修改重发验收");
     await page.locator("#composer-input").fill("UPLOAD_READINESS");
     await page.locator("#composer-input").fill("");

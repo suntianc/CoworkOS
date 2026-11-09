@@ -72,9 +72,9 @@ test("desktop appearance applies natively and preserves the live backend across 
     await model.getByRole("button", { name: "保存连接", exact: true }).click();
     await expect(model).toBeHidden();
     await page.locator("#new-project").click();
-    await page.locator("#project-name").fill("外观验收");
-    await page.locator("#project-directory").fill(root);
-    await page.locator("#project-submit").click();
+    await page.locator("#add-project-name").fill("外观验收");
+    await page.locator("#add-project-directory").fill(root);
+    await page.locator("#add-project-submit").click();
     await page.locator("#composer-input").fill("切换前发送");
     await page.locator("#send-button").click();
     await expect(page.locator("#conversation")).toContainText("外观切换后服务正常", { timeout: 30_000 });

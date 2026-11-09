@@ -38,7 +38,7 @@ test("creating and editing an empty project survives a service restart without c
     await expect(page.locator(".project-group")).toHaveCount(0);
     await page.locator("#composer-input").fill("创建前未发送的草稿");
     await page.locator("#new-project").click();
-    let dialog = page.getByRole("dialog", { name: "新建项目", exact: true });
+    let dialog = page.getByRole("dialog", { name: "添加项目", exact: true });
     await dialog.getByRole("textbox", { name: "项目名称" }).fill("取消的项目");
     await dialog.getByRole("textbox", { name: "工作文件夹" }).fill(original);
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
@@ -49,12 +49,12 @@ test("creating and editing an empty project survives a service restart without c
       window.bookmanDesktop = { chooseProject: async () => directory };
     }, original);
     await page.locator("#new-project").click();
-    dialog = page.getByRole("dialog", { name: "新建项目", exact: true });
+    dialog = page.getByRole("dialog", { name: "添加项目", exact: true });
     await dialog.getByRole("textbox", { name: "项目名称" }).fill("独立项目");
     await dialog.getByRole("button", { name: "选择文件夹", exact: true }).click();
     await expect(dialog.getByRole("textbox", { name: "工作文件夹" })).toHaveValue(original);
     await page.screenshot({ path: test.info().outputPath("project-create-dialog.png") });
-    await dialog.getByRole("button", { name: "创建", exact: true }).click();
+    await dialog.getByRole("button", { name: "添加项目", exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(page.locator(".project-group")).toHaveCount(1);
     const projectId = await page.locator(".project-group").getAttribute("data-project");
