@@ -431,8 +431,16 @@ export function createObserveRuns({
     const cached = developmentData.get(key);
     if (cached?.promise) return cached.promise;
     if (cached && Date.now() - cached.at < developmentReadMs) return null;
-    const read = (path) => data.read(origin, path, { cache: "no-store" }).then((result) => result ?? {});
     const entry = { at: Date.now(), value: cached?.value, promise: undefined };
+    // One unavailable list (an older node without a route) keeps the others.
+    const read = (path) =>
+      data
+        .read(origin, path, { cache: "no-store" })
+        .then((result) => result ?? {})
+        .catch((error) => {
+          entry.error = error?.message || "";
+          return {};
+        });
     entry.promise = Promise.all([
       read(`/api/projects/${encodeURIComponent(projectId)}/developments`),
       read(`/api/projects/${encodeURIComponent(projectId)}/reviews`),

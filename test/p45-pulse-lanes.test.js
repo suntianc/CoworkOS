@@ -520,3 +520,44 @@ test("a requirement's stage comes from the project's read-only lists", async (t)
   assert.ok(paths.some((path) => path.endsWith("/merges")));
   assert.ok(requests.every((request) => request.method === undefined || request.method === "GET"));
 });
+
+test("one unavailable stage list does not hide the others", async (t) => {
+  const node = online("http://local.test", "本机", "internal", true);
+  const lane = task({
+    activity: activity({
+      agents: [agent({ stage: "working", stageChangedAt: at(-40), lastProgressAt: at(-1) })]
+    })
+  });
+  const view = fixture({
+    nodes: [node],
+    scoped: ({ nodeOrigin }) =>
+      nodeOrigin === node.origin
+        ? {
+            projects: [{ projectId: "project-1", projectName: "P4 验收示例项目" }],
+            tasks: [lane],
+            requirements: []
+          }
+        : { projects: [], tasks: [], requirements: [] },
+    reads: async (origin, path) => {
+      if (path.endsWith("/main-sessions")) return { sessions: [session({})] };
+      if (path.endsWith("/developments"))
+        return {
+          developments: [
+            { developmentId: "development-1", requirementId: "requirement-1", createdAt: at(-40) }
+          ]
+        };
+      if (path.endsWith("/reviews"))
+        return {
+          reviews: [{ developmentId: "development-1", state: "in_review", createdAt: at(-20) }]
+        };
+      if (path.endsWith("/merges") || path.endsWith("/deliveries")) throw new Error("route missing");
+      return {};
+    }
+  });
+  t.after(() => view.restore());
+
+  await delay(80);
+  const row = view.root.querySelector('[data-runs-lane="task-1"]');
+  assert.equal(row.dataset.stage, "review");
+  assert.match(row.textContent, /审查/);
+});
