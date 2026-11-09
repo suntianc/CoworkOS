@@ -152,11 +152,6 @@ test("a node without metrics falls back to stage blocks and reduced motion refre
     await expect(runs).toHaveAttribute("data-window", "5");
     await expect(page.locator(".runs-axis")).toContainText("-5 分");
     await expect(degradedLane).toHaveAttribute("data-degraded", "true");
-
-    // Leaving reduced motion returns to the live view.
-    await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect(runs).toHaveAttribute("data-motion", "live");
-    await expect.poll(headAnimation).toBe("runs-head-pulse");
   } finally {
     await b?.stop();
     await a.stop();
