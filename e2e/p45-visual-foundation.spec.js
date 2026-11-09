@@ -60,7 +60,7 @@ async function openSettings(page) {
   return dialog;
 }
 
-test("Web keeps one token set for both themes and floats glass panels over its gradient", async ({
+test("Web keeps one token set for both themes and floats glass panels over its solid backdrop", async ({
   page
 }) => {
   const dashboard = await startDashboard();
@@ -79,7 +79,7 @@ test("Web keeps one token set for both themes and floats glass panels over its g
       const conversation = style(".chat-pane");
       const taskPanel = style(".agent-pane");
       return {
-        backdrop: body.backgroundImage,
+        backdrop: { color: body.backgroundColor, image: body.backgroundImage },
         conversation: {
           color: conversation.backgroundColor,
           image: conversation.backgroundImage,
@@ -95,10 +95,9 @@ test("Web keeps one token set for both themes and floats glass panels over its g
         brandColor: style(".brand-lockup strong").color
       };
     });
-    // The browser has no window material, so the painted gradient is the backdrop.
-    expect(surface.backdrop).toContain("radial-gradient");
-    expect(surface.backdrop).toContain("linear-gradient");
-    expect(surface.backdrop).toContain("rgb(26, 31, 69)");
+    // The browser has no window material, so the page paints one solid backdrop.
+    expect(surface.backdrop.image).toBe("none");
+    expect(surface.backdrop.color).toBe("rgb(14, 14, 15)");
     for (const panel of [surface.conversation, surface.taskPanel]) {
       expect(panel.color).toBe("rgba(255, 255, 255, 0.06)");
       expect(panel.image).toContain("linear-gradient");
@@ -112,12 +111,17 @@ test("Web keeps one token set for both themes and floats glass panels over its g
     await dialog.locator("#appearance-select").selectOption("light");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     expect(await tokens(page)).toEqual(light);
-    const lightBackdrop = await page.evaluate(() => ({
-      image: getComputedStyle(document.body).backgroundImage,
-      panel: getComputedStyle(document.querySelector(".chat-pane")).backgroundColor,
-      text: getComputedStyle(document.querySelector(".brand-lockup strong")).color
-    }));
-    expect(lightBackdrop.image).toContain("rgb(232, 235, 250)");
+    const lightBackdrop = await page.evaluate(() => {
+      const body = getComputedStyle(document.body);
+      return {
+        image: body.backgroundImage,
+        color: body.backgroundColor,
+        panel: getComputedStyle(document.querySelector(".chat-pane")).backgroundColor,
+        text: getComputedStyle(document.querySelector(".brand-lockup strong")).color
+      };
+    });
+    expect(lightBackdrop.image).toBe("none");
+    expect(lightBackdrop.color).toBe("rgb(244, 244, 248)");
     expect(lightBackdrop.panel).toBe("rgba(255, 255, 255, 0.55)");
     expect(lightBackdrop.text).toBe("rgb(28, 28, 34)");
     await dialog.locator("#appearance-select").selectOption("dark");

@@ -81,7 +81,7 @@ test("desktop window uses the native material and shows Formicand while package 
       brand: document.querySelector(".brand-lockup strong").textContent.trim()
     }));
     expect(renderer.body).toBe("rgba(0, 0, 0, 0)");
-    expect(renderer.wash).toContain("linear-gradient");
+    expect(renderer.wash).toBe("none");
     expect(renderer.title).toBe("Formicand");
     expect(renderer.brand).toBe("Formicand");
 
