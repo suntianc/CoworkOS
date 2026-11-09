@@ -150,6 +150,7 @@ export function goalDelegationRequestId(input: {
       }
     }
     // Project/session forks copy entry IDs and timestamps, preserving the accepted request.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 条目来自 Pi 的 session JSONL，扩展写入的 custom_message 条目可能没有 entry 级 timestamp
     latest = `pi:${entry.id}:${entry.timestamp ?? entry.message.timestamp}`;
   }
   return latest;

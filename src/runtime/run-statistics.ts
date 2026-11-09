@@ -206,6 +206,7 @@ async function readUsage(path: string): Promise<{ summary: UsageAccumulator; sca
     });
     await current.busy;
     return { summary: current.summary, scanning: current.scanning };
+    // eslint-disable-next-line no-restricted-syntax -- trace 可能被轮转或删除，读取失败用 incomplete 标记该 Run 的用量不完整，其它统计继续
   } catch {
     return { summary: { ...current.summary, incomplete: true }, scanning: current.scanning };
   }
@@ -247,6 +248,7 @@ async function updateUsage(path: string, cursor: UsageCursor): Promise<void> {
           const line = data.subarray(start, newline).toString("utf8");
           try {
             consumeUsage(cursor.summary, JSON.parse(line));
+            // eslint-disable-next-line no-restricted-syntax -- trace 行可能因进程退出被截断，跳过该行；含 message_end 的行缺失时已标记 incomplete
           } catch {
             if (/message_end/.test(line)) cursor.summary.incomplete = true;
           }
@@ -327,6 +329,7 @@ export function runTiming(input: {
 async function readJson<T>(path: string, fallback: T): Promise<T> {
   try {
     return JSON.parse(await readFile(path, "utf8"));
+    // eslint-disable-next-line no-restricted-syntax -- Run 元数据可能尚未写入或已损坏，缺失用调用方给的默认值表达
   } catch {
     return fallback;
   }
@@ -340,6 +343,7 @@ export async function readRunStatistics(input: {
 }) {
   const runId = input.task.activeRunId;
   const taskRoot = join(input.workspaceRoot, input.task.taskId);
+  // eslint-disable-next-line no-restricted-syntax -- runs 目录可能还不存在（Task 尚未创建 Run），没有目录按空列表处理
   const entries = await readdir(join(taskRoot, "runs"), { withFileTypes: true }).catch(() => []);
   const runIds = new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
   if (runId) runIds.add(runId);
@@ -351,11 +355,13 @@ export async function readRunStatistics(input: {
       const [metadata, queue, eventLog] = await Promise.all([
         readJson<{ createdAt?: string; updatedAt?: string }>(join(runRoot, "run.json"), {}),
         readJson<Array<{ stepId: string; agentId: string }>>(join(runRoot, "queue.json"), []),
+        // eslint-disable-next-line no-restricted-syntax -- 该 Run 可能还没有 run_events.jsonl，读不到按空日志处理，其余 Run 照常统计
         readFile(join(runRoot, "run_events.jsonl"), "utf8").catch(() => "")
       ]);
       const events: TimedEvent[] = eventLog.split(/\r?\n/).flatMap((line) => {
         try {
           return [JSON.parse(line)];
+          // eslint-disable-next-line no-restricted-syntax -- run_events.jsonl 的行可能被截断或来自其它版本，跳过该行，其它事件仍参与时间线计算
         } catch {
           return [];
         }
@@ -456,7 +462,7 @@ export async function readRunStatistics(input: {
           .filter(Boolean)
           .sort()
           .at(-1) ?? null),
-    elapsedMs: timed.length ? timed.reduce((sum, timing) => sum + timing.elapsedMs!, 0) : null,
+    elapsedMs: timed.length ? timed.reduce((sum, timing) => sum + timing.elapsedMs, 0) : null,
     timingPartial: timed.length < runs.length,
     active,
     observedAt: new Date(nowMs).toISOString(),

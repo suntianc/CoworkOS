@@ -115,6 +115,7 @@ export class UserMemoryStore {
         this.profileCache = stored;
         return structuredClone(stored.profile);
       }
+      // eslint-disable-next-line no-restricted-syntax -- 缓存投影文件可能缺失或损坏，失败后继续往下从权威文档重建
     } catch {
       /* A missing or damaged projection is rebuilt from the authoritative document. */
     }
@@ -247,6 +248,7 @@ export class UserMemoryStore {
       if (!document.enabled && source.origin !== "settings") throw new Error("User memory is disabled.");
       const index = document.entries.findIndex((entry) => entry.id === id);
       const previous = document.entries[index];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- findIndex 找不到 id 时返回 -1，entries[-1] 在运行期是 undefined
       if (!previous || previous.revision !== revision)
         throw new Error("Memory changed or no longer exists; list again before updating.");
       const next = userMemoryEntrySchema.parse({
@@ -719,6 +721,7 @@ export class UserMemoryStore {
           );
           await rename(temporary, this.path);
           // A projection failure cannot turn an already committed mutation into a failed operation.
+          // eslint-disable-next-line no-restricted-syntax -- 记忆文档已经 rename 提交，投影失败只清掉缓存交给下次 readProfile 重建
           await this.publishProfile(document).catch(() => {
             this.profileCache = undefined;
           });

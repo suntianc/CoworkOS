@@ -25,14 +25,17 @@ export interface ModelConnections {
 export function modelConnections(config: CoworkConfig): ModelConnections {
   if (config.modelConnections) {
     const value = config.modelConnections;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- modelConnections 来自持久化的 config.json，旧文件的 version 不是 1 时不能按当前结构读取
     if (value.version !== 1) throw new Error("模型配置版本不兼容，请升级应用");
     if (
       !Array.isArray(value.profiles) ||
       value.profiles.some(
         (p) =>
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- profiles 来自持久化 JSON，数组元素可能是 null 或缺少字段
           !p ||
           typeof p.id !== "string" ||
           typeof p.name !== "string" ||
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 持久化 JSON 里的 supportsPromptCacheKey 可能是字符串等非布尔值
           (p.supportsPromptCacheKey !== undefined && typeof p.supportsPromptCacheKey !== "boolean")
       ) ||
       new Set(value.profiles.map((p) => p.id)).size !== value.profiles.length ||
@@ -128,7 +131,7 @@ export function saveConnection(config: CoworkConfig, input: Record<string, unkno
     baseUrl: url.href.replace(/\/+$/, ""),
     model,
     apiKey,
-    supportsImages: (input.supportsImages ?? previous?.supportsImages ?? false) as boolean
+    supportsImages: input.supportsImages ?? previous?.supportsImages ?? false
   };
   registry.profiles = [...registry.profiles.filter((p) => p.id !== profile.id), profile];
   if (input.vision === true) {

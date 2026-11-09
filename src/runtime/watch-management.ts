@@ -117,12 +117,12 @@ export class WatchManagement {
   ) {
     if (!WATCH_TEMPLATES.includes(input.template)) throw new Error("unknown watcher template");
     validateSettings(input);
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 创建参数来自工具入参，模型可能整个省略 task，缺失时必须先给出中文校验错误而不是 TypeError
     if (!input.task?.trim() || input.task.length > 4000) throw new Error("监控目标不能为空，最多 4000 字符");
     if (input.scope && !["session", "background"].includes(input.scope))
       throw new Error("invalid monitor scope");
     const config = input.config ?? {};
     if (
-      !config ||
       Array.isArray(config) ||
       typeof config !== "object" ||
       Buffer.byteLength(JSON.stringify(config)) > 8192
@@ -150,6 +150,7 @@ export class WatchManagement {
     const scope = parent?.scope ?? input.scope ?? "session";
     let owner = parent ? taskId : scope === "background" ? `monitor-task_${identity.slice(0, 24)}` : taskId;
     if (scope === "background" && !parent) {
+      // eslint-disable-next-line no-restricted-syntax -- 后台监控会话可能尚未创建，readTask 因目录不存在失败就是“没有既有会话”
       const existing = await workspace.readTask(owner).catch(() => undefined);
       if (existing && ["completed", "cancelled", "failed"].includes(existing.status))
         owner = id("monitor-task");
@@ -172,7 +173,7 @@ export class WatchManagement {
         title: input.task.slice(0, 80),
         monitoring: { scope, sourceTaskId: taskId || undefined }
       });
-      await workspace.createRun(owner, runId!);
+      await workspace.createRun(owner, runId);
       await workspace.transitionTask(owner, "waiting", { runId, reason: "background_monitor_created" });
       await writeFile(
         join(this.workspaceRoot, owner, "agents", "main", "context", "memory.md"),
@@ -230,9 +231,9 @@ export class WatchManagement {
     );
     if (!parent && result.activated && "monitorId" in result && (scope === "background" || !mainRunId)) {
       await writeSleep(this.workspaceRoot, owner, {
-        runId: runId!,
+        runId,
         reason: input.task,
-        monitorIds: [result.monitorId!],
+        monitorIds: [result.monitorId],
         parkedAt: now()
       });
     }
@@ -537,6 +538,7 @@ export class WatchManagement {
         .flatMap((line) => {
           try {
             return [JSON.parse(line)];
+            // eslint-disable-next-line no-restricted-syntax -- 事件流尾部可能有半行未写完的记录，跳过它，前面的完整行照常返回
           } catch {
             return [];
           }

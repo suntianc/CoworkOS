@@ -108,6 +108,7 @@ export function readHostCoworkConfig(
   let credentials;
   try {
     credentials = readHostCredentials(hostCredentialsPath(coworkConfigPath(root, env), env));
+    // eslint-disable-next-line no-restricted-syntax -- 凭据库损坏不能让使用环境变量密钥的普通运行失败，具体错误由设置服务读取同一存储时单独上报
   } catch {
     // A damaged store is reported by the settings services; it must not stop runs
     // that use a key from the environment or a legacy plaintext configuration.

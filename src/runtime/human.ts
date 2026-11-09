@@ -105,6 +105,7 @@ export class HumanRequestStore {
       try {
         const request = await this.read(taskId, entry.name.slice(0, -5));
         if (!status || request.status === status) requests.push(request);
+        // eslint-disable-next-line no-restricted-syntax -- 列表扫描是 best-effort：请求文件可能被并发删除或写到一半，跳过它但保留其余请求
       } catch {
         /* ignore an incomplete temporary file */
       }

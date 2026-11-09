@@ -352,9 +352,11 @@ export class CoordinatorRuntime {
         }
         // Wait is a delivery channel too. Clear the old wake condition now,
         // before Main can create a new one after receiving this evidence.
+        // eslint-disable-next-line no-restricted-syntax -- 清除停车标记失败只会让旧唤醒条件多留一轮，本次 wait 仍必须返回已认领的回调证据，标记会在下次唤醒时重新评估
         if (claimedCallbacks.size) await clearSleep(input.workspaceRoot, input.taskId).catch(() => {});
         inboxMessages = await inbox.list("main");
       } catch (error) {
+        // eslint-disable-next-line no-restricted-syntax -- 释放已认领回调失败不能顶替正在上抛的原始错误；未释放的租约会被 InboxStore 的过期回收路径重新置为 ready
         await inbox.releaseCurrentWaitCallbacks(consumerId).catch(() => {});
         throw error;
       }
@@ -619,18 +621,19 @@ export class CoordinatorRuntime {
           const inputForItem: SubagentDispatchInput = {
             taskId: input.taskId,
             runId: input.runId,
-            activateRun: (item.payload as { activateRun?: boolean })?.activateRun,
+            activateRun: (item.payload as { activateRun?: boolean } | undefined)?.activateRun,
             callId: item.stepId,
-            delegation: (item.payload as { delegation?: DelegatedModelRequest })?.delegation,
-            dependsOn: (item.payload as { dependsOn?: string[] })?.dependsOn,
-            workItemSite: (item.payload as { workItemSite?: WorkItemSite })?.workItemSite,
-            developmentId: (item.payload as { developmentId?: string })?.developmentId,
-            continuation: (item.payload as { continuation?: { fromCallId: string; reviewId?: string } })
-              ?.continuation,
-            systemPrompt: (item.payload as { systemPrompt?: string })?.systemPrompt,
-            disableTools: (item.payload as { disableTools?: boolean })?.disableTools,
+            delegation: (item.payload as { delegation?: DelegatedModelRequest } | undefined)?.delegation,
+            dependsOn: (item.payload as { dependsOn?: string[] } | undefined)?.dependsOn,
+            workItemSite: (item.payload as { workItemSite?: WorkItemSite } | undefined)?.workItemSite,
+            developmentId: (item.payload as { developmentId?: string } | undefined)?.developmentId,
+            continuation: (
+              item.payload as { continuation?: { fromCallId: string; reviewId?: string } } | undefined
+            )?.continuation,
+            systemPrompt: (item.payload as { systemPrompt?: string } | undefined)?.systemPrompt,
+            disableTools: (item.payload as { disableTools?: boolean } | undefined)?.disableTools,
             agentId: item.agentId,
-            projectDirectory: (item.payload as { projectDirectory?: string })?.projectDirectory,
+            projectDirectory: (item.payload as { projectDirectory?: string } | undefined)?.projectDirectory,
             task:
               typeof (item.payload as { task?: unknown } | undefined)?.task === "string"
                 ? (item.payload as { task: string }).task
@@ -643,23 +646,25 @@ export class CoordinatorRuntime {
             ...delegatedSettings(input, item.payload),
             visionModel: input.visionModel,
             thinkingLevel:
-              (item.payload as { thinkingLevel?: PiThinkingLevel })?.thinkingLevel ?? input.thinkingLevel,
-            api: (item.payload as { api?: CoworkModelApi })?.api ?? input.api,
+              (item.payload as { thinkingLevel?: PiThinkingLevel } | undefined)?.thinkingLevel ??
+              input.thinkingLevel,
+            api: (item.payload as { api?: CoworkModelApi } | undefined)?.api ?? input.api,
             thinkingFormat:
-              (item.payload as { thinkingFormat?: CoworkThinkingFormat })?.thinkingFormat ??
+              (item.payload as { thinkingFormat?: CoworkThinkingFormat } | undefined)?.thinkingFormat ??
               input.thinkingFormat,
             supportsReasoningEffort:
-              (item.payload as { supportsReasoningEffort?: boolean })?.supportsReasoningEffort ??
+              (item.payload as { supportsReasoningEffort?: boolean } | undefined)?.supportsReasoningEffort ??
               input.supportsReasoningEffort,
             supportsPromptCacheKey:
-              (item.payload as { supportsPromptCacheKey?: boolean })?.supportsPromptCacheKey ??
+              (item.payload as { supportsPromptCacheKey?: boolean } | undefined)?.supportsPromptCacheKey ??
               input.supportsPromptCacheKey,
             supportsImages:
-              (item.payload as { supportsImages?: boolean })?.supportsImages ?? input.supportsImages,
+              (item.payload as { supportsImages?: boolean } | undefined)?.supportsImages ??
+              input.supportsImages,
             // The queue is the only record that survives a crash, so a recovered
             // dispatch recovers its ledger row from there too. Without this the run
             // would finish untracked and its iteration would go missing.
-            experimentRef: (item.payload as { experimentRef?: ExperimentRef })?.experimentRef,
+            experimentRef: (item.payload as { experimentRef?: ExperimentRef } | undefined)?.experimentRef,
             maxAttempts: input.maxAttempts,
             leaseMs: input.leaseMs,
             questionTimeoutMs: input.questionTimeoutMs,
@@ -667,11 +672,13 @@ export class CoordinatorRuntime {
             toolFactory: input.toolFactory,
             commandEnv: input.commandEnv,
             capabilityProvider: input.capabilityProvider,
-            capabilityGrants: (item.payload as { capabilityGrants?: CapabilityGrant[] })?.capabilityGrants,
+            capabilityGrants: (item.payload as { capabilityGrants?: CapabilityGrant[] } | undefined)
+              ?.capabilityGrants,
             web: input.web,
-            skillRoots: (item.payload as { skillRoots?: string[] })?.skillRoots ?? input.skillRoots,
+            skillRoots:
+              (item.payload as { skillRoots?: string[] } | undefined)?.skillRoots ?? input.skillRoots,
             skillApplications:
-              (item.payload as { skillApplications?: string[] })?.skillApplications ??
+              (item.payload as { skillApplications?: string[] } | undefined)?.skillApplications ??
               input.skillApplications,
             resume: true
           };
@@ -731,6 +738,7 @@ export class CoordinatorRuntime {
       );
       await this.settleExperimentRun(input, "failed", input.projectDirectory ?? "", "", [], message);
       await this.writeMainCallback(input, call, response, [], diagnostics, "failed", message);
+      // eslint-disable-next-line no-restricted-syntax -- 队列行已经写入失败原因，事件/账本投影失败不能再把工作项改回可启动状态，否则一个永远起不来的项会被反复重跑
     } catch {
       // The queue row already carries the reason; a projection failure must not
       // revive an item that can never start.
@@ -881,6 +889,7 @@ export class CoordinatorRuntime {
         // training run surfaces as evidence instead of being repeated silently.
         maxAttempts:
           input.maxAttempts ??
+          // eslint-disable-next-line no-restricted-syntax -- Task 记录被并发删除或损坏时按无 capability 处理，resolveCapabilities 会给出最小默认值，排队不能因此中止
           resolveCapabilities((await workspace.readTask(input.taskId).catch(() => undefined))?.capabilities)
             .maxAttempts
       });
@@ -899,6 +908,7 @@ export class CoordinatorRuntime {
       await this.transition(events, input, call, "running");
       heartbeat = setInterval(
         () => {
+          // eslint-disable-next-line no-restricted-syntax -- 续租失败说明租约已被其它 Worker 收回，终态写入会用 token 不匹配失败暴露，未捕获的 rejection 会打断正在运行的 session
           void scheduler.renew(callId, leaseToken!, leaseMs).catch(() => {
             // If the lease was reclaimed by another Worker, the terminal write
             // below will fail with a token mismatch instead of corrupting state.
@@ -962,6 +972,7 @@ export class CoordinatorRuntime {
       // Capabilities are granted on the Task, so a Subagent inherits exactly
       // what this Task was granted rather than whatever the process was told.
       const capabilities = resolveCapabilities(
+        // eslint-disable-next-line no-restricted-syntax -- Task 记录被并发删除或损坏时按无 capability 处理，工具装配继续用最小默认值，不能让读取失败挡住本次 dispatch
         (await workspace.readTask(input.taskId).catch(() => undefined))?.capabilities
       );
       const baseTools = input.toolFactory
@@ -1150,6 +1161,7 @@ export class CoordinatorRuntime {
                 }
               )
             );
+            // eslint-disable-next-line no-restricted-syntax -- 单条投递失败时消息仍处于 leased，InboxStore 读取时会回收过期租约重新投递，这里中断会连带丢掉本轮的 session 结果
           } catch {
             // Leave a leased message for InboxStore's expiry/reclaim path.
             return;
@@ -1157,8 +1169,10 @@ export class CoordinatorRuntime {
         }
       };
       messagePoller = setInterval(() => {
+        // eslint-disable-next-line no-restricted-syntax -- 轮询每秒重跑一次，本轮扫描失败由下一次 tick 和 Inbox 过期回收承接，未捕获的 rejection 会以 unhandled rejection 打断正在运行的 session
         void deliverMessages().catch(() => {});
       }, 1_000);
+      // eslint-disable-next-line no-restricted-syntax -- 首次投递与轮询同一路径，失败由 1 秒后的 tick 和 Inbox 过期回收重试，不能让消息投递影响 session.run 的启动
       void deliverMessages().catch(() => {});
       const result = (sessionResult = await session.run(
         [
@@ -1237,6 +1251,7 @@ export class CoordinatorRuntime {
       const state = cancelled ? "cancelled" : termination === "timed_out" ? "timed_out" : "failed";
       // An interrupted provider/tool run can still have useful candidate files.
       // Keep them discoverable even when no final assistant message was returned.
+      // eslint-disable-next-line no-restricted-syntax -- 输出文件扫描失败时保留此前已发现的列表，诊断收集失败不能顶替取消/超时这个真实终态
       outputFiles = await listAgentOutputFiles(input).catch(() => outputFiles);
       await saveSessionResult(join(input.workspaceRoot, input.taskId, diagnostics.resultPath), {
         messages: sessionResult?.messages ?? session?.agent.state.messages ?? [],
@@ -1245,6 +1260,7 @@ export class CoordinatorRuntime {
         lastStopReason: sessionResult?.lastStopReason,
         continuations: sessionResult?.continuations,
         error: message
+        // eslint-disable-next-line no-restricted-syntax -- 诊断结果文件写失败时仍要抛出原始的执行失败原因，否则 Main 只会看到写盘错误
       }).catch(() => {
         /* Preserve the original execution failure if diagnostics cannot be written. */
       });
@@ -1264,6 +1280,7 @@ export class CoordinatorRuntime {
         });
       try {
         await this.transition(events, input, call, state);
+        // eslint-disable-next-line no-restricted-syntax -- 状态事件写入失败时仍要抛出原始执行错误，租约到期后队列会重新驱动该工作项
       } catch {
         /* preserve original failure */
       }
@@ -1271,6 +1288,7 @@ export class CoordinatorRuntime {
         try {
           if (state === "cancelled") await scheduler.cancel(callId);
           else retryScheduled = (await scheduler.fail(callId, leaseToken, message)).status === "queued";
+          // eslint-disable-next-line no-restricted-syntax -- settle 抛错时仍要上抛原始执行错误，未写入终态的租约到期后会被 reclaimExpired 重新排队
         } catch {
           /* preserve original failure */
         }
@@ -1506,6 +1524,7 @@ export class CoordinatorRuntime {
           isCancelled: async () => {
             if (this.cancelRequests.has(callId) || this.activeSubagents.get(callId)?.cancelRequested)
               return true;
+            // eslint-disable-next-line no-restricted-syntax -- 取消探测读队列失败时按未取消继续等待，真正的取消请求和本次等待的 timeout 仍会结束阻塞
             const item = (await scheduler.list().catch(() => [])).find(
               (candidate) => candidate.stepId === callId
             );
@@ -1518,6 +1537,7 @@ export class CoordinatorRuntime {
             questionId,
             answer: settled.question.answer
           })
+          // eslint-disable-next-line no-restricted-syntax -- 这条提问结算事件只是诊断记录，写失败不能阻止把作答结果返回给仍在阻塞等待的 Subagent
         ).catch(() => {
           /* diagnostics only */
         });
@@ -1561,6 +1581,7 @@ export class CoordinatorRuntime {
           questionIds: expired.map((question) => question.questionId)
         })
       );
+      // eslint-disable-next-line no-restricted-syntax -- 关闭遗留提问是收尾簿记，失败不能把已结束的 dispatch 再判成失败；遗留提问会随 Task 的过期处理关闭
     } catch {
       /* bookkeeping only */
     }
@@ -1629,6 +1650,7 @@ export class CoordinatorRuntime {
           experimentRunId: ref.experimentRunId,
           error: reason
         })
+        // eslint-disable-next-line no-restricted-syntax -- 记录结算失败本身就是诊断路径，事件再写不进去只能放弃，否则已捕获的账本错误会变成未处理拒绝
       ).catch(() => {
         /* diagnostics only */
       });

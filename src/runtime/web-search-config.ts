@@ -12,6 +12,7 @@ export function validateWebSearchConfig(config: WebSearchConfig): void {
   const search = config.webSearch;
   if (search !== undefined) {
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- webSearch 来自 config.json 的自由 JSON，为 null 时 typeof 也是 object，必须先由 !search 拦成配置错误
       !search ||
       typeof search !== "object" ||
       Array.isArray(search) ||

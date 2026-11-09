@@ -25,12 +25,15 @@ export async function availableModelIds(
     if (!Array.isArray(body.data)) return fallback;
     const ids = body.data
       .filter((entry) => {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- data 来自服务商 /v1/models 响应体，元素可能是 null 或非对象
         const endpoints = entry?.supported_endpoint_types;
         return !Array.isArray(endpoints) || endpoints.length === 0 || endpoints.includes("openai");
       })
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，模型条目来自服务商响应体，id 可能缺失
       .map((entry) => (typeof entry?.id === "string" ? entry.id.trim() : ""))
       .filter((id) => id.length <= 160 && /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id));
     return [...new Set([...fallback, ...ids])];
+    // eslint-disable-next-line no-restricted-syntax -- 目录发现只是可选的模型列表增强，失败时保留已选模型，请求仍按 input.model 发送
   } catch {
     return fallback;
   } finally {

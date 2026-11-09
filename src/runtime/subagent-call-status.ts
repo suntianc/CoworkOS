@@ -40,6 +40,7 @@ export async function subagentCallStatuses(
         Boolean(callback) ||
         (await stat(join(input.workspaceRoot, input.taskId, diagnostics.resultPath))
           .then((result) => result.isFile())
+          // eslint-disable-next-line no-restricted-syntax -- 结果文件可能还没写出（同步调用或尚未落盘），stat 失败即表示结果不可用
           .catch(() => false));
       return {
         callId: item.stepId,

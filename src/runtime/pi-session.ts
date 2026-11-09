@@ -229,7 +229,7 @@ export class PiSession {
       options.initialCompaction,
       async (state) =>
         options.onCheckpoint?.({
-          messages: this.agent?.state.messages ?? options.initialMessages ?? [],
+          messages: this.agent.state.messages,
           compaction: state,
           status: "running"
         })
@@ -407,6 +407,7 @@ export class PiSession {
           .reverse()
           .find((message): message is AssistantMessage => message.role === "assistant");
         previousStopReason = latest?.stopReason;
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- timedOut 只由 setTimeout 回调置为 true，TS 在读取处只看到初始的 false，超时后必须跳出循环
         if (timedOut || this.signal?.aborted) break;
         if (previousStopReason === "error" && errorRetries < this.maxErrorRetries) {
           errorRetries += 1;
@@ -447,6 +448,7 @@ export class PiSession {
       messages,
       assistant,
       compaction: this.compaction.state,
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- timedOut 由 setTimeout 回调在超时后置为 true，返回的 termination 必须反映超时而不是 completed
       termination: timedOut
         ? "timed_out"
         : this.signal?.aborted
@@ -455,6 +457,7 @@ export class PiSession {
             ? "aborted"
             : "completed",
       error:
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- timedOut 由 setTimeout 回调写入，TS 在读取处看不到该赋值；超时退出的 Run 不能再带 error 文案
         !complete && !timedOut && !this.signal?.aborted && latest?.stopReason === "error"
           ? latest.errorMessage
           : undefined,
