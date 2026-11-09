@@ -57,7 +57,7 @@ export function exchangeExecutionState(events = []) {
     const event = record?.type === "runtime_event" ? record.payload : record;
     if (event?.type === "auto_retry_start") retry = event;
     if (event?.type === "auto_retry_end") retry = undefined;
-    if (/^main\.run_(completed|failed|waiting|cancelled)$/.test(event?.type || "")) {
+    if (/^main\.run_(completed|failed|paused|waiting|cancelled)$/.test(event?.type || "")) {
       terminal = event.type.slice("main.run_".length);
       retry = undefined;
     }

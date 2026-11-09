@@ -297,9 +297,13 @@ export function runTiming(input: {
       spawned = true;
       ended = undefined;
     } else if (
-      ["main.run_completed", "main.run_failed", "main.run_waiting", "main.run_stopped"].includes(
-        event.type ?? ""
-      )
+      [
+        "main.run_completed",
+        "main.run_failed",
+        "main.run_paused",
+        "main.run_waiting",
+        "main.run_stopped"
+      ].includes(event.type ?? "")
     ) {
       const from = interval ?? (!spawned && ended === undefined ? started : undefined);
       if (from !== undefined) elapsed += Math.max(0, time - from);

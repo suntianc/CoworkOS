@@ -25,6 +25,12 @@ const toolKinds = new Map([
   ...["bash", "run_command", "exec_command", "run_tests"].map((name) => [name, "command"])
 ]);
 
+function clockTime(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function latestModelRetry(events) {
   const retry = events
     .map((record) => (record?.type === "runtime_event" ? record.payload : record))
@@ -45,6 +51,9 @@ function renderUserText(text, markdown) {
 }
 
 function stoppedRequestFailure(task, detail, exchange, submitting) {
+  // A paused step aborts its model operation by design; that terminal error is
+  // the pause boundary, not a failure the person can retry from a card.
+  if (task.status === "paused") return;
   if (detail?.runtime?.active || submitting || ["completed", "cancelled"].includes(task.status)) return;
   const persisted = exchange?.messages.findLast((message) => message.role === "assistant");
   const streamed = exchange?.events
@@ -123,6 +132,7 @@ function stoppedRequestFailure(task, detail, exchange, submitting) {
   const retry = latestModelRetry(exchange?.events || []);
   const exhausted = retry?.type === "auto_retry_end" && retry.success === false;
   return {
+    retryCount: retry?.attempt ?? 0,
     title: interrupted
       ? ui("模型连接中断")
       : failureKind === "model_request"
@@ -153,7 +163,8 @@ export function createConversationView({
   edit,
   messageEdit,
   openSettings,
-  openArtifact
+  openArtifact,
+  continueRun
 }) {
   const markdown = (source, options = {}) =>
     renderMarkdown(source, {
@@ -167,6 +178,7 @@ export function createConversationView({
           .join("")
       : String(textContent(content) || "");
   const activityStates = new Map();
+  const errorDetailsOpen = new Set();
   const boundNodes = new WeakSet();
   let lastMarkup;
   let historyMarkup = new Map();
@@ -233,6 +245,28 @@ export function createConversationView({
     );
   };
   const projectExchanges = createConversationProjection(normalizeMessages);
+  function renderFailure(task, failure) {
+    const open = errorDetailsOpen.has(task.taskId);
+    return ui`<div class="request-error" role="alert" data-recovery-task="${esc(task.taskId)}">
+      <div class="run-error-head">${icon("circle-alert")}<strong>${esc(failure.title)}</strong>${failure.retryCount ? ui`<span class="run-error-retry">${ui("已自动重试 ")}${failure.retryCount}${ui("次")}</span>` : ""}</div>
+      <div class="request-error-actions">
+        <button data-retry-request type="button">${icon("rotate-ccw")}<span>从中断步骤继续</span></button>
+        ${failure.showModelSettings ? ui`<button data-error-settings type="button">${icon("cpu")}<span>切换模型</span></button>` : ""}
+        <button data-error-details type="button" aria-expanded="${open}">${icon("chevron-down")}<span>查看错误详情</span></button>
+      </div>
+      <div class="run-error-detail" data-error-detail ${open ? "" : "hidden"}>
+        ${failure.errorType ? ui`<p data-error-type>错误类型：${esc(failure.errorType)}</p>` : ""}
+        <p>${esc(failure.message)} ${allPreservedMessage(task)}${failure.suggestRetry === false ? "" : ui("可以手动重试继续。")}</p>
+      </div>
+    </div>`;
+  }
+  function allPreservedMessage(task) {
+    return task.taskId && state.detail?.messages?.length ? ui("你发送的内容和已有过程已保留。") : "";
+  }
+  function renderPaused(task, pause) {
+    const at = clockTime(pause.pausedAt || task.updatedAt);
+    return ui`<div class="run-paused" role="status" data-run-paused>${icon("pause")}<span class="run-paused-text">已暂停${at ? ` · ${at}` : ""}</span><span class="run-paused-spacer"></span><button class="run-control-button" type="button" data-run-continue>${icon("play")}<span>继续</span></button></div>`;
+  }
   function renderConversation(messages, task) {
     const scroll = $("#conversation");
     // Capture live blocks as well as saved history, including before an empty
@@ -274,7 +308,8 @@ export function createConversationView({
       exchanges[currentExchangeIndex],
       state.submittingTaskId === task.taskId
     );
-    if (!all.length && !failure && !messageEdit?.editingMessageId) {
+    const paused = task.status === "paused" ? task.pause || {} : undefined;
+    if (!all.length && !failure && !paused && !messageEdit?.editingMessageId) {
       $("#conversation").innerHTML =
         task.monitoring?.scope === "background"
           ? ui(
@@ -344,7 +379,7 @@ export function createConversationView({
         const active =
           Boolean(state.detail?.runtime?.active || state.submittingTaskId === task.taskId) && isCurrent;
         const execution = exchangeExecutionState(exchange.events);
-        const interrupted = ["cancelled", "failed", "waiting"].includes(execution.terminal);
+        const interrupted = ["cancelled", "failed", "paused", "waiting"].includes(execution.terminal);
         const parked =
           isCurrent &&
           execution.terminal === "waiting" &&
@@ -364,7 +399,7 @@ export function createConversationView({
           historyOpen,
           historyKey,
           finalIndex < 0,
-          (interrupted && !parked) || (isCurrent && Boolean(failure)),
+          (interrupted && !parked && !paused) || (isCurrent && Boolean(failure)),
           isCurrent,
           exchange.continued
         );
@@ -430,9 +465,8 @@ export function createConversationView({
       (restoredEditor
         ? `<article class="chat-message user is-editing" data-view-key="${esc(`${task.taskId}:restored-edit`)}"><div class="message-copy"><div class="user-message-bubble">${restoredEditor}${messageEdit.actions?.(task.taskId, messageEdit.editingMessageId) || ""}</div></div></article>`
         : "") +
-      (failure
-        ? ui`<div class="request-error" role="alert" data-recovery-task="${esc(task.taskId)}"><strong>${esc(failure.title)}</strong>${failure.errorType ? ui`<p data-error-type>错误类型：${esc(failure.errorType)}</p>` : ""}<p>${esc(failure.message)} ${all.length ? ui("你发送的内容和已有过程已保留。") : ""}${failure.suggestRetry === false ? "" : ui("可以手动重试继续。")}</p><div class="request-error-actions"><button data-retry-request type="button">重试</button>${failure.showModelSettings ? ui('<button data-error-settings type="button">检查模型连接</button>') : ""}</div></div>`
-        : "");
+      (failure ? renderFailure(task, failure) : "") +
+      (paused ? renderPaused(task, paused) : "");
     if (lastMarkup !== markup) {
       reconcileMarkup(scroll, markup);
       lastMarkup = markup;
@@ -440,13 +474,27 @@ export function createConversationView({
       for (const [selector, action] of [
         ["[data-edit-message]", () => edit?.(task.taskId, state.detail?.editableMessage)],
         ["[data-retry-request]", () => retry?.(task.taskId)],
-        ["[data-error-settings]", () => openSettings?.()]
+        ["[data-error-settings]", () => openSettings?.()],
+        ["[data-run-continue]", () => continueRun?.(task.taskId)]
       ]) {
         const node = scroll.querySelector(selector);
         if (!node || boundNodes.has(node)) continue;
         boundNodes.add(node);
         node.addEventListener("click", () => {
           if (ownsRecovery()) action();
+        });
+      }
+      const detailsButton = scroll.querySelector("[data-error-details]");
+      if (detailsButton && !boundNodes.has(detailsButton)) {
+        boundNodes.add(detailsButton);
+        detailsButton.addEventListener("click", () => {
+          const panel = scroll.querySelector("[data-error-detail]");
+          if (!panel) return;
+          const expanded = detailsButton.getAttribute("aria-expanded") !== "true";
+          detailsButton.setAttribute("aria-expanded", String(expanded));
+          panel.hidden = !expanded;
+          if (expanded) errorDetailsOpen.add(task.taskId);
+          else errorDetailsOpen.delete(task.taskId);
         });
       }
       scroll.querySelectorAll("[data-message-artifact]").forEach((link) => {
