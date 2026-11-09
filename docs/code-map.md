@@ -4,7 +4,7 @@
 
 开发 Agent 先读根目录 [AGENTS.md](../AGENTS.md) 和目标目录的 `AGENTS.md`，再用本页选择负责行为的模块和测试。职责与依赖见 [架构](architecture.md)，执行命令见 [开发指南](development.md)。
 
-品牌入口：桌面显示名在 [profile](../desktop/profile.cjs)，安装包名在 [打包配置](../electron-builder.config.cjs)，CLI 命令与兼容别名在 [package](../package.json) 和 [CLI 打包](../scripts/package-cli.mjs)，会话身份在 [agent identity](../src/domain/agent-identity.ts)。CoworkOS 的旧数据、钥匙串、协议与更新兼容规则见 [安装参考](installation-reference.md#名称与旧版兼容)。
+品牌入口：界面显示名在 [产品名](../desktop/product-name.cjs)，桌面运行与打包身份在 [profile](../desktop/profile.cjs)，安装包名在 [打包配置](../electron-builder.config.cjs)，CLI 命令与兼容别名在 [package](../package.json) 和 [CLI 打包](../scripts/package-cli.mjs)，会话身份在 [agent identity](../src/domain/agent-identity.ts)。CoworkOS 的旧数据、钥匙串、协议与更新兼容规则见 [安装参考](installation-reference.md#名称与旧版兼容)。
 
 README 头图由 [独立 React/SVG 工程](hero/README.md)生成：`scene.jsx` 负责构图，`TechText.jsx` 负责字形与固定 OS 选框，`HarnessCorner.jsx` 绘制应用局部；渲染与编码生成 `docs/assets/readme-hero.gif` 和静态 PNG。
 
@@ -157,7 +157,7 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 ### 会话、输入与界面
 
-界面的字体、字号、三栏比例与控件节奏由 [ui.css](../web/assets/ui.css) 统一；[system-theme.css](../web/assets/system-theme.css) 管理浅深色表面，[workbench.css](../web/assets/workbench.css) 管理阅读列与工作区卡片。本地 Inter 字体及完整许可位于 `web/assets/fonts/`，来源见[第三方声明](../THIRD_PARTY_NOTICES.md#inter-界面字体--interface-typeface)。验证[阅读列与窄屏](../e2e/conversation-width.spec.js)、[输入框布局](../e2e/composer-layout.spec.js)及[主题与对比度](../e2e/system-theme.spec.js)，排版规范见 [UI 约定](development.md#应用-ui-约定)。
+界面的字体、字号、三栏比例与控件节奏由 [ui.css](../web/assets/ui.css) 统一；[formicand.css](../web/assets/formicand.css) 集中定义设计令牌、玻璃面板与减少动态效果，[system-theme.css](../web/assets/system-theme.css) 消费有效外观，[workbench.css](../web/assets/workbench.css) 管理阅读列与工作区卡片。本地 Inter 字体及完整许可位于 `web/assets/fonts/`，来源见[第三方声明](../THIRD_PARTY_NOTICES.md#inter-界面字体--interface-typeface)。验证[阅读列与窄屏](../e2e/conversation-width.spec.js)、[输入框布局](../e2e/composer-layout.spec.js)及[主题与对比度](../e2e/system-theme.spec.js)，排版规范见 [UI 约定](development.md#应用-ui-约定)。
 
 对话中的数学公式由 [Markdown 渲染器](../web/assets/markdown.js) 和 [公式解析](../web/assets/math.js) 共用处理，Web/App 的本地 KaTeX 脚本、样式、字体和许可证由 [构建脚本](../scripts/build-math.mjs) 准备。验证 [分隔符/代码/错误回退](../test/markdown-math.test.js) 与 [真实流式、离线资源及历史重开](../e2e/conversation-math.spec.js)；支持范围见 [运行时参考](runtime-reference.md#数学公式)。
 
@@ -203,7 +203,7 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 输入框粘贴由 [剪贴板控制器](../web/assets/controllers/composer-clipboard.js) 处理文字/图片优先级与 HTML 文字回退；桌面原生编辑菜单在 [编辑菜单宿主](../desktop/edit-context-menu.cjs)。回归见 [剪贴板边界](../test/composer-clipboard.test.js)、[菜单信任边界](../test/desktop-edit-context-menu.test.js)、[真实浏览器快捷键](../e2e/composer-clipboard.spec.js) 和 [Electron 右键/原生编辑](../e2e/composer-clipboard-desktop.spec.js)，同步 [会话契约](runtime-reference.md#会话与消息)。
 
-外观偏好由 [共用控制器](../web/assets/controllers/appearance.js) 在首屏前解析，默认跟随系统，设置支持跟随系统、深色、浅色；浏览器通过 `matchMedia` 监听系统变化，桌面以宿主有效外观同步。[共用主题](../web/assets/system-theme.css) 消费有效外观，`light-dark()` 随 color-scheme 同步。[桌面外观](../desktop/appearance.cjs) 负责可信 IPC、独立偏好持久化、nativeTheme 及系统更新通知，[窗口主题](../desktop/system-theme.cjs) 负责首屏和动态背景；[星空](../web/assets/starfield.js) 与 [银河系](../web/assets/galaxy-space.js) 随主题重画。先验证 [浏览器切换、文字对比度和草稿](../e2e/system-theme.spec.js)、[真实协作星系](../e2e/appearance-galaxy.spec.js)、[桌面偏好和信任边界](../test/desktop-appearance.test.js)、[原生退出重启](../e2e/appearance-desktop.spec.js) 与 [窗口背景](../test/desktop-system-theme.test.js)，同步 [外观配置](configuration.md#外观)。
+外观偏好由 [共用控制器](../web/assets/controllers/appearance.js) 在首屏前解析，默认跟随系统，设置支持跟随系统、深色、浅色；浏览器通过 `matchMedia` 监听系统变化，桌面以宿主有效外观同步。[共用主题](../web/assets/system-theme.css) 消费有效外观，`light-dark()` 随 color-scheme 同步。[桌面外观](../desktop/appearance.cjs) 负责可信 IPC、独立偏好持久化、nativeTheme 及系统更新通知，[窗口主题](../desktop/system-theme.cjs) 负责首屏和动态背景，[窗口材质](../desktop/window-material.cjs) 在 macOS 启用原生 vibrancy；[星空](../web/assets/starfield.js) 与 [银河系](../web/assets/galaxy-space.js) 随主题重画。先验证 [浏览器切换、文字对比度和草稿](../e2e/system-theme.spec.js)、[真实协作星系](../e2e/appearance-galaxy.spec.js)、[桌面偏好和信任边界](../test/desktop-appearance.test.js)、[原生退出重启](../e2e/appearance-desktop.spec.js) 与 [窗口背景](../test/desktop-system-theme.test.js)，同步 [外观配置](configuration.md#外观)。
 
 修改重发的崩溃事务由 [`main-message-edit-transaction.ts`](../src/runtime/main-message-edit-transaction.ts) 管理；被替换消息之后、同一 Run 中尚未回答的问题通过 [Human Store](../src/runtime/human.ts) 关闭，启动前回滚会恢复问题，启动就绪后的恢复保留新分支及问题关闭状态。Dashboard 工作区列举/定位调用恢复，Run 服务在完整输入持久化后标记启动阶段。[`main-message-edit.test.js`](../test/main-message-edit.test.js) 使用独立 SDK 子进程 SIGKILL 验证准备、输入持久化、Task 更新和启动阶段的重启恢复；[真实 Pi 回归](../test/main-message-edit-pi.test.js) 验证等待提问时退出、重启后编辑重发与迟到回答。
 

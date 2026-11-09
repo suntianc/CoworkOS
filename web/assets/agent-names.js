@@ -96,7 +96,7 @@ const constellations = [
  * @returns {string}
  */
 export function agentDisplayName(agentId) {
-  if (agentId === "main") return "CoworkOS";
+  if (agentId === "main") return "Formicand";
   const number = /^subagent[_-](\d+)$/.exec(agentId)?.[1];
   const index =
     number && Number.isSafeInteger(Number(number))

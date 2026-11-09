@@ -4,18 +4,11 @@ import { icon } from "../ui/icons.js";
 /** Render host-owned updates without exposing paths, commands or download URLs to the page. */
 export function installDesktopUpdates({ overview } = {}) {
   const desktop = window.bookmanDesktop;
-  const sections = document.querySelector("#profile-settings-sections");
-  if (!desktop?.updateStatus || !desktop?.checkUpdates || !desktop?.applyUpdate || !sections) return;
+  const section = document.querySelector("#profile-settings-about .desktop-updates");
+  if (!desktop?.updateStatus || !desktop?.checkUpdates || !desktop?.applyUpdate || !section) return;
   const panel = document.querySelector("#profile-modal");
-  const section = document.createElement("section");
-  section.className = "desktop-updates";
-  section.setAttribute("aria-label", ui("CoworkOS 更新"));
-  section.innerHTML = ui`<div class="profile-setting"><span class="settings-row-copy"><span class="settings-row-icon">${icon("refresh")}</span><span><strong>CoworkOS 更新</strong><small data-update-version>正在读取版本…</small></span></span><button class="app-button is-secondary" type="button" data-update-action>检查更新</button></div>
-    <p data-update-message role="status" aria-live="polite" hidden></p><progress data-update-progress aria-label="更新进度" hidden></progress><p data-update-error role="alert" hidden></p>`;
-  const about = document.querySelector("#profile-settings-about");
-  (about || sections).append(section);
-  if (about) about.closest(".settings-overview-group").hidden = false;
   const action = section.querySelector("[data-update-action]");
+  action.hidden = false;
   const message = section.querySelector("[data-update-message]");
   const error = section.querySelector("[data-update-error]");
   const progress = section.querySelector("[data-update-progress]");
@@ -70,7 +63,7 @@ export function installDesktopUpdates({ overview } = {}) {
       (inAppInstall && ready && preparing);
     lockEditors(Boolean(editingLocked));
     section.querySelector("[data-update-version]").textContent = state.currentVersion
-      ? ui`当前版本 ${state.currentVersion}${source ? ui(" · 源码开发版") : ""}`
+      ? ui`版本 ${state.currentVersion}${source ? ui(" · 源码开发版") : ""}`
       : ui("版本信息暂不可用");
     action.hidden = manual;
     action.disabled = manual || busy || finished;
@@ -103,14 +96,14 @@ export function installDesktopUpdates({ overview } = {}) {
       manual: ui("请使用本地安装包手动升级。"),
       checking: ui("正在检查更新…"),
       "up-to-date": ui("已是最新版本。"),
-      updating: ui("正在更新，完成后会重新打开 CoworkOS。"),
+      updating: ui("正在更新，完成后会重新打开 Formicand。"),
       downloading: ui("正在下载更新…"),
       ready:
         source || state.installReady
-          ? ui("更新完成，正在重新打开 CoworkOS…")
+          ? ui("更新完成，正在重新打开 Formicand…")
           : inAppInstall
             ? ui("更新已下载，重启即可安装。")
-            : ui("安装器已下载并校验，请打开后将 CoworkOS 拖入 Applications，再重新打开。")
+            : ui("安装器已下载并校验，请打开后将安装包内的 App 拖入 Applications，再重新打开。")
     };
     message.textContent =
       state.phase === "available"
@@ -134,10 +127,10 @@ export function installDesktopUpdates({ overview } = {}) {
     } else progress.removeAttribute("value");
     notice.hidden = !canApply() || busy || finished;
     const noticeLabel = source
-      ? ui("发现更新，查看 CoworkOS 更新")
+      ? ui("发现更新，查看 Formicand 更新")
       : ready
         ? ui("更新已下载，查看并重启安装")
-        : ui`发现新版本${state.version ? ` ${state.version}` : ""}，查看 CoworkOS 更新`;
+        : ui`发现新版本${state.version ? ` ${state.version}` : ""}，查看 Formicand 更新`;
     notice.setAttribute("aria-label", noticeLabel);
     notice.title = noticeLabel;
   }

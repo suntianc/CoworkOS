@@ -279,7 +279,7 @@ test("automatic update events show a circular reminder above settings with keybo
     );
     await expect(notice).toBeVisible();
     await expect(page.locator("#profile-modal")).toBeHidden();
-    await expect(notice).toHaveAccessibleName("发现新版本 0.1.3，查看 CoworkOS 更新");
+    await expect(notice).toHaveAccessibleName("发现新版本 0.1.3，查看 Formicand 更新");
     await expect(notice).toHaveCSS("border-radius", "50%");
     await expect(notice).toHaveCSS("background-color", "rgb(238, 238, 238)");
     const reminderBox = await notice.boundingBox();

@@ -57,7 +57,7 @@ export function createArtifactController({
   }
 
   function artifactSource(artifact) {
-    if (artifact.producerAgentId === "main") return "CoworkOS";
+    if (artifact.producerAgentId === "main") return "Formicand";
     const agents = state.detail?.progress?.agents || state.detail?.coordination?.calls || [];
     const agent = agents.find((entry) => entry.agentId === artifact.producerAgentId);
     if (!agent) return "";

@@ -3,10 +3,10 @@ import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile, access, copyFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
-// Native rendering keeps the original mark inside a rounded tile with an alpha margin.
+// Native rendering places the exported Formicand icon on the standard alpha margin.
 // macOS does not mask custom app icons, so an opaque padded PNG would appear square.
 if (process.platform === "darwin") {
-  const source = resolve("web/assets/atria-symbol.png");
+  const source = resolve("web/assets/brand/formicand-icon.png");
   const renderer = resolve("scripts/render-desktop-icon.swift");
   const build = resolve("build");
   const master = join(build, "atria-icon.png");
@@ -14,7 +14,7 @@ if (process.platform === "darwin") {
   const icns = join(build, "atria.icns");
   const marker = join(build, "atria-icon-source.sha256");
   const hash = createHash("sha256")
-    .update("atria-icon-v2")
+    .update("formicand-icon-v1")
     .update(await readFile(source))
     .update(await readFile(renderer))
     .update(await readFile(new URL(import.meta.url)))

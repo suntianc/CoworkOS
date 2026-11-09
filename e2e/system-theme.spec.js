@@ -13,6 +13,15 @@ async function uiColors(page) {
         return [name, getComputedStyle(probe).color];
       })
     );
+    for (const [key, name] of [
+      ["panelFill", "--panel-fill"],
+      ["composerFill", "--composer-fill"],
+      ["popoverFill", "--popover-fill"]
+    ]) {
+      probe.style.color = "";
+      probe.style.backgroundColor = `var(${name})`;
+      colors[key] = getComputedStyle(probe).backgroundColor;
+    }
     probe.remove();
     return colors;
   });
@@ -66,8 +75,8 @@ for (const initial of ["light", "dark"]) {
         await expect(page.locator("html")).toHaveAttribute("data-theme", colorScheme);
         await expect(page.locator("html")).toHaveAttribute("data-appearance", "system");
         const colors = await uiColors(page);
-        await expect(page.locator(".chat-pane")).toHaveCSS("background-color", colors.bg);
-        await expect(page.locator(".composer")).toHaveCSS("background-color", colors.panel);
+        await expect(page.locator(".chat-pane")).toHaveCSS("background-color", colors.panelFill);
+        await expect(page.locator(".composer")).toHaveCSS("background-color", colors.composerFill);
         await expect(input).toHaveValue("未发送的草稿 preserved");
         await expect(input).toBeFocused();
         expect(
@@ -84,12 +93,12 @@ for (const initial of ["light", "dark"]) {
       await expect(page.locator("#appearance-select")).toHaveValue("system");
       await expect(page.locator("#profile-modal .modal-card")).toHaveCSS(
         "background-color",
-        (await uiColors(page)).panel
+        (await uiColors(page)).popoverFill
       );
       await page.locator("#appearance-select").selectOption("dark");
       await expect(page.locator("#profile-modal .modal-card")).toHaveCSS(
         "background-color",
-        (await uiColors(page)).panel
+        (await uiColors(page)).popoverFill
       );
       expect(errors).toEqual([]);
     } finally {
@@ -542,7 +551,7 @@ test("native system appearance uses host changes even when browser media differs
     await page.evaluate(() => window.appearanceChange({ preference: "system", effective: "dark" }));
     await expect(html).toHaveAttribute("data-theme", "dark");
     await expect(html).toHaveCSS("color-scheme", "dark");
-    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute("content", "#0d0d0d");
+    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute("content", "#0e0e0f");
     await expect(page.locator("#appearance-select")).toHaveValue("system");
   } finally {
     await dashboard.stop();

@@ -67,7 +67,7 @@ export function buildWorkLog(detail = {}, limit = 30) {
       );
       const row = {
         id: key,
-        actor: "CoworkOS",
+        actor: "Formicand",
         agentKey: "main",
         title: presentation.title,
         summary: presentation.subject || presentation.summary,
@@ -116,7 +116,7 @@ export function buildWorkLog(detail = {}, limit = 30) {
       status = "completed";
     switch (event.type) {
       case "main.run_spawned":
-        actor = "CoworkOS";
+        actor = "Formicand";
         title = payload.resumed ? "继续处理你的请求" : "开始处理你的请求";
         summary = payload.prompt || detail.task?.goal;
         break;
@@ -129,7 +129,7 @@ export function buildWorkLog(detail = {}, limit = 30) {
         summary = response || task;
         break;
       case "callback.consumed":
-        actor = "CoworkOS";
+        actor = "Formicand";
         title = `已收到${name}的结果`;
         summary = response || task;
         break;
@@ -145,18 +145,18 @@ export function buildWorkLog(detail = {}, limit = 30) {
         status = payload.state === "cancelled" ? "cancelled" : "failed";
         break;
       case "run.cancel_requested":
-        actor = "CoworkOS";
+        actor = "Formicand";
         title = `已取消${name}的任务`;
         summary = payload.reason || task;
         status = "cancelled";
         break;
       case "main.run_completed":
-        actor = "CoworkOS";
+        actor = "Formicand";
         title = "本次请求已完成";
         summary = detail.task?.completion?.summary || "处理已结束，结果见左侧对话。";
         break;
       case "main.run_waiting":
-        actor = "CoworkOS";
+        actor = "Formicand";
         title = "等待继续处理";
         summary =
           {
@@ -171,13 +171,13 @@ export function buildWorkLog(detail = {}, limit = 30) {
         status = "waiting";
         break;
       case "main.run_failed":
-        actor = "CoworkOS";
+        actor = "Formicand";
         title = "执行遇到问题";
         summary = payload.error;
         status = "failed";
         break;
       case "message.queued":
-        actor = "CoworkOS";
+        actor = "Formicand";
         title = `已向${name}补充说明`;
         summary = payload.message || task;
         break;
@@ -185,12 +185,12 @@ export function buildWorkLog(detail = {}, limit = 30) {
         title = "已收到补充说明";
         break;
       case "watcher.event_received":
-        actor = "CoworkOS";
+        actor = "Formicand";
         title = "收到新的监测信息";
         summary = payload.summary || payload.event?.type || "监测来源有新的变化";
         break;
       case "watcher.failed":
-        actor = "CoworkOS";
+        actor = "Formicand";
         title = "监测遇到问题";
         summary = payload.error;
         status = "failed";
@@ -206,7 +206,7 @@ export function buildWorkLog(detail = {}, limit = 30) {
       details: clean(summary),
       status,
       time: timeValue(event.occurredAt),
-      agentKey: actor === "CoworkOS" ? "main" : member?.callId || member?.agentId
+      agentKey: actor === "Formicand" ? "main" : member?.callId || member?.agentId
     });
   }
   return [...rows.values()]

@@ -52,7 +52,7 @@ test("compact binding rows stay readable, scrollable and keyboard focused during
       await expect(menu).toBeVisible();
       const surface = await menu.evaluate((node) => {
         const sample = document.createElement("span");
-        sample.style.backgroundColor = "var(--ui-panel)";
+        sample.style.backgroundColor = "var(--popover-fill)";
         node.append(sample);
         const color = getComputedStyle(sample).backgroundColor;
         sample.remove();

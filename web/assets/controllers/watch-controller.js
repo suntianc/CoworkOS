@@ -220,7 +220,7 @@ export function createWatchController({ api: transport, state, selectTask, refre
     if (template === "entity-state")
       return '<label>对象 ID<input name="entityId" required></label><label>目标状态（用逗号分隔）<input name="targetStates" required></label><p>来源需提供 id、revision、status、observedAt。</p>';
     if (template === "job-lifecycle")
-      return '<label>日志停滞阈值（秒）<input name="quietSeconds" type="number" min="1" value="600" required></label><p>来源是 CoworkOS 后台任务的 JSON 记录文件。</p>';
+      return '<label>日志停滞阈值（秒）<input name="quietSeconds" type="number" min="1" value="600" required></label><p>来源是 Formicand 后台任务的 JSON 记录文件。</p>';
     if (template === "resource-version")
       return '<label>内容稳定检查次数<input name="stableChecks" type="number" min="1" value="2" required></label>';
     return '<label>首次提醒时间<input name="startAt" type="datetime-local" required></label><label>重复间隔（秒；0 为一次性）<input name="intervalSeconds" type="number" min="0" value="0" required></label>';

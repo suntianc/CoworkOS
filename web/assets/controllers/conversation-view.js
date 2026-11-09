@@ -279,10 +279,10 @@ export function createConversationView({
       $("#conversation").innerHTML =
         task.monitoring?.scope === "background"
           ? ui(
-              '<div class="welcome-empty monitoring-empty"><div class="welcome-symbol"><img src="/assets/atria-symbol.png" alt="" /></div><h2>后台监控会话</h2></div>'
+              '<div class="welcome-empty monitoring-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>后台监控会话</h2></div>'
             )
           : ui(
-              `<div class="welcome-empty"><div class="welcome-symbol"><img src="/assets/atria-symbol.png" alt="" /></div><h2>有什么可以帮忙的？</h2><div class="starter-prompts"><button data-prompt="帮我梳理这个项目的结构"><span class="prompt-icon">⌘</span>梳理项目结构 <span>↗</span></button><button data-prompt="检查最近的代码改动并运行测试"><span class="prompt-icon">✓</span>检查代码改动 <span>↗</span></button><button data-prompt="研究这个主题并整理一份简报"><span class="prompt-icon">✦</span>研究并整理简报 <span>↗</span></button></div></div>`
+              `<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2><div class="starter-prompts"><button data-prompt="帮我梳理这个项目的结构"><span class="prompt-icon">⌘</span>梳理项目结构 <span>↗</span></button><button data-prompt="检查最近的代码改动并运行测试"><span class="prompt-icon">✓</span>检查代码改动 <span>↗</span></button><button data-prompt="研究这个主题并整理一份简报"><span class="prompt-icon">✦</span>研究并整理简报 <span>↗</span></button></div></div>`
             );
       bindStarterPrompts();
       thinkingStartedAt.clear();
@@ -379,7 +379,7 @@ export function createConversationView({
               if (!text.trim()) return "";
               if (user) {
                 if (message.delivery === "followUp" && message.pending) return "";
-                // An answer the person gave to CoworkOS's own question is not a new
+                // An answer the person gave to Formicand's own question is not a new
                 // request. It has to travel to the model as a user turn for the run to
                 // continue, but showing it as one made the transcript read as if they
                 // had asked for something twice. It is rendered where it belongs:
@@ -401,12 +401,12 @@ export function createConversationView({
                 return `<article class="chat-message user${editor ? " is-editing" : ""}" data-view-key="${esc(`${historyKey}:user:${message.id || index}`)}"><div class="message-copy"><div class="user-message-bubble">${status ? `<div class="message-meta">${status}</div>` : ""}<div class="markdown-body">${renderUserText(text, markdown)}</div>${editor}${editor ? messageEdit.actions?.(task.taskId, message.id) || "" : ""}</div>${!editor && editable ? ui`<div class="user-message-actions"><button type="button" class="app-button" data-edit-message="${esc(message.id)}" aria-label="编辑消息" title="编辑消息">${icon("pencil")}</button></div>` : ""}</div></article>`;
               }
               if (index !== finalIndex) return "";
-              return `${index === workflowIndex ? workflow : ""}<article class="chat-message main" data-answer-kind="final"><div class="message-avatar atria-avatar"><img src="/assets/atria-symbol.png" alt="CoworkOS" /></div><div class="message-copy"><div class="message-meta">COWORKOS</div><div class="markdown-body">${markdown(text)}</div></div></article>`;
+              return `${index === workflowIndex ? workflow : ""}<article class="chat-message main" data-answer-kind="final"><div class="message-avatar atria-avatar"><svg class="avatar-mark" aria-hidden="true"><use href="#i-formicand-mark-small" /></svg></div><div class="message-copy"><div class="message-meta">FORMICAND</div><div class="markdown-body">${markdown(text)}</div></div></article>`;
             })
             .join("") +
           (workflowIndex < 0
             ? active || exchange.continued
-              ? `<article class="chat-message main" data-view-key="${esc(`${historyKey}:response`)}" data-answer-kind="${active ? "pending" : "continuation"}"${active ? ' aria-busy="true"' : ""}><div class="message-avatar atria-avatar"><img src="/assets/atria-symbol.png" alt="CoworkOS" /></div><div class="message-copy"><div class="message-meta">COWORKOS</div>${workflow || (active ? renderThinkingPlaceholder(historyKey) : "")}</div></article>`
+              ? `<article class="chat-message main" data-view-key="${esc(`${historyKey}:response`)}" data-answer-kind="${active ? "pending" : "continuation"}"${active ? ' aria-busy="true"' : ""}><div class="message-avatar atria-avatar"><svg class="avatar-mark" aria-hidden="true"><use href="#i-formicand-mark-small" /></svg></div><div class="message-copy"><div class="message-meta">FORMICAND</div>${workflow || (active ? renderThinkingPlaceholder(historyKey) : "")}</div></article>`
               : workflow
             : "");
         if (cacheable)

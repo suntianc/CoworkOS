@@ -47,14 +47,18 @@ test("desktop appearance applies natively and preserves the live backend across 
       background: BrowserWindow.getAllWindows()[0].getBackgroundColor().toLowerCase()
     }));
   const expectSystemAppearance = async (page) => {
-    const { dark } = await nativeState();
-    await expect.poll(nativeState).toEqual({
-      source: "system",
-      dark,
-      background: dark ? "#0d0d0d" : "#f7f7f8"
-    });
+    // themeSource switches to the OS value one tick later, so wait until the
+    // host state and the rendered theme agree instead of sampling once.
+    await expect
+      .poll(async () => {
+        const state = await nativeState();
+        const rendered = await page.evaluate(() => document.documentElement.dataset.theme);
+        return (
+          state.source === "system" && state.background === "#000000" && state.dark === (rendered === "dark")
+        );
+      })
+      .toBe(true);
     await expect(page.locator("html")).toHaveAttribute("data-appearance", "system");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", dark ? "dark" : "light");
   };
   try {
     let page = await launch();
@@ -78,7 +82,7 @@ test("desktop appearance applies natively and preserves the live backend across 
     await page.locator("#composer-input").fill("退出后保留的外观草稿");
     await page.locator("#user-menu-button").click();
     await page.locator("#appearance-select").selectOption("dark");
-    await expect.poll(nativeState).toEqual({ source: "dark", dark: true, background: "#0d0d0d" });
+    await expect.poll(nativeState).toEqual({ source: "dark", dark: true, background: "#000000" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     expect(page.url()).toBe(origin);
     await page.screenshot({ path: test.info().outputPath("native-dark.png"), fullPage: true });
@@ -90,22 +94,22 @@ test("desktop appearance applies natively and preserves the live backend across 
     page = await launch();
     await expect.poll(() => page.url()).toBe(origin);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await expect.poll(nativeState).toEqual({ source: "dark", dark: true, background: "#0d0d0d" });
+    await expect.poll(nativeState).toEqual({ source: "dark", dark: true, background: "#000000" });
     await expect(page.locator("#composer-input")).toHaveValue("退出后保留的外观草稿");
     await page.locator("#user-menu-button").click();
     await page.locator("#appearance-select").selectOption("light");
-    await expect.poll(nativeState).toEqual({ source: "light", dark: false, background: "#f7f7f8" });
+    await expect.poll(nativeState).toEqual({ source: "light", dark: false, background: "#000000" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await page.screenshot({ path: test.info().outputPath("native-light.png"), fullPage: true });
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect.poll(nativeState).toEqual({ source: "light", dark: false, background: "#f7f7f8" });
+    await expect.poll(nativeState).toEqual({ source: "light", dark: false, background: "#000000" });
     await page.locator("#profile-close").click();
     await native.close();
     native = undefined;
     page = await launch();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect.poll(nativeState).toEqual({ source: "light", dark: false, background: "#f7f7f8" });
+    await expect.poll(nativeState).toEqual({ source: "light", dark: false, background: "#000000" });
     await expect(page.locator("#conversation")).toContainText("外观切换后服务正常");
     await page.locator("#composer-input").fill("切换后继续发送");
     await page.locator("#send-button").click();

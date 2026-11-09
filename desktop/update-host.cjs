@@ -25,7 +25,7 @@ async function createApplicationUpdateHost(options) {
       return { ...state };
     },
     async apply() {
-      throw new Error("请使用本地安装包手动升级 CoworkOS");
+      throw new Error("请使用本地安装包手动升级 Formicand");
     },
     async dispose() {}
   };
@@ -130,7 +130,7 @@ async function createDesktopUpdateHost(options) {
       const restartFailure = failure;
       return exclusive(false, async () => {
         if (pendingRestart)
-          throw new Error(restartFailure || "源码已更新，请先重启 CoworkOS；重启失败时可重试更新。");
+          throw new Error(restartFailure || "源码已更新，请先重启 Formicand；重启失败时可重试更新。");
         const value = await updates.check(input);
         return value;
       });
@@ -150,7 +150,7 @@ async function createDesktopUpdateHost(options) {
               try {
                 await managedInstaller.discard?.();
               } catch (cleanupError) {
-                failure = new Error(error.message + "；暂存清理未完成，请重启 CoworkOS 后重试", {
+                failure = new Error(error.message + "；暂存清理未完成，请重启 Formicand 后重试", {
                   cause: cleanupError
                 });
               } finally {
@@ -180,7 +180,7 @@ async function createDesktopUpdateHost(options) {
           try {
             await recover();
           } catch {
-            throw new Error("本地服务无法恢复，请重新打开 CoworkOS；配置和任务仍在用户数据目录。");
+            throw new Error("本地服务无法恢复，请重新打开 Formicand；配置和任务仍在用户数据目录。");
           }
           throw error;
         }

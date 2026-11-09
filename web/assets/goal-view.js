@@ -119,9 +119,9 @@ function progress(program) {
   const notices = program.activity?.notifications ?? [];
   const question = goal.disposition === "needs_input" && !closed && program.decision?.status !== "answered";
   const decision = question
-    ? ui`<section class="goal-decision"><span class="goal-eyebrow">需要你决定</span><h2>${esc(goal.waitingFor)}</h2><form data-goal-answer><label for="goal-answer">你的决定</label><textarea id="goal-answer" name="answer" placeholder="告诉 CoworkOS 你的选择…" maxlength="10000" required ${paused ? "disabled" : ""}></textarea><button type="submit" class="goal-primary" ${paused ? "disabled" : ""}>提交回答</button>${paused ? ui("<small>恢复目标后即可回答。</small>") : ""}</form></section>`
+    ? ui`<section class="goal-decision"><span class="goal-eyebrow">需要你决定</span><h2>${esc(goal.waitingFor)}</h2><form data-goal-answer><label for="goal-answer">你的决定</label><textarea id="goal-answer" name="answer" placeholder="告诉 Formicand 你的选择…" maxlength="10000" required ${paused ? "disabled" : ""}></textarea><button type="submit" class="goal-primary" ${paused ? "disabled" : ""}>提交回答</button>${paused ? ui("<small>恢复目标后即可回答。</small>") : ""}</form></section>`
     : program.decision?.status === "answered"
-      ? ui('<p class="goal-answer-saved" role="status">回答已保存，CoworkOS 将据此继续跟进。</p>')
+      ? ui('<p class="goal-answer-saved" role="status">回答已保存，Formicand 将据此继续跟进。</p>')
       : "";
   const summary = `<div class="goal-progress"><span class="goal-eyebrow">${closed ? ui("跟进结果") : ui("目前进展")}</span>${readable(goal.summary, `progress-${program.programId}`)}${goal.progressAt ? ui`<time>更新于 ${esc(date(goal.progressAt))}</time>` : ""}</div>`;
   const next = !closed
@@ -138,7 +138,7 @@ function progress(program) {
 }
 
 function plan(goal) {
-  return ui`<section class="goal-plan"><div class="goal-section-heading"><h2>如何推进这件事</h2><span>${goal.steps.filter((step) => step.status === "completed").length} / ${goal.steps.length}</span></div>${goal.steps.length ? `<ol>${goal.steps.map((step) => `<li class="${esc(step.status)}" data-view-key="step-${esc(step.id)}"><span class="goal-step-mark" aria-label="${esc({ pending: ui("待办"), active: ui("进行中"), completed: ui("已完成"), blocked: ui("受阻") }[step.status])}">${step.status === "completed" ? "✓" : step.status === "active" ? "•" : step.status === "blocked" ? "!" : ""}</span><div><p>${esc(step.description)}</p>${step.evidence ? ui`<details data-activity-key="evidence-${esc(step.id)}"><summary>查看依据</summary><p>${esc(step.evidence)}</p></details>` : ""}</div></li>`).join("")}</ol>` : empty(ui("正在整理跟进计划"), ui("CoworkOS 会按你的要求建立观察来源与下一步，规划完成后会显示在这里。"))}</section>${goal.facts.length ? ui`<section class="goal-facts"><h2>已经确认的事</h2><ul>${goal.facts.map((fact) => `<li>${esc(fact)}</li>`).join("")}</ul></section>` : ""}`;
+  return ui`<section class="goal-plan"><div class="goal-section-heading"><h2>如何推进这件事</h2><span>${goal.steps.filter((step) => step.status === "completed").length} / ${goal.steps.length}</span></div>${goal.steps.length ? `<ol>${goal.steps.map((step) => `<li class="${esc(step.status)}" data-view-key="step-${esc(step.id)}"><span class="goal-step-mark" aria-label="${esc({ pending: ui("待办"), active: ui("进行中"), completed: ui("已完成"), blocked: ui("受阻") }[step.status])}">${step.status === "completed" ? "✓" : step.status === "active" ? "•" : step.status === "blocked" ? "!" : ""}</span><div><p>${esc(step.description)}</p>${step.evidence ? ui`<details data-activity-key="evidence-${esc(step.id)}"><summary>查看依据</summary><p>${esc(step.evidence)}</p></details>` : ""}</div></li>`).join("")}</ol>` : empty(ui("正在整理跟进计划"), ui("Formicand 会按你的要求建立观察来源与下一步，规划完成后会显示在这里。"))}</section>${goal.facts.length ? ui`<section class="goal-facts"><h2>已经确认的事</h2><ul>${goal.facts.map((fact) => `<li>${esc(fact)}</li>`).join("")}</ul></section>` : ""}`;
 }
 function settings(program) {
   const goal = program.goal;

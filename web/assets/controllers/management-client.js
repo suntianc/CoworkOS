@@ -110,7 +110,7 @@ function parseProtocol(text) {
  */
 export function createManagementClient({
   baseUrl = "",
-  clientName = "CoworkOS Web",
+  clientName = "Formicand Web",
   protocolVersion = CLIENT_PROTOCOL_VERSION,
   fetch: fetchImpl = (...args) => globalThis.fetch(...args),
   authorizeSession,

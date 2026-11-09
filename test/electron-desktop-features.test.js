@@ -387,12 +387,12 @@ test("tray exposes a localized show and quit menu and releases its native listen
     quit: () => calls.push("quit")
   });
   assert.equal(tray.supported, true);
-  assert.equal(instance.menu[0].label, "Show CoworkOS");
+  assert.equal(instance.menu[0].label, "Show Formicand");
   instance.click();
   instance.menu[2].click();
   assert.deepEqual(calls, ["show", "quit"]);
   tray.setLanguage("zh-CN");
-  assert.equal(instance.menu[0].label, "显示 CoworkOS");
+  assert.equal(instance.menu[0].label, "显示 Formicand");
   tray.dispose();
   assert.equal(instance.destroyed, true);
 });

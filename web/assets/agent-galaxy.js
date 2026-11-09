@@ -12,7 +12,7 @@ const TAU = Math.PI * 2;
 export function createAgentGalaxy(root, { onSelect, nameFor, stateFor, keyFor }) {
   root.innerHTML = `<canvas class="galaxy-canvas" aria-hidden="true"></canvas>
     <svg class="galaxy-guides" aria-hidden="true"><path></path></svg>
-    <div class="galaxy-eyebrow" aria-hidden="true"><span>COWORKOS <b>GALAXY</b></span><span class="galaxy-count"></span></div>
+    <div class="galaxy-eyebrow" aria-hidden="true"><span>FORMICAND <b>GALAXY</b></span><span class="galaxy-count"></span></div>
     <div class="galaxy-system"></div>`;
   let canvas = root.querySelector("canvas");
   const system = root.querySelector(".galaxy-system");

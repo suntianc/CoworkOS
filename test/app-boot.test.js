@@ -186,7 +186,7 @@ function stubManagement(url, method, body, catalog) {
         session: {
           sessionId: "session_test",
           token: "stub-session-token",
-          clientName: "CoworkOS Web",
+          clientName: "Formicand Web",
           protocolVersion: "1.0",
           createdAt: "2026-01-01T00:00:00.000Z"
         },

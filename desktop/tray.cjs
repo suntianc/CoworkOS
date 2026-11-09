@@ -1,3 +1,5 @@
+const { PRODUCT_NAME } = require("./product-name.cjs");
+
 /** Install one native tray for the application lifetime. */
 function createDesktopTray({ Tray, Menu, nativeImage, icon, platform, language, show, quit }) {
   if (!icon || !Tray || !nativeImage) return { supported: false, setLanguage() {}, dispose() {} };
@@ -7,14 +9,14 @@ function createDesktopTray({ Tray, Menu, nativeImage, icon, platform, language, 
     if (image.isEmpty?.()) throw new Error("empty icon");
     if (platform === "darwin") image.setTemplateImage(true);
     tray = new Tray(image);
-    tray.setToolTip("CoworkOS");
+    tray.setToolTip(PRODUCT_NAME);
     const setLanguage = (value) => {
       const english = value === "en";
       tray.setContextMenu(
         Menu.buildFromTemplate([
-          { label: english ? "Show CoworkOS" : "显示 CoworkOS", click: show },
+          { label: english ? `Show ${PRODUCT_NAME}` : `显示 ${PRODUCT_NAME}`, click: show },
           { type: "separator" },
-          { label: english ? "Quit CoworkOS" : "退出 CoworkOS", click: quit }
+          { label: english ? `Quit ${PRODUCT_NAME}` : `退出 ${PRODUCT_NAME}`, click: quit }
         ])
       );
     };

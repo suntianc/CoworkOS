@@ -150,7 +150,7 @@ export function createGoalController({
     const hasActive = data.goals.some((goal) => !["paused", "completed"].includes(goal.status));
     workspace.querySelector("[data-goal-banner]").innerHTML =
       hasActive && health && (health.status !== "running" || !health.modelConfigured)
-        ? ui`<div class="goal-health-banner" role="status">${esc(!health.modelConfigured ? ui("连接模型后，CoworkOS 才能规划和处理新进展。") : health.status === "disabled" ? ui("后台调度已关闭，目标暂不会自动跟进。") : health.status === "failed" ? ui("后台运行遇到问题，请查看运行设置。") : ui("后台正在连接，目标会在就绪后继续。"))}<button type="button" class="goal-text-button" data-show-health>查看运行状态</button></div>`
+        ? ui`<div class="goal-health-banner" role="status">${esc(!health.modelConfigured ? ui("连接模型后，Formicand 才能规划和处理新进展。") : health.status === "disabled" ? ui("后台调度已关闭，目标暂不会自动跟进。") : health.status === "failed" ? ui("后台运行遇到问题，请查看运行设置。") : ui("后台正在连接，目标会在就绪后继续。"))}<button type="button" class="goal-text-button" data-show-health>查看运行状态</button></div>`
         : "";
   }
   function render() {

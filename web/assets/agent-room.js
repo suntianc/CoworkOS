@@ -6,7 +6,7 @@ const roleLabels = { executor: "Executor", reviewer: "Reviewer" };
 const terminalStates = new Set(["completed", "succeeded", "failed", "cancelled", "timed_out"]);
 
 export function agentName(agent = {}) {
-  if (agent.__main || agent.agentId === "main") return "CoworkOS";
+  if (agent.__main || agent.agentId === "main") return "Formicand";
   if (/^subagent[_-]\d+$/.test(agent.agentId || "")) return agentDisplayName(agent.agentId);
   return agent.name || (agent.agentId ? agentDisplayName(agent.agentId) : ui("协作成员"));
 }
