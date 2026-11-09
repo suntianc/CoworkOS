@@ -2,7 +2,14 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
-import { configureMerge, seedArtifact, seedRequirement, seedRun } from "./p45-requirement-fixture.js";
+import {
+  configureMerge,
+  publishNamedArtifact,
+  seedArtifact,
+  seedAssistantMessage,
+  seedRequirement,
+  seedRun
+} from "./p45-requirement-fixture.js";
 
 test("usage stays folded until asked, and diff and attachments preview inside the work entry", async ({
   page
@@ -118,6 +125,97 @@ test("usage stays folded until asked, and diff and attachments preview inside th
     await expect(drawer).toBeVisible();
     await expect(drawer.locator('[data-drawer-file="验收记录.md"]')).toHaveAttribute("aria-selected", "true");
     await expect(drawer.locator(".drawer-content")).toContainText("验收记录");
+  } finally {
+    await dashboard.stop();
+  }
+});
+
+test("an exported artifact keeps its friendly name in the panel and the drawer", async ({ page }) => {
+  const dashboard = await startDashboard({ defaultProject: false });
+  try {
+    const directory = join(dashboard.root, "project");
+    await mkdir(directory, { recursive: true });
+    const created = await page.request.post(`${dashboard.base}/api/projects`, {
+      data: { projectName: "导出命名", projectDirectory: directory }
+    });
+    expect(created.status()).toBeLessThan(300);
+    const project = (await created.json()).project;
+    await configureMerge(page, dashboard, project, directory);
+    const records = await seedRequirement(page, dashboard, project, {
+      phase: "delivered",
+      title: "导出命名验收"
+    });
+    const relativePath = "exports/res_named/1a2b3c4d-报告.md";
+    await publishNamedArtifact(page, dashboard, records.session.taskId, {
+      relativePath,
+      displayName: "汇总报告.md",
+      content: "# 汇总\n"
+    });
+    // Task detail tolerates a missing applications summary and still returns
+    // artifacts; the panel then renders the artifact records themselves.
+    await page.route(`**/api/tasks/${encodeURIComponent(records.session.taskId)}`, async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      const body = await (await route.fetch()).json();
+      const { applications: _applications, ...rest } = body;
+      await route.fulfill({ json: rest });
+    });
+    await page.goto(`${dashboard.base}/?task=${encodeURIComponent(records.session.taskId)}`);
+    await page.locator("#output-pane-toggle").click();
+    const panel = page.locator("[data-requirement-panel]");
+    const row = panel.locator(`[data-artifact="${relativePath}"]`);
+    await expect(row).toHaveCount(1);
+    // The panel shows the recorded name, not the hashed file on disk.
+    await expect(row.locator(".rp-attachment-name")).toHaveText("汇总报告.md");
+    await expect(panel.locator("#output-list")).not.toContainText("1a2b3c4d");
+    await row.click();
+    const drawer = page.locator("#artifact-drawer");
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator(`[data-drawer-file="${relativePath}"]`)).toHaveText("汇总报告.md");
+    await expect(drawer.locator(".artifact-drawer-title")).toContainText("汇总报告.md");
+  } finally {
+    await dashboard.stop();
+  }
+});
+
+test("a message attachment still opens the preview at the narrow desktop width", async ({ page }) => {
+  const dashboard = await startDashboard({ defaultProject: false });
+  try {
+    await page.setViewportSize({ width: 800, height: 700 });
+    const directory = join(dashboard.root, "project");
+    await mkdir(directory, { recursive: true });
+    const created = await page.request.post(`${dashboard.base}/api/projects`, {
+      data: { projectName: "窄窗口预览", projectDirectory: directory }
+    });
+    expect(created.status()).toBeLessThan(300);
+    const project = (await created.json()).project;
+    await configureMerge(page, dashboard, project, directory);
+    const records = await seedRequirement(page, dashboard, project, {
+      phase: "review",
+      title: "窄窗口预览"
+    });
+    const relativePath = "report.md";
+    await publishNamedArtifact(page, dashboard, records.session.taskId, {
+      relativePath,
+      displayName: "验收记录.md",
+      content: "# 窄窗口\n"
+    });
+    const detail = await (
+      await page.request.get(`${dashboard.base}/api/tasks/${encodeURIComponent(records.session.taskId)}`)
+    ).json();
+    const absolute = join(detail.storageRoot, records.session.taskId, "artifacts", relativePath);
+    await seedAssistantMessage(page, dashboard, records.session.taskId, `[验收记录](<${absolute}>)`);
+    await page.goto(`${dashboard.base}/?task=${encodeURIComponent(records.session.taskId)}`);
+    const link = page.locator(".markdown-body").getByRole("link", { name: "验收记录", exact: true });
+    await expect(link).toBeVisible();
+    await link.click();
+    const drawer = page.locator("#artifact-drawer");
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText("窄窗口");
+    // The preview fills the work area instead of becoming an unreachable sliver.
+    const box = await drawer.boundingBox();
+    const pane = await page.locator(".chat-pane").boundingBox();
+    expect(box.width).toBeGreaterThan(pane.width - 4);
+    expect(box.width).toBeLessThanOrEqual(pane.width + 4);
   } finally {
     await dashboard.stop();
   }

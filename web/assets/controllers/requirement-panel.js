@@ -252,7 +252,9 @@ export function createRequirementPanel({
       const isResource = row.kind === "resource";
       const path = isResource ? row.files?.[0]?.relativePath : row.relativePath;
       const artifact = artifacts.find((entry) => entry.relativePath === path) || { relativePath: path };
-      const name = row.name || baseName(path);
+      // Published files carry their friendly name on the artifact record; a
+      // resource row names itself. The path is only the last fallback.
+      const name = row.name || row.displayName || artifact.displayName || baseName(path);
       const href = path
         ? artifactRequestUrls(state.selected, path, artifactVersion(artifact)).downloadUrl
         : "";

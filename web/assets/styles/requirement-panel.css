@@ -16,9 +16,9 @@ html[data-theme="light"] {
 
 /* ---- requirement panel ---------------------------------------------------- */
 
+/* The pane keeps its column layout from the shared shell; this only removes the
+   old panel padding. Narrow layouts still hide it through the shell's rule. */
 html[data-theme] .agent-pane {
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
   padding: 0;
 }
@@ -804,8 +804,12 @@ html[data-theme] .artifact-drawer .artifact-markdown {
   color: var(--color-text);
 }
 
-@media (max-width: 899px) {
+/* Below the desktop layout the preview covers the work area instead of
+   docking beside it, the same trade the shared drawer made before this ticket;
+   the panel itself is the narrow-window problem #14 owns. */
+@media (max-width: 900px) {
   html[data-theme] .artifact-drawer {
-    display: none;
+    width: 100%;
+    max-width: 100%;
   }
 }

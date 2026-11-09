@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect } from "@playwright/test";
+import { publishTaskArtifact } from "../dist/src/workspace/artifact-store.js";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 
@@ -338,6 +339,48 @@ export async function configureMerge(page, dashboard, project, repository) {
   const payload = await response.text();
   expect(response.status(), `${response.url()} ${payload}`).toBeLessThan(300);
   await servingBackendId(dashboard);
+}
+
+/**
+ * Publish one artifact through the production writer, so the record carries the
+ * same relative path and friendly name a real export produces.
+ */
+export async function publishNamedArtifact(page, dashboard, taskId, { relativePath, displayName, content }) {
+  const response = await page.request.get(`${dashboard.base}/api/tasks/${encodeURIComponent(taskId)}`);
+  expect(response.ok()).toBe(true);
+  const detail = await response.json();
+  return publishTaskArtifact({
+    workspaceRoot: detail.storageRoot,
+    taskId,
+    runId: "workspace",
+    producerAgentId: "main",
+    relativePath,
+    displayName,
+    content
+  });
+}
+
+/** Append one assistant reply to the conversation's saved history. */
+export async function seedAssistantMessage(page, dashboard, taskId, content) {
+  const response = await page.request.get(`${dashboard.base}/api/tasks/${encodeURIComponent(taskId)}`);
+  expect(response.ok()).toBe(true);
+  const detail = await response.json();
+  const path = join(detail.storageRoot, taskId, "agents", "main", "context", "messages.json");
+  let existing = [];
+  try {
+    existing = JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    existing = [];
+  }
+  const timestamp = Date.now();
+  await writeFile(
+    path,
+    JSON.stringify([
+      ...existing,
+      { role: "user", content: "生成报告", timestamp: timestamp - 1000 },
+      { role: "assistant", content, timestamp, stopReason: "stop" }
+    ])
+  );
 }
 
 /** Publish one artifact file the way a finished run writes into artifacts/. */
