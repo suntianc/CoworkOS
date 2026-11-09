@@ -624,3 +624,10 @@ html[data-theme] .composer .composer-project-menu[hidden] {
     max-width: calc(100vw - 24px);
   }
 }
+
+/* The narrow composer keeps one action row; #14 owns the project entry there. */
+@container (max-width: 260px) {
+  html[data-theme] .composer .composer-project {
+    display: none;
+  }
+}
