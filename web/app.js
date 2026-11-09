@@ -45,7 +45,8 @@ import { renderMarkdown } from "./assets/markdown.js";
 import { mergeRuntimeEvents } from "./assets/conversation.js";
 import { createEntryController } from "./assets/controllers/entry-controller.js";
 import { createSettingsPages } from "./assets/controllers/settings-pages.js";
-import { readNodes } from "./assets/controllers/node-registry.js";
+import { createObserveData } from "./assets/controllers/observe-data.js";
+import { createObserveSidebar } from "./assets/controllers/observe-sidebar.js";
 import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
 import { createNewSessionView } from "./assets/controllers/new-session.js";
 import { renderRunOverview, runElapsed, formatRunDuration } from "./assets/run-overview.js";
@@ -111,9 +112,16 @@ createSidebarLayout($(".app-layout"), $(".conversation-sidebar"), $("#sidebar-di
   outputToggle: $("#output-pane-toggle")
 });
 let draftStorage;
+let browserSessionStorage;
 try {
   draftStorage = window.localStorage;
   // eslint-disable-next-line no-restricted-syntax -- the localStorage getter throws SecurityError when the browser blocks storage, and every reader below treats draftStorage as optional
+} catch {
+  /* storage may be disabled */
+}
+try {
+  browserSessionStorage = window.sessionStorage;
+  // eslint-disable-next-line no-restricted-syntax -- the sessionStorage getter throws when storage is blocked; the management client then keeps sessions in memory
 } catch {
   /* storage may be disabled */
 }
@@ -159,14 +167,7 @@ const management = createManagementClient({
         }
       }
     : {}),
-  storage: (() => {
-    try {
-      return window.sessionStorage;
-      // eslint-disable-next-line no-restricted-syntax -- the sessionStorage getter throws when storage is blocked by privacy settings; the management client then keeps the session in memory
-    } catch {
-      return undefined;
-    }
-  })(),
+  storage: browserSessionStorage,
   targetStorage: draftStorage,
   events: {
     onSnapshot: (snapshot) => adoptCatalogSnapshot(snapshot),
@@ -196,6 +197,7 @@ window.addEventListener(
   () => {
     artifactViewer.dispose();
     clearManagedMedia();
+    observeData.dispose();
     management.stop();
   },
   { once: true }
@@ -929,6 +931,7 @@ function adoptCatalogSnapshot(snapshot) {
   projectController.accept(snapshot);
   // eslint-disable-next-line no-restricted-syntax -- a snapshot whose detail read fails while the backend restarts is re-applied by the 3.5s catalog poll
   void applyCatalog(snapshot).catch(() => undefined);
+  observeData.localChanged();
 }
 
 /** Apply one live catalog event without waiting for a poll. */
@@ -969,6 +972,7 @@ function applyCatalogEvent(record) {
   renderConversationList();
   if (state.selected) connectEventStream(state.selected);
   updateSendButton();
+  observeData.localChanged();
 }
 
 function detailViewSignature(detail) {
@@ -1577,13 +1581,55 @@ createMenu($("#app-bind-select"), $("#app-bind-menu"), {
   toggleOnClick: false,
   onClose: () => workbenchController.binding?.close()
 });
+/**
+ * The observation entry's read-only port.
+ *
+ * The local node is the page's existing client; every remote node gets one of
+ * its own, stored per origin, so a token or failure never crosses nodes. The
+ * work entry keeps using only the local client above.
+ */
+let observeSidebar;
+const observeData = createObserveData({
+  storage: draftStorage,
+  sessionStorage: browserSessionStorage,
+  local: {
+    origin: location.origin,
+    name: ui("本机"),
+    role: "internal",
+    status: () => {
+      const status = management.state().status;
+      if (status === "connected") return "online";
+      if (status === "connecting" || status === "idle") return "connecting";
+      if (status === "unauthorized") return "unauthorized";
+      return "offline";
+    },
+    snapshot: () => ({ projects: state.projects, tasks: state.tasks }),
+    request: (path, options) => management.request(path, options)
+  }
+});
 const settingsPages = createSettingsPages({
   root: $("#settings-entry"),
   app: $("#app-layout"),
   api,
   showToast,
-  nodes: () => readNodes(draftStorage),
-  members: () => [{ id: "self", name: ui("我"), owner: true }]
+  nodes: () => observeData.nodes(),
+  members: () => [{ id: "self", name: ui("我"), owner: true }],
+  addNode: (input) => observeData.addNode(input),
+  renameNode: (origin, name) => observeData.renameNode(origin, name),
+  reauthorizeNode: (origin) => observeData.reauthorizeNode(origin),
+  reconnectNode: (origin) => observeData.reconnectNode(origin),
+  disconnectNode: (origin) => observeData.disconnectNode(origin),
+  removeNode: (origin) => observeData.removeNode(origin)
+});
+observeSidebar = createObserveSidebar({
+  root: $(".observe-nav"),
+  pane: $("#observe-entry"),
+  data: observeData,
+  addNode: () => settingsPages.addNodeDialog()
+});
+observeData.subscribe(() => {
+  observeSidebar.render();
+  settingsPages.refresh();
 });
 document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
@@ -2240,6 +2286,7 @@ async function prepareInterfaceClose() {
   const composerSaved = composerSession.prepareClose();
   return documentsSaved && repliesSaved && composerSaved;
 }
+observeData.start();
 backendConnection = createBackendConnection({
   management,
   settingsHost: settingsPages.host,

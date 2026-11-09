@@ -37,3 +37,31 @@ export function readNodes(storage) {
       ...(typeof node.lastSeen === "string" ? { lastSeen: node.lastSeen } : {})
     }));
 }
+
+/** Replace the device-local list; the caller owns validation of what it adds. */
+export function writeNodes(storage, nodes) {
+  const list = (Array.isArray(nodes) ? nodes : [])
+    .filter(
+      (node) =>
+        node &&
+        typeof node.origin === "string" &&
+        /^https?:\/\//.test(node.origin) &&
+        typeof node.name === "string" &&
+        node.name.trim() &&
+        validRole(node.role)
+    )
+    .map((node) => ({
+      origin: node.origin,
+      name: node.name.trim(),
+      role: node.role,
+      ...(node.state === "offline" ? { state: "offline" } : { state: "online" }),
+      ...(typeof node.lastSeen === "string" ? { lastSeen: node.lastSeen } : {})
+    }));
+  try {
+    storage?.setItem(NODES_KEY, JSON.stringify(list));
+    // eslint-disable-next-line no-restricted-syntax -- best-effort persistence: blocked or full storage only loses the remembered node list while the live connections stay authoritative
+  } catch {
+    /* The in-memory node list is still authoritative. */
+  }
+  return list;
+}

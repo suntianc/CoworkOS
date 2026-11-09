@@ -230,7 +230,11 @@ test("node connections, tools and members show only the information each section
     await expect(local).toContainText("对内");
     await expect(local).toContainText("在线");
     await expect(page.locator("#settings-node-data")).toContainText("SQLite · 由本机提供");
-    await expect(page.locator("#settings-node-remote-group")).toBeHidden();
+    // No remote node is stored yet: the group only offers the add action.
+    await expect(page.locator("#settings-node-remote-group")).toBeVisible();
+    await expect(page.locator("#settings-node-add")).toBeVisible();
+    await expect(page.locator("#settings-node-remote")).toBeHidden();
+    await expect(page.locator("#settings-node-remote .settings-row")).toHaveCount(0);
 
     await navItem(page, "tools").click();
     const tools = page.locator("#profile-settings-tools");
