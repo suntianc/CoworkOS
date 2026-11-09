@@ -1,80 +1,66 @@
-import { test, expect, _electron as electron } from "@playwright/test";
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
-import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+import { test, expect } from "@playwright/test";
+import { createRequire } from "node:module";
+import { startDashboard } from "../test/dashboard-fixture.mjs";
 
-test("macOS window material shows the desktop through the page and keeps the glass panels", async () => {
-  test.skip(process.platform !== "darwin", "Native window material acceptance requires macOS");
-  test.setTimeout(180_000);
-  if (!existsSync("build/atria.icns"))
-    execFileSync(process.execPath, ["scripts/build-desktop-icon.mjs"], { stdio: "inherit" });
-  const root = await mkdtemp(join(tmpdir(), "atria-backdrop-material-"));
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|SERPER_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
-    )
-  );
-  Object.assign(env, {
-    COWORK_DESKTOP_DATA: root,
-    ATRIA_HOME: join(root, "home"),
-    PI_CODING_AGENT_DIR: join(root, "pi"),
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
-    PI_OFFLINE: "1"
+const require = createRequire(import.meta.url);
+const { windowMaterial } = require("../desktop/window-material.cjs");
+// The host decides the macOS material; the renderer only mirrors that capability.
+const host = windowMaterial("darwin");
+const material = host.material;
+
+const layers = (page) =>
+  page.evaluate(() => {
+    const read = (selector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+      return { color: style.backgroundColor, image: style.backgroundImage };
+    };
+    const conversation = getComputedStyle(document.querySelector(".chat-pane"));
+    const taskPanel = getComputedStyle(document.querySelector(".agent-pane"));
+    return {
+      html: read("html"),
+      body: read("body"),
+      shell: read(".app-shell"),
+      conversation: { blur: conversation.backdropFilter, image: conversation.backgroundImage },
+      taskPanel: { blur: taskPanel.backdropFilter, image: taskPanel.backgroundImage }
+    };
   });
-  const executablePath = await developmentExecutable();
-  let native;
+
+const expectClearPage = (value) => {
+  for (const layer of [value.html, value.body, value.shell]) {
+    expect(layer.color).toBe("rgba(0, 0, 0, 0)");
+    expect(layer.image).toBe("none");
+  }
+  for (const panel of [value.conversation, value.taskPanel]) {
+    expect(panel.blur).toContain("blur(");
+    expect(panel.image).toContain("linear-gradient");
+  }
+};
+
+test("a macOS window material shows the desktop through the page and keeps the glass panels", async ({
+  page
+}) => {
+  test.skip(process.platform !== "darwin", "Native window material acceptance requires macOS");
+  expect(material).toBe("under-window");
+  // A clear native canvas is what lets the material show through the window.
+  expect(host.options).toMatchObject({ transparent: true, backgroundColor: "#00000000" });
+  const dashboard = await startDashboard();
   try {
-    native = await electron.launch({
-      executablePath,
-      args: ["--use-mock-keychain", resolve(".")],
-      env,
-      timeout: 90_000
-    });
-    await native.evaluate(({ app, BrowserWindow }) => {
-      app.hide();
-      BrowserWindow.getAllWindows().forEach((window) => window.hide());
-    });
-    const page = await native.firstWindow();
-    await expect(page.locator("#composer-input")).toBeAttached();
+    // Preload hands the host material to the renderer before the first paint.
+    await page.addInitScript((value) => {
+      window.bookmanDesktop = { windowMaterial: { material: value } };
+    }, material);
+    await page.goto(dashboard.base);
+    await expect(page.locator("#composer-input")).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-window-material", "under-window");
 
-    const window = await native.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].getBackgroundColor().toLowerCase()
-    );
-    // A clear canvas is what lets the macOS material show through; Electron
-    // reports a fully transparent color without its alpha channel.
-    expect(window).toBe("#000000");
+    expectClearPage(await layers(page));
 
-    const renderer = await page.evaluate(() => {
-      const read = (selector) => {
-        const style = getComputedStyle(document.querySelector(selector));
-        return { color: style.backgroundColor, image: style.backgroundImage };
-      };
-      const conversation = getComputedStyle(document.querySelector(".chat-pane"));
-      const taskPanel = getComputedStyle(document.querySelector(".agent-pane"));
-      return {
-        html: read("html"),
-        body: read("body"),
-        shell: read(".app-shell"),
-        conversation: { blur: conversation.backdropFilter, image: conversation.backgroundImage },
-        taskPanel: { blur: taskPanel.backdropFilter, image: taskPanel.backgroundImage }
-      };
-    });
-    for (const layer of [renderer.html, renderer.body, renderer.shell]) {
-      expect(layer.color).toBe("rgba(0, 0, 0, 0)");
-      expect(layer.image).toBe("none");
-    }
-    for (const panel of [renderer.conversation, renderer.taskPanel]) {
-      expect(panel.blur).toContain("blur(");
-      expect(panel.image).toContain("linear-gradient");
-    }
+    await page.evaluate(() => localStorage.setItem("atria.appearance", "light"));
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(page.locator("html")).toHaveAttribute("data-window-material", "under-window");
+    expectClearPage(await layers(page));
   } finally {
-    await native?.close();
-    await stopNativeBackend(root);
-    await rm(root, { recursive: true, force: true });
+    await dashboard.stop();
   }
 });
