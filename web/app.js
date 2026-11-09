@@ -34,10 +34,7 @@ import { createTaskNotifications } from "./assets/controllers/task-notifications
 import { createBackendConnection } from "./assets/controllers/backend-connection.js";
 import { createProjectExperienceController } from "./assets/controllers/project-experience.js";
 import { createProjectController } from "./assets/controllers/project-controller.js";
-import { createProjectLedgerController } from "./assets/controllers/project-ledger.js";
-import { createProjectDevelopmentController } from "./assets/controllers/project-development.js";
 import { createMainSessionsController } from "./assets/controllers/main-sessions.js";
-import { createProjectBoardController } from "./assets/controllers/project-board.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
 import { createConversationReadState, conversationTaskId } from "./assets/conversation-actions.js";
@@ -48,6 +45,7 @@ import { createSettingsPages } from "./assets/controllers/settings-pages.js";
 import { createObserveData } from "./assets/controllers/observe-data.js";
 import { createObserveRuns } from "./assets/controllers/observe-runs.js";
 import { createObserveSidebar } from "./assets/controllers/observe-sidebar.js";
+import { createObserveRequirements } from "./assets/controllers/observe-requirements.js";
 import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
 import { createRunControl } from "./assets/controllers/run-control.js";
 import { createNewSessionView } from "./assets/controllers/new-session.js";
@@ -97,6 +95,7 @@ let attachmentReadVersion = 0;
 let readingAttachments = false;
 let fileUpload;
 let attachmentPreview;
+let observeRequirements;
 const creatingTasks = new Map();
 const stoppingTasks = new Set();
 const continuingTasks = new Set();
@@ -130,7 +129,11 @@ try {
   /* storage may be disabled */
 }
 const conversationReadState = createConversationReadState(draftStorage);
-const entryController = createEntryController({ root: $(".app-layout"), storage: draftStorage });
+const entryController = createEntryController({
+  root: $(".app-layout"),
+  storage: draftStorage,
+  onChange: (next) => observeRequirements?.applyEntry(next)
+});
 for (const button of document.querySelectorAll("[data-entry-mode]"))
   button.addEventListener("click", () => entryController.setMode(button.dataset.entryMode));
 $(".entry-switch")?.addEventListener("keydown", (event) => {
@@ -202,6 +205,7 @@ window.addEventListener(
   () => {
     artifactViewer.dispose();
     clearManagedMedia();
+    observeRequirements?.dispose();
     observeData.dispose();
     management.stop();
   },
@@ -591,15 +595,6 @@ const newSession = createNewSessionView({
   onSelectProject: (projectId) => beginNewConversation(projectId),
   onAddProject: () => projectController.openCreate()
 });
-const ledgerController = createProjectLedgerController({ api, state, showToast });
-$("#ledger-nav").addEventListener("click", () => ledgerController.open());
-const developmentController = createProjectDevelopmentController({
-  api,
-  state,
-  getBackend: () => boundBackendId,
-  showToast
-});
-$("#development-nav").addEventListener("click", () => developmentController.open());
 const mainSessionsController = createMainSessionsController({
   api,
   state,
@@ -610,13 +605,6 @@ const mainSessionsController = createMainSessionsController({
   }
 });
 $("#main-sessions-nav").addEventListener("click", () => mainSessionsController.open());
-const boardController = createProjectBoardController({
-  api,
-  state,
-  getBackend: () => boundBackendId,
-  showToast
-});
-$("#board-nav").addEventListener("click", () => boardController.open());
 const draftRecovery = createDraftRecovery({
   button: $("#recover-drafts"),
   session: composerSession,
@@ -1167,10 +1155,7 @@ function renderConversationList() {
     if (url.href !== location.href) history.replaceState(null, "", url.href);
   }
   projectController.render();
-  ledgerController.render();
-  developmentController.render();
   mainSessionsController.render();
-  boardController.render();
   syncIdleComposer();
 }
 
@@ -1758,6 +1743,18 @@ observeSidebar = createObserveSidebar({
   data: observeData,
   addNode: () => settingsPages.addNodeDialog()
 });
+/**
+ * The observation requirement view reads through the same port: the list, its
+ * phase tabs and the detail are one read-only view of every connected node.
+ */
+observeRequirements = createObserveRequirements({
+  pane: $("#observe-entry"),
+  detail: $("#observe-detail"),
+  layout: $(".app-layout"),
+  data: observeData,
+  showToast
+});
+observeRequirements.applyEntry(entryController.state());
 createObserveRuns({
   root: $('[data-observe-panel="runs"]'),
   header: $("[data-observe-runs-controls]"),

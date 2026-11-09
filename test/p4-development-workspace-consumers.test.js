@@ -1,18 +1,15 @@
 import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
-import { parseHTML } from "linkedom";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { projectDataConfig } from "./p3-storage-fixture.mjs";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 import { createProjectDevelopmentTool } from "../dist/src/runtime/project-development-tool.js";
-import { createProjectDevelopmentController } from "../web/assets/controllers/project-development.js";
 import { ProjectDataRuntime } from "../dist/src/workspace/project-data-service.js";
 import { createProjectDevelopmentService } from "../dist/src/dashboard/project-development-service.js";
 import { createComposerSession } from "../web/assets/controllers/composer-session.js";
@@ -274,202 +271,6 @@ test("the Main tool records and reads developments only for its own project", as
     assert.ok(!value.includes(f.token), "no response leaks the local credential");
     assert.doesNotMatch(value, /"delivery"|已交付/, "this ticket never claims delivery");
   }
-});
-
-test("the development view continues its workspace and keeps drafts and late responses in place", async (t) => {
-  const f = await toolFixture(t);
-  const tool = createProjectDevelopmentTool({
-    dashboardUrl: f.base,
-    taskId: f.taskA,
-    token: f.token
-  });
-  const created = await tool.execute({
-    action: "create",
-    requirementId: f.requirementA.requirementId,
-    goal: "同一设备 30 天内免验证",
-    completionCriteria: ["同一设备第二次登录不再要求验证码"],
-    route: "full"
-  });
-  const development = created.development;
-
-  const previous = { window: globalThis.window, document: globalThis.document, CSS: globalThis.CSS };
-  t.after(() => {
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete globalThis[key];
-      else globalThis[key] = value;
-    }
-  });
-  const { window, document } = parseHTML(readFileSync("web/index.html", "utf8"));
-  globalThis.window = window;
-  globalThis.document = document;
-  globalThis.CSS = { escape: (value) => value };
-  window.HTMLElement.prototype.getClientRects ??= () => [];
-
-  const records = new Map();
-  const storage = {
-    get length() {
-      return records.size;
-    },
-    key: (index) => [...records.keys()][index] ?? null,
-    getItem: (key) => records.get(key),
-    setItem: (key, value) => records.set(key, value),
-    removeItem: (key) => records.delete(key)
-  };
-  let attachments = [];
-  const input = { value: "", addEventListener() {} };
-  const composer = createComposerSession({
-    input,
-    storage,
-    getAttachments: () => attachments,
-    setAttachments: (files) => {
-      attachments = files;
-    }
-  });
-  composer.activate(null);
-  composer.setBackend("test-backend");
-  composer.activate(null, { projectId: f.a.projectId });
-  const api = (path, options) =>
-    fetch(`${f.base}${path}`, {
-      method: options?.method ?? (options?.body === undefined ? "GET" : "POST"),
-      headers: options?.headers ?? { "content-type": "application/json" },
-      ...(options?.body === undefined ? {} : { body: options.body })
-    }).then(async (response) => {
-      const body = await response.json();
-      if (!response.ok) throw Object.assign(new Error(body.error ?? "请求失败"), { status: response.status });
-      return body;
-    });
-  const state = {
-    projects: [
-      { ...f.a, tasks: [] },
-      { ...f.b, tasks: [] }
-    ],
-    selectedProjectId: f.a.projectId,
-    selected: f.taskA
-  };
-  const toasts = [];
-  const controller = createProjectDevelopmentController({
-    api,
-    state,
-    showToast: (message) => toasts.push(message)
-  });
-  const $ = (selector) => document.querySelector(selector);
-
-  // The draft and its attachment belong to the selected session.
-  input.value = "A 的草稿";
-  attachments = [{ name: "a.txt", text: "A 附件" }];
-  composer.save();
-
-  controller.open(f.a.projectId);
-  await waitFor(
-    () => /登录记住设备/.test($("[data-list]").textContent),
-    "project A developments did not load"
-  );
-  $("[data-list] button").click();
-  await waitFor(() => /完成标准/.test($("[data-detail]").textContent), "the record detail did not load");
-  assert.match($("[data-detail]").textContent, /同一设备 30 天内免验证/);
-  assert.match($("[data-detail]").textContent, /同一设备第二次登录不再要求验证码/);
-  assert.match($("[data-detail]").textContent, /coworkos\/development\//);
-  assert.match($("[data-detail]").textContent, /进行中/);
-  assert.doesNotMatch($("[data-detail]").textContent, /已交付/);
-  assert.equal(input.value, "A 的草稿", "opening the view does not move the draft");
-  assert.equal(attachments[0].name, "a.txt");
-
-  // Continue re-reads the same checkout instead of preparing a second one.
-  $("[data-continue]").click();
-  await waitFor(() => toasts.at(-1) === "现场已就绪", "continue did not confirm the workspace");
-  assert.equal(toasts.at(-1), "现场已就绪");
-  const afterContinue = await f.request(
-    `/api/projects/${encodeURIComponent(f.a.projectId)}/developments/${encodeURIComponent(
-      development.developmentId
-    )}`
-  );
-  assert.equal(afterContinue.body.development.workspace.directory, development.workspace.directory);
-  assert.equal(afterContinue.body.development.workspace.state, "ready");
-  assert.equal(afterContinue.body.development.workspace.branch, development.workspace.branch);
-  assert.equal(input.value, "A 的草稿");
-  assert.equal(attachments[0].name, "a.txt");
-
-  // Switching projects reads that project only and leaves the draft alone.
-  const select = $("[data-project]");
-  select.children[0].removeAttribute("selected");
-  select.children[1].setAttribute("selected", "");
-  select.dispatchEvent(new window.Event("change"));
-  await waitFor(
-    () => /还没有开发记录/.test($("[data-list]").textContent),
-    "project B developments did not load"
-  );
-  assert.doesNotMatch($("[data-list]").textContent, /登录记住设备/);
-  assert.equal(input.value, "A 的草稿", "switching the list does not move the draft");
-  assert.equal(attachments[0].name, "a.txt");
-  controller.close();
-  document.querySelector(".development-backdrop")?.remove();
-
-  // A late project-A response must not take the page back after the switch.
-  let release;
-  const gate = new Promise((resolve) => {
-    release = resolve;
-  });
-  let delayed = true;
-  const lateApi = async (path, options) => {
-    if (delayed && path === `/api/projects/${encodeURIComponent(f.a.projectId)}/developments`) {
-      await gate;
-      delayed = false;
-    }
-    return api(path, options);
-  };
-  const late = createProjectDevelopmentController({
-    api: lateApi,
-    state,
-    showToast: () => {}
-  });
-  late.open(f.a.projectId);
-  const lateSelect = $("[data-project]");
-  lateSelect.children[0].removeAttribute("selected");
-  lateSelect.children[1].setAttribute("selected", "");
-  lateSelect.dispatchEvent(new window.Event("change"));
-  await waitFor(
-    () => /还没有开发记录/.test($("[data-list]").textContent),
-    "project B did not replace the pending project A load"
-  );
-  release();
-  await waitFor(() => delayed === false, "the late project A request did not resume");
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.doesNotMatch($("[data-list]").textContent, /登录记住设备/);
-  assert.equal($("[data-detail]").hidden, true, "a late project A detail stayed hidden");
-  assert.equal(input.value, "A 的草稿");
-  assert.equal(attachments[0].name, "a.txt");
-  late.close();
-
-  // A checkout that can no longer be verified is reported, not hidden: the
-  // record keeps its requirement, directory and baseline and is never delivered.
-  await rm(f.repository, { recursive: true, force: true });
-  const failed = await tool.execute({
-    action: "ensure_workspace",
-    developmentId: development.developmentId
-  });
-  assert.equal(failed.development.workspace.state, "failed");
-  assert.ok(failed.development.workspace.error, "the failure is locatable");
-  assert.match(failed.development.workspace.error, /repository/);
-  assert.equal(failed.development.workspace.directory, development.workspace.directory);
-  assert.equal(failed.development.workspace.branch, development.workspace.branch);
-  assert.equal(failed.development.workspace.baseCommit, development.baseline.commit);
-  assert.equal(failed.development.requirementId, f.requirementA.requirementId);
-  assert.equal(failed.development.status, "active");
-  assert.doesNotMatch(JSON.stringify(failed.development), /已交付|delivered/);
-  const stillFound = await f.request(
-    `/api/projects/${encodeURIComponent(f.a.projectId)}/developments/${encodeURIComponent(
-      development.developmentId
-    )}`
-  );
-  assert.equal(stillFound.status, 200, JSON.stringify(stillFound.body));
-  assert.equal(stillFound.body.development.workspace.state, "failed");
-  const requirement = await f.request(
-    `/api/projects/${encodeURIComponent(f.a.projectId)}/ledger/${encodeURIComponent(
-      f.requirementA.requirementId
-    )}`
-  );
-  assert.equal(requirement.status, 200);
-  assert.equal(requirement.body.requirement.requirementId, f.requirementA.requirementId);
 });
 
 test("a failed record with an intact checkout returns to ready without a second checkout", async (t) => {

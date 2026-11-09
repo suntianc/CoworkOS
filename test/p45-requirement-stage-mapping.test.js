@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  REQUIREMENT_TABS,
   requirementCriteria,
   requirementProgress,
   requirementStage,
-  requirementSteps
+  requirementSteps,
+  requirementTab,
+  requirementTabCounts
 } from "../web/assets/requirement-stages.js";
 
 const commit = (value) => value.repeat(40).slice(0, 40);
@@ -268,4 +271,105 @@ test("criteria are checked only by a recorded passing check at the same position
     { text: "第一条", checked: true },
     { text: "第二条", checked: false }
   ]);
+});
+
+/**
+ * The observation list groups every combination of ledger, board and delivery
+ * records into one tab, and the tab is decided by the same mapping the panel
+ * shows. These cases pin the wording a person reads next to the phase as well:
+ * the two surfaces share one label set, so a phase can never be called one
+ * thing in the work panel and another in observation.
+ */
+test("the phase wording names an in-progress phase as 开发中 and 审查中", () => {
+  const developing = { development: development(), roles };
+  assert.equal(requirementStage(developing).label, "开发中");
+  assert.equal(requirementStage({ ...developing, reviews: [review("in_review")] }).label, "审查中");
+  assert.equal(requirementStage({ ...developing, reviews: [review("failed")] }).label, "待返修");
+});
+
+test("a Main waiting for a reply reads 等待回复 without losing its phase", () => {
+  const reviewing = {
+    development: development(),
+    roles,
+    reviews: [review("in_review")],
+    waitingForReply: true
+  };
+  const stage = requirementStage(reviewing);
+  assert.equal(stage.stage, "review");
+  assert.equal(stage.label, "等待回复");
+  assert.equal(stage.waiting, true);
+  assert.equal(requirementTab(reviewing), "waiting");
+});
+
+test("every recorded combination lands in exactly one observation tab", () => {
+  const developing = { development: development(), roles };
+  const merged = {
+    ...developing,
+    reviews: [review("passed")],
+    merges: [merge("merged", { mergeCommit: commit("d") })]
+  };
+  const cases = [
+    ["unclaimed board need", { board: { state: "pending" } }, "pending"],
+    ["claimed board need", { board: { state: "claimed" } }, "pending"],
+    ["ledger record only", { requirement: { revision: 1, status: "open" } }, "active"],
+    ["development", developing, "active"],
+    ["review", { ...developing, reviews: [review("in_review")] }, "active"],
+    ["review not passed", { ...developing, reviews: [review("failed")] }, "active"],
+    ["queued merge", { ...developing, reviews: [review("passed")], merges: [merge("waiting")] }, "active"],
+    ["merged", merged, "active"],
+    ["merged board need awaiting release", { ...merged, board: { state: "pending_release" } }, "release"],
+    [
+      "delivered board need still awaiting release",
+      {
+        ...merged,
+        delivery: { state: "synced", mergedCommit: commit("d") },
+        board: { state: "pending_release" }
+      },
+      "release"
+    ],
+    ["delivered", { ...merged, delivery: { state: "synced", mergedCommit: commit("d") } }, "delivered"],
+    ["ledger says delivered", { requirement: { revision: 3, status: "delivered" } }, "delivered"],
+    ["withdrawn", { requirement: { revision: 2, status: "withdrawn" } }, "withdrawn"],
+    ["a waiting Main", { ...developing, waitingForReply: true }, "waiting"]
+  ];
+  for (const [name, input, tab] of cases) assert.equal(requirementTab(input), tab, name);
+});
+
+test("tab counts add up to the whole list and a delivered need never counts as in progress", () => {
+  const developing = { development: development(), roles };
+  const delivered = {
+    ...developing,
+    requirement: { revision: 3, status: "delivered" },
+    reviews: [review("passed")],
+    merges: [merge("merged", { mergeCommit: commit("d") })],
+    delivery: { state: "synced", mergedCommit: commit("d") }
+  };
+  const counts = requirementTabCounts([
+    delivered,
+    developing,
+    { board: { state: "pending" } },
+    { ...developing, reviews: [review("in_review")], waitingForReply: true }
+  ]);
+  assert.deepEqual(counts, {
+    all: 4,
+    pending: 1,
+    active: 1,
+    waiting: 1,
+    release: 0,
+    delivered: 1
+  });
+});
+
+test("the tabs are the design's six, in order", () => {
+  assert.deepEqual(
+    REQUIREMENT_TABS.map((tab) => [tab.id, tab.label]),
+    [
+      ["all", "全部"],
+      ["pending", "待认领"],
+      ["active", "进行中"],
+      ["waiting", "等待回复"],
+      ["release", "待发布"],
+      ["delivered", "已交付"]
+    ]
+  );
 });

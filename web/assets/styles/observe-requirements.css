@@ -1,0 +1,616 @@
+/* Observation · requirements: one aggregated list, one recorded requirement
+   beside it. Geometry follows the 「观测 · 需求」 board in
+   design/formicand-p4.5-ui.pen: 56 px header, 28 px side padding, a 12 px
+   gutter around 12 px rows, and a 420 px detail column. */
+
+/* The table reaches the panel edges, so the view owns the padding the other
+   observation views put on the scrolling body. */
+html[data-theme] .observe-body {
+  padding: 0;
+}
+html[data-theme] .observe-view {
+  padding: 24px 32px;
+}
+html[data-theme] .observe-view[data-observe-panel="requirements"] {
+  padding: 0;
+}
+
+html[data-theme] .observe-header {
+  gap: 12px;
+  padding: 0 28px;
+}
+/* The header is shared by the observation views, so this view's controls take
+   the spare width and right-align themselves; hiding them leaves the width to
+   whichever view is showing. */
+.observe-header-actions {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.observe-header-actions[hidden] {
+  display: none;
+}
+
+/* Search takes the header's spare width, capped at the board's 220 px. */
+html[data-theme] .observe-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 220px;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  color: var(--color-text-3);
+}
+html[data-theme] .observe-search .ui-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+html[data-theme] .observe-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+}
+html[data-theme] .observe-search input::placeholder {
+  color: var(--color-text-3);
+}
+html[data-theme] .observe-search input::-webkit-search-cancel-button {
+  appearance: none;
+}
+html[data-theme] .observe-search:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+html[data-theme] .observe-publish {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  cursor: pointer;
+}
+html[data-theme] .observe-publish .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+html[data-theme] .observe-publish:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ---------------------------------------------------------------- the tabs */
+
+html[data-theme] .observe-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 28px 0;
+}
+html[data-theme] .observe-tabs[hidden] {
+  display: none;
+}
+html[data-theme] .or-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-2);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+}
+html[data-theme] .or-tab:hover {
+  color: var(--color-text);
+}
+html[data-theme] .or-tab[aria-selected="true"] {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-weight: 500;
+}
+html[data-theme] .or-tab-count {
+  color: var(--color-text-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* --------------------------------------------------------------- the table */
+
+html[data-theme] .or-table {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 0;
+}
+html[data-theme] .or-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  border-radius: var(--radius-control);
+  color: var(--color-text-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+html[data-theme] .or-head {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-line);
+  border-radius: 0;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+html[data-theme] .or-row:not(.or-head):hover {
+  background: var(--color-surface-2);
+}
+html[data-theme] .or-row.is-current {
+  background: var(--color-surface-2);
+}
+html[data-theme] .or-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+html[data-theme] .or-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+html[data-theme] .or-cell-title {
+  flex: 1 1 auto;
+}
+html[data-theme] .or-title {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+html[data-theme] .or-source {
+  flex: 0 0 auto;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+html[data-theme] .or-col-stage {
+  flex: 0 0 84px;
+  width: 84px;
+}
+html[data-theme] .or-col-session {
+  flex: 0 0 120px;
+  width: 120px;
+}
+html[data-theme] .or-col-owner {
+  flex: 0 0 56px;
+  width: 56px;
+}
+html[data-theme] .or-col-commit {
+  flex: 0 0 84px;
+  width: 84px;
+  font-size: 13px;
+}
+html[data-theme] .or-col-updated {
+  flex: 0 0 64px;
+  width: 64px;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+html[data-theme] .or-empty {
+  display: flex;
+  padding: 24px 12px;
+  color: var(--color-text-3);
+  font-size: 13px;
+}
+
+/* The phase pill: green once settled, amber while a person must answer,
+   accent while a phase is being worked on. */
+html[data-theme] .or-pill,
+html[data-theme] .or-tag {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--color-surface-3);
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+html[data-theme] :is(.or-pill, .or-tag)[data-stage="development"],
+html[data-theme] :is(.or-pill, .or-tag)[data-stage="review"],
+html[data-theme] :is(.or-pill, .or-tag)[data-stage="merge"],
+html[data-theme] :is(.or-pill, .or-tag)[data-stage="merged"],
+html[data-theme] :is(.or-pill, .or-tag)[data-stage="requirement"] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+html[data-theme] :is(.or-pill, .or-tag)[data-stage="release"],
+html[data-theme] :is(.or-pill, .or-tag)[data-stage="delivered"] {
+  background: var(--color-ok-soft);
+  color: var(--color-ok);
+}
+html[data-theme] :is(.or-pill, .or-tag)[data-stage="rework"] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+html[data-theme] :is(.or-pill, .or-tag)[data-waiting="true"] {
+  background: var(--color-warn-soft);
+  color: var(--color-warn);
+}
+html[data-theme] :is(.or-pill, .or-tag)[data-stage="withdrawn"] {
+  background: var(--color-surface-3);
+  color: var(--color-text-3);
+}
+
+/* -------------------------------------------------------------- the detail */
+
+html[data-theme] .app-layout[data-entry="observe"][data-observe-detail="open"] {
+  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) 420px;
+}
+html[data-theme] .observe-detail {
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--radius-panel);
+  background-color: var(--panel-fill);
+  background-image: var(--panel-sheen);
+  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: var(--panel-shadow);
+}
+html[data-theme] .app-layout[data-entry="observe"][data-observe-detail="open"] .observe-detail:not([hidden]) {
+  display: flex;
+}
+html[data-theme] .observe-detail[hidden] {
+  display: none;
+}
+
+/* The whole detail is one column: the card's 24 px side padding and 22 px
+   rhythm are the board's, and the close control scrolls with its content. */
+html[data-theme] .observe-detail:not([hidden]) {
+  padding: 0 24px 20px;
+  gap: 22px;
+  overflow-y: auto;
+}
+html[data-theme] .or-detail-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+}
+html[data-theme] .or-crumb {
+  color: var(--color-text-3);
+  font-size: 13px;
+  line-height: 18px;
+}
+html[data-theme] .or-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 -6px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-2);
+  cursor: pointer;
+}
+html[data-theme] .or-close:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+/* Its children take the column's rhythm, so the header and the first section
+   sit exactly 22 px apart like every other pair. */
+html[data-theme] .or-detail-body {
+  display: contents;
+}
+html[data-theme] .or-spacer {
+  flex: 1 1 auto;
+}
+
+html[data-theme] .or-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+html[data-theme] .or-detail-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+html[data-theme] .or-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* The five phases laid out across the card, connector between each pair. */
+html[data-theme] .or-stepper {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+html[data-theme] .or-step {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+html[data-theme] .or-step-rail {
+  display: inline-flex;
+}
+html[data-theme] .or-step-node {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--color-surface-3);
+}
+html[data-theme] .or-step-node .ui-icon {
+  width: 12px;
+  height: 12px;
+}
+html[data-theme] .or-step-node.is-done {
+  background: var(--color-ok-soft);
+  color: var(--color-ok);
+}
+html[data-theme] .or-step-node.is-current {
+  background: var(--color-ok-soft);
+  box-shadow: inset 0 0 0 1.5px var(--color-ok);
+}
+html[data-theme] .or-step-node.is-current[data-blocked="true"] {
+  background: var(--color-danger-soft);
+  box-shadow: inset 0 0 0 1.5px var(--color-danger);
+}
+html[data-theme] .or-step-label {
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+/* The board seats the connector line on the node centres: the 18 px bottom
+   padding lifts a 1.5 px line to the middle of the 20 px node. */
+html[data-theme] .or-step-connector {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  padding: 0 6px 18px;
+}
+html[data-theme] .or-step-line {
+  width: 100%;
+  height: 1.5px;
+  background: var(--color-line);
+}
+html[data-theme] .or-step-line[data-state="done"],
+html[data-theme] .or-step-line[data-state="current"],
+html[data-theme] .or-step-line[data-state="blocked"] {
+  background: color-mix(in srgb, var(--color-ok) 40%, transparent);
+}
+html[data-theme] .or-step-line[data-state="blocked"] {
+  background: color-mix(in srgb, var(--color-danger) 40%, transparent);
+}
+
+html[data-theme] .or-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface-2);
+}
+html[data-theme] .or-fact {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+html[data-theme] .or-fact-key {
+  flex: 0 0 auto;
+  color: var(--color-text-3);
+  font-size: 13px;
+  line-height: 18px;
+}
+html[data-theme] .or-fact-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 18px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme] .or-fact-value.is-mono {
+  font-family: var(--ui-mono);
+  font-size: 13px;
+}
+
+html[data-theme] .or-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+html[data-theme] .or-label {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+html[data-theme] .or-checks,
+html[data-theme] .or-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+html[data-theme] .or-checks li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 18px;
+}
+html[data-theme] .or-checks .ui-icon {
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  color: var(--color-ok);
+}
+html[data-theme] .or-checks li[data-checked="false"] .ui-icon {
+  color: var(--color-text-3);
+}
+
+html[data-theme] .or-review {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+}
+button.or-review {
+  cursor: pointer;
+}
+html[data-theme] .or-review .ui-icon {
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  color: var(--color-ok);
+}
+html[data-theme] .or-review .or-chevron {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-3);
+  transition: transform var(--motion-enter);
+}
+html[data-theme] .or-chevron.is-open {
+  transform: rotate(90deg);
+}
+html[data-theme] .or-review-findings {
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+html[data-theme] .or-findings li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 25px;
+  color: var(--color-text-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+html[data-theme] .or-finding-state {
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+
+html[data-theme] .or-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+html[data-theme] .or-file .ui-icon {
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  color: var(--color-text-3);
+}
+html[data-theme] .or-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme] .or-add {
+  flex: 0 0 auto;
+  color: var(--color-ok);
+  font-size: 12px;
+}
+html[data-theme] .or-del {
+  flex: 0 0 auto;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+
+/* The detail keeps its width down to the layout where a second column still
+   leaves the list usable, and takes the whole panel below that. */
+@media (max-width: 1180px) {
+  html[data-theme] .app-layout[data-entry="observe"][data-observe-detail="open"] {
+    grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) 360px;
+  }
+  html[data-theme] .or-col-session {
+    display: none;
+  }
+}
+@media (max-width: 899px) {
+  html[data-theme] .app-layout[data-entry="observe"][data-observe-detail="open"] {
+    grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) 0;
+  }
+  html[data-theme]
+    .app-layout[data-entry="observe"][data-observe-detail="open"]
+    .observe-detail:not([hidden]) {
+    position: fixed;
+    inset: 10px;
+    z-index: 60;
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-theme] .observe-detail {
+    background-color: var(--color-bg);
+    background-image: none;
+    backdrop-filter: none;
+  }
+}

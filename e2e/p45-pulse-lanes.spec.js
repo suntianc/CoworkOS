@@ -225,7 +225,10 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await page.getByRole("tab", { name: "观测", exact: true }).click();
     await page.locator('[data-observe-view="requirements"]').click();
     await page.waitForTimeout(600);
-    expect(remoteReads()).toHaveLength(0);
+    // The requirements view reads its own facts; the Runs view is still hidden,
+    // so none of its list reads have started.
+    expect(remoteReads().filter((request) => request.method === "GET")).toHaveLength(0);
+    const beforeRuns = remoteReads().length;
 
     await page.locator('[data-observe-view="runs"]').click();
     await expect(page.locator("[data-observe-runs-controls]")).toBeVisible();
@@ -240,11 +243,13 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await expect(cloudCard).toContainText("对外");
     await expect(page.locator("[data-runs-live]")).toBeVisible();
 
-    // Stage facts are list reads only; the delivery-view read that replays the
-    // outbox and inspects a checkout is never issued from observation.
-    await expect.poll(() => remoteReads().length).toBeGreaterThan(0);
-    expect(remoteReads().every((request) => request.method === "GET")).toBe(true);
-    expect(remoteReads().some((request) => request.path.endsWith("/deliveries"))).toBe(true);
+    // This view's stage facts are list reads only; the delivery-view read that
+    // replays the outbox and inspects a checkout is the requirements view's,
+    // and none of it is issued after the Runs view is the visible one.
+    await expect.poll(() => remoteReads().length).toBeGreaterThan(beforeRuns);
+    const runsReads = remoteReads().slice(beforeRuns);
+    expect(runsReads.every((request) => request.method === "GET")).toBe(true);
+    expect(runsReads.some((request) => request.path.endsWith("/deliveries"))).toBe(true);
     const readsAfterOpen = remoteReads().length;
     await page.waitForTimeout(11_000);
     expect(remoteReads()).toHaveLength(readsAfterOpen);

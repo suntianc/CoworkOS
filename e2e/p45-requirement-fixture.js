@@ -92,6 +92,7 @@ export async function seedRequirement(page, dashboard, project, input) {
     "summarize.sh": "#!/usr/bin/env bash\nset -euo pipefail\n",
     "notes.md": "# 验收记录\n"
   });
+  const criteria = input.criteria ?? ["bash summarize.sh 输出 30", "文件不存在时退出码 1"];
   const development = (
     await api(
       projectPath("/developments"),
@@ -99,7 +100,7 @@ export async function seedRequirement(page, dashboard, project, input) {
         action: "create",
         requirementId: requirement.requirementId,
         goal: input.title,
-        completionCriteria: input.criteria ?? ["bash summarize.sh 输出 30", "文件不存在时退出码 1"],
+        completionCriteria: criteria,
         route: input.route ?? "full",
         baseline: { branch: "main", commit: checkout.baseline }
       },
@@ -126,7 +127,8 @@ export async function seedRequirement(page, dashboard, project, input) {
   };
   if (!input.phase || input.phase === "development") return { requirement, session, development, checkout };
 
-  const checks = [check("第一条", 0), check("第二条", 0)];
+  // One recorded check per completion criterion: position is the only pairing the records carry.
+  const checks = criteria.map((_, index) => check(`检查 ${index + 1}`, 0));
   await api(
     projectPath("/reviews"),
     {
@@ -164,6 +166,48 @@ export async function seedRequirement(page, dashboard, project, input) {
     agentId: "subagent_2",
     workspace: candidate.workspace
   };
+  // Findings can only be recorded while the review is open and ruled by Main,
+  // so a case that wants them binds the reviewer and settles each finding
+  // before the verdict below closes the review.
+  if (input.findings?.length) {
+    review = (
+      await api(
+        projectPath("/reviews"),
+        {
+          action: "update",
+          reviewId: review.reviewId,
+          expectedRevision: review.revision,
+          state: "in_review",
+          reviewer
+        },
+        declared
+      )
+    ).review;
+    for (const finding of input.findings) {
+      review = (
+        await api(projectPath("/reviews"), {
+          action: "record_finding",
+          reviewId: review.reviewId,
+          expectedRevision: review.revision,
+          title: finding.title,
+          detail: finding.detail ?? finding.title,
+          checks: []
+        })
+      ).review;
+      const recorded = review.findings.at(-1);
+      review = (
+        await api(projectPath("/reviews"), {
+          action: "rule_finding",
+          reviewId: review.reviewId,
+          expectedRevision: review.revision,
+          findingId: recorded.findingId,
+          decision: "dismiss",
+          category: finding.category ?? "out_of_scope",
+          basis: finding.basis ?? "不属于本次改动的范围"
+        })
+      ).review;
+    }
+  }
   const state = input.phase === "review" ? "in_review" : input.phase === "rework" ? "failed" : "passed";
   review = (
     await api(
@@ -207,10 +251,7 @@ export async function seedRequirement(page, dashboard, project, input) {
             approvedTree: checkout.tree,
             reviewId: review.reviewId
           },
-          checks: [
-            { name: "组合检查", command: "test -f summarize.sh" },
-            { name: "组合检查 2", command: "test -f notes.md" }
-          ]
+          checks: criteria.map((_, index) => ({ name: `组合检查 ${index + 1}`, command: "test -f notes.md" }))
         },
         declared
       )
@@ -225,10 +266,12 @@ export async function seedRequirement(page, dashboard, project, input) {
           state: "merged",
           combinedBase: checkout.baseline,
           mergeCommit: checkout.merged,
-          checks: [
-            { name: "组合检查", command: "test -f summarize.sh", exitCode: 0, output: "" },
-            { name: "组合检查 2", command: "test -f notes.md", exitCode: 0, output: "" }
-          ]
+          checks: criteria.map((_, index) => ({
+            name: `组合检查 ${index + 1}`,
+            command: "test -f notes.md",
+            exitCode: 0,
+            output: ""
+          }))
         },
         declared
       )

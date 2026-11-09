@@ -15,9 +15,7 @@
     <link rel="stylesheet" href="/assets/workbench.css" />
     <link rel="stylesheet" href="/assets/starfield.css" />
     <link rel="stylesheet" href="/assets/ui.css" />
-    <link rel="stylesheet" href="/assets/ledger.css" />
     <link rel="stylesheet" href="/assets/main-sessions.css" />
-    <link rel="stylesheet" href="/assets/board.css" />
     <link rel="stylesheet" href="/assets/system-theme.css" />
     <link rel="stylesheet" href="/assets/settings.css" />
     <link rel="stylesheet" href="/assets/styles/project-experience.css" />
@@ -28,6 +26,7 @@
     <link rel="stylesheet" href="/assets/formicand.css" />
     <link rel="stylesheet" href="/assets/work-sidebar.css" />
     <link rel="stylesheet" href="/assets/styles/requirement-panel.css" />
+    <link rel="stylesheet" href="/assets/styles/observe-requirements.css" />
     <link rel="stylesheet" href="/assets/styles/run-control.css" />
     <link rel="stylesheet" href="/assets/styles/observe-runs.css" />
   </head>
@@ -47,6 +46,16 @@
         </symbol>
         <symbol id="i-file" viewBox="0 0 24 24">
           <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6M8 13h8M8 17h5" />
+        </symbol>
+        <symbol id="i-file-code" viewBox="0 0 24 24">
+          <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6" />
+          <path d="m10 12.5-2 2.5 2 2.5m4-5 2 2.5-2 2.5" />
+        </symbol>
+        <symbol id="i-shield-check" viewBox="0 0 24 24">
+          <path
+            d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z"
+          />
+          <path d="m9 12 2 2 4-4" />
         </symbol>
         <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></symbol>
         <symbol id="i-radar" viewBox="0 0 24 24">
@@ -474,28 +483,6 @@
             <nav class="sidebar-nav sidebar-legacy" aria-label="工具">
               <button
                 class="nav-item"
-                id="ledger-nav"
-                type="button"
-                aria-haspopup="dialog"
-                aria-label="需求台账"
-              >
-                <span class="nav-icon"
-                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-file" /></svg></span
-                ><span>需求台账</span>
-              </button>
-              <button
-                class="nav-item"
-                id="development-nav"
-                type="button"
-                aria-haspopup="dialog"
-                aria-label="需求现场"
-              >
-                <span class="nav-icon"
-                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-code" /></svg></span
-                ><span>需求现场</span>
-              </button>
-              <button
-                class="nav-item"
                 id="main-sessions-nav"
                 type="button"
                 aria-haspopup="dialog"
@@ -504,17 +491,6 @@
                 <span class="nav-icon"
                   ><svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg></span
                 ><span>Main 会话</span>
-              </button>
-              <button
-                class="nav-item"
-                id="board-nav"
-                type="button"
-                aria-haspopup="dialog"
-                aria-label="需求看板"
-              >
-                <span class="nav-icon"
-                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-grid" /></svg></span
-                ><span>需求看板</span>
               </button>
             </nav>
           </div>
@@ -842,14 +818,36 @@
         >
           <header class="observe-header">
             <h1 id="observe-title" tabindex="-1">总览</h1>
+            <div class="observe-header-actions" data-observe-requirements-actions hidden>
+              <label class="observe-search">
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-search" /></svg>
+                <input type="search" data-observe-search placeholder="搜索需求" autocomplete="off" />
+              </label>
+              <button class="observe-publish" type="button" data-observe-publish>
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-plus" /></svg><span>发布到看板</span>
+              </button>
+            </div>
             <div class="runs-controls" data-observe-runs-controls hidden></div>
           </header>
+          <div
+            class="observe-tabs"
+            data-observe-requirements-tabs
+            role="tablist"
+            aria-label="需求阶段"
+            hidden
+          ></div>
           <div class="observe-body">
             <section class="observe-view" data-observe-panel="overview"></section>
-            <section class="observe-view" data-observe-panel="requirements" hidden></section>
+            <section
+              class="observe-view"
+              data-observe-panel="requirements"
+              data-observe-requirements-list
+              hidden
+            ></section>
             <section class="observe-view" data-observe-panel="runs" hidden></section>
           </div>
         </section>
+        <aside class="observe-detail" id="observe-detail" aria-label="需求详情" hidden></aside>
 
         <aside class="agent-pane" id="agent-pane" aria-label="需求进度">
           <div class="requirement-panel" data-requirement-panel>
