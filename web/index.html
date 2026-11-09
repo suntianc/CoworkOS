@@ -28,6 +28,7 @@
     <link rel="stylesheet" href="/assets/styles/requirement-panel.css" />
     <link rel="stylesheet" href="/assets/styles/observe-requirements.css" />
     <link rel="stylesheet" href="/assets/styles/run-control.css" />
+    <link rel="stylesheet" href="/assets/styles/observe-runs.css" />
   </head>
   <body class="output-collapsed">
     <div id="night-sky" class="night-sky" aria-hidden="true">
@@ -817,7 +818,6 @@
         >
           <header class="observe-header">
             <h1 id="observe-title" tabindex="-1">总览</h1>
-            <span class="observe-header-spacer"></span>
             <div class="observe-header-actions" data-observe-requirements-actions hidden>
               <label class="observe-search">
                 <svg class="ui-icon" aria-hidden="true"><use href="#i-search" /></svg>
@@ -827,6 +827,7 @@
                 <svg class="ui-icon" aria-hidden="true"><use href="#i-plus" /></svg><span>发布到看板</span>
               </button>
             </div>
+            <div class="runs-controls" data-observe-runs-controls hidden></div>
           </header>
           <div
             class="observe-tabs"

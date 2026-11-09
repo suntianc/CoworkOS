@@ -19,14 +19,14 @@ html[data-theme] .observe-header {
   gap: 12px;
   padding: 0 28px;
 }
-.observe-header-spacer {
-  flex: 1 1 auto;
-  height: 1px;
-}
+/* The header is shared by the observation views, so this view's controls take
+   the spare width and right-align themselves; hiding them leaves the width to
+   whichever view is showing. */
 .observe-header-actions {
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
 }
 .observe-header-actions[hidden] {

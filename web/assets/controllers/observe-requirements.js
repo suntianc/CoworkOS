@@ -96,7 +96,10 @@ export function createObserveRequirements({
   let refreshTimer;
 
   const viewKey = (row) => `${row.origin}|${row.projectId}|${row.requirementId}`;
-  const active = () => !pane.hidden;
+  // Only the visible view reads: the entry switch hides the pane and the view
+  // switch hides this section, and a hidden list must not keep reading the
+  // nodes it was showing.
+  const active = () => !pane.hidden && !body.hidden;
 
   /* ------------------------------------------------------------------ reads */
 
@@ -690,12 +693,19 @@ export function createObserveRequirements({
     /** The entry or view changed: read only while the requirements view is shown. */
     applyEntry({ mode, observeView } = {}) {
       const shown = mode === "observe" && observeView === "requirements";
-      // The panel's chrome belongs to this view, so the view decides when it is
-      // shown instead of the entry controller hiding everything but one layer.
+      // The panel's chrome and the second column belong to this view, so the
+      // view decides when they are shown instead of the entry controller
+      // hiding everything but one layer.
       if (actions) actions.hidden = !shown;
       if (tabsNode) tabsNode.hidden = !shown;
       poll.setActive(Boolean(shown) && active());
-      if (!shown) return;
+      if (!shown) {
+        // Another observation view took the panel: its own content needs the
+        // width, and the selection comes back when this view does.
+        if (layout) layout.dataset.observeDetail = "closed";
+        detail.hidden = true;
+        return;
+      }
       render();
       void refresh();
     },

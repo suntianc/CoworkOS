@@ -1,0 +1,693 @@
+/*
+ * Observation · Runs. The header carries the live or degraded mark, the stage
+ * key and the window; the body is a time axis and one card per node.
+ */
+
+.observe-view[data-observe-panel="runs"] {
+  --runs-baseline: #ffffff0d;
+  --runs-flat: #ffffff1f;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+html[data-theme="light"] .observe-view[data-observe-panel="runs"] {
+  --runs-baseline: #0000000d;
+  --runs-flat: #0000001f;
+}
+
+/* Header controls belong to the Runs view only. */
+.runs-controls {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  margin-left: 12px;
+}
+
+.app-layout[data-observe-view-name]:not([data-observe-view-name="runs"]) .runs-controls {
+  display: none;
+}
+
+.runs-controls[hidden] {
+  display: none;
+}
+
+.runs-live,
+.runs-degraded {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  height: 25px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.runs-live {
+  color: var(--color-ok);
+  background: var(--color-ok-soft);
+}
+
+.runs-live[hidden],
+.runs-degraded[hidden] {
+  display: none;
+}
+
+.runs-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-ok);
+}
+
+.runs-degraded {
+  border-radius: 12px;
+  color: var(--color-warn);
+  background: var(--color-warn-soft);
+}
+
+.runs-spacer {
+  flex: 1 1 auto;
+}
+
+.runs-legend {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.runs-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.runs-swatch {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.runs-swatch.is-accent {
+  background: var(--color-accent);
+}
+
+.runs-swatch.is-review {
+  background: var(--color-review);
+}
+
+.runs-swatch.is-ok {
+  background: var(--color-ok);
+}
+
+.runs-swatch.is-warn {
+  background: var(--color-warn);
+}
+
+.runs-swatch.is-muted {
+  background: var(--color-text-3);
+}
+
+.runs-window {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--color-surface-2);
+}
+
+.runs-window button {
+  height: 25px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-text-2);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.runs-window button:hover {
+  color: var(--color-text);
+}
+
+.runs-window button[aria-pressed="true"] {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+}
+
+.runs-window button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Time axis aligns with the lane grid: 18px card padding, 240px label, 16px gap. */
+.runs-axis {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 72px;
+  gap: 16px;
+  align-items: center;
+  height: 16px;
+  margin-bottom: 20px;
+  padding: 0 18px;
+  color: var(--color-text-3);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.runs-axis-track {
+  display: flex;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.runs-axis-tick {
+  white-space: nowrap;
+}
+
+.runs-axis-tick.is-now {
+  color: var(--color-ok);
+}
+
+.runs-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.runs-node {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--color-surface);
+}
+
+.runs-node-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+}
+
+.runs-node[data-role="external"] .runs-node-head {
+  height: 22px;
+}
+
+.runs-node-head .ui-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text);
+}
+
+.runs-node-name {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+.runs-role-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  color: var(--color-text-2);
+  background: var(--color-surface-3);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.runs-node-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-3);
+}
+
+.runs-node-dot.is-ok {
+  background: var(--color-ok);
+}
+
+/* One lane is the Main; the Subagent rows hang below it on the same grid. */
+.runs-lane,
+.runs-sublane {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 72px;
+  column-gap: 16px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.runs-lane {
+  min-height: 56px;
+}
+
+.runs-slot {
+  display: flex;
+  align-items: center;
+  height: 29px;
+  margin-top: 2px;
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.runs-sublane {
+  min-height: 22px;
+}
+
+.runs-lane-label {
+  min-width: 0;
+}
+
+.runs-lane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 19px;
+  min-width: 0;
+}
+
+.runs-session {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runs-lane.is-stalled .runs-session {
+  font-weight: 600;
+}
+
+.runs-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.runs-pill.is-dev {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.runs-pill.is-review {
+  color: var(--color-review);
+  background: var(--color-review-soft);
+}
+
+.runs-pill.is-merge {
+  color: var(--color-ok);
+  background: var(--color-ok-soft);
+}
+
+.runs-pill.is-wait {
+  color: var(--color-warn);
+  background: var(--color-warn-soft);
+}
+
+.runs-pill.is-idle {
+  color: var(--color-text-2);
+  background: var(--color-surface-3);
+}
+
+.runs-lane-sub {
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runs-wave {
+  position: relative;
+  height: 40px;
+  min-width: 0;
+}
+
+.runs-wave.is-sub {
+  height: 22px;
+}
+
+.runs-spark {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.runs-baseline {
+  stroke: var(--runs-baseline);
+  stroke-width: 1;
+}
+
+.runs-pulse {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.runs-pulse.is-dev {
+  stroke: var(--color-accent);
+}
+
+.runs-pulse.is-review {
+  stroke: var(--color-review);
+}
+
+.runs-pulse.is-merge {
+  stroke: var(--color-ok);
+}
+
+.runs-pulse.is-wait {
+  stroke: var(--color-warn);
+}
+
+.runs-pulse.is-idle {
+  stroke: var(--color-text-3);
+  opacity: 0.55;
+}
+
+.runs-head {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(0, -50%);
+  animation: runs-head-pulse 2.2s ease-in-out infinite;
+}
+
+.runs-head.is-dev {
+  background: var(--color-accent);
+}
+
+.runs-head.is-review {
+  background: var(--color-review);
+}
+
+.runs-head.is-merge {
+  background: var(--color-ok);
+}
+
+.runs-head.is-wait {
+  background: var(--color-warn);
+}
+
+.runs-sublane .runs-head {
+  right: auto;
+  transform: translate(-100%, -50%);
+}
+
+@keyframes runs-head-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translate(0, -50%) scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(0, -50%) scale(1.12);
+  }
+}
+
+.runs-sublane .runs-head {
+  animation-name: runs-sub-head-pulse;
+}
+
+@keyframes runs-sub-head-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translate(-100%, -50%) scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-100%, -50%) scale(1.12);
+  }
+}
+
+.runs-done {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  color: var(--color-ok);
+  background: var(--color-ok-soft);
+  transform: translate(-100%, -50%);
+}
+
+.runs-done .ui-icon {
+  width: 10px;
+  height: 10px;
+}
+
+.runs-stall {
+  position: absolute;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: var(--color-warn);
+  background: var(--color-warn-soft);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.runs-lane-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.runs-duration {
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.runs-kid-state {
+  color: var(--color-text-3);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.runs-kid-state.is-completed {
+  color: var(--color-ok);
+}
+
+.runs-kid-state.is-failed,
+.runs-kid-state.is-timed_out {
+  color: var(--color-danger);
+}
+
+.runs-sublane-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 14px;
+}
+
+.runs-branch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-line);
+}
+
+.runs-role {
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.runs-agent {
+  overflow: hidden;
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runs-slot-label {
+  white-space: nowrap;
+}
+
+.runs-slot-bar {
+  display: flex;
+  gap: 3px;
+  margin-left: 8px;
+}
+
+.runs-slot-seg {
+  width: 14px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--color-surface-3);
+}
+
+.runs-slot-seg.is-regular {
+  background: var(--color-accent);
+}
+
+.runs-slot-seg.is-continuation {
+  background: var(--color-warn);
+}
+
+.runs-slot-value {
+  margin-left: 8px;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.runs-slot-value.is-warn {
+  color: var(--color-warn);
+}
+
+.runs-lane.is-empty .runs-session {
+  color: var(--color-text-3);
+  font-weight: 400;
+}
+
+.runs-flat {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--runs-flat);
+}
+
+/* Degraded lanes use stage blocks instead of a waveform. */
+.runs-block {
+  position: absolute;
+  top: 50%;
+  height: 14px;
+  border-radius: 7px;
+  transform: translateY(-50%);
+}
+
+.runs-wave.is-sub .runs-block {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.runs-block.is-dev {
+  background: var(--color-accent);
+}
+
+.runs-block.is-review {
+  background: var(--color-review);
+}
+
+.runs-block.is-merge {
+  background: var(--color-ok);
+}
+
+.runs-block.is-wait {
+  background: var(--color-warn);
+}
+
+.runs-block.is-idle {
+  height: 2px;
+  border-radius: 0;
+  background: var(--color-text-3);
+}
+
+.runs-node.is-offline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 50px;
+  padding: 0 18px;
+  color: var(--color-text-2);
+}
+
+.runs-node.is-offline .ui-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-2);
+}
+
+.runs-node.is-offline .runs-node-name {
+  color: var(--color-text-2);
+  font-weight: 500;
+}
+
+.runs-offline {
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.runs-empty {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+@media (max-width: 1180px) {
+  .runs-legend {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .runs-controls {
+    gap: 8px;
+  }
+
+  .runs-axis {
+    grid-template-columns: 200px minmax(0, 1fr) 64px;
+  }
+
+  .runs-lane,
+  .runs-sublane {
+    grid-template-columns: 200px minmax(0, 1fr) 64px;
+  }
+}

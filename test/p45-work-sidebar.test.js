@@ -133,6 +133,22 @@ test("the work tree nests Subagents, marks questions and remembers a folded proj
   assert.equal(reloaded.$('[data-project="a"] .conversation-list') !== null, true);
 });
 
+test("an empty catalog shows the project empty state next to the add entry", (t) => {
+  const empty = fixture(t);
+  empty.controller.accept({ projects: [], tasks: [] });
+  empty.controller.render();
+  assert.equal(empty.$("#project-list").querySelectorAll(".project-group").length, 0);
+  assert.equal(empty.$(".sidebar-empty-state").textContent, "还没有项目");
+  assert.equal(empty.controller.visibleProjects().length, 0);
+  assert.ok(empty.$("#new-project"), "the section's plus remains the way to add the first project");
+
+  const filled = fixture(t);
+  filled.controller.accept({ projects: [project("a")], tasks: [] });
+  filled.controller.render();
+  assert.equal(filled.$(".sidebar-empty-state"), null);
+  assert.equal(filled.controller.visibleProjects().length, 1);
+});
+
 test("the catalog reports a pending question only while Main can still be waiting", async (t) => {
   const dashboard = await startDashboard();
   t.after(() => dashboard.stop());
