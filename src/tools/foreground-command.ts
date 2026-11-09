@@ -140,6 +140,7 @@ export async function executeForegroundCommand(
   });
   options.signal?.addEventListener("abort", aborted, { once: true });
   if (options.signal?.aborted) stop();
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stopped 由 stop() 在 abort、超时和输出失败回调里写入，TS 在读取处看不到这些闭包赋值
   if (options.timeoutMs > 0 && !stopped) {
     deadline = setTimeout(() => {
       timedOut = true;
@@ -156,6 +157,7 @@ export async function executeForegroundCommand(
     }
     const result = commandExit ?? hostExit;
     const receipt = output.receipt();
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stopped 由 stop() 在 abort、超时和输出失败回调里写入，TS 在读取处看不到这些闭包赋值
     if (failure || stopped || result.code !== 0) {
       throw Object.assign(
         failure ?? new Error(`Command failed${result.signal ? ` with ${result.signal}` : ""}: ${command}`),

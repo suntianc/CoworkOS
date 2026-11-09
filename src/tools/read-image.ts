@@ -83,7 +83,7 @@ export function createImageTools(options: ImageReaderOptions) {
       throw new Error("review must be a boolean");
     if (input.goal !== undefined && (typeof input.goal !== "string" || input.goal.length > 4000))
       throw new Error("goal must be at most 4000 characters");
-    return { goal: input.goal as string | undefined, review: input.review === true };
+    return { goal: input.goal, review: input.review === true };
   }
   async function load(input: ImageInput, signal?: AbortSignal): Promise<LoadedImage> {
     assertImageActive(signal);
@@ -375,7 +375,7 @@ export function createImageTools(options: ImageReaderOptions) {
         const cropped = cropPng({
           data: image.data,
           region: value.region as ImageRegion,
-          scale: value.scale as number | undefined,
+          scale: value.scale,
           maxImageBytes: limit,
           signal
         });
@@ -417,7 +417,7 @@ export function createImageTools(options: ImageReaderOptions) {
         if (!archive) throw new Error("Shared Task image archive is unavailable");
         if (value.limit !== undefined && typeof value.limit !== "number")
           throw new Error("Image history limit must be a number");
-        const images = await archive.list({ limit: value.limit as number | undefined, signal });
+        const images = await archive.list({ limit: value.limit, signal });
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ images, historical: true }) }],
           details: { images, historical: true }

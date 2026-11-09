@@ -50,6 +50,7 @@ export function createMacComputerApproval(projectRoot: string) {
           if (code === 0 && result.approved === true) return done(true);
           if (result.errorCode === "approval_denied") return done(false);
           reject(new Error("local authentication unavailable"));
+          // eslint-disable-next-line no-restricted-syntax -- 子进程返回的 JSON 解析失败只对外暴露固定的无效响应，原始 SyntaxError 不进入调用方诊断
         } catch {
           reject(new Error("invalid local authentication response"));
         }

@@ -55,6 +55,7 @@ export class ForegroundCommandOutput {
         // Reject a substituted parent before opening any log for writing.
         if ((await realpath(directory)) !== directory)
           throw new Error("Foreground output log directory contains a symbolic link");
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- O_NOFOLLOW 是 POSIX 打开标志，Windows 等平台的 fs.constants 可能缺失，需要 0 兜底
         const flags = constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0);
         stdout = await open(join(directory, "stdout.log"), flags, 0o600);
         stderr = await open(join(directory, "stderr.log"), flags, 0o600);
@@ -65,6 +66,7 @@ export class ForegroundCommandOutput {
       );
     } catch (cause) {
       await Promise.allSettled([stdout?.close(), stderr?.close()]);
+      // eslint-disable-next-line no-restricted-syntax -- 正在上抛日志初始化错误，清理临时目录失败不应覆盖原始失败原因
       if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
       throw new Error(`Foreground command output log setup failed: ${String(cause)}`, { cause });
     }

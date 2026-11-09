@@ -106,7 +106,7 @@ function resultMetadata(result: CuaScriptToolResult): Record<string, unknown> {
       : { value };
   }
   const text = result.content.find((block) => block.type === "text");
-  if (!text || text.type !== "text") return {};
+  if (!text) return {};
   if (Buffer.byteLength(text.text) > CUA_SCRIPT_LIMITS.metadataBytes)
     throw new ScriptFailure("output_limit", "CUA tool text exceeds the limit");
   try {
@@ -262,6 +262,7 @@ export class CuaScriptController {
             knownDispatch = true;
           }
         if (MUTATIONS.has(toolName) && !knownDispatch && !result.isError) summary.dispatchStatus = "sent";
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cell.accepting 会在 run 的 finally 里被置为 false，TS 看不到 await 期间的闭包写入
         if (!cell.accepting || this.active !== cell || cell.signal.aborted) return;
         const value = resultMetadata(result);
         summarize(summary, value);
@@ -316,6 +317,7 @@ export class CuaScriptController {
         cell.wake?.();
       }
     };
+    // eslint-disable-next-line no-restricted-syntax -- 上一次宿主调用的失败已通过 deferred 回给 guest，这里只维护串行队列让下一次调用继续
     cell.hostTail = cell.hostTail.catch(() => {}).then(execute);
     return deferred.handle;
   }
@@ -351,6 +353,7 @@ export class CuaScriptController {
     signal?: AbortSignal
   ): Promise<CuaScriptResult> {
     const version = this.epoch;
+    // eslint-disable-next-line no-restricted-syntax -- 上一次脚本执行的失败已返回给它的调用方，这里只需保证后续脚本仍能排队执行
     const result = this.tail.catch(() => {}).then(() => this.run(input, dispatcher, signal, version));
     this.tail = result;
     return result;
@@ -368,6 +371,7 @@ export class CuaScriptController {
       if (this.closed || version !== this.epoch)
         throw new ScriptFailure("session_reset", "CUA script session was reset or closed");
       if (
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 脚本参数来自模型工具调用，声明类型比运行期窄，缺失 input 时不能直接读 code
         !input ||
         typeof input.code !== "string" ||
         Buffer.byteLength(input.code) > CUA_SCRIPT_LIMITS.codeBytes
@@ -411,7 +415,7 @@ export class CuaScriptController {
       );
       if (evaluated.error) {
         const error = this.guestError(evaluated.error);
-        throw new ScriptFailure("script_error", String(error?.message || "CUA evaluation failed"), error);
+        throw new ScriptFailure("script_error", String(error.message || "CUA evaluation failed"), error);
       }
       promise = evaluated.value;
       for (;;) {
@@ -419,12 +423,12 @@ export class CuaScriptController {
         const jobs = this.slice(cell, () => runtime.executePendingJobs(32));
         if (jobs.error) {
           const error = this.guestError(jobs.error);
-          throw new ScriptFailure("script_error", String(error?.message || "CUA promise failed"), error);
+          throw new ScriptFailure("script_error", String(error.message || "CUA promise failed"), error);
         }
         const state = context.getPromiseState(promise);
         if (state.type === "rejected") {
           const error = this.guestError(state.error);
-          throw new ScriptFailure("script_error", String(error?.message || "CUA script failed"), error);
+          throw new ScriptFailure("script_error", String(error.message || "CUA script failed"), error);
         }
         if (state.type === "fulfilled") {
           if (cell.pending.size) {
@@ -552,6 +556,7 @@ export class CuaScriptController {
   async reset() {
     this.epoch++;
     this.active?.abort.abort(new ScriptFailure("session_reset", "CUA script state was reset"));
+    // eslint-disable-next-line no-restricted-syntax -- 重置只需等待队列排空，正在运行的脚本失败已由它自己的 Promise 上报
     await this.tail.catch(() => {});
     this.disposeVM();
   }

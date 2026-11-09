@@ -248,9 +248,7 @@ export function createBuiltinTools(options: BuiltinToolOptions): ReadonlyMap<str
       const command = typeof value.command === "string" ? value.command : defaultCommand;
       if (!command) throw new Error("command is required");
       const args =
-        Array.isArray(value.args) && value.args.every((arg) => typeof arg === "string")
-          ? (value.args as string[])
-          : [];
+        Array.isArray(value.args) && value.args.every((arg) => typeof arg === "string") ? value.args : [];
       // With project writes on, work happens in the project, so that is where
       // a command runs unless one is named. `cwd` is resolved by the same rule
       // as a file path, so it cannot point somewhere writes could not reach.
@@ -424,6 +422,7 @@ export async function browseWorkspace(options: BrowseWorkspaceOptions, rawInput:
       // Old callbacks may still quote a pre-migration artifact path. Follow
       // the explicit migration journal for model reads, not for the UI list.
       const journal = await readFile(resolve(root, ".runtime/artifact-migration.json"), "utf8").catch(
+        // eslint-disable-next-line no-restricted-syntax -- 迁移日志在旧工作区尚不存在是预期情况，读取失败由下面的 JSON.parse 兜底为空映射
         () => "{}"
       );
       const mappings =
@@ -552,6 +551,7 @@ async function searchOneFile(
   try {
     const found = await searchWorkspaceText(filePath, query, maxEntries - matches.length);
     matches.push(...found.map((match) => ({ path: relative(root, filePath), ...match })));
+    // eslint-disable-next-line no-restricted-syntax -- 文本搜索按目录遍历，二进制或不可读文件只从结果中缺席，无需中断整次搜索
   } catch {
     // Binary/unreadable files are intentionally ignored by the text search.
   }

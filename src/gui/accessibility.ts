@@ -46,6 +46,7 @@ export function driverAccessibility(value: unknown): DriverAccessibility {
   const ids = new Set<string>();
   const elements = tree.elements.map((element) => {
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- elements 来自按 unknown 校验后断言的驱动载荷，数组元素在运行期可能为 null
       !element ||
       !boundedText(element.elementId, 128) ||
       !element.elementId ||
@@ -129,9 +130,9 @@ export function computerWaitCondition(input: unknown): ComputerWaitCondition {
     return {
       type: "element",
       state: condition.state as "present" | "absent" | "enabled",
-      ...(role !== undefined ? { role: role as string } : {}),
-      ...(name !== undefined ? { name: name as string } : {}),
-      ...(value !== undefined ? { value: value as string } : {})
+      ...(role !== undefined ? { role } : {}),
+      ...(name !== undefined ? { name } : {}),
+      ...(value !== undefined ? { value } : {})
     };
   }
   throw new Error("不支持的等待条件；使用 accessibility_text 或 element");

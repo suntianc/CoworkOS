@@ -110,6 +110,7 @@ try {
   } = {};
   try {
     diagnostics = JSON.parse(await readFile(path, "utf8"));
+    // eslint-disable-next-line no-restricted-syntax -- 启动阶段就可能失败而没有 result.json，缺失时只输出其余诊断并保留原错误
   } catch {
     /* Startup can fail before a model request exists. */
   }
