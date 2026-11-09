@@ -73,7 +73,9 @@ test("deleting the selected conversation clears its question card", async ({ pag
     const deleted = await page.request.delete(`${dashboard.base}/api/tasks/question-deleted`);
     expect(deleted.ok()).toBe(true);
     await expect(page.locator("#human-questions")).toBeHidden({ timeout: 15_000 });
-    await expect(page.locator(".new-session-start")).toBeVisible({ timeout: 15_000 });
+    // This host has no model connection, so the empty work entry is the
+    // first-use guide rather than the new-session start surface.
+    await expect(page.locator(".first-use")).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('.conversation-item[data-task="question-deleted"]')).toHaveCount(0);
   } finally {
     await dashboard.stop();
