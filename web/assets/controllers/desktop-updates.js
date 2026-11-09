@@ -2,11 +2,11 @@ import { ui } from "../ui/language.js";
 import { icon } from "../ui/icons.js";
 
 /** Render host-owned updates without exposing paths, commands or download URLs to the page. */
-export function installDesktopUpdates({ overview } = {}) {
+export function installDesktopUpdates({ host } = {}) {
   const desktop = window.bookmanDesktop;
   const section = document.querySelector("#profile-settings-about .desktop-updates");
   if (!desktop?.updateStatus || !desktop?.checkUpdates || !desktop?.applyUpdate || !section) return;
-  const panel = document.querySelector("#profile-modal");
+  const panel = document.querySelector("#settings-entry");
   const action = section.querySelector("[data-update-action]");
   action.hidden = false;
   const message = section.querySelector("[data-update-message]");
@@ -16,8 +16,7 @@ export function installDesktopUpdates({ overview } = {}) {
   notice.type = "button";
   notice.className = "desktop-update-notice";
   notice.dataset.updateNotice = "";
-  notice.setAttribute("aria-haspopup", "dialog");
-  notice.setAttribute("aria-controls", "profile-modal");
+  notice.setAttribute("aria-controls", "settings-entry");
   notice.hidden = true;
   notice.innerHTML = icon("download");
   document.querySelector("#user-menu-button")?.before(notice);
@@ -41,7 +40,8 @@ export function installDesktopUpdates({ overview } = {}) {
       for (const [element, previous] of restoreInert) element.inert = previous;
       restoreInert = [];
     }
-    document.querySelector("#profile-close").disabled = value;
+    const back = document.querySelector("#settings-back");
+    if (back) back.disabled = value;
   }
 
   function canApply() {
@@ -171,7 +171,7 @@ export function installDesktopUpdates({ overview } = {}) {
     else void runCheck();
   });
   notice.addEventListener("click", () => {
-    if (overview) overview.open();
+    if (host) host.open();
     else document.querySelector("#user-menu-button")?.click();
     section.scrollIntoView({ block: "nearest" });
     action.focus({ preventScroll: true });

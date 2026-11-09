@@ -3,11 +3,12 @@ import { installWebSearchSettings } from "./web-search-settings.js";
 import { createSettingsModal } from "./settings-modal.js";
 import { createSettingsBackend } from "./settings-backend.js";
 import { icon } from "../ui/icons.js";
+import { escapeHtml as esc } from "../workbench/html.js";
 /** Both hosts share one settings UI; keys are submitted once and never read back. */
 export function installDesktopSettings({
   showToast,
   onSaved,
-  overview,
+  host,
   api,
   projectId: projectIdOf,
   identity = () => location.origin
@@ -21,14 +22,6 @@ export function installDesktopSettings({
   };
   if (desktop?.onDraftError) desktop.onDraftError((message) => showToast(errorMessage({ message })));
   else if (desktop?.draftWarning) showToast(desktop.draftWarning);
-  if (desktop?.capabilities) {
-    const row = document.createElement("div");
-    row.className = "profile-setting";
-    const notice = desktop.capabilities.notifications ? ui("支持") : ui("不可用");
-    const tray = desktop.capabilities.tray ? ui("支持") : ui("不可用");
-    row.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("bell")}</span><span><strong>桌面能力</strong><small>通知：${notice} · 托盘：${tray}</small></span></span>`;
-    document.querySelector("#profile-settings-general").append(row);
-  }
   const transport = async (path, options) => {
     if (api) return api(path, options);
     const response = await fetch(path, options);
@@ -103,8 +96,8 @@ export function installDesktopSettings({
   document.body.append(panel);
   const form = panel.querySelector("form");
   const dialog = createSettingsModal(panel, panel.querySelector("[data-model-close]"), {
-    overview,
-    returnFocus: () => button.focus()
+    host,
+    returnFocus: () => document.querySelector("#settings-model-add")?.focus()
   });
   const testButton = panel.querySelector("[data-model-test]");
   const submitButton = form.querySelector('[type="submit"]');
@@ -174,6 +167,152 @@ export function installDesktopSettings({
     } else roleEffective.textContent = ui("尚未配置 Main 模型");
     setRoleDisabled();
   };
+  const modelsRows = document.querySelector("#profile-settings-connections");
+  const roleRows = document.querySelector("#settings-role-rows");
+  const ROLE_META = [
+    { role: "main", label: "Main", hint: "Main 的默认模型连接", fallback: "跟随当前启用连接" },
+    {
+      role: "executor",
+      label: "Executor",
+      hint: "子 Agent 执行时的默认模型连接",
+      fallback: "沿用启动时的连接"
+    },
+    { role: "reviewer", label: "Reviewer", hint: "审查时的默认模型连接", fallback: "沿用启动时的连接" }
+  ];
+  const REASONING = ["off", "low", "medium", "high", "xhigh", "max"];
+  const REASONING_LABEL = { off: "关闭", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" };
+  const apiLabel = (api) => (api === "openai-responses" ? "Responses" : ui("OpenAI 兼容"));
+
+  const renderModels = (value) => {
+    if (!modelsRows) return;
+    const profiles = value.profiles || [];
+    modelsRows.innerHTML = profiles.length
+      ? profiles
+          .map(
+            (profile) => `<div class="settings-row" data-model-profile="${esc(profile.id)}">
+        ${icon("plug")}
+        <span class="settings-row-text">
+          <span class="settings-row-name">${esc(profile.name)}</span>
+          <span class="settings-row-meta">${esc(apiLabel(profile.api))} · ${esc(profile.model)}</span>
+        </span>
+        <span class="settings-row-spacer"></span>
+        <span class="settings-dot ${profile.active ? "is-ok" : "is-muted"}" aria-hidden="true"></span>
+        <span class="settings-row-state">${profile.active ? ui("当前启用") : ui("未启用")}</span>
+        <button class="settings-icon-button" type="button" data-model-edit="${esc(profile.id)}" aria-label="${esc(`配置 ${profile.name}`)}" title="${esc("配置")}">${icon("more")}</button>
+      </div>`
+          )
+          .join("")
+      : `<div class="settings-row"><span class="settings-row-meta">${ui("尚未配置模型连接")}</span></div>`;
+  };
+
+  const roleBinding = (value, role) => (value.modelRoles?.roles || []).find((entry) => entry.role === role);
+  // A change made on this section may fail after the person looked away from
+  // the row; the reason stays with the row until its next change.
+  const roleErrors = new Map();
+  const effortProfileFor = (value, role) => {
+    const profiles = value.profiles || [];
+    const entry = roleBinding(value, role);
+    return (
+      profiles.find((profile) => profile.id === entry?.host?.profileId) ||
+      profiles.find((profile) => profile.active)
+    );
+  };
+
+  const renderRoles = (value) => {
+    if (!roleRows) return;
+    const profiles = value.profiles || [];
+    roleRows.innerHTML = ROLE_META.map(({ role, label, hint, fallback }) => {
+      const entry = roleBinding(value, role);
+      const bound = profiles.find((profile) => profile.id === entry?.host?.profileId);
+      const option = (profile) =>
+        `<option value="${esc(profile.id)}"${profile.id === bound?.id ? " selected" : ""}>${esc(`${profile.name} / ${profile.model}`)}</option>`;
+      const effortProfile = effortProfileFor(value, role);
+      const effort = effortProfile?.reasoningEffort ?? "off";
+      const failure = roleErrors.get(role);
+      return `<div class="settings-row${failure ? " has-error" : ""}" data-model-role="${role}">
+        <span class="settings-row-line settings-role-name"><span class="settings-row-name">${label}</span><span class="settings-info" title="${esc(hint)}">${icon("info")}</span></span>
+        <span class="settings-row-spacer"></span>
+        <select class="settings-select is-model" data-role-model="${role}" aria-label="${esc(`${label} 的模型连接`)}"${profiles.length ? "" : " disabled"}>
+          <option value=""${bound ? "" : " selected"}>${esc(fallback)}</option>${profiles.map(option).join("")}
+        </select>
+        <select class="settings-select is-effort" data-role-effort="${role}" aria-label="${esc(`${label} 的推理强度`)}" title="${esc("推理强度属于所选的模型连接")}"${effortProfile ? "" : " disabled"}>
+          ${REASONING.map((level) => `<option value="${level}"${level === effort ? " selected" : ""}>${esc(REASONING_LABEL[level])}</option>`).join("")}
+        </select>
+        <span class="settings-row-error" role="alert" data-role-error="${role}"${failure ? "" : " hidden"}>${failure ? esc(failure) : ""}</span>
+      </div>`;
+    }).join("");
+  };
+
+  let listed = {};
+  const refreshList = async () => {
+    settingsBackend.bind();
+    try {
+      const value = await status();
+      listed = value;
+      renderModels(value);
+      renderRoles(value);
+    } catch (error) {
+      showToast(errorMessage(error));
+    }
+  };
+
+  /**
+   * Save one change made on this section and answer on the row itself.
+   *
+   * A failure must not go to the connection dialog's error line: that dialog is
+   * closed, so nothing would be visible. The row keeps the reason, and the
+   * controls go back to what the host persisted.
+   */
+  let roleSaving = false;
+  const saveRoleFromSection = async (role, work) => {
+    if (roleSaving) return;
+    roleSaving = true;
+    roleErrors.delete(role);
+    if (listed.profiles) renderRoles(listed);
+    settingsBackend.bind();
+    try {
+      await work();
+    } catch (error) {
+      roleErrors.set(role, errorMessage(error));
+      // Show the last persisted values at once, then confirm with the host.
+      if (listed.profiles) renderRoles(listed);
+    } finally {
+      roleSaving = false;
+    }
+    await refreshList();
+  };
+
+  roleRows?.addEventListener("change", (event) => {
+    const modelSelect = event.target.closest("[data-role-model]");
+    if (modelSelect) {
+      const role = modelSelect.dataset.roleModel;
+      void saveRoleFromSection(role, () => saveRole({ role, profileId: modelSelect.value }));
+      return;
+    }
+    const effortSelect = event.target.closest("[data-role-effort]");
+    if (!effortSelect) return;
+    const role = effortSelect.dataset.roleEffort;
+    const level = effortSelect.value;
+    const profile = effortProfileFor(listed, role);
+    if (!profile) return;
+    void saveRoleFromSection(role, () =>
+      save({
+        profileId: profile.id,
+        profileName: profile.name,
+        baseUrl: profile.baseUrl,
+        model: profile.model,
+        api: profile.api,
+        reasoningEffort: level
+      })
+    );
+  });
+  modelsRows?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-model-edit]");
+    if (button) void open(button.dataset.modelEdit);
+  });
+  document.querySelector("#settings-model-add")?.addEventListener("click", () => void open(""));
+  host?.onSection?.("models", () => void refreshList());
+
   const changeRole = async (body) => {
     if (roleBusy || busy || !loaded || managed) return;
     roleBusy = true;
@@ -261,7 +400,7 @@ export function installDesktopSettings({
       ? ui`当前启用：${active.name} · ${snapshot.model}`
       : ui("尚未启用模型连接");
   };
-  const open = async () => {
+  const open = async (requestedProfile) => {
     // Reopening a pending operation keeps the same locked form and result target.
     if (!dialog.open()) return;
     const next = identity();
@@ -317,12 +456,12 @@ export function installDesktopSettings({
       if (revision !== openRevision || busy) return;
       snapshot = value;
       drafts.clear();
-      selectedId = value.activeProfileId || "";
+      selectedId = requestedProfile === undefined ? value.activeProfileId || "" : requestedProfile;
       managed = value.managedByEnvironment === true;
       showProfiles();
-      const active = value.profiles?.find((p) => p.id === value.activeProfileId);
+      const selected = value.profiles?.find((p) => p.id === selectedId);
       loaded = true;
-      fill(managed ? value : active || value);
+      fill(managed ? value : selected || value);
       showRoles();
     } catch (error) {
       if (revision !== openRevision) return;
@@ -419,6 +558,7 @@ export function installDesktopSettings({
       backendDrafts.delete(target);
       drafts.clear();
       dialog.close();
+      void refreshList();
       showToast(input.activate ? ui("模型连接已保存并启用") : ui("模型连接已保存，当前启用项未改变"));
       onSaved?.();
     } catch (error) {
@@ -434,20 +574,6 @@ export function installDesktopSettings({
       }
     }
   });
-  const button = document.createElement("button");
-  button.type = "button";
-  button.innerHTML = ui`配置${icon("chevron-right")}`;
-  button.setAttribute("aria-label", ui("管理模型连接"));
-  button.className = "app-button is-secondary";
-  button.id = "desktop-model-settings";
-  button.addEventListener("click", () => {
-    void open();
-  });
-  const connectionRow = document.createElement("div");
-  connectionRow.className = "profile-setting";
-  connectionRow.innerHTML = ui`<span class="settings-row-copy"><span class="settings-row-icon">${icon("code")}</span><span><strong>模型连接</strong></span></span>`;
-  connectionRow.append(button);
-  document.querySelector("#profile-settings-connections").append(connectionRow);
-  installWebSearchSettings({ showToast, overview, api, identity });
-  return { open };
+  installWebSearchSettings({ showToast, host, api, identity });
+  return { open, refresh: () => void refreshList() };
 }

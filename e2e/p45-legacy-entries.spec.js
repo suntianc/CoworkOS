@@ -54,7 +54,8 @@ test("legacy dialogs stay reachable from the work entry until their observation 
     await expect(page.locator("#ledger-nav")).toBeVisible();
     await expect(page.locator("#development-nav")).toBeVisible();
     await expect(page.locator("#main-sessions-nav")).toBeVisible();
-    await expect(page.locator("#main-capacity-nav")).toBeVisible();
+    // The external capacity entry moved into the settings page with #08.
+    await expect(page.locator("#main-capacity-nav")).toHaveCount(0);
     await expect(page.locator("#board-nav")).toBeVisible();
     await page.locator('[data-entry-mode="observe"]').click();
     await expect(page.locator("#ledger-nav")).toBeHidden();

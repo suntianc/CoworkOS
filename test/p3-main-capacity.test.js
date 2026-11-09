@@ -2,13 +2,14 @@ import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseHTML } from "linkedom";
 import { startDashboard } from "./dashboard-fixture.mjs";
-import { createMainCapacityController } from "../web/assets/controllers/main-capacity.js";
+import { createSettingsPages } from "../web/assets/controllers/settings-pages.js";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 import {
@@ -416,10 +417,20 @@ test("concurrent external session saves never exceed the project limit", { timeo
  * The quota form loads asynchronously. A person who starts typing before that
  * read comes back must keep their numbers, and saving must write them.
  */
-test("the capacity form keeps typed quotas across the first read and a background refresh", async (t) => {
-  const { window, document } = parseHTML("<html><body></body></html>");
-  const previous = { window: globalThis.window, document: globalThis.document, CSS: globalThis.CSS };
-  Object.assign(globalThis, { window, document, CSS: { escape: (value) => value } });
+test("the runtime capacity page keeps edited quotas across a background refresh and saves them", async (t) => {
+  const { window, document } = parseHTML(readFileSync("web/index.html", "utf8"));
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    CSS: globalThis.CSS,
+    location: globalThis.location
+  };
+  Object.assign(globalThis, {
+    window,
+    document,
+    CSS: { escape: (value) => value },
+    location: { origin: "http://127.0.0.1:3880", host: "127.0.0.1:3880" }
+  });
   t.after(() => {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete globalThis[key];
@@ -428,8 +439,7 @@ test("the capacity form keeps typed quotas across the first read and a backgroun
   });
   window.HTMLElement.prototype.getClientRects ??= () => [];
   const sent = [];
-  let resolveStatus;
-  let calls = 0;
+  let reads = 0;
   const api = async (path, options) => {
     if (options?.body) {
       const body = JSON.parse(options.body);
@@ -441,29 +451,31 @@ test("the capacity form keeps typed quotas across the first read and a backgroun
         projects: []
       };
     }
-    calls += 1;
-    if (calls === 1) await new Promise((resolve) => (resolveStatus = resolve));
+    reads += 1;
     return { settings: { resident: 2, continuation: 0 }, running: [], queued: [], projects: [] };
   };
-  const controller = createMainCapacityController({ api });
-  controller.open();
-  const resident = document.querySelector('[name="resident"]');
-  const continuation = document.querySelector('[name="continuation"]');
-  resident.value = "3";
-  resident.dispatchEvent(new window.Event("input", { bubbles: true }));
-  continuation.value = "1";
-  continuation.dispatchEvent(new window.Event("input", { bubbles: true }));
-  resolveStatus();
+  const pages = createSettingsPages({
+    root: document.querySelector("#settings-entry"),
+    app: document.querySelector("#app-layout"),
+    api,
+    nodes: () => [{ origin: "https://cloud.example.test", name: "云端", role: "external" }]
+  });
+  pages.open("capacity");
   for (let index = 0; index < 8; index++) await new Promise((done) => setTimeout(done, 0));
-  assert.equal(resident.value, "3", "the first read must not overwrite typing");
-  assert.equal(continuation.value, "1");
-  controller.render();
-  assert.equal(resident.value, "3", "a background refresh must not overwrite typing");
-  document
-    .querySelector("[data-quota]")
-    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  const continuation = () => document.querySelector('[data-capacity-value="continuation"]');
+  assert.equal(document.querySelector('[data-capacity-value="regular"]').textContent, "2");
+  assert.equal(continuation().textContent, "0");
+
+  document.querySelector('[aria-label="增加接续 Main"]').click();
+  assert.equal(continuation().textContent, "1");
+  // A refresh reads the service again but keeps the number the person set.
+  pages.open("capacity");
   for (let index = 0; index < 8; index++) await new Promise((done) => setTimeout(done, 0));
-  assert.deepEqual(sent, [{ action: "configure", resident: 3, continuation: 1 }]);
-  assert.equal(resident.value, "3", "the saved value is shown after saving");
-  controller.close();
+  assert.equal(reads, 2);
+  assert.equal(continuation().textContent, "1", "a background refresh must not overwrite the edited quota");
+
+  document.querySelector("[data-capacity-save]").click();
+  for (let index = 0; index < 8; index++) await new Promise((done) => setTimeout(done, 0));
+  assert.deepEqual(sent, [{ resident: 2, continuation: 1 }]);
+  assert.equal(continuation().textContent, "1", "the saved value is shown after saving");
 });

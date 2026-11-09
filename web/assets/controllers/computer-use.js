@@ -2,7 +2,7 @@ import { icon } from "../ui/icons.js";
 
 /** One host-wide setting grants access; task ownership remains a runtime concern. */
 export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showToast }) {
-  const settings = document.querySelector("#profile-modal");
+  const settings = document.querySelector("#settings-entry");
   const section = document.createElement("details");
   section.className = "computer-setting";
   section.setAttribute("aria-label", "窗口访问");
@@ -14,9 +14,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
     </div>
     <p data-computer-permissions role="status" hidden></p>
     <p data-computer-error role="alert" hidden></p></div>`;
-  const tools = document.querySelector("#profile-settings-tools");
-  if (tools) tools.append(section);
-  else document.querySelector("#profile-settings-connections").before(section);
+  document.querySelector("#profile-settings-tools").append(section);
   const bar = document.createElement("div");
   bar.className = "computer-control-bar";
   bar.hidden = true;

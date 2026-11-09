@@ -14,7 +14,7 @@ import { parseHTML } from "linkedom";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
-import { createMainCapacityController } from "../web/assets/controllers/main-capacity.js";
+import { createSettingsPages } from "../web/assets/controllers/settings-pages.js";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 
 const run = promisify(execFile);
@@ -629,7 +629,7 @@ test("the worker and the CLI spend the same budget as the page", { timeout: 240_
 });
 
 test(
-  "the capacity page shows running and waiting Mains from the service",
+  "the runtime capacity page saves quotas for a remote external node and the service reports its Mains",
   { timeout: 120_000 },
   async (t) => {
     const local = await provider(t);
@@ -655,7 +655,24 @@ test(
       mainSessionId: waiting.sessionId
     });
 
-    const previous = { window: globalThis.window, document: globalThis.document, CSS: globalThis.CSS };
+    const view = await (await fetch(`${dashboard.base}/api/main-capacity`)).json();
+    assert.equal(view.running.length, 1);
+    assert.equal(view.running[0].projectName, "项目 ui-a");
+    assert.equal(view.running[0].kind, "regular");
+    assert.equal(view.queued.length, 1);
+    assert.equal(view.queued[0].position, 1);
+    assert.equal(view.queued[0].projectName, "项目 ui-b");
+    // A demand posted from the page reports the page, not the internal Main
+    // default that never spends an external slot.
+    assert.equal(view.queued[0].origin, "http");
+    assert.deepEqual(view.settings, { resident: 1, continuation: 0 });
+
+    const previous = {
+      window: globalThis.window,
+      document: globalThis.document,
+      CSS: globalThis.CSS,
+      location: globalThis.location
+    };
     t.after(() => {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) delete globalThis[key];
@@ -666,6 +683,7 @@ test(
     globalThis.window = window;
     globalThis.document = document;
     globalThis.CSS = { escape: (value) => value };
+    globalThis.location = { origin: dashboard.base, host: new URL(dashboard.base).host };
     window.HTMLElement.prototype.getClientRects ??= () => [];
     const api = async (path, options) => {
       const response = await fetch(`${dashboard.base}${path}`, options);
@@ -675,47 +693,39 @@ test(
       }
       return response.json();
     };
-    const controller = createMainCapacityController({ api });
-    controller.open();
+    const pages = createSettingsPages({
+      root: document.querySelector("#settings-entry"),
+      app: document.querySelector("#app-layout"),
+      api,
+      nodes: () => [{ origin: "https://cloud.example.test", name: "云端", role: "external" }]
+    });
+    pages.open("capacity");
+    // Only the remote external node is offered; this machine never gets quotas.
     await waitFor(
-      () => controller.view && controller.isOpen() && controller.view.running.length > 0,
-      "the capacity page did not load the service view"
+      () => document.querySelector('[data-capacity-value="regular"]'),
+      "the capacity section did not render"
     );
+    assert.equal(document.querySelectorAll("[data-capacity-node]").length, 1);
+    assert.equal(document.querySelector('[data-capacity-value="regular"]').textContent, "1");
+    assert.equal(document.querySelector('[data-capacity-value="continuation"]').textContent, "0");
+    document.querySelector('[aria-label="增加接续 Main"]').click();
+    assert.equal(document.querySelector('[data-capacity-value="continuation"]').textContent, "1");
+    // A background refresh keeps the number the person set.
+    pages.open("capacity");
     await waitFor(
-      () => document.querySelector("[data-running]")?.textContent.includes("项目 ui-a"),
-      "the running Main is not shown"
+      () => document.querySelector('[data-capacity-value="continuation"]')?.textContent === "1",
+      "a background refresh overwrote the edited quota"
     );
-    assert.match(document.querySelector("[data-running]").textContent, /常规/);
-    assert.match(document.querySelector("[data-queued]").textContent, /第 1 位/);
-    assert.match(document.querySelector("[data-queued]").textContent, /项目 ui-b/);
-    // A demand posted from the page reports the page, not the internal Main
-    // default that never spends an external slot.
-    assert.equal(controller.view.queued[0].origin, "http");
-    assert.match(document.querySelector("[data-queued]").textContent, /页面/);
-    assert.equal(document.querySelector('[name="resident"]').value, "1");
-    assert.equal(document.querySelector('[name="continuation"]').value, "0");
-    // A background refresh keeps the numbers the person typed.
-    document.querySelector('[name="continuation"]').value = "1";
-    controller.render();
-    assert.equal(
-      document.querySelector('[name="continuation"]').value,
-      "1",
-      "a background refresh must not overwrite the edited quota"
-    );
-    // Saving submits what the person typed, not the values the page just loaded.
-    document
-      .querySelector("[data-quota]")
-      .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
-    await waitFor(
-      () => controller.view?.settings?.continuation === 1,
-      "the quota typed on the page was not saved"
-    );
-    assert.equal(document.querySelector('[name="continuation"]').value, "1");
+    // Saving submits what the page shows.
+    document.querySelector("[data-capacity-save]").click();
+    await waitFor(async () => {
+      const quota = await (await fetch(`${dashboard.base}/api/main-capacity`)).json();
+      return quota.settings?.continuation === 1;
+    }, "the quota set on the page was not saved");
     const savedQuota = await (await fetch(`${dashboard.base}/api/main-capacity`)).json();
     assert.deepEqual(savedQuota.settings, { resident: 1, continuation: 1 });
     local.release("ui-a");
     await settle(request, session.taskId, "completed");
-    controller.close();
     assert.deepEqual(local.failures, []);
   }
 );
