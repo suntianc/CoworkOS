@@ -189,7 +189,7 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 侧栏项目树由 [项目控制器](../web/assets/controllers/project-controller.js) 与 [共用样式](../web/assets/ui.css) 管理。悬浮操作覆盖在标题末端，不改变标题几何；键盘聚焦显示操作，触屏常驻，未读与运行标记位于标题前。会话菜单优先放在侧栏旁，空间不足时根据上下空间定位。验证 [侧栏悬浮、折叠、命中、键盘和菜单定位](../e2e/sidebar-interactions.spec.js)。
 
-输入区主按钮的运行、草稿和停止状态由 `web/app.js` 的 `updateSendButton`、`sendMessage` 与 `stopTask` 装配；先运行 [布局与停止](../e2e/composer-layout.spec.js)、[发送焦点](../e2e/composer-focus.spec.js)、[消息归属](../e2e/message-boundaries.spec.js) 和 [队列投递](../e2e/message-delivery.spec.js)，同步 [会话契约](runtime-reference.md#会话与消息)。
+输入区主按钮的运行、草稿和停止状态由 `web/app.js` 的 `updateSendButton`、`sendMessage` 与 `stopTask` 装配；推理强度选择同样在此装配，默认显示 `/api/models` 的 `reasoningEffort`（Main 角色连接保存的强度），未显式选择时不发送 `thinkingLevel`，显式选择只作用于当前会话。先运行 [布局与停止](../e2e/composer-layout.spec.js)、[发送焦点](../e2e/composer-focus.spec.js)、[消息归属](../e2e/message-boundaries.spec.js)、[队列投递](../e2e/message-delivery.spec.js)、[角色连接强度](../test/p45-reasoning-effort.test.js) 和 [Composer 强度显示与切换](../e2e/p45-reasoning-effort.spec.js)，同步 [会话契约](runtime-reference.md#会话与消息) 与 [Product API](product-api.md)。
 
 新会话发送不等待全局标签刷新；[发送隔离回归](../e2e/message-send-isolation.spec.js) 验证标签请求未完成时仍可启动 Run 并释放输入。周期轮询复用在途刷新，主动刷新仍可替换旧读取，验证见[标签刷新回归](../test/tab-refresh.test.js)。标签解析在[应用路由](../src/dashboard/application-routes.ts)内按请求复用目录、项目和实例发现；[多标签回归](../test/application-tab-resolution.test.js) 覆盖跨目录窗口及下一请求的重命名、关闭更新。
 

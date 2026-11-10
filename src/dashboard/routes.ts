@@ -689,9 +689,16 @@ export function createDashboardHandler(
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/models") {
+        const status = ports.modelSettings.status();
+        // The effort of the connection the next Main run resolves to, so the
+        // composer can show it instead of an assumed default. Read from the same
+        // role resolution the launch uses; absent when that connection is unusable.
+        const mainEffort = status.modelRoles.roles.find((entry) => entry.role === "main")?.effective
+          ?.thinkingLevel;
         sendJson(response, 200, {
           current: runtimeValue("COWORK_MODEL"),
-          connectionProfileId: ports.modelSettings.status().activeProfileId,
+          connectionProfileId: status.activeProfileId,
+          ...(mainEffort ? { reasoningEffort: mainEffort } : {}),
           models: await availableModels(),
           configured: Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
         });

@@ -284,9 +284,11 @@ export function installDesktopSettings({
     roleErrors.delete(role);
     if (listed.profiles) renderRoles(listed);
     settingsBackend.bind();
+    let saved = true;
     try {
       await work();
     } catch (error) {
+      saved = false;
       roleErrors.set(role, errorMessage(error));
       // Show the last persisted values at once, then confirm with the host.
       if (listed.profiles) renderRoles(listed);
@@ -294,6 +296,9 @@ export function installDesktopSettings({
       roleSaving = false;
     }
     await refreshList();
+    // A role or effort change moves the level the next Main run sends, so the
+    // composer must re-read it instead of keeping the previous label.
+    if (saved) onSaved?.();
   };
 
   roleRows?.addEventListener("change", (event) => {
@@ -338,6 +343,7 @@ export function installDesktopSettings({
       // this page shows; otherwise the project override would disappear until
       // the panel is reopened.
       snapshot.modelRoles = (await status()).modelRoles;
+      onSaved?.();
     } catch (error) {
       panel.querySelector("[data-model-error]").textContent = errorMessage(error);
     } finally {
