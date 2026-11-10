@@ -80,9 +80,18 @@ test("steering reaches the next model call while queued input waits until the cu
         (message) => message.role === "user" && JSON.stringify(message).includes("STEER_REQUEST")
       )
     ).toHaveLength(1);
-    // The step ran before the steer was applied. Where the injected user turn sits
-    // relative to the tool transcript is a runtime ordering detail, not this claim.
-    expect(next).toContain("STEP_DONE");
+    // Steering drains only after the in-flight tool call returns, so the steer user turn
+    // follows that call's result (docs/product-api.md, steering). Compare message
+    // positions: the system prompt may quote both texts and must not decide the order.
+    const messages = steerRequest.body.messages;
+    const stepResult = messages.findIndex(
+      (message) => message.role === "tool" && JSON.stringify(message).includes("STEP_DONE")
+    );
+    const steerTurn = messages.findIndex(
+      (message) => message.role === "user" && JSON.stringify(message).includes("STEER_REQUEST")
+    );
+    expect(stepResult).toBeGreaterThan(-1);
+    expect(steerTurn).toBeGreaterThan(stepResult);
     const instruction = page.locator(".chat-message.user").filter({ hasText: "STEER_REQUEST" });
     await expect(instruction).toHaveCount(1);
     await expect(page.locator('[data-answer-kind="continuation"] .tool-step')).toHaveCount(1);
