@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 
 test("Electron editable context menu uses native clipboard editing and saves the selected draft", async () => {
   test.skip(process.platform !== "darwin", "Native desktop test requires macOS");

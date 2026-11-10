@@ -72,7 +72,7 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
     await expect(page.locator("#agent-pane")).toBeHidden();
     await expect(panelToggle).toHaveAttribute("aria-expanded", "false");
     await profile.click();
-    const settings = page.getByRole("dialog", { name: "设置", exact: true });
+    const settings = page.locator("#settings-entry");
     await expect(settings).toBeVisible();
     const box = await settings.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0);
@@ -89,23 +89,14 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
       .evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-app-region"))
   ).not.toBe("drag");
   await profile.click();
-  const close = page.locator("#profile-close");
-  const memory = page.getByRole("checkbox", { name: "使用个人记忆", exact: true });
-  const appearance = page.locator("#appearance-select");
-  await expect(page.locator("#profile-modal .computer-setting")).toHaveCount(1);
+  const settings = page.locator("#settings-entry");
+  // The page opens on the section navigation, and Escape is the one exit.
+  await expect(page.locator('[data-settings-section="general"]')).toBeFocused();
+  await expect(page.locator("#settings-entry .computer-setting")).toHaveCount(1);
   await expect(page.locator("#computer-access-enabled")).toBeDisabled();
   await expect(page.getByRole("switch", { name: "流星动态背景" })).toHaveCount(0);
-  await expect(close).toBeFocused();
-  await close.press("Tab");
-  await expect(appearance).toBeFocused();
-  await appearance.press("Shift+Tab");
-  await expect(close).toBeFocused();
-  await close.press("Tab");
-  await expect(appearance).toBeFocused();
-  await appearance.press("Tab");
-  await expect(memory).toBeFocused();
-  await memory.press("Escape");
-  await expect(page.locator("#profile-modal")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
   await expect(profile).toBeFocused();
   await expect(page.locator("#details-modal, #details-close")).toHaveCount(0);
 });

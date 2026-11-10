@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
-import { desktopSmokeEnvironment, prepareDesktopSmokeComponents } from "../scripts/desktop-smoke-env.mjs";
+import { desktopSmokeEnvironment } from "../scripts/desktop-smoke-env.mjs";
 import {
   PUBLIC_RELEASE_REPOSITORY,
   PUBLIC_UPDATE_FEED_URL,
@@ -243,7 +243,6 @@ test("a packaged App checks the public feed, downloads in the background and ins
     await mkdir(data);
     await mkdir(join(root, "project"));
     await execute("/usr/bin/ditto", [source, target]);
-    await prepareDesktopSmokeComponents({ data, metadata: original });
     const candidate = await fixtureCandidate(source, root, nextVersion);
     fixture = await updateFixture(candidate, nextVersion);
     const env = desktopSmokeEnvironment({ data });

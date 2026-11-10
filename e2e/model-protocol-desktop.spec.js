@@ -2,9 +2,10 @@ import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+import { openModelConnectionEditor } from "./settings-helper.js";
 
 for (const reasoningEffort of ["off", "max"]) {
   test(`native desktop persists each protocol and ${reasoningEffort} across saves and application relaunch`, async ({}, testInfo) => {
@@ -46,10 +47,7 @@ for (const reasoningEffort of ["off", "max"]) {
         const provider = await modelProtocolFixture(api, () => ({ text: responseText }));
         providers.push(provider);
         const dialog = page.getByRole("dialog", { name: "连接模型" });
-        if (api === "openai-responses") {
-          await page.getByRole("button", { name: "设置", exact: true }).click();
-          await page.locator("#desktop-model-settings").click();
-        }
+        if (api === "openai-responses") await openModelConnectionEditor(page);
         await expect(dialog).toBeVisible();
         await dialog.locator('[name="baseUrl"]').fill(provider.baseUrl);
         await dialog.locator('[name="api"]').selectOption(api);
@@ -62,20 +60,26 @@ for (const reasoningEffort of ["off", "max"]) {
         await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
         await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
         await expect(dialog).toBeHidden();
+        // A connection edited from settings keeps the page open behind the dialog.
+        if (await page.locator("#settings-entry").isVisible()) await page.locator("#settings-back").click();
         await expect(page.locator("#composer-input")).toBeVisible();
         await native.close();
         native = undefined;
         page = await launch();
         await expect(page.locator("#composer-input")).toBeVisible();
-        const status = await page.evaluate(async () =>
-          (
-            await fetch("/api/model-settings", {
-              headers: window.bookmanDesktop?.transportNonce
-                ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
-                : {}
-            })
-          ).json()
-        );
+        const readStatus = () =>
+          page.evaluate(async () =>
+            (
+              await fetch("/api/model-settings", {
+                headers: window.bookmanDesktop?.transportNonce
+                  ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+                  : {}
+              })
+            ).json()
+          );
+        // A relaunched window authorizes its transport once the host session is ready.
+        await expect.poll(async () => (await readStatus()).configured).toBe(true);
+        const status = await readStatus();
         expect(status.api).toBe(api);
         expect(status.reasoningEffort).toBe(reasoningEffort);
         expect(status.configured).toBe(true);
@@ -98,7 +102,12 @@ for (const reasoningEffort of ["off", "max"]) {
         expect(provider.requests.at(-1).path).toBe(
           api === "openai-responses" ? "/v1/responses" : "/v1/chat/completions"
         );
-        for (const { body } of provider.requests)
+        // The connection test reads the saved effort directly; a run keeps its own level.
+        const probes = provider.requests.filter(({ body }) =>
+          JSON.stringify(body).includes("atria_connection_check")
+        );
+        expect(probes.length).toBeGreaterThan(0);
+        for (const { body } of probes)
           expect(api === "openai-responses" ? body.reasoning?.effort : body.reasoning_effort).toBe(
             reasoningEffort === "off" ? undefined : reasoningEffort
           );

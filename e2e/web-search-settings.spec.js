@@ -1,10 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { openWebSearchSettings } from "./settings-helper.js";
 
 async function openSearch(page) {
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: "管理联网搜索", exact: true }).click();
-  return page.getByRole("dialog", { name: "联网搜索", exact: true });
+  return openWebSearchSettings(page);
 }
 test("Web search is anonymous by default, can be disabled, authenticated and cleared through settings", async ({
   page

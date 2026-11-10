@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 
 test("desktop keeps drafts and selected file bytes with their backend", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -122,13 +122,22 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
     }, directory);
     await page.locator("#user-menu-button").click();
+    await page.locator('[data-settings-section="nodes"]').click();
     await page.locator("[data-backend-open]").click();
     await page.locator("[data-backend-choose]").click();
     await page.waitForURL(`${instance.url}/**`, { timeout: 30_000 });
+    // A switched backend without a connection shows the first-use dialog; close it
+    // before reading the node row again.
+    const setup = page.getByRole("dialog", { name: "连接模型" });
+    await setup.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+    await closeModel();
+    await page.locator("#user-menu-button").click();
+    await page.locator('[data-settings-section="nodes"]').click();
     await expect(page.locator("[data-backend-status]")).toContainText(
       instance.backendId.replace(/^backend_/, "").slice(0, 8),
       { timeout: 30_000 }
     );
+    await page.locator("#settings-back").click();
     await closeModel();
   };
   try {
@@ -223,7 +232,7 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
     }
     if (evidence) await page.screenshot({ path: join(evidence, "artifact-b.png") });
 
-    await drawer.getByRole("button", { name: "关闭产出物详情" }).click();
+    await drawer.getByRole("button", { name: "关闭预览" }).click();
     await selectBackend(profile, primary);
     await page.locator('.conversation-item[data-task="shared-task"]').click();
     await expect(page.locator("#composer-input")).toHaveValue("draft A survives restart");

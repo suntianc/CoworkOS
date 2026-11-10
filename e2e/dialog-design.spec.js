@@ -9,6 +9,8 @@ async function seed(page, dashboard) {
     const created = await page.request.post(`${dashboard.base}/api/tasks`, { data: { taskId, goal } });
     expect(created.ok()).toBe(true);
   }
+  // Emulated color schemes drive the theme only while the page follows the system.
+  await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
   await page.goto(`${dashboard.base}/?task=dialog-a`);
   await expect(page.locator("#topbar-task")).toHaveText("需要保留草稿的会话 A");
   await page.locator("#composer-input").fill("打开弹窗前保留的草稿");
@@ -85,7 +87,7 @@ test("rename uses the shared dialog controls in light and dark at desktop and na
         expect(controls.panelBackground).toBe(
           theme === "light" ? "rgba(251, 251, 253, 0.95)" : "rgba(16, 16, 20, 0.88)"
         );
-        expect(controls.backdrop).toBe("blur(20px)");
+        expect(controls.backdrop).toBe("none");
         await expect(save).toBeInViewport();
         await expect(cancel).toBeInViewport();
         await page.screenshot({ path: info.outputPath(`rename-${theme}-${width}.png`) });
@@ -140,11 +142,13 @@ test("rename retains its field and focus while saving fails, and recent conversa
     await expect(dialog.getByRole("button", { name: "取消", exact: true })).toBeFocused();
     release();
     await expect(dialog.getByRole("alert")).toHaveText("暂时无法保存，请重试");
-    await expect(dialog.getByRole("alert")).toHaveCSS("color", "rgb(179, 78, 70)");
+    await expect(dialog.getByRole("alert")).toHaveCSS("color", "rgb(192, 58, 58)");
     await expect(input).toHaveValue("保存失败后保留的新名称");
     await expect(save).toBeEnabled();
     await page.screenshot({ path: info.outputPath("rename-save-failed.png") });
     await page.keyboard.press("Escape");
+    // Emulated color schemes drive the theme only while the page follows the system.
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(`${dashboard.base}/?task=dialog-a`);
     await expect(page.locator("#composer-input")).toHaveValue("打开弹窗前保留的草稿");
   } finally {

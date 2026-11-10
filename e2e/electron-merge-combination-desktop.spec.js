@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 
 test("host authorization recovery preserves drafts through backend switches and restart", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -46,8 +46,8 @@ test("host authorization recovery preserves drafts through backend switches and 
   const errors = [];
   const closeModel = async () => {
     const model = page.getByRole("dialog", { name: "连接模型" });
-    await expect(model).toBeVisible({ timeout: 30_000 });
-    await model.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await model.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+    if (await model.isVisible()) await model.getByRole("button", { name: "关闭设置", exact: true }).click();
   };
   const launch = async () => {
     native = await electron.launch({
@@ -78,13 +78,22 @@ test("host authorization recovery preserves drafts through backend switches and 
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
     }, directory);
     await page.locator("#user-menu-button").click();
+    await page.locator('[data-settings-section="nodes"]').click();
     await page.locator("[data-backend-open]").click();
     await page.locator("[data-backend-choose]").click();
     await page.waitForURL(`${instance.url}/**`, { timeout: 30_000 });
+    // A switched backend without a connection shows the first-use dialog; close it
+    // before reading the node row again.
+    const setup = page.getByRole("dialog", { name: "连接模型" });
+    await setup.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+    await closeModel();
+    await page.locator("#user-menu-button").click();
+    await page.locator('[data-settings-section="nodes"]').click();
     await expect(page.locator("[data-backend-status]")).toContainText(
       instance.backendId.replace(/^backend_/, "").slice(0, 8),
       { timeout: 30_000 }
     );
+    await page.locator("#settings-back").click();
     await closeModel();
   };
   try {

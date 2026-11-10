@@ -13,9 +13,14 @@ test("window access keeps desktop-only controls behind its settings row and pres
     for (const width of [1440, 1280, 474, 320]) {
       await page.setViewportSize({ width, height: 800 });
       await page.locator("#user-menu-button").click();
-      const settings = page.getByRole("dialog", { name: "设置", exact: true });
+      const settings = page.locator("#settings-entry");
       await expect(settings).toBeVisible();
+      await page.locator('[data-settings-section="tools"]').click();
       const access = settings.locator(".computer-setting");
+      // The row opens itself once it has a state to report; the summary still owns it.
+      await expect(page.locator("[data-computer-state]")).toContainText("执行主机窗口访问不可用");
+      await expect(access).toHaveJSProperty("open", true);
+      await access.locator("summary").click();
       await expect(access).toHaveJSProperty("open", false);
       await access.locator("summary").focus();
       await page.keyboard.press("Enter");
@@ -25,7 +30,6 @@ test("window access keeps desktop-only controls behind its settings row and pres
         await expect(button).toBeDisabled();
         await expect(button).toBeHidden();
       }
-      await expect(page.locator("[data-computer-state]")).toContainText("桌面版");
       await expect(page.locator("[data-computer-request]")).toHaveCount(0);
       await expect(
         page.locator("#computer-access-dialog, [data-computer-window], [data-computer-mode]")
@@ -75,8 +79,9 @@ test("native window permission actions remain available on demand without granti
       route.fulfill({ json: { policy: { enabled: false }, paused: false } })
     );
     await page.goto(dashboard.base);
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    const settings = page.getByRole("dialog", { name: "设置", exact: true });
+    await page.locator("#user-menu-button").click();
+    const settings = page.locator("#settings-entry");
+    await page.locator('[data-settings-section="tools"]').click();
     const access = settings.locator(".computer-setting");
     await expect(access.getByRole("button", { name: "开启窗口访问", exact: true })).toBeHidden();
     await access.locator("summary").click();

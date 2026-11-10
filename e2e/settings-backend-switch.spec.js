@@ -60,22 +60,29 @@ test("dirty model and search settings stay with their backend when switching", a
     await page.goto(a.base);
     const openModel = async () => {
       await page.locator("#user-menu-button").click();
-      await page.locator("#desktop-model-settings").click();
+      await page.locator('[data-settings-section="models"]').click();
+      await page.locator("[data-model-edit]").first().click();
       return page.getByRole("dialog", { name: "连接模型", exact: true });
     };
     const openSearch = async () => {
       await page.locator("#user-menu-button").click();
+      await page.locator('[data-settings-section="tools"]').click();
       await page.locator("[data-search-open]").click();
       return page.getByRole("dialog", { name: "联网搜索", exact: true });
     };
     const switchTo = async (base) => {
       await page.locator("#user-menu-button").click();
+      await page.locator('[data-settings-section="nodes"]').click();
       await page.locator("[data-backend-open]").click();
       const dialog = page.getByRole("dialog", { name: "后端", exact: true });
       await dialog.locator('[name="baseUrl"]').fill(base);
       await dialog.locator('button[type="submit"]').click();
       await expect(dialog).toBeHidden();
+      // The switch reloads the page; the node row is read again from settings.
+      await page.locator("#user-menu-button").click();
+      await page.locator('[data-settings-section="nodes"]').click();
       await expect(page.locator("[data-backend-status]")).toContainText(new URL(base).port);
+      await page.locator("#settings-back").click();
     };
 
     let model = await openModel();

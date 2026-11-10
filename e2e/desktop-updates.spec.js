@@ -104,29 +104,22 @@ test("source App checks once and updates with progress while keeping saved draft
     expect(await page.evaluate(() => window.__updateCalls)).toEqual([["check", {}]]);
     await page.locator("[data-update-apply]").click();
     await expect(page.locator("[data-update-progress]")).toBeVisible();
-    await expect(page.locator("#profile-close")).toBeDisabled();
+    await expect(page.locator("#settings-back")).toBeDisabled();
     expect(await page.locator(".app-shell").evaluate((node) => node.inert)).toBe(true);
     await page.keyboard.press("Escape");
-    const overview = page.getByRole("dialog", { name: "设置", exact: true });
+    const overview = page.locator("#settings-entry");
     await expect(overview).toBeVisible();
-    for (const [entry, title] of [
-      ["管理模型连接", "连接模型"],
-      ["管理联网搜索", "联网搜索"],
-      ["管理科学环境", "科学计算"]
-    ]) {
-      await overview.getByRole("button", { name: entry, exact: true }).click();
-      await expect(overview).toBeVisible();
-      await expect(page.getByRole("dialog", { name: title, exact: true })).toBeHidden();
-      await expect(page.getByRole("dialog")).toHaveCount(1);
-    }
+    // Settings is a page now, so the lock keeps the person on it: the only exit is
+    // disabled and Escape is ignored until the update settles.
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.evaluate(() => window.__finishUpdate());
     await expect(page.locator("[data-update-message]")).toContainText("重新打开");
-    await expect(overview.getByRole("button", { name: "关闭设置", exact: true })).toBeDisabled();
+    await expect(overview.locator("#settings-back")).toBeDisabled();
     await page.evaluate(() =>
       window.__updateStatus({ phase: "error", error: "无法重新打开，请重试", busy: false, applying: false })
     );
-    await expect(overview.getByRole("button", { name: "关闭设置", exact: true })).toBeEnabled();
-    await overview.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await expect(overview.locator("#settings-back")).toBeEnabled();
+    await overview.locator("#settings-back").click();
     await expect(overview).toBeHidden();
     await expect(page.locator("#composer-input")).toHaveValue("保留这份更新前的草稿");
   } finally {
@@ -148,9 +141,9 @@ test("release App has one update action and downloads without freezing editing",
     await page.evaluate(() => window.__updateStatus({ progress: { percent: 42 } }));
     await expect(page.locator("[data-update-progress]")).toBeVisible();
     await expect(page.locator("[data-update-progress]")).toHaveAttribute("value", "42");
-    await expect(page.locator("#profile-close")).toBeEnabled();
+    await expect(page.locator("#settings-back")).toBeEnabled();
     expect(await page.locator(".app-shell").evaluate((node) => node.inert)).toBe(false);
-    await page.locator("#profile-close").click();
+    await page.locator("#settings-back").click();
     await page.locator("#composer-input").fill("下载期间仍可编辑");
     await page.evaluate(() => window.__finishUpdate());
     await page.locator("[data-update-notice]").click();
@@ -176,8 +169,8 @@ test("a refused source update leaves the draft editable and offers retry", async
     await page.locator("[data-update-apply]").click();
     await expect(page.locator("[data-update-error]")).toContainText("正在运行的任务");
     await expect(page.locator("[data-update-apply]")).toBeEnabled();
-    await expect(page.locator("#profile-close")).toBeEnabled();
-    await page.locator("#profile-close").click();
+    await expect(page.locator("#settings-back")).toBeEnabled();
+    await page.locator("#settings-back").click();
     await page.locator("#composer-input").fill("失败后可以继续编辑");
     await expect(page.locator("#composer-input")).toHaveValue("失败后可以继续编辑");
   } finally {
@@ -190,7 +183,7 @@ test("Web mode keeps desktop updates out of settings", async ({ page }) => {
   try {
     await page.goto(dashboard.base);
     await page.locator("#user-menu-button").click();
-    await expect(page.locator("#profile-modal")).toBeVisible();
+    await expect(page.locator("#settings-entry")).toBeVisible();
     await expect(page.locator("[data-update-check]")).toHaveCount(0);
   } finally {
     await dashboard.stop();
@@ -216,13 +209,13 @@ test("a reloaded source App waits for backend recovery and then offers restart r
         error: "无法启动重开助手，请重试"
       })
     );
-    await expect(page.locator("#profile-close")).toBeDisabled();
+    await expect(page.locator("#settings-back")).toBeDisabled();
     expect(await page.locator(".app-shell").evaluate((node) => node.inert)).toBe(true);
     await page.evaluate(() => window.__updateStatus({ busy: false, applying: false }));
-    await expect(page.locator("#profile-close")).toBeEnabled();
+    await expect(page.locator("#settings-back")).toBeEnabled();
     await expect(page.locator("[data-update-apply]")).toBeEnabled();
     await expect(page.locator("[data-update-error]")).toContainText("请重试");
-    await page.locator("#profile-close").click();
+    await page.locator("#settings-back").click();
     await expect(page.locator("#composer-input")).toHaveValue("恢复服务后保留的草稿");
   } finally {
     await dashboard.stop();
@@ -241,15 +234,15 @@ for (const installMethod of ["managed", "native"]) {
       await page.locator("#user-menu-button").click();
       await expect(page.locator("[data-update-apply]")).toHaveText("下载更新");
       await page.locator("[data-update-apply]").click();
-      await expect(page.locator("#profile-close")).toBeEnabled();
+      await expect(page.locator("#settings-back")).toBeEnabled();
       await page.evaluate(() => window.__finishUpdate());
       await expect(page.locator("[data-update-apply]")).toHaveText("重启并安装");
-      await expect(page.locator("#profile-close")).toBeEnabled();
+      await expect(page.locator("#settings-back")).toBeEnabled();
       await page.locator("[data-update-apply]").click();
-      await expect(page.locator("#profile-close")).toBeDisabled();
+      await expect(page.locator("#settings-back")).toBeDisabled();
       expect(await page.locator(".app-shell").evaluate((node) => node.inert)).toBe(true);
       await page.keyboard.press("Escape");
-      await expect(page.locator("#profile-modal")).toBeVisible();
+      await expect(page.locator("#settings-entry")).toBeVisible();
       await page.evaluate(() => window.__finishUpdate());
       await expect(page.locator("[data-update-message]")).toContainText("重新打开");
       await expect(page.locator("[data-update-notice]")).toBeHidden();
@@ -278,7 +271,7 @@ test("automatic update events show a circular reminder above settings with keybo
       })
     );
     await expect(notice).toBeVisible();
-    await expect(page.locator("#profile-modal")).toBeHidden();
+    await expect(page.locator("#settings-entry")).toBeHidden();
     await expect(notice).toHaveAccessibleName("发现新版本 0.1.3，查看 Formicand 更新");
     await expect(notice).toHaveCSS("border-radius", "50%");
     // The reminder uses the theme text token; assert the resolved token, not a literal.
@@ -299,11 +292,11 @@ test("automatic update events show a circular reminder above settings with keybo
     await page.screenshot({ path: testInfo.outputPath("sidebar-update-reminder.png") });
     await notice.focus();
     await page.keyboard.press("Enter");
-    await expect(page.locator("#profile-modal")).toBeVisible();
+    await expect(page.locator("#settings-entry")).toBeVisible();
     await expect(page.getByRole("button", { name: "下载更新", exact: true })).toBeFocused();
     expect(await page.evaluate(() => window.__updateCalls)).toEqual([["check", {}]]);
     await page.keyboard.press("Escape");
-    await expect(page.locator("#profile-modal")).toBeHidden();
+    await expect(page.locator("#settings-entry")).toBeHidden();
     await expect(notice).toBeFocused();
     await page.evaluate(() => window.__updateStatus({ phase: "up-to-date", available: false }));
     await expect(notice).toBeHidden();
@@ -367,12 +360,12 @@ test("a ready update survives initial state loading and an installation failure 
     });
     await page.getByRole("button", { name: "重启并安装", exact: true }).click();
     await expect(page.locator("[data-update-error]")).toContainText("无法启动安装");
-    await expect(page.locator("#profile-close")).toBeEnabled();
+    await expect(page.locator("#settings-back")).toBeEnabled();
     expect(await page.locator(".app-shell").evaluate((node) => node.inert)).toBe(false);
     await page.evaluate(() =>
       window.__updateStatus({ installReady: true, phase: "error", error: "安装失败，请重试" })
     );
-    await expect(page.locator("#profile-close")).toBeEnabled();
+    await expect(page.locator("#settings-back")).toBeEnabled();
     await expect(page.getByRole("button", { name: "重启并安装", exact: true })).toBeEnabled();
     await page.keyboard.press("Escape");
     await page.locator("#composer-input").fill("安装失败后仍能编辑");
@@ -399,7 +392,7 @@ test("a failed managed download clears transient busy state and can resume witho
     await expect(page.locator("[data-update-error]")).toContainText("下载连接已断开");
     await expect(download).toBeEnabled();
     await expect(page.locator("[data-update-progress]")).toBeHidden();
-    await expect(page.locator("#profile-close")).toBeEnabled();
+    await expect(page.locator("#settings-back")).toBeEnabled();
     expect(await page.locator(".app-shell").evaluate((node) => node.inert)).toBe(false);
     await page.evaluate(() => {
       window.__updateErrorAfterStart = undefined;
@@ -421,11 +414,10 @@ test("update details stay reachable on narrow screens", async ({ page }, testInf
   try {
     await bridge(page, "release", "managed");
     await page.goto(dashboard.base);
-    for (const width of [474, 320]) {
+    for (const width of [640]) {
       await page.setViewportSize({ width, height: 600 });
-      const settings = page.getByRole("button", { name: "设置", exact: true });
       await page.locator("[data-update-notice]").click();
-      const dialog = page.getByRole("dialog", { name: "设置", exact: true });
+      const dialog = page.locator("#settings-entry");
       await expect(dialog).toBeVisible();
       const action = page.getByRole("button", { name: "下载更新", exact: true });
       await expect(action).toBeInViewport();

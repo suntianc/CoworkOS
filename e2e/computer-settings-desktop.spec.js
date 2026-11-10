@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { desktopSmokeEnvironment } from "../scripts/desktop-smoke-env.mjs";
 import { createDashboardApplication } from "../dist/src/dashboard/application.js";
 import {
@@ -70,7 +70,8 @@ async function isolatedBackend(data, helper) {
 
 async function openWindowSettings(page) {
   await page.locator("#user-menu-button").click();
-  const section = page.locator("#profile-modal .computer-setting");
+  await page.locator('[data-settings-section="tools"]').click();
+  const section = page.locator("#settings-entry .computer-setting");
   if (!(await section.evaluate((element) => element.open))) await section.locator("summary").click();
 }
 
@@ -250,7 +251,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
       fullPage: true,
       animations: "disabled"
     });
-    await page.locator("#profile-close").click();
+    await page.locator("#settings-back").click();
     let previousGrant, previousFrame;
     for (const [index, window] of [target, second].entries()) {
       const taskId = `settings-task-${index}`;

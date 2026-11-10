@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from "@playwright/test";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 
 test("desktop draft migration, switching and recovery survive restart", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -79,13 +79,22 @@ test("desktop draft migration, switching and recovery survive restart", async ()
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
     }, directory);
     await page.locator("#user-menu-button").click();
+    await page.locator('[data-settings-section="nodes"]').click();
     await page.locator("[data-backend-open]").click();
     await page.locator("[data-backend-choose]").click();
     await page.waitForURL(`${instance.url}/**`, { timeout: 30_000 });
+    // A switched backend without a connection shows the first-use dialog; close it
+    // before reading the node row again.
+    const setup = page.getByRole("dialog", { name: "连接模型" });
+    await setup.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+    await closeModel();
+    await page.locator("#user-menu-button").click();
+    await page.locator('[data-settings-section="nodes"]').click();
     await expect(page.locator("[data-backend-status]")).toContainText(
       instance.backendId.replace(/^backend_/, "").slice(0, 8),
       { timeout: 30_000 }
     );
+    await page.locator("#settings-back").click();
     await closeModel();
   };
   try {

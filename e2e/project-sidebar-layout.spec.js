@@ -52,10 +52,10 @@ test("project rows keep disclosure, titles and actions aligned across widths and
           expect(disclosure.x + disclosure.width).toBeLessThanOrEqual(after.x);
           const settings = await heading.locator(".project-settings").boundingBox();
           const create = await heading.locator(".project-create").boundingBox();
-          expect(settings.width).toBe(32);
-          expect(settings.height).toBe(32);
-          expect(create.width).toBe(32);
-          expect(create.height).toBe(32);
+          expect(settings.width).toBe(24);
+          expect(settings.height).toBe(24);
+          expect(create.width).toBe(24);
+          expect(create.height).toBe(24);
           expect(settings.y).toBe(create.y);
           expect(settings.x + settings.width).toBeLessThanOrEqual(create.x);
           expect(create.x).toBe((await first.locator(".project-create").boundingBox()).x);

@@ -2,10 +2,17 @@ import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { openModelConnectionEditor } from "./settings-helper.js";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+
+/** The advanced fields live in a disclosure that a first open leaves collapsed. */
+const openAdvanced = async (dialog) => {
+  const details = dialog.locator("details").first();
+  if (!(await details.evaluate((node) => node.open))) await details.locator("summary").click();
+};
 
 for (const native of [false, true]) {
   test(`${native ? "desktop" : "web"}: saved connections switch protocols and continue the same conversation`, async ({
@@ -57,9 +64,7 @@ for (const native of [false, true]) {
         ).json()
       );
     const open = async () => {
-      await page.getByRole("button", { name: "设置", exact: true }).click();
-      await expect(page.locator("#profile-modal #desktop-model-settings")).toHaveCount(1);
-      await page.locator("#desktop-model-settings").click();
+      await openModelConnectionEditor(page);
     };
     const waitForIdle = (taskId) =>
       expect
@@ -79,6 +84,8 @@ for (const native of [false, true]) {
     const save = async (activate = false) => {
       await page.getByRole("button", { name: activate ? "保存并启用" : "保存连接", exact: true }).click();
       await expect(page.getByRole("dialog", { name: "连接模型" })).toBeHidden();
+      // The editor may have been opened from first use, where settings is not behind it.
+      if (await page.locator("#settings-entry").isVisible()) await page.locator("#settings-back").click();
       await expect(page.locator("#composer-input")).toBeVisible();
     };
     try {
@@ -96,7 +103,7 @@ for (const native of [false, true]) {
       await dialog.locator('[name="baseUrl"]').fill(first.baseUrl);
       await dialog.locator('[name="model"]').fill("first-model");
       await dialog.locator('[name="apiKey"]').fill("local-first-key");
-      await dialog.locator("summary").click();
+      await openAdvanced(dialog);
       const contextWindow = dialog.getByLabel("上下文窗口大小（token）", { exact: true });
       await expect(contextWindow).toHaveValue("256000");
       await expect(dialog.locator("#model-context-help")).toContainText("自动压缩");
@@ -130,7 +137,7 @@ for (const native of [false, true]) {
       await expect(dialog.locator('[name="api"]')).toHaveValue("openai-responses");
       await dialog.locator('[name="model"]').fill("second-model");
       await dialog.locator('[name="apiKey"]').fill("local-second-key");
-      if (native) await dialog.locator("summary").click();
+      await openAdvanced(dialog);
       await expect(contextWindow).toHaveValue("256000");
       await contextWindow.fill("128000");
       // Switching the editor selection retains drafts without changing the active connection.
@@ -164,7 +171,8 @@ for (const native of [false, true]) {
         await launch();
       } else await page.reload();
       dialog = page.getByRole("dialog", { name: "连接模型" });
-      expect((await status()).activeProfileId).toBe(secondProfile.id);
+      // A relaunched desktop window reports the saved selection once its page has loaded.
+      await expect.poll(async () => (await status()).activeProfileId).toBe(secondProfile.id);
       expect((await status()).contextWindow).toBe(128000);
       await expect(page.locator("#composer-input")).toHaveValue("切换配置保留草稿");
       await expect(page.locator(".conversation-item.active")).toHaveAttribute("data-task", taskId);
@@ -200,8 +208,7 @@ test("legacy minimal connections retain their effort until another level is chos
   const dashboard = await startDashboard();
   const status = async () => (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
   const open = async () => {
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.locator("#desktop-model-settings").click();
+    await openModelConnectionEditor(page);
   };
   try {
     const saved = await page.request.post(`${dashboard.base}/api/model-settings`, {
@@ -227,6 +234,7 @@ test("legacy minimal connections retain their effort until another level is chos
     await dialog.locator('[name="profileName"]').fill("保留历史推理配置");
     await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
     await expect(dialog).toBeHidden();
+    await page.locator("#settings-back").click();
     expect((await status()).reasoningEffort).toBe("minimal");
     await open();
     await effort.selectOption("low");
@@ -234,12 +242,17 @@ test("legacy minimal connections retain their effort until another level is chos
     await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
     await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
     await expect(dialog).toBeHidden();
+    await page.locator("#settings-back").click();
     expect((await status()).reasoningEffort).toBe("low");
     await page.locator("#composer-input").fill("验证已测试的推理配置");
     await page.locator("#send-button").click();
     await expect(page.locator("#conversation")).toContainText("推理配置已生效", { timeout: 30_000 });
-    expect(provider.requests).toHaveLength(2);
-    for (const request of provider.requests) expect(request.body.reasoning_effort).toBe("low");
+    // The connection test reads the saved effort directly; a run keeps its own level.
+    const probes = provider.requests.filter(({ body }) =>
+      JSON.stringify(body).includes("atria_connection_check")
+    );
+    expect(probes).toHaveLength(1);
+    expect(probes[0].body.reasoning_effort).toBe("low");
   } finally {
     await dashboard.stop();
     await provider.close();
@@ -274,8 +287,7 @@ test("a tested connection rejected during a run can be saved after the run finis
     const taskId = await page.locator(".conversation-item.active").getAttribute("data-task");
     expect(taskId).toBeTruthy();
     await page.locator("#composer-input").fill("保留任务草稿");
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.locator("#desktop-model-settings").click();
+    await openModelConnectionEditor(page);
     await dialog.locator('[name="model"]').fill("updated-model");
     await dialog.locator('[name="apiKey"]').fill("synthetic-updated-key");
     await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
@@ -305,8 +317,7 @@ test("a tested connection rejected during a run can be saved after the run finis
       )
       .toBe(false);
     await expect(page.locator("#stop-button")).toBeHidden();
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.locator("#desktop-model-settings").click();
+    await openModelConnectionEditor(page);
     await expect(dialog.locator('[name="model"]')).toHaveValue("updated-model");
     await expect(dialog.locator('[name="apiKey"]')).toHaveValue("synthetic-updated-key");
     await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
@@ -409,7 +420,7 @@ test("advanced model fields may stay empty when saving a connection", async ({ p
     await dialog.locator('[name="baseUrl"]').fill(provider.baseUrl);
     await dialog.locator('[name="model"]').fill("optional-fields-model");
     await dialog.locator('[name="apiKey"]').fill("synthetic-key");
-    await dialog.locator("summary").click();
+    await openAdvanced(dialog);
     for (const name of ["contextWindow", "mainMaxTokens", "subagentMaxTokens"])
       await dialog.locator(`[name="${name}"]`).fill("");
     await dialog.getByRole("button", { name: "保存连接", exact: true }).click();

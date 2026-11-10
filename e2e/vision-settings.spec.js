@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { openModelConnectionEditor } from "./settings-helper.js";
 
 test("image analysis profile saves its role while the text chat connection stays active", async ({
   page
@@ -21,8 +22,7 @@ test("image analysis profile saves its role while the text chat connection stays
     await expect(dialog).toBeHidden();
     const status = () => page.evaluate(async () => (await fetch("/api/model-settings")).json());
     const original = await status();
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.locator("#desktop-model-settings").click();
+    await openModelConnectionEditor(page);
     await dialog.locator("[data-model-profiles]").selectOption("");
     await fill("vision", "https://vision.example/v1", true);
     await dialog.locator('[name="vision"]').check();
@@ -31,8 +31,7 @@ test("image analysis profile saves its role while the text chat connection stays
     const saved = await status();
     assertProfile(saved, original.activeProfileId);
     await page.reload();
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.locator("#desktop-model-settings").click();
+    await openModelConnectionEditor(page);
     await dialog.locator("[data-model-profiles]").selectOption(saved.visionProfileId);
     await expect(dialog.locator('[name="vision"]')).toBeChecked();
     await expect(dialog.locator('[name="apiKey"]')).toHaveValue("");
@@ -66,8 +65,7 @@ test("thinking format belongs to its saved connection and new profiles retain au
     await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
     await expect(dialog).toBeHidden();
     await page.reload();
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.locator("#desktop-model-settings").click();
+    await openModelConnectionEditor(page);
     await expect(dialog.locator('[name="thinkingFormat"]')).toHaveValue("zai");
     await dialog.locator("[data-model-profiles]").selectOption("");
     await expect(dialog.locator('[name="thinkingFormat"]')).toHaveValue("auto");

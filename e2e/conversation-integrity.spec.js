@@ -145,7 +145,7 @@ test("partial output, empty tool completion and stopped calls retain truthful vi
     await expect(tools.first().locator(".activity-status")).toHaveText("执行中");
     await page.evaluate(() => window.integrityFixture.emptyResult());
     await expect(tools.first()).toHaveClass(/is-done/);
-    await expect(tools.first().locator(".activity-status")).toHaveText("调用完成");
+    await expect(tools.first().locator(".activity-status")).toHaveText("完成");
     await page.evaluate(() => window.integrityFixture.stop());
     await expect(tools.last().locator(".activity-status")).toHaveText("已停止");
     await expect(page.locator(".tool-step.is-running")).toHaveCount(0);

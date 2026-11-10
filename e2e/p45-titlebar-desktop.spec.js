@@ -1,10 +1,8 @@
 import { test, expect, _electron as electron } from "@playwright/test";
-import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
@@ -12,8 +10,6 @@ const taskId = "titlebar-task";
 const taskGoal = "标题栏验收会话";
 
 async function bootDesktop() {
-  if (!existsSync("build/atria.icns"))
-    execFileSync(process.execPath, ["scripts/build-desktop-icon.mjs"], { stdio: "inherit" });
   const root = await mkdtemp(join(tmpdir(), "atria-p45-titlebar-"));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(

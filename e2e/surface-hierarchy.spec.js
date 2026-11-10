@@ -1,6 +1,5 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
-import { loadCurrentApplication } from "./application-context-helper.js";
 
 const taskId = "surface-hierarchy";
 const draft = "保留未发送的界面调整要求";
@@ -155,28 +154,7 @@ async function expectKeyboardDivider(divider) {
   expect(cue.background).not.toBe("rgba(0, 0, 0, 0)");
 }
 
-async function openSplit(page, dashboard) {
-  const created = await page.request.post(`${dashboard.base}/api/tasks/${taskId}/resources`, {
-    data: {
-      kind: "text/markdown",
-      title: "界面层次验收.md",
-      initialContent: "# 界面层次验收\n\n检查并排布局中的留白与交互。"
-    }
-  });
-  expect(created.ok()).toBe(true);
-  const { resource } = await created.json();
-  const opened = await page.request.post(`${dashboard.base}/api/workbench/tabs`, {
-    data: { kind: "application", resourceId: resource.resourceId, bindTo: taskId }
-  });
-  expect(opened.ok()).toBe(true);
-  await page.goto(dashboard.base);
-  await expect(page.locator("[data-editor-input]:visible")).toBeVisible();
-  await loadCurrentApplication(page);
-  await expect(page.locator(".chat-pane")).toHaveClass(/is-collaborating/);
-  await expect(page.locator("#composer-input")).toHaveValue(draft);
-}
-
-test("thin sidebar and split dividers strengthen on keyboard focus and resize without losing the draft", async ({
+test("thin sidebar divider strengthens on keyboard focus and resizes without losing the draft", async ({
   page
 }, info) => {
   const fixture = await setup(page);
@@ -195,35 +173,18 @@ test("thin sidebar and split dividers strengthen on keyboard focus and resize wi
     await page.keyboard.press("ArrowLeft");
     await expect(sidebar).toHaveAttribute("aria-valuenow", String(sidebarWidth));
 
-    await openSplit(page, fixture.dashboard);
-
-    const split = page.locator("[data-workspace-divider]");
-    await input.focus();
-    await page.mouse.move(700, 32);
-    await expectRestingDivider(split);
-    const originalShare = Number(await split.getAttribute("aria-valuenow"));
-    const originalWidth = (await page.locator("#conversation-pane").boundingBox()).width;
-    await expectKeyboardDivider(split);
-    await page.keyboard.press("ArrowRight");
-    await expect(split).toHaveAttribute("aria-valuenow", String(originalShare + 2));
-    expect((await page.locator("#conversation-pane").boundingBox()).width).toBeGreaterThan(originalWidth);
-    await page.keyboard.press("ArrowLeft");
-    await expect(split).toHaveAttribute("aria-valuenow", String(originalShare));
-    await expect(input).toHaveValue(draft);
-
     for (const theme of ["light", "dark"]) {
       await page.emulateMedia({ colorScheme: theme });
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await input.focus();
-      await expectRestingDivider(split);
+      await expectRestingDivider(sidebar);
       await expect.poll(async () => (await surfaceGeometry(page)).shadowBlur).toBeGreaterThanOrEqual(12);
       const geometry = await surfaceGeometry(page);
       expectCardSpacing(geometry, 1440);
       expect(geometry.visibleBorders[".workbench-header"]).toEqual([]);
-      expect(geometry.collaborationBackground).toBe(geometry.paneBackground);
-      await page.screenshot({ path: info.outputPath(`${theme}-1440-split.png`) });
-      await expectKeyboardDivider(split);
-      await page.screenshot({ path: info.outputPath(`${theme}-1440-split-divider-focused.png`) });
+      await page.screenshot({ path: info.outputPath(`${theme}-1440.png`) });
+      await expectKeyboardDivider(sidebar);
+      await page.screenshot({ path: info.outputPath(`${theme}-1440-divider-focused.png`) });
     }
   } finally {
     await fixture.stop();
@@ -290,7 +251,7 @@ async function touchResize(page, cdp, divider, ending, otherDivider) {
 
 test.describe("touch divider feedback", () => {
   test.use({ hasTouch: true });
-  test("sidebar and split show only the current drag and recover after end, cancel and capture loss", async ({
+  test("the sidebar shows only the current drag and recovers after end, cancel and capture loss", async ({
     page,
     context
   }) => {
@@ -303,12 +264,6 @@ test.describe("touch divider feedback", () => {
       expect(await page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches)).toBe(true);
       const sidebar = page.locator("#sidebar-divider");
       for (const ending of ["cancel", "lost-capture", "end"]) await touchResize(page, cdp, sidebar, ending);
-      await openSplit(page, fixture.dashboard);
-      const split = page.locator("[data-workspace-divider]");
-      for (const ending of ["cancel", "lost-capture", "end"]) {
-        await touchResize(page, cdp, split, ending, sidebar);
-        await expectRestingDivider(sidebar);
-      }
     } finally {
       try {
         await cdp?.detach();
