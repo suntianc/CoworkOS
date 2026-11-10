@@ -71,6 +71,18 @@ export interface DevelopmentProject {
   projectDirectory: string;
 }
 
+/**
+ * How a development read may act on the host it reads.
+ *
+ * `readOnly` is the observation entry's contract: it watches nodes and never
+ * works on them, so its reads answer from the stored records without replaying
+ * this host's pending deliveries. Work entry and Main tool reads send no
+ * marker and still complete a pending delivery before they answer.
+ */
+export interface DevelopmentReadOptions {
+  readOnly?: boolean;
+}
+
 /** One work item's durable facts, read from this host's queue rather than a model claim. */
 export interface WorkItemCallFact {
   callId: string;
@@ -1497,6 +1509,19 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     return task;
   }
 
+  /**
+   * Catch this host's deliveries up before a work read answers.
+   *
+   * A read-only read is the observation entry watching this node: it answers
+   * from stored records and leaves the pending facts for the next work read or
+   * the host's own periodic pass, so watching a host never writes on it.
+   */
+  async function replayBeforeRead(projectId: string, options: DevelopmentReadOptions): Promise<void> {
+    if (options.readOnly) return;
+    // eslint-disable-next-line no-restricted-syntax -- 补投失败不阻断这次读取，pending 条目留到下一次工作读取或定期重放
+    await replayDeliveries(projectId).catch(() => undefined);
+  }
+
   async function applyMerges(projectId: string): Promise<DevelopmentMerge[]> {
     await project(projectId);
     const config = await requiredMergeConfig(projectId);
@@ -1707,7 +1732,8 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
   /** One requirement's records and the diff this host can read them against. */
   async function resolvedDelivery(
     projectId: string,
-    input: { developmentId?: unknown; requirementId?: unknown }
+    input: { developmentId?: unknown; requirementId?: unknown },
+    options: DevelopmentReadOptions
   ) {
     const developmentId =
       input.developmentId === undefined || input.developmentId === null
@@ -1719,8 +1745,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         : developmentIdentifier(input.requirementId, "需求 ID");
     if (!developmentId && !requirementId)
       throw conflict("交付视图需要 developmentId 或 requirementId", "delivery_view_target_missing");
-    // eslint-disable-next-line no-restricted-syntax -- 补投失败不阻断视图读取，outbox 条目留到下一次读取或定期重放
-    await replayDeliveries(projectId).catch(() => undefined);
+    await replayBeforeRead(projectId, options);
     const service = await gateway();
     const record = developmentId
       ? await service.getDevelopment(projectId, developmentId, ports.backendId)
@@ -1754,10 +1779,15 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
    */
   async function deliveryView(
     projectId: string,
-    input: { developmentId?: unknown; requirementId?: unknown }
+    input: { developmentId?: unknown; requirementId?: unknown },
+    options: DevelopmentReadOptions = {}
   ): Promise<DeliveryView> {
     await project(projectId);
-    const { record, plan, reviews, merges, delivery, board } = await resolvedDelivery(projectId, input);
+    const { record, plan, reviews, merges, delivery, board } = await resolvedDelivery(
+      projectId,
+      input,
+      options
+    );
     // eslint-disable-next-line no-restricted-syntax -- 资格计算读失败时视图省略该字段，合入与交付记录本身仍可读
     const qualification = await deliveryQualification(projectId, record.developmentId).catch(() => undefined);
     const diff = await deliveryDiff(record, delivery, merges, plan, reviews);
@@ -1801,10 +1831,11 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
    */
   async function deliveryPatch(
     projectId: string,
-    input: { developmentId?: unknown; requirementId?: unknown; path?: unknown }
+    input: { developmentId?: unknown; requirementId?: unknown; path?: unknown },
+    options: DevelopmentReadOptions = {}
   ): Promise<DeliveryPatch> {
     await project(projectId);
-    const { record, plan, reviews, merges, delivery } = await resolvedDelivery(projectId, input);
+    const { record, plan, reviews, merges, delivery } = await resolvedDelivery(projectId, input, options);
     const workspace = record.workspace;
     if (!workspace || workspace.state !== "ready")
       throw conflict("需求现场不在这台设备上，无法显示 diff", "delivery_patch_unavailable");
@@ -1860,63 +1891,75 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       );
     },
 
-    async list(projectId: string, backendId = ports.backendId) {
+    async list(projectId: string, backendId = ports.backendId, options: DevelopmentReadOptions = {}) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 开发列表读取前的补投失败不阻断列表本身，pending 条目留到下一次读取
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).queryDevelopments(projectId, backendId);
     },
 
-    async listForTask(taskId: string, backendId = ports.backendId) {
+    async listForTask(taskId: string, backendId = ports.backendId, options: DevelopmentReadOptions = {}) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的开发列表同样只做尽力补投，失败时列表按已存记录返回
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).queryDevelopments(found.projectId, backendId);
     },
 
-    async get(projectId: string, developmentId: string, backendId = ports.backendId) {
+    async get(
+      projectId: string,
+      developmentId: string,
+      backendId = ports.backendId,
+      options: DevelopmentReadOptions = {}
+    ) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 单条开发记录读取前的补投失败不阻断读取，条目留到下一次读取
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).getDevelopment(projectId, developmentId, backendId);
     },
 
-    async getForTask(taskId: string, developmentId: string, backendId = ports.backendId) {
+    async getForTask(
+      taskId: string,
+      developmentId: string,
+      backendId = ports.backendId,
+      options: DevelopmentReadOptions = {}
+    ) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的单条读取同样不让补投失败变成读取失败
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).getDevelopment(found.projectId, developmentId, backendId);
     },
 
-    async find(projectId: string, requirementId: unknown, backendId = ports.backendId) {
+    async find(
+      projectId: string,
+      requirementId: unknown,
+      backendId = ports.backendId,
+      options: DevelopmentReadOptions = {}
+    ) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 按需求查找前的补投失败不阻断查找，outbox 条目留到下一次读取
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).findDevelopmentByRequirement(projectId, requirementId, backendId);
     },
 
-    async findForTask(taskId: string, requirementId: unknown, backendId = ports.backendId) {
+    async findForTask(
+      taskId: string,
+      requirementId: unknown,
+      backendId = ports.backendId,
+      options: DevelopmentReadOptions = {}
+    ) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的按需求查找同样只做尽力补投，失败不影响返回已存记录
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).findDevelopmentByRequirement(found.projectId, requirementId, backendId);
     },
 
     /** Delivery rows for a project or one development; a pending row is readable with its error. */
-    async deliveries(projectId: string, developmentId?: unknown) {
+    async deliveries(projectId: string, developmentId?: unknown, options: DevelopmentReadOptions = {}) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 交付行读取前的补投失败不阻断读取，pending 行仍带原始错误返回
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).queryDeliveries(
         projectId,
         developmentId === undefined ? undefined : developmentIdentifier(developmentId, "开发记录 ID")
       );
     },
 
-    async deliveriesForTask(taskId: string, developmentId?: unknown) {
+    async deliveriesForTask(taskId: string, developmentId?: unknown, options: DevelopmentReadOptions = {}) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的交付行读取同样只做尽力补投，失败时按已存行返回
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).queryDeliveries(
         found.projectId,
         developmentId === undefined ? undefined : developmentIdentifier(developmentId, "开发记录 ID")
@@ -1969,22 +2012,38 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       return stopDeliveryRecovery();
     },
 
-    async deliveryView(projectId: string, input: Record<string, unknown>) {
-      return deliveryView(projectId, input);
+    async deliveryView(
+      projectId: string,
+      input: Record<string, unknown>,
+      options: DevelopmentReadOptions = {}
+    ) {
+      return deliveryView(projectId, input, options);
     },
 
-    async deliveryViewForTask(taskId: string, input: Record<string, unknown>) {
+    async deliveryViewForTask(
+      taskId: string,
+      input: Record<string, unknown>,
+      options: DevelopmentReadOptions = {}
+    ) {
       const found = await taskProject(taskId);
-      return deliveryView(found.projectId, input);
+      return deliveryView(found.projectId, input, options);
     },
 
-    async deliveryPatch(projectId: string, input: Record<string, unknown>) {
-      return deliveryPatch(projectId, input);
+    async deliveryPatch(
+      projectId: string,
+      input: Record<string, unknown>,
+      options: DevelopmentReadOptions = {}
+    ) {
+      return deliveryPatch(projectId, input, options);
     },
 
-    async deliveryPatchForTask(taskId: string, input: Record<string, unknown>) {
+    async deliveryPatchForTask(
+      taskId: string,
+      input: Record<string, unknown>,
+      options: DevelopmentReadOptions = {}
+    ) {
       const found = await taskProject(taskId);
-      return deliveryPatch(found.projectId, input);
+      return deliveryPatch(found.projectId, input, options);
     },
 
     /** Record the receipt a remote execution backend produced for a real merge. */
@@ -2175,17 +2234,15 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       return applyMerges(found.projectId);
     },
 
-    async queryMerges(projectId: string, developmentId?: string) {
+    async queryMerges(projectId: string, developmentId?: string, options: DevelopmentReadOptions = {}) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 合入行读取前的补投失败不阻断读取，outbox 条目留到下一次重放
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).queryMerges(projectId, developmentId);
     },
 
-    async queryMergesForTask(taskId: string, developmentId?: string) {
+    async queryMergesForTask(taskId: string, developmentId?: string, options: DevelopmentReadOptions = {}) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的合入行读取同样只做尽力补投，失败时按已存行返回
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).queryMerges(found.projectId, developmentId);
     },
 

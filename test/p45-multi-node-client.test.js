@@ -126,7 +126,13 @@ function fakeBackend({ origin, backendId, projects = [], tasks = [], requirement
     const url = new URL(input);
     const method = init.method || "GET";
     const header = init.headers?.["x-atria-token"];
-    requests.push({ method, path: url.pathname, search: url.search, token: header });
+    requests.push({
+      method,
+      path: url.pathname,
+      search: url.search,
+      token: header,
+      readOnly: init.headers?.["x-cowork-read-only"]
+    });
     if (!backend.online) throw new TypeError("fetch failed");
     if (url.pathname === "/api/session" && method === "POST") {
       if (!backend.authorize)
@@ -453,5 +459,42 @@ test("the local node follows the page's own connection and snapshot without a se
   assert.equal(port.statusOf("http://127.0.0.1:3880"), "online");
   assert.equal(port.counts().runs, 1);
   assert.equal(port.nodes().filter((entry) => entry.local).length, 1);
+  port.dispose();
+});
+
+test("every observation read carries the read-only marker and the work entry sends none", async () => {
+  const a = fakeBackend({
+    origin: "http://127.0.0.1:4001",
+    backendId: "backend-a",
+    projects: [project("pa", "甲项目")],
+    requirements: { pa: [{ requirementId: "ra", title: "甲需求", status: "open" }] }
+  });
+  const localReads = [];
+  const port = createPort({
+    backends: new Map([[a.origin, a]]),
+    local: {
+      ...localProvider({ projects: [], tasks: [] }),
+      request: async (path, options) => {
+        localReads.push({ path, headers: options?.headers });
+        return {};
+      }
+    }
+  });
+  port.start();
+  await port.addNode({ baseUrl: a.origin, name: "甲节点" });
+  await until(() => port.statusOf(a.origin) === "online", "node A never came online");
+
+  await port.read(a.origin, "/api/projects/pa/ledger");
+  await port.read(a.origin, `/api/projects/pa/ledger?developmentId=${encodeURIComponent("da")}`);
+  await port.read("http://127.0.0.1:3880", "/api/projects/pl/developments");
+
+  // The port marks its own reads, its catalog snapshot and its event stream;
+  // the page's work client is a different one and never sends the marker.
+  assert.ok(a.requests.length > 0);
+  for (const request of a.requests)
+    assert.equal(request.readOnly, "1", `${request.method} ${request.path} was not marked read-only`);
+  const local = localReads.filter((entry) => entry.path.endsWith("/developments"));
+  assert.equal(local.length, 1, "the local read went through the port");
+  assert.equal(local[0].headers["x-cowork-read-only"], "1");
   port.dispose();
 });
