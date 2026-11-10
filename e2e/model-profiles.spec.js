@@ -382,7 +382,8 @@ test("composer reasoning level is sent with the selected Main request", async ({
   });
   try {
     await page.goto(dashboard.base);
-    await expect(page.locator("#reasoning-select")).toHaveAttribute("aria-label", "推理强度：高");
+    // Nothing is picked yet: the label is the effort this fixture's connection saved.
+    await expect(page.locator("#reasoning-select")).toHaveAttribute("aria-label", "推理强度：关闭");
     await page.locator("#reasoning-select").click();
     await expect(page.locator("#reasoning-menu")).toBeVisible();
     await expect(page.locator("#reasoning-menu [data-thinking-level]")).toHaveCount(7);
