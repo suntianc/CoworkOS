@@ -371,17 +371,10 @@ test("manual appearance persists, ignores OS overrides and can return to system 
     await input.fill("外观切换草稿");
     await page.locator("#user-menu-button").click();
     await expect(page.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
-    const sample = () =>
-      page.locator("#starfield-background").evaluate((canvas) => {
-        const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
-        let visible = 0,
-          dark = 0;
-        for (let i = 0; i < pixels.length; i += 4)
-          if (pixels[i + 3] > 100) {
-            visible++;
-            if (pixels[i] < 160) dark++;
-          }
-        return { visible, dark };
+    const surface = () =>
+      page.evaluate(() => {
+        const style = getComputedStyle(document.body);
+        return { color: style.backgroundColor, image: style.backgroundImage };
       });
     for (const [value, label] of [
       ["system", "跟随系统"],
@@ -390,15 +383,12 @@ test("manual appearance persists, ignores OS overrides and can return to system 
     ])
       await expect(page.locator(`[data-appearance-value="${value}"]`)).toContainText(label);
     await chooseAppearance(page, "light");
-    const light = await sample();
-    expect(light.visible).toBeGreaterThan(100);
-    expect(light.dark).toBeGreaterThan(100);
+    expect(await surface()).toEqual({ color: "rgb(244, 244, 248)", image: "none" });
     await chooseAppearance(page, "dark");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await page.emulateMedia({ colorScheme: "light" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    const dark = await sample();
-    expect(dark.dark).toBeLessThan(light.dark / 4);
+    expect(await surface()).toEqual({ color: "rgb(14, 14, 15)", image: "none" });
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(input).toHaveValue("外观切换草稿");

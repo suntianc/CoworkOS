@@ -94,7 +94,6 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
   await expect(page.locator('[data-settings-section="general"]')).toBeFocused();
   await expect(page.locator("#settings-entry .computer-setting")).toHaveCount(1);
   await expect(page.locator("#computer-access-enabled")).toBeDisabled();
-  await expect(page.getByRole("switch", { name: "流星动态背景" })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();
   await expect(profile).toBeFocused();

@@ -148,8 +148,11 @@ html[data-window-material]:not([data-window-material="none"]) body {
   background-image: none;
 }
 
-/* Shell chrome sits on the backdrop; the conversation and task panel float. */
-html[data-theme] #night-sky {
+/* The page paints the backdrop; the shell only forwards it while chrome and the
+   conversation and task panels float above. */
+html[data-theme] .app-shell {
+  position: relative;
+  z-index: 1;
   background: transparent;
 }
 html[data-theme] .app-topbar {

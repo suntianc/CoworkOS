@@ -61,13 +61,6 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-/* Retain the night-sky identity without competing with long task transcripts. */
-.starfield-background {
-  opacity: 0.2;
-}
-.meteor-canvas {
-  opacity: 0.28;
-}
 .chat-pane {
   background: rgba(0, 0, 0, 0.48);
   container-type: inline-size;
@@ -2216,9 +2209,6 @@ textarea {
 .workspace-view.is-empty-task > :not(.workspace-start),
 .workspace-view:not(.is-empty-task) > .workspace-start {
   display: none;
-}
-.night-sky {
-  background: var(--ui-bg);
 }
 /* Component roles set their sizes; body remains the shared reading baseline. */
 body {

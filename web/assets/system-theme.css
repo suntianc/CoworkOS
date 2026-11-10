@@ -148,12 +148,6 @@ html[data-theme] {
   .workbench-tabs {
     background: var(--ui-bg);
   }
-  .starfield-background {
-    opacity: 0.14;
-  }
-  .meteor-canvas {
-    opacity: 0.18;
-  }
   .app-topbar,
   .conversation-sidebar,
   .agent-pane,
@@ -369,24 +363,6 @@ html[data-theme] {
     color: var(--ui-text);
     background: var(--ui-accent-soft);
   }
-  /* Controls around domain canvases follow the app; rendered scenes stay untouched. */
-  .starfield-motion-toggle:focus-visible {
-    outline-color: var(--ui-accent);
-  }
-  .starfield-motion-toggle {
-    background: var(--ui-raised);
-    border-color: var(--ui-border-hover);
-  }
-  .starfield-motion-toggle::after {
-    background: var(--ui-muted);
-  }
-  .starfield-motion-toggle[aria-checked="true"] {
-    background: var(--ui-accent);
-    border-color: var(--ui-accent);
-  }
-  .starfield-motion-toggle[aria-checked="true"]::after {
-    background: var(--ui-on-accent);
-  }
   .agent-pane *,
   .chat-scroll,
   .project-list {
@@ -398,9 +374,6 @@ html[data-theme] {
   *::-webkit-scrollbar-thumb:hover {
     background-color: var(--ui-muted);
   }
-}
-html[data-theme="light"] .night-sky {
-  background: var(--ui-bg);
 }
 html[data-theme] .chat-pane {
   background: var(--ui-bg);

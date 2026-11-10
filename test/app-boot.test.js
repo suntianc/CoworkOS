@@ -123,16 +123,6 @@ function browserEnvironment() {
     removeListener() {}
   });
   globalThis.matchMedia = window.matchMedia = media;
-  // The starfield and galaxy draw into canvases linkedom cannot provide.
-  const context = new Proxy({}, { get: () => () => {}, has: () => true });
-  const create = document.createElement.bind(document);
-  document.createElement = (tag, ...rest) => {
-    const element = create(tag, ...rest);
-    if (String(tag).toLowerCase() === "canvas") element.getContext = () => context;
-    return element;
-  };
-  for (const canvas of document.querySelectorAll("canvas")) canvas.getContext = () => context;
-
   return {
     window,
     document,
