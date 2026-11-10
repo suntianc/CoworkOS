@@ -37,7 +37,7 @@
 | 拒绝启动污染原 Run、需求归属丢失、retry/本地收尾状态错误    | [MainSession 消费者](../test/p3-main-session-consumers.test.js)                                                                                                     |
 | 永久/暂时失败丢输入、重复请求清草稿、附件身份遗漏           | [容量生命周期](../test/p3-main-capacity-lifecycle.test.js)                                                                                                          |
 | 重启恢复回收存活槽位、同请求重复启动                        | [容量生命周期](../test/p3-main-capacity-lifecycle.test.js)、[P3 恢复复盘](p3-retrospective.md#5-恢复回收必须复核锁内状态)                                           |
-| 模型/容量设置读写与页面 origin 接线问题                     | [角色模型](../test/p3-role-models.test.js)、[容量](../test/p3-main-capacity.test.js)、[组合 UI](../e2e/p3-foundation-flow.spec.js)                                  |
+| 模型/容量设置读写与页面 origin 接线问题                     | [角色模型](../test/p3-role-models.test.js)、[容量](../test/p3-main-capacity.test.js)、[组合 UI](../test/p3-main-capacity-lifecycle.test.js)                         |
 | 新增运行脚本遗漏 CLI/Electron 包清单                        | [CLI 打包](../test/cli-packaging.test.js)、[桌面依赖闭包](../test/desktop-runtime-packaging.test.js)                                                                |
 | Python 显式环境被隔离 hook 清除、终态与 PTY 断言时序假设    | [输入文件](../test/input-files.test.js)、[CLI PTY](../test/cli-ui-pty.test.js)、[P3 归因](p3-retrospective.md#7-环境与时序失败逐项归因)                             |
 | 权威与执行后端的 Git/现场归属混淆、完整 checkout 恢复失败   | [工作区](../test/p4-development-workspace.test.js)、[消费者](../test/p4-development-workspace-consumers.test.js)                                                    |
