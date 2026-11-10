@@ -12,6 +12,9 @@ test("window access keeps desktop-only controls behind its settings row and pres
     await page.locator("#composer-input").fill("尚未发送的测试草稿");
     for (const width of [1440, 1280, 474, 320]) {
       await page.setViewportSize({ width, height: 800 });
+      // Settings lives at the bottom of the sidebar, which is a drawer below 640.
+      const drawer = page.locator(".sidebar-drawer-toggle:visible");
+      if (await drawer.isVisible()) await drawer.click();
       await page.locator("#user-menu-button").click();
       const settings = page.locator("#settings-entry");
       await expect(settings).toBeVisible();

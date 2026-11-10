@@ -1008,6 +1008,9 @@ html[data-theme="light"] .add-project-state {
     gap: 6px;
     width: 100%;
     overflow-x: hidden;
+    /* The entrance animation's transform would become the containing block of
+       the fixed hover tree, which is drawn outside the rail. */
+    animation: none;
   }
   html[data-theme] .project-group {
     width: 36px;
@@ -1063,7 +1066,10 @@ html[data-theme="light"] .add-project-state {
     backdrop-filter: blur(var(--panel-blur));
     box-shadow: var(--panel-shadow);
   }
-  html[data-theme] .project-group:is(:hover, :focus-within) > .conversation-list {
+  /* A row's own menu leaves the tree focused, so the open menu keeps it shown. */
+  html[data-theme]
+    .project-group:is(:hover, :focus-within, :has(.conversation-menu[aria-expanded="true"]))
+    > .conversation-list {
     display: flex;
   }
   /* The pointer crosses the rail's margin on its way to the tree; keep the

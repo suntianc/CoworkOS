@@ -40,10 +40,27 @@ async function seed(page, dashboard) {
 
 async function openSidebarMenu(page, taskId = "menu-b") {
   const trigger = page.locator(`[data-session-menu="${taskId}"]`);
+  await revealSidebarTree(page, trigger);
   await trigger.locator("..").hover();
   await trigger.click();
   await expect(page.locator("#session-menu")).toBeVisible();
   return page.locator("#session-menu");
+}
+
+/**
+ * A 640-1023 window folds the tree into the icon rail, so its project opens the
+ * tree that holds the row. A phone-sized window opens the sidebar drawer first.
+ */
+async function revealSidebarTree(page, row) {
+  const drawer = page.locator(".sidebar-drawer-toggle:visible");
+  if (await drawer.isVisible()) {
+    if ((await drawer.getAttribute("aria-expanded")) !== "true") await drawer.click();
+    await expect(page.locator(".project-group").first()).toBeVisible();
+    return;
+  }
+  if (await row.isVisible()) return;
+  await page.locator(".project-heading .project-row").first().focus();
+  await expect(row).toBeVisible();
 }
 
 async function expectOriginalDraft(page) {
