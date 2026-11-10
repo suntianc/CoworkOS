@@ -169,6 +169,26 @@ test("all six settings sections and their dialogs read English", async ({ page }
       await expectEnglish(page, `the ${name} settings section`);
     }
 
+    // A host without the built native driver reports a Chinese reason; the panel
+    // translates known reasons, so English never depends on what was built here.
+    await page.route("**/api/computer/status", (route) =>
+      route.fulfill({
+        json: {
+          available: false,
+          screenRecording: false,
+          accessibility: false,
+          windows: [],
+          reason: "未找到 Computer Use 原生驱动，请运行 npm run build:computer-use"
+        }
+      })
+    );
+    await page.locator('[data-settings-section="tools"]').click();
+    await expect(page.locator("[data-computer-permissions]")).toContainText(
+      "The Computer Use native driver is missing"
+    );
+    await expectEnglish(page, "a host reason for window access");
+    await page.unroute("**/api/computer/status");
+
     await page.locator('[data-settings-section="nodes"]').click();
     await page.locator("#settings-node-add").click();
     const node = page.getByRole("dialog", { name: "Add node", exact: true });

@@ -124,24 +124,25 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
       ui`屏幕录制：${permissionState(permissions.screenRecording)} · 辅助功能：${permissionState(
         permissions.accessibility
       )}${permissions.accessibility && permissions.postEventAccess === false ? ui(" · 输入事件：未开启") : ""}`;
+    // The host explains why access is unavailable; catalogue entries cover the
+    // reasons this build can report, anything else stays the host's own text.
+    const hostReason = () => (permissions?.reason ? ui(permissions.reason) : undefined);
     const permissionMessage = !permissions
       ? ""
       : !native
         ? `${ui("执行主机：")}${
             permissions.available
               ? `${permissionList()}${
-                  permissions.controlAvailable === false
-                    ? ui`。${permissions.reason || ui("桌面暂不可操作")}`
-                    : ""
+                  permissions.controlAvailable === false ? ui`。${hostReason() ?? ui("桌面暂不可操作")}` : ""
                 }`
-              : permissions.reason || ui("窗口访问不可用")
+              : (hostReason() ?? ui("窗口访问不可用"))
           }${ui("。请在执行主机的 Formicand 桌面版处理权限。")}`
         : !permissions.available
-          ? permissions.reason || ui("当前电脑操作不可用")
+          ? (hostReason() ?? ui("当前电脑操作不可用"))
           : [
               missing.length ? permissionList() : ui("权限已开启 · 屏幕录制、辅助功能"),
               enabled && permissions.controlAvailable === false && !missing.length
-                ? permissions.reason || ui("桌面暂不可操作")
+                ? (hostReason() ?? ui("桌面暂不可操作"))
                 : ""
             ]
               .filter(Boolean)

@@ -1415,6 +1415,17 @@ export default {
   已关闭窗口访问: "Window access turned off",
   已允许所有对话观察和操作窗口: "Every conversation may now observe and operate windows",
   请完成系统授权后使用窗口访问: "Grant system permissions to use window access",
+  // Reasons the execution host reports for a window-access status.
+  "Computer Use 当前支持 macOS 桌面版": "Computer Use is available in the macOS desktop app only",
+  "Computer Use 当前支持 macOS": "Computer Use is available on macOS only",
+  "未找到 Computer Use 原生驱动，请运行 npm run build:computer-use":
+    "The Computer Use native driver is missing; run npm run build:computer-use",
+  "Computer Use 操作超时": "The Computer Use operation timed out",
+  "Computer Use 操作已取消": "The Computer Use operation was cancelled",
+  原生驱动响应超限: "The native driver response was too large",
+  原生驱动未完成操作: "The native driver did not finish the operation",
+  "原生驱动返回无效 JSON": "The native driver returned invalid JSON",
+  原生驱动不可用: "The native driver is unavailable",
   // Preview drawer states and the observation port's reports.
   未命名文件: "Untitled file",
   "正在打开文件…": "Opening file…",
