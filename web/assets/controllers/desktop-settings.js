@@ -170,17 +170,29 @@ export function installDesktopSettings({
   const modelsRows = document.querySelector("#profile-settings-connections");
   const roleRows = document.querySelector("#settings-role-rows");
   const ROLE_META = [
-    { role: "main", label: "Main", hint: "Main 的默认模型连接", fallback: "跟随当前启用连接" },
+    { role: "main", label: "Main", hint: ui("Main 的默认模型连接"), fallback: ui("跟随当前启用连接") },
     {
       role: "executor",
       label: "Executor",
-      hint: "子 Agent 执行时的默认模型连接",
-      fallback: "沿用启动时的连接"
+      hint: ui("子 Agent 执行时的默认模型连接"),
+      fallback: ui("沿用启动时的连接")
     },
-    { role: "reviewer", label: "Reviewer", hint: "审查时的默认模型连接", fallback: "沿用启动时的连接" }
+    {
+      role: "reviewer",
+      label: "Reviewer",
+      hint: ui("审查时的默认模型连接"),
+      fallback: ui("沿用启动时的连接")
+    }
   ];
   const REASONING = ["off", "low", "medium", "high", "xhigh", "max"];
-  const REASONING_LABEL = { off: "关闭", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" };
+  const REASONING_LABEL = {
+    off: ui("关闭"),
+    low: ui("低"),
+    medium: ui("中"),
+    high: ui("高"),
+    xhigh: ui("极高"),
+    max: ui("最高")
+  };
   const apiLabel = (api) => (api === "openai-responses" ? "Responses" : ui("OpenAI 兼容"));
 
   const renderModels = (value) => {
@@ -198,7 +210,7 @@ export function installDesktopSettings({
         <span class="settings-row-spacer"></span>
         <span class="settings-dot ${profile.active ? "is-ok" : "is-muted"}" aria-hidden="true"></span>
         <span class="settings-row-state">${profile.active ? ui("当前启用") : ui("未启用")}</span>
-        <button class="settings-icon-button" type="button" data-model-edit="${esc(profile.id)}" aria-label="${esc(`配置 ${profile.name}`)}" title="${esc("配置")}">${icon("more")}</button>
+        <button class="settings-icon-button" type="button" data-model-edit="${esc(profile.id)}" aria-label="${esc(ui`配置 ${profile.name}`)}" title="${esc(ui("配置"))}">${icon("more")}</button>
       </div>`
           )
           .join("")
@@ -232,10 +244,12 @@ export function installDesktopSettings({
       return `<div class="settings-row${failure ? " has-error" : ""}" data-model-role="${role}">
         <span class="settings-row-line settings-role-name"><span class="settings-row-name">${label}</span><span class="settings-info" title="${esc(hint)}">${icon("info")}</span></span>
         <span class="settings-row-spacer"></span>
-        <select class="settings-select is-model" data-role-model="${role}" aria-label="${esc(`${label} 的模型连接`)}"${profiles.length ? "" : " disabled"}>
+        <select class="settings-select is-model" data-role-model="${role}" aria-label="${esc(ui`${label} 的模型连接`)}"${profiles.length ? "" : " disabled"}>
           <option value=""${bound ? "" : " selected"}>${esc(fallback)}</option>${profiles.map(option).join("")}
         </select>
-        <select class="settings-select is-effort" data-role-effort="${role}" aria-label="${esc(`${label} 的推理强度`)}" title="${esc("推理强度属于所选的模型连接")}"${effortProfile ? "" : " disabled"}>
+        <select class="settings-select is-effort" data-role-effort="${role}" aria-label="${esc(ui`${label} 的推理强度`)}" title="${esc(
+          ui("推理强度属于所选的模型连接")
+        )}"${effortProfile ? "" : " disabled"}>
           ${REASONING.map((level) => `<option value="${level}"${level === effort ? " selected" : ""}>${esc(REASONING_LABEL[level])}</option>`).join("")}
         </select>
         <span class="settings-row-error" role="alert" data-role-error="${role}"${failure ? "" : " hidden"}>${failure ? esc(failure) : ""}</span>

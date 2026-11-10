@@ -1,3 +1,5 @@
+import { ui } from "../ui/language.js";
+
 /** Presentation only: resizing never activates, binds or saves a document. */
 export function createWorkspaceLayout({ root, conversationElement, onResize }) {
   const main = root.parentElement;
@@ -64,8 +66,8 @@ export function createWorkspaceLayout({ root, conversationElement, onResize }) {
       const expand = root.querySelector("[data-app-expand]");
       if (expand) {
         expand.hidden = !hasApp || !media?.matches;
-        expand.setAttribute("aria-label", expanded ? "恢复并排协作" : "全屏编辑");
-        expand.title = expanded ? "恢复并排协作" : "全屏编辑";
+        expand.setAttribute("aria-label", expanded ? ui("恢复并排协作") : ui("全屏编辑"));
+        expand.title = expanded ? ui("恢复并排协作") : ui("全屏编辑");
         expand.setAttribute("aria-pressed", String(expanded));
       }
       root.classList.toggle("is-conversation-only", hasApp && showingConversation && !split);

@@ -1,3 +1,5 @@
+import { ui } from "../ui/language.js";
+
 /**
  * The two product entries and what each one remembers.
  *
@@ -53,7 +55,7 @@ export function createEntryController({ root, storage, onChange } = {}) {
       else button.removeAttribute("aria-current");
     }
     const title = root.querySelector("#observe-title");
-    if (title) title.textContent = OBSERVE_TITLES[state.observeView];
+    if (title) title.textContent = ui(OBSERVE_TITLES[state.observeView]);
   };
   const commit = (next) => {
     if (next.mode === state.mode && next.observeView === state.observeView) return;

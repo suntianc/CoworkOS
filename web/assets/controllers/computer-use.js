@@ -1,12 +1,13 @@
 import { icon } from "../ui/icons.js";
+import { ui } from "../ui/language.js";
 
 /** One host-wide setting grants access; task ownership remains a runtime concern. */
 export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showToast }) {
   const settings = document.querySelector("#settings-entry");
   const section = document.createElement("details");
   section.className = "computer-setting";
-  section.setAttribute("aria-label", "窗口访问");
-  section.innerHTML = `<summary class="profile-setting"><span class="settings-row-copy"><span class="settings-row-icon">${icon("layout")}</span><span><strong>窗口访问</strong><small id="computer-access-state" data-computer-state role="status"></small></span></span><span class="settings-row-action">设置${icon("chevron-right")}</span></summary><div class="computer-setting-content"><p>允许所有对话观察并操作全部应用窗口。</p>
+  section.setAttribute("aria-label", ui("窗口访问"));
+  section.innerHTML = ui`<summary class="profile-setting"><span class="settings-row-copy"><span class="settings-row-icon">${icon("layout")}</span><span><strong>窗口访问</strong><small id="computer-access-state" data-computer-state role="status"></small></span></span><span class="settings-row-action">设置${icon("chevron-right")}</span></summary><div class="computer-setting-content"><p>允许所有对话观察并操作全部应用窗口。</p>
     <div class="computer-permission-actions">
       <button class="app-button is-secondary" type="button" data-computer-permission="screenRecording">开启屏幕录制</button>
       <button class="app-button is-secondary" type="button" data-computer-permission="accessibility">开启辅助功能</button>
@@ -18,8 +19,8 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
   const bar = document.createElement("div");
   bar.className = "computer-control-bar";
   bar.hidden = true;
-  bar.setAttribute("aria-label", "电脑操作与人工接管");
-  bar.innerHTML = `<span class="computer-live-dot" aria-hidden="true"></span><span data-computer-label></span><button class="app-button is-secondary" type="button" data-computer-pause>暂停 · 人工接管</button><button class="app-button is-secondary" type="button" data-computer-bar-resume hidden>恢复窗口访问</button>`;
+  bar.setAttribute("aria-label", ui("电脑操作与人工接管"));
+  bar.innerHTML = ui`<span class="computer-live-dot" aria-hidden="true"></span><span data-computer-label></span><button class="app-button is-secondary" type="button" data-computer-pause>暂停 · 人工接管</button><button class="app-button is-secondary" type="button" data-computer-bar-resume hidden>恢复窗口访问</button>`;
   document.querySelector("#conversation").before(bar);
   const $ = (selector) => section.querySelector(selector);
   const toggle = $("#computer-access-enabled");
@@ -47,9 +48,9 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
   }
   function missingPermissions() {
     const missing = [];
-    if (permissions && !permissions.screenRecording) missing.push("屏幕录制");
-    if (permissions && !permissions.accessibility) missing.push("辅助功能");
-    else if (permissions?.postEventAccess === false) missing.push("输入事件");
+    if (permissions && !permissions.screenRecording) missing.push(ui("屏幕录制"));
+    if (permissions && !permissions.accessibility) missing.push(ui("辅助功能"));
+    else if (permissions?.postEventAccess === false) missing.push(ui("输入事件"));
     return missing;
   }
   function permissionGranted(permission) {
@@ -71,70 +72,80 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
     toggle.setAttribute("aria-pressed", String(effectiveEnabled));
     toggle.textContent = effectiveEnabled
       ? paused || taskBlocked
-        ? "恢复窗口访问"
+        ? ui("恢复窗口访问")
         : pendingPolicy
-          ? "取消开启窗口访问"
-          : "关闭窗口访问"
+          ? ui("取消开启窗口访问")
+          : ui("关闭窗口访问")
       : approvalRequired
-        ? "确认并开启窗口访问"
-        : "开启窗口访问";
+        ? ui("确认并开启窗口访问")
+        : ui("开启窗口访问");
     toggle.setAttribute("aria-busy", String(pendingPolicy !== undefined));
     for (const button of section.querySelectorAll("[data-computer-permission]")) {
       const permission = button.dataset.computerPermission;
-      const label = permission === "screenRecording" ? "屏幕录制" : "辅助功能";
+      const label =
+        permission === "screenRecording"
+          ? { enabled: ui("屏幕录制已开启"), pending: ui("正在申请屏幕录制…"), idle: ui("开启屏幕录制") }
+          : { enabled: ui("辅助功能已开启"), pending: ui("正在申请辅助功能…"), idle: ui("开启辅助功能") };
       const granted = permissionGranted(permission);
       const pending = pendingPermissions.has(permission);
       button.disabled = !native || granted || pending;
-      button.textContent = granted ? `${label}已开启` : pending ? `正在申请${label}…` : `开启${label}`;
+      button.textContent = granted ? label.enabled : pending ? label.pending : label.idle;
       button.setAttribute("aria-busy", String(pending));
     }
     $("[data-computer-state]").textContent = !native
       ? !permissions
-        ? "正在读取执行主机状态"
+        ? ui("正在读取执行主机状态")
         : !permissions.available || permissions.controlAvailable === false
-          ? "执行主机窗口访问不可用"
+          ? ui("执行主机窗口访问不可用")
           : paused
-            ? "执行主机窗口访问已暂停"
+            ? ui("执行主机窗口访问已暂停")
             : enabled
-              ? "执行主机窗口访问已开启"
-              : "执行主机窗口访问已关闭"
+              ? ui("执行主机窗口访问已开启")
+              : ui("执行主机窗口访问已关闭")
       : pendingPolicy !== undefined
         ? pendingPolicy
-          ? "正在开启窗口访问…"
-          : "正在关闭…"
+          ? ui("正在开启窗口访问…")
+          : ui("正在关闭…")
         : paused && enabled
-          ? "已暂停，需手动恢复"
+          ? ui("已暂停，需手动恢复")
           : taskBlocked && enabled
-            ? "当前对话已停止，需手动恢复窗口访问"
+            ? ui("当前对话已停止，需手动恢复窗口访问")
             : enabled
               ? !permissions?.available
-                ? "窗口访问暂不可用"
+                ? ui("窗口访问暂不可用")
                 : missing.length
-                  ? "等待系统授权"
-                  : "已开启"
+                  ? ui("等待系统授权")
+                  : ui("已开启")
               : approvalRequired
-                ? "等待本机确认"
-                : warning || (permissionsReady() ? "已关闭" : "请先开启屏幕录制和辅助功能");
+                ? ui("等待本机确认")
+                : warning || (permissionsReady() ? ui("已关闭") : ui("请先开启屏幕录制和辅助功能"));
+    const permissionState = (granted) => (granted ? ui("已开启") : ui("未开启"));
+    const permissionList = () =>
+      ui`屏幕录制：${permissionState(permissions.screenRecording)} · 辅助功能：${permissionState(
+        permissions.accessibility
+      )}${permissions.accessibility && permissions.postEventAccess === false ? ui(" · 输入事件：未开启") : ""}`;
     const permissionMessage = !permissions
       ? ""
       : !native
-        ? `执行主机：${
+        ? `${ui("执行主机：")}${
             permissions.available
-              ? `屏幕录制：${permissions.screenRecording ? "已开启" : "未开启"} · 辅助功能：${permissions.accessibility ? "已开启" : "未开启"}${permissions.accessibility && permissions.postEventAccess === false ? " · 输入事件：未开启" : ""}${permissions.controlAvailable === false ? `。${permissions.reason || "桌面暂不可操作"}` : ""}`
-              : permissions.reason || "窗口访问不可用"
-          }。请在执行主机的 Formicand 桌面版处理权限。`
+              ? `${permissionList()}${
+                  permissions.controlAvailable === false
+                    ? ui`；${permissions.reason || ui("桌面暂不可操作")}`
+                    : ""
+                }`
+              : permissions.reason || ui("窗口访问不可用")
+          }${ui("。请在执行主机的 Formicand 桌面版处理权限。")}`
         : !permissions.available
-          ? permissions.reason || "当前电脑操作不可用"
+          ? permissions.reason || ui("当前电脑操作不可用")
           : [
-              missing.length
-                ? `屏幕录制：${permissions.screenRecording ? "已开启" : "未开启"} · 辅助功能：${permissions.accessibility ? "已开启" : "未开启"}${permissions.accessibility && permissions.postEventAccess === false ? " · 输入事件：未开启" : ""}`
-                : "权限已开启 · 屏幕录制、辅助功能",
+              missing.length ? permissionList() : ui("权限已开启 · 屏幕录制、辅助功能"),
               enabled && permissions.controlAvailable === false && !missing.length
-                ? permissions.reason || "桌面暂不可操作"
+                ? permissions.reason || ui("桌面暂不可操作")
                 : ""
             ]
               .filter(Boolean)
-              .join("。 ");
+              .join(ui("。 "));
     $("[data-computer-permissions]").textContent = permissionMessage;
     $("[data-computer-permissions]").hidden = !permissionMessage;
     const owner = access.owner;
@@ -143,9 +154,9 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
     bar.hidden = !native || (!active && !(paused && enabled));
     bar.dataset.state = paused ? "paused" : "active";
     bar.querySelector("[data-computer-label]").textContent = paused
-      ? "窗口访问已暂停"
+      ? ui("窗口访问已暂停")
       : owner
-        ? `${getTaskLabel(owner.taskId)} · ${owner.target.application} · ${owner.target.title || "窗口"}${takeoverShortcut ? ` · 接管 ${takeoverShortcut}` : ""}`
+        ? `${getTaskLabel(owner.taskId)} · ${owner.target.application} · ${owner.target.title || ui("窗口")}${takeoverShortcut ? ui` · 接管 ${takeoverShortcut}` : ""}`
         : "";
     bar.querySelector("[data-computer-pause]").hidden = paused;
     bar.querySelector("[data-computer-bar-resume]").hidden = !paused;
@@ -181,7 +192,9 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
         // eslint-disable-next-line no-restricted-syntax -- a failed 1s poll paints the panel's connection notice below and the next tick retries
         .catch(() => {
           if (version === generation)
-            error(native ? "连接中断，可使用人工接管或关闭窗口访问" : "连接中断，无法读取执行主机权限");
+            error(
+              native ? ui("连接中断，可使用人工接管或关闭窗口访问") : ui("连接中断，无法读取执行主机权限")
+            );
         })
         .finally(() => {
           polling = false;
@@ -226,7 +239,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
       // eslint-disable-next-line no-restricted-syntax -- the host may still be starting when the panel opens; the error state is painted and the poll retries the read
     } catch {
       if (version === generation)
-        error(native ? "连接中断，可使用人工接管或关闭窗口访问" : "连接中断，无法读取执行主机权限");
+        error(native ? ui("连接中断，可使用人工接管或关闭窗口访问") : ui("连接中断，无法读取执行主机权限"));
     }
   }
   async function savePolicy() {
@@ -249,10 +262,10 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
       if (version !== generation) return;
       showToast(
         !enabled
-          ? "已关闭窗口访问"
+          ? ui("已关闭窗口访问")
           : permissions?.available && !missingPermissions().length
-            ? "已允许所有对话观察和操作窗口"
-            : "请完成系统授权后使用窗口访问"
+            ? ui("已允许所有对话观察和操作窗口")
+            : ui("请完成系统授权后使用窗口访问")
       );
     } catch (reason) {
       if (version !== generation) return;

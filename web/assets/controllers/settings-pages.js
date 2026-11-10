@@ -111,7 +111,7 @@ export function createSettingsPages({
       }
       ${
         node.local
-          ? `<span class="settings-info" title="只在这台机器上运行，不对外提供 Main">${icon("info")}</span>`
+          ? `<span class="settings-info" title="${esc(ui("只在这台机器上运行，不对外提供 Main"))}">${icon("info")}</span>`
           : `<button class="settings-icon-button" type="button" data-node-menu="${esc(node.origin)}" aria-label="${esc(ui("节点操作"))}" aria-haspopup="menu" aria-expanded="false">${icon("more")}</button>`
       }
     </div>`;
@@ -142,7 +142,7 @@ export function createSettingsPages({
           <span class="settings-row-meta">${ui("SQLite · 由本机提供")}</span>
         </span>
         <span class="settings-row-spacer"></span>
-        <span class="settings-info" title="项目数据保存在本机，连接的节点读取同一份共享记录">${icon("info")}</span>
+        <span class="settings-info" title="${esc(ui("项目数据保存在本机，连接的节点读取同一份共享记录"))}">${icon("info")}</span>
       </div>`;
   }
 
