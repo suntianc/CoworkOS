@@ -72,7 +72,12 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
   };
   const closeModel = async () => {
     const model = page.getByRole("dialog", { name: "连接模型" });
+    // The first-use dialog opens once the window learns there is no model connection,
+    // which can land after navigation; give it a moment, then make sure nothing covers
+    // the page before the next click.
+    await model.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
     if (await model.isVisible()) await model.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await expect(model).toBeHidden();
   };
   const launch = async () => {
     native = await electron.launch({
