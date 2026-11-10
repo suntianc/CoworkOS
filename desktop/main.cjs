@@ -30,6 +30,13 @@ const { createLanguageHost } = require("./language.cjs");
 const { windowBackground, followNativeTheme } = require("./system-theme.cjs");
 const { PRODUCT_NAME } = require("./product-name.cjs");
 const { windowMaterial } = require("./window-material.cjs");
+const {
+  backgroundMode,
+  prepareBackgroundApp,
+  enterBackground,
+  showInBackground,
+  revealWindow
+} = require("./background-mode.cjs");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { randomUUID } = require("node:crypto");
@@ -74,6 +81,8 @@ const profile = desktopProfile({
   appData: app.getPath("appData")
 });
 const material = windowMaterial();
+const background = backgroundMode();
+if (background) prepareBackgroundApp(app);
 
 let backend,
   mainWindow,
@@ -220,6 +229,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1560,
     height: 980,
+    show: !background,
     minWidth: 752,
     minHeight: 700,
     backgroundColor: windowBackground(nativeTheme, process.platform),
@@ -236,6 +246,7 @@ function createWindow() {
       sandbox: true
     }
   });
+  if (background) showInBackground(mainWindow);
   installEditContextMenu(mainWindow, {
     Menu,
     clipboard,
@@ -268,6 +279,7 @@ function createWindow() {
       const viewer = new BrowserWindow({
         width: 1000,
         height: 800,
+        show: !background,
         webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false }
       });
       viewer.webContents.setWindowOpenHandler(({ url: target }) => {
@@ -277,6 +289,7 @@ function createWindow() {
       viewer.webContents.on("will-navigate", (event, target) => {
         if (!isDashboardUrl(target, selectedBackend?.url || backend?.url)) event.preventDefault();
       });
+      if (background) showInBackground(viewer);
       void viewer.loadURL(url);
     } else openExternalLink(url);
     return { action: "deny" };
@@ -294,7 +307,7 @@ function applicationIcon() {
   return selectApplicationIcon(profile.appRoot);
 }
 function refreshApplicationIcon() {
-  if (process.platform === "darwin") refreshDockIcon(profile.appRoot, app.dock);
+  if (process.platform === "darwin" && !background) refreshDockIcon(profile.appRoot, app.dock);
 }
 ipcMain.on("bookman:window-material", windowMaterialState);
 ipcMain.handle("bookman:choose-project", async (event) => {
@@ -326,7 +339,8 @@ ipcMain.handle("bookman:open-artifact-viewer", async (event, value, pdf) => {
       webPreferences = { ...webPreferences, session: pdfSession, javascript: true, plugins: true };
       target = PDF_VIEWER_URL;
     }
-    viewer = new BrowserWindow({ width: 1000, height: 800, webPreferences });
+    viewer = new BrowserWindow({ width: 1000, height: 800, show: !background, webPreferences });
+    if (background) showInBackground(viewer);
   } catch (error) {
     await releasePdf?.();
     throw error;
@@ -543,6 +557,7 @@ if (owner)
   startupPromise = app
     .whenReady()
     .then(async () => {
+      if (background) enterBackground(app);
       const userData = process.env.COWORK_DESKTOP_DATA || app.getPath("userData");
       const appearance = createAppearanceHost({
         userData,
@@ -594,10 +609,7 @@ if (owner)
         language: language.get(),
         show: () => {
           if (!mainWindow) app.emit("activate");
-          else {
-            mainWindow.show();
-            mainWindow.focus();
-          }
+          else revealWindow(mainWindow, background);
         },
         quit: () => app.quit()
       });
@@ -627,8 +639,7 @@ if (owner)
       app.quit();
     });
 app.on("second-instance", () => {
-  mainWindow?.show();
-  mainWindow?.focus();
+  if (mainWindow) revealWindow(mainWindow, background);
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
@@ -640,7 +651,8 @@ app.on("activate", () => {
     // Reconnect before showing the page: a backend restarted outside the app
     // publishes a new host credential, and the window must carry the new one.
     void launchBackend().catch((error) => dialog.showErrorBox("Formicand 无法连接本地服务", error.message));
-  } else mainWindow.show();
+  } else if (background) showInBackground(mainWindow);
+  else mainWindow.show();
 });
 app.on("before-quit", (event) => {
   if (quitting || !owner || !app.isReady()) return;
