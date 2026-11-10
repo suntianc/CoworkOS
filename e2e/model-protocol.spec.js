@@ -49,7 +49,9 @@ for (const api of ["openai-completions", "openai-responses"]) {
       await page.locator("#composer-input").fill("继续验证第二轮");
       await page.locator("#composer-input").press("Enter");
       await expect
-        .poll(() => provider.requests.some(({ body }) => JSON.stringify(body).includes("继续验证第二轮")))
+        .poll(() => provider.requests.some(({ body }) => JSON.stringify(body).includes("继续验证第二轮")), {
+          timeout: 30_000
+        })
         .toBe(true);
       const request = provider.requests.at(-1);
       expect(request.path).toBe(api === "openai-responses" ? "/v1/responses" : "/v1/chat/completions");

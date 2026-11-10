@@ -85,6 +85,8 @@ for (const api of ["openai-completions", "openai-responses"]) {
       await expect(
         page.locator("#conversation").getByText("第1轮缓存验证完成", { exact: true })
       ).toBeVisible();
+      // The next turn is only a new request once the previous run has settled.
+      await expect(page.locator("#stop-button")).toBeHidden();
       // The requirement panel reports totals only, so the cache key stability is read
       // from what the provider received across two turns of the same conversation.
       await page.locator("#composer-input").fill("验证缓存第二轮");
