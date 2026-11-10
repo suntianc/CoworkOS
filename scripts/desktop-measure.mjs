@@ -109,7 +109,13 @@ function launchEnvironment(home, dataRoot) {
       ([name]) => !/^(?:COWORK_|ATRIA_|PI_|ELECTRON_|NODE_OPTIONS$)/.test(name)
     )
   );
-  return { ...inherited, HOME: home, COWORK_DESKTOP_DATA: dataRoot, PI_TELEMETRY: "0" };
+  return {
+    ...inherited,
+    HOME: home,
+    COWORK_DESKTOP_DATA: dataRoot,
+    PI_TELEMETRY: "0",
+    FORMICAND_DESKTOP_BACKGROUND: inherited.FORMICAND_DESKTOP_BACKGROUND ?? "1"
+  };
 }
 
 /** Parse the process table once so every mark uses the same snapshot. */
