@@ -177,7 +177,12 @@ export function applyTrustedClientCors(response: ServerResponse, origin: string)
   // credentials. The origin is exact, never a wildcard.
   response.setHeader("access-control-allow-credentials", "true");
   response.setHeader("access-control-allow-methods", "GET, POST, PATCH, DELETE, OPTIONS");
-  response.setHeader("access-control-allow-headers", "accept, authorization, content-type, x-atria-token");
+  // An observation page reads another trusted node; its read-only marker is
+  // the only extra header a browser may send.
+  response.setHeader(
+    "access-control-allow-headers",
+    "accept, authorization, content-type, x-atria-token, x-cowork-read-only"
+  );
   response.setHeader("access-control-expose-headers", "x-cowork-replayed");
   response.setHeader("access-control-max-age", "600");
   response.setHeader("vary", "origin");

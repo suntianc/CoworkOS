@@ -69,9 +69,12 @@ export async function seedRequirement(page, dashboard, project, input) {
     return payload;
   };
   const backendId = await servingBackendId(dashboard);
-  // The project's merge entry names another backend, so a merged operation
-  // waits for that backend's delivery instead of this host completing it.
-  const declared = { "x-cowork-backend-id": REMOTE_BACKEND };
+  // The project's merge entry names another backend by default, so a merged
+  // operation waits for that backend's delivery instead of this host
+  // completing it. A case that wants this host to own the merge names its own
+  // identity and configures the project's merge entry the same way.
+  const ownedBy = input.executionBackendId ?? REMOTE_BACKEND;
+  const declared = { "x-cowork-backend-id": ownedBy };
   const projectPath = (suffix) => `/api/projects/${encodeURIComponent(project.projectId)}${suffix}`;
 
   const requirement = (
@@ -241,8 +244,8 @@ export async function seedRequirement(page, dashboard, project, input) {
         {
           action: "create",
           developmentId: development.developmentId,
-          requestedBy: REMOTE_BACKEND,
-          executionBackendId: REMOTE_BACKEND,
+          requestedBy: ownedBy,
+          executionBackendId: ownedBy,
           targetBranch: "main",
           candidate,
           acceptance: {
@@ -364,7 +367,13 @@ export async function seedRun(page, dashboard, taskId, { toolCalls = 148, roles 
 export const REMOTE_BACKEND = "backend_remote_executor_01";
 
 /** Record the project's merge entry, which every merge operation is checked against. */
-export async function configureMerge(page, dashboard, project, repository) {
+export async function configureMerge(
+  page,
+  dashboard,
+  project,
+  repository,
+  { executionBackendId = REMOTE_BACKEND } = {}
+) {
   // The ledger read binds the project into the shared records; the merge entry
   // is a shared fact and cannot exist before that.
   expect(
@@ -375,8 +384,8 @@ export async function configureMerge(page, dashboard, project, repository) {
   const response = await page.request.post(
     `${dashboard.base}/api/projects/${encodeURIComponent(project.projectId)}/merge-config`,
     {
-      data: { repository, targetBranch: "main", executionBackendId: REMOTE_BACKEND },
-      headers: { "content-type": "application/json", "x-cowork-backend-id": REMOTE_BACKEND }
+      data: { repository, targetBranch: "main", executionBackendId },
+      headers: { "content-type": "application/json", "x-cowork-backend-id": executionBackendId }
     }
   );
   const payload = await response.text();

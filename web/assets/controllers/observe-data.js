@@ -23,6 +23,15 @@ import { readNodes, writeNodes } from "./node-registry.js";
 
 const LEDGER_PATH = (projectId) => `/api/projects/${encodeURIComponent(projectId)}/ledger`;
 const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:/i;
+/**
+ * What every request of this port carries: observation only watches nodes.
+ *
+ * The backend answers these reads from its stored records and leaves that
+ * node's pending deliveries for its own work entry or periodic pass, so a
+ * person watching a node never writes on it. The work entry's own client is a
+ * different one and never sends this marker.
+ */
+const READ_ONLY_HEADERS = { "x-cowork-read-only": "1" };
 
 /**
  * A node read is always a path on that node.
@@ -217,6 +226,9 @@ export function createObserveData({
       clientName: "Formicand Observe",
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
       storage: store,
+      // The catalog snapshot and event stream are reads of the same port, so
+      // they carry the marker too.
+      transportHeaders: READ_ONLY_HEADERS,
       events: {
         onSnapshot: (snapshot) => adoptSnapshot(entry, snapshot),
         onEvent: (recordEvent) => applyEvent(entry, recordEvent),
@@ -290,10 +302,11 @@ export function createObserveData({
     notify();
   }
 
-  async function readEntry(entry, path, options) {
+  async function readEntry(entry, path, options = {}) {
     const target = nodePath(path);
-    if (entry.local) return local.request(target, options);
-    return entry.client.request(target, options);
+    const request = { ...options, headers: { ...READ_ONLY_HEADERS, ...options.headers } };
+    if (entry.local) return local.request(target, request);
+    return entry.client.request(target, request);
   }
 
   async function connectEntry(entry, { reauthorize = false } = {}) {
