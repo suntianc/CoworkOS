@@ -51,6 +51,9 @@ export function createProjectController({
       /* optional persistence */
     }
   }
+  // Below this width the sidebar is an icon rail, where every project shows
+  // its tree only while open, so the project icon answers for its questions.
+  const railWindow = window.matchMedia?.("(max-width: 1023px)") ?? { matches: false };
   const projects = () => state.projects || [];
   const subagentsOf = (task) => (task.activity?.agents || []).filter((agent) => agent.role === "subagent");
   const roleLabel = (agent) =>
@@ -150,9 +153,7 @@ export function createProjectController({
           const id = project.projectId,
             tasks = (project.tasks || []).filter(visibleTask),
             collapsed = state.collapsedProjects.has(id);
-          // The icon rail folds every project, so the question mark lives on the
-          // project itself there and the stylesheet hides it while a wide tree is open.
-          const question = tasks.some((task) => task.pendingQuestion);
+          const question = (collapsed || railWindow.matches) && tasks.some((task) => task.pendingQuestion);
           return ui`<section class="project-group ${collapsed ? "collapsed" : ""} ${state.selectedProjectId === id ? "is-selected" : ""}" data-project="${esc(id)}">
         <div class="project-heading"><button class="project-row" type="button" data-project-id="${esc(id)}" aria-expanded="${!collapsed}" title="${esc(project.projectDirectory || project.workspaceRoot || "")}"><span class="project-disclosure" aria-hidden="true"><span class="project-chevron">${icon("chevron-down")}</span><span class="project-folder">${icon(collapsed ? "folder" : "folder-open")}</span></span><span class="project-name">${esc(project.projectName)}</span>${question ? `<span class="project-question" role="img" aria-label="${esc(ui("有待回答的问题"))}"></span>` : ""}${collapsed && tasks.length ? `<span class="project-count">${tasks.length}</span>` : ""}</button><button class="project-settings" type="button" data-project-settings="${esc(id)}" aria-label="项目设置：${esc(project.projectName)}" title="项目设置">${icon("more")}</button><button class="project-create" type="button" data-project-create="${esc(id)}" aria-label="在 ${esc(project.projectName)} 中新建会话" title="在此项目新建会话">${icon("plus")}</button></div>
         <div class="conversation-list" aria-label="${esc(project.projectName)}中的对话"><div class="project-rail-head"><span class="project-rail-name">${esc(project.projectName)}</span><button class="project-rail-action" type="button" data-rail-settings="${esc(id)}" aria-label="${esc(ui("项目设置"))}" title="${esc(ui("项目设置"))}">${icon("more")}</button><button class="project-rail-action" type="button" data-rail-create="${esc(id)}" aria-label="${esc(ui("新建会话"))}" title="${esc(ui("在此项目新建会话"))}">${icon("plus")}</button></div>${
@@ -232,6 +233,9 @@ export function createProjectController({
       };
       root.addEventListener("pointerover", pin);
       root.addEventListener("focusin", pin);
+      // A question dot belongs to the folded project in the rail and to the
+      // session in a wide tree, so crossing the breakpoint re-renders the rows.
+      railWindow.addEventListener?.("change", () => render());
     }
     onRendered();
     const focusSelector = focusMenu

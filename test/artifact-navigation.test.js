@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { createArtifactController } from "../web/assets/controllers/artifact-controller.js";
 
 function artifactFixture({ mimeType = "application/pdf", editable, sourceResourceId, sourceChanged } = {}) {
+  // The controller remembers the element that opened the preview; Node has no
+  // document, so the fixture supplies the one field it reads.
+  globalThis.document ??= { activeElement: null, body: {} };
   const path = "介绍 中文 & #.pptx";
   const calls = [];
   let finish;

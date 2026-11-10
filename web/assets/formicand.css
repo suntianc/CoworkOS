@@ -1003,11 +1003,6 @@ html[data-theme] .observe-header {
 .project-rail-head {
   display: none;
 }
-/* A folded project answers for its unread questions; an open tree shows them on
-   the sessions themselves. */
-html[data-theme] .project-group:not(.collapsed) .project-question {
-  display: none;
-}
 
 @media (max-width: 1279px) {
   html[data-theme] .app-layout,

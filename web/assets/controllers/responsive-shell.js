@@ -18,6 +18,9 @@ export function createResponsiveShell({
 } = {}) {
   if (!toggles.length || !sidebar) return { open() {}, close() {}, destroy() {} };
   const narrow = window.matchMedia?.("(max-width: 639px)") ?? { matches: false };
+  // The drawer covers the work and observation panels, so they leave the tab
+  // order and the accessibility tree while it is open.
+  const covered = [...document.querySelectorAll("#work-entry, #observe-entry")];
   let opener;
 
   const isOpen = () => body.classList.contains("sidebar-drawer-open");
@@ -28,6 +31,7 @@ export function createResponsiveShell({
       toggle.setAttribute("aria-label", ui(isOpen() ? "关闭侧栏" : "打开侧栏"));
       toggle.title = ui(isOpen() ? "关闭侧栏" : "打开侧栏");
     }
+    for (const panel of covered) panel.inert = isOpen();
   }
 
   function open() {
@@ -47,10 +51,6 @@ export function createResponsiveShell({
   }
 
   const onToggle = () => (isOpen() ? close() : open());
-  const onToggleClick = (event) => {
-    event.preventDefault();
-    onToggle();
-  };
   const onClose = () => close();
   const onKey = (event) => {
     if (event.key !== "Escape" || !isOpen()) return;
@@ -66,11 +66,11 @@ export function createResponsiveShell({
     paint();
   };
 
-  for (const toggle of toggles) toggle.addEventListener("click", onToggleClick);
+  for (const toggle of toggles) toggle.addEventListener("click", onToggle);
   closeButton?.addEventListener("click", onClose);
   document.addEventListener("keydown", onKey);
   sidebar.addEventListener("click", onSidebarClick);
-  narrow.addEventListener("change", onWidthChange);
+  narrow.addEventListener?.("change", onWidthChange);
   paint();
 
   return {
@@ -80,11 +80,11 @@ export function createResponsiveShell({
       return isOpen();
     },
     destroy() {
-      for (const toggle of toggles) toggle.removeEventListener("click", onToggleClick);
+      for (const toggle of toggles) toggle.removeEventListener("click", onToggle);
       closeButton?.removeEventListener("click", onClose);
       document.removeEventListener("keydown", onKey);
       sidebar.removeEventListener("click", onSidebarClick);
-      narrow.removeEventListener("change", onWidthChange);
+      narrow.removeEventListener?.("change", onWidthChange);
     }
   };
 }

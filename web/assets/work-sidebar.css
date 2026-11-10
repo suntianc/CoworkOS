@@ -1041,9 +1041,6 @@ html[data-theme="light"] .add-project-state {
   html[data-theme] .project-heading:is(:hover, :has(:focus-visible)) .project-question {
     opacity: 1;
   }
-  html[data-theme] .project-group:not(.collapsed) .project-question {
-    display: block;
-  }
   /* The hovered project expands its tree beside the rail. A fixed panel is not
      clipped by the rail's scroll box and keeps its static line, so it opens at
      the icon that was hovered. */
