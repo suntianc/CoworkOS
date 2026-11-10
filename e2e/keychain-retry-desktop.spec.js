@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { desktopSmokeEnvironment } from "../scripts/desktop-smoke-env.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 

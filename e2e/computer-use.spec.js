@@ -13,19 +13,23 @@ test("window access keeps desktop-only controls behind its settings row and pres
     for (const width of [1440, 1280, 474, 320]) {
       await page.setViewportSize({ width, height: 800 });
       await page.locator("#user-menu-button").click();
-      const settings = page.getByRole("dialog", { name: "设置", exact: true });
+      const settings = page.locator("#settings-entry");
       await expect(settings).toBeVisible();
+      await page.locator('[data-settings-section="tools"]').click();
       const access = settings.locator(".computer-setting");
-      await expect(access).toHaveJSProperty("open", false);
+      // Desktop-only controls stay behind the collapsed row until it is opened; the
+      // row may open itself while it has a state to report.
       await access.locator("summary").focus();
+      if (await access.evaluate((element) => element.open)) await page.keyboard.press("Enter");
+      await expect(access).toHaveJSProperty("open", false);
       await page.keyboard.press("Enter");
       await expect(access).toHaveJSProperty("open", true);
+      await expect(page.locator("[data-computer-state]")).toContainText("执行主机窗口访问不可用");
       await expect(settings.locator(".computer-setting button")).toHaveCount(3);
       for (const button of await settings.locator(".computer-setting button").all()) {
         await expect(button).toBeDisabled();
         await expect(button).toBeHidden();
       }
-      await expect(page.locator("[data-computer-state]")).toContainText("桌面版");
       await expect(page.locator("[data-computer-request]")).toHaveCount(0);
       await expect(
         page.locator("#computer-access-dialog, [data-computer-window], [data-computer-mode]")
@@ -34,7 +38,8 @@ test("window access keeps desktop-only controls behind its settings row and pres
       const box = await settings.boundingBox();
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(width);
-      await access.locator("summary").click();
+      await access.locator("summary").focus();
+      if (await access.evaluate((element) => element.open)) await page.keyboard.press("Enter");
       await page.keyboard.press("Escape");
       await expect(settings).toBeHidden();
       await expect(page.locator("#user-menu-button")).toBeFocused();
@@ -75,8 +80,9 @@ test("native window permission actions remain available on demand without granti
       route.fulfill({ json: { policy: { enabled: false }, paused: false } })
     );
     await page.goto(dashboard.base);
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    const settings = page.getByRole("dialog", { name: "设置", exact: true });
+    await page.locator("#user-menu-button").click();
+    const settings = page.locator("#settings-entry");
+    await page.locator('[data-settings-section="tools"]').click();
     const access = settings.locator(".computer-setting");
     await expect(access.getByRole("button", { name: "开启窗口访问", exact: true })).toBeHidden();
     await access.locator("summary").click();

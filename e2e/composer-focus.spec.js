@@ -35,6 +35,7 @@ async function runningTask(page, dashboard, { held = false } = {}) {
   const detail = await (await page.request.get(`${dashboard.base}/api/tasks/${taskId}`)).json();
   let active = false;
   let started = false;
+  let settled = false;
   let release;
   const gate = new Promise((resolve) => {
     release = resolve;
@@ -53,11 +54,12 @@ async function runningTask(page, dashboard, { held = false } = {}) {
     if (held) await gate;
     active = true;
     await route.fulfill({ json: { runId: "focus-run", model: "focus-fixture" } });
+    settled = true;
   });
   await page.route(`**/api/tasks/${taskId}/interject`, (route) =>
     route.fulfill({ json: { messageId: "focus-interjection" } })
   );
-  return { release, started: () => started };
+  return { release, started: () => started, settled: () => settled };
 }
 
 test("a clicked send returns focus to the composer after an accepted run and queued follow-up", async ({
@@ -79,18 +81,20 @@ test("a clicked send returns focus to the composer after an accepted run and que
   await expect(input).toBeFocused();
 });
 
-test("a delayed send does not move focus out of the global settings dialog", async ({ page, dashboard }) => {
+test("a delayed send does not move focus out of the settings entry", async ({ page, dashboard }) => {
   const run = await runningTask(page, dashboard, { held: true });
   try {
     await page.locator("#composer-input").fill("响应前打开设置");
     await page.locator("#send-button").click();
     await expect.poll(run.started).toBe(true);
     await page.locator("#user-menu-button").click();
-    await expect(page.locator("#profile-close")).toBeFocused();
+    const section = page.locator('[data-settings-section="general"]');
+    await expect(section).toBeFocused();
     run.release();
-    await expect(page.locator("#send-button")).toBeHidden();
-    await expect(page.locator("#profile-close")).toBeFocused();
-    await expect(page.getByRole("dialog", { name: "设置", exact: true })).toBeVisible();
+    await expect.poll(run.settled).toBe(true);
+    await expect(section).toBeFocused();
+    await expect(page.locator("#settings-entry")).toBeVisible();
+    await expect(page.locator("#app-layout")).toBeHidden();
   } finally {
     run.release();
   }

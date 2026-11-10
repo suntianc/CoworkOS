@@ -1,10 +1,8 @@
 import { test, expect, _electron as electron } from "@playwright/test";
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
 const layers = (page) =>
@@ -39,8 +37,6 @@ const expectClearPage = (value) => {
 test("macOS window material shows the desktop through the page and keeps the glass panels", async () => {
   test.skip(process.platform !== "darwin", "Native window material acceptance requires macOS");
   test.setTimeout(180_000);
-  if (!existsSync("build/atria.icns"))
-    execFileSync(process.execPath, ["scripts/build-desktop-icon.mjs"], { stdio: "inherit" });
   const root = await mkdtemp(join(tmpdir(), "atria-backdrop-material-"));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
@@ -83,6 +79,6 @@ test("macOS window material shows the desktop through the page and keeps the gla
   } finally {
     await native?.close();
     await stopNativeBackend(root);
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

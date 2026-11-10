@@ -3,7 +3,9 @@ import { startConfiguredDashboard as startDashboard } from "../test/dashboard-fi
 
 async function openSettings(page) {
   await page.locator("#user-menu-button").click();
-  await expect(page.getByRole("dialog", { name: "设置", exact: true })).toBeVisible();
+  await expect(page.locator("#settings-entry")).toBeVisible();
+  // Window access lives on the Tools section, so opening settings must also pick it.
+  await page.locator('[data-settings-section="tools"]').click();
   const section = page.locator('details[aria-label="窗口访问"]');
   if (!(await section.evaluate((element) => element.open))) await section.locator("summary").click();
 }
@@ -150,7 +152,7 @@ test("three settings buttons gate full access for all conversations and persists
         "[data-computer-window], [data-computer-mode], [data-computer-global-mode], [data-computer-global-save], #computer-access-dialog"
       )
     ).toHaveCount(0);
-    await page.locator("#profile-close").click();
+    await page.locator("#settings-back").click();
     await expect(page.locator("#composer-input")).toHaveValue("保留未发送草稿");
     const tasks = (await (await request.get(`${dashboard.base}/api/tasks`)).json()).tasks;
     expect(tasks.filter((task) => task.taskId !== "workspace")).toHaveLength(0);
@@ -397,7 +399,7 @@ test("disconnect leaves native takeover usable and a cancelled read cannot reviv
     await openSettings(page);
     await expect(page.locator("[data-computer-error]")).toContainText("连接中断");
     await expect(page.locator("[data-computer-pause]")).toBeEnabled();
-    await page.locator("#profile-close").click();
+    await page.locator("#settings-back").click();
     await page.locator("[data-computer-pause]").click();
     await expect.poll(() => host.paused).toBe(true);
     await expect(page.locator(".computer-control-bar")).toHaveAttribute("data-state", "paused");

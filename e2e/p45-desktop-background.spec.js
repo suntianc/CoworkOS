@@ -47,6 +47,6 @@ test("desktop windows launched by tests stay out of the foreground but still dra
     expect(await page.evaluate(() => document.visibilityState)).toBe("visible");
   } finally {
     await native?.close();
-    await rm(data, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

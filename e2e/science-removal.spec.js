@@ -3,22 +3,23 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PNG } from "pngjs";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
 async function inspectSettings(page, testInfo) {
   await expect(page.locator("#composer-input")).toBeVisible();
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  const overview = page.getByRole("dialog", { name: "设置", exact: true });
-  await expect(overview).toBeVisible();
-  await expect(overview.getByRole("button", { name: "管理模型连接", exact: true })).toBeVisible();
-  await expect(overview.getByRole("button", { name: "管理科学环境", exact: true })).toHaveCount(0);
-  await expect(overview.getByText("科学计算", { exact: true })).toHaveCount(0);
+  await page.locator("#user-menu-button").click();
+  const settings = page.locator("#settings-entry");
+  await expect(settings).toBeVisible();
+  await page.locator('[data-settings-section="tools"]').click();
+  await expect(settings.getByRole("button", { name: "管理联网搜索", exact: true })).toBeVisible();
+  await expect(settings.getByRole("button", { name: "管理科学环境", exact: true })).toHaveCount(0);
+  await expect(settings.getByText("科学计算", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("settings.png") });
-  await overview.getByRole("button", { name: "关闭设置", exact: true }).click();
-  await expect(overview).toBeHidden();
+  await page.locator("#settings-back").click();
+  await expect(settings).toBeHidden();
 }
 
 function pdfFixture() {

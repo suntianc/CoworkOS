@@ -42,9 +42,9 @@ test("desktop response links leave through the system browser and local viewers 
     await dialog.locator('[name="baseUrl"]').fill(provider.baseUrl);
     await dialog.locator('[name="model"]').fill("protocol-fixture");
     await dialog.locator('[name="apiKey"]').fill("local-external-link-fixture");
-    const oldUrl = page.url();
     await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect.poll(() => page.url()).not.toBe(oldUrl);
+    // Saving applies the connection in place; the window keeps its origin.
+    await expect(dialog).toBeHidden();
     await expect(page.locator("#model-select")).toContainText("protocol-fixture");
     await page.locator("#new-project").click();
     await page.locator("#add-project-name").fill("链接验收项目");
@@ -67,10 +67,11 @@ test("desktop response links leave through the system browser and local viewers 
     expect(await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
 
     const opened = native.waitForEvent("window");
-    await page.evaluate(() => window.open("/assets/pptist/generated/LICENSE.txt", "_blank"));
+    // Any served local file proves the local viewer window is unprivileged.
+    await page.evaluate(() => window.open("/assets/ui/language-en.js", "_blank"));
     const viewer = await opened;
     viewer.on("pageerror", (error) => errors.push(error.message));
-    await expect(viewer.locator("body")).toContainText("GNU AFFERO GENERAL PUBLIC LICENSE");
+    await expect(viewer.locator("body")).toContainText("Back to settings");
     expect(await viewer.evaluate(() => typeof window.bookmanDesktop)).toBe("undefined");
     expect(
       await native.evaluate(({ BrowserWindow }) => {
@@ -90,6 +91,6 @@ test("desktop response links leave through the system browser and local viewers 
   } finally {
     await native?.close();
     await provider.close();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

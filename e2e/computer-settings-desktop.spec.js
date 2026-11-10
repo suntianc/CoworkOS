@@ -4,11 +4,12 @@ import { once } from "node:events";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { desktopSmokeEnvironment } from "../scripts/desktop-smoke-env.mjs";
 import { createDashboardApplication } from "../dist/src/dashboard/application.js";
 import {
   backendPaths,
+  readBackendInstance,
   ensureBackendIdentity,
   removeBackendInstance,
   writeBackendInstance
@@ -69,9 +70,18 @@ async function isolatedBackend(data, helper) {
 }
 
 async function openWindowSettings(page) {
-  await page.locator("#user-menu-button").click();
-  const section = page.locator("#profile-modal .computer-setting");
+  const entry = page.locator("#settings-entry");
+  if (!(await entry.isVisible())) await page.locator("#user-menu-button").click();
+  await page.locator('[data-settings-section="tools"]').click();
+  await openAccessRow(page);
+}
+
+/** The window-access row is a disclosure; its buttons exist only once it is open. */
+async function openAccessRow(page) {
+  const section = page.locator("#settings-entry .computer-setting");
+  await section.waitFor({ state: "attached" });
   if (!(await section.evaluate((element) => element.open))) await section.locator("summary").click();
+  await page.locator("#computer-access-enabled").waitFor({ state: "visible" });
 }
 
 async function isolatedDriver(data, windows, grant = true, confirmationDelay = 0) {
@@ -173,23 +183,17 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await expect(model).toBeHidden();
     return page;
   };
-  const call = (page, path, body) =>
-    page.evaluate(
-      async ({ path, body }) => {
-        const response = await fetch(
-          path,
-          body === undefined
-            ? { headers: { "x-atria-token": "isolated-settings-fixture" } }
-            : {
-                method: "POST",
-                headers: { "content-type": "application/json", "x-atria-token": "isolated-settings-fixture" },
-                body: JSON.stringify(body)
-              }
-        );
-        return { status: response.status, value: await response.json() };
-      },
-      { path, body }
-    );
+  // Sign requests with the token this isolated backend published. A renderer fetch
+  // cannot carry it without the host transport, so the test process talks to the
+  // same origin the window is on.
+  const call = async (page, path, body) => {
+    const response = await fetch(new URL(path, page.url()), {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "content-type": "application/json", "x-atria-token": process.env.COWORK_API_TOKEN },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    });
+    return { status: response.status, value: await response.json() };
+  };
   try {
     let page = await launch();
     await openWindowSettings(page);
@@ -226,6 +230,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await expect(toggle()).toBeEnabled();
     expect((await call(page, "/api/computer/access")).value.policy.enabled).toBe(false);
     expect(backend.approvals()).toBe(0);
+    await openAccessRow(page);
     await toggle().click();
     await expect(page.locator("[data-computer-state]")).toContainText("已开启");
     expect(backend.approvals()).toBe(1);
@@ -250,7 +255,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
       fullPage: true,
       animations: "disabled"
     });
-    await page.locator("#profile-close").click();
+    await page.locator("#settings-back").click();
     let previousGrant, previousFrame;
     for (const [index, window] of [target, second].entries()) {
       const taskId = `settings-task-${index}`;
@@ -303,7 +308,8 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await native.close();
     native = undefined;
     page = await launch();
-    expect(page.url()).toBe(firstOrigin);
+    // The relaunched window reopens on the same backend; the selected task is restored separately.
+    expect(new URL(page.url()).origin).toBe(new URL(firstOrigin).origin);
     await openWindowSettings(page);
     expect(backend.approvals()).toBe(1);
     await expect(toggle()).toHaveAttribute("aria-pressed", "true");
@@ -334,6 +340,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await expect
       .poll(async () => (await call(page, "/api/computer/access")).value.waitingTaskIds)
       .toEqual(["settings-task-1"]);
+    await openAccessRow(page);
     await toggle().click();
     await expect(page.locator("[data-computer-state]")).toContainText("已关闭");
     expect((await waiting).status).toBe(403);
@@ -353,6 +360,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     expect((await call(page, "/api/computer/access")).value.policy.enabled).toBe(false);
     expect((await readFile(effects, "utf8")).trim().split("\n")).toHaveLength(2);
     expect((await readFile(requests, "utf8")).trim().split("\n")).toHaveLength(2);
+    await openAccessRow(page);
     await toggle().click();
     await expect(toggle()).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => backend.approvals()).toBe(2);
@@ -430,18 +438,18 @@ test("denying either system permission keeps access disabled and opens only its 
     await expect(screen).toBeEnabled();
     await expect(accessibility).toBeEnabled();
     await expect(page.locator("[data-computer-request]")).toHaveCount(0);
-    const selectedStatus = await page.evaluate(async () => {
-      const post = (path, body) =>
-        fetch(path, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-atria-token": "isolated-settings-fixture" },
-          body: JSON.stringify(body)
-        });
-      await post("/api/tasks", { taskId: "denied-task", goal: "Isolated denied permission" });
-      return (
-        await post("/api/tasks/denied-task/computer/select", { pid: 11, windowId: 12, mode: "control" })
-      ).status;
-    });
+    const post = (path, body) =>
+      fetch(new URL(path, page.url()), {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-atria-token": process.env.COWORK_API_TOKEN },
+        body: JSON.stringify(body)
+      });
+    expect(
+      (await post("/api/tasks", { taskId: "denied-task", goal: "Isolated denied permission" })).status
+    ).toBe(201);
+    const selectedStatus = (
+      await post("/api/tasks/denied-task/computer/select", { pid: 11, windowId: 12, mode: "control" })
+    ).status;
     expect(selectedStatus).toBe(403);
     expect((await readFile(requests, "utf8")).trim().split("\n")).toHaveLength(2);
     expect(backend.approvals()).toBe(0);

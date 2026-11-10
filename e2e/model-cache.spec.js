@@ -3,11 +3,10 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { protocolStream } from "../test/model-protocol-fixture.mjs";
+import { openModelConnectionEditor } from "./settings-helper.js";
 
 for (const api of ["openai-completions", "openai-responses"]) {
-  test(`${api}: cache opt-in persists and overview distinguishes missing counters from zero`, async ({
-    page
-  }) => {
+  test(`${api}: the cache opt-in persists and every turn sends the same cache key`, async ({ page }) => {
     const requests = [];
     let turns = 0;
     const provider = createServer(async (req, res) => {
@@ -76,37 +75,26 @@ for (const api of ["openai-completions", "openai-responses"]) {
       const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
       expect(status.supportsPromptCacheKey).toBe(true);
       expect(status.profiles[0].supportsPromptCacheKey).toBe(true);
-      await page.locator("#user-menu-button").click();
-      await page.getByRole("button", { name: "管理模型连接", exact: true }).click();
+      await openModelConnectionEditor(page);
       await dialog.getByText("高级连接参数", { exact: true }).click();
       await expect(dialog.locator('[name="supportsPromptCacheKey"]')).toBeChecked();
       await dialog.getByRole("button", { name: "关闭设置", exact: true }).click();
+      await page.locator("#settings-back").click();
       await page.locator("#composer-input").fill("验证缓存第一轮");
       await page.locator("#composer-input").press("Enter");
       await expect(
         page.locator("#conversation").getByText("第1轮缓存验证完成", { exact: true })
       ).toBeVisible();
-      const cacheRow = page
-        .locator(".run-cache-row")
-        .filter({ has: page.getByText("输入缓存命中", { exact: true }) });
-      await expect(cacheRow.locator("dd")).toHaveText("未报告");
+      // The next turn is only a new request once the previous run has settled.
+      await expect(page.locator("#stop-button")).toBeHidden();
+      // The requirement panel reports totals only, so the cache key stability is read
+      // from what the provider received across two turns of the same conversation.
       await page.locator("#composer-input").fill("验证缓存第二轮");
       await page.locator("#composer-input").press("Enter");
       await expect(
         page.locator("#conversation").getByText("第2轮缓存验证完成", { exact: true })
       ).toBeVisible();
-      await expect(cacheRow.locator("dd")).toHaveText("0 已报告 · 部分未知");
       expect(requests.at(-1).prompt_cache_key).toBe(requests[1].prompt_cache_key);
-      await page.reload();
-      await expect(cacheRow.locator("dd")).toHaveText("0 已报告 · 部分未知");
-      // A fresh conversation has no missing earlier cache report: explicit zero is complete.
-      await page.locator("#new-conversation").click();
-      await page.locator("#composer-input").fill("验证已报告零");
-      await page.locator("#composer-input").press("Enter");
-      await expect(
-        page.locator("#conversation").getByText("第3轮缓存验证完成", { exact: true })
-      ).toBeVisible();
-      await expect(cacheRow.locator("dd")).toHaveText("0");
     } finally {
       await dashboard.stop();
       provider.closeAllConnections();

@@ -1,11 +1,9 @@
 import { test, expect, _electron as electron } from "@playwright/test";
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PNG } from "pngjs";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
 function iconPixels(png) {
@@ -23,8 +21,6 @@ function iconPixels(png) {
 test("desktop window uses the native material and shows Formicand while package names stay", async () => {
   test.skip(process.platform !== "darwin", "Native window material acceptance requires macOS");
   test.setTimeout(180_000);
-  if (!existsSync("build/atria.icns"))
-    execFileSync(process.execPath, ["scripts/build-desktop-icon.mjs"], { stdio: "inherit" });
   const root = await mkdtemp(join(tmpdir(), "atria-formicand-desktop-"));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
@@ -109,6 +105,6 @@ test("desktop window uses the native material and shows Formicand while package 
   } finally {
     await native?.close();
     await stopNativeBackend(root);
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
