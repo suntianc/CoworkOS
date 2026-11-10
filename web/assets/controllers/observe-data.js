@@ -1,5 +1,6 @@
 import { createManagementClient, normalizeBackendUrl } from "./management-client.js";
 import { readNodes, writeNodes } from "./node-registry.js";
+import { ui } from "../ui/language.js";
 
 /**
  * The observation entry's read-only data port.
@@ -22,6 +23,7 @@ import { readNodes, writeNodes } from "./node-registry.js";
  */
 
 const LEDGER_PATH = (projectId) => `/api/projects/${encodeURIComponent(projectId)}/ledger`;
+
 const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:/i;
 /**
  * What every request of this port carries: observation only watches nodes.
@@ -43,7 +45,7 @@ const READ_ONLY_HEADERS = { "x-cowork-read-only": "1" };
  */
 function nodePath(path) {
   if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || ABSOLUTE_URL.test(path))
-    throw new Error("节点读取只接受相对路径");
+    throw new Error(ui("节点读取只接受相对路径"));
   return path;
 }
 
@@ -68,7 +70,7 @@ function clearStoredPrefix(base, prefix) {
 }
 
 function describeError(error) {
-  return error?.message || "无法连接节点";
+  return error?.message || ui("无法连接节点");
 }
 
 /**
@@ -562,7 +564,7 @@ export function createObserveData({
     },
     async read(origin, path, options) {
       const entry = entries.get(origin);
-      if (!entry) throw new Error(`未知节点：${origin}`);
+      if (!entry) throw new Error(ui`未知节点：${origin}`);
       return readEntry(entry, path, options);
     },
     async refreshRequirements(origin) {

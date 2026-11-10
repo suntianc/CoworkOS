@@ -28,7 +28,7 @@ export function createArtifactController({
     const parts = String(path || "")
       .split(/[\\/]/)
       .filter(Boolean);
-    return parts.at(-1) || String(path || "未命名文件");
+    return parts.at(-1) || String(path || ui("未命名文件"));
   }
 
   function fileLanguage(path) {
@@ -180,7 +180,7 @@ export function createArtifactController({
 
   async function openEditableArtifact(taskId, artifact, opening) {
     try {
-      showToast("正在打开文件…");
+      showToast(ui("正在打开文件…"));
       const created = await getWorkbench().importArtifact(taskId, artifact);
       if (created.resource?.resourceId) {
         await getWorkbench().api.openTab({
@@ -201,9 +201,9 @@ export function createArtifactController({
         if (navigation === opening.navigation) break;
       }
       if (opening.navigation.current()) closeArtifactDrawer();
-      showToast(`已打开文档：${created.resource.title}`);
+      showToast(`${ui("已打开文档：")}${created.resource.title}`);
     } catch (error) {
-      showToast(`无法在编辑器中打开：${error.message}`);
+      showToast(`${ui("无法在编辑器中打开：")}${error.message}`);
     }
   }
 
@@ -385,12 +385,14 @@ export function createArtifactController({
 
   function renderDiffBody(tab, files) {
     if (state.drawerDiff?.status === "error")
-      return `<div class="drawer-state is-error"><strong>无法显示改动</strong><p>${esc(
+      return `<div class="drawer-state is-error"><strong>${ui("无法显示改动")}</strong><p>${esc(
         state.drawerDiff.error
       )}</p></div>`;
     if (!state.drawerDiff || state.drawerDiff.status === "loading") {
       ensureDiffLoaded();
-      return `<div class="drawer-state"><span class="editor-spinner"></span><strong>正在读取改动</strong></div>`;
+      return `<div class="drawer-state"><span class="editor-spinner"></span><strong>${ui(
+        "正在读取改动"
+      )}</strong></div>`;
     }
     if (tab.kind === "file") {
       const file = files.find((entry) => entry.path === tab.path) || files[0];
@@ -510,12 +512,12 @@ export function createArtifactController({
     let content;
     if (isChange) content = renderDiffBody(tab, files);
     else if (!cached || cached.status === "loading")
-      content = `<div class="drawer-state"><span class="editor-spinner"></span><strong>正在打开 ${esc(
+      content = `<div class="drawer-state"><span class="editor-spinner"></span><strong>${ui`正在打开 ${esc(
         title
-      )}</strong></div>`;
+      )}`}</strong></div>`;
     else if (cached.status === "error")
-      content = `<div class="drawer-state is-error"><strong>文件读取失败</strong><p>${esc(
-        cached.error || "未知错误"
+      content = `<div class="drawer-state is-error"><strong>${ui("文件读取失败")}</strong><p>${esc(
+        cached.error || ui("未知错误")
       )}</p><button class="drawer-action" data-retry-artifact>${ui("重新加载")}</button></div>`;
     else
       content = renderArtifactDocument(cached, tab.path, {
@@ -585,10 +587,10 @@ export function createArtifactController({
       try {
         if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
         await navigator.clipboard.writeText(preview.content);
-        showToast(preview.truncated ? "已复制当前预览内容" : "产出物内容已复制");
+        showToast(preview.truncated ? ui("已复制当前预览内容") : ui("产出物内容已复制"));
         // eslint-disable-next-line no-restricted-syntax -- the browser refuses clipboard writes outside a secure context or without permission; the toast reports that copy is unavailable
       } catch {
-        showToast("当前环境不支持复制");
+        showToast(ui("当前环境不支持复制"));
       }
     });
     if (!isChange && !cached) ensureArtifactLoaded(tab.path);
