@@ -119,6 +119,11 @@ test("the work entry, sidebar, new session and add-project dialog read English",
     await expect(page.getByRole("tab", { name: "Observe", exact: true })).toBeVisible();
     await expect(page.locator("#new-conversation")).toContainText("New session");
     await expect(page.locator(".project-name")).toHaveText("Alpha");
+    // The project action reads as one phrase: a single space either side of the name.
+    await expect(page.locator(".project-create")).toHaveAttribute(
+      "aria-label",
+      "In Alpha · new conversation"
+    );
     await expectEnglish(page, "the work sidebar");
 
     await page.locator("#new-project").click();

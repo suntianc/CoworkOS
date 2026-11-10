@@ -131,7 +131,7 @@ export function installComputerUse({ api, getSelectedTaskId, getTaskLabel, showT
             permissions.available
               ? `${permissionList()}${
                   permissions.controlAvailable === false
-                    ? ui`；${permissions.reason || ui("桌面暂不可操作")}`
+                    ? ui`。${permissions.reason || ui("桌面暂不可操作")}`
                     : ""
                 }`
               : permissions.reason || ui("窗口访问不可用")

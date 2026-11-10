@@ -813,6 +813,11 @@ test("web settings show execution-host permissions without requesting the client
   await waitFor(() => permissions.textContent.includes("无图形桌面"));
   assert.match(state.textContent, /不可用/);
   assert.match(permissions.textContent, /执行主机/);
+  // A recorded reason follows the sentence stop the Chinese message always used.
+  assert.match(
+    permissions.textContent,
+    /辅助功能：已开启。无图形桌面。请在执行主机的 Formicand 桌面版处理权限。/
+  );
   assert.equal(prompts, 0);
   heldStatus = Promise.withResolvers();
   pendingStatus = Promise.withResolvers();
