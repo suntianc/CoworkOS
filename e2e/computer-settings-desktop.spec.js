@@ -70,10 +70,18 @@ async function isolatedBackend(data, helper) {
 }
 
 async function openWindowSettings(page) {
-  await page.locator("#user-menu-button").click();
+  const entry = page.locator("#settings-entry");
+  if (!(await entry.isVisible())) await page.locator("#user-menu-button").click();
   await page.locator('[data-settings-section="tools"]').click();
+  await openAccessRow(page);
+}
+
+/** The window-access row is a disclosure; its buttons exist only once it is open. */
+async function openAccessRow(page) {
   const section = page.locator("#settings-entry .computer-setting");
+  await section.waitFor({ state: "attached" });
   if (!(await section.evaluate((element) => element.open))) await section.locator("summary").click();
+  await page.locator("#computer-access-enabled").waitFor({ state: "visible" });
 }
 
 async function isolatedDriver(data, windows, grant = true, confirmationDelay = 0) {
@@ -222,6 +230,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await expect(toggle()).toBeEnabled();
     expect((await call(page, "/api/computer/access")).value.policy.enabled).toBe(false);
     expect(backend.approvals()).toBe(0);
+    await openAccessRow(page);
     await toggle().click();
     await expect(page.locator("[data-computer-state]")).toContainText("已开启");
     expect(backend.approvals()).toBe(1);
@@ -331,6 +340,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await expect
       .poll(async () => (await call(page, "/api/computer/access")).value.waitingTaskIds)
       .toEqual(["settings-task-1"]);
+    await openAccessRow(page);
     await toggle().click();
     await expect(page.locator("[data-computer-state]")).toContainText("已关闭");
     expect((await waiting).status).toBe(403);
@@ -350,6 +360,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     expect((await call(page, "/api/computer/access")).value.policy.enabled).toBe(false);
     expect((await readFile(effects, "utf8")).trim().split("\n")).toHaveLength(2);
     expect((await readFile(requests, "utf8")).trim().split("\n")).toHaveLength(2);
+    await openAccessRow(page);
     await toggle().click();
     await expect(toggle()).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => backend.approvals()).toBe(2);
