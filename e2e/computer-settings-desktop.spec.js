@@ -9,6 +9,7 @@ import { desktopSmokeEnvironment } from "../scripts/desktop-smoke-env.mjs";
 import { createDashboardApplication } from "../dist/src/dashboard/application.js";
 import {
   backendPaths,
+  readBackendInstance,
   ensureBackendIdentity,
   removeBackendInstance,
   writeBackendInstance
@@ -174,36 +175,19 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await expect(model).toBeHidden();
     return page;
   };
-  // The window transport signs its own requests; reuse the nonce it already sends.
-  let desktopNonce;
-  const call = (page, path, body) =>
-    page.evaluate(
-      async ({ path, body }) => {
-        const nonce = window.__testDesktopNonce;
-        const auth = nonce
-          ? { "x-cowork-desktop-nonce": nonce }
-          : { "x-atria-token": "isolated-settings-fixture" };
-        const response = await fetch(
-          path,
-          body === undefined
-            ? { credentials: "include", headers: auth }
-            : {
-                method: "POST",
-                credentials: "include",
-                headers: { "content-type": "application/json", ...auth },
-                body: JSON.stringify(body)
-              }
-        );
-        return { status: response.status, value: await response.json() };
-      },
-      { path, body, nonce: desktopNonce }
-    );
+  // Sign requests with the token this isolated backend published. A renderer fetch
+  // cannot carry it without the host transport, so the test process talks to the
+  // same origin the window is on.
+  const call = async (page, path, body) => {
+    const response = await fetch(new URL(path, page.url()), {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "content-type": "application/json", "x-atria-token": process.env.COWORK_API_TOKEN },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    });
+    return { status: response.status, value: await response.json() };
+  };
   try {
     let page = await launch();
-    // The window transport signs its own requests; reuse the nonce it already sends.
-    page.on("request", (request) => {
-      desktopNonce = request.headers()["x-cowork-desktop-nonce"] ?? desktopNonce;
-    });
     await openWindowSettings(page);
     const toggle = () => page.locator("#computer-access-enabled");
     await expect(toggle()).toHaveAttribute("aria-pressed", "false");
@@ -315,7 +299,8 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await native.close();
     native = undefined;
     page = await launch();
-    expect(page.url()).toBe(firstOrigin);
+    // The relaunched window reopens on the same backend; the selected task is restored separately.
+    expect(new URL(page.url()).origin).toBe(new URL(firstOrigin).origin);
     await openWindowSettings(page);
     expect(backend.approvals()).toBe(1);
     await expect(toggle()).toHaveAttribute("aria-pressed", "true");
@@ -442,18 +427,18 @@ test("denying either system permission keeps access disabled and opens only its 
     await expect(screen).toBeEnabled();
     await expect(accessibility).toBeEnabled();
     await expect(page.locator("[data-computer-request]")).toHaveCount(0);
-    const selectedStatus = await page.evaluate(async () => {
-      const post = (path, body) =>
-        fetch(path, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-atria-token": "isolated-settings-fixture" },
-          body: JSON.stringify(body)
-        });
-      await post("/api/tasks", { taskId: "denied-task", goal: "Isolated denied permission" });
-      return (
-        await post("/api/tasks/denied-task/computer/select", { pid: 11, windowId: 12, mode: "control" })
-      ).status;
-    });
+    const post = (path, body) =>
+      fetch(new URL(path, page.url()), {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-atria-token": process.env.COWORK_API_TOKEN },
+        body: JSON.stringify(body)
+      });
+    expect(
+      (await post("/api/tasks", { taskId: "denied-task", goal: "Isolated denied permission" })).status
+    ).toBe(201);
+    const selectedStatus = (
+      await post("/api/tasks/denied-task/computer/select", { pid: 11, windowId: 12, mode: "control" })
+    ).status;
     expect(selectedStatus).toBe(403);
     expect((await readFile(requests, "utf8")).trim().split("\n")).toHaveLength(2);
     expect(backend.approvals()).toBe(0);
