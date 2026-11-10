@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
+import { openWebSearchSettings } from "./settings-helper.js";
 import { exaMcpFixture, sourceConversationFixture } from "../test/exa-mcp-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 
@@ -66,8 +67,7 @@ test("native App after normal model setup performs anonymous search and source f
     await expect(page.locator('#conversation a[href="https://example.org/paper"]').first()).toBeVisible();
     expect(exa.calls.map((call) => call.name)).toEqual(["web_search_exa", "web_fetch_exa"]);
     const saveSearch = async (provider, key, clear = false) => {
-      await page.getByRole("button", { name: "设置", exact: true }).click();
-      await page.getByRole("button", { name: "管理联网搜索", exact: true }).click();
+      await openWebSearchSettings(page);
       const searchDialog = page.getByRole("dialog", { name: "联网搜索", exact: true });
       await searchDialog.locator('[name="provider"]').selectOption(provider);
       if (key || clear) {
@@ -79,6 +79,8 @@ test("native App after normal model setup performs anonymous search and source f
       }
       await searchDialog.getByRole("button", { name: "保存设置" }).click();
       await expect(searchDialog).toBeHidden();
+      // The search dialog sits on the settings page, which stays behind it.
+      if (await page.locator("#settings-entry").isVisible()) await page.locator("#settings-back").click();
       await expect(page.locator("#composer-input")).toBeVisible();
       return page.evaluate(async () =>
         (

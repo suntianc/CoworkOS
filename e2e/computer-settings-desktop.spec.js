@@ -174,25 +174,36 @@ test("native three-button settings grant both windows to new tasks, persists acr
     await expect(model).toBeHidden();
     return page;
   };
+  // The window transport signs its own requests; reuse the nonce it already sends.
+  let desktopNonce;
   const call = (page, path, body) =>
     page.evaluate(
       async ({ path, body }) => {
+        const nonce = window.__testDesktopNonce;
+        const auth = nonce
+          ? { "x-cowork-desktop-nonce": nonce }
+          : { "x-atria-token": "isolated-settings-fixture" };
         const response = await fetch(
           path,
           body === undefined
-            ? { headers: { "x-atria-token": "isolated-settings-fixture" } }
+            ? { credentials: "include", headers: auth }
             : {
                 method: "POST",
-                headers: { "content-type": "application/json", "x-atria-token": "isolated-settings-fixture" },
+                credentials: "include",
+                headers: { "content-type": "application/json", ...auth },
                 body: JSON.stringify(body)
               }
         );
         return { status: response.status, value: await response.json() };
       },
-      { path, body }
+      { path, body, nonce: desktopNonce }
     );
   try {
     let page = await launch();
+    // The window transport signs its own requests; reuse the nonce it already sends.
+    page.on("request", (request) => {
+      desktopNonce = request.headers()["x-cowork-desktop-nonce"] ?? desktopNonce;
+    });
     await openWindowSettings(page);
     const toggle = () => page.locator("#computer-access-enabled");
     await expect(toggle()).toHaveAttribute("aria-pressed", "false");

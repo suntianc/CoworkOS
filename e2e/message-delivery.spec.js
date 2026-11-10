@@ -69,7 +69,13 @@ test("steering reaches the next model call while queued input waits until the cu
     const next = JSON.stringify(provider.requests[1].body.messages);
     expect(next).toContain("STEER_REQUEST");
     expect(next).not.toContain("QUEUED_REQUEST");
-    expect(next.split("STEER_REQUEST")).toHaveLength(2);
+    // The persisted Main context can quote the same text in the system prompt, so the
+    // "delivered once" claim counts user turns rather than raw occurrences.
+    expect(
+      provider.requests[1].body.messages.filter(
+        (message) => message.role === "user" && JSON.stringify(message).includes("STEER_REQUEST")
+      )
+    ).toHaveLength(1);
     expect(next.indexOf("STEP_DONE")).toBeLessThan(next.indexOf("STEER_REQUEST"));
     const instruction = page.locator(".chat-message.user").filter({ hasText: "STEER_REQUEST" });
     await expect(instruction).toHaveCount(1);
@@ -175,7 +181,11 @@ test("stopped queued messages can be cancelled or sent once without losing the c
     );
     expect(duplicate.ok()).toBe(true);
     const sent = JSON.stringify(provider.requests[1].body.messages);
-    expect(sent.split("SEND_AFTER_STOP")).toHaveLength(2);
+    expect(
+      provider.requests[1].body.messages.filter(
+        (message) => message.role === "user" && JSON.stringify(message).includes("SEND_AFTER_STOP")
+      )
+    ).toHaveLength(1);
     expect(sent).toContain("START_BEFORE_STOP");
     expect(sent).not.toContain("CANCEL_AFTER_STOP");
     expect(sent).not.toContain("CANCEL_WHILE_RUNNING");

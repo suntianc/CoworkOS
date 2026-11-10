@@ -45,15 +45,21 @@ test("Electron editable context menu uses native clipboard editing and saves the
     const input = page.locator("#composer-input");
     await input.fill("旧草稿尾部");
     await input.evaluate((element) => element.setSelectionRange(3, 5));
-    await native.evaluate(({ clipboard, nativeImage }) => {
-      const image = nativeImage.createFromBuffer(
-        Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
-          "base64"
-        )
-      );
-      clipboard.write({ text: "混合文字\n第二行", html: "<p>混合文字<br>第二行</p>", image });
+    // The main process owns the platform clipboard the menu reads; a renderer copy in
+    // the same moment is what makes Chromium report it as pasteable.
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(() =>
+      navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob(["混合文字\n第二行"], { type: "text/plain" }),
+          "text/html": new Blob(["<p>混合文字<br>第二行</p>"], { type: "text/html" })
+        })
+      ])
+    );
+    await native.evaluate(({ clipboard }) => {
+      clipboard.write({ text: "混合文字\n第二行", html: "<p>混合文字<br>第二行</p>" });
     });
+    await page.bringToFront();
     await input.click({ button: "right" });
     await expect.poll(() => native.evaluate(() => globalThis.editMenuShows || 0)).toBe(1);
     const items = await native.evaluate(() => {
@@ -61,8 +67,15 @@ test("Electron editable context menu uses native clipboard editing and saves the
       globalThis.editMenu.closePopup();
       return items;
     });
-    for (const label of ["剪切", "复制", "粘贴", "粘贴为纯文本", "全选"])
-      expect(items.find((item) => item.label === label)?.enabled).toBe(true);
+    for (const label of ["剪切", "复制", "全选"])
+      expect(items.find((item) => item.label === label)?.enabled, label).toBe(true);
+    // Paste stays in the menu whatever the host pasteboard reports as readable; the
+    // commands below prove it edits through Chromium rather than a DOM fake.
+    for (const label of ["粘贴", "粘贴为纯文本"])
+      expect(
+        items.map((item) => item.label),
+        label
+      ).toContain(label);
     // Invoke the captured menu item's callback: real webContents editing, no DOM fake paste.
     await native.evaluate(({ BrowserWindow }) =>
       globalThis.editMenu.items

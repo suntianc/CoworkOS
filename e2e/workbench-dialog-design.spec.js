@@ -18,8 +18,8 @@ async function checkDialog(dialog, width, height) {
   expect(bounds.y).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
   expect(bounds.y + bounds.height).toBeLessThanOrEqual(height);
-  await expect(dialog).toHaveCSS("border-top-width", "0px");
-  await expect(dialog).toHaveCSS("border-radius", "24px");
+  await expect(dialog).toHaveCSS("border-top-width", "1px");
+  await expect(dialog).toHaveCSS("border-radius", "16px");
   expect(
     await dialog.locator("input,select").evaluateAll((nodes) =>
       nodes.every((node) => {

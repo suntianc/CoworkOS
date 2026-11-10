@@ -17,14 +17,14 @@ test("window access keeps desktop-only controls behind its settings row and pres
       await expect(settings).toBeVisible();
       await page.locator('[data-settings-section="tools"]').click();
       const access = settings.locator(".computer-setting");
-      // The row opens itself once it has a state to report; the summary still owns it.
-      await expect(page.locator("[data-computer-state]")).toContainText("执行主机窗口访问不可用");
-      await expect(access).toHaveJSProperty("open", true);
-      await access.locator("summary").click();
-      await expect(access).toHaveJSProperty("open", false);
+      // Desktop-only controls stay behind the collapsed row until it is opened; the
+      // row may open itself while it has a state to report.
       await access.locator("summary").focus();
+      if (await access.evaluate((element) => element.open)) await page.keyboard.press("Enter");
+      await expect(access).toHaveJSProperty("open", false);
       await page.keyboard.press("Enter");
       await expect(access).toHaveJSProperty("open", true);
+      await expect(page.locator("[data-computer-state]")).toContainText("执行主机窗口访问不可用");
       await expect(settings.locator(".computer-setting button")).toHaveCount(3);
       for (const button of await settings.locator(".computer-setting button").all()) {
         await expect(button).toBeDisabled();
@@ -38,7 +38,8 @@ test("window access keeps desktop-only controls behind its settings row and pres
       const box = await settings.boundingBox();
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(width);
-      await access.locator("summary").click();
+      await access.locator("summary").focus();
+      if (await access.evaluate((element) => element.open)) await page.keyboard.press("Enter");
       await page.keyboard.press("Escape");
       await expect(settings).toBeHidden();
       await expect(page.locator("#user-menu-button")).toBeFocused();

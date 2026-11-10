@@ -48,10 +48,14 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
       });
       await page.goto(dashboard.base);
       // Use the real upload composer path for the pending attachment as well.
+      const historyUpload = page.waitForResponse(
+        (response) => response.url().includes("/api/uploads") && response.request().method() === "POST"
+      );
       await page
         .locator("#file-input")
         .setInputFiles({ name: "history.png", mimeType: "image/png", buffer: image });
-      await expect(page.locator("#attachment-strip")).toContainText("已添加");
+      await historyUpload;
+      await expect(page.locator("#attachment-strip")).toContainText("history.png");
       // Capture its actual id; only task-attached inputs may be read by the tool.
       page.on("request", (req) => {
         if (req.method() === "POST" && /\/run$/.test(new URL(req.url()).pathname)) {
@@ -66,10 +70,14 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
       expect(vision.requests.at(-1).body.model).toBe("same-model-name");
       expect(JSON.stringify(vision.requests.at(-1).body)).toContain(pixels);
       const first = (await status()).profiles[0];
+      const pendingUpload = page.waitForResponse(
+        (response) => response.url().includes("/api/uploads") && response.request().method() === "POST"
+      );
       await page
         .locator("#file-input")
         .setInputFiles({ name: "pending.png", mimeType: "image/png", buffer: image });
-      await expect(page.locator("#attachment-strip")).toContainText("已添加");
+      await pendingUpload;
+      await expect(page.locator("#attachment-strip")).toContainText("pending.png");
       await page.locator("#composer-input").fill("这是切换前的图片草稿");
       await save({
         profileId: "",
