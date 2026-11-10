@@ -45,21 +45,29 @@ test("removed entries are gone, nodes never read as services and attachments sti
   }
 });
 
-test("the ledger, board and development dialogs are gone from the work entry", async ({ page }) => {
+test("the legacy dialogs and their entries are gone from the work entry", async ({ page }) => {
   const dashboard = await startDashboard();
   try {
     await page.goto(dashboard.base);
-    await expect(page.locator("#main-sessions-nav")).toBeVisible();
-    // Observation now carries the requirement list and its detail, so the
-    // three dialogs that preceded it and their sidebar entries are removed.
-    for (const selector of ["#ledger-nav", "#development-nav", "#board-nav", ".ledger-card", ".board-card"])
+    await expect(page.locator("#entry-work")).toBeVisible();
+    // Observation carries the overview and the requirement list, so the
+    // dialogs that preceded them and their sidebar entries are removed.
+    for (const selector of [
+      "#ledger-nav",
+      "#development-nav",
+      "#board-nav",
+      "#main-sessions-nav",
+      "#main-capacity-nav",
+      ".ledger-card",
+      ".board-card"
+    ])
       await expect(page.locator(selector)).toHaveCount(0);
     await expect(page.locator('[data-entry-mode="observe"]')).toBeVisible();
     await page.locator('[data-entry-mode="observe"]').click();
     await expect(page.locator("#observe-entry")).toBeVisible();
+    await expect(page.locator("[data-observe-node-card]")).toHaveCount(1);
     await page.locator('[data-observe-view="requirements"]').click();
     await expect(page.locator("[data-observe-requirements-list]")).toBeVisible();
-    await expect(page.locator("#main-sessions-nav")).toBeHidden();
   } finally {
     await dashboard.stop();
   }

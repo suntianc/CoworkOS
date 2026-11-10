@@ -223,12 +223,15 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     expect(remoteReads()).toHaveLength(0);
 
     await page.getByRole("tab", { name: "观测", exact: true }).click();
+    // Observation opens on the overview, which reads the same project lists
+    // while it is the visible view; that is not this view's read.
     await page.locator('[data-observe-view="requirements"]').click();
     await page.waitForTimeout(600);
-    // The requirements view reads its own facts; the Runs view is still hidden,
-    // so none of its list reads have started.
-    expect(remoteReads().filter((request) => request.method === "GET")).toHaveLength(0);
     const beforeRuns = remoteReads().length;
+    // Once the requirements view is shown, the hidden overview and Runs views
+    // start no further list reads.
+    await page.waitForTimeout(600);
+    expect(remoteReads()).toHaveLength(beforeRuns);
 
     await page.locator('[data-observe-view="runs"]').click();
     await expect(page.locator("[data-observe-runs-controls]")).toBeVisible();

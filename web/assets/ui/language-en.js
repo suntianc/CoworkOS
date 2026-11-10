@@ -1228,5 +1228,21 @@ export default {
   " 小时": " h",
   " 分无进展": " min without progress",
   " 小时无进展": " h without progress",
-  "没有运行中的 Main": "No running Mains"
+  "没有运行中的 Main": "No running Mains",
+  需要处理: "Needs attention",
+  正在运行: "Running now",
+  查看全部: "View all",
+  全部运行: "All runs",
+  运行中: "Running",
+  等待你: "Waiting on you",
+  本周合入: "Merged this week",
+  待认领: "Unclaimed",
+  待合入: "Waiting to merge",
+  待发布: "To release",
+  最后在线: "Last seen",
+  等待回复: "Waiting for reply",
+  审查未通过: "Review failed",
+  没有项目: "No projects",
+  没有需要处理: "Nothing needs attention",
+  " 天": " d"
 };
