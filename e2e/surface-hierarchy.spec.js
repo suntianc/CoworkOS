@@ -257,11 +257,7 @@ test("the split divider is visible with an application and resizes the conversat
 
 test.describe("split divider touch feedback", () => {
   test.use({ hasTouch: true });
-  // Product finding (reported for #14): in split the collaborating class lands on
-  // `.chat-body` while the grid rule is scoped to `.chat-pane.is-collaborating .chat-body`,
-  // so `.chat-body` stays `display:flex` and the divider is a 6x0 flex item. It is
-  // painted (`hidden=false`) but has no hit area, so no pointer or touch drag can start.
-  test.fixme("the split divider accepts a touch drag and steps the conversation share", async ({
+  test("the split divider accepts a touch drag and steps the conversation share", async ({
     page,
     context
   }) => {

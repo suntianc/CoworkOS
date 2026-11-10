@@ -140,6 +140,10 @@ export function createRunControl({ state, $, api, showToast, onChanged, cancelRu
       stage = value || "";
       renderStage();
     },
+    /** The same phase labels the title-bar control that opens the panel. */
+    get stage() {
+      return stage;
+    },
     reset() {
       stopTicker();
       closeConfirm();

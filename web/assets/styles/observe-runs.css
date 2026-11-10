@@ -691,3 +691,21 @@ html[data-theme="light"] .observe-view[data-observe-panel="runs"] {
     grid-template-columns: 200px minmax(0, 1fr) 64px;
   }
 }
+
+/* A narrow window shrinks the lane grid instead of letting the axis run off. */
+@media (max-width: 639px) {
+  .runs-axis {
+    grid-template-columns: 72px minmax(0, 1fr) 40px;
+    padding: 0 12px;
+  }
+  .runs-axis-tick:not(:first-child):not(:last-child) {
+    display: none;
+  }
+  .runs-lane,
+  .runs-sublane {
+    grid-template-columns: 72px minmax(0, 1fr) 40px;
+  }
+  .runs-node {
+    padding: 12px;
+  }
+}

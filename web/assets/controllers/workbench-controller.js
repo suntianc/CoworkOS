@@ -33,11 +33,15 @@ export function createWorkbenchController({
   activateDraft = () => {},
   saveDraft = () => {},
   getNavigationContext = () => state.selected,
+  /** The selected requirement's phase, for the title-bar panel control. */
+  getRequirementStage = () => "",
   connectEventStream,
   backendRequest,
   fetchBytes
 }) {
   const STANDALONE_TASK = "workspace";
+  // Below this width the requirement panel is a drawer, so its control names it.
+  const narrowWindow = window.matchMedia?.("(max-width: 1279px)") ?? { matches: false };
   let pendingConnections = 0;
   function conversationWorkspace() {
     const detail = state.detail?.task?.taskId === state.selected ? state.detail : undefined;
@@ -729,6 +733,32 @@ export function createWorkbenchController({
     }
   }
 
+  /**
+   * One control, two jobs: it collapses the workspace when an application is
+   * open, and the requirement panel otherwise. A narrow window shows the
+   * panel's name and phase as text; a wide one keeps the icon alone and gives
+   * the same words to assistive technology.
+   */
+  function paintPanelToggle() {
+    const outputToggle = $("#output-pane-toggle");
+    if (!outputToggle) return;
+    const workspace = Boolean(workbench?.canToggleApplication);
+    const visible = workspace && Boolean(workbench?.applicationVisible);
+    const stage = workspace ? "" : getRequirementStage();
+    const name = workspace ? (visible ? ui("收起工作区") : ui("展开工作区")) : ui("需求进度");
+    const text = workspace || !stage ? name : `${name} · ${ui(stage)}`;
+    const label = workspace ? name : narrowWindow.matches ? text : ui("切换任务面板");
+    const value = outputToggle.querySelector("[data-panel-toggle-label]");
+    if (value && value.textContent !== text) value.textContent = text;
+    outputToggle.setAttribute("aria-label", label);
+    outputToggle.title = label;
+    outputToggle.setAttribute("aria-controls", workspace ? "workbench" : "agent-pane");
+    outputToggle.setAttribute(
+      "aria-expanded",
+      String(workspace ? visible : !document.body.classList.contains("output-collapsed"))
+    );
+  }
+
   /** The binding control offers the application tabs of the current conversation. */
   function syncBindingFromTabs() {
     const application = workbench?.workspaceApplicationTab;
@@ -767,19 +797,7 @@ export function createWorkbenchController({
       if (label && label.textContent !== status) label.textContent = status;
       if (label) label.title = status;
     }
-    const outputToggle = $("#output-pane-toggle");
-    if (outputToggle) {
-      const workspace = workbench?.canToggleApplication;
-      const visible = workspace && workbench.applicationVisible;
-      const label = workspace ? (visible ? ui("收起工作区") : ui("展开工作区")) : ui("切换任务面板");
-      outputToggle.setAttribute("aria-label", label);
-      outputToggle.title = label;
-      outputToggle.setAttribute("aria-controls", workspace ? "workbench" : "agent-pane");
-      outputToggle.setAttribute(
-        "aria-expanded",
-        String(workspace ? visible : !document.body.classList.contains("output-collapsed"))
-      );
-    }
+    paintPanelToggle();
     if (!tabState.tabs.length && !workbench) return;
     const control = ensureBinding();
     if (!control) return;
@@ -850,6 +868,7 @@ export function createWorkbenchController({
     },
     captureNavigation,
     refreshTabs,
+    paintPanelToggle,
     loadEditableKinds,
     toggleSidebarVisibility() {
       if (!taskPanel.toggleVisibility({ mobile: window.matchMedia("(max-width: 900px)").matches }))

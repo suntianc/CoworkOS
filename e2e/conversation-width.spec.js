@@ -125,8 +125,12 @@ test("reading columns stay within the viewport across desktop and mobile breakpo
       await page.setViewportSize({ width, height: 900 });
       for (const right of [false, true]) {
         const body = page.locator("body");
-        if ((await body.evaluate((node) => node.classList.contains("output-collapsed"))) !== right) {
-          await page.locator("#output-pane-toggle").click();
+        const collapsed = await body.evaluate((node) => node.classList.contains("output-collapsed"));
+        if (collapsed !== right) {
+          // Below 1280 the panel is a drawer over the conversation, so while it
+          // is open the header control sits underneath it; the drawer closes itself.
+          if (collapsed) await page.locator("#output-pane-toggle").click();
+          else await page.locator("[data-panel-collapse]").click();
         }
         await checkColumn(page);
         const content = await page.locator(".chat-message.main").boundingBox();

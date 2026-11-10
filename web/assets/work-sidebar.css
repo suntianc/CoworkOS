@@ -966,3 +966,149 @@ html[data-theme="light"] .add-project-state {
     animation: none;
   }
 }
+
+/* The icon rail (640-1023): one button per project, its tree on hover.
+   Scoped to this file because it restates the tree's own row geometry. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  /* Work rail: a new-session button, a hairline, then one icon per project. */
+  html[data-theme] .work-sidebar {
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+  html[data-theme] .sidebar-top {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+  html[data-theme] .new-conversation {
+    width: 36px;
+    height: 36px;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+  }
+  html[data-theme] .new-conversation :is(.new-label, .shortcut) {
+    display: none;
+  }
+  html[data-theme] .sidebar-section-label {
+    width: 24px;
+    height: 1px;
+    margin: 0 auto;
+    padding: 0;
+    overflow: hidden;
+    background: var(--color-line);
+  }
+  html[data-theme] .sidebar-section-label * {
+    display: none;
+  }
+  html[data-theme] .work-sidebar .project-list {
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    overflow-x: hidden;
+  }
+  html[data-theme] .project-group {
+    width: 36px;
+  }
+  html[data-theme] .project-heading {
+    position: relative;
+    width: 36px;
+    height: 36px;
+  }
+  html[data-theme] .project-heading .project-row {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 10px;
+  }
+  html[data-theme] .project-disclosure .project-chevron,
+  html[data-theme] .project-heading .project-name,
+  html[data-theme] .project-heading :is(.project-count, .project-settings, .project-create) {
+    display: none;
+  }
+  /* A waiting Main marks the project icon itself. */
+  html[data-theme] .project-question {
+    top: 6px;
+    right: 4px;
+    transform: none;
+  }
+  html[data-theme] .project-heading:is(:hover, :has(:focus-visible)) .project-question {
+    opacity: 1;
+  }
+  html[data-theme] .project-group:not(.collapsed) .project-question {
+    display: block;
+  }
+  /* The hovered project expands its tree beside the rail. A fixed panel is not
+     clipped by the rail's scroll box and keeps its static line, so it opens at
+     the icon that was hovered. */
+  html[data-theme] .project-group > .conversation-list {
+    position: fixed;
+    top: var(--rail-flyout-top, auto);
+    right: auto;
+    bottom: auto;
+    left: 66px;
+    z-index: 26;
+    display: none;
+    width: 240px;
+    max-height: min(64vh, 520px);
+    padding: 8px;
+    overflow: auto;
+    border: 1px solid var(--panel-edge);
+    border-radius: 12px;
+    background-color: var(--popover-fill);
+    background-image: var(--popover-sheen);
+    backdrop-filter: blur(var(--panel-blur));
+    box-shadow: var(--panel-shadow);
+  }
+  html[data-theme] .project-group:is(:hover, :focus-within) > .conversation-list {
+    display: flex;
+  }
+  /* The pointer crosses the rail's margin on its way to the tree; keep the
+     project hovered across that gap so the tree does not close under it. */
+  html[data-theme] .project-heading::after {
+    position: absolute;
+    inset: 0 -20px 0 100%;
+    content: "";
+  }
+  html[data-theme] .project-rail-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 0 6px 6px;
+  }
+  html[data-theme] .project-rail-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text-2);
+    font-size: var(--type-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  html[data-theme] .project-rail-action {
+    display: flex;
+    flex: 0 0 24px;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-text-3);
+    cursor: pointer;
+  }
+  html[data-theme] .project-rail-action:hover {
+    border: 0;
+    background: var(--color-surface-3);
+    color: var(--color-text);
+  }
+  html[data-theme] .project-rail-head .ui-icon {
+    width: 14px;
+    height: 14px;
+  }
+}

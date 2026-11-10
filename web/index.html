@@ -68,6 +68,10 @@
           <rect x="3" y="4" width="18" height="16" rx="2" />
           <path d="M15 4v16" />
         </symbol>
+        <symbol id="i-panel-left" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M9 4v16" />
+        </symbol>
         <symbol id="i-gauge" viewBox="0 0 24 24">
           <path d="m12 14 3.6-5.4" />
           <path d="M3.4 19a9.6 9.6 0 1 1 17.2 0" />
@@ -441,6 +445,16 @@
               >
                 <svg class="ui-icon"><use href="#i-search" /></svg>
               </button>
+              <button
+                class="sidebar-icon sidebar-drawer-close"
+                id="sidebar-drawer-close"
+                type="button"
+                title="关闭侧栏"
+                aria-label="关闭侧栏"
+                aria-controls="conversation-sidebar"
+              >
+                <svg class="ui-icon"><use href="#i-close" /></svg>
+              </button>
             </div>
           </div>
           <div class="entry-switch ui-segmented" role="tablist" aria-label="入口">
@@ -552,6 +566,17 @@
         ></div>
         <main class="chat-pane" id="work-entry" data-entry-panel="work">
           <header class="session-header">
+            <button
+              class="session-header-button sidebar-drawer-toggle"
+              id="sidebar-drawer-toggle"
+              type="button"
+              title="打开侧栏"
+              aria-label="打开侧栏"
+              aria-controls="conversation-sidebar"
+              aria-expanded="false"
+            >
+              <svg class="ui-icon" aria-hidden="true"><use href="#i-panel-left" /></svg>
+            </button>
             <h1 class="session-title" id="topbar-task">新任务</h1>
             <div class="session-header-actions">
               <button
@@ -577,6 +602,7 @@
                 aria-expanded="false"
               >
                 <svg class="ui-icon" aria-hidden="true"><use href="#i-panel-right" /></svg>
+                <span class="session-header-label" data-panel-toggle-label></span>
               </button>
             </div>
           </header>
@@ -810,6 +836,17 @@
           hidden
         >
           <header class="observe-header">
+            <button
+              class="session-header-button sidebar-drawer-toggle"
+              id="observe-sidebar-drawer-toggle"
+              type="button"
+              title="打开侧栏"
+              aria-label="打开侧栏"
+              aria-controls="conversation-sidebar"
+              aria-expanded="false"
+            >
+              <svg class="ui-icon" aria-hidden="true"><use href="#i-panel-left" /></svg>
+            </button>
             <h1 id="observe-title" tabindex="-1">总览</h1>
             <div class="observe-header-actions" data-observe-requirements-actions hidden>
               <label class="observe-search">
