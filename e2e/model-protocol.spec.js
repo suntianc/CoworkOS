@@ -46,6 +46,8 @@ for (const api of ["openai-completions", "openai-responses"]) {
         timeout: 30_000
       });
       expect(delegatedRequests).toBe(1);
+      // The follow-up is a new request only after the first turn has settled.
+      await expect(page.locator("#stop-button")).toBeHidden();
       await page.locator("#composer-input").fill("继续验证第二轮");
       await page.locator("#composer-input").press("Enter");
       await expect

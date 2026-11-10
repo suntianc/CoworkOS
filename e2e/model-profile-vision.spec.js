@@ -49,7 +49,8 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
       await page.goto(dashboard.base);
       // Use the real upload composer path for the pending attachment as well.
       const historyUpload = page.waitForResponse(
-        (response) => response.url().includes("/api/uploads") && response.request().method() === "POST"
+        (response) =>
+          response.url().includes("/api/uploads") && response.request().method() === "POST" && response.ok()
       );
       await page
         .locator("#file-input")
@@ -71,7 +72,8 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
       expect(JSON.stringify(vision.requests.at(-1).body)).toContain(pixels);
       const first = (await status()).profiles[0];
       const pendingUpload = page.waitForResponse(
-        (response) => response.url().includes("/api/uploads") && response.request().method() === "POST"
+        (response) =>
+          response.url().includes("/api/uploads") && response.request().method() === "POST" && response.ok()
       );
       await page
         .locator("#file-input")
