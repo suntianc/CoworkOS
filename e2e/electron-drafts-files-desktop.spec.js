@@ -243,6 +243,10 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
     await expect(page.locator("#composer-input")).toHaveValue("draft A survives restart");
     await expect(page.locator("#attachment-strip [data-upload-preview]")).toHaveCount(2);
     await page.locator("#composer-input").fill("");
+    // Clearing the composer re-renders the attachment strip; the remove buttons only
+    // exist in their final form once that render and the restored draft have settled.
+    await expect(page.locator("#composer-input")).toHaveValue("");
+    await expect(page.locator("#attachment-strip [data-upload-preview]")).toHaveCount(2);
     await page.getByRole("button", { name: "移除 same.txt" }).first().click();
     await page.getByRole("button", { name: "移除 same.txt" }).click();
     await native.close();
