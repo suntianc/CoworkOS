@@ -33,7 +33,7 @@ export function installDesktopUpdates({ host } = {}) {
     locked = value;
     if (value) {
       restoreInert = [...document.body.children]
-        .filter((element) => element !== panel && !element.matches("script, svg, #night-sky, #toast"))
+        .filter((element) => element !== panel && !element.matches("script, svg, #toast"))
         .map((element) => [element, element.inert]);
       for (const [element] of restoreInert) element.inert = true;
     } else {
