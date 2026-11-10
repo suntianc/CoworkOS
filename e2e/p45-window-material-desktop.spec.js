@@ -105,6 +105,6 @@ test("desktop window uses the native material and shows Formicand while package 
   } finally {
     await native?.close();
     await stopNativeBackend(root);
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

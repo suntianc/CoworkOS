@@ -100,6 +100,6 @@ test("native App after normal model setup performs anonymous search and source f
     await stopNativeBackend(root);
     await provider.close();
     await exa.close();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

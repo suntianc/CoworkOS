@@ -79,6 +79,6 @@ test("macOS window material shows the desktop through the page and keeps the gla
   } finally {
     await native?.close();
     await stopNativeBackend(root);
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

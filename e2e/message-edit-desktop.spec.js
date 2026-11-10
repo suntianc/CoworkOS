@@ -140,6 +140,8 @@ test("native edit restores an attachment-only message and survives relaunch with
     const backendLog = await readFile(join(root, "logs", "dashboard.log"), "utf8").catch(() => "");
     await writeFile(testInfo.outputPath("native-backend.log"), backendLog);
     await provider.close();
-    await rm(root, { recursive: true, force: true });
+    // The backend keeps writing its log while it shuts down; retry the removal
+    // instead of racing it with a fixed pause.
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

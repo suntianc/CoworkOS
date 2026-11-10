@@ -161,7 +161,7 @@ test("the desktop window has no title bar, panels reach the top and traffic ligh
   } finally {
     await native.close();
     await stopNativeBackend(root);
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

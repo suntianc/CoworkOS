@@ -140,7 +140,7 @@ for (const reasoningEffort of ["off", "max"]) {
       await native?.close();
       await stopNativeBackend(root);
       for (const provider of providers) await provider.close();
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 }

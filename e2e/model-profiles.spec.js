@@ -198,7 +198,7 @@ for (const native of [false, true]) {
       await first.close();
       await second.close();
       if (native) await stopNativeBackend(root);
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 }

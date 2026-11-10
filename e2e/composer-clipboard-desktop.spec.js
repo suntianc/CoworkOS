@@ -101,6 +101,6 @@ test("Electron editable context menu uses native clipboard editing and saves the
     expect(errors).toEqual([]);
   } finally {
     await native?.close();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

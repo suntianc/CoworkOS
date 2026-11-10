@@ -152,6 +152,6 @@ test("desktop appearance applies natively and preserves the live backend across 
     await native?.close();
     await stopNativeBackend(root);
     await provider.close();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

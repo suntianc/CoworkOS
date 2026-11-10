@@ -403,6 +403,6 @@ test("a packaged App checks the public feed, downloads in the background and ins
     if (log) await testInfo.attach("dashboard.log", { body: log, contentType: "text/plain" });
     await fixture?.close();
     await cleanupFixtureRegistration(root, target);
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

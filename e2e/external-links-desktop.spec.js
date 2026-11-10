@@ -91,6 +91,6 @@ test("desktop response links leave through the system browser and local viewers 
   } finally {
     await native?.close();
     await provider.close();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
