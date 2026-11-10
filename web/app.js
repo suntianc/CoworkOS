@@ -68,8 +68,15 @@ const state = {
   defaultModel: null,
   model: null,
   modelByTask: new Map(),
+  /**
+   * The level the user picked for the current conversation, or null to let the
+   * Main connection's saved level govern. The two are separate on purpose: an
+   * inherited level must never be sent as if it were a choice.
+   */
   thinkingLevel: null,
   thinkingLevelByTask: new Map(),
+  /** The Main connection's saved level, reported by the server for the label. */
+  mainThinkingLevel: null,
   selected: null,
   detail: null,
   previewPath: null,
@@ -224,7 +231,6 @@ window.addEventListener("pageshow", (event) => {
 // The last model a person picked stays as the default for the next new
 // conversation, so switching once is enough instead of re-picking each time.
 const PREFERRED_MODEL_KEY = "atria.model.preferred";
-const PREFERRED_THINKING_LEVEL_KEY = "atria.reasoning.preferred";
 function readPreferredModel() {
   try {
     return (draftStorage && draftStorage.getItem(PREFERRED_MODEL_KEY)) || "";
@@ -239,27 +245,6 @@ function writePreferredModel(model) {
     if (model) draftStorage.setItem(PREFERRED_MODEL_KEY, model);
     else draftStorage.removeItem(PREFERRED_MODEL_KEY);
     // eslint-disable-next-line no-restricted-syntax -- best-effort preference write: blocked or full storage only loses the remembered model
-  } catch {
-    /* storage may be disabled */
-  }
-}
-function readPreferredThinkingLevel() {
-  try {
-    const value = draftStorage?.getItem(PREFERRED_THINKING_LEVEL_KEY) || "";
-    return value === "off" || ["minimal", "low", "medium", "high", "xhigh", "max"].includes(value)
-      ? value
-      : null;
-    // eslint-disable-next-line no-restricted-syntax -- getItem throws in blocked-storage sessions, where no preferred reasoning level can be read
-  } catch {
-    return null;
-  }
-}
-function writePreferredThinkingLevel(level) {
-  try {
-    if (!draftStorage) return;
-    if (level) draftStorage.setItem(PREFERRED_THINKING_LEVEL_KEY, level);
-    else draftStorage.removeItem(PREFERRED_THINKING_LEVEL_KEY);
-    // eslint-disable-next-line no-restricted-syntax -- best-effort preference write: blocked or full storage only loses the remembered reasoning level
   } catch {
     /* storage may be disabled */
   }
@@ -689,18 +674,16 @@ const THINKING_LEVEL_LABELS = {
   max: ui("最大")
 };
 function setThinkingLabel(value) {
-  const selected = value || null;
-  const label = selected ? THINKING_LEVEL_LABELS[selected] || selected : ui("自动");
+  // An unpicked level is not a choice: the label names what this Run will
+  // actually send, which is the Main connection's saved level.
+  const effective = value || state.mainThinkingLevel || null;
+  const label = effective ? THINKING_LEVEL_LABELS[effective] || effective : ui("自动");
   const name = $(".reasoning-name");
   if (name) name.textContent = label;
   const button = $("#reasoning-select");
   if (!button) return;
   button.title = ui`设置推理强度 · ${label}`;
   button.setAttribute("aria-label", ui`推理强度：${label}`);
-}
-
-function defaultThinkingLevelForNewConversation() {
-  return readPreferredThinkingLevel() || "high";
 }
 
 // A new conversation inherits the last picked model when it is still offered
@@ -711,13 +694,16 @@ function defaultModelForNewConversation() {
   return state.defaultModel;
 }
 
-function syncModelConnection(model, profileId) {
+function syncModelConnection(model, profileId, mainEffort) {
+  // Only the model list reports the Main connection's level; a catalog refresh
+  // omits it and must not erase what the composer is showing.
+  if (mainEffort !== undefined) state.mainThinkingLevel = mainEffort;
   if (state.connectionProfileId !== profileId || state.defaultModel !== model) {
     state.connectionProfileId = profileId;
     state.modelByTask.clear();
     state.thinkingLevelByTask.clear();
     state.model = model;
-    state.thinkingLevel = defaultThinkingLevelForNewConversation();
+    state.thinkingLevel = null;
   }
   state.defaultModel = model;
   state.model ||= model;
@@ -737,7 +723,7 @@ async function loadModels() {
       typeof data.current === "string" && data.current.trim()
         ? data.current.trim()
         : state.models[0] || "glm-5.3";
-    syncModelConnection(defaultModel, data.connectionProfileId);
+    syncModelConnection(defaultModel, data.connectionProfileId, data.reasoningEffort ?? null);
     // eslint-disable-next-line no-restricted-syntax -- /api/models is unavailable while the backend restarts or is offline; the picker keeps a usable model instead of an empty list
   } catch {
     state.models = state.model ? [state.model] : ["glm-5.3"];
@@ -976,6 +962,7 @@ function resetBackendView() {
   state.viewerTaskId = null;
   state.modelByTask.clear();
   state.thinkingLevelByTask.clear();
+  state.mainThinkingLevel = null;
   state.models = [];
   state.model = null;
   state.defaultModel = null;
@@ -1068,8 +1055,6 @@ function loadDetail(taskId, options) {
         state.defaultModel ||
         state.model;
       setModelLabel(state.model);
-      if (!state.thinkingLevelByTask.has(taskId))
-        state.thinkingLevelByTask.set(taskId, defaultThinkingLevelForNewConversation());
       state.thinkingLevel = state.thinkingLevelByTask.get(taskId) ?? null;
       setThinkingLabel(state.thinkingLevel);
       renderAll();
@@ -1110,8 +1095,6 @@ async function readDetail(taskId, { poll = false, isCurrent = () => true } = {})
     if (state.selected === taskId) {
       state.model = state.modelByTask.get(taskId) || taskModel || state.model;
       setModelLabel(state.model);
-      if (!state.thinkingLevelByTask.has(taskId))
-        state.thinkingLevelByTask.set(taskId, defaultThinkingLevelForNewConversation());
       state.thinkingLevel = state.thinkingLevelByTask.get(taskId) ?? null;
       setThinkingLabel(state.thinkingLevel);
     }
@@ -1300,7 +1283,7 @@ function beginNewConversation(projectId, applicationWorkspace) {
   runControl?.reset();
   state.model = defaultModelForNewConversation();
   setModelLabel(state.model);
-  state.thinkingLevel = defaultThinkingLevelForNewConversation();
+  state.thinkingLevel = null;
   setThinkingLabel(state.thinkingLevel);
   state.localMessages = [];
   state.previewPath = null;
@@ -1495,7 +1478,7 @@ function renderThinkingMenu() {
     ["xhigh", ui("极高")],
     ["max", ui("最大")]
   ];
-  const selected = state.thinkingLevel || "auto";
+  const selected = state.thinkingLevel || state.mainThinkingLevel || "auto";
   menu.innerHTML = ui`<div class="model-menu-title">推理强度</div>${options
     .map(
       ([value, label]) =>
@@ -1531,7 +1514,6 @@ function chooseThinkingLevel(value) {
   if (selected && !Object.hasOwn(THINKING_LEVEL_LABELS, selected)) return;
   state.thinkingLevel = selected;
   if (state.selected) state.thinkingLevelByTask.set(state.selected, selected);
-  writePreferredThinkingLevel(selected);
   setThinkingLabel(selected);
   closeThinkingMenu();
 }
