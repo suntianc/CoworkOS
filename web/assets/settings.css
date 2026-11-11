@@ -47,8 +47,8 @@
   border-radius: 11px;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s;
+    background-color var(--motion-fast),
+    color var(--motion-fast);
 }
 .settings-card .settings-nav-button:hover:not(:disabled) {
   color: var(--ui-text);
@@ -895,8 +895,8 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   font: 400 14px/1.5 var(--ui-font);
   color-scheme: inherit;
   transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 .settings-card input::placeholder {
   color: var(--ui-muted);
@@ -992,7 +992,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   height: 12px;
   background: var(--ui-panel);
   border-radius: 50%;
-  transition: transform 0.15s;
+  transition: transform var(--motion-fast);
 }
 .settings-toggle input:checked {
   background: var(--ui-accent);
@@ -1041,7 +1041,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
 .settings-advanced > summary .ui-icon {
   width: 14px;
   height: 14px;
-  transition: transform 0.15s;
+  transition: transform var(--motion-fast);
 }
 .settings-advanced[open] > summary .ui-icon {
   transform: rotate(180deg);

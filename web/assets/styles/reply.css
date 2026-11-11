@@ -75,7 +75,7 @@
   gap: 2px;
   margin: 8px 0 0 -6px;
   opacity: 0.45;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast);
 }
 .reply-actions.is-latest,
 .chat-message.main:hover .reply-actions,
@@ -120,7 +120,7 @@
   opacity: 0;
   pointer-events: none;
   transform: translateX(-50%);
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast);
 }
 .reply-time:hover .reply-time-full,
 .reply-time:focus-visible .reply-time-full {
@@ -165,7 +165,7 @@
 }
 .markdown-body .table-block .code-block-head > .code-block-action {
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast);
 }
 .markdown-body .table-block:is(:hover, :focus-within) .code-block-head > .code-block-action {
   opacity: 1;
@@ -283,7 +283,7 @@
 .diff-collapse .ui-icon {
   width: 14px;
   height: 14px;
-  transition: transform 120ms ease;
+  transition: transform var(--motion-fast);
 }
 .diff-block.is-collapsed .diff-collapse .ui-icon {
   transform: rotate(-90deg);

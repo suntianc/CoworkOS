@@ -1,4 +1,5 @@
 import { ui } from "../ui/language.js";
+import { reducedMotion } from "../ui/motion.js";
 import {
   sameWorkspace,
   taskWorkspace,
@@ -690,7 +691,7 @@ export function createWorkbenchController({
       )
         $('[data-sidebar-view="tasks"]')?.focus();
     };
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !button.animate) {
+    if (reducedMotion() || !button.animate) {
       switchView();
       focusNavigation();
       return;

@@ -8,6 +8,17 @@
 }
 /* Shared application chrome, neutral surfaces and one restrained type hierarchy. */
 :root {
+  /* Motion (#12). fast: hover, press and colour feedback; base: popovers,
+     panels and drawers entering; layout: a sidebar or panel opening or
+     closing; glide: a selected background moving to the next option.
+     standard eases into place, exit leaves quickly, glide settles softly. */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-layout: 240ms;
+  --motion-glide: 300ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
   --shell-toolbar-height: 64px;
   --shell-section-height: 72px;
   --conversation-width: 232px;
@@ -92,9 +103,9 @@ body {
   text-decoration: none;
   cursor: pointer;
   transition:
-    background 0.12s,
-    color 0.12s,
-    border-color 0.12s;
+    background var(--motion-fast),
+    color var(--motion-fast),
+    border-color var(--motion-fast);
 }
 .app-button:hover:not(:disabled) {
   background: var(--ui-hover);
@@ -589,7 +600,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   color: var(--ui-text);
 }
 .project-chevron .ui-icon {
-  transition: transform 0.15s;
+  transition: transform var(--motion-fast);
 }
 .project-group.collapsed .project-chevron .ui-icon {
   transform: rotate(-90deg);
@@ -654,8 +665,8 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 .composer {
   border-color: transparent;
   transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 .composer:focus-within {
   outline: 1px solid var(--ui-border-hover);
@@ -1421,7 +1432,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   background: light-dark(var(--ui-raised), #e1e1e1);
   color: light-dark(var(--ui-secondary), #171717);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast);
 }
 .composer .stop-button:hover:not(:disabled) {
   background: light-dark(var(--ui-raised), #fff);
@@ -1684,7 +1695,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   margin: 0;
   color: var(--ui-faint);
   line-height: 0;
-  transition: transform 0.15s ease;
+  transition: transform var(--motion-fast);
 }
 .tool-chevron .ui-icon,
 .reasoning-chevron .ui-icon,
@@ -1803,7 +1814,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   text-align: center;
   font-size: var(--ui-type-heading);
   line-height: 20px;
-  transition: transform 0.15s ease;
+  transition: transform var(--motion-fast);
 }
 .chat-pane .reasoning-copy.markdown-body {
   max-height: 320px;
@@ -2962,7 +2973,7 @@ body {
   background: var(--ui-border);
   opacity: 1;
   transform: translateX(-50%);
-  transition: background-color 0.15s;
+  transition: background-color var(--motion-fast);
 }
 :is(.sidebar-divider, .workspace-divider):hover::after,
 :is(.sidebar-divider, .workspace-divider):focus-visible::after,

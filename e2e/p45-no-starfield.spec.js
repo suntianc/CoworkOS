@@ -21,8 +21,9 @@ const backdrop = (page) =>
     return { html: read("html"), body: read("body"), shell: read(".app-shell") };
   });
 
+// The top band above the title row controls, where only the page backdrop shows.
 const corner = async (page) => {
-  const shot = await page.screenshot({ clip: { x: 2, y: 2, width: 24, height: 24 } });
+  const shot = await page.screenshot({ clip: { x: 2, y: 1, width: 24, height: 5 } });
   const png = PNG.sync.read(shot);
   const colors = new Set();
   for (let index = 0; index < png.data.length; index += 4)

@@ -226,8 +226,8 @@
   transform-origin: center;
   backface-visibility: hidden;
   transition:
-    background-color 140ms,
-    color 140ms;
+    background-color var(--motion-fast),
+    color var(--motion-fast);
 }
 .sidebar-view-toggle:hover {
   background: var(--ui-hover);

@@ -42,8 +42,10 @@ const boxes = (page, selectors) =>
 const visible = (box) =>
   Boolean(box) && box.display !== "none" && box.visibility !== "hidden" && box.width > 0 && box.height > 0;
 
-const layout = (page) =>
-  boxes(page, [
+// A sidebar or panel that was just toggled is measured once its columns settle.
+const layout = async (page) => {
+  await expect(page.locator("body")).not.toHaveAttribute("data-layout-animating");
+  return boxes(page, [
     ["layout", "#app-layout"],
     ["sidebar", "#conversation-sidebar"],
     ["main", "#work-entry"],
@@ -54,6 +56,7 @@ const layout = (page) =>
     ["observe", "#observe-entry"],
     ["settings", "#settings-entry"]
   ]);
+};
 
 const documentWidth = (page) => page.evaluate(() => document.documentElement.scrollWidth);
 

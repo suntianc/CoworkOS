@@ -56,6 +56,7 @@ import { createAddProjectController } from "./assets/controllers/add-project.js"
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
 import { installCodeBlockActions } from "./assets/ui/code-blocks.js";
+import { animateLayout, installSelectionGlide } from "./assets/ui/motion.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
 
 localizeShell(document.body);
@@ -449,6 +450,7 @@ const conversationView = createConversationView({
   resolveFile: (path) => Boolean(fileTarget(path)),
   showToast: (message) => showToast(message)
 });
+installSelectionGlide();
 installCodeBlockActions(document, {
   showToast: (message) => showToast(message),
   openFile: (path, line) => {
@@ -1550,7 +1552,7 @@ function chooseThinkingLevel(value) {
 
 async function toggleOutputPane() {
   if (await workbenchController.toggleWorkspace()) return;
-  document.body.classList.toggle("output-collapsed");
+  animateLayout(() => document.body.classList.toggle("output-collapsed"), { part: "pane" });
   if (!document.body.classList.contains("output-collapsed")) renderRightPanel();
 }
 

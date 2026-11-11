@@ -1,0 +1,79 @@
+/* Motion (#12). Durations and curves are the tokens in ui.css; the reduced
+   motion rules in formicand.css stop every animation and transition here. */
+
+/* A selection's background on its way to the next option (ui/motion.js). It
+   takes the selected option's own look and sits under the options' text in
+   the panel's stacking context; the layer is not isolated, so menus and
+   flyouts inside the sidebar keep their own stacking. */
+.selection-glide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  box-sizing: border-box;
+  pointer-events: none;
+  will-change: transform, width, height;
+}
+
+/* Opening or closing a sidebar or panel: the grid eases between its columns
+   while the panel's content keeps its width and is uncovered or covered,
+   instead of reflowing at every step. */
+@media (min-width: 640px) {
+  html[data-theme] body[data-layout-animating] .app-layout {
+    transition:
+      grid-template-columns var(--motion-layout) var(--ease-standard),
+      padding var(--motion-layout) var(--ease-standard);
+  }
+  html[data-theme] body[data-layout-animating="sidebar"] .conversation-sidebar {
+    visibility: visible;
+    width: auto;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+  html[data-theme] body[data-layout-animating="sidebar"] .conversation-sidebar > * {
+    flex-shrink: 0;
+    min-width: calc(var(--sidebar-width, 248px) - 24px);
+  }
+  html[data-theme] body[data-layout-animating="sidebar"].sidebar-collapsed .conversation-sidebar {
+    animation: motion-fade-out var(--motion-layout) var(--ease-exit) both;
+  }
+  html[data-theme] body[data-layout-animating="sidebar"]:not(.sidebar-collapsed) .conversation-sidebar {
+    animation: motion-fade-in var(--motion-layout) var(--ease-standard) both;
+  }
+}
+@media (min-width: 1280px) {
+  html[data-theme] body[data-layout-animating="pane"] .app-layout:not([data-entry="observe"]) .agent-pane {
+    display: flex;
+    overflow: hidden;
+  }
+  html[data-theme]
+    body[data-layout-animating="pane"]
+    .app-layout:not([data-entry="observe"])
+    .agent-pane
+    > * {
+    flex-shrink: 0;
+    min-width: 340px;
+  }
+  html[data-theme]
+    body[data-layout-animating="pane"].output-collapsed
+    .app-layout:not([data-entry="observe"])
+    .agent-pane {
+    animation: motion-fade-out var(--motion-layout) var(--ease-exit) both;
+  }
+  html[data-theme]
+    body[data-layout-animating="pane"]:not(.output-collapsed)
+    .app-layout:not([data-entry="observe"])
+    .agent-pane {
+    animation: motion-fade-in var(--motion-layout) var(--ease-standard) both;
+  }
+}
+@keyframes motion-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes motion-fade-out {
+  to {
+    opacity: 0;
+  }
+}

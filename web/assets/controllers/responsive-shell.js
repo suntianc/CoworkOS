@@ -1,4 +1,5 @@
 import { ui } from "../ui/language.js";
+import { animateLayout } from "../ui/motion.js";
 
 const COLLAPSED_KEY = "formicand.sidebar-collapsed";
 
@@ -68,10 +69,9 @@ export function createResponsiveShell({
   function setCollapsed(collapsed) {
     if (collapsed === isCollapsed()) return;
     if (collapsed && sidebar.contains(document.activeElement)) toggles[0]?.focus();
-    body.classList.toggle("sidebar-collapsed", collapsed);
+    animateLayout(() => body.classList.toggle("sidebar-collapsed", collapsed), { part: "sidebar", body });
     remember(collapsed);
     paint();
-    window.dispatchEvent(new Event("resize"));
   }
 
   function open() {

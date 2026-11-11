@@ -51,7 +51,7 @@
   --type-panel-title: 15px;
   --type-nav: 13px;
   --type-caption: 12px;
-  --motion-enter: 0.2s cubic-bezier(0.2, 0, 0, 1);
+  --motion-enter: var(--motion-base) var(--ease-standard);
 }
 
 html[data-theme="light"] {
@@ -485,18 +485,18 @@ html[data-theme] .toast {
 }
 .artifact-drawer,
 .ui-drawer {
-  animation: formicand-drawer-in 0.18s ease-out;
+  animation: formicand-drawer-in var(--motion-base) var(--ease-standard);
 }
 .project-list,
 .ui-list {
-  animation: formicand-list-in 0.18s ease-out;
+  animation: formicand-list-in var(--motion-base) var(--ease-standard);
 }
 .ui-panel,
 .ui-drawer,
 .ui-list {
   transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
+    opacity var(--motion-base) var(--ease-standard),
+    transform var(--motion-base) var(--ease-standard);
 }
 
 /* Every rendered animation stops, including indicators added later; transitions
@@ -578,7 +578,7 @@ html[data-theme] .app-layout {
 }
 html[data-theme] body.output-collapsed .app-layout,
 html[data-theme] .app-layout[data-entry="observe"] {
-  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) 0;
+  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) minmax(0, 0px);
   /* The empty panel track still owns a column gap; drop the padding so the
      main panel keeps the same 10 px edge as the settings page. */
   padding-right: 0;
@@ -751,7 +751,7 @@ html[data-theme] .sidebar-divider {
   }
   html[data-theme] body.sidebar-collapsed.output-collapsed .app-layout,
   html[data-theme] body.sidebar-collapsed .app-layout[data-entry="observe"] {
-    grid-template-columns: 0 minmax(0, 1fr) 0;
+    grid-template-columns: 0 minmax(0, 1fr) minmax(0, 0px);
   }
 }
 @media (min-width: 640px) and (max-width: 1279px) {
@@ -1181,8 +1181,8 @@ html[data-theme] .observe-header {
     visibility: visible;
     transform: none;
     transition:
-      transform 0.2s cubic-bezier(0.2, 0, 0, 1),
-      opacity 0.2s,
+      transform var(--motion-base) var(--ease-standard),
+      opacity var(--motion-base),
       visibility 0s;
   }
   html[data-theme] body.output-collapsed .agent-pane {
@@ -1191,9 +1191,9 @@ html[data-theme] .observe-header {
     transform: translateX(calc(100% + 24px));
     pointer-events: none;
     transition:
-      transform 0.2s cubic-bezier(0.2, 0, 0, 1),
-      opacity 0.2s,
-      visibility 0s linear 0.2s;
+      transform var(--motion-base) var(--ease-exit),
+      opacity var(--motion-base) var(--ease-exit),
+      visibility 0s linear var(--motion-base);
   }
   /* The control becomes the design's title-bar pill: icon 14, gap 6, surface-3. */
   html[data-theme] #output-pane-toggle {
@@ -1362,9 +1362,9 @@ html[data-theme] .observe-header {
     transform: translateX(-16px);
     pointer-events: none;
     transition:
-      transform 0.2s cubic-bezier(0.2, 0, 0, 1),
-      opacity 0.2s,
-      visibility 0s linear 0.2s;
+      transform var(--motion-base) var(--ease-exit),
+      opacity var(--motion-base) var(--ease-exit),
+      visibility 0s linear var(--motion-base);
   }
   html[data-theme] body.sidebar-drawer-open .conversation-sidebar {
     opacity: 1;
@@ -1372,8 +1372,8 @@ html[data-theme] .observe-header {
     transform: none;
     pointer-events: auto;
     transition:
-      transform 0.2s cubic-bezier(0.2, 0, 0, 1),
-      opacity 0.2s,
+      transform var(--motion-base) var(--ease-standard),
+      opacity var(--motion-base),
       visibility 0s;
   }
   html[data-theme] .sidebar-header {
