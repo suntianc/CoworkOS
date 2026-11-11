@@ -20,8 +20,24 @@ async function seedConversation(page, dashboard) {
           { role: "user", content: "说明结果", timestamp: 1 },
           {
             role: "assistant",
-            content: "## 结果\n\n可以选中并复制的正文 `code`。\n\n```js\nconst a = 1;\n```",
+            content: [
+              { type: "thinking", thinking: "先看看目录" },
+              { type: "toolCall", id: "t1", name: "bash", arguments: { command: "cd src && ls" } }
+            ],
             timestamp: 2,
+            stopReason: "toolUse"
+          },
+          {
+            role: "toolResult",
+            toolCallId: "t1",
+            toolName: "bash",
+            content: [{ type: "text", text: "app.js" }],
+            timestamp: 3
+          },
+          {
+            role: "assistant",
+            content: "可以选中并复制的正文 `code`。\n\n第二段正文。\n\n## 小结\n\n```js\nconst a = 1;\n```",
+            timestamp: 4,
             stopReason: "stop"
           }
         ]
@@ -203,6 +219,51 @@ test("the main panel edge resizes the sidebar without a dividing line, and margi
     await page.getByRole("button", { name: "设置", exact: true }).first().click();
     const settings = await page.locator(".settings-content").boundingBox();
     expect(Math.round(1440 - (settings.x + settings.width))).toBe(10);
+  } finally {
+    await dashboard.stop();
+  }
+});
+
+test("conversation rows and steps keep their geometry on hover", async ({ page }) => {
+  const dashboard = await startDashboard();
+  try {
+    await seedConversation(page, dashboard);
+    await page.goto(dashboard.base);
+    const row = page.locator(`.conversation-item[data-task="${taskId}"]`);
+    await row.click();
+    const final = page.locator('[data-answer-kind="final"]');
+    await expect(final).toContainText("第二段正文");
+
+    // The answer follows the collapsed history at its own paragraph rhythm.
+    const gaps = await page.locator("#conversation").evaluate((root) => {
+      const header = root.querySelector(".execution-history > summary").getBoundingClientRect();
+      const [first, second] = root.querySelectorAll('[data-answer-kind="final"] .markdown-body p');
+      return {
+        header: Math.round(first.getBoundingClientRect().top - header.bottom),
+        paragraph: Math.round(second.getBoundingClientRect().top - first.getBoundingClientRect().bottom)
+      };
+    });
+    expect(gaps.header).toBe(gaps.paragraph);
+
+    // A hovered step only changes colour.
+    await page.locator(".execution-history > summary").click();
+    const step = page.locator(".tool-step").first();
+    await expect(step).toBeVisible();
+    await page.mouse.move(0, 0);
+    const resting = await step.locator("summary").boundingBox();
+    await step.locator("summary").hover();
+    await page.waitForTimeout(300);
+    expect(await step.locator("summary").boundingBox()).toEqual(resting);
+
+    // The row menu button sits on the row without its own fill or fade mask.
+    await row.hover();
+    const button = page.locator(`.conversation-row:has([data-task="${taskId}"]) .conversation-menu`);
+    await expect(button).toBeVisible();
+    const look = await button.evaluate((node) => ({
+      fill: getComputedStyle(node).backgroundColor,
+      mask: getComputedStyle(node, "::before").content
+    }));
+    expect(look).toEqual({ fill: "rgba(0, 0, 0, 0)", mask: "none" });
   } finally {
     await dashboard.stop();
   }

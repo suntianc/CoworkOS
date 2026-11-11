@@ -314,6 +314,22 @@ html[data-theme] .conversation-menu {
   width: 24px;
   height: 24px;
   border-radius: 6px;
+  /* No fill and no light fade: a translucent fill over the translucent row
+     read as a raised, glowing patch. The title fades out under the button
+     instead, keeping its width. */
+  background: transparent;
+}
+html[data-theme] .conversation-menu::before {
+  content: none;
+}
+html[data-theme] .conversation-menu:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  background: var(--color-surface-3);
+}
+/* Only the title fades, so the row's focus ring stays whole. */
+html[data-theme]
+  .conversation-row:is(:hover, :has(:focus-visible), :has(.conversation-menu[aria-expanded="true"]))
+  .conversation-item-title {
+  mask-image: linear-gradient(to left, transparent 20px, #000 36px);
 }
 html[data-theme] .conversation-menu .ui-icon {
   width: 14px;

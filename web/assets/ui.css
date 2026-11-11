@@ -1540,8 +1540,8 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 .workflow-rail {
   padding: 0;
 }
-.activity-step,
-.activity-step:hover {
+/* Hover only recolours a step; its box never changes, so rows do not jump. */
+.activity-step {
   gap: 0;
   margin: 0;
   padding: 6px 0;
@@ -1729,7 +1729,8 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   border: 0;
 }
 .execution-history {
-  margin-bottom: 20px;
+  /* The answer follows at the same rhythm as its own paragraphs. */
+  margin-bottom: 14px;
   border: 0;
 }
 .execution-history > summary {
