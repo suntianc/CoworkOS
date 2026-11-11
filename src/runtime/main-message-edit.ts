@@ -237,7 +237,8 @@ function userText(entry: SessionEntry): string | undefined {
           .join(""))
   );
 }
-async function currentSession(root: string, taskId: string) {
+/** The Pi session the next Main run continues: the edited version, else the most recent file. */
+export async function currentMainSession(root: string, taskId: string) {
   const versions = await readMessageVersions(root, taskId);
   const directory = join(root, taskId, "sessions", "main", "pi");
   const files = versions
@@ -260,7 +261,7 @@ async function currentSession(root: string, taskId: string) {
 /** Editable identities are accepted composer inputs or persisted Inbox submissions, never arbitrary Pi user messages. */
 export async function latestEditableMessage(root: string, taskId: string, runId?: string) {
   if (!runId) return;
-  const { versions, session } = await currentSession(root, taskId);
+  const { versions, session } = await currentMainSession(root, taskId);
   if (!session) return;
   const allEvents = await readTaskRuntimeEvents(root, taskId);
   const events = versionRuntimeEvents(allEvents, versions);

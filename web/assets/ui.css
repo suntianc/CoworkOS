@@ -1547,6 +1547,11 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   border: 0;
   background: transparent;
 }
+/* The legacy sheet's hover fill is a dark-theme literal; a step row has no fill. */
+.activity-step:hover {
+  border-color: transparent;
+  background: transparent;
+}
 .activity-marker,
 .tool-step .activity-marker,
 .tool-step .tool-marker,

@@ -1507,5 +1507,16 @@ export default {
   后端返回的会话与本地记录不一致: "The backend session does not match the local record",
   "本地会话已失效，草稿与已提交内容保留；重新授权后可继续。":
     "The local session expired. Your draft and submitted content are kept; reauthorize to continue.",
-  "本地会话已失效，任务事件订阅已停止。": "The local session expired, so task events stopped."
+  "本地会话已失效，任务事件订阅已停止。": "The local session expired, so task events stopped.",
+  // Reply actions and code blocks.
+  自动换行: "Wrap long lines",
+  换行: "Wrap",
+  复制代码: "Copy code",
+  已复制: "Copied",
+  回复操作: "Reply actions",
+  复制回复: "Copy reply",
+  "从这条回复 Fork 出新会话": "Fork a new conversation from this reply",
+  "要 Fork 的回复无效。": "The reply to fork is not valid.",
+  "这条回复已不在当前会话里，无法 Fork。":
+    "This reply is no longer in the conversation, so it cannot be forked."
 };

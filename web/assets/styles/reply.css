@@ -1,0 +1,134 @@
+/* Code blocks: language, wrap and copy above the source (#14, #18). */
+.markdown-body .code-block {
+  margin: 12px 0;
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: 9px;
+  background: var(--ui-raised);
+}
+.markdown-body .code-block-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.markdown-body .code-block-language {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--ui-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:is(.code-block-action, .reply-action) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ui-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+:is(.code-block-action, .reply-action) .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+:is(.code-block-action, .reply-action):hover,
+.code-block-action[aria-pressed="true"] {
+  color: var(--ui-text);
+  background: var(--ui-hover, color-mix(in srgb, var(--ui-text) 8%, transparent));
+}
+:is(.code-block-action, .reply-action):focus-visible,
+.reply-time:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+:is(.code-block-action, .reply-action).is-copied,
+:is(.code-block-action, .reply-action).is-copied:hover {
+  color: var(--ui-accent);
+}
+.markdown-body .code-block pre,
+.chat-pane .markdown-body .code-block pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.markdown-body .code-block.is-wrapped pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The bar under a settled reply: copy, Fork, time (#14). */
+.reply-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 8px 0 0 -6px;
+  opacity: 0.45;
+  transition: opacity 120ms ease;
+}
+.reply-actions.is-latest,
+.chat-message.main:hover .reply-actions,
+.reply-actions:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .reply-actions {
+    opacity: 1;
+  }
+}
+.reply-action[data-reply-copy] {
+  width: 24px;
+  padding: 0;
+  justify-content: center;
+}
+.reply-action:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+.reply-time {
+  position: relative;
+  margin-left: 6px;
+  border-radius: 4px;
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.reply-time-full {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 5;
+  padding: 4px 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  color: var(--ui-text);
+  background: var(--ui-panel);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.18);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease;
+}
+.reply-time:hover .reply-time-full,
+.reply-time:focus-visible .reply-time-full {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reply-actions,
+  .reply-time-full {
+    transition: none;
+  }
+}

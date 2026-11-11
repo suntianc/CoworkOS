@@ -82,6 +82,7 @@ import type { ComputerDriver } from "../gui/computer-use.js";
 import { MacComputerDriver } from "../gui/macos-driver.js";
 import { createMacComputerApproval } from "../gui/macos-approval.js";
 import { HttpError } from "./http.js";
+import { copyMainConversation } from "../runtime/conversation-fork.js";
 import { ComputerApproval, type ComputerApprovalAuthentication } from "./computer-approval.js";
 
 /** Assemble one local Dashboard; importing this module never opens a port or installs signals. */
@@ -662,6 +663,40 @@ export function createDashboardApplication(
     await workspaces.switchRoot(workspaceRoot);
   }
 
+  /**
+   * A new conversation beside the source, in the same project (or temporary
+   * folder), that starts from one reply's history. Only the transcript is
+   * copied; the new conversation is settled, so its last reply reads as the
+   * answer and the next message continues from it.
+   */
+  async function forkConversation(
+    sourceTaskId: string,
+    input: { taskId: string; messageId: string; title?: string }
+  ) {
+    const source = await locateTask(sourceTaskId);
+    const metadata = { goal: source.task.goal };
+    const temporaryRoot = source.task.temporaryWorkspaceRoot;
+    if (temporaryRoot) await workspaces.createTemporaryTask(input.taskId, metadata, temporaryRoot);
+    else await workspaces.createProjectTask(input.taskId, source.projectId, metadata);
+    const target = await locateTask(input.taskId);
+    try {
+      const copied = await copyMainConversation(
+        { root: source.workspaceRoot, taskId: sourceTaskId },
+        { root: target.workspaceRoot, taskId: input.taskId },
+        input.messageId
+      );
+      if (!copied) throw new HttpError(404, "这条回复已不在当前会话里，无法 Fork。");
+      if (input.title) await target.store.updateTask(input.taskId, { title: input.title });
+      // A Task leaves "created" only through a run; the copy stands for one.
+      await target.store.transitionTask(input.taskId, "running", { reason: "conversation_fork" });
+      await target.store.transitionTask(input.taskId, "completed", { reason: "conversation_fork" });
+    } catch (error) {
+      await target.store.deleteTask(input.taskId);
+      throw error;
+    }
+    return taskListItem(await locateTask(input.taskId));
+  }
+
   async function taskDetails(taskId: string): Promise<unknown> {
     // A run may settle while the slower history reads are in progress. Keep
     // that snapshot active instead of pairing stale task data with an idle run.
@@ -1002,6 +1037,7 @@ export function createDashboardApplication(
     startMainRun,
     pauseTask: runs.pauseTask,
     editMainMessage: runs.editMainMessage,
+    forkConversation,
     messageVersion: async (taskId, versionId) => {
       const location = await locateTask(taskId);
       return readArchivedMessageVersion(location.workspaceRoot, taskId, versionId);

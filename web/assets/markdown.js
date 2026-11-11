@@ -1,5 +1,16 @@
 import { escapeHtml as esc } from "./workbench/html.js";
 import { protectMath } from "./math.js";
+import { icon } from "./ui/icons.js";
+import { ui } from "./ui/language.js";
+
+/**
+ * A fenced block with its language and two actions. The actions are plain
+ * buttons; one delegated listener (ui/code-blocks.js) gives them behaviour, so
+ * the markup stays a pure function of the source.
+ */
+function codeBlock(language, code) {
+  return `<figure class="code-block"><figcaption class="code-block-head"><span class="code-block-language">${esc(language || "text")}</span><button type="button" class="code-block-action" data-code-wrap aria-pressed="false" title="${ui("自动换行")}">${icon("wrap-text")}<span>${ui("换行")}</span></button><button type="button" class="code-block-action" data-code-copy title="${ui("复制代码")}">${icon("copy")}<span data-code-copy-label>${ui("复制")}</span></button></figcaption><pre><code class="language-${esc(language)}">${esc(code)}</code></pre></figure>`;
+}
 
 export function renderMarkdown(source, options = {}) {
   // Input cannot forge the internal fragment sentinels.
@@ -35,9 +46,7 @@ export function renderMarkdown(source, options = {}) {
     const fence = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
     if (codeLines) {
       if (fence && fence[1][0] === codeFence[0] && fence[1].length >= codeFence.length && !fence[2].trim()) {
-        output.push(
-          `<pre><code class="language-${esc(codeLanguage)}">${esc(codeLines.join("\n"))}</code></pre>`
-        );
+        output.push(codeBlock(codeLanguage, codeLines.join("\n")));
         codeLines = null;
         codeLanguage = codeFence = "";
       } else codeLines.push(line);
@@ -112,8 +121,7 @@ export function renderMarkdown(source, options = {}) {
     }
     paragraph.push(line);
   }
-  if (codeLines)
-    output.push(`<pre><code class="language-${esc(codeLanguage)}">${esc(codeLines.join("\n"))}</code></pre>`);
+  if (codeLines) output.push(codeBlock(codeLanguage, codeLines.join("\n")));
   flushParagraph();
   flushList();
   // Restore only after Markdown parsing so generated markup is never reinterpreted.

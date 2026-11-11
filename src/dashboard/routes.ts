@@ -131,6 +131,10 @@ export interface DashboardRoutePorts {
   pauseTask: RunService["pauseTask"];
   launchMainRun: MainRunLauncher;
   editMainMessage: RunService["editMainMessage"];
+  forkConversation(
+    sourceTaskId: string,
+    input: { taskId: string; messageId: string; title?: string }
+  ): Promise<{ taskId: string }>;
   messageVersion(taskId: string, versionId: string): Promise<unknown>;
   activeRuns: RunService["activeRuns"];
   cancelTask: RunService["cancelTask"];
@@ -853,6 +857,40 @@ export function createDashboardHandler(
               size: Buffer.byteLength(file.text, "utf8")
             }))
           )
+        );
+        return;
+      }
+      const forkMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/fork$/);
+      if (request.method === "POST" && forkMatch) {
+        const sourceTaskId = decodeURIComponent(forkMatch[1]);
+        const body = await readJsonBody(request);
+        if (typeof body.messageId !== "string" || !/^[a-zA-Z0-9._-]{1,160}$/.test(body.messageId))
+          throw new HttpError(400, "要 Fork 的回复无效。");
+        if (body.title !== undefined && (typeof body.title !== "string" || body.title.length > 200))
+          throw new HttpError(400, "会话标题无效。");
+        sendCommandOutcome(
+          response,
+          await runCommand(ports.commands, {
+            principalId: principal.principalId,
+            operationId: body.operationId,
+            command: "tasks.fork",
+            content: { ...commandContent(body), sourceTaskId },
+            apply: async () => {
+              const requested = typeof body.taskId === "string" ? body.taskId : id("task");
+              if (!/^[a-zA-Z0-9._-]+$/.test(requested)) throw new Error("unsafe task id");
+              const title = typeof body.title === "string" ? body.title.trim() : "";
+              return {
+                status: 201,
+                body: await publishTask(
+                  await ports.forkConversation(sourceTaskId, {
+                    taskId: requested,
+                    messageId: body.messageId as string,
+                    ...(title ? { title } : {})
+                  })
+                )
+              };
+            }
+          })
         );
         return;
       }

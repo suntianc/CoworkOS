@@ -1,4 +1,5 @@
-import { ui } from "../ui/language.js";
+import { language, ui } from "../ui/language.js";
+import { confirmCopied, copyText } from "../ui/code-blocks.js";
 import { createConversationProjection } from "./conversation-projection.js";
 import { splitUploadedFiles } from "../uploaded-files.js";
 import { modelErrorDiagnostic, modelPolicyRejection, requestErrorMessage } from "../request-error.js";
@@ -18,6 +19,34 @@ import { escapeHtml as esc } from "../workbench/html.js";
 import { icon } from "../ui/icons.js";
 import { executionElapsedMs, formatExecutionDuration } from "../execution-time.js";
 import { reconcileMarkup } from "../ui/reconcile.js";
+
+const replyClock = new Intl.DateTimeFormat(language, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23"
+});
+const replyDay = new Intl.DateTimeFormat(language, { month: "short", day: "numeric" });
+const replyFull = new Intl.DateTimeFormat(language, {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  weekday: "long",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23"
+});
+
+/** 18:50 today; the day too once it is not today. */
+function replyTime(timestamp, now = new Date()) {
+  const when = new Date(timestamp);
+  const today = when.toDateString() === now.toDateString();
+  return {
+    short: today ? replyClock.format(when) : `${replyDay.format(when)} ${replyClock.format(when)}`,
+    full: replyFull.format(when),
+    iso: when.toISOString()
+  };
+}
 
 const toolKinds = new Map([
   ...["read", "read_file"].map((name) => [name, "read"]),
@@ -157,7 +186,9 @@ export function createConversationView({
   edit,
   messageEdit,
   openSettings,
-  openArtifact
+  openArtifact,
+  fork,
+  showToast = () => {}
 }) {
   const markdown = (source, options = {}) =>
     renderMarkdown(source, {
@@ -170,6 +201,23 @@ export function createConversationView({
           .map((part) => (typeof part === "string" ? part : part?.type === "text" ? part.text || "" : ""))
           .join("")
       : String(textContent(content) || "");
+  /**
+   * The bar under a settled reply: copy its Markdown, fork the conversation
+   * from it, and when it was written. The latest reply keeps it in full view;
+   * earlier ones show it faintly until the reply is hovered.
+   */
+  const replyActions = (message, latest) => {
+    const time = Number.isFinite(message.timestamp) ? replyTime(message.timestamp) : undefined;
+    return `<div class="reply-actions${latest ? " is-latest" : ""}" role="toolbar" aria-label="${ui("回复操作")}"><button type="button" class="reply-action" data-reply-copy title="${ui("复制回复")}" aria-label="${ui("复制回复")}">${icon("copy")}</button>${
+      message.id && fork
+        ? `<button type="button" class="reply-action" data-reply-fork="${esc(message.id)}" title="${ui("从这条回复 Fork 出新会话")}">${icon("git-branch")}<span>Fork</span></button>`
+        : ""
+    }${
+      time
+        ? `<span class="reply-time" tabindex="0"><time datetime="${esc(time.iso)}">${esc(time.short)}</time><span class="reply-time-full" role="tooltip">${esc(time.full)}</span></span>`
+        : ""
+    }</div>`;
+  };
   const activityStates = new Map();
   const errorDetailsOpen = new Set();
   const boundNodes = new WeakSet();
@@ -238,6 +286,29 @@ export function createConversationView({
     );
   };
   const projectExchanges = createConversationProjection(normalizeMessages);
+  $("#conversation")?.addEventListener("click", async (event) => {
+    const button = event.target.closest?.("[data-reply-copy], [data-reply-fork]");
+    const article = button?.closest(".chat-message.main");
+    if (!article) return;
+    const messageId = article.dataset.messageId;
+    if (button.hasAttribute("data-reply-fork")) {
+      if (button.disabled) return;
+      button.disabled = true;
+      try {
+        await fork?.(state.selected, button.dataset.replyFork);
+      } finally {
+        if (button.isConnected) button.disabled = false;
+      }
+      return;
+    }
+    const message = messageId && state.detail?.messages?.find((entry) => entry.id === messageId);
+    const source = message
+      ? visibleText(message.content).trim()
+      : article.querySelector(".markdown-body")?.innerText || "";
+    if (await copyText(source)) confirmCopied(button);
+    else showToast(ui("当前环境不支持复制"));
+  });
+
   function renderFailure(task, failure) {
     const open = errorDetailsOpen.has(task.taskId);
     return ui`<div class="request-error" role="alert" data-recovery-task="${esc(task.taskId)}">
@@ -423,7 +494,7 @@ export function createConversationView({
                 return `<article class="chat-message user${editor ? " is-editing" : ""}" data-view-key="${esc(`${historyKey}:user:${message.id || index}`)}"><div class="message-copy"><div class="user-message-bubble">${status ? `<div class="message-meta">${status}</div>` : ""}<div class="markdown-body">${renderUserText(text, markdown)}</div>${editor}${editor ? messageEdit.actions?.(task.taskId, message.id) || "" : ""}</div>${!editor && editable ? ui`<div class="user-message-actions"><button type="button" class="app-button" data-edit-message="${esc(message.id)}" aria-label="编辑消息" title="编辑消息">${icon("pencil")}</button></div>` : ""}</div></article>`;
               }
               if (index !== finalIndex) return "";
-              return `${index === workflowIndex ? workflow : ""}<article class="chat-message main" data-answer-kind="final"><div class="message-copy"><div class="markdown-body">${markdown(text)}</div></div></article>`;
+              return `${index === workflowIndex ? workflow : ""}<article class="chat-message main" data-answer-kind="final"${message.id ? ` data-message-id="${esc(message.id)}"` : ""}><div class="message-copy"><div class="markdown-body">${markdown(text)}</div>${active ? "" : replyActions(message, isCurrent)}</div></article>`;
             })
             .join("") +
           (workflowIndex < 0

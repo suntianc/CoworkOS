@@ -55,6 +55,7 @@ import { createFirstUseView } from "./assets/controllers/first-use.js";
 import { createAddProjectController } from "./assets/controllers/add-project.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
+import { installCodeBlockActions } from "./assets/ui/code-blocks.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
 
 localizeShell(document.body);
@@ -440,8 +441,11 @@ const conversationView = createConversationView({
   openSettings: () => setTimeout(() => void toggleModelMenu(), 0),
   retry: (taskId) => void retryFailedRequest(taskId),
   messageEdit,
-  edit: (taskId, target) => messageEdit.begin(taskId, target)
+  edit: (taskId, target) => messageEdit.begin(taskId, target),
+  fork: (taskId, messageId) => forkConversation(taskId, messageId),
+  showToast: (message) => showToast(message)
 });
+installCodeBlockActions(document, { showToast: (message) => showToast(message) });
 runControl = createRunControl({
   state,
   $,
@@ -1959,6 +1963,36 @@ async function createTaskFromDraft(
   workbenchController.syncBindingFromTabs();
   void refreshTabs();
   return task.taskId;
+}
+
+/**
+ * A new conversation beside this one that starts from one reply. Only the
+ * history up to that reply is copied; the new conversation opens, settled, so
+ * the next message continues from there.
+ */
+async function forkConversation(sourceTaskId, messageId) {
+  const source = state.tasks.find((task) => task.taskId === sourceTaskId);
+  if (!source) return;
+  let task;
+  try {
+    task = await api.command(`/api/tasks/${encodeURIComponent(sourceTaskId)}/fork`, {
+      method: "POST",
+      body: {
+        taskId: `task-${crypto.randomUUID()}`,
+        messageId,
+        title: `${truncate(conversationTitle(source), 92)} · Fork`
+      }
+    });
+  } catch (error) {
+    showToast(requestErrorMessage(error));
+    return;
+  }
+  if (!state.tasks.some((item) => item.taskId === task.taskId)) state.tasks.unshift(task);
+  projectController.addTask(task);
+  // Opening it is the confirmation; navigation already left the source.
+  if (state.selected !== sourceTaskId) return renderConversationList();
+  projectController.selectTask(task);
+  selectConversation(task.taskId);
 }
 
 /** Send to the running task's steering or follow-up queue, preserving draft ownership. */
