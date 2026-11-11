@@ -70831,7 +70831,7 @@
                       "fill": "$v2-text-3",
                       "textGrowth": "fixed-width",
                       "width": "fill_container",
-                      "content": "按当前模型 auto/gpt-6.1-terra 显示，换模型随之变化。接口给出的「ultra」本产品暂不支持，未列出。",
+                      "content": "按当前模型 auto/gpt-6.1-terra 显示，换模型随之变化。",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 11,
                       "fontWeight": "normal"
@@ -71349,7 +71349,7 @@
           "fill": "#a1a1a8",
           "textGrowth": "fixed-width",
           "width": "fill_container",
-          "content": "• Pi 只认 关闭 / 最少 / 低 / 中 / 高 / 极高 / 最大；接口给出其他档位（如 ultra）时不显示，并在设置里说明。",
+          "content": "• 档位以 Pi 支持的为准（关闭 / 最少 / 低 / 中 / 高 / 极高 / 最大），接口给出的其他档位直接忽略，不另行说明。",
           "lineHeight": 1.6,
           "fontFamily": "Noto Sans SC",
           "fontSize": 13,
@@ -73443,7 +73443,7 @@
                       "fill": "$v2-text-3",
                       "textGrowth": "fixed-width",
                       "width": "fill_container",
-                      "content": "按当前模型 auto/gpt-6.1-terra 显示，换模型随之变化。接口给出的「ultra」本产品暂不支持，未列出。",
+                      "content": "按当前模型 auto/gpt-6.1-terra 显示，换模型随之变化。",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 11,
                       "fontWeight": "normal"
