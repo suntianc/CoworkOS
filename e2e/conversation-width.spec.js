@@ -132,6 +132,8 @@ test("reading columns stay within the viewport across desktop and mobile breakpo
           if (collapsed) await page.locator("#output-pane-toggle").click();
           else await page.locator("[data-panel-collapse]").click();
         }
+        // Measure once a toggled panel's columns have settled.
+        await expect(body).not.toHaveAttribute("data-layout-animating");
         await checkColumn(page);
         const content = await page.locator(".chat-message.main").boundingBox();
         for (const selector of [".chat-message.main pre", ".chat-message.main table"]) {

@@ -252,6 +252,9 @@ test("the running composer switches one primary action and preserves the draft t
       delivery: "steer",
       attachmentIds: []
     });
+    // The page clears the composer once the insert is accepted; until then it
+    // is still submitting and a new message waits.
+    await expect(input).toHaveValue("");
     // ⌥Enter queues the message until the round ends instead.
     await input.fill("运行中排队的文字补充");
     await input.press("Alt+Enter");
