@@ -1,6 +1,6 @@
 # 复盘落实与经验索引
 
-2026-11-09 更新，合并 [P1](p1-retrospective.md)、[P2](p2-retrospective.md)、[科学工具剪枝](core-pruning-retrospective.md)、[P3](p3-retrospective.md) 和 [P4](p4-retrospective.md) 五轮复盘。每项经验归到现行指南、已有修复或待定事项；原验收记录继续保留。P4 修复已交付，两项操作坑点已记录，产品重构与工具建议保留待处理状态。
+2026-11-11 更新，合并 [P1](p1-retrospective.md)、[P2](p2-retrospective.md)、[科学工具剪枝](core-pruning-retrospective.md)、[P3](p3-retrospective.md)、[P4](p4-retrospective.md) 和 [P4.5](p4.5-retrospective.md) 六轮复盘。每项经验归到现行指南、已有修复或待定事项；原验收记录继续保留。P4 修复已交付，两项操作坑点已记录，产品重构与工具建议保留待处理状态。
 
 ## 已落实的做法
 
@@ -44,6 +44,8 @@
 | 依赖等待前固定模型、恢复挂起、多个工作项共用现场            | [原生执行](../test/p4-native-execution.test.js)、[角色生命周期](../test/p4-native-role-lifecycle.test.js)                                                           |
 | failed/drifted 发现无法裁定、来源覆盖、祖先结算和旧候选自检 | [候选审查](../test/p4-candidate-review.test.js)、[发现裁定](../test/p4-review-decisions.test.js)                                                                    |
 | 合入回执不完整、恢复依赖读取触发、交付 diff 随 HEAD 改变    | [Git 恢复](../test/p4-integration-recovery.test.js)、[交付记录](../test/p4-delivery-records.test.js)、[消费者](../test/p4-delivery-consumers.test.js)               |
+| 需求进度面板同 Task 重载时清空                              | [需求进度面板](../e2e/p45-requirement-panel.spec.js)、[P4.5 §1](p4.5-retrospective.md#1-审查抓到的真实缺陷)                                                         |
+| 测试假服务器在块边界切断多字节字符                          | [请求恢复](../e2e/request-recovery.spec.js)、[P4.5 §2](p4.5-retrospective.md#2-偶发失败多数是测试自身的问题)                                                        |
 | 实际前台命令等待 stdin EOF                                  | [EOF 回归](../test/foreground-command-stdin.test.js)、[P4 修复及超时语义](p4-retrospective.md#6-stdin-eof-修复保留宿主生命周期管道)                                 |
 
 ## 仍需按触发条件查阅
