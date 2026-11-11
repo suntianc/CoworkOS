@@ -376,16 +376,31 @@ html[data-theme]
   border-color: var(--color-line);
 }
 /* Controls */
-html[data-theme]
-  :is(.app-button.is-primary, .modal-card .modal-primary, .send-button, .composer .stop-button) {
+html[data-theme] :is(.app-button.is-primary, .modal-card .modal-primary, .send-button) {
   color: var(--color-on-accent);
   background: var(--color-text);
   border-color: var(--color-text);
 }
-html[data-theme] :is(.app-button.is-primary, .composer .stop-button):hover:not(:disabled) {
+html[data-theme] :is(.app-button.is-primary, .send-button):hover:not(:disabled) {
   color: var(--color-on-accent);
   background: color-mix(in srgb, var(--color-text), var(--color-bg) 12%);
   border-color: transparent;
+}
+/* The composer's one key (#25): an up arrow on the primary fill to send; while
+   a run goes on and nothing is typed, a quiet stop key, a square on a faint
+   fill, since stopping is not the action the composer invites. */
+html[data-theme] .composer .send-button .ui-icon {
+  width: var(--ui-icon-size);
+  height: var(--ui-icon-size);
+  stroke-width: 2.2;
+}
+html[data-theme] .composer .stop-button {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+}
+html[data-theme] .composer .stop-button:hover:not(:disabled) {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 20%, transparent);
 }
 /* :where keeps this default at zero specificity so component focus styles,
    including the invalid-control danger ring, still win. */

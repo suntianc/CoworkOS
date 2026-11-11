@@ -23,6 +23,8 @@ const overlays = [
 const paint = (page) =>
   page.evaluate((classes) => {
     const alpha = (color) => {
+      const slash = /\/\s*([\d.]+)\)$/.exec(color);
+      if (slash) return Number.parseFloat(slash[1]);
       const match = /rgba?\(([^)]+)\)/.exec(color);
       const parts = match[1].split(",").map((part) => Number.parseFloat(part));
       return parts.length > 3 ? parts[3] : 1;
@@ -51,11 +53,20 @@ const paint = (page) =>
     const selected = { background: rowStyle.backgroundColor, shadow: rowStyle.boxShadow };
     row.remove();
     const send = getComputedStyle(document.querySelector("#send-button"));
+    const stopLook = getComputedStyle(document.querySelector("#stop-button"));
+    const stop = {
+      background: stopLook.backgroundColor,
+      alpha: alpha(stopLook.backgroundColor),
+      color: stopLook.color
+    };
+    const sendIcon = document.querySelector("#send-button use").getAttribute("href");
     const pane = (selector) => alpha(getComputedStyle(document.querySelector(selector)).backgroundColor);
     return {
       overlays: Object.fromEntries(classes.map((name) => [name, probe(name)])),
       selected,
       primary: { background: send.backgroundColor, color: send.color },
+      stop,
+      sendIcon,
       layers: { main: pane(".chat-pane"), side: pane(".agent-pane"), composer: pane(".composer") }
     };
   }, overlays);
@@ -80,6 +91,12 @@ for (const theme of ["dark", "light"])
       const [r, g, b] = result.primary.background.match(/\d+/g).map(Number);
       expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThanOrEqual(3);
       expect(result.primary.background).toBe(theme === "dark" ? "rgb(237, 237, 239)" : "rgb(24, 24, 27)");
+
+      // The composer's key (#25): an up arrow to send; stopping is a quiet
+      // square on a faint fill in the text colour, not a second primary.
+      expect(result.sendIcon).toBe("#i-arrow-up");
+      expect(result.stop.color).toBe(theme === "dark" ? "rgb(237, 237, 239)" : "rgb(24, 24, 27)");
+      expect(result.stop.alpha).toBeLessThan(0.25);
 
       // The main panel is more solid than the side panel; the composer is solid.
       expect(result.layers.main).toBeGreaterThan(result.layers.side);
