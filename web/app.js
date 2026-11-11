@@ -1088,7 +1088,7 @@ async function readDetail(taskId, { poll = false, isCurrent = () => true } = {})
       state.drawerFile = null;
       state.drawerDiff = null;
       state.artifactDrawerOpen = false;
-      requirementPanel.reset();
+      requirementPanel.reset(taskId);
     }
     if (state.detail?.task?.taskId === taskId) {
       if (state.detail.conversationVersion === detail.conversationVersion)

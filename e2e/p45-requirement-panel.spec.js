@@ -76,7 +76,31 @@ test("the requirement panel shows the recorded phase, criteria, change and attac
       seeded.push({ ...entry, ...records });
     }
 
+    // The panel must never empty its stepper once shown while the same Task's records reload.
+    await page.addInitScript(() => {
+      window.__rpEmptied = false;
+      let shown = false;
+      new MutationObserver(() => {
+        const count = document.querySelectorAll("[data-requirement-panel] .rp-step").length;
+        if (count) shown = true;
+        else if (shown) window.__rpEmptied = true;
+      }).observe(document, { childList: true, subtree: true });
+    });
     for (const entry of seeded) {
+      const detailPath = `/api/tasks/${encodeURIComponent(entry.session.taskId)}`;
+      // Hold the first detail read so the records land first, as they do under load.
+      let held = false;
+      await page.route(
+        (url) => url.pathname === detailPath,
+        async (route) => {
+          if (!held) {
+            held = true;
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
+          await route.continue();
+        }
+      );
+      const detailRead = page.waitForResponse((response) => new URL(response.url()).pathname === detailPath);
       await page.goto(`${dashboard.base}/?task=${encodeURIComponent(entry.session.taskId)}`);
       await expect(page.locator("#output-pane-toggle")).toHaveAttribute("aria-expanded", "false");
       await page.locator("#output-pane-toggle").click();
@@ -88,6 +112,10 @@ test("the requirement panel shows the recorded phase, criteria, change and attac
       expect(
         await stepper.locator(".rp-step").evaluateAll((nodes) => nodes.map((node) => node.dataset.state))
       ).toEqual(entry.steps);
+      // The first detail read of the Task must not blank the records already shown.
+      await detailRead;
+      await expect(stepper.locator(".rp-step")).toHaveCount(5);
+      expect(await page.evaluate(() => window.__rpEmptied)).toBe(false);
       expect(
         await panel.locator(".rp-check").evaluateAll((nodes) => nodes.map((node) => node.dataset.checked))
       ).toEqual(entry.checks);
