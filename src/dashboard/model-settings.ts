@@ -8,6 +8,8 @@ import { configuredSupportsImages } from "../runtime/runtime-settings.js";
 import { testModelConnection } from "../runtime/model-connection.js";
 import { publicConnections, saveConnection, selectedConnection } from "../runtime/model-connections.js";
 import { connectionProfile, parseConnectionProfile } from "../runtime/model-profile.js";
+import { availableModels as catalogModels } from "../runtime/model-catalog.js";
+import { isOfficialAddress, modelLevels } from "../runtime/model-levels.js";
 import { publicModelRoles, saveRoleModelBinding } from "../runtime/role-models.js";
 import {
   applyHostCredentials,
@@ -132,6 +134,30 @@ export function createModelSettings(
               : selected.supportsImages === true
             : value.supportsImages === true
       });
+    },
+    /**
+     * The reasoning levels a connection's model accepts and where they come
+     * from (#27), for the connection form: the provider's `/models` entry, then
+     * Pi's table for a known provider address, else the connection's choice.
+     * Reads the provider only with a key the form or the saved profile holds.
+     */
+    async levels(value: Record<string, unknown>) {
+      const selected = selectedConnection(config, value);
+      const baseUrl = typeof value.baseUrl === "string" ? value.baseUrl.trim() : selected?.baseUrl || "";
+      const model = typeof value.model === "string" ? value.model.trim() : selected?.model || "";
+      const supplied = typeof value.apiKey === "string" ? value.apiKey.trim() : "";
+      const apiKey = supplied || (credentialError() ? "" : selected?.apiKey || "");
+      const catalog =
+        baseUrl && model && apiKey ? await catalogModels({ ...config, baseUrl, model, apiKey }) : [];
+      return {
+        ...(await modelLevels({
+          baseUrl,
+          model,
+          endpoint: catalog.find((entry) => entry.id === model)?.levels,
+          manual: selected?.reasoningLevels
+        })),
+        official: await isOfficialAddress(baseUrl)
+      };
     },
     async save(value: Record<string, unknown>) {
       if (active()) throw new Error("请先停止运行中的任务，再修改模型连接");

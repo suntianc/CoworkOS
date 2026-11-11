@@ -1,14 +1,25 @@
 import { createHttpTransport, proxyEnvironment, type HttpProxyConfig } from "./http-transport.js";
+import { endpointLevels } from "./model-levels.js";
+import type { PiThinkingLevel } from "./runtime-settings.js";
+
+type CatalogInput = HttpProxyConfig & {
+  model: string;
+  baseUrl?: string;
+  apiKey?: string;
+};
+/** A model the connection offers, with the reasoning levels its `/models` entry names (#27). */
+export interface CatalogModel {
+  id: string;
+  levels?: PiThinkingLevel[];
+}
 
 /** Provider discovery is optional; a failed catalog retains the selected model. */
-export async function availableModelIds(
-  input: HttpProxyConfig & {
-    model: string;
-    baseUrl?: string;
-    apiKey?: string;
-  }
-): Promise<string[]> {
-  const fallback = [input.model];
+export async function availableModelIds(input: CatalogInput): Promise<string[]> {
+  return (await availableModels(input)).map((model) => model.id);
+}
+
+export async function availableModels(input: CatalogInput): Promise<CatalogModel[]> {
+  const fallback: CatalogModel[] = [{ id: input.model }];
   if (!input.baseUrl || !input.apiKey) return fallback;
   const transport = createHttpTransport(proxyEnvironment(input));
   try {
@@ -23,16 +34,23 @@ export async function availableModelIds(
       data?: Array<{ id?: unknown; supported_endpoint_types?: unknown }>;
     };
     if (!Array.isArray(body.data)) return fallback;
-    const ids = body.data
+    const entries = body.data
       .filter((entry) => {
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- data 来自服务商 /v1/models 响应体，元素可能是 null 或非对象
         const endpoints = entry?.supported_endpoint_types;
         return !Array.isArray(endpoints) || endpoints.length === 0 || endpoints.includes("openai");
       })
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，模型条目来自服务商响应体，id 可能缺失
-      .map((entry) => (typeof entry?.id === "string" ? entry.id.trim() : ""))
-      .filter((id) => id.length <= 160 && /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id));
-    return [...new Set([...fallback, ...ids])];
+      .map((entry): CatalogModel => {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，模型条目来自服务商响应体，id 可能缺失
+        const id = typeof entry?.id === "string" ? entry.id.trim() : "";
+        const levels = endpointLevels(entry);
+        return levels ? { id, levels } : { id };
+      })
+      .filter(({ id }) => id.length <= 160 && /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id));
+    // The selected model keeps its place first; its own entry, when listed, supplies the levels.
+    const byId = new Map<string, CatalogModel>(fallback.map((model) => [model.id, model]));
+    for (const entry of entries) if (!byId.has(entry.id) || entry.levels) byId.set(entry.id, entry);
+    return [...byId.values()];
     // eslint-disable-next-line no-restricted-syntax -- 目录发现只是可选的模型列表增强，失败时保留已选模型，请求仍按 input.model 发送
   } catch {
     return fallback;

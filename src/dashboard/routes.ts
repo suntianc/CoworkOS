@@ -9,6 +9,7 @@ import { McpSupervisor } from "../applications/mcp-supervisor.js";
 import { handleApplicationRequest } from "./application-routes.js";
 import { handleProjectExperienceRequest } from "./project-experience-routes.js";
 import type { ProjectExperienceStore } from "../runtime/project-experience-store.js";
+import type { ModelLevels } from "../runtime/model-levels.js";
 import { handleUserMemoryRequest } from "./user-memory-routes.js";
 import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { serveArtifact } from "./artifact-response.js";
@@ -111,7 +112,7 @@ export interface DashboardRoutePorts {
   publishApplicationEvent(taskId: string, event: ApplicationEvent): Promise<void>;
   publishToReferencers(resourceId: string, event: ApplicationEvent): Promise<void>;
   mcpSupervisor: McpSupervisor;
-  availableModels(): Promise<string[]>;
+  availableModels(): Promise<Array<{ id: string } & ModelLevels>>;
   chooseLocalDirectory(): Promise<string | undefined>;
   resolveWorkspacePath(value: unknown): Promise<string>;
   registerWorkspace(root: string): Promise<void>;
@@ -664,6 +665,10 @@ export function createDashboardHandler(
         else sendJson(response, 405, { error: "method not allowed" });
         return;
       }
+      if (url.pathname === "/api/model-settings/levels" && request.method === "POST") {
+        sendJson(response, 200, await ports.modelSettings.levels(await readJsonBody(request)));
+        return;
+      }
       if (url.pathname === "/api/model-settings/test" && request.method === "POST") {
         sendJson(response, 200, await ports.modelSettings.test(await readJsonBody(request)));
         return;
@@ -699,11 +704,14 @@ export function createDashboardHandler(
         // role resolution the launch uses; absent when that connection is unusable.
         const mainEffort = status.modelRoles.roles.find((entry) => entry.role === "main")?.effective
           ?.thinkingLevel;
+        const models = await availableModels();
         sendJson(response, 200, {
           current: runtimeValue("COWORK_MODEL"),
           connectionProfileId: status.activeProfileId,
           ...(mainEffort ? { reasoningEffort: mainEffort } : {}),
-          models: await availableModels(),
+          models: models.map((model) => model.id),
+          // Each model's reasoning levels and where they came from (#27).
+          levels: Object.fromEntries(models.map(({ id, levels, source }) => [id, { levels, source }])),
           configured: Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
         });
         return;

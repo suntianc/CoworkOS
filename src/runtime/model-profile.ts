@@ -20,6 +20,7 @@ import {
   type RuntimeSettingsConfig,
   type PiThinkingLevel
 } from "./runtime-settings.js";
+import { orderedLevels } from "./model-levels.js";
 
 /** Only new connections use these defaults; existing deployments retain their runtime settings. */
 export const NEW_CONNECTION_PROFILE = {
@@ -57,6 +58,8 @@ export interface ConnectionProfile {
   api: CoworkModelApi;
   thinkingFormat?: CoworkThinkingFormat;
   reasoningEffort: PiThinkingLevel;
+  /** Absent means every level; narrowed only for models nothing else describes (#27). */
+  reasoningLevels?: PiThinkingLevel[];
   supportsReasoningEffort: boolean;
   supportsPromptCacheKey: boolean;
   mainMaxTokens: number;
@@ -77,8 +80,17 @@ export function connectionProfile(
     supportsPromptCacheKey: configuredSupportsPromptCacheKey(env),
     mainMaxTokens: configuredMainMaxTokens(env),
     subagentMaxTokens: configuredSubagentMaxTokens(env),
-    contextWindow: configuredContextWindow(env)
+    contextWindow: configuredContextWindow(env),
+    ...(config.reasoningLevels ? { reasoningLevels: parseReasoningLevels(config.reasoningLevels) } : {})
   };
+}
+
+/** A connection's chosen levels: known names, at least one, kept in Pi's order. */
+export function parseReasoningLevels(value: unknown): PiThinkingLevel[] {
+  const levels = Array.isArray(value) ? orderedLevels(value) : undefined;
+  if (!levels || levels.length !== new Set(value as unknown[]).size)
+    throw new Error("支持的推理档位须至少选择一项，且只能是已知档位");
+  return levels;
 }
 
 /** Validate form input before writing a key or contacting a model service. */
@@ -99,12 +111,19 @@ export function parseConnectionProfile(
       throw new Error("输出上限须为 1–65536 的整数，并且不超过模型服务支持的上限");
     return count;
   };
+  const levelsValue = value.reasoningLevels === undefined ? fallback.reasoningLevels : value.reasoningLevels;
+  const reasoningLevels =
+    levelsValue === undefined || levelsValue === null ? undefined : parseReasoningLevels(levelsValue);
+  const reasoningEffort = normalizeReasoningEffort(value.reasoningEffort ?? fallback.reasoningEffort);
+  if (reasoningLevels && !reasoningLevels.includes(reasoningEffort))
+    throw new Error("连接默认的推理强度须是支持的档位之一");
   return {
     api: normalizeModelApi(value.api === undefined ? fallback.api : value.api),
     thinkingFormat: normalizeThinkingFormat(
       value.thinkingFormat === undefined ? fallback.thinkingFormat : value.thinkingFormat
     ),
-    reasoningEffort: normalizeReasoningEffort(value.reasoningEffort ?? fallback.reasoningEffort),
+    reasoningEffort,
+    ...(reasoningLevels ? { reasoningLevels } : {}),
     supportsReasoningEffort,
     supportsPromptCacheKey,
     mainMaxTokens: tokens("mainMaxTokens"),

@@ -32,7 +32,8 @@ import {
 } from "../runtime/runtime-settings.js";
 import { configuredWebTools } from "../runtime/web-search-config.js";
 import { visionModelConfig } from "../runtime/vision-config.js";
-import { availableModelIds } from "../runtime/model-catalog.js";
+import { availableModels as catalogModels } from "../runtime/model-catalog.js";
+import { modelLevels, type ModelLevels } from "../runtime/model-levels.js";
 import { atriaDataPaths } from "../../scripts/data-home.cjs";
 import {
   messagesWithRuntimeHistory,
@@ -504,13 +505,26 @@ export function createDashboardApplication(
     return model;
   }
 
-  async function availableModels(): Promise<string[]> {
-    return availableModelIds({
+  /** The connection's models, each with the reasoning levels it accepts (#27). */
+  async function availableModels(): Promise<Array<{ id: string } & ModelLevels>> {
+    const baseUrl = runtimeValue("COWORK_API_BASE");
+    const catalog = await catalogModels({
       ...runtimeConfig,
       model: runtimeValue("COWORK_MODEL") ?? "glm-5.3",
-      baseUrl: runtimeValue("COWORK_API_BASE"),
+      baseUrl,
       apiKey: runtimeValue("COWORK_API_KEY")
     });
+    return Promise.all(
+      catalog.map(async (entry) => ({
+        id: entry.id,
+        ...(await modelLevels({
+          baseUrl: baseUrl ?? "",
+          model: entry.id,
+          endpoint: entry.levels,
+          manual: runtimeConfig.reasoningLevels
+        }))
+      }))
+    );
   }
 
   async function appendRunEvent(

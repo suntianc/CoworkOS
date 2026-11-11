@@ -3,6 +3,7 @@ import { proxyEnvironment } from "./http-transport.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { modelConnections, type ModelConnections } from "./model-connections.js";
+import { parseReasoningLevels } from "./model-profile.js";
 import { validateRoleModelConfig, type RoleModelConfig } from "./role-models.js";
 import {
   normalizeModelApi,
@@ -86,6 +87,7 @@ export function readCoworkConfig(root = process.cwd(), env: NodeJS.ProcessEnv = 
     throw new Error("模型配置 supportsImages 必须为布尔值");
   if (config.supportsPromptCacheKey !== undefined && typeof config.supportsPromptCacheKey !== "boolean")
     throw new Error("模型配置 supportsPromptCacheKey 必须为布尔值");
+  if (config.reasoningLevels !== undefined) parseReasoningLevels(config.reasoningLevels);
   for (const field of ["baseUrl", "apiBase", "apiKey", "model"] as const) {
     if (config[field] !== undefined && (typeof config[field] !== "string" || !config[field].trim())) {
       throw new Error(`模型配置 ${field} 必须为非空字符串`);

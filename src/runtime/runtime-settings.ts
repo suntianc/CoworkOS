@@ -91,6 +91,8 @@ export interface RuntimeSettingsConfig extends HttpProxyConfig {
   api?: CoworkModelApi;
   thinkingFormat?: CoworkThinkingFormat;
   reasoningEffort?: PiThinkingLevel;
+  /** Levels chosen for a connection whose models the provider and Pi do not describe (#27). */
+  reasoningLevels?: PiThinkingLevel[];
   supportsReasoningEffort?: boolean;
   supportsImages?: boolean;
   supportsPromptCacheKey?: boolean;
