@@ -127,11 +127,16 @@ export function createRequirementPanel({
   }
 
   function ensure(taskId) {
-    if (loaded?.taskId !== taskId || loaded.projectId !== selectedProjectId()) {
+    if (loaded?.taskId !== taskId) {
       loaded = null;
       bodySignature = undefined;
       usageSignature = undefined;
       start(taskId);
+      return;
+    }
+    // Same Task, project now known or changed: reload, keeping the last records on screen.
+    if (loaded.projectId !== selectedProjectId()) {
+      if (!loading) start(taskId);
       return;
     }
     if (loading || Date.now() - loaded.at < REFRESH_MS) return;
@@ -151,7 +156,9 @@ export function createRequirementPanel({
     })();
   }
 
-  function reset() {
+  /** Forget the records; `keepTaskId` keeps them when the reset is for the Task already shown. */
+  function reset(keepTaskId) {
+    if (keepTaskId && loaded?.taskId === keepTaskId) return;
     epoch += 1;
     loading = null;
     loaded = null;
