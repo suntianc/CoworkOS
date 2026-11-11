@@ -6,6 +6,8 @@ process.env.FORMICAND_DESKTOP_BACKGROUND ??= "1";
 
 export default defineConfig({
   testDir: "./e2e",
+  // Each run owns its temporary directories and fails on a backend left running (#35).
+  globalSetup: "./test/playwright-run.mjs",
   fullyParallel: true,
   workers: 2,
   timeout: 45_000,

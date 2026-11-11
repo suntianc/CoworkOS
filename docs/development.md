@@ -140,6 +140,8 @@ npm run verify
 
 浏览器可先 `npm run build`，再用 `npx playwright test e2e/automation-workspace.spec.js --output=.tmp/playwright-workbench` 运行对应文件。并行的 Playwright 进程须使用不同 `--output`，避免清理对方产物。无需模型的测试不应读取个人连接配置。
 
+`test:unit` 与 Playwright 每次运行都在系统临时目录下建一个本次专属的根目录（`formicand-run-*`），并把 `TMPDIR` 指向它，测试里的 `mkdtemp(tmpdir())` 都落在其中（[`scripts/test-run-root.mjs`](../scripts/test-run-root.mjs)）。运行结束时，仍以该目录为数据根存活的后端会被停掉并判本次运行失败；上一次运行被强行结束留下的根目录，在下一次运行开始时清理。启动 App 的用例须在收尾调用 `stopNativeBackend(<桌面数据根>)`（[`test/native-backend-fixture.mjs`](../test/native-backend-fixture.mjs)）：后端按设计在窗口关闭后继续运行，数据根是 `COWORK_DESKTOP_DATA`，未设置时才是 `ATRIA_HOME`。
+
 ## 应用 UI 约定
 
 用布局区分层级，减少重复的次级标签和说明。

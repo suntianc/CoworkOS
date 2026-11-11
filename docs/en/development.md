@@ -140,6 +140,8 @@ Ordinary Node regression defers explicit native desktop/CUA entrypoints and prin
 
 For a focused browser run, build first, then `npx playwright test e2e/automation-workspace.spec.js --output=.tmp/playwright-workbench`. Concurrent Playwright processes need distinct `--output` directories. Keyless tests must not read personal connections.
 
+Each `test:unit` and Playwright run creates its own root under the system temporary directory (`formicand-run-*`) and points `TMPDIR` at it, so a test's `mkdtemp(tmpdir())` lands inside ([`scripts/test-run-root.mjs`](../../scripts/test-run-root.mjs)). When the run ends, any backend still alive with its data root there is stopped and the run fails; roots left by a run that was killed outright are swept when the next run starts. A test that launches the app stops its backend at teardown with `stopNativeBackend(<desktop data root>)` ([`test/native-backend-fixture.mjs`](../../test/native-backend-fixture.mjs)): the backend outlives the window by design, and its data root is `COWORK_DESKTOP_DATA`, or `ATRIA_HOME` when that is unset.
+
 ## UI conventions
 
 Use layout to distinguish hierarchy, and remove secondary labels or descriptions that repeat it.

@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from "@playwright/test";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 import { createRequire } from "node:module";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -90,6 +91,9 @@ test("desktop response links leave through the system browser and local viewers 
     expect(errors).toEqual([]);
   } finally {
     await native?.close();
+    // The backend outlives the window by design; stop this test's own (#35), found
+    // under the desktop data root (COWORK_DESKTOP_DATA), not ATRIA_HOME.
+    await stopNativeBackend(join(root, "profile"));
     await provider.close();
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
