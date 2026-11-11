@@ -18,7 +18,7 @@ async function fixture(t, api, handle) {
       return response.end(JSON.stringify({ data: [{ id: "edit-fixture" }] }));
     }
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     requests.push({ path: request.url, raw, body: JSON.parse(raw) });
     const reply = await handle(requests);
     if (reply.reject) {

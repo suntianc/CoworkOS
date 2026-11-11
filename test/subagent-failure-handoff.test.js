@@ -23,7 +23,7 @@ async function fixture(t, respond) {
   let running;
   const server = createServer(async (request, response) => {
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     const body = JSON.parse(raw);
     requests.push(body);
     const reply = await respond(requests.length, body);

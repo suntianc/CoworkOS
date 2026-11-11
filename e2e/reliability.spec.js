@@ -121,7 +121,7 @@ test("real Pi receives a complete attachment and steering; stop aborts inference
       return;
     }
     let body = "";
-    for await (const chunk of req) body += chunk;
+    for await (const chunk of req.setEncoding("utf8")) body += chunk;
     requests.push(JSON.parse(body));
     res.writeHead(200, { "content-type": "text/event-stream" });
     const send = (delta, finish_reason = null) =>

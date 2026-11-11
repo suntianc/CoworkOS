@@ -16,7 +16,7 @@ test(
       requests = 0;
     const server = createServer(async (req, res) => {
       let raw = "";
-      for await (const chunk of req) raw += chunk;
+      for await (const chunk of req.setEncoding("utf8")) raw += chunk;
       const request = JSON.parse(raw);
       const step = ++requests;
       res.writeHead(200, { "content-type": "text/event-stream" });

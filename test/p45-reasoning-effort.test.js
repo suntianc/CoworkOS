@@ -26,7 +26,7 @@ async function provider(t) {
       return;
     }
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     const body = JSON.parse(raw);
     const tools = (body.tools ?? []).map((tool) => tool.function?.name ?? tool.name);
     const main = tools.includes("call_subagent");

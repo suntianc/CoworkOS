@@ -19,7 +19,7 @@ async function fixture(t, handle, { sse = false } = {}) {
   const requests = [];
   const server = createServer(async (req, res) => {
     let raw = "";
-    for await (const chunk of req) raw += chunk;
+    for await (const chunk of req.setEncoding("utf8")) raw += chunk;
     const body = raw ? JSON.parse(raw) : {};
     requests.push({ body, headers: req.headers, method: req.method, url: req.url });
     if (req.method === "DELETE") {

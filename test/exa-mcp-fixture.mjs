@@ -6,7 +6,7 @@ export async function exaMcpFixture() {
   const calls = [];
   const server = createServer(async (req, res) => {
     let raw = "";
-    for await (const chunk of req) raw += chunk;
+    for await (const chunk of req.setEncoding("utf8")) raw += chunk;
     const body = raw ? JSON.parse(raw) : {};
     if (req.method === "GET") {
       res.writeHead(405);

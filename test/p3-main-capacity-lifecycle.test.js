@@ -745,7 +745,7 @@ async function accountProvider(t, label, api = "openai-completions") {
     try {
       if (request.method === "GET") return response.end(JSON.stringify({ data: [{ id: label }] }));
       let raw = "";
-      for await (const chunk of request) raw += chunk;
+      for await (const chunk of request.setEncoding("utf8")) raw += chunk;
       const body = JSON.parse(raw);
       const text = (body.messages ?? body.input ?? [])
         .filter((message) => message.role === "user")

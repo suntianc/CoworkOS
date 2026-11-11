@@ -625,7 +625,7 @@ async function modelFixture(f) {
   const requests = [];
   const server = createServer(async (request, response) => {
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     requests.push(JSON.parse(raw));
     response.writeHead(200, { "content-type": "text/event-stream" });
     response.end(protocolStream("openai-completions", { text: "CoworkOS fixture result." }));

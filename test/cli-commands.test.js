@@ -270,7 +270,7 @@ test(
     const requests = [];
     const server = createServer(async (request, response) => {
       let raw = "";
-      for await (const chunk of request) raw += chunk;
+      for await (const chunk of request.setEncoding("utf8")) raw += chunk;
       requests.push(JSON.parse(raw));
       if (!healthy) {
         response.writeHead(401, { "content-type": "application/json" });

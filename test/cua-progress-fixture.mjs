@@ -16,7 +16,7 @@ export async function cuaProgressFixture(directory, operation) {
       requests.push({ method: request.method, path: url.pathname });
       if (request.method === "POST" && url.pathname === "/submit") {
         let body = "";
-        for await (const chunk of request) body += chunk;
+        for await (const chunk of request.setEncoding("utf8")) body += chunk;
         if (JSON.parse(body).operation !== operation) throw new Error("Wrong submission operation");
         const receipts = JSON.parse(await readFile(ledgerPath, "utf8"));
         receipts.push({ operation, receiptId: `receipt-${receipts.length + 1}`, saved: true });

@@ -21,7 +21,7 @@ for (const path of ["/api/paas/v4", "/api/coding/paas/v4"]) {
       const requests = [];
       const server = createServer(async (req, res) => {
         let raw = "";
-        for await (const chunk of req) raw += chunk;
+        for await (const chunk of req.setEncoding("utf8")) raw += chunk;
         const body = JSON.parse(raw);
         requests.push({ path: req.url, body });
         if (req.method !== "POST" || req.url !== `${path}/chat/completions` || !body.stream) {
