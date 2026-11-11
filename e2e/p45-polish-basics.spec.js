@@ -176,3 +176,34 @@ for (const theme of ["dark", "light"]) {
     }
   });
 }
+
+test("the main panel edge resizes the sidebar without a dividing line, and margins match settings", async ({
+  page
+}) => {
+  const dashboard = await startDashboard();
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(dashboard.base);
+    const main = await page.locator("#work-entry").boundingBox();
+    expect(Math.round(1440 - (main.x + main.width))).toBe(10);
+    const divider = page.locator("#sidebar-divider");
+    expect(await divider.evaluate((node) => getComputedStyle(node, "::after").opacity)).toBe("0");
+    const handle = await divider.boundingBox();
+    expect(handle.x + handle.width).toBeGreaterThan(main.x);
+    expect(handle.x).toBeLessThan(main.x);
+
+    const before = (await page.locator("#conversation-sidebar").boundingBox()).width;
+    await page.mouse.move(main.x + 1, main.y + 300);
+    await page.mouse.down();
+    await page.mouse.move(main.x + 61, main.y + 300, { steps: 6 });
+    await page.mouse.up();
+    const after = (await page.locator("#conversation-sidebar").boundingBox()).width;
+    expect(Math.round(after - before)).toBe(60);
+
+    await page.getByRole("button", { name: "设置", exact: true }).first().click();
+    const settings = await page.locator(".settings-content").boundingBox();
+    expect(Math.round(1440 - (settings.x + settings.width))).toBe(10);
+  } finally {
+    await dashboard.stop();
+  }
+});

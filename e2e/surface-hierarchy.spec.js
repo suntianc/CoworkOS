@@ -159,7 +159,11 @@ for (const theme of ["light", "dark"]) {
 
 async function expectRestingDivider(divider) {
   await expect(divider).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect.poll(() => divider.evaluate((node) => getComputedStyle(node, "::after").opacity)).toBe("1");
+  // The sidebar meets the main panel without a rule at rest; the split keeps its line.
+  const resting = (await divider.evaluate((node) => node.id)) === "sidebar-divider" ? "0" : "1";
+  await expect
+    .poll(() => divider.evaluate((node) => getComputedStyle(node, "::after").opacity))
+    .toBe(resting);
   expect(await divider.evaluate((node) => getComputedStyle(node, "::after").width)).toBe("1px");
   expect((await divider.boundingBox()).width).toBeGreaterThanOrEqual(6);
 }

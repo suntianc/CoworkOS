@@ -588,6 +588,9 @@ html[data-theme] .app-layout {
 html[data-theme] body.output-collapsed .app-layout,
 html[data-theme] .app-layout[data-entry="observe"] {
   grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) 0;
+  /* The empty panel track still owns a column gap; drop the padding so the
+     main panel keeps the same 10 px edge as the settings page. */
+  padding-right: 0;
 }
 html[data-theme] .app-layout[data-entry="observe"] .agent-pane {
   display: none;
@@ -1037,6 +1040,7 @@ html[data-theme] .observe-header {
   html[data-theme] body.output-collapsed .app-layout,
   html[data-theme] .app-layout[data-entry="observe"] {
     grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
+    padding-right: 10px;
   }
   /* The panel leaves the grid and floats over the conversation, so opening it
      never squeezes the reading column. */

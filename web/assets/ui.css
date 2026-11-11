@@ -3041,6 +3041,14 @@ body {
 .sidebar-collapsed .sidebar-divider {
   display: none;
 }
+/* At rest the sidebar and the main panel meet without a rule; the pointer
+   cursor marks the panel edge, and keyboard focus or a drag shows the line. */
+.sidebar-divider::after {
+  opacity: 0;
+}
+.sidebar-divider:is(:focus-visible, .is-dragging)::after {
+  opacity: 1;
+}
 @media (max-width: 900px) {
   .sidebar-divider {
     display: none;

@@ -4,7 +4,8 @@ import { ui } from "./ui/language.js";
 export function createSidebarLayout(layout, sidebar, divider, { outputPane, outputToggle } = {}) {
   const storageKey = "atria.sidebar-share";
   let share,
-    dragging = false;
+    dragging = false,
+    grabOffset = 0;
   try {
     const stored = Number(localStorage.getItem(storageKey));
     if (stored > 0 && stored < 1) share = stored;
@@ -21,7 +22,11 @@ export function createSidebarLayout(layout, sidebar, divider, { outputPane, outp
   const measure = () => {
     const pane = currentSidebar();
     const rect = pane.getBoundingClientRect();
-    divider.style.left = `${rect.right - layout.getBoundingClientRect().left - 3}px`;
+    // The handle covers the gap and the main panel's left edge, so the panel
+    // edge is what the pointer grabs; no line is drawn between the two.
+    const gap = parseFloat(getComputedStyle(layout).columnGap) || 0;
+    divider.style.left = `${rect.right - layout.getBoundingClientRect().left}px`;
+    divider.style.width = `${gap + 4}px`;
     const { min, max } = limits();
     divider.setAttribute("aria-valuemin", String(min));
     divider.setAttribute("aria-valuemax", String(max));
@@ -60,13 +65,15 @@ export function createSidebarLayout(layout, sidebar, divider, { outputPane, outp
   divider.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     dragging = true;
+    // The handle is wider than the seam; keep the grabbed point under the pointer.
+    grabOffset = event.clientX - currentSidebar().getBoundingClientRect().right;
     divider.classList.add("is-dragging");
     divider.setPointerCapture(event.pointerId);
     document.body.classList.add("workspace-resizing");
     event.preventDefault();
   });
   divider.addEventListener("pointermove", (event) => {
-    if (dragging) setWidth(event.clientX - layout.getBoundingClientRect().left);
+    if (dragging) setWidth(event.clientX - grabOffset - layout.getBoundingClientRect().left);
   });
   const finish = () => {
     divider.classList.remove("is-dragging");
