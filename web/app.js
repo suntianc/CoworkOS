@@ -85,6 +85,7 @@ const state = {
   previewPath: null,
   drawerTab: null,
   drawerFile: null,
+  drawerLine: null,
   drawerDiff: null,
   drawerTrigger: null,
   artifactDrawerOpen: false,
@@ -414,7 +415,9 @@ const {
   openResourceInEditor,
   closeArtifactDrawer,
   renderArtifactDrawer,
-  openPreview
+  openPreview,
+  fileTarget,
+  openFileReference
 } = artifacts;
 requirementPanel = createRequirementPanel({
   state,
@@ -443,9 +446,15 @@ const conversationView = createConversationView({
   messageEdit,
   edit: (taskId, target) => messageEdit.begin(taskId, target),
   fork: (taskId, messageId) => forkConversation(taskId, messageId),
+  resolveFile: (path) => Boolean(fileTarget(path)),
   showToast: (message) => showToast(message)
 });
-installCodeBlockActions(document, { showToast: (message) => showToast(message) });
+installCodeBlockActions(document, {
+  showToast: (message) => showToast(message),
+  openFile: (path, line) => {
+    if (!openFileReference(path, line)) showToast(ui("这个文件不在本会话的产出或改动里，无法预览"));
+  }
+});
 runControl = createRunControl({
   state,
   $,

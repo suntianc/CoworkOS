@@ -66,6 +66,7 @@
     "jszip": "^3.10.2",
     "katex": "0.19.0",
     "linkedom": "^0.18.13",
+    "mermaid": "12.2.0",
     "prettier": "^3.9.9",
     "typescript": "^5.7.2",
     "typescript-eslint": "8.70.1"

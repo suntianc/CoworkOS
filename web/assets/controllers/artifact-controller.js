@@ -105,6 +105,43 @@ export function createArtifactController({
     renderRightPanel();
   }
 
+  /** A file a reply names: one of this conversation's artifacts, or a file of its change. */
+  function fileTarget(path) {
+    const clean = String(path).replace(/^\.\//, "");
+    const matches = (candidate) =>
+      typeof candidate === "string" &&
+      (candidate === clean || candidate.endsWith(`/${clean}`) || clean.endsWith(`/${candidate}`));
+    const artifact = (state.detail?.artifacts || []).find(
+      (entry) => entry.taskId === state.selected && matches(entry.relativePath)
+    );
+    if (artifact) return { kind: "attachment", path: artifact.relativePath };
+    const changed = changedFiles().find((file) => matches(file.path));
+    if (changed) return { kind: "file", path: changed.path };
+  }
+
+  /** Opens the preview a file chip points at, at its line once the text is there. */
+  function openFileReference(path, line) {
+    const target = fileTarget(path);
+    if (!target) return false;
+    state.drawerLine = line ? { path: target.path, line } : null;
+    if (target.kind === "attachment") openArtifact(target.path);
+    else openPreview({ tab: "file", path: target.path });
+    revealLine();
+    return true;
+  }
+
+  function revealLine() {
+    const wanted = state.drawerLine;
+    if (!wanted) return;
+    const node = $("#artifact-drawer")?.querySelectorAll(".drawer-file-line, .code-line")[wanted.line - 1];
+    if (!node) return;
+    state.drawerLine = null;
+    for (const previous of node.parentElement.querySelectorAll(".is-target"))
+      previous.classList.remove("is-target");
+    node.classList.add("is-target");
+    node.scrollIntoView({ block: "center" });
+  }
+
   /** Closing the preview returns the reader to the control that opened it. */
   function rememberDrawerTrigger() {
     // Switching tabs inside an open drawer keeps the original trigger.
@@ -555,6 +592,7 @@ export function createArtifactController({
       cached?.previewKind === "pdf" ? "is-pdf" : ""
     }">${previewNote}${content}</div></div>`;
     drawer.querySelector(".drawer-content").scrollTop = scrollTop;
+    revealLine();
     for (const node of drawer.querySelectorAll("[data-drawer-tab]"))
       node.addEventListener("click", () => {
         const id = node.dataset.drawerTab;
@@ -632,6 +670,8 @@ export function createArtifactController({
   }
 
   return {
+    fileTarget,
+    openFileReference,
     fileBaseName,
     artifactSource,
     openArtifact,

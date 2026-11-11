@@ -32,6 +32,7 @@ export default [
       "web/assets/cad/generated/**",
       "web/assets/pptist/generated/**",
       "web/assets/math/generated/**",
+      "web/assets/mermaid/generated/**",
       "web/assets/markdown/generated/**",
       "release/**",
       ".tmp/**",

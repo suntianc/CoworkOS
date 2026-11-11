@@ -132,3 +132,526 @@
     transition: none;
   }
 }
+
+/* Rich blocks in replies (#18). Shared head: .code-block-head. */
+.markdown-body :is(.table-block, .diff-block, .terminal-block, .diagram-block) {
+  margin: 12px 0;
+}
+.code-block-action.is-icon {
+  width: 24px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* Tables */
+.markdown-body .table-block {
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: 9px;
+}
+.markdown-body .table-block .code-block-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.markdown-body .table-block .code-block-language {
+  flex: 1;
+  font-family: inherit;
+}
+.markdown-body .table-block .code-block-head > .code-block-action {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.markdown-body .table-block:is(:hover, :focus-within) .code-block-head > .code-block-action {
+  opacity: 1;
+}
+@media (hover: none) {
+  .markdown-body .table-block .code-block-head > .code-block-action {
+    opacity: 1;
+  }
+}
+.markdown-body .table-scroll {
+  overflow-x: auto;
+}
+.markdown-body .table-block table {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+/* Terminal output */
+.terminal-block .code-block-head > .ui-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+}
+.terminal-exit {
+  margin-right: 6px;
+  color: var(--ui-success);
+  font-size: 11px;
+}
+.terminal-exit.is-failed {
+  color: var(--ui-danger);
+}
+.markdown-body .terminal-output code {
+  display: block;
+}
+.terminal-line {
+  display: block;
+  min-height: 1.5em;
+}
+.terminal-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  border: 0;
+  border-top: 1px solid var(--ui-border);
+  color: var(--ui-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.terminal-more:hover {
+  color: var(--ui-text);
+}
+.terminal-more[aria-expanded="true"] .ui-icon {
+  transform: rotate(180deg);
+}
+.terminal-more .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+.ansi-bold {
+  font-weight: 600;
+}
+.ansi-dim {
+  opacity: 0.7;
+}
+.ansi-black,
+.ansi-bright-black {
+  color: var(--ui-muted);
+}
+.ansi-red,
+.ansi-bright-red {
+  color: var(--ui-danger);
+}
+.ansi-green,
+.ansi-bright-green {
+  color: var(--ui-success);
+}
+.ansi-yellow,
+.ansi-bright-yellow {
+  color: var(--ui-warning);
+}
+.ansi-blue,
+.ansi-bright-blue {
+  color: #5b8def;
+}
+.ansi-magenta,
+.ansi-bright-magenta {
+  color: #b77be0;
+}
+.ansi-cyan,
+.ansi-bright-cyan {
+  color: #3fb4c4;
+}
+
+/* Diffs */
+.diff-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0 4px 0 -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--ui-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.diff-collapse .ui-icon {
+  width: 14px;
+  height: 14px;
+  transition: transform 120ms ease;
+}
+.diff-block.is-collapsed .diff-collapse .ui-icon {
+  transform: rotate(-90deg);
+}
+.diff-block.is-collapsed .diff-body {
+  display: none;
+}
+.diff-block.is-collapsed .code-block-head {
+  border-bottom: 0;
+}
+.diff-block .code-block-head > .ui-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  color: var(--ui-accent);
+}
+.diff-block .diff-path {
+  flex: 0 1 auto;
+  color: var(--ui-text);
+}
+.diff-count {
+  margin-left: 6px;
+  font-family: var(--ui-mono);
+  font-size: 11px;
+}
+.diff-count.is-add {
+  color: var(--ui-success);
+}
+.diff-count.is-remove {
+  margin-right: auto;
+  color: var(--ui-danger);
+}
+.diff-views {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--ui-panel);
+}
+.diff-views .code-block-action[aria-pressed="true"] {
+  color: var(--ui-text);
+  background: var(--ui-raised);
+}
+.markdown-body .diff-body pre {
+  padding: 8px 0;
+}
+.markdown-body .diff-inline code {
+  display: block;
+  min-width: max-content;
+}
+.diff-row,
+.diff-pair {
+  display: grid;
+  grid-template-columns: 3.2em 3.2em 1.4em minmax(0, 1fr);
+  min-height: 1.6em;
+  line-height: 1.6;
+}
+.diff-row.is-hunk,
+.diff-row.is-note {
+  display: block;
+  padding: 0 14px;
+  color: var(--ui-muted);
+}
+.diff-number {
+  padding-right: 8px;
+  color: var(--ui-muted);
+  text-align: right;
+  user-select: none;
+  opacity: 0.7;
+}
+.diff-sign {
+  color: var(--ui-muted);
+  user-select: none;
+}
+.diff-text {
+  padding-right: 14px;
+  white-space: pre;
+}
+.diff-row.is-add,
+.diff-cell.is-add {
+  background: color-mix(in srgb, var(--ui-success) 14%, transparent);
+}
+.diff-row.is-remove,
+.diff-cell.is-remove {
+  background: color-mix(in srgb, var(--ui-danger) 14%, transparent);
+}
+.diff-row.is-add .diff-sign {
+  color: var(--ui-success);
+}
+.diff-row.is-remove .diff-sign {
+  color: var(--ui-danger);
+}
+.diff-split {
+  overflow-x: auto;
+  padding: 8px 0;
+  font-family: var(--ui-mono);
+  font-size: 12.5px;
+}
+.diff-split .diff-pair {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.diff-split .diff-pair.is-hunk,
+.diff-split .diff-pair.is-note {
+  grid-template-columns: minmax(0, 1fr);
+}
+.diff-cell {
+  display: grid;
+  grid-template-columns: 3.2em minmax(0, 1fr);
+  min-width: 0;
+  overflow: hidden;
+}
+.diff-cell + .diff-cell {
+  border-left: 1px solid var(--ui-border);
+}
+.diff-cell.is-hunk,
+.diff-cell.is-note {
+  display: block;
+  padding: 0 14px;
+  color: var(--ui-muted);
+}
+.diff-cell .diff-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Diagrams */
+.diagram-canvas {
+  display: flex;
+  justify-content: center;
+  min-height: 64px;
+  padding: 16px;
+  overflow-x: auto;
+}
+.diagram-canvas:not([data-drawn]),
+.diagram-canvas[data-drawn="pending"] {
+  min-height: 96px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--ui-text) 4%, transparent),
+    transparent
+  );
+}
+.diagram-canvas svg {
+  max-width: 100%;
+  height: auto;
+}
+.markdown-body .diagram-source {
+  display: none;
+  border-top: 1px solid var(--ui-border);
+}
+.diagram-block:is(.shows-source, .is-failed) .diagram-source {
+  display: block;
+}
+.diagram-block.shows-source .diagram-canvas {
+  display: none;
+}
+.diagram-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--ui-warning);
+  font-size: 12px;
+}
+.diagram-error .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Zoom */
+.block-zoom {
+  width: min(1200px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  color: var(--ui-text);
+  background: var(--ui-raised);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.35);
+}
+.block-zoom::backdrop {
+  background: rgb(0 0 0 / 0.5);
+}
+.block-zoom-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.block-zoom-body {
+  max-height: calc(100vh - 96px);
+  padding: 16px;
+  overflow: auto;
+}
+.block-zoom-body table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.block-zoom-body :is(th, td) {
+  padding: 8px 12px;
+  border: 1px solid var(--ui-border);
+  text-align: left;
+}
+.block-zoom-body svg {
+  max-width: none;
+  height: auto;
+}
+
+/* File references */
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 22px;
+  margin: 0 1px;
+  padding: 0 7px;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  color: var(--ui-text);
+  background: var(--ui-raised);
+  font-family: var(--ui-mono);
+  font-size: 0.86em;
+  line-height: 1;
+  vertical-align: 0.05em;
+}
+button.file-chip {
+  cursor: pointer;
+}
+button.file-chip:hover {
+  border-color: var(--ui-border-hover);
+}
+button.file-chip:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+.file-chip .ui-icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--ui-accent);
+}
+.file-chip-braces {
+  color: var(--ui-warning);
+  font-size: 11px;
+}
+.file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-chip-line {
+  color: var(--ui-muted);
+}
+:is(.drawer-file-line, .code-line).is-target {
+  background: color-mix(in srgb, var(--ui-accent) 18%, transparent);
+}
+
+/* Task lists */
+.markdown-body ul.task-list {
+  padding-left: 0;
+  list-style: none;
+}
+.markdown-body .task-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.markdown-body .task-item input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--ui-accent);
+  transform: translateY(2px);
+}
+.markdown-body .task-item.is-done > span {
+  color: var(--ui-secondary);
+}
+
+/* Callouts */
+.markdown-body .callout {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--callout-tone) 35%, var(--ui-border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--callout-tone) 9%, transparent);
+}
+.markdown-body .callout.is-info {
+  --callout-tone: var(--ui-accent);
+}
+.markdown-body .callout.is-warning {
+  --callout-tone: var(--ui-warning);
+}
+.markdown-body .callout-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--callout-tone);
+  font-weight: 600;
+}
+.markdown-body .callout-title .ui-icon {
+  width: 15px;
+  height: 15px;
+}
+.markdown-body .callout-body > :last-child {
+  margin-bottom: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .diff-collapse .ui-icon,
+  .markdown-body .table-block .code-block-head > .code-block-action {
+    transition: none;
+  }
+}
+.markdown-body .table-block :is(th, td),
+.chat-pane .markdown-body .table-block :is(th, td) {
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-text);
+  background: transparent;
+}
+.markdown-body .table-block th,
+.chat-pane .markdown-body .table-block th {
+  color: var(--ui-secondary);
+  background: color-mix(in srgb, var(--ui-text) 4%, transparent);
+  font-weight: 500;
+}
+.markdown-body .table-block tbody tr:last-child td {
+  border-bottom: 0;
+}
+/* The block scrolls; the table inside fills it. */
+.chat-pane .markdown-body .table-block table,
+.markdown-body .table-block table {
+  display: table;
+  width: 100%;
+  max-width: none;
+  overflow: visible;
+}
+.markdown-body .callout-title {
+  margin-bottom: 2px;
+}
+.markdown-body .callout-body > * {
+  margin-top: 0;
+  margin-bottom: 6px;
+}
+.diagram-canvas svg :is(.node rect, .node polygon, .node circle) {
+  rx: 6px;
+  ry: 6px;
+  stroke-width: 1px;
+}
+.diagram-canvas svg .node {
+  filter: none;
+}
+.chat-pane .markdown-body .callout-title {
+  margin: 0 0 2px;
+}
+.chat-pane .markdown-body .callout-body > * {
+  margin-top: 0;
+  margin-bottom: 6px;
+}
+.chat-pane .markdown-body .callout-body > :last-child {
+  margin-bottom: 0;
+}

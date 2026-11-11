@@ -35,6 +35,10 @@ function patchNode(node, source) {
     if (node.nodeValue !== source.nodeValue) node.nodeValue = source.nodeValue;
     return;
   }
+  // A rich block whose source is unchanged keeps what the reader did with it
+  // (wrap, view, expanded rows) and what the page drew into it (a diagram).
+  const owned = node.getAttribute("data-ui-owned");
+  if (owned && owned === source.getAttribute("data-ui-owned")) return;
   const keepOpen = node.nodeName === "DETAILS" && node.hasAttribute("data-activity-key");
   for (const attribute of [...node.attributes]) {
     if (keepOpen && attribute.name === "open") continue;

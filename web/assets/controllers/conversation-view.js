@@ -188,11 +188,13 @@ export function createConversationView({
   openSettings,
   openArtifact,
   fork,
+  resolveFile,
   showToast = () => {}
 }) {
   const markdown = (source, options = {}) =>
     renderMarkdown(source, {
       resolveLocalLink: (path) => resolveArtifactLink(state.detail, path),
+      resolveFile,
       ...options
     });
   const visibleText = (content) =>

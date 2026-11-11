@@ -17,6 +17,20 @@ export async function buildMath() {
     await copyFile(new URL(from, source), new URL(to, target));
   await cp(new URL("dist/fonts/", source), new URL("fonts/", target), { recursive: true });
   console.log(`Math assets prepared: ${fileURLToPath(target)}`);
+  await buildMermaid();
+}
+
+/** Mermaid ships as one script the page loads only when a diagram appears. */
+export async function buildMermaid() {
+  const source = new URL("../node_modules/mermaid/", import.meta.url);
+  const target = new URL("../web/assets/mermaid/generated/", import.meta.url);
+  await mkdir(target, { recursive: true });
+  for (const [from, to] of [
+    ["dist/mermaid.min.js", "mermaid.min.js"],
+    ["LICENSE", "LICENSE.txt"]
+  ])
+    await copyFile(new URL(from, source), new URL(to, target));
+  console.log(`Diagram assets prepared: ${fileURLToPath(target)}`);
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) await buildMath();

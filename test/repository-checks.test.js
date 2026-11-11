@@ -214,6 +214,8 @@ test("quick verify prepares real web assets from a clean checkout", async () => 
       "web/assets/math/generated/katex.min.css",
       "web/assets/math/generated/LICENSE.txt",
       "web/assets/math/generated/fonts/KaTeX_Main-Regular.woff2",
+      "web/assets/mermaid/generated/mermaid.min.js",
+      "web/assets/mermaid/generated/LICENSE.txt",
       "web/assets/markdown/generated/dependencies.js"
     ])
       assert.ok((await readFile(join(root, path))).length > 0, path);

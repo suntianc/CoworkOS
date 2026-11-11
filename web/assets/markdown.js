@@ -1,17 +1,20 @@
 import { escapeHtml as esc } from "./workbench/html.js";
 import { protectMath } from "./math.js";
-import { icon } from "./ui/icons.js";
 import { ui } from "./ui/language.js";
+import {
+  callout,
+  fencedBlock,
+  fileChip,
+  fileReference,
+  linkedFileReference,
+  tableBlock
+} from "./rich-blocks.js";
 
 /**
- * A fenced block with its language and two actions. The actions are plain
- * buttons; one delegated listener (ui/code-blocks.js) gives them behaviour, so
- * the markup stays a pure function of the source.
+ * Options: `resolveLocalLink(path)` maps an absolute link to a registered
+ * artifact; `resolveFile(path)` says whether a file reference can open a
+ * preview, which makes its chip a button.
  */
-function codeBlock(language, code) {
-  return `<figure class="code-block"><figcaption class="code-block-head"><span class="code-block-language">${esc(language || "text")}</span><button type="button" class="code-block-action" data-code-wrap aria-pressed="false" title="${ui("自动换行")}">${icon("wrap-text")}<span>${ui("换行")}</span></button><button type="button" class="code-block-action" data-code-copy title="${ui("复制代码")}">${icon("copy")}<span data-code-copy-label>${ui("复制")}</span></button></figcaption><pre><code class="language-${esc(language)}">${esc(code)}</code></pre></figure>`;
-}
-
 export function renderMarkdown(source, options = {}) {
   // Input cannot forge the internal fragment sentinels.
   const math = protectMath(
@@ -19,13 +22,37 @@ export function renderMarkdown(source, options = {}) {
       .replaceAll("\u0000", "")
       .replace(/\r\n?/g, "\n")
   );
-  const lines = math.source.split("\n");
+  // Restore only after Markdown parsing so generated markup is never reinterpreted.
+  // eslint-disable-next-line no-control-regex
+  const mathToken = /\u0000math(\d+)\u0000/g;
+  return renderBlocks(math.source, options).replace(
+    mathToken,
+    (_match, index) => math.fragments[Number(index)] || ""
+  );
+}
+
+const TASK_ITEM = /^\[([ xX])\]\s+(.*)$/;
+
+function listMarkup(type, items, options) {
+  const tasks = items.map((item) => TASK_ITEM.exec(item));
+  const isTaskList = tasks.every(Boolean);
+  const entries = items.map((item, index) => {
+    const task = tasks[index];
+    if (!task) return `<li>${inlineMarkdown(item, options)}</li>`;
+    const done = task[1] !== " ";
+    return `<li class="task-item${done ? " is-done" : ""}"><input type="checkbox" disabled${done ? " checked" : ""} aria-label="${done ? ui("已完成") : ui("未完成")}" /><span>${inlineMarkdown(task[2], options)}</span></li>`;
+  });
+  return `<${type}${isTaskList ? ' class="task-list"' : ""}>${entries.join("")}</${type}>`;
+}
+
+function renderBlocks(source, options) {
+  const lines = source.split("\n");
   const output = [];
   let paragraph = [];
   let listType = null;
   let listItems = [];
   let codeLines = null;
-  let codeLanguage = "";
+  let codeInfo = "";
   let codeFence = "";
   const flushParagraph = () => {
     if (paragraph.length) {
@@ -35,9 +62,7 @@ export function renderMarkdown(source, options = {}) {
   };
   const flushList = () => {
     if (!listType) return;
-    output.push(
-      `<${listType}>${listItems.map((item) => `<li>${inlineMarkdown(item, options)}</li>`).join("")}</${listType}>`
-    );
+    output.push(listMarkup(listType, listItems, options));
     listType = null;
     listItems = [];
   };
@@ -46,9 +71,9 @@ export function renderMarkdown(source, options = {}) {
     const fence = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
     if (codeLines) {
       if (fence && fence[1][0] === codeFence[0] && fence[1].length >= codeFence.length && !fence[2].trim()) {
-        output.push(codeBlock(codeLanguage, codeLines.join("\n")));
+        output.push(fencedBlock(codeInfo, codeLines.join("\n")));
         codeLines = null;
-        codeLanguage = codeFence = "";
+        codeInfo = codeFence = "";
       } else codeLines.push(line);
       continue;
     }
@@ -57,7 +82,7 @@ export function renderMarkdown(source, options = {}) {
       flushList();
       codeLines = [];
       codeFence = fence[1];
-      codeLanguage = /^\s*([\w-]+)/.exec(fence[2])?.[1] || "";
+      codeInfo = fence[2].trim();
       continue;
     }
     if (!line.trim()) {
@@ -84,7 +109,11 @@ export function renderMarkdown(source, options = {}) {
       }
       lineIndex -= 1;
       output.push(
-        `<table><thead><tr>${header.map((cell) => `<th>${inlineMarkdown(cell, options)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${header.map((_cell, index) => `<td>${inlineMarkdown(row[index] || "", options)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+        tableBlock(
+          `<table><thead><tr>${header.map((cell) => `<th>${inlineMarkdown(cell, options)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${header.map((_cell, index) => `<td>${inlineMarkdown(row[index] || "", options)}</td>`).join("")}</tr>`).join("")}</tbody></table>`,
+          rows.length,
+          header.length
+        )
       );
       continue;
     }
@@ -113,21 +142,24 @@ export function renderMarkdown(source, options = {}) {
       continue;
     }
     if (listType) flushList();
-    const quote = line.match(/^\s*>\s?(.*)$/);
-    if (quote) {
+    if (/^\s*>/.test(line)) {
       flushParagraph();
-      output.push(`<blockquote>${inlineMarkdown(quote[1], options)}</blockquote>`);
+      // Consecutive quoted lines are one quote, rendered as Markdown of its own.
+      const quoted = [];
+      while (lineIndex < lines.length && /^\s*>/.test(lines[lineIndex]))
+        quoted.push(lines[lineIndex++].replace(/^\s*>\s?/, ""));
+      lineIndex -= 1;
+      const marker = /^\[!(\w+)\]\s*$/.exec(quoted[0].trim());
+      const body = renderBlocks((marker ? quoted.slice(1) : quoted).join("\n"), options);
+      output.push((marker && callout(marker[1], body)) || `<blockquote>${body}</blockquote>`);
       continue;
     }
     paragraph.push(line);
   }
-  if (codeLines) output.push(codeBlock(codeLanguage, codeLines.join("\n")));
+  if (codeLines) output.push(fencedBlock(codeInfo, codeLines.join("\n")));
   flushParagraph();
   flushList();
-  // Restore only after Markdown parsing so generated markup is never reinterpreted.
-  // eslint-disable-next-line no-control-regex
-  const mathToken = /\u0000math(\d+)\u0000/g;
-  return output.join("").replace(mathToken, (_match, index) => math.fragments[Number(index)] || "");
+  return output.join("");
 }
 
 function splitTableRow(line) {
@@ -148,7 +180,14 @@ function inlineMarkdown(value, options) {
   let text = String(value).replace(
     /(`+)(.+?)\1(?!`)|!?\[([^\]]+)\]\([ \t]*(?:<([^<>\r\n]+)>|([^\s)]+))[ \t]*\)/g,
     (match, ticks, code, label, wrappedUrl, plainUrl) => {
-      if (code !== undefined) return protect(`<code>${esc(code)}</code>`);
+      if (code !== undefined) {
+        const reference = options.linkify === false ? undefined : fileReference(code);
+        return protect(
+          reference
+            ? fileChip(reference, { openable: Boolean(options.resolveFile?.(reference.path)) })
+            : `<code>${esc(code)}</code>`
+        );
+      }
       const url = wrappedUrl || plainUrl;
       // A model-supplied filesystem path is not a browser route or a native
       // open-file grant. Only the caller can resolve a registered artifact.
@@ -162,6 +201,15 @@ function inlineMarkdown(value, options) {
       if (local)
         return protect(
           `<a href="${esc(local.href)}" data-message-artifact="${esc(local.artifactPath)}" data-message-task="${esc(local.taskId)}">${inlineMarkdown(label, { ...options, linkify: false })}</a>`
+        );
+      // A file the reader cannot open still reads as a file, not as raw Markdown.
+      const reference = !/^[a-z][\w+.-]*:/i.test(url) ? linkedFileReference(url) : undefined;
+      if (reference && !match.startsWith("!"))
+        return protect(
+          fileChip(reference, {
+            openable: Boolean(options.resolveFile?.(reference.path)),
+            label: label.replace(/`/g, "")
+          })
         );
       return protect(esc(match));
     }

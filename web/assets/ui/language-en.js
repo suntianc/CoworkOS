@@ -1518,5 +1518,34 @@ export default {
   "从这条回复 Fork 出新会话": "Fork a new conversation from this reply",
   "要 Fork 的回复无效。": "The reply to fork is not valid.",
   "这条回复已不在当前会话里，无法 Fork。":
-    "This reply is no longer in the conversation, so it cannot be forked."
+    "This reply is no longer in the conversation, so it cannot be forked.",
+  // Rich blocks in replies.
+  " 行 × ": " rows × ",
+  " 列": " columns",
+  复制表格: "Copy table",
+  放大查看: "Zoom",
+  放大: "Zoom",
+  终端输出: "Terminal output",
+  "退出码 ": "exit ",
+  复制输出: "Copy output",
+  "展开其余 ": "Show ",
+  " 行": " more lines",
+  折叠改动: "Collapse change",
+  展开改动: "Expand change",
+  改动视图: "Change view",
+  内联: "Inline",
+  并排: "Side by side",
+  复制改动: "Copy change",
+  源码: "Source",
+  "Mermaid 图": "Mermaid diagram",
+  "图无法绘制，已显示源码": "The diagram could not be drawn; showing its source",
+  "打开 ": "Open ",
+  注意: "Note",
+  提示: "Tip",
+  重要: "Important",
+  警告: "Warning",
+  当心: "Caution",
+  未完成: "Not done",
+  "这个文件不在本会话的产出或改动里，无法预览":
+    "This file is not among this conversation's outputs or changes, so it cannot be previewed"
 };
