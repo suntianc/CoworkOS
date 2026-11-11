@@ -7,11 +7,19 @@ test("window access keeps desktop-only controls behind its settings row and pres
   const dashboard = await startDashboard();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // The host's real Screen Recording / Accessibility state must not decide this check:
+  // pin the execution host to one without a usable native driver.
+  await page.route("**/api/computer/status", (route) =>
+    route.fulfill({ json: { available: false, controlAvailable: false } })
+  );
   try {
     await page.goto(dashboard.base);
     await page.locator("#composer-input").fill("尚未发送的测试草稿");
     for (const width of [1440, 1280, 474, 320]) {
       await page.setViewportSize({ width, height: 800 });
+      // Settings lives at the bottom of the sidebar, which is a drawer below 640.
+      const drawer = page.locator(".sidebar-drawer-toggle:visible");
+      if (await drawer.isVisible()) await drawer.click();
       await page.locator("#user-menu-button").click();
       const settings = page.locator("#settings-entry");
       await expect(settings).toBeVisible();
@@ -42,7 +50,9 @@ test("window access keeps desktop-only controls behind its settings row and pres
       if (await access.evaluate((element) => element.open)) await page.keyboard.press("Enter");
       await page.keyboard.press("Escape");
       await expect(settings).toBeHidden();
-      await expect(page.locator("#user-menu-button")).toBeFocused();
+      // Below 640 the settings opener is inside the closed sidebar drawer; focus returns
+      // to that drawer's opener instead.
+      await expect(page.locator(width < 640 ? "#sidebar-drawer-toggle" : "#user-menu-button")).toBeFocused();
       await expect(page.locator("#composer-input")).toHaveValue("尚未发送的测试草稿");
     }
     await expect(page.locator("#session-menu-button")).toBeVisible();

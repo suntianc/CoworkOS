@@ -95,6 +95,9 @@ test("project dialogs and project experience confirmations use shared controls w
     ]) {
       await page.setViewportSize({ width, height: 720 });
       await page.emulateMedia({ colorScheme: theme });
+      // A web phone-sized window holds the sidebar in a drawer, so open it first.
+      const drawer = page.locator(".sidebar-drawer-toggle:visible");
+      if (await drawer.isVisible()) await drawer.click();
       const trigger = page.locator(`[data-project-settings="${project.projectId}"]`);
       await trigger.locator("..").hover();
       await trigger.click();

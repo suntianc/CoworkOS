@@ -536,3 +536,53 @@ html[data-theme] .app-layout[data-observe-view-name="overview"] .observe-header 
     flex-direction: column;
   }
 }
+
+/* A web phone-sized window gives each project its own row above five equal
+   phase cells instead of letting the fixed 72 px columns run off the panel. */
+@media (max-width: 639px) {
+  html[data-theme] .app-layout[data-observe-view-name="overview"] .observe-header {
+    padding: 0 16px;
+  }
+  html[data-theme] .oo-middle {
+    gap: 12px;
+  }
+  html[data-theme] .oo-matrix-row {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  html[data-theme] .oo-matrix-project {
+    flex: 1 1 100%;
+  }
+  html[data-theme] .oo-matrix-row.is-head .oo-matrix-project {
+    display: none;
+  }
+  html[data-theme] .oo-matrix-stage,
+  html[data-theme] .oo-cell {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  html[data-theme] .oo-card-stats {
+    gap: 16px;
+  }
+}
+
+/* A narrow window keeps the requirement, its session, phase and duration; the
+   project and node are the same on every row and stay in the requirement view. */
+@media (max-width: 639px) {
+  html[data-theme] .oo-row > :is(.oo-col-project, .oo-col-node) {
+    display: none;
+  }
+  html[data-theme] .oo-row .oo-col-session {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  html[data-theme] .oo-row .oo-col-stage {
+    flex: 0 0 64px;
+  }
+  html[data-theme] .oo-row .oo-col-duration {
+    flex: 0 0 44px;
+  }
+}

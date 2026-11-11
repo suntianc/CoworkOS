@@ -1173,7 +1173,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   }
 }
 @media (min-width: 1100px) {
-  .chat-pane.is-collaborating {
+  .chat-body.is-collaborating {
     display: grid;
     grid-template-columns: minmax(320px, var(--chat-share, 42%)) 6px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);

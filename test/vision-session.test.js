@@ -15,7 +15,7 @@ async function fixture(t) {
   const requests = [];
   const server = createServer(async (request, response) => {
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     const input = JSON.parse(raw);
     requests.push(input);
     response.writeHead(200, { "content-type": "text/event-stream" });

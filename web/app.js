@@ -12,6 +12,7 @@ import { composePrompt } from "./assets/attachments.js";
 import { requestErrorMessage } from "./assets/request-error.js";
 import { renderMessageQueue } from "./assets/message-queue.js";
 import { createSidebarLayout } from "./assets/sidebar-layout.js";
+import { createResponsiveShell } from "./assets/controllers/responsive-shell.js";
 import { icon } from "./assets/ui/icons.js";
 import { createMenu } from "./assets/ui/menu.js";
 import { createModal } from "./assets/ui/modal.js";
@@ -121,6 +122,11 @@ createComposerLayout($("#composer-input"));
 createSidebarLayout($(".app-layout"), $(".conversation-sidebar"), $("#sidebar-divider"), {
   outputPane: $(".agent-pane"),
   outputToggle: $("#output-pane-toggle")
+});
+createResponsiveShell({
+  toggles: [...document.querySelectorAll(".sidebar-drawer-toggle")],
+  closeButton: $("#sidebar-drawer-close"),
+  sidebar: $("#conversation-sidebar")
 });
 let draftStorage;
 let browserSessionStorage;
@@ -354,6 +360,7 @@ const workbenchController = createWorkbenchController({
   activateDraft: (taskId) => composerSession.activate(taskId, { projectId: state.selectedProjectId }),
   saveDraft: () => composerSession.save(),
   getNavigationContext: () => composerSession.currentToken,
+  getRequirementStage: () => runControl?.stage ?? "",
   connectEventStream: (taskId) => connection.connect(taskId),
   backendRequest: (path, options) => api(path, options),
   fetchBytes: (path, signal) => management.blob(path, { signal })
@@ -405,7 +412,10 @@ requirementPanel = createRequirementPanel({
   openResource: openResourceInEditor,
   openPreview,
   iconForDocument: (row) => workbenchController.iconForDocument(row),
-  onRendered: (stage) => runControl?.setRequirementStage(stage)
+  onRendered: (stage) => {
+    runControl?.setRequirementStage(stage);
+    workbenchController.paintPanelToggle();
+  }
 });
 const conversationView = createConversationView({
   state,

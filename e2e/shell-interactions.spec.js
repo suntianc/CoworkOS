@@ -260,6 +260,8 @@ test("sidebar conversation menus stay anchored and edit their own session withou
       await page.keyboard.press("Escape");
       await expect(menu).toBeHidden();
       await expect(topMenuTrigger).toBeFocused();
+      // A 640-1023 window folds the tree into the icon rail; its project opens it.
+      if (!(await trigger.isVisible())) await page.locator(".project-heading .project-row").first().focus();
       await trigger.focus();
       await trigger.press("ArrowDown");
       await expect(menu.locator('[data-session-action="rename"]')).toBeFocused();
@@ -342,7 +344,7 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
     await expect(selected).toHaveText("设计方案 A");
     await expect(selected).toHaveAttribute("data-status", "created");
     await expect(selected).not.toHaveAttribute("aria-description");
-    for (const width of [1440, 1280, 1024, 700]) {
+    for (const width of [1440, 1280, 1024]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(sidebar).toBeVisible();
       const box = await sidebar.boundingBox();
@@ -366,10 +368,35 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
       await expect(page.locator("#composer-input")).toHaveValue("侧栏调整保留草稿");
       await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
     }
-    // Narrow windows keep the entry, navigation and settings reachable as icons.
-    await page.setViewportSize({ width: 320, height: 900 });
+    // From 1024 down the sidebar is a 56 icon rail: the entry, the new-session
+    // command and settings stay reachable, and the project opens its tree.
+    await page.setViewportSize({ width: 700, height: 900 });
     await expect(sidebar).toBeVisible();
-    expect((await sidebar.boundingBox()).width).toBeLessThanOrEqual(48);
+    expect(Math.round((await sidebar.boundingBox()).width)).toBe(56);
+    for (const [role, label] of [
+      ["tab", "工作"],
+      ["tab", "观测"],
+      ["button", "设置"],
+      ["button", "新会话"]
+    ]) {
+      const control = sidebar.getByRole(role, { name: label, exact: true });
+      await expect(control).toBeVisible();
+      const rect = await control.boundingBox();
+      const box = await sidebar.boundingBox();
+      expect(rect.x + rect.width).toBeLessThanOrEqual(box.x + box.width);
+    }
+    await expect(selected).toBeHidden();
+    await page.locator(".project-heading .project-row").first().focus();
+    await expect(selected).toBeVisible();
+    expect((await selected.boundingBox()).height).toBe(36);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(700);
+
+    // A web phone-sized window keeps the same commands in a fullscreen drawer.
+    await page.setViewportSize({ width: 320, height: 900 });
+    await expect(sidebar).toBeHidden();
+    await page.locator("#sidebar-drawer-toggle").click();
+    await expect(sidebar).toBeVisible();
+    expect(Math.round((await sidebar.boundingBox()).width)).toBe(320);
     for (const [role, label] of [
       ["tab", "工作"],
       ["tab", "观测"],
@@ -420,8 +447,9 @@ test("sidebar divider resizes without navigating, persists, supports keyboard an
     await expect(divider).toHaveAttribute("aria-valuenow", "420");
     await divider.dblclick({ position: { x: 3, y: 150 } });
     expect(Math.abs((await sidebar.boundingBox()).width - before.width)).toBeLessThan(2);
+    // The icon rail and the phone drawer are not resizable, so the divider goes away.
     await page.setViewportSize({ width: 474, height: 800 });
-    await expect(divider).toBeVisible();
+    await expect(divider).toBeHidden();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(474);
   } finally {
     await dashboard.stop();

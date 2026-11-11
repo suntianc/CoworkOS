@@ -10,7 +10,7 @@ export async function modelProtocolFixture(api, handle) {
       return res.end(JSON.stringify({ data: [{ id: "protocol-fixture" }] }));
     }
     let raw = "";
-    for await (const chunk of req) raw += chunk;
+    for await (const chunk of req.setEncoding("utf8")) raw += chunk;
     const body = JSON.parse(raw);
     requests.push({ path: req.url, body });
     const responses = api === "openai-responses";

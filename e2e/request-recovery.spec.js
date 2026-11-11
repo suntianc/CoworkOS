@@ -117,7 +117,7 @@ test("real recovery continues the saved Pi turn without adding a user message, i
   let rejecting = true;
   const provider = createServer(async (request, response) => {
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     if (request.method !== "POST") {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ data: [{ id: "browser-fixture" }] }));
@@ -444,7 +444,7 @@ test("an interrupted partial reply retries exact bytes after restart without dup
     dashboard;
   const provider = createServer(async (request, response) => {
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     if (request.method !== "POST") return response.end(JSON.stringify({ data: [{ id: "browser-fixture" }] }));
     requests.push(raw);
     response.writeHead(200, { "content-type": "text/event-stream" });

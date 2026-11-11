@@ -36,7 +36,7 @@ async function fixture(t, { responseDelayMs = 0 } = {}) {
   const timers = new Set();
   const server = createServer(async (req, res) => {
     let raw = "";
-    for await (const chunk of req) raw += chunk;
+    for await (const chunk of req.setEncoding("utf8")) raw += chunk;
     requests.push(JSON.parse(raw));
     const turn = requests.length;
     const respond = () => {

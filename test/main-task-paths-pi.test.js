@@ -98,7 +98,7 @@ const footer = "draft";
     let pendingLine = "";
     const server = createServer(async (request, response) => {
       let raw = "";
-      for await (const chunk of request) raw += chunk;
+      for await (const chunk of request.setEncoding("utf8")) raw += chunk;
       const body = JSON.parse(raw);
       requests.push(body);
       response.writeHead(200, { "content-type": "text/event-stream" });

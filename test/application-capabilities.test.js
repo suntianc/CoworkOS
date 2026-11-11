@@ -297,7 +297,7 @@ async function modelFixture(t) {
   const requests = [];
   const server = createServer(async (request, response) => {
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     const input = JSON.parse(raw);
     requests.push(input);
     const toolNames = input.tools.map((tool) => tool.function.name);

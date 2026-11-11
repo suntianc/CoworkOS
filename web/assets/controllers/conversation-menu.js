@@ -179,8 +179,10 @@ export function createConversationMenu({
     if (panel.hidden) return;
     panel.hidden = true;
     closeCopy();
-    currentTrigger?.setAttribute("aria-expanded", "false");
+    // Restore focus first: the narrow rail shows a row's tree while its menu is
+    // open, and that is what makes the trigger focusable when the menu closes.
     if (restoreFocus && currentTrigger?.isConnected) currentTrigger.focus();
+    currentTrigger?.setAttribute("aria-expanded", "false");
   }
 
   function open(nextTrigger, taskId, { last = false } = {}) {

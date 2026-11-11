@@ -586,6 +586,8 @@ export default {
   关于: "About",
   语言: "Language",
   切换侧栏: "Toggle sidebar",
+  打开侧栏: "Open sidebar",
+  关闭侧栏: "Close sidebar",
   显示任务面板: "Show task panel",
   搜索: "Search",
   任务动态: "Recent activity",

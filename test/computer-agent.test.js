@@ -69,7 +69,7 @@ for (const globalPolicy of [false, true, "run-exit"])
           return;
         }
         let raw = "";
-        for await (const chunk of request) raw += chunk;
+        for await (const chunk of request.setEncoding("utf8")) raw += chunk;
         const input = JSON.parse(raw);
         requests.push(input);
         const index = requests.length - 1,

@@ -1600,3 +1600,52 @@ html[data-theme="light"] .settings-node-menu {
 .node-dialog .settings-segmented {
   align-self: flex-start;
 }
+
+/* A web phone-sized window stacks the navigation over one full-width column. */
+@media (max-width: 639px) {
+  .settings-entry {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+  }
+  .settings-nav {
+    gap: 6px;
+    min-height: 0;
+    padding: 0;
+  }
+  .settings-back {
+    align-self: flex-start;
+    margin: 0;
+    padding: 4px 6px;
+    font-size: 14px;
+  }
+  .settings-nav-items {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .settings-nav-item {
+    width: auto;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  .settings-nav-item .ui-icon {
+    width: 14px;
+    height: 14px;
+  }
+  .settings-content {
+    height: auto;
+    min-height: 0;
+    padding: 20px 16px;
+  }
+  .settings-column {
+    gap: 28px;
+  }
+  .settings-panel {
+    gap: 28px;
+  }
+  .settings-page-title {
+    font-size: 20px;
+  }
+}

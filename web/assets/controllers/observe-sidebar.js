@@ -31,7 +31,7 @@ export function createObserveSidebar({ root, pane, data, addNode } = {}) {
 
   function nodeRow(node) {
     const label = STATUS_LABEL[node.status];
-    return `<button class="observe-item" type="button" data-observe-node="${esc(node.origin)}" aria-pressed="${filter.nodeOrigin === node.origin}">
+    return `<button class="observe-item" type="button" data-observe-node="${esc(node.origin)}" title="${esc(node.name)}" aria-pressed="${filter.nodeOrigin === node.origin}">
       ${icon(node.local ? "laptop" : "server")}
       <span class="observe-item-name">${esc(node.name)}</span>
       <span class="observe-item-spacer"></span>
@@ -53,7 +53,7 @@ export function createObserveSidebar({ root, pane, data, addNode } = {}) {
   }
 
   function projectRow(project, count) {
-    return `<button class="observe-item" type="button" data-observe-project="${esc(project.projectId)}" aria-pressed="${filter.projectId === project.projectId}">
+    return `<button class="observe-item" type="button" data-observe-project="${esc(project.projectId)}" title="${esc(project.projectName)}" aria-pressed="${filter.projectId === project.projectId}">
       ${icon("folder")}
       <span class="observe-item-name">${esc(project.projectName)}</span>
       <span class="observe-item-spacer"></span>

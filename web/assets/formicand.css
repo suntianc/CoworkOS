@@ -923,7 +923,7 @@ html[data-theme] .sidebar-bottom .account-icon {
   flex-direction: column;
   min-height: 0;
 }
-.chat-pane.is-collaborating .chat-body {
+.chat-body.is-collaborating {
   display: grid;
   grid-template-columns: minmax(320px, var(--chat-share, 42%)) 6px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
@@ -979,77 +979,278 @@ html[data-theme] #connection-state {
   top: 72px;
 }
 
-@media (max-width: 899px) {
+/* ---------------------------------------------------------------- narrow shell
+   One layout per breakpoint range, decided here so every component inherits the
+   same answer:
+     >= 1280  sidebar 248 + conversation + requirement panel 360
+     1024-1279 two columns; the requirement panel is a right-hand drawer
+     640-1023  the sidebar becomes a 56 px icon rail with a hover tree
+     < 640 (web) one column; sidebar and requirement panel are fullscreen drawers
+   The drawer states reuse `output-collapsed`, so the existing panel toggle,
+   close button and workspace behaviour keep working unchanged. */
+
+/* The title-bar panel control names the panel only where it is a drawer. */
+.session-header-label {
+  display: none;
+}
+.sidebar-drawer-toggle,
+.sidebar-drawer-close {
+  display: none;
+}
+html[data-theme] .observe-header {
+  gap: 12px;
+}
+.project-rail-head {
+  display: none;
+}
+
+@media (max-width: 1279px) {
   html[data-theme] .app-layout,
   html[data-theme] body.output-collapsed .app-layout,
   html[data-theme] .app-layout[data-entry="observe"] {
     grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
   }
-  html[data-theme] .sidebar-divider {
-    display: block;
-  }
-  html[data-theme] .conversation-sidebar {
+  /* The panel leaves the grid and floats over the conversation, so opening it
+     never squeezes the reading column. */
+  html[data-theme] .agent-pane {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    bottom: 10px;
+    left: auto;
+    z-index: 24;
     display: flex;
+    width: min(360px, calc(100vw - 20px));
+    margin: 0;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition:
+      transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+      opacity 0.2s,
+      visibility 0s;
   }
-  html[data-theme] .agent-pane,
+  html[data-theme] body.output-collapsed .agent-pane {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(calc(100% + 24px));
+    pointer-events: none;
+    transition:
+      transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+      opacity 0.2s,
+      visibility 0s linear 0.2s;
+  }
+  /* The control becomes the design's title-bar pill: icon 14, gap 6, surface-3. */
   html[data-theme] #output-pane-toggle {
-    display: none;
+    width: auto;
+    height: 28px;
+    gap: 6px;
+    padding: 0 10px;
+    border-radius: 8px;
+    background: var(--color-surface-3);
+    color: var(--color-text);
+  }
+  html[data-theme] #output-pane-toggle:hover:not(:disabled) {
+    background: var(--color-surface-3);
+    color: var(--color-text);
+  }
+  html[data-theme] #output-pane-toggle .ui-icon {
+    width: 14px;
+    height: 14px;
+  }
+  html[data-theme] .session-header-label {
+    display: inline;
+    font-size: var(--type-caption);
+    font-weight: 500;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+  html[data-theme] .session-header {
+    gap: 8px;
+  }
+  /* While the drawer is open it covers the control that opened it; the drawer
+     keeps its own close button instead of showing a second one underneath. */
+  html[data-theme] body:not(.output-collapsed) #output-pane-toggle {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
 }
-/* Until the narrow-window icon rail lands (#14), the sidebar stays rendered. */
-@media (max-width: 620px) {
-  /* Before the narrow-window rail of #14, keep the entry, navigation and
-     settings reachable as an icon column instead of squeezing the main panel. */
+
+@media (min-width: 640px) and (max-width: 1023px) {
   html[data-theme] .app-layout,
   html[data-theme] body.output-collapsed .app-layout,
   html[data-theme] .app-layout[data-entry="observe"] {
-    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+  html[data-theme] .sidebar-divider {
+    display: none;
   }
   html[data-theme] .conversation-sidebar {
     display: flex;
-    gap: 8px;
-    padding: 12px 6px;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 0;
+    /* The hover tree is pinned beside the rail and the pointer crosses its
+       margin; the rail must not clip that bridge. */
+    overflow: visible;
   }
   html[data-theme] .sidebar-header {
     justify-content: center;
+    width: 100%;
+    padding: 0;
+  }
+  html[data-theme] .brand-lockup {
+    padding: 0;
   }
   html[data-theme] .brand-lockup strong,
   html[data-theme] .sidebar-header-actions,
-  html[data-theme] .entry-switch > .entry-switch-option span,
-  html[data-theme] .new-conversation > span:not(.new-icon),
-  html[data-theme] .sidebar-nav .nav-item span:not(.nav-icon),
-  html[data-theme] .observe-nav .nav-item span:not(.nav-icon),
-  html[data-theme] .sidebar-section-label,
-  html[data-theme] .project-list,
-  html[data-theme] .observe-group,
   html[data-theme] .account-name,
-  html[data-theme] .account-more {
+  html[data-theme] .account-more,
+  html[data-theme] #recover-drafts {
     display: none;
   }
+
+  /* Entry switch: the two entries become rail buttons. */
   html[data-theme] .entry-switch {
     flex-direction: column;
+    gap: 6px;
+    width: 36px;
+    background: transparent;
   }
   html[data-theme] .entry-switch > .entry-switch-option {
-    flex: 0 0 35px;
-    height: 35px;
+    flex: 0 0 36px;
+    width: 36px;
+    height: 36px;
+  }
+  html[data-theme] .entry-switch > .entry-switch-option span {
+    display: none;
+  }
+
+  /* Observation rail: views stay listable, nodes and projects stay filterable. */
+  html[data-theme] .observe-views {
+    align-items: center;
+    width: 100%;
+  }
+  html[data-theme] .observe-nav .nav-item {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  html[data-theme] .observe-nav .nav-item span:not(.nav-icon) {
+    display: none;
+  }
+  html[data-theme] .observe-group,
+  html[data-theme] .observe-group .observe-list {
+    align-items: center;
+    width: 100%;
+    overflow-x: hidden;
+  }
+  html[data-theme] .observe-group-head {
+    display: none;
+  }
+  html[data-theme] .observe-item {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  html[data-theme]
+    .observe-item
+    :is(.observe-item-name, .observe-item-spacer, .observe-item-state, .observe-item-count) {
+    display: none;
+  }
+  html[data-theme] .observe-item .observe-dot {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+  }
+
+  html[data-theme] .sidebar-bottom {
+    align-items: center;
+    width: 100%;
+  }
+  html[data-theme] .account-row {
+    width: 36px;
+    height: 36px;
+    justify-content: center;
     padding: 0;
   }
-  html[data-theme] .new-conversation,
-  html[data-theme] .sidebar-nav .nav-item,
-  html[data-theme] .observe-nav .nav-item,
-  html[data-theme] .sidebar-bottom .account-row {
-    justify-content: center;
-    padding: 9px 0;
+}
+
+@media (max-width: 639px) {
+  /* One column: the conversation owns the window and both panels slide over it. */
+  html[data-theme] .app-layout,
+  html[data-theme] body.output-collapsed .app-layout,
+  html[data-theme] .app-layout[data-entry="observe"] {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px;
+  }
+  html[data-theme] .sidebar-drawer-toggle {
+    display: inline-flex;
+  }
+  html[data-theme] .sidebar-divider {
+    display: none;
+  }
+  html[data-theme] .conversation-sidebar {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    width: 100%;
+    height: 100dvh;
+    padding: 16px 12px;
+    gap: 16px;
+    background-color: var(--color-bg);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(-16px);
+    pointer-events: none;
+    transition:
+      transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+      opacity 0.2s,
+      visibility 0s linear 0.2s;
+  }
+  html[data-theme] body.sidebar-drawer-open .conversation-sidebar {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    pointer-events: auto;
+    transition:
+      transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+      opacity 0.2s,
+      visibility 0s;
+  }
+  html[data-theme] .sidebar-drawer-close {
+    display: inline-flex;
+  }
+  html[data-theme] .agent-pane {
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
   }
   html[data-theme] .session-header {
     gap: 6px;
-    padding: 0 8px;
+    padding: 0 12px;
   }
-  html[data-theme] .session-header-actions {
-    gap: 0;
+  html[data-theme] .session-header-label {
+    font-size: 11px;
   }
-  html[data-theme] .session-header-button {
-    width: 24px;
-    height: 24px;
+}
+
+/* The reduced-motion path keeps the fade and drops the displacement. */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion="off"]) body.output-collapsed .agent-pane,
+  :root:not([data-reduced-motion="off"]) body:not(.sidebar-drawer-open) .conversation-sidebar {
+    transform: none;
   }
+}
+:root[data-reduced-motion="reduce"] body.output-collapsed .agent-pane,
+:root[data-reduced-motion="reduce"] body:not(.sidebar-drawer-open) .conversation-sidebar {
+  transform: none;
 }

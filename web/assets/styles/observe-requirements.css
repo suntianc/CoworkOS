@@ -614,3 +614,95 @@ html[data-theme] .or-del {
     backdrop-filter: none;
   }
 }
+
+/* A narrow window keeps the note beside the list: below 1280 the detail floats
+   over it instead of taking a third column, and below 640 it fills the window. */
+@media (max-width: 1279px) {
+  html[data-theme] .app-layout[data-entry="observe"][data-observe-detail="open"] {
+    grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
+  }
+  html[data-theme]
+    .app-layout[data-entry="observe"][data-observe-detail="open"]
+    .observe-detail:not([hidden]) {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    bottom: 10px;
+    z-index: 24;
+    width: min(420px, calc(100vw - 20px));
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  html[data-theme] .app-layout[data-entry="observe"][data-observe-detail="open"] {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 639px) {
+  html[data-theme] .app-layout[data-entry="observe"][data-observe-detail="open"] {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px;
+  }
+  html[data-theme]
+    .app-layout[data-entry="observe"][data-observe-detail="open"]
+    .observe-detail:not([hidden]) {
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
+  }
+  /* The view's own padding replaces the desktop 24 / 32 rhythm. */
+  html[data-theme] .observe-view {
+    padding: 16px;
+  }
+  html[data-theme] .observe-view[data-observe-panel="requirements"] {
+    padding: 0;
+  }
+  /* Title on its own line; the view's controls take the next one. */
+  html[data-theme] .observe-header {
+    height: auto;
+    min-height: 56px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  html[data-theme] .observe-header h1 {
+    flex: 1 1 auto;
+    white-space: nowrap;
+  }
+  html[data-theme] .observe-header-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+  html[data-theme] .observe-search {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
+  }
+  /* Six tabs wrap instead of squeezing each label onto two lines. */
+  html[data-theme] .observe-tabs {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px 12px 0;
+  }
+  html[data-theme] .or-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  /* The row keeps the requirement and its phase; the detail carries the rest. */
+  html[data-theme] .or-table {
+    padding: 8px 0 0;
+  }
+  html[data-theme] .or-row {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  html[data-theme] .or-row > :is(.or-col-session, .or-col-owner, .or-col-commit, .or-col-updated) {
+    display: none;
+  }
+  html[data-theme] .or-col-stage {
+    flex: 0 0 72px;
+  }
+}

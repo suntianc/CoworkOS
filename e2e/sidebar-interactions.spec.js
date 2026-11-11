@@ -43,9 +43,12 @@ async function seed(page, dashboard, { extraTasks = 0 } = {}) {
   await page.goto(dashboard.base);
   await expect(page.locator(".project-group")).toHaveCount(2);
   await expect(page.locator(".conversation-item")).toHaveCount(3 + extraTasks);
-  await page.locator('[data-task="sidebar-current"]').click();
-  await page.locator("#composer-input").fill("保留当前会话的未发送草稿");
+  // A 640-1023 window folds the tree into the icon rail; its project opens it.
   const group = page.locator(`[data-project="${projects[0].projectId}"]`);
+  const current = page.locator('[data-task="sidebar-current"]');
+  if (!(await current.isVisible())) await group.locator(".project-row").focus();
+  await current.click();
+  await page.locator("#composer-input").fill("保留当前会话的未发送草稿");
   return {
     group,
     heading: group.locator(".project-heading"),
@@ -233,7 +236,12 @@ test("touch devices keep project and conversation actions visible without hover"
     const page = await context.newPage();
     await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     const sidebar = await seed(page, dashboard);
-    for (const action of [sidebar.settings, sidebar.create, sidebar.menu]) {
+    // The rail has no hover to reveal actions with: focusing the project icon
+    // opens its floating tree, which carries the project and session commands.
+    await sidebar.project.focus();
+    const railSettings = sidebar.group.locator("[data-rail-settings]");
+    const railCreate = sidebar.group.locator("[data-rail-create]");
+    for (const action of [railSettings, railCreate, sidebar.menu]) {
       await expect(action).toHaveCSS("opacity", "1");
       expect(await pointerHits(action)).toBe(true);
     }
