@@ -565,14 +565,15 @@ html[data-theme] .toast {
   }
 }
 
-/* P4.5 entry shell: sidebar + one main panel per entry, all reaching the
-   window top so only the page margin remains outside them. */
+/* P4.5 entry shell: one 44 px title row across the window, then the sidebar
+   and one main panel per entry starting right below it. */
 html[data-theme] .app-layout {
   grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) minmax(0, 360px);
-  gap: 10px;
+  grid-template-rows: 44px minmax(0, 1fr);
+  gap: 0 10px;
   height: 100dvh;
   min-height: 0;
-  padding: 10px 10px 10px 0;
+  padding: 0 10px 10px 0;
   background: transparent;
 }
 html[data-theme] body.output-collapsed .app-layout,
@@ -588,7 +589,7 @@ html[data-theme] .app-layout[data-entry="observe"] .agent-pane {
 html[data-theme] .conversation-sidebar {
   height: auto;
   min-height: 0;
-  padding: 16px 12px;
+  padding: 6px 12px 16px;
   gap: 16px;
   overflow: hidden;
   background: transparent;
@@ -602,23 +603,182 @@ html[data-theme] .agent-pane {
   width: auto;
   height: auto;
 }
+/* The sidebar's own header only carries the drawer's close button. */
 html[data-theme] .sidebar-header {
+  display: none;
+}
+
+/* Title row: window controls, navigation, where the conversation lives and the
+   panel toggle, in the band macOS reserves for its traffic lights. */
+.app-titlebar {
+  display: flex;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  align-items: center;
+  min-width: 0;
+  height: 44px;
+}
+.titlebar-lead {
+  display: flex;
   flex: 0 0 auto;
-  height: 30px;
-  padding: 0;
-}
-html[data-theme] .sidebar-header-actions {
+  align-items: center;
   gap: 2px;
+  box-sizing: border-box;
+  width: var(--sidebar-width, 248px);
+  padding-left: 12px;
 }
-/* macOS keeps its traffic lights over the sidebar; the brand row starts below them. */
-html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .conversation-sidebar {
-  padding-top: 44px;
+html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .titlebar-lead {
+  padding-left: 84px;
 }
+.titlebar-spacer {
+  flex: 1 1 auto;
+  min-width: 14px;
+}
+.titlebar-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-text-2);
+  background: transparent;
+  cursor: pointer;
+}
+.titlebar-button .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+.titlebar-button:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+}
+.titlebar-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.titlebar-context {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  /* The context starts where the main panel's content does. */
+  padding: 0 14px 0 24px;
+}
+.titlebar-context[hidden],
+.titlebar-actions[hidden] {
+  display: none;
+}
+.titlebar-project {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 40%;
+  color: var(--color-text-2);
+  font-size: var(--type-nav, 13px);
+  line-height: 19px;
+}
+.titlebar-project[hidden] {
+  display: none;
+}
+.titlebar-project > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.titlebar-project .ui-icon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+}
+.titlebar-project .titlebar-separator {
+  width: 12px;
+  height: 12px;
+  color: var(--color-text-3);
+}
+.app-titlebar .session-title {
+  flex: 0 1 auto;
+  font-size: var(--type-nav, 13px);
+  font-weight: 600;
+  line-height: 19px;
+}
+.titlebar-requirement {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 280px;
+  height: 22px;
+  overflow: hidden;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  font: inherit;
+  font-size: 11px;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.titlebar-requirement[hidden] {
+  display: none;
+}
+.titlebar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+html[data-theme] .app-layout > :not(.app-titlebar, .sidebar-divider) {
+  grid-row: 2;
+}
+html[data-theme] .sidebar-divider {
+  top: 44px;
+}
+
+/* A collapsed sidebar keeps its zero-width track, so the panels keep their
+   columns; the title row's navigation stays where it was. */
+@media (min-width: 1280px) {
+  html[data-theme] body.sidebar-collapsed .app-layout {
+    grid-template-columns: 0 minmax(0, 1fr) minmax(0, 360px);
+  }
+  html[data-theme] body.sidebar-collapsed.output-collapsed .app-layout,
+  html[data-theme] body.sidebar-collapsed .app-layout[data-entry="observe"] {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+}
+@media (min-width: 640px) and (max-width: 1279px) {
+  html[data-theme] body.sidebar-collapsed .app-layout,
+  html[data-theme] body.sidebar-collapsed.output-collapsed .app-layout,
+  html[data-theme] body.sidebar-collapsed .app-layout[data-entry="observe"] {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+}
+html[data-theme] body.sidebar-collapsed .conversation-sidebar {
+  visibility: hidden;
+  overflow: hidden;
+  padding-right: 0;
+  padding-left: 0;
+}
+html[data-theme] body.sidebar-collapsed .sidebar-divider {
+  display: none;
+}
+html[data-theme] body.sidebar-collapsed .titlebar-lead {
+  width: auto;
+}
+
 /* Window dragging. Chromium applies drag regions in document order, so each
    later rule carves its rectangle out of the earlier ones: the margins and the
-   top band (the space above the sidebar brand plus each pane header) drag the
-   window, pane content does not, and controls inside the band stay clickable.
-   Only the chrome refuses text selection; pane content selects normally. */
+   title row drag the window, pane content does not, and controls inside the
+   row stay clickable. Only the chrome refuses text selection; pane content
+   selects normally. */
 html[data-desktop-platform] :is(.app-shell, .app-layout) {
   -webkit-app-region: drag;
   user-select: none;
@@ -630,23 +790,7 @@ html[data-desktop-platform] :is(.chat-pane, .observe-pane, .agent-pane) {
 html[data-desktop-platform] :is(.chat-pane, .observe-pane, .agent-pane) {
   user-select: text;
 }
-.window-drag-band {
-  display: none;
-}
-html[data-desktop-platform] .conversation-sidebar {
-  position: relative;
-}
-html[data-desktop-platform] .window-drag-band {
-  display: block;
-  position: absolute;
-  inset: 0 0 auto;
-  height: 16px;
-}
-html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .window-drag-band {
-  height: 44px;
-}
-html[data-desktop-platform]
-  :is(.window-drag-band, .sidebar-header, .session-header, .observe-header, .requirement-panel-head) {
+html[data-desktop-platform] :is(.app-titlebar, .observe-header, .requirement-panel-head) {
   -webkit-app-region: drag;
   user-select: none;
 }
@@ -888,17 +1032,7 @@ html[data-theme] .sidebar-bottom .account-icon {
   height: 16px;
 }
 
-/* Main panel header: the only place a session title and menu appear. */
-.session-header {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 12px;
-  height: 56px;
-  padding: 0 24px;
-  overflow: hidden;
-  border-bottom: 1px solid var(--color-line);
-}
+/* The conversation title, shown in the title row. */
 .session-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -997,7 +1131,7 @@ html[data-theme] .composer :is(#model-setup-button, .model-select, .reasoning-se
 }
 
 html[data-theme] #connection-state {
-  top: 72px;
+  top: 56px;
 }
 
 /* ---------------------------------------------------------------- narrow shell
@@ -1014,7 +1148,6 @@ html[data-theme] #connection-state {
 .session-header-label {
   display: none;
 }
-.sidebar-drawer-toggle,
 .sidebar-drawer-close {
   display: none;
 }
@@ -1036,7 +1169,7 @@ html[data-theme] .observe-header {
      never squeezes the reading column. */
   html[data-theme] .agent-pane {
     position: fixed;
-    top: 10px;
+    top: 44px;
     right: 10px;
     bottom: 10px;
     left: auto;
@@ -1087,9 +1220,6 @@ html[data-theme] .observe-header {
     line-height: 18px;
     white-space: nowrap;
   }
-  html[data-theme] .session-header {
-    gap: 8px;
-  }
   /* While the drawer is open it covers the control that opened it; the drawer
      keeps its own close button instead of showing a second one underneath. */
   html[data-theme] body:not(.output-collapsed) #output-pane-toggle {
@@ -1105,6 +1235,9 @@ html[data-theme] .observe-header {
   html[data-theme] .app-layout[data-entry="observe"] {
     grid-template-columns: 56px minmax(0, 1fr);
   }
+  html[data-theme] .titlebar-lead {
+    width: auto;
+  }
   html[data-theme] .sidebar-divider {
     display: none;
   }
@@ -1112,21 +1245,11 @@ html[data-theme] .observe-header {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 18px 0;
+    padding: 6px 0 18px;
     /* The hover tree is pinned beside the rail and the pointer crosses its
        margin; the rail must not clip that bridge. */
     overflow: visible;
   }
-  html[data-theme] .sidebar-header {
-    justify-content: center;
-    width: 100%;
-    padding: 0;
-  }
-  html[data-theme] .brand-lockup {
-    padding: 0;
-  }
-  html[data-theme] .brand-lockup strong,
-  html[data-theme] .sidebar-header-actions,
   html[data-theme] .account-name,
   html[data-theme] .account-more,
   html[data-theme] #recover-drafts {
@@ -1209,10 +1332,17 @@ html[data-theme] .observe-header {
   html[data-theme] body.output-collapsed .app-layout,
   html[data-theme] .app-layout[data-entry="observe"] {
     grid-template-columns: minmax(0, 1fr);
-    padding: 8px;
+    padding: 0 8px 8px;
   }
-  html[data-theme] .sidebar-drawer-toggle {
-    display: inline-flex;
+  html[data-theme] .titlebar-lead {
+    width: auto;
+    padding-left: 4px;
+  }
+  html[data-theme] :is(.titlebar-history, .titlebar-spacer, .titlebar-project) {
+    display: none;
+  }
+  html[data-theme] .titlebar-context {
+    padding: 0 6px;
   }
   html[data-theme] .sidebar-divider {
     display: none;
@@ -1246,19 +1376,27 @@ html[data-theme] .observe-header {
       opacity 0.2s,
       visibility 0s;
   }
+  html[data-theme] .sidebar-header {
+    display: flex;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+  }
   html[data-theme] .sidebar-drawer-close {
     display: inline-flex;
   }
+  html[data-theme] body.sidebar-collapsed .conversation-sidebar {
+    visibility: hidden;
+  }
+  html[data-theme] body.sidebar-collapsed.sidebar-drawer-open .conversation-sidebar {
+    visibility: visible;
+    padding: 16px 12px;
+  }
   html[data-theme] .agent-pane {
-    top: 8px;
+    top: 44px;
     right: 8px;
     bottom: 8px;
     left: 8px;
     width: auto;
-  }
-  html[data-theme] .session-header {
-    gap: 6px;
-    padding: 0 12px;
   }
   html[data-theme] .session-header-label {
     font-size: 11px;

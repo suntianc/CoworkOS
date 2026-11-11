@@ -1,6 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
-import { createProject, createTask, markTaskRunning, writeHumanQuestion } from "./p45-work-helpers.js";
+import {
+  createProject,
+  createTask,
+  markTaskRunning,
+  sidebarDrawerToggle,
+  writeHumanQuestion
+} from "./p45-work-helpers.js";
 import { seedRequirement } from "./p45-requirement-fixture.js";
 
 /**
@@ -43,7 +49,7 @@ const layout = (page) =>
     ["main", "#work-entry"],
     ["panel", "#agent-pane"],
     ["toggle", "#output-pane-toggle"],
-    ["drawerToggle", "#sidebar-drawer-toggle"],
+    ["drawerToggle", "#sidebar-toggle"],
     ["composer", ".composer"],
     ["observe", "#observe-entry"],
     ["settings", "#settings-entry"]
@@ -78,8 +84,8 @@ const drawerTransform = (page) =>
 
 /** Close the fullscreen sidebar drawer from its own control, when it is one. */
 async function closeSidebar(page) {
-  const toggle = page.locator(".sidebar-drawer-toggle:visible");
-  if (!(await toggle.isVisible())) return;
+  const toggle = await sidebarDrawerToggle(page);
+  if (!toggle) return;
   if ((await toggle.getAttribute("aria-expanded")) !== "true") return;
   await page.locator("#sidebar-drawer-close").click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -91,8 +97,8 @@ async function closeSidebar(page) {
  * finish. Wider windows have the sidebar on screen already, so nothing happens.
  */
 async function openSidebar(page) {
-  const toggle = page.locator(".sidebar-drawer-toggle:visible");
-  if (!(await toggle.isVisible())) return;
+  const toggle = await sidebarDrawerToggle(page);
+  if (!toggle) return;
   if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect.poll(() => drawerTransform(page)).toBe("none");
@@ -270,23 +276,23 @@ test("a web window at 390 is one column with the sidebar and the requirement pan
     expect(single.composer.x + single.composer.width).toBeLessThanOrEqual(390);
 
     // The sidebar opens over the conversation and closes again from its own control.
-    await page.locator("#sidebar-drawer-toggle").click();
+    await page.locator("#sidebar-toggle").click();
     await expect(page.locator("#conversation-sidebar")).toBeVisible();
     await settleDrawer(page, true);
     const open = await layout(page);
     expect(open.sidebar.x).toBe(0);
     expect(open.sidebar.width).toBe(390);
-    await expect(page.locator("#sidebar-drawer-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-expanded", "true");
     await page.screenshot({
       path: test.info().outputPath("work-390-sidebar.png"),
       clip: { x: 0, y: 0, width: 390, height: 900 }
     });
     await page.keyboard.press("Escape");
     await expect.poll(async () => visible((await layout(page)).sidebar)).toBe(false);
-    await expect(page.locator("#sidebar-drawer-toggle")).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-expanded", "false");
 
     // Picking a conversation also returns to it.
-    await page.locator("#sidebar-drawer-toggle").click();
+    await page.locator("#sidebar-toggle").click();
     await page.locator(`.conversation-item[data-task="${seeded.session.taskId}"]`).click();
     await expect.poll(async () => visible((await layout(page)).sidebar)).toBe(false);
     await expect(page.locator("#composer-input")).toBeVisible();
@@ -419,7 +425,7 @@ test("settings keeps a usable single column on a 390 wide window", async ({ page
 
     // Below 640 the navigation stacks above a single full-width content column.
     await page.setViewportSize({ width: 390, height: 900 });
-    await page.locator("#sidebar-drawer-toggle").click();
+    await page.locator("#sidebar-toggle").click();
     await expect(page.locator("#conversation-sidebar")).toBeVisible();
     await page.locator("#user-menu-button").click();
     await expect(page.locator("#settings-entry")).toBeVisible();

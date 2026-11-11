@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startConfiguredDashboard as startDashboard } from "../test/dashboard-fixture.mjs";
+import { sidebarDrawerToggle } from "./p45-work-helpers.js";
 
 test("window access keeps desktop-only controls behind its settings row and preserves the draft", async ({
   page
@@ -18,8 +19,8 @@ test("window access keeps desktop-only controls behind its settings row and pres
     for (const width of [1440, 1280, 474, 320]) {
       await page.setViewportSize({ width, height: 800 });
       // Settings lives at the bottom of the sidebar, which is a drawer below 640.
-      const drawer = page.locator(".sidebar-drawer-toggle:visible");
-      if (await drawer.isVisible()) await drawer.click();
+      const drawer = await sidebarDrawerToggle(page);
+      if (drawer) await drawer.click();
       await page.locator("#user-menu-button").click();
       const settings = page.locator("#settings-entry");
       await expect(settings).toBeVisible();
@@ -52,7 +53,7 @@ test("window access keeps desktop-only controls behind its settings row and pres
       await expect(settings).toBeHidden();
       // Below 640 the settings opener is inside the closed sidebar drawer; focus returns
       // to that drawer's opener instead.
-      await expect(page.locator(width < 640 ? "#sidebar-drawer-toggle" : "#user-menu-button")).toBeFocused();
+      await expect(page.locator(width < 640 ? "#sidebar-toggle" : "#user-menu-button")).toBeFocused();
       await expect(page.locator("#composer-input")).toHaveValue("尚未发送的测试草稿");
     }
     await expect(page.locator("#output-pane-toggle")).toBeVisible();

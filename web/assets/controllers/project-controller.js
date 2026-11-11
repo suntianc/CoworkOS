@@ -443,6 +443,7 @@ export function createProjectController({
           });
       state.projectsLoaded = true;
       $("#new-conversation").disabled = false;
+      $("#titlebar-new-session").disabled = false;
     },
     openCreate: () => openCreateDialog(),
     addTask(task) {

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { sidebarDrawerToggle } from "./p45-work-helpers.js";
 
 const titles = { "menu-a": "设计方案 A", "menu-b": "建模方案 B" };
 
@@ -50,8 +51,8 @@ async function openSidebarMenu(page, taskId = "menu-b") {
  * tree that holds the row. A phone-sized window opens the sidebar drawer first.
  */
 async function revealSidebarTree(page, row) {
-  const drawer = page.locator(".sidebar-drawer-toggle:visible");
-  if (await drawer.isVisible()) {
+  const drawer = await sidebarDrawerToggle(page);
+  if (drawer) {
     if ((await drawer.getAttribute("aria-expanded")) !== "true") await drawer.click();
     await expect(page.locator(".project-group").first()).toBeVisible();
     return;

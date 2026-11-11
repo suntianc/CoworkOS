@@ -101,23 +101,23 @@ test("the desktop window has no title bar, panels reach the top and traffic ligh
       };
       return {
         sidebar: box("#conversation-sidebar"),
-        brand: box(".sidebar-header"),
+        titlebar: box("#app-titlebar"),
+        toggle: box("#sidebar-toggle"),
         main: box("#work-entry"),
-        header: box(".session-header"),
         title: box("#topbar-task"),
         panel: box("#agent-pane")
       };
     });
-    expect(boxes.sidebar).toMatchObject({ x: 0, y: 10 });
-    expect(boxes.main).toMatchObject({ x: 258, y: 10 });
-    expect(boxes.header.y).toBeLessThanOrEqual(boxes.main.y + 1);
+    // One 44 px title row holds the traffic lights and the navigation; the
+    // sidebar and the panels start right below it.
+    expect(boxes.titlebar).toMatchObject({ x: 0, y: 0, height: 44 });
+    expect(boxes.sidebar).toMatchObject({ x: 0, y: 44 });
+    expect(boxes.main).toMatchObject({ x: 258, y: 44 });
+    // macOS draws the traffic lights at x≈18..70; the first control starts after them.
+    expect(boxes.toggle.x).toBe(84);
+    expect(boxes.toggle.y + boxes.toggle.height / 2).toBe(22);
     expect(boxes.title.x).toBeGreaterThan(boxes.main.x);
-    expect(boxes.title.y).toBeGreaterThan(boxes.main.y);
-    // macOS draws the traffic lights at y≈18..32; the brand row must start below them.
-    expect(boxes.brand.y).toBeGreaterThanOrEqual(40);
-    expect(
-      await page.evaluate(() => getComputedStyle(document.querySelector(".conversation-sidebar")).paddingTop)
-    ).toBe("44px");
+    expect(boxes.title.y + boxes.title.height).toBeLessThanOrEqual(boxes.main.y);
 
     await page.locator("#output-pane-toggle").click();
     await expect(page.locator("#agent-pane")).toBeVisible();
@@ -125,7 +125,7 @@ test("the desktop window has no title bar, panels reach the top and traffic ligh
       () => getComputedStyle(document.querySelector("#agent-pane")).transform === "none"
     );
     const panel = await page.locator("#agent-pane").boundingBox();
-    expect(Math.round(panel.y)).toBe(10);
+    expect(Math.round(panel.y)).toBe(44);
     expect(Math.round(panel.height)).toBe(boxes.sidebar.height);
 
     const regions = await page.evaluate(() =>
@@ -134,9 +134,8 @@ test("the desktop window has no title bar, panels reach the top and traffic ligh
           ".app-shell",
           ".app-layout",
           "#conversation-sidebar",
-          "#conversation-sidebar .window-drag-band",
-          ".sidebar-header",
-          ".session-header",
+          "#app-titlebar",
+          "#sidebar-toggle",
           "#output-pane-toggle",
           "#work-entry",
           ".chat-body",
@@ -150,10 +149,9 @@ test("the desktop window has no title bar, panels reach the top and traffic ligh
     expect(regions[".app-shell"]).toBe("drag");
     expect(regions[".app-layout"]).toBe("drag");
     expect(regions["#conversation-sidebar"]).toBe("no-drag");
-    // The top band drags the window; its controls and the pane content do not.
-    expect(regions["#conversation-sidebar .window-drag-band"]).toBe("drag");
-    expect(regions[".sidebar-header"]).toBe("drag");
-    expect(regions[".session-header"]).toBe("drag");
+    // The title row drags the window; its controls and the pane content do not.
+    expect(regions["#app-titlebar"]).toBe("drag");
+    expect(regions["#sidebar-toggle"]).toBe("no-drag");
     expect(regions["#output-pane-toggle"]).toBe("no-drag");
     expect(regions["#work-entry"]).toBe("no-drag");
     // Electron inherits the pane's region into its content.
@@ -187,22 +185,19 @@ test("the browser keeps its design margin and reserves nothing for native window
     await page.goto(dashboard.base);
     await expect(page.locator("#entry-work")).toBeVisible();
     const metrics = await page.evaluate(() => {
-      const sidebar = document.querySelector("#conversation-sidebar");
-      const brand = document.querySelector(".sidebar-header").getBoundingClientRect();
+      const toggle = document.querySelector("#sidebar-toggle").getBoundingClientRect();
       const main = document.querySelector("#work-entry").getBoundingClientRect();
       return {
         platform: document.documentElement.dataset.desktopPlatform ?? null,
-        paddingTop: getComputedStyle(sidebar).paddingTop,
-        brandY: Math.round(brand.y),
+        toggleX: Math.round(toggle.x),
         mainX: Math.round(main.x),
         mainY: Math.round(main.y)
       };
     });
     expect(metrics.platform).toBeNull();
-    expect(metrics.paddingTop).toBe("16px");
-    expect(metrics.brandY).toBe(26);
+    expect(metrics.toggleX).toBe(12);
     expect(metrics.mainX).toBe(258);
-    expect(metrics.mainY).toBe(10);
+    expect(metrics.mainY).toBe(44);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1440);
   } finally {
     await dashboard.stop();

@@ -73,13 +73,11 @@ test("desktop window uses the native material and shows Formicand while package 
     const renderer = await page.evaluate(() => ({
       body: getComputedStyle(document.body).backgroundColor,
       wash: getComputedStyle(document.querySelector(".app-shell")).backgroundImage,
-      title: document.title,
-      brand: document.querySelector(".brand-lockup strong").textContent.trim()
+      title: document.title
     }));
     expect(renderer.body).toBe("rgba(0, 0, 0, 0)");
     expect(renderer.wash).toBe("none");
     expect(renderer.title).toBe("Formicand");
-    expect(renderer.brand).toBe("Formicand");
 
     const icon = PNG.sync.read(await readFile("build/atria-icon.png"));
     expect(icon.width).toBe(1024);

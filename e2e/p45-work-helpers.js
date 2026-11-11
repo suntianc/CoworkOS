@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -74,4 +75,16 @@ export async function writeHumanQuestion(
   };
   await writeFile(join(directory, `${requestId}.json`), `${JSON.stringify(request, null, 2)}\n`);
   return request;
+}
+
+/**
+ * On a web phone-sized window the sidebar is a drawer behind the title-row
+ * toggle. Returns that toggle once it has switched to drawer mode (the switch
+ * follows a media-query event a frame after a resize), or null on wider windows.
+ */
+export async function sidebarDrawerToggle(page) {
+  if (page.viewportSize().width >= 640) return null;
+  const toggle = page.locator("#sidebar-toggle");
+  await expect(toggle).toHaveAttribute("data-sidebar-mode", "drawer");
+  return toggle;
 }

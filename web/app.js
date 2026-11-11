@@ -13,6 +13,7 @@ import { requestErrorMessage } from "./assets/request-error.js";
 import { renderMessageQueue } from "./assets/message-queue.js";
 import { createSidebarLayout } from "./assets/sidebar-layout.js";
 import { createResponsiveShell } from "./assets/controllers/responsive-shell.js";
+import { createConversationHistory } from "./assets/controllers/conversation-history.js";
 import { icon } from "./assets/ui/icons.js";
 import { createMenu } from "./assets/ui/menu.js";
 import { createModal } from "./assets/ui/modal.js";
@@ -124,9 +125,20 @@ createSidebarLayout($(".app-layout"), $(".conversation-sidebar"), $("#sidebar-di
   outputToggle: $("#output-pane-toggle")
 });
 createResponsiveShell({
-  toggles: [...document.querySelectorAll(".sidebar-drawer-toggle")],
+  toggles: [$("#sidebar-toggle")],
   closeButton: $("#sidebar-drawer-close"),
   sidebar: $("#conversation-sidebar")
+});
+const conversationHistory = createConversationHistory({
+  back: $("#history-back"),
+  forward: $("#history-forward"),
+  exists: (taskId) => state.tasks.some((task) => task.taskId === taskId),
+  open: (taskId) => {
+    const task = state.tasks.find((entry) => entry.taskId === taskId);
+    if (entryController.state().mode !== "work") entryController.setMode("work");
+    if (task) projectController.selectTask(task);
+    selectConversation(taskId);
+  }
 });
 let draftStorage;
 let browserSessionStorage;
@@ -415,6 +427,7 @@ requirementPanel = createRequirementPanel({
   onRendered: (stage) => {
     runControl?.setRequirementStage(stage);
     workbenchController.paintPanelToggle();
+    paintTopbarContext();
   }
 });
 const conversationView = createConversationView({
@@ -1140,6 +1153,7 @@ function renderConversationList() {
     if (url.href !== location.href) history.replaceState(null, "", url.href);
   }
   projectController.render();
+  conversationHistory.visit(state.selected);
   syncIdleComposer();
 }
 
@@ -1189,7 +1203,7 @@ function renderAll() {
   computerUse.syncTask();
   const detail = state.detail || {};
   const task = detail.task || {};
-  $("#topbar-task").textContent = truncate(conversationTitle(task), 44);
+  paintTopbarContext();
   if (detail.runtime?.model) setModelLabel(detail.runtime.model);
   updateSendButton();
   runControl?.render();
@@ -1243,6 +1257,22 @@ function paintTopbarContext() {
       : idleTitle;
   $("#topbar-task").textContent = truncate(name, 44);
   $("#topbar-task").title = name;
+  // The title row names where the conversation lives and what it is working on.
+  const task = state.selected
+    ? state.detail?.task || state.tasks.find((entry) => entry.taskId === state.selected)
+    : null;
+  const projectId = editing ? null : (task?.projectId ?? (state.selected ? null : state.selectedProjectId));
+  const project = projectId ? state.projects.find((entry) => entry.projectId === projectId) : null;
+  $("#topbar-project").hidden = !project;
+  $("[data-topbar-project-name]").textContent = project?.projectName ?? "";
+  $("#topbar-project").title = project?.projectDirectory || project?.workspaceRoot || "";
+  const requirement = !editing && state.selected ? requirementPanel.records()?.requirement : null;
+  const chip = $("#topbar-requirement");
+  chip.hidden = !requirement || requirementPanel.records()?.taskId !== state.selected;
+  if (!chip.hidden) {
+    chip.textContent = ui`需求 · ${requirement.title}`;
+    chip.title = ui`查看需求进度：${requirement.title}`;
+  }
 }
 function textContent(content) {
   if (typeof content === "string") return content;
@@ -1584,6 +1614,11 @@ $("#composer-input").addEventListener("keydown", (event) => {
   }
 });
 $("#new-conversation").addEventListener("click", beginNewConversation);
+$("#titlebar-new-session").addEventListener("click", () => beginNewConversation());
+$("#topbar-requirement").addEventListener("click", () => {
+  if (document.body.classList.contains("output-collapsed")) void toggleOutputPane();
+  else $("#agent-pane").querySelector("button, [tabindex]")?.focus();
+});
 $("#output-pane-toggle").addEventListener("click", toggleOutputPane);
 $("[data-panel-collapse]")?.addEventListener("click", () => void toggleOutputPane());
 document.addEventListener("keydown", (event) => {
@@ -1748,7 +1783,7 @@ const firstUse = createFirstUseView({
   onConnectModel: () => settingsPages.open("models"),
   onAddProject: () => projectController.openCreate()
 });
-document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
+$("#titlebar-search").addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
   upload: (file, options) => management.upload(file, options),

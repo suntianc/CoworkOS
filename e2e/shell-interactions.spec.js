@@ -315,7 +315,8 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
     const selected = sidebar.locator('.conversation-item[data-task="shell-a"]');
     const newConversation = sidebar.locator("#new-conversation");
     await expect(sidebar.locator(".brand-chevron")).toHaveCount(0);
-    await expect(sidebar.locator(".brand-lockup")).toHaveText("Formicand");
+    // The title row replaced the brand row; search and navigation live there.
+    await expect(sidebar.locator(".brand-lockup")).toHaveCount(0);
     await expect(sidebar.locator(".conversation-item-meta")).toHaveCount(0);
     await expect(selected).toHaveText("设计方案 A");
     await expect(selected).toHaveAttribute("data-status", "created");
@@ -327,7 +328,10 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
       expect(box.width).toBeGreaterThanOrEqual(44);
       expect(box.width).toBeLessThanOrEqual(248);
       expect((await selected.boundingBox()).height).toBe(36);
-      for (const label of ["搜索", "设置"]) {
+      await expect(
+        page.locator("#app-titlebar").getByRole("button", { name: "搜索", exact: true })
+      ).toBeVisible();
+      for (const label of ["设置"]) {
         const control = sidebar.getByRole("button", { name: label, exact: true });
         await expect(control).toBeVisible();
         const rect = await control.boundingBox();
@@ -370,7 +374,7 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
     // A web phone-sized window keeps the same commands in a fullscreen drawer.
     await page.setViewportSize({ width: 320, height: 900 });
     await expect(sidebar).toBeHidden();
-    await page.locator("#sidebar-drawer-toggle").click();
+    await page.locator("#sidebar-toggle").click();
     await expect(sidebar).toBeVisible();
     expect(Math.round((await sidebar.boundingBox()).width)).toBe(320);
     for (const [role, label] of [

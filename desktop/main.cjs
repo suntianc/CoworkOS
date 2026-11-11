@@ -236,7 +236,7 @@ function createWindow() {
     title: PRODUCT_NAME,
     ...(icon ? { icon } : {}),
     ...(process.platform === "darwin"
-      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 18 } }
+      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 16 } }
       : {}),
     ...material.options,
     webPreferences: {

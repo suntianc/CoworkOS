@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { sidebarDrawerToggle } from "./p45-work-helpers.js";
 
 async function seed(page, dashboard) {
   for (const [taskId, goal] of [
@@ -19,8 +20,8 @@ async function seed(page, dashboard) {
 async function openRename(page) {
   const row = page.locator(".conversation-item.active");
   // A phone-sized window keeps the conversation list in the sidebar drawer.
-  const drawer = page.locator(".sidebar-drawer-toggle:visible");
-  if ((await drawer.count()) && (await drawer.getAttribute("aria-expanded")) !== "true") await drawer.click();
+  const drawer = await sidebarDrawerToggle(page);
+  if (drawer && (await drawer.getAttribute("aria-expanded")) !== "true") await drawer.click();
   await expect(row).toBeInViewport();
   await row.click({ button: "right" });
   await page.locator('[data-session-action="rename"]').click();

@@ -211,7 +211,7 @@ test("light search and sidebar text remain readable in ordinary and hovered stat
     await page.locator('.conversation-item[data-task="theme-selected"]').click();
     await chooseAppearance(page, "light");
     await closeSettings(page);
-    const brand = page.locator(".brand-lockup strong");
+    const brand = page.locator("#topbar-task");
     const project = page.locator(".project-group:not(.is-selected) .project-row").first();
     const searchButton = page.getByRole("button", { name: "搜索", exact: true });
     for (const locator of [brand, project, searchButton]) {

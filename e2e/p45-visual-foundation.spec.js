@@ -91,7 +91,7 @@ test("Web keeps one token set for both themes and floats glass panels over its s
           blur: taskPanel.backdropFilter,
           radius: taskPanel.borderTopLeftRadius
         },
-        brandColor: style(".brand-lockup strong").color
+        brandColor: style("#topbar-task").color
       };
     });
     // The browser has no window material, so the page paints one solid backdrop.
@@ -116,7 +116,7 @@ test("Web keeps one token set for both themes and floats glass panels over its s
         image: body.backgroundImage,
         color: body.backgroundColor,
         panel: getComputedStyle(document.querySelector(".chat-pane")).backgroundColor,
-        text: getComputedStyle(document.querySelector(".brand-lockup strong")).color
+        text: getComputedStyle(document.querySelector("#topbar-task")).color
       };
     });
     expect(lightBackdrop.image).toBe("none");
@@ -130,16 +130,15 @@ test("Web keeps one token set for both themes and floats glass panels over its s
   }
 });
 
-test("Formicand replaces the old name in the title, sidebar, mark and about row", async ({ page }) => {
+test("Formicand replaces the old name in the title, mark and about row", async ({ page }) => {
   const dashboard = await startDashboard();
   try {
     await page.goto(dashboard.base);
     await expect(page.locator("#composer-input")).toBeVisible();
 
     await expect(page).toHaveTitle("Formicand");
-    const brand = page.locator(".brand-lockup");
-    await expect(brand).toContainText("Formicand");
-    await expect(brand.locator(".brand-symbol use")).toHaveAttribute("href", "#i-formicand-mark");
+    // The sidebar carries no brand row; the window title, icon and about row name the product.
+    await expect(page.locator("#conversation-sidebar .brand-lockup")).toHaveCount(0);
 
     const icon = await page.locator('link[rel="icon"]').getAttribute("href");
     expect(icon).toBe("/assets/brand/app-icon.svg");

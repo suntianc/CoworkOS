@@ -35,8 +35,8 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
   // Browser previews retain navigation without pretending to be a native window.
   await expect(page.locator(".traffic")).toHaveCount(0);
   await expect(page.locator(".chat-header")).toHaveCount(0);
-  // The header keeps only the panel toggle; conversation actions live in the row's context menu.
-  await expect(page.locator(".session-header-actions button")).toHaveCount(1);
+  // The title row keeps only the panel toggle on the right; conversation actions live in the row's context menu.
+  await expect(page.locator(".titlebar-actions button")).toHaveCount(1);
   await expect(page.locator("#share-button")).toHaveCount(0);
   const panelToggle = page.getByRole("button", { name: "切换任务面板", exact: true });
   await expect(page.locator("#agent-pane")).toBeHidden();
@@ -73,7 +73,7 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
   expect(await page.locator("html").getAttribute("data-desktop-platform")).toBeNull();
   expect(
     await page
-      .locator(".session-header")
+      .locator(".app-titlebar")
       .evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-app-region"))
   ).not.toBe("drag");
   await profile.click();

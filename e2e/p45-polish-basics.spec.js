@@ -64,10 +64,13 @@ test("desktop chrome keeps a top drag band while pane content stays selectable",
     expect(await page.locator("#work-entry").evaluate((node) => getComputedStyle(node).userSelect)).toBe(
       "text"
     );
-    const band = await page.locator("#conversation-sidebar .window-drag-band").boundingBox();
-    const brand = await page.locator(".sidebar-header").boundingBox();
-    expect(Math.round(band.height)).toBe(44);
-    expect(band.y + band.height).toBeLessThanOrEqual(brand.y + 1);
+    const band = await page.locator("#app-titlebar").boundingBox();
+    const main = await page.locator("#work-entry").boundingBox();
+    expect(band).toMatchObject({ x: 0, y: 0, height: 44 });
+    expect(band.y + band.height).toBeLessThanOrEqual(main.y);
+    expect(await page.locator(".titlebar-lead").evaluate((node) => getComputedStyle(node).paddingLeft)).toBe(
+      "84px"
+    );
 
     // Dragging across the answer selects its text.
     const paragraph = final.locator(".markdown-body p").first();
