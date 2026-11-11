@@ -17,7 +17,12 @@ async function seed(page, dashboard) {
 }
 
 async function openRename(page) {
-  await page.locator("#session-menu-button").click();
+  const row = page.locator(".conversation-item.active");
+  // A phone-sized window keeps the conversation list in the sidebar drawer.
+  const drawer = page.locator(".sidebar-drawer-toggle:visible");
+  if ((await drawer.count()) && (await drawer.getAttribute("aria-expanded")) !== "true") await drawer.click();
+  await expect(row).toBeInViewport();
+  await row.click({ button: "right" });
   await page.locator('[data-session-action="rename"]').click();
   const dialog = page.getByRole("dialog", { name: "重命名会话", exact: true });
   await expect(dialog).toBeVisible();
@@ -93,7 +98,7 @@ test("rename uses the shared dialog controls in light and dark at desktop and na
         await page.screenshot({ path: info.outputPath(`rename-${theme}-${width}.png`) });
         await page.keyboard.press("Escape");
         await expect(dialog).toHaveCount(0);
-        await expect(page.locator("#session-menu-button")).toBeFocused();
+        await expect(page.locator(".conversation-item.active")).toBeFocused();
         await expect(page.locator("#composer-input")).toHaveValue("打开弹窗前保留的草稿");
       }
     }

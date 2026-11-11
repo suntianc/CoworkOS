@@ -124,7 +124,7 @@ test("a rename dialog keeps its original target when the background selection ch
     await seed(page, dashboard);
     await page.locator('.conversation-item[data-task="shell-a"]').click();
     await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
-    await page.getByRole("button", { name: "会话菜单", exact: true }).click();
+    await page.locator(".conversation-item.active").click({ button: "right" });
     await page.locator('[data-session-action="rename"]').click();
     const dialog = page.getByRole("dialog", { name: "重命名会话" });
     await page.getByRole("textbox", { name: "会话名称" }).fill("A 的新名称");
@@ -157,7 +157,7 @@ test("a delayed archive response preserves the new conversation and its draft", 
       await gate;
       return route.fulfill({ response: await route.fetch() });
     });
-    await page.getByRole("button", { name: "会话菜单", exact: true }).click();
+    await page.locator(".conversation-item.active").click({ button: "right" });
     await page.locator('[data-session-action="archive"]').click();
     await expect.poll(() => received).toBe(true);
     await page.locator('.conversation-item[data-task="shell-b"]').click();
@@ -196,7 +196,7 @@ test("a pending rename keeps keyboard focus inside the dialog when its save butt
         body: JSON.stringify({ error: "合成保存失败" })
       });
     });
-    await page.getByRole("button", { name: "会话菜单", exact: true }).click();
+    await page.locator(".conversation-item.active").click({ button: "right" });
     await page.locator('[data-session-action="rename"]').click();
     const dialog = page.getByRole("dialog", { name: "重命名会话" });
     const input = dialog.getByRole("textbox", { name: "会话名称" });
@@ -214,7 +214,7 @@ test("a pending rename keeps keyboard focus inside the dialog when its save butt
     await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "会话菜单", exact: true })).toBeFocused();
+    await expect(page.locator(".conversation-item.active")).toBeFocused();
   } finally {
     release();
     await dashboard.stop();
@@ -229,42 +229,22 @@ test("sidebar conversation menus stay anchored and edit their own session withou
     await seed(page, dashboard);
     await page.locator('.conversation-item[data-task="shell-a"]').click();
     await page.locator("#composer-input").fill("保留 A 的草稿");
-    const topMenuTrigger = page.locator(".session-header #session-menu-button");
-    await expect(topMenuTrigger).toBeVisible();
-    const trigger = page.locator('[data-session-menu="shell-b"]');
+    // Conversation actions live only in the row's context menu; the header has no menu.
+    await expect(page.locator("#session-menu-button")).toHaveCount(0);
+    const trigger = page.locator('.conversation-item[data-task="shell-b"]');
     const menu = page.locator("#session-menu");
     for (const width of [1440, 1280, 700]) {
       await page.setViewportSize({ width, height: 700 });
-      const titleBox = await page.locator("#topbar-task").boundingBox();
-      const topTriggerBox = await topMenuTrigger.boundingBox();
-      const headerBox = await page.locator(".session-header").boundingBox();
-      expect(topTriggerBox.x).toBeGreaterThanOrEqual(titleBox.x + titleBox.width - 1);
-      expect(topTriggerBox.x).toBeGreaterThanOrEqual(0);
-      expect(topTriggerBox.x + topTriggerBox.width).toBeLessThanOrEqual(width);
-      expect(headerBox.width).toBeGreaterThan(0);
-      await topMenuTrigger.click();
-      await expect(menu).toBeVisible();
-      await expect(menu.getByRole("menuitem")).toHaveCount(8);
-      if (width === 1440 && process.env.COWORK_KEEP_QUALITY_PROBE === "1")
-        await page.screenshot({ path: ".tmp/ui-preview/session-menu-corrected.png" });
+      // A 640-1023 window folds the tree into the icon rail; its project opens it.
+      if (!(await trigger.isVisible())) await page.locator(".project-heading .project-row").first().focus();
+      await trigger.focus();
+      await trigger.press("Shift+F10");
+      await expect(menu.locator('[data-session-action="rename"]')).toBeFocused();
       expect(
         await menu
           .locator("[data-session-action]:visible")
           .evaluateAll((nodes) => nodes.map((node) => node.dataset.sessionAction).sort())
-      ).toEqual(["archive", "delete", "export", "open", "pin", "rename", "unread"]);
-      await expect(menu.locator('[data-session-submenu="copy"]')).toBeVisible();
-      const topMenuBox = await menu.boundingBox();
-      expect(topMenuBox.x).toBeGreaterThanOrEqual(0);
-      expect(topMenuBox.x + topMenuBox.width).toBeLessThanOrEqual(width);
-      expect(topMenuBox.y + topMenuBox.height).toBeLessThanOrEqual(700);
-      await page.keyboard.press("Escape");
-      await expect(menu).toBeHidden();
-      await expect(topMenuTrigger).toBeFocused();
-      // A 640-1023 window folds the tree into the icon rail; its project opens it.
-      if (!(await trigger.isVisible())) await page.locator(".project-heading .project-row").first().focus();
-      await trigger.focus();
-      await trigger.press("ArrowDown");
-      await expect(menu.locator('[data-session-action="rename"]')).toBeFocused();
+      ).toEqual(["archive", "delete", "pin", "rename", "unread"]);
       const bounds = await menu.boundingBox();
       const anchor = await trigger.boundingBox();
       expect(bounds.x).toBeGreaterThanOrEqual(0);
@@ -279,22 +259,20 @@ test("sidebar conversation menus stay anchored and edit their own session withou
       await expect(trigger).toBeFocused();
     }
     await page.setViewportSize({ width: 1440, height: 900 });
-    await trigger.locator("..").hover();
-    await trigger.click();
-    await page.screenshot({ path: ".tmp/sidebar-menu-preview.png" });
-    await menu.getByRole("menuitem", { name: "重命名会话" }).click();
+    await trigger.click({ button: "right" });
+    await menu.getByRole("menuitem", { name: "重命名" }).click();
     await page.getByRole("textbox", { name: "会话名称" }).fill("B 的手动名称");
     await page.getByRole("dialog").getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.locator('.conversation-item[data-task="shell-b"]')).toContainText("B 的手动名称");
     await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
     await expect(page.locator("#composer-input")).toHaveValue("保留 A 的草稿");
-    await trigger.locator("..").hover();
-    await trigger.click();
-    await menu.getByRole("menuitem", { name: "置顶会话", exact: true }).click();
-    await expect(page.locator('.conversation-item[data-task="shell-b"]')).toContainText("★");
-    await trigger.locator("..").hover();
-    await trigger.click();
-    await menu.getByRole("menuitem", { name: "归档会话", exact: true }).click();
+    await trigger.click({ button: "right" });
+    await menu.getByRole("menuitem", { name: "置顶", exact: true }).click();
+    await expect(page.locator('.conversation-row:has([data-task="shell-b"]) .conversation-pin')).toHaveCount(
+      1
+    );
+    await trigger.click({ button: "right" });
+    await menu.getByRole("menuitem", { name: "归档", exact: true }).click();
     await expect(trigger).toHaveCount(0);
     await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
     await expect(page.locator("#composer-input")).toHaveValue("保留 A 的草稿");
@@ -310,15 +288,13 @@ test("deleting a sidebar conversation requires confirmation and removes its stor
   try {
     await seed(page, dashboard);
     await page.locator('.conversation-item[data-task="shell-a"]').click();
-    const trigger = page.locator('[data-session-menu="shell-b"]');
-    await trigger.locator("..").hover();
-    await trigger.click();
+    await page.locator('.conversation-item[data-task="shell-b"]').click({ button: "right" });
     await page.once("dialog", async (dialog) => {
       expect(dialog.type()).toBe("confirm");
       expect(dialog.message()).toContain("删除后无法恢复");
       await dialog.accept();
     });
-    await page.getByRole("menuitem", { name: "删除会话", exact: true }).click();
+    await page.getByRole("menuitem", { name: "删除", exact: true }).click();
     await expect(page.locator('.conversation-item[data-task="shell-b"]')).toHaveCount(0);
     await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
     expect((await page.request.get(`${dashboard.base}/api/tasks/shell-b`)).status()).toBe(400);

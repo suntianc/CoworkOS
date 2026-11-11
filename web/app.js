@@ -548,18 +548,15 @@ const projectController = createProjectController({
   isUnread: (taskId) => conversationReadState.isUnread(taskId),
   selectConversation,
   conversationTitle,
-  taskMenuOpen: () => sessionMenu.isOpen,
-  openTaskMenu: (node, taskId, last) => {
-    sessionMenu.open(node, taskId, { last });
+  openTaskMenu: (node, taskId, options) => sessionMenu.open(node, taskId, options),
+  quickTaskAction: (action, taskId) => {
+    const task = state.tasks.find((entry) => entry.taskId === taskId);
+    if (task) void sessionAction(action, taskId, task);
   },
   onRendered: () => {
     if (!sessionMenu.isOpen) return;
-    if (sessionMenu.trigger === $("#session-menu-button")) {
-      if (sessionMenu.context !== currentSessionMenuContext()) return sessionMenu.close();
-      return sessionMenu.rebind(sessionMenu.trigger);
-    }
     const trigger = $("#project-list").querySelector(
-      `[data-session-menu="${CSS.escape(sessionMenu.taskId)}"]`
+      `.conversation-item[data-task="${CSS.escape(sessionMenu.taskId)}"]`
     );
     if (trigger) sessionMenu.rebind(trigger);
     else sessionMenu.close();
@@ -1246,13 +1243,6 @@ function paintTopbarContext() {
       : idleTitle;
   $("#topbar-task").textContent = truncate(name, 44);
   $("#topbar-task").title = name;
-  $("#session-menu-button").hidden = editing;
-  $("#session-menu-button").title = state.selected ? ui("会话菜单") : ui("会话菜单 · 发送消息后可管理会话");
-  if (
-    sessionMenu.trigger === $("#session-menu-button") &&
-    sessionMenu.context !== currentSessionMenuContext()
-  )
-    sessionMenu.close();
 }
 function textContent(content) {
   if (typeof content === "string") return content;
@@ -1623,7 +1613,6 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest("#app-bind-select, #app-bind-menu")) workbenchController.binding?.close();
 });
 const sessionAction = createConversationOperations({
-  api,
   readState: conversationReadState,
   onReadChange: () => renderConversationList(),
   titleFor: conversationTitle,
@@ -1634,7 +1623,6 @@ const sessionAction = createConversationOperations({
   showToast
 });
 const sessionMenu = createConversationMenu({
-  trigger: $("#session-menu-button"),
   panel: $("#session-menu"),
   getTask: (taskId) => state.tasks.find((task) => task.taskId === taskId),
   getContext: currentSessionMenuContext,
@@ -1651,9 +1639,6 @@ function currentSessionMenuContext() {
     $("#conversation-pane").hidden ? workbenchController.host?.applicationTab?.tabId : null
   ]);
 }
-$("#session-menu-button").addEventListener("click", (event) =>
-  sessionMenu.open(event.currentTarget, state.selected)
-);
 window.addEventListener("resize", () => sessionMenu.reposition());
 $("#project-list").addEventListener("scroll", () => sessionMenu.reposition(), true);
 window.addEventListener("storage", (event) => {

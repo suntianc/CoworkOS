@@ -105,7 +105,6 @@ test("the desktop window has no title bar, panels reach the top and traffic ligh
         main: box("#work-entry"),
         header: box(".session-header"),
         title: box("#topbar-task"),
-        menu: box("#session-menu-button"),
         panel: box("#agent-pane")
       };
     });
@@ -114,7 +113,6 @@ test("the desktop window has no title bar, panels reach the top and traffic ligh
     expect(boxes.header.y).toBeLessThanOrEqual(boxes.main.y + 1);
     expect(boxes.title.x).toBeGreaterThan(boxes.main.x);
     expect(boxes.title.y).toBeGreaterThan(boxes.main.y);
-    expect(boxes.menu.x).toBeGreaterThan(boxes.main.x);
     // macOS draws the traffic lights at y≈18..32; the brand row must start below them.
     expect(boxes.brand.y).toBeGreaterThanOrEqual(40);
     expect(
@@ -162,7 +160,7 @@ test("the desktop window has no title bar, panels reach the top and traffic ligh
     expect(regions[".chat-body"]).toBe("no-drag");
     expect(regions["#agent-pane"]).toBe("no-drag");
 
-    await page.locator("#session-menu-button").click();
+    await page.locator(`.conversation-item[data-task="${taskId}"]`).click({ button: "right" });
     await expect(page.locator("#session-menu")).toBeVisible();
     await expect(page.locator('#session-menu [data-session-action="rename"]')).toBeEnabled();
     await expect(page.locator('#session-menu [data-session-action="archive"]')).toBeEnabled();

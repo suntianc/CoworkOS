@@ -235,10 +235,10 @@ html[data-theme] .conversation-row:has(.conversation-item.active) {
 html[data-theme] .conversation-row:has(.conversation-item.active):hover {
   background-color: var(--selected-fill);
 }
-html[data-theme] .conversation-row:has(.conversation-menu[aria-expanded="true"]) {
+html[data-theme] .conversation-row.has-menu {
   background: var(--color-surface-2);
 }
-html[data-theme] .conversation-row:has(.conversation-menu[aria-expanded="true"]) .conversation-item {
+html[data-theme] .conversation-row.has-menu .conversation-item {
   background: transparent;
   box-shadow: none;
 }
@@ -309,31 +309,76 @@ html[data-theme] .conversation-item.active .conversation-question {
   background: transparent;
   box-shadow: 0 0 6px var(--color-accent);
 }
-html[data-theme] .conversation-menu {
-  right: 2px;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  /* No fill and no light fade: a translucent fill over the translucent row
-     read as a raised, glowing patch. The title fades out under the button
-     instead, keeping its width. */
+/* Row state at rest: a pin for pinned sessions. On hover, keyboard focus or
+   while its menu is open the row offers pin and archive instead; the title
+   fades out under them at the same width. */
+html[data-theme] :is(.conversation-pin, .conversation-quick) {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transform: translateY(-50%);
+}
+html[data-theme] .conversation-pin {
+  right: 10px;
+  color: var(--color-text-3);
+  pointer-events: none;
+}
+html[data-theme] .conversation-quick {
+  opacity: 0;
+  pointer-events: none;
+}
+html[data-theme] .conversation-row:is(:hover, :has(:focus-visible), .has-menu) .conversation-quick {
+  opacity: 1;
+  pointer-events: auto;
+}
+html[data-theme] .conversation-row:is(:hover, :has(:focus-visible), .has-menu) .conversation-pin {
+  opacity: 0;
+}
+html[data-theme] .conversation-quick button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-2);
   background: transparent;
+  cursor: pointer;
 }
-html[data-theme] .conversation-menu::before {
-  content: none;
-}
-html[data-theme] .conversation-menu:is(:hover, :focus-visible, [aria-expanded="true"]) {
+html[data-theme] .conversation-quick button:is(:hover, :focus-visible) {
+  color: var(--color-text);
   background: var(--color-surface-3);
 }
-/* Only the title fades, so the row's focus ring stays whole. */
-html[data-theme]
-  .conversation-row:is(:hover, :has(:focus-visible), :has(.conversation-menu[aria-expanded="true"]))
-  .conversation-item-title {
-  mask-image: linear-gradient(to left, transparent 20px, #000 36px);
+html[data-theme] :is(.conversation-pin, .conversation-quick) .ui-icon {
+  width: 13px;
+  height: 13px;
 }
-html[data-theme] .conversation-menu .ui-icon {
-  width: 14px;
-  height: 14px;
+html[data-theme] .conversation-row:has(.conversation-pin) .conversation-item-title {
+  mask-image: linear-gradient(to left, transparent 18px, #000 30px);
+}
+html[data-theme] .conversation-row:is(:hover, :has(:focus-visible), .has-menu) .conversation-item-title {
+  mask-image: linear-gradient(to left, transparent 44px, #000 60px);
+}
+html[data-theme] .conversation-row.is-archived .conversation-title-text {
+  color: var(--color-text-3);
+  font-style: italic;
+}
+/* Without hover, touch keeps the quick actions in view; a long press opens the menu. */
+@media (hover: none) {
+  html[data-theme] .conversation-quick {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  html[data-theme] .conversation-pin {
+    opacity: 0;
+  }
+  html[data-theme] .conversation-row .conversation-item-title {
+    mask-image: linear-gradient(to left, transparent 44px, #000 60px);
+  }
 }
 
 html[data-theme] .subagent-list {
@@ -1082,7 +1127,7 @@ html[data-theme="light"] .add-project-state {
   }
   /* A row's own menu leaves the tree focused, so the open menu keeps it shown. */
   html[data-theme]
-    .project-group:is(:hover, :focus-within, :has(.conversation-menu[aria-expanded="true"]))
+    .project-group:is(:hover, :focus-within, :has(.conversation-row.has-menu))
     > .conversation-list {
     display: flex;
   }

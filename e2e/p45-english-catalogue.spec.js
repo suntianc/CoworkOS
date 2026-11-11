@@ -151,6 +151,11 @@ test("the work entry, sidebar, new session and add-project dialog read English",
 
 test("all six settings sections and their dialogs read English", async ({ page }) => {
   const dashboard = await startDashboard({ config: MODEL_CONFIG });
+  // The host's real computer-use state (a locked screen, granted permissions)
+  // carries its own native wording; this catalogue check pins a neutral one.
+  await page.route("**/api/computer/status", (route) =>
+    route.fulfill({ json: { available: false, controlAvailable: false } })
+  );
   try {
     await openEnglish(page, dashboard.base);
     await openSettings(page);

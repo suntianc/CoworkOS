@@ -277,7 +277,7 @@ test("the running composer switches one primary action and preserves the draft t
     await expect(send).toBeEnabled();
     await expect(input).toHaveValue("停止等待期间写的草稿");
     await page.locator(`[data-task="${taskId}"]`).hover();
-    await page.locator(`[data-session-menu="${taskId}"]`).click();
+    await page.locator(`.conversation-item[data-task="${taskId}"]`).click({ button: "right" });
     await page.locator('[data-session-action="stop"]').click();
     await expect(page.locator("#toast")).toContainText("任务已停止");
     await expect(stop).toBeHidden();

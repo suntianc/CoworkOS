@@ -112,7 +112,7 @@ test("native edit restores an attachment-only message and survives relaunch with
     await page.locator("#send-button").click();
     await expect(page.locator("#human-questions")).toContainText("要查哪个城市？", { timeout: 30000 });
     const stoppedTask = await page.locator(".conversation-item.active").getAttribute("data-task");
-    await page.getByRole("button", { name: "会话菜单", exact: true }).click();
+    await page.locator(".conversation-item.active").click({ button: "right" });
     await page.locator('[data-session-action="stop"]').click();
     await expect(page.locator("#human-questions")).toBeHidden();
     await expect

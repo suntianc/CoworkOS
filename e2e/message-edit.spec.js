@@ -83,7 +83,7 @@ for (const pause of ["restart", "stop"]) {
           )
           .toBe(false);
       } else {
-        await page.getByRole("button", { name: "会话菜单", exact: true }).click();
+        await page.locator(".conversation-item.active").click({ button: "right" });
         await page.locator('[data-session-action="stop"]').click();
         await expect(page.locator("#human-questions")).toBeHidden();
         await expect

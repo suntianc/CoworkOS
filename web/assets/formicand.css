@@ -366,11 +366,6 @@ html[data-theme]
   color: color-mix(in srgb, var(--color-accent), var(--color-text) 24%);
   background: transparent;
 }
-/* The conversation menu owns a fixed-position copy submenu, and backdrop-filter
-   would make the menu its containing block instead of the viewport. */
-html[data-theme] .session-menu.conversation-context-menu {
-  backdrop-filter: none;
-}
 html[data-theme] .settings-backdrop .settings-card.modal-card {
   background-color: var(--popover-fill);
   background-image: var(--popover-sheen);
@@ -561,11 +556,6 @@ html[data-theme] .toast {
     ) {
     background-color: var(--color-bg);
     background-image: none;
-    backdrop-filter: none;
-  }
-  /* The conversation menu owns a fixed-position copy submenu, and backdrop-filter
-   would make the menu its containing block instead of the viewport. */
-  html[data-theme] .session-menu.conversation-context-menu {
     backdrop-filter: none;
   }
   html[data-theme] .settings-backdrop .settings-card.modal-card {

@@ -255,15 +255,16 @@ test("conversation rows and steps keep their geometry on hover", async ({ page }
     await page.waitForTimeout(300);
     expect(await step.locator("summary").boundingBox()).toEqual(resting);
 
-    // The row menu button sits on the row without its own fill or fade mask.
+    // Hover quick actions sit on the row without their own fill or a light fade mask.
     await row.hover();
-    const button = page.locator(`.conversation-row:has([data-task="${taskId}"]) .conversation-menu`);
-    await expect(button).toBeVisible();
-    const look = await button.evaluate((node) => ({
-      fill: getComputedStyle(node).backgroundColor,
-      mask: getComputedStyle(node, "::before").content
-    }));
-    expect(look).toEqual({ fill: "rgba(0, 0, 0, 0)", mask: "none" });
+    const quick = page.locator(`.conversation-row:has([data-task="${taskId}"]) .conversation-quick`);
+    await expect(quick).toHaveCSS("opacity", "1");
+    expect(
+      await quick
+        .locator("button")
+        .first()
+        .evaluate((node) => getComputedStyle(node).backgroundColor)
+    ).toBe("rgba(0, 0, 0, 0)");
   } finally {
     await dashboard.stop();
   }

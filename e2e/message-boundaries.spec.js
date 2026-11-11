@@ -169,7 +169,7 @@ test("late follow-up 409 after completed cancellation cannot restart its task or
     await page.locator("#composer-input").fill("B 的独立未发送草稿");
     await attach(page, "independent-b.txt", "B_ATTACHMENT_END");
     await page.locator('[data-task="task-a"]').hover();
-    await page.locator('[data-session-menu="task-a"]').click();
+    await page.locator('.conversation-item[data-task="task-a"]').click({ button: "right" });
     const cancelled = page.waitForResponse((response) => response.url().endsWith("/api/tasks/task-a/action"));
     await page.locator('[data-session-action="stop"]').click();
     await finishNavigationResponse(page, await cancelled);

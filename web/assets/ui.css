@@ -533,8 +533,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   right: 32px;
 }
 /* Reveal actions over a soft edge without changing the title's available width. */
-.project-heading .project-settings::before,
-.conversation-menu::before {
+.project-heading .project-settings::before {
   content: "";
   position: absolute;
   inset: 0 100% 0 auto;
@@ -2728,7 +2727,7 @@ body {
   border-radius: 7px;
 }
 .conversation-row:is(:hover, :has(:focus-visible)) .conversation-item,
-.conversation-row:has(.conversation-menu[aria-expanded="true"]) .conversation-item {
+.conversation-row.has-menu .conversation-item {
   background: var(--ui-hover);
 }
 .conversation-sidebar .conversation-row .conversation-item.active {
@@ -2737,50 +2736,20 @@ body {
 .conversation-row + .conversation-row {
   margin-top: 2px;
 }
-.conversation-menu {
-  position: absolute;
-  right: 2px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  color: var(--ui-muted);
-  background: var(--sidebar-row-bg);
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-}
-.conversation-row:is(:hover, :has(:focus-visible)) .conversation-menu,
-.conversation-menu[aria-expanded="true"] {
-  opacity: 1;
-  pointer-events: auto;
-}
-.conversation-menu:hover,
-.conversation-menu:focus-visible,
-.conversation-menu[aria-expanded="true"] {
-  color: var(--ui-text);
-  background: color-mix(in srgb, var(--sidebar-row-bg), var(--ui-text) 8%);
-}
 .session-menu {
   max-width: calc(100vw - 16px);
   max-height: calc(100dvh - 16px);
   overflow-y: auto;
 }
 .session-menu.conversation-context-menu {
-  width: 236px;
+  width: 200px;
   padding: 5px;
   overflow: visible;
   border-color: var(--ui-border);
   border-radius: 13px;
   background: var(--ui-panel);
 }
-.conversation-context-menu .session-menu-main,
-.conversation-context-menu .session-menu-copy {
+.conversation-context-menu .session-menu-main {
   max-height: calc(100dvh - 28px);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -2789,9 +2758,9 @@ body {
 .conversation-context-menu button {
   display: flex;
   align-items: center;
-  gap: 11px;
-  min-height: 38px;
-  padding: 8px 10px;
+  gap: 10px;
+  min-height: 32px;
+  padding: 6px 9px;
   color: var(--ui-secondary);
   font: var(--ui-type-control)/1.45 var(--ui-font);
 }
@@ -2820,48 +2789,13 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.conversation-context-menu .session-menu-chevron {
-  width: 14px;
-  height: 14px;
-  flex-basis: 14px;
-  margin-left: auto;
-  color: var(--ui-muted);
-}
 .conversation-context-menu .session-menu-separator {
   height: 1px;
   margin: 5px 10px;
   background: var(--ui-border);
 }
-.conversation-context-menu [data-session-action="stop"] {
+.conversation-context-menu :is([data-session-action="stop"], [data-session-action="delete"]) {
   color: var(--ui-danger);
-}
-.conversation-context-menu [data-session-action="delete"] {
-  color: var(--ui-danger);
-}
-.conversation-context-menu .session-menu-copy {
-  position: fixed;
-  z-index: 1;
-  box-sizing: border-box;
-  width: 216px;
-  max-width: calc(100vw - 16px);
-  padding: 5px;
-  border: 1px solid var(--ui-border);
-  border-radius: 12px;
-  color: var(--ui-secondary);
-  background: var(--ui-panel);
-  box-shadow: var(--ui-popup-shadow);
-}
-.conversation-context-menu.has-inline-submenu .session-menu-copy {
-  position: static;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  box-shadow: none;
-}
-.conversation-context-menu [data-session-back] {
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--ui-border);
-  border-radius: 0;
 }
 .conversation-context-menu [hidden] {
   display: none;
@@ -2903,13 +2837,9 @@ body {
   }
 }
 @media (hover: none) {
-  .conversation-menu,
   .project-heading :is(.project-settings, .project-create) {
     opacity: 1;
     pointer-events: auto;
-  }
-  .conversation-sidebar .conversation-row .conversation-item {
-    padding-right: 40px;
   }
   .project-heading .project-row {
     padding-right: 68px;

@@ -13,24 +13,28 @@ test("rename, pin, archive and restore keep the conversation identity and draft"
     await seed(page, dashboard.base, "organized", "很长的初始请求".repeat(100));
     await page.goto(dashboard.base);
     await page.locator("#composer-input").fill("会话组织不影响草稿");
-    await page.getByRole("button", { name: "会话菜单", exact: true }).click();
-    await page.getByRole("menuitem", { name: "重命名会话", exact: true }).click();
+    await page.locator('.conversation-item[data-task="organized"]').click({ button: "right" });
+    await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
     await page.getByRole("textbox", { name: "会话名称" }).fill("本轮产品验收");
     await page.getByRole("dialog").getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.locator('.conversation-item[data-task="organized"]')).toContainText("本轮产品验收");
     await expect(page.locator("#composer-input")).toHaveValue("会话组织不影响草稿");
-    await page.getByRole("button", { name: "会话菜单", exact: true }).click();
-    await page.getByRole("menuitem", { name: "置顶会话", exact: true }).click();
-    await expect(page.locator('.conversation-item[data-task="organized"]')).toContainText("★");
-    await page.getByRole("button", { name: "会话菜单", exact: true }).click();
-    await page.getByRole("menuitem", { name: "归档会话", exact: true }).click();
+    await page.locator('.conversation-item[data-task="organized"]').click({ button: "right" });
+    await page.getByRole("menuitem", { name: "置顶", exact: true }).click();
+    await expect(
+      page.locator('.conversation-row:has([data-task="organized"]) .conversation-pin')
+    ).toHaveCount(1);
+    await page.locator('.conversation-item[data-task="organized"]').click({ button: "right" });
+    await page.getByRole("menuitem", { name: "归档", exact: true }).click();
     await expect(page.locator('.conversation-item[data-task="organized"]')).toHaveCount(0);
     await page.getByRole("button", { name: "搜索", exact: true }).click();
     await page.locator("#task-search-input").fill("本轮产品验收");
     await page.locator(".search-result").click();
+    // An archived conversation opened from search is listed, marked archived, so its menu can restore it.
+    await expect(page.locator('.conversation-row.is-archived [data-task="organized"]')).toHaveCount(1);
     await expect(page.locator("#composer-input")).toHaveValue("会话组织不影响草稿");
-    await page.getByRole("button", { name: "会话菜单", exact: true }).click();
-    await page.getByRole("menuitem", { name: "恢复会话", exact: true }).click();
+    await page.locator('.conversation-item[data-task="organized"]').click({ button: "right" });
+    await page.getByRole("menuitem", { name: "恢复", exact: true }).click();
     await expect(page.locator('.conversation-item[data-task="organized"]')).toBeVisible();
     const saved = await (await page.request.get(`${dashboard.base}/api/tasks/organized`)).json();
     expect(saved.task.title).toBe("本轮产品验收");

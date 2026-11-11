@@ -57,7 +57,12 @@ async function seed(page, dashboard, { extraTasks = 0 } = {}) {
     create: group.locator(".project-create"),
     row: group.locator(".conversation-row").filter({ has: page.locator('[data-task="sidebar-long"]') }),
     task: page.locator('[data-task="sidebar-long"]'),
-    menu: page.locator('[data-session-menu="sidebar-long"]')
+    // Hover quick actions; the context menu opens from the row itself.
+    quick: group
+      .locator(".conversation-row")
+      .filter({ has: page.locator('[data-task="sidebar-long"]') })
+      .locator(".conversation-quick"),
+    pin: page.locator('[data-quick-task="sidebar-long"][data-quick-action="pin"]')
   };
 }
 
@@ -93,20 +98,22 @@ test("long sidebar titles keep their geometry while project and conversation act
     await moveOutside(page);
     await sidebar.row.hover();
     await expectStableBox(title, titleBox);
-    for (const action of [sidebar.settings, sidebar.create, sidebar.menu]) {
+    for (const action of [sidebar.settings, sidebar.create]) {
       const box = await action.boundingBox();
       expect(box.width).toBe(24);
       expect(box.height).toBe(24);
     }
-    await sidebar.menu.click();
+    const pinBox = await sidebar.pin.boundingBox();
+    expect([pinBox.width, pinBox.height]).toEqual([22, 22]);
+    await sidebar.task.click({ button: "right" });
     await page.locator('[data-session-action="unread"]').click();
     const unread = sidebar.task.locator(".conversation-unread");
     await expect(unread).toBeVisible();
     await sidebar.row.hover();
     expect(await pointerHits(unread)).toBe(true);
     const unreadBox = await unread.boundingBox(),
-      menuBox = await sidebar.menu.boundingBox();
-    expect(unreadBox.x + unreadBox.width).toBeLessThan(menuBox.x);
+      quickBox = await sidebar.quick.boundingBox();
+    expect(unreadBox.x + unreadBox.width).toBeLessThan(quickBox.x);
     await expect(page.locator("#composer-input")).toHaveValue("保留当前会话的未发送草稿");
   } finally {
     await dashboard.stop();
@@ -118,16 +125,18 @@ test("hidden sidebar actions ignore pointer hits and keyboard Tab reveals each a
   try {
     const sidebar = await seed(page, dashboard);
     await moveOutside(page);
-    for (const action of [sidebar.settings, sidebar.create, sidebar.menu]) {
+    for (const action of [sidebar.settings, sidebar.create]) {
       await expect(action).toHaveCSS("opacity", "0");
       expect(await pointerHits(action)).toBe(false);
     }
+    await expect(sidebar.quick).toHaveCSS("opacity", "0");
+    expect(await pointerHits(sidebar.pin)).toBe(false);
     await sidebar.heading.hover();
     await expect(sidebar.settings).toHaveCSS("opacity", "1");
     expect(await pointerHits(sidebar.settings)).toBe(true);
     await sidebar.row.hover();
-    await expect(sidebar.menu).toHaveCSS("opacity", "1");
-    expect(await pointerHits(sidebar.menu)).toBe(true);
+    await expect(sidebar.quick).toHaveCSS("opacity", "1");
+    expect(await pointerHits(sidebar.pin)).toBe(true);
     await moveOutside(page);
     await sidebar.project.focus();
     await page.keyboard.press("Tab");
@@ -138,8 +147,8 @@ test("hidden sidebar actions ignore pointer hits and keyboard Tab reveals each a
     await expect(sidebar.create).toHaveCSS("opacity", "1");
     await sidebar.task.focus();
     await page.keyboard.press("Tab");
-    await expect(sidebar.menu).toBeFocused();
-    await expect(sidebar.menu).toHaveCSS("opacity", "1");
+    await expect(sidebar.pin).toBeFocused();
+    await expect(sidebar.quick).toHaveCSS("opacity", "1");
     await expect(page.locator("#session-menu")).toBeHidden();
     await expect(page.locator(".conversation-item.active")).toHaveAttribute("data-task", "sidebar-current");
   } finally {
@@ -193,11 +202,12 @@ test("an open conversation menu keeps its row highlighted and mouse dismissal cl
     await sidebar.row.hover();
     const hoverBackground = await sidebar.row.evaluate((node) => getComputedStyle(node).backgroundColor);
     expect(hoverBackground).not.toBe("rgba(0, 0, 0, 0)");
-    await sidebar.menu.click();
+    await sidebar.task.click({ button: "right" });
     await expect(panel).toBeVisible();
     await moveOutside(page);
     await expect(sidebar.row).toHaveCSS("background-color", hoverBackground);
-    await expect(sidebar.menu).toHaveAttribute("aria-expanded", "true");
+    await expect(sidebar.task).toHaveAttribute("aria-expanded", "true");
+    await expect(sidebar.quick).toHaveCSS("opacity", "1");
     for (const theme of ["dark", "light"]) {
       await page.emulateMedia({ colorScheme: theme });
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -209,15 +219,14 @@ test("an open conversation menu keeps its row highlighted and mouse dismissal cl
     }
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
-    await expect(sidebar.menu).toBeFocused();
-    await expect(sidebar.menu).toHaveCSS("opacity", "1");
-    await sidebar.menu.click();
+    await expect(sidebar.task).toBeFocused();
+    await expect(sidebar.task).toHaveAttribute("aria-expanded", "false");
+    // Shift+F10 opens the same menu from the keyboard.
+    await page.keyboard.press("Shift+F10");
     await expect(panel).toBeVisible();
-    await sidebar.menu.click();
+    await expect(panel.locator('[data-session-action="rename"]')).toBeFocused();
+    await page.mouse.click(900, 600);
     await expect(panel).toBeHidden();
-    await moveOutside(page);
-    await expect(sidebar.menu).toBeFocused();
-    await expect(sidebar.menu).toHaveCSS("opacity", "0");
     await expect(page.locator(".conversation-item.active")).toHaveAttribute("data-task", "sidebar-current");
     await expect(page.locator("#composer-input")).toHaveValue("保留当前会话的未发送草稿");
   } finally {
@@ -241,11 +250,14 @@ test("touch devices keep project and conversation actions visible without hover"
     await sidebar.project.focus();
     const railSettings = sidebar.group.locator("[data-rail-settings]");
     const railCreate = sidebar.group.locator("[data-rail-create]");
-    for (const action of [railSettings, railCreate, sidebar.menu]) {
+    for (const action of [railSettings, railCreate]) {
       await expect(action).toHaveCSS("opacity", "1");
       expect(await pointerHits(action)).toBe(true);
     }
-    await sidebar.menu.tap();
+    // Touch keeps the quick actions visible; a long press opens the menu.
+    await expect(sidebar.quick).toHaveCSS("opacity", "1");
+    expect(await pointerHits(sidebar.pin)).toBe(true);
+    await sidebar.task.dispatchEvent("contextmenu", { clientX: 200, clientY: 300 });
     await expect(page.locator("#session-menu")).toBeVisible();
     await expect(page.locator(".conversation-item.active")).toHaveAttribute("data-task", "sidebar-current");
   } finally {
@@ -254,32 +266,26 @@ test("touch devices keep project and conversation actions visible without hover"
   }
 });
 
-test("menus beside bottom sidebar rows keep their trigger clear and flip above in narrow viewports", async ({
-  page
-}, info) => {
+test("a menu opened from the last sidebar row stays inside the window", async ({ page }, info) => {
   const dashboard = await startDashboard({ defaultProject: false });
   try {
     const sidebar = await seed(page, dashboard, { extraTasks: 18 });
     const row = sidebar.group.locator(".conversation-row").last(),
-      trigger = row.locator(".conversation-menu"),
+      trigger = row.locator(".conversation-item"),
       panel = page.locator("#session-menu");
     for (const width of [1440, 640]) {
       await page.setViewportSize({ width, height: 900 });
       await row.scrollIntoViewIfNeeded();
-      await row.hover();
-      await trigger.click();
+      const anchorBox = await trigger.boundingBox();
+      // A right click near the bottom-right of the window still opens a menu
+      // that fits inside it.
+      await trigger.click({ button: "right", position: { x: anchorBox.width - 4, y: anchorBox.height / 2 } });
       await expect(panel).toBeVisible();
-      const rowBox = await row.boundingBox(),
-        anchorBox = await trigger.boundingBox(),
-        menuBox = await panel.boundingBox();
-      expect(anchorBox.y).toBeGreaterThan(500);
+      const menuBox = await panel.boundingBox();
       expect(menuBox.x).toBeGreaterThanOrEqual(8);
       expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(width - 8);
       expect(menuBox.y).toBeGreaterThanOrEqual(8);
       expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(892);
-      if (width >= 608) expect(menuBox.x).toBeGreaterThanOrEqual(rowBox.x + rowBox.width);
-      else expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(anchorBox.y);
-      expect(await pointerHits(trigger)).toBe(true);
       await page.screenshot({
         path: info.outputPath(`sidebar-menu-bottom-${width}.png`),
         fullPage: true,

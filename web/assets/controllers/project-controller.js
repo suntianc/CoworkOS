@@ -14,7 +14,7 @@ export function createProjectController({
   selectConversation,
   conversationTitle,
   openTaskMenu,
-  taskMenuOpen,
+  quickTaskAction = () => {},
   onRendered = () => {},
   getNavigationIdentity,
   onSelectionChanged = () => {},
@@ -71,7 +71,7 @@ export function createProjectController({
     return `<div class="subagent-row" data-agent="${esc(agent.agentId)}" data-state="${esc(agent.state)}"><span class="subagent-guide" aria-hidden="true"></span><span class="subagent-state ${tone}" aria-hidden="true">${icon(active ? "loader-circle" : "circle-check")}</span><span class="subagent-name">${esc(agent.name || agent.agentId)}</span>${role ? `<span class="subagent-role">${role}</span>` : ""}</div>`;
   };
   const taskLabel = (task) =>
-    `<span class="conversation-item-title">${task.pendingQuestion ? `<span class="conversation-question" role="img" aria-label="${esc(ui("有待回答的问题"))}"></span>` : ""}<span class="conversation-title-text">${task.pinned ? "★ " : ""}${esc(conversationTitle(task))}</span>${isUnread(task.taskId) ? ui('<span class="conversation-unread" role="img" aria-label="未读"></span>') : ""}</span>`;
+    `<span class="conversation-item-title">${task.pendingQuestion ? `<span class="conversation-question" role="img" aria-label="${esc(ui("有待回答的问题"))}"></span>` : ""}<span class="conversation-title-text">${esc(conversationTitle(task))}</span>${isUnread(task.taskId) ? ui('<span class="conversation-unread" role="img" aria-label="未读"></span>') : ""}</span>`;
   const taskRow = (task) => {
     const id = esc(task.taskId),
       agents = subagentsOf(task),
@@ -83,9 +83,11 @@ export function createProjectController({
       expanded && agents.length
         ? `<div class="subagent-list" aria-label="${esc(ui`${conversationTitle(task)}的子 Agent`)}">${agents.map(subagentRow).join("")}</div>`
         : "";
-    return ui`<div class="conversation-row">${disclosure}<button class="conversation-item ${task.taskId === state.selected ? "active" : ""} ${isUnread(task.taskId) ? "is-unread" : ""}" data-task="${id}" data-status="${esc(task.status || "created")}" title="${esc(conversationTitle(task))}" ${task.taskId === state.selected ? 'aria-current="page"' : ""}>${taskLabel(task)}</button><button class="conversation-menu" type="button" data-session-menu="${id}" aria-label="会话菜单：${esc(conversationTitle(task))}" title="会话菜单" aria-haspopup="menu" aria-controls="session-menu">${icon("more")}</button></div>${subagents}`;
+    return ui`<div class="conversation-row${task.archived ? " is-archived" : ""}">${disclosure}<button class="conversation-item ${task.taskId === state.selected ? "active" : ""} ${isUnread(task.taskId) ? "is-unread" : ""}" data-task="${id}" data-status="${esc(task.status || "created")}" title="${esc(conversationTitle(task))}" aria-haspopup="menu" aria-keyshortcuts="Shift+F10" ${task.taskId === state.selected ? 'aria-current="page"' : ""}>${taskLabel(task)}</button>${task.pinned ? `<span class="conversation-pin" role="img" aria-label="${esc(ui("已置顶"))}">${icon("pin")}</span>` : ""}<span class="conversation-quick"><button type="button" data-quick-action="pin" data-quick-task="${id}" aria-label="${esc(task.pinned ? ui("取消置顶") : ui("置顶"))}" title="${esc(task.pinned ? ui("取消置顶") : ui("置顶"))}">${icon("pin")}</button><button type="button" data-quick-action="archive" data-quick-task="${id}" aria-label="${esc(ui("归档"))}" title="${esc(ui("归档"))}">${icon("archive")}</button></span></div>${subagents}`;
   };
-  const visibleTask = (task) => !task.archived && isTaskVisible(task);
+  // An archived conversation stays listed while it is open, so its row menu
+  // can restore it; it leaves the list once another conversation is selected.
+  const visibleTask = (task) => (!task.archived || task.taskId === state.selected) && isTaskVisible(task);
   const visibleProjects = () =>
     projects().filter(
       (project) =>
@@ -128,7 +130,9 @@ export function createProjectController({
     const root = $("#project-list");
     const focused = root.contains(document.activeElement) ? document.activeElement : null;
     const focusTask = focused?.dataset.task,
-      focusMenu = focused?.dataset.sessionMenu,
+      focusQuick = focused?.dataset.quickTask
+        ? [focused.dataset.quickTask, focused.dataset.quickAction]
+        : null,
       focusToggle = focused?.dataset.sessionToggle;
     const focusProject = focused?.closest("[data-project]")?.dataset.project;
     const focusAction = focused?.hasAttribute("data-project-create")
@@ -184,16 +188,26 @@ export function createProjectController({
         selectConversation(node.dataset.task);
       })
     );
-    root.querySelectorAll("[data-session-menu]").forEach((node) => {
-      node.addEventListener("click", () => openTaskMenu(node, node.dataset.sessionMenu));
+    // The context menu opens from the row itself: right click at the pointer,
+    // Shift+F10 or the Menu key beside the row.
+    root.querySelectorAll(".conversation-item[data-task]").forEach((node) => {
+      node.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        openTaskMenu(node, node.dataset.task, { at: { x: event.clientX, y: event.clientY } });
+      });
       node.addEventListener("keydown", (event) => {
-        if (["ArrowDown", "ArrowUp"].includes(event.key) && !taskMenuOpen()) {
+        if ((event.key === "F10" && event.shiftKey) || event.key === "ContextMenu") {
           event.preventDefault();
-          event.stopImmediatePropagation();
-          openTaskMenu(node, node.dataset.sessionMenu, event.key === "ArrowUp");
+          openTaskMenu(node, node.dataset.task);
         }
       });
     });
+    root.querySelectorAll("[data-quick-action]").forEach((node) =>
+      node.addEventListener("click", (event) => {
+        event.stopPropagation();
+        quickTaskAction(node.dataset.quickAction, node.dataset.quickTask);
+      })
+    );
     root
       .querySelectorAll("[data-project-create]")
       .forEach((node) => node.addEventListener("click", () => beginConversation(node.dataset.projectCreate)));
@@ -238,8 +252,8 @@ export function createProjectController({
       railWindow.addEventListener?.("change", () => render());
     }
     onRendered();
-    const focusSelector = focusMenu
-      ? `[data-session-menu="${CSS.escape(focusMenu)}"]`
+    const focusSelector = focusQuick
+      ? `[data-quick-task="${CSS.escape(focusQuick[0])}"][data-quick-action="${focusQuick[1]}"]`
       : focusToggle
         ? `[data-session-toggle="${CSS.escape(focusToggle)}"]`
         : focusTask

@@ -127,7 +127,7 @@ test("background goals stay outside project and temporary conversation lists unt
   f.state.selected = "goal";
   f.controller.render();
   assert.ok(f.$('[data-task="goal"]'));
-  assert.ok(f.$('[data-session-menu="goal"]'), "a selected goal keeps the modern conversation menu");
+  assert.ok(f.$('[data-quick-task="goal"]'), "a selected goal keeps the row's quick actions");
   assert.equal(f.$("#conversation-count").textContent, "3");
   f.state.selected = "temporary-goal";
   f.controller.render();

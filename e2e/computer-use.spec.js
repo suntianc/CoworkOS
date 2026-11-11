@@ -55,7 +55,7 @@ test("window access keeps desktop-only controls behind its settings row and pres
       await expect(page.locator(width < 640 ? "#sidebar-drawer-toggle" : "#user-menu-button")).toBeFocused();
       await expect(page.locator("#composer-input")).toHaveValue("尚未发送的测试草稿");
     }
-    await expect(page.locator("#session-menu-button")).toBeVisible();
+    await expect(page.locator("#output-pane-toggle")).toBeVisible();
     await expect(page.locator("#details-modal, #details-close")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "选择窗口", exact: true })).toHaveCount(0);
     const tasks = (await (await page.request.get(`${dashboard.base}/api/tasks`)).json()).tasks;

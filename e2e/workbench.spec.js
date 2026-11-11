@@ -35,28 +35,16 @@ test("shell dialogs dismiss with Escape and restore focus", async ({ page }) => 
   // Browser previews retain navigation without pretending to be a native window.
   await expect(page.locator(".traffic")).toHaveCount(0);
   await expect(page.locator(".chat-header")).toHaveCount(0);
-  await expect(page.locator(".session-header-actions button")).toHaveCount(2);
+  // The header keeps only the panel toggle; conversation actions live in the row's context menu.
+  await expect(page.locator(".session-header-actions button")).toHaveCount(1);
   await expect(page.locator("#share-button")).toHaveCount(0);
   const panelToggle = page.getByRole("button", { name: "切换任务面板", exact: true });
   await expect(page.locator("#agent-pane")).toBeHidden();
   await expect(panelToggle).toHaveAttribute("aria-expanded", "false");
   const profile = page.locator("#user-menu-button");
-  const menuTrigger = page.locator("#session-menu-button");
-  const menu = page.locator("#session-menu");
-  await expect(menuTrigger).toBeVisible();
-  await menuTrigger.click();
-  await expect(menu).toBeVisible();
-  await expect(menu.getByRole("menuitem")).toHaveCount(8);
-  for (const action of ["rename", "pin", "unread", "export", "open", "archive"])
-    await expect(menu.locator(`[data-session-action="${action}"]`)).toBeDisabled();
-  await expect(menu.locator('[data-session-submenu="copy"]')).toBeDisabled();
-  await expect(menu.locator('[data-session-action="stop"]')).toBeHidden();
-  await page.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
-  await expect(menuTrigger).toBeFocused();
+  await expect(page.locator("#session-menu-button")).toHaveCount(0);
   for (const width of [1440, 1280]) {
     await page.setViewportSize({ width, height: 800 });
-    await expect(menuTrigger).toBeVisible();
     await expect(panelToggle).toBeVisible();
     await expect(page.locator("#agent-pane")).toBeHidden();
     const collapsed = await page

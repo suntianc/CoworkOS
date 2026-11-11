@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 
@@ -39,10 +38,9 @@ async function seed(page, dashboard) {
 }
 
 async function openSidebarMenu(page, taskId = "menu-b") {
-  const trigger = page.locator(`[data-session-menu="${taskId}"]`);
+  const trigger = page.locator(`.conversation-item[data-task="${taskId}"]`);
   await revealSidebarTree(page, trigger);
-  await trigger.locator("..").hover();
-  await trigger.click();
+  await trigger.click({ button: "right" });
   await expect(page.locator("#session-menu")).toBeVisible();
   return page.locator("#session-menu");
 }
@@ -96,58 +94,43 @@ test("marking another conversation unread survives refresh and clears when it is
   }
 });
 
-test("copy and Markdown export capture the menu conversation without changing the selected draft", async ({
-  page,
-  context
+test("the menu offers rename, pin, unread, archive and delete, and quick actions keep the draft", async ({
+  page
 }) => {
   const dashboard = await startDashboard();
   try {
-    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: dashboard.base });
     await seed(page, dashboard);
-    const copy = async (action) => {
-      const menu = await openSidebarMenu(page);
-      await menu.locator('[data-session-submenu="copy"]').click();
-      await menu.locator(`[data-session-action="${action}"]`).click();
-      await expect(menu).toBeHidden();
-      await expectOriginalDraft(page);
-    };
-    for (const [action, expected] of [
-      ["copy-title", titles["menu-b"]],
-      ["copy", "menu-b"],
-      ["copy-link", `${dashboard.base}/?task=menu-b`]
-    ]) {
-      await copy(action);
-      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
-    }
-    await copy("copy-content");
-    await expect
-      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toContain("请保留 **原始格式** 并总结方案 B。");
-    const copied = await page.evaluate(() => navigator.clipboard.readText());
-    expect(copied).toContain("## 方案 B");
-    expect(copied).toContain("const ready = true;");
-    expect(copied).not.toMatch(/PRIVATE_THINKING|PRIVATE_TOOL_LOG/);
     const menu = await openSidebarMenu(page);
-    const downloading = page.waitForEvent("download");
-    await menu.locator('[data-session-action="export"]').click();
-    const download = await downloading;
-    expect(download.suggestedFilename()).toBe(`${titles["menu-b"]}.md`);
-    expect(await readFile(await download.path(), "utf8")).toBe(copied);
+    await expect(menu.locator("[data-session-action]:visible")).toHaveText([
+      "重命名",
+      "置顶",
+      "标记为未读",
+      "归档",
+      "删除"
+    ]);
+    await expect(menu.locator('[data-session-action="stop"]')).toBeHidden();
+    await expect(menu.getByText(/导出|复制|新标签页/)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    // Pin from the row's quick actions: the row shows a pin and moves up.
+    const row = page.locator(".conversation-row").filter({ has: page.locator('[data-task="menu-b"]') });
+    await row.hover();
+    await row.locator('[data-quick-action="pin"]').click();
+    await expect(row.locator(".conversation-pin")).toHaveCount(1);
+    await expect(page.locator(".conversation-item").first()).toHaveAttribute("data-task", "menu-b");
     await expectOriginalDraft(page);
-    await page.route("**/api/tasks/menu-b", async (route) => {
-      if (route.request().method() !== "GET") return route.fallback();
-      return route.fulfill({ status: 503, json: { error: "合成读取失败" } });
-    });
-    await page.evaluate(() => navigator.clipboard.writeText("保留原有剪贴板"));
-    await copy("copy-content");
-    await expect(page.locator("#toast")).toContainText("合成读取失败");
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("保留原有剪贴板");
+    await openSidebarMenu(page);
+    await expect(menu.locator('[data-session-action="pin"]')).toHaveText("取消置顶");
+    await page.keyboard.press("Escape");
+    await row.hover();
+    await row.locator('[data-quick-action="archive"]').click();
+    await expect(page.locator('.conversation-item[data-task="menu-b"]')).toHaveCount(0);
+    await expectOriginalDraft(page);
   } finally {
     await dashboard.stop();
   }
 });
 
-test("copy submenus preserve keyboard focus through refresh and stay inside desktop and narrow viewports", async ({
+test("the menu keeps keyboard focus through refresh and stays inside desktop and narrow viewports", async ({
   page
 }, info) => {
   const dashboard = await startDashboard();
@@ -156,44 +139,32 @@ test("copy submenus preserve keyboard focus through refresh and stay inside desk
     for (const width of [1440, 640]) {
       await page.setViewportSize({ width, height: 700 });
       const menu = await openSidebarMenu(page);
-      const trigger = page.locator('[data-session-menu="menu-b"]');
-      const copy = menu.locator('[data-session-submenu="copy"]');
-      const submenu = menu.locator('[data-session-submenu-panel="copy"]');
-      await copy.focus();
-      await copy.press("ArrowRight");
-      await expect(submenu).toBeVisible();
-      await expect(submenu.locator('[data-session-action="copy-title"]')).toBeFocused();
+      const trigger = page.locator('.conversation-item[data-task="menu-b"]');
+      await expect(menu.locator('[data-session-action="rename"]')).toBeFocused();
       await page.keyboard.press("ArrowDown");
-      await expect(submenu.locator('[data-session-action="copy"]')).toBeFocused();
+      await expect(menu.locator('[data-session-action="pin"]')).toBeFocused();
       if (width === 1440) {
         await page.request.patch(`${dashboard.base}/api/tasks/menu-b`, { data: { pinned: true } });
-        // The catalog poll is the refresh the panel used to offer.
+        // The catalog poll re-renders the rows under the open menu.
         await page.waitForResponse((response) => new URL(response.url()).pathname === "/api/tasks");
-        await expect(page.locator('[data-task="menu-b"]')).toContainText("★");
-        await expect(submenu).toBeVisible();
-        await expect(submenu.locator('[data-session-action="copy"]')).toBeFocused();
+        await expect(
+          page.locator('.conversation-row:has([data-task="menu-b"]) .conversation-pin')
+        ).toHaveCount(1);
+        await expect(menu).toBeVisible();
+        await expect(menu.locator('[data-session-action="pin"]')).toHaveText("取消置顶");
+        await expect(menu.locator('[data-session-action="pin"]')).toBeFocused();
       }
-      for (const panel of [menu, submenu]) {
-        const box = await panel.boundingBox();
-        expect(box.x).toBeGreaterThanOrEqual(0);
-        expect(box.x + box.width).toBeLessThanOrEqual(width);
-        expect(box.y).toBeGreaterThanOrEqual(0);
-        expect(box.y + box.height).toBeLessThanOrEqual(700);
-      }
+      const box = await menu.boundingBox();
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(700);
       await page.screenshot({ path: info.outputPath(`conversation-menu-${width}.png`) });
-      await page.keyboard.press("ArrowLeft");
-      await expect(submenu).toBeHidden();
-      await expect(copy).toBeFocused();
-      await copy.press("ArrowRight");
-      await page.keyboard.press("Escape");
-      await expect(menu).toBeVisible();
-      await expect(submenu).toBeHidden();
-      await expect(copy).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(menu).toBeHidden();
       await expect(trigger).toBeFocused();
-      await trigger.locator("..").hover();
-      await trigger.click();
+      await trigger.press("Shift+F10");
+      await expect(menu).toBeVisible();
       await page.locator("#topbar-task").click();
       await expect(menu).toBeHidden();
       await expectOriginalDraft(page);
@@ -203,23 +174,11 @@ test("copy submenus preserve keyboard focus through refresh and stay inside desk
   }
 });
 
-test("opening a conversation in a new tab and following its link selects that conversation", async ({
-  page,
-  context
-}) => {
+test("following a conversation link selects that conversation", async ({ page }) => {
   const dashboard = await startDashboard();
-  let opened, releaseTaskList;
+  let releaseTaskList;
   try {
     await seed(page, dashboard);
-    const menu = await openSidebarMenu(page);
-    const opening = context.waitForEvent("page");
-    await menu.locator('[data-session-action="open"]').click();
-    opened = await opening;
-    await expect(opened).toHaveURL(`${dashboard.base}/?task=menu-b`);
-    await expect(opened.locator("#topbar-task")).toHaveText(titles["menu-b"]);
-    await expectOriginalDraft(page);
-    await opened.close();
-    opened = undefined;
     const active = await page.request.post(`${dashboard.base}/api/workbench/tabs`, {
       data: { kind: "conversation", taskId: "menu-a" }
     });
@@ -249,7 +208,6 @@ test("opening a conversation in a new tab and following its link selects that co
   } finally {
     releaseTaskList?.();
     await page.unrouteAll({ behavior: "wait" });
-    await opened?.close();
     await dashboard.stop();
   }
 });
