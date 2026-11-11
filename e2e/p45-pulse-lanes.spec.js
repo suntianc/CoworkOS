@@ -363,3 +363,65 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await a.stop();
   }
 });
+
+test("a Main that finished inside the window keeps a still waveform", async ({ page }) => {
+  const dashboard = await startDashboard({ defaultProject: false });
+  try {
+    const project = await createProject(page, dashboard, "收尾项目", `${dashboard.root}/finished-project`);
+    const finished = await createPulseSession(page, dashboard, {
+      projectId: project.projectId,
+      title: "已答完"
+    });
+    const old = await createPulseSession(page, dashboard, {
+      projectId: project.projectId,
+      title: "很早以前"
+    });
+    const clock = pulseClock();
+    await seedPulseLane(dashboard, {
+      taskId: finished.taskId,
+      runId: "run-finished",
+      clock,
+      createdAt: clock.ago(-20),
+      title: "已答完",
+      main: { from: -20, to: -8 },
+      status: "completed",
+      completedAt: clock.at(-8)
+    });
+    await seedPulseLane(dashboard, {
+      taskId: old.taskId,
+      runId: "run-old",
+      clock,
+      createdAt: clock.ago(-50),
+      title: "很早以前",
+      main: { from: -50, to: -40 },
+      status: "completed",
+      completedAt: clock.at(-40)
+    });
+
+    await page.goto(dashboard.base);
+    await page.getByRole("tab", { name: "观测", exact: true }).click();
+    await page.locator('[data-observe-view="runs"]').click();
+    await page.locator('[data-runs-window="30"]').click();
+    const lane = page.locator(`[data-runs-lane="${finished.taskId}"]`);
+    await expect(lane).toBeVisible({ timeout: 20_000 });
+    await expect(lane).toHaveAttribute("data-finished", "true");
+    await expect(lane.locator(".runs-pill")).toHaveText("已完成");
+    // The history stays drawn but stops where the run ended, with no live head.
+    await expect(lane.locator(".runs-pulse.is-dev")).toHaveCount(1);
+    await expect(lane.locator(".runs-head")).toHaveCount(0);
+    const reach = await lane.locator(".runs-wave").evaluate((wave) => {
+      const box = wave.getBoundingClientRect();
+      const ends = [...wave.querySelectorAll(".runs-pulse")].map(
+        (path) => path.getBoundingClientRect().right
+      );
+      return (Math.max(...ends) - box.left) / box.width;
+    });
+    // Ended 8 minutes before now in a 30 minute window.
+    expect(reach).toBeGreaterThan(0.6);
+    expect(reach).toBeLessThan(0.8);
+    // A run that ended before the window opened has no lane.
+    await expect(page.locator(`[data-runs-lane="${old.taskId}"]`)).toHaveCount(0);
+  } finally {
+    await dashboard.stop();
+  }
+});

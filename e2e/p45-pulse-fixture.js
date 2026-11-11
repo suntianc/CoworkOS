@@ -58,7 +58,18 @@ async function writeTrace(path, records) {
  */
 export async function seedPulseLane(
   dashboard,
-  { taskId, runId, createdAt, title, main, subagents = [], activeRunId = true, clock = pulseClock() }
+  {
+    taskId,
+    runId,
+    createdAt,
+    title,
+    main,
+    subagents = [],
+    activeRunId = true,
+    clock = pulseClock(),
+    status = "running",
+    completedAt
+  }
 ) {
   const taskPath = join(dashboard.workspaceRoot, taskId, "task.json");
   const task = JSON.parse(await readFile(taskPath, "utf8"));
@@ -68,10 +79,11 @@ export async function seedPulseLane(
       {
         ...task,
         ...(title ? { title } : {}),
-        status: "running",
+        status,
         ...(activeRunId ? { activeRunId: runId } : {}),
         createdAt: new Date(createdAt).toISOString(),
-        updatedAt: new Date(clock.base).toISOString()
+        updatedAt: new Date(completedAt ?? clock.base).toISOString(),
+        ...(completedAt ? { completedAt: new Date(completedAt).toISOString() } : {})
       },
       null,
       2

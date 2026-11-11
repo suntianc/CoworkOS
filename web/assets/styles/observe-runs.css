@@ -330,7 +330,7 @@ html[data-theme="light"] .observe-view[data-observe-panel="runs"] {
   background: var(--color-warn-soft);
 }
 
-.runs-pill.is-idle {
+.runs-pill:is(.is-idle, .is-done) {
   color: var(--color-text-2);
   background: var(--color-surface-3);
 }
@@ -393,6 +393,11 @@ html[data-theme="light"] .observe-view[data-observe-panel="runs"] {
 .runs-pulse.is-idle {
   stroke: var(--color-text-3);
   opacity: 0.55;
+}
+
+/* A finished Main keeps its history, drawn still and quieter than live work. */
+.runs-lane.is-finished .runs-pulse {
+  opacity: 0.5;
 }
 
 .runs-head {

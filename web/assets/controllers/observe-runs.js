@@ -28,6 +28,7 @@ const SLICE_MS = 60_000;
 const WAVE_WIDTH = 748;
 
 const STAGE_LABEL = {
+  done: "已结束",
   dev: "开发",
   review: "审查",
   merge: "合入",
@@ -70,6 +71,20 @@ const VIEW_STAGE = {
 };
 
 const WORK_ROLE_LABEL = { executor: "Executor", reviewer: "Reviewer" };
+
+/** How a finished Main is named on its lane; anything else just ended. */
+const FINISHED_LABEL = { completed: "已完成", failed: "失败", cancelled: "已取消", timed_out: "超时" };
+const LIVE_TASK_STATUSES = ["running", "waiting"];
+
+/** When a Task's run stopped, or undefined while it is still live. */
+function finishedAt(task) {
+  if (LIVE_TASK_STATUSES.includes(task.status) || task.activity?.active) return undefined;
+  const activity = task.activity;
+  const from = nowMsOf(activity?.from);
+  const published =
+    from === undefined ? undefined : from + combinedSamples(activity).length * (activity.sliceMs || SLICE_MS);
+  return nowMsOf(task.completedAt) ?? nowMsOf(task.updatedAt) ?? published;
+}
 
 const nowMsOf = (value) => {
   const parsed = typeof value === "number" ? value : Date.parse(value);
@@ -532,9 +547,17 @@ export function createObserveRuns({
     const sessionByTask = new Map(sessionList.map((session) => [session.taskId, session]));
     const capacity = node.role === "external" ? capacities.get(node.origin)?.value : undefined;
     const runningByTask = new Map((capacity?.running ?? []).map((entry) => [entry.taskId, entry]));
+    const windowStart = at - minutes * SLICE_MS;
+    // A Main that finished inside the window keeps its lane, drawn still: its
+    // waveform is history, not something that vanished with the last answer.
     const lanes = scopedTasks
-      .filter((task) => ["running", "waiting"].includes(task.status))
+      .filter((task) => {
+        if (LIVE_TASK_STATUSES.includes(task.status)) return true;
+        const ended = finishedAt(task);
+        return Boolean(task.activity) && ended !== undefined && ended >= windowStart;
+      })
       .map((task) => {
+        const endedAt = finishedAt(task);
         const session = sessionByTask.get(task.taskId);
         const project = scopedProjects.find((entry) => entry.projectId === task.projectId);
         const activity = task.activity;
@@ -566,15 +589,18 @@ export function createObserveRuns({
           ? developmentData.get(`${node.origin}|${project.projectId}`)?.value
           : undefined;
         const view = requirementId && projectData ? stageViewFor(projectData, requirementId) : undefined;
-        const stage = resolveStage({
-          activity,
-          main,
-          subs,
-          view,
-          now: at,
-          windowStart: at - minutes * SLICE_MS,
-          fallbackStart: nowMsOf(task.createdAt)
-        });
+        const stage =
+          endedAt !== undefined
+            ? { key: "done", label: FINISHED_LABEL[task.status] ?? STAGE_LABEL.done, startMs: endedAt }
+            : resolveStage({
+                activity,
+                main,
+                subs,
+                view,
+                now: at,
+                windowStart,
+                fallbackStart: nowMsOf(task.createdAt)
+              });
         // A Reviewer writing during review is progress for the Main lane too.
         const progressTimes = agents
           .map((agent) => nowMsOf(agent.lastProgressAt))
@@ -595,10 +621,15 @@ export function createObserveRuns({
           stage,
           kind,
           capacityEntry,
-          duration: laneDuration(task, capacityEntry, at),
+          endedAt,
+          duration: laneDuration(task, capacityEntry, endedAt ?? at),
           // The tag always names the real silence; a moment outside the
           // selected window is anchored at the window edge instead of hidden.
-          stalled: !degraded && lastProgress !== undefined && at - lastProgress > STALL_THRESHOLD_MS,
+          stalled:
+            endedAt === undefined &&
+            !degraded &&
+            lastProgress !== undefined &&
+            at - lastProgress > STALL_THRESHOLD_MS,
           lastProgress,
           startedAt:
             nowMsOf(capacityEntry?.startedAt) ?? nowMsOf(task.createdAt) ?? nowMsOf(activity?.from) ?? at,
@@ -744,7 +775,7 @@ export function createObserveRuns({
           )
           .join("")}
       </svg>
-      ${stage && stage.key !== "idle" ? `<span class="runs-head is-${stage.key}"></span>` : ""}
+      ${stage && !["idle", "done"].includes(stage.key) ? `<span class="runs-head is-${stage.key}"></span>` : ""}
       ${extra}
     </div>`;
   }
@@ -760,9 +791,9 @@ export function createObserveRuns({
       : laneSegments({
           activity: lane.activity,
           samples,
-          stage: lane.stage,
+          stage: lane.endedAt === undefined ? lane.stage : { key: "dev", startMs: lane.endedAt },
           windowStart,
-          windowEnd,
+          windowEnd: lane.endedAt === undefined ? windowEnd : Math.min(windowEnd, lane.endedAt),
           degraded: false
         });
     const stallLeft = lane.stalled
@@ -783,9 +814,12 @@ export function createObserveRuns({
           )}</span>`
         : ""
     });
-    return `<div class="runs-lane${lane.stalled ? " is-stalled" : ""}" data-runs-lane="${esc(
-      lane.task.taskId
-    )}" data-stage="${lane.stage.key}" data-stalled="${lane.stalled}" data-degraded="${degraded}">
+    const finished = lane.endedAt !== undefined;
+    return `<div class="runs-lane${lane.stalled ? " is-stalled" : ""}${
+      finished ? " is-finished" : ""
+    }" data-runs-lane="${esc(lane.task.taskId)}" data-stage="${lane.stage.key}" data-stalled="${
+      lane.stalled
+    }" data-degraded="${degraded}" data-finished="${finished}">
       <div class="runs-lane-label">
         <div class="runs-lane-head">
           <span class="runs-session">${esc(lane.title)}</span>
@@ -918,7 +952,7 @@ export function createObserveRuns({
         ["continuation", ui("接续"), "continuation"]
       ]) {
         const quota = Number(settings[kind === "regular" ? "resident" : "continuation"]) || 0;
-        const kindLanes = lanes.filter((lane) => lane.kind === kind);
+        const kindLanes = lanes.filter((lane) => lane.kind === kind && lane.endedAt === undefined);
         // Occupancy is what the host's slots say, not what the current filter
         // happens to show: hiding a lane must not free its place.
         const used = usedByKind[kind];
@@ -926,7 +960,9 @@ export function createObserveRuns({
         body += kindLanes.map((lane) => laneMarkup(lane, plan)).join("");
         for (let index = used; index < quota; index += 1) body += emptyLaneMarkup(`${label} ${index + 1}`);
       }
-      const rest = lanes.filter((lane) => !["regular", "continuation"].includes(lane.kind));
+      const rest = lanes.filter(
+        (lane) => !["regular", "continuation"].includes(lane.kind) || lane.endedAt !== undefined
+      );
       body += rest.map((lane) => laneMarkup(lane, plan)).join("");
     } else {
       body = lanes.map((lane) => laneMarkup(lane, plan)).join("");
