@@ -139,6 +139,13 @@ try {
 } catch {
   /* Chinese fallback. */
 }
+let initialWindowMaterial;
+try {
+  initialWindowMaterial = ipcRenderer.sendSync("bookman:window-material");
+  // eslint-disable-next-line no-restricted-syntax -- a null reply means the host has no material or the sender is untrusted; the page then paints its gradient
+} catch {
+  /* Painted backdrop fallback. */
+}
 let capabilities;
 try {
   capabilities = ipcRenderer.sendSync("bookman:capabilities");
@@ -155,6 +162,7 @@ try {
 }
 contextBridge.exposeInMainWorld("bookmanDesktop", {
   capabilities,
+  windowMaterial: initialWindowMaterial,
   transportNonce,
   language: {
     initial: initialLanguage,

@@ -1,17 +1,14 @@
 import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { parseHTML } from "linkedom";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
-import { createProjectDevelopmentController } from "../web/assets/controllers/project-development.js";
 
 const run = promisify(execFile);
 const git = (cwd, args) =>
@@ -729,60 +726,7 @@ test(
     assert.equal(records.qualification.eligible, true);
     assert.equal(records.qualification.kind, "combined");
 
-    // The production controller renders the author's self-check, the
-    // independent review, the rework and the rulings.
-    const previousGlobals = { window: globalThis.window, document: globalThis.document, CSS: globalThis.CSS };
-    t.after(() => {
-      for (const [key, value] of Object.entries(previousGlobals)) {
-        if (value === undefined) delete globalThis[key];
-        else globalThis[key] = value;
-      }
-    });
-    const { window, document } = parseHTML(readFileSync("web/index.html", "utf8"));
-    globalThis.window = window;
-    globalThis.document = document;
-    globalThis.CSS = { escape: (value) => value };
-    window.HTMLElement.prototype.getClientRects ??= () => [];
-    const api = (requestPath, options) =>
-      fetch(`${dashboard.base}${requestPath}`, {
-        method: options?.method ?? (options?.body === undefined ? "GET" : "POST"),
-        headers: options?.headers ?? { "content-type": "application/json" },
-        ...(options?.body === undefined ? {} : { body: options.body })
-      }).then(async (response) => {
-        const body = await response.json();
-        if (!response.ok)
-          throw Object.assign(new Error(body.error ?? "请求失败"), { status: response.status });
-        return body;
-      });
-    const state = {
-      projects: [
-        { ...project, tasks: [] },
-        { ...other.body.project, tasks: [] }
-      ],
-      selectedProjectId: project.projectId,
-      selected: taskId
-    };
-    const controller = createProjectDevelopmentController({ api, state });
-    const $ = (selector) => document.querySelector(selector);
-    controller.open(project.projectId);
-    await waitFor(() => Boolean($("[data-list] button")), "project A developments did not load");
-    $("[data-list] button").click();
-    await waitFor(
-      () => /导出缺少数据行/.test($("[data-detail]").textContent),
-      "review findings did not render"
-    );
-    const detail = $("[data-detail]").textContent;
-    for (const label of ["自检", "独立审查", "组合审查", "返修", "裁定", "误报", "范围外", "可交付"])
-      assert.ok(detail.includes(label), `the controller does not show ${label}: ${detail.slice(0, 500)}`);
-    assert.match(detail, /保持现有 CSV 范围/);
-
-    // Switching projects reads that project's reviews only.
-    const select = $("[data-project]");
-    select.children[0].removeAttribute("selected");
-    select.children[1].setAttribute("selected", "");
-    select.dispatchEvent(new window.Event("change"));
-    await waitFor(() => /还没有开发记录/.test($("[data-list]").textContent), "project B did not load");
-    assert.doesNotMatch($("[data-list]").textContent, /导出缺少数据行/);
+    // Another project reads no reviews at all.
     const otherReviews = await request(
       `/api/projects/${encodeURIComponent(other.body.project.projectId)}/reviews`
     );

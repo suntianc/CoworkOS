@@ -47,7 +47,7 @@ test(
         return;
       }
       let raw = "";
-      for await (const chunk of request) raw += chunk;
+      for await (const chunk of request.setEncoding("utf8")) raw += chunk;
       const body = JSON.parse(raw);
       assert.equal(request.url, "/v1/chat/completions");
       assert.equal(body.stream, true);

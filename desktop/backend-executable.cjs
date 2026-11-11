@@ -28,7 +28,7 @@ function backendExecutable(executable, platform = process.platform, appRoot) {
       if (relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative))
         return executable;
     }
-    throw new Error("未找到桌面后台运行时，请重新安装 CoworkOS");
+    throw new Error("未找到桌面后台运行时，请重新安装 Formicand");
   }
 }
 

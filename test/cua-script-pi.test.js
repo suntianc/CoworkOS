@@ -63,7 +63,7 @@ test(
         return;
       }
       let raw = "";
-      for await (const chunk of request) raw += chunk;
+      for await (const chunk of request.setEncoding("utf8")) raw += chunk;
       const input = JSON.parse(raw),
         index = requests.length,
         step = steps[index];

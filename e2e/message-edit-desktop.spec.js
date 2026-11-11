@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { developmentExecutable } from "../scripts/desktop-dev.mjs";
+import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 
 test("native edit restores an attachment-only message and survives relaunch with its original unsent draft", async ({}, testInfo) => {
@@ -43,18 +43,16 @@ test("native edit restores an attachment-only message and survives relaunch with
     await dialog.locator('[name="api"]').selectOption("openai-completions");
     await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
     await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
-    const setupOrigin = new URL(page.url()).origin;
     await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    // Saving the native model returns before its deliberate backend restart.
-    await page.waitForURL((url) => url.origin !== setupOrigin && url.protocol === "http:");
+    // Saving applies the connection in place; the window keeps its origin.
     await expect(page.locator(".model-select")).toContainText("native-edit-fixture");
     await expect(page.getByRole("dialog", { name: "连接模型" })).toBeHidden();
     await page.locator("#new-project").click();
-    await page.locator("#project-name").fill("修改重发验收");
-    await page.locator("#project-directory").fill(root);
-    await page.locator("#project-submit").click();
-    await expect(page.locator("#project-modal")).toBeHidden();
-    await expect(page.locator("#project-context")).toContainText("修改重发验收");
+    await page.locator("#add-project-name").fill("修改重发验收");
+    await page.locator("#add-project-directory").fill(root);
+    await page.locator("#add-project-submit").click();
+    await expect(page.locator("#add-project-modal")).toBeHidden();
+    await expect(page.locator(".project-group.is-selected .project-name")).toContainText("修改重发验收");
     await page.locator("#composer-input").fill("UPLOAD_READINESS");
     await page.locator("#composer-input").fill("");
     const attachmentPath = join(root, "native.txt");
@@ -70,14 +68,7 @@ test("native edit restores an attachment-only message and survives relaunch with
     await page.locator("#send-button").click();
     await expect(page.locator("#conversation")).toContainText("NATIVE_OLD_ANSWER", { timeout: 30000 });
     await expect(page.locator("#stop-button")).toBeHidden();
-    const taskId = await page.locator(".conversation-item.active").getAttribute("data-task");
-    await expect
-      .poll(
-        async () =>
-          (await (await page.request.get(`${new URL(page.url()).origin}/api/tasks/${taskId}`)).json()).runtime
-            .active
-      )
-      .toBe(false);
+    const taskId = new URL(page.url()).searchParams.get("task");
     await page.locator("#composer-input").fill("NATIVE_UNSENT_DRAFT\nKEEP_LINE");
     await page.getByRole("button", { name: "编辑消息" }).click();
     await expect(page.locator("[data-inline-message-edit]")).toHaveValue("");
@@ -87,7 +78,6 @@ test("native edit restores an attachment-only message and survives relaunch with
     await page.getByRole("button", { name: "编辑消息" }).focus();
     await page.keyboard.press("Enter");
     await page.locator("[data-inline-message-edit]").fill("NATIVE_EDITED_MESSAGE\nNEW_LINE");
-    const originalUrl = page.url();
     await native.close();
     native = undefined;
     const saved = JSON.parse(await readFile(join(root, "composer-drafts.json"), "utf8"));
@@ -96,13 +86,17 @@ test("native edit restores an attachment-only message and survives relaunch with
     page = await launch();
     await expect(page.locator("[data-inline-message-edit]")).toBeVisible();
     await expect(page.locator("[data-inline-message-edit]")).toHaveValue("NATIVE_EDITED_MESSAGE\nNEW_LINE");
-    expect(page.url()).not.toBe(originalUrl);
     await expect(page.locator(".inline-edit-attachments")).toContainText("native.txt");
     await page.getByRole("button", { name: "发送编辑后的消息", exact: true }).click();
     await expect(page.locator("#composer-input")).toHaveValue("NATIVE_UNSENT_DRAFT\nKEEP_LINE");
     await expect(page.locator("#conversation")).toContainText("NATIVE_NEW_ANSWER", { timeout: 30000 });
-    const detail = await page.request.get(`${new URL(page.url()).origin}/api/tasks/${taskId}`);
-    const value = await detail.json();
+    const value = await page.evaluate(async (id) => {
+      // The window's transport adds the host session; a bare fetch has no credential.
+      const headers = window.bookmanDesktop?.transportNonce
+        ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+        : {};
+      return (await fetch(`/api/tasks/${encodeURIComponent(id)}`, { headers })).json();
+    }, taskId);
     expect(value.conversationVersions).toHaveLength(1);
     expect(JSON.stringify(value.messages)).not.toContain("NATIVE_OLD_ANSWER");
     expect(value.conversationVersions[0].currentMessageId).toBe(value.editableMessage.messageId);
@@ -122,10 +116,14 @@ test("native edit restores an attachment-only message and survives relaunch with
     await page.locator('[data-session-action="stop"]').click();
     await expect(page.locator("#human-questions")).toBeHidden();
     await expect
-      .poll(
-        async () =>
-          (await (await page.request.get(`${new URL(page.url()).origin}/api/tasks/${stoppedTask}`)).json())
-            .runtime.active
+      .poll(() =>
+        page.evaluate(async (id) => {
+          const headers = window.bookmanDesktop?.transportNonce
+            ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
+            : {};
+          return (await (await fetch(`/api/tasks/${encodeURIComponent(id)}`, { headers })).json()).runtime
+            ?.active;
+        }, stoppedTask)
       )
       .toBe(false);
     await page.getByRole("button", { name: "编辑消息" }).click();
@@ -142,6 +140,8 @@ test("native edit restores an attachment-only message and survives relaunch with
     const backendLog = await readFile(join(root, "logs", "dashboard.log"), "utf8").catch(() => "");
     await writeFile(testInfo.outputPath("native-backend.log"), backendLog);
     await provider.close();
-    await rm(root, { recursive: true, force: true });
+    // The backend keeps writing its log while it shuts down; retry the removal
+    // instead of racing it with a fixed pause.
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

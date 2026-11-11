@@ -117,7 +117,7 @@ test("real recovery continues the saved Pi turn without adding a user message, i
   let rejecting = true;
   const provider = createServer(async (request, response) => {
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     if (request.method !== "POST") {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ data: [{ id: "browser-fixture" }] }));
@@ -144,7 +144,7 @@ test("real recovery continues the saved Pi turn without adding a user message, i
     await expect(page.getByRole("alert")).toBeVisible({ timeout: 20_000 });
     await draft(page, "这是下一条未发送的草稿", "next.txt");
     rejecting = false;
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     await expect(page.locator('[data-answer-kind="final"]')).toContainText("已接着原请求完成", {
       timeout: 20_000
     });
@@ -172,7 +172,7 @@ test("retry resumes the failed request while preserving an unrelated draft and i
   try {
     const fixture = await recoveryFixture(page, dashboard);
     await draft(page, "这是下一条尚未发送的指令");
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     await expect.poll(() => fixture.runs.length).toBe(1);
     expect(fixture.runs[0]).toMatchObject({
       taskId: "recovery-a",
@@ -205,14 +205,14 @@ test("changed execution ownership keeps the failed request and draft while expla
       }
     });
     await draft(page, "改绑之后尚未发送的草稿");
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     await expect.poll(() => fixture.runs.length).toBe(1);
     await expect(page.locator("#toast")).toContainText("请恢复原绑定与目录后重试");
     await expect(page.locator("#composer-input")).toHaveValue("改绑之后尚未发送的草稿");
     await expect(page.locator("#attachment-strip")).toContainText("draft.txt");
     await expect(page.locator("#conversation .chat-message.user")).toHaveCount(1);
     await expect(page.getByRole("alert")).toBeVisible();
-    await expect(page.getByRole("button", { name: "重试", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "从中断步骤继续" })).toBeEnabled();
     expect(fixture.runs[0]).not.toHaveProperty("prompt");
     expect(fixture.details.get("recovery-a").task.activeRunId).toBe("failed-fixture-run");
   } finally {
@@ -237,7 +237,7 @@ test("reloading a failed launch with no saved transcript still exposes an honest
     await expect(alert).not.toContainText("synthetic-private-path");
     await page.reload();
     await expect(alert).toContainText("执行进程退出");
-    await expect(page.getByRole("button", { name: "重试", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "从中断步骤继续" })).toBeVisible();
   } finally {
     await dashboard.stop();
   }
@@ -256,11 +256,11 @@ test("a typed Main-process exit offers manual continuation without blaming the m
     await expect(alert).toContainText("执行进程退出");
     await expect(alert).not.toContainText("模型");
     await expect(alert).not.toContainText("503");
-    await expect(page.getByRole("button", { name: "检查模型连接" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "切换模型" })).toHaveCount(0);
     await draft(page, "执行失败后的草稿继续保留");
     await page.setViewportSize({ width: 320, height: 900 });
     await alert.screenshot({ path: testInfo.outputPath("main-process-recovery-320.png") });
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     await expect.poll(() => fixture.runs.length).toBe(1);
     expect(fixture.runs[0]).toMatchObject({ resume: true });
     expect(fixture.runs[0]).not.toHaveProperty("prompt");
@@ -290,7 +290,7 @@ for (const [httpStatus, message] of [
       await expect(alert).not.toContainText("Bearer");
       await expect(alert).not.toContainText("sk-test-synthetic");
       if (!httpStatus) await expect(alert).not.toContainText("认证失败");
-      await expect(page.getByRole("button", { name: "检查模型连接" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "切换模型" })).toBeVisible();
       await alert.screenshot({ path: testInfo.outputPath(`model-recovery-${httpStatus ?? "unknown"}.png`) });
     } finally {
       await dashboard.stop();
@@ -302,14 +302,14 @@ test("a rejected retry preserves the draft and never exposes raw provider detail
   try {
     const fixture = await recoveryFixture(page, dashboard, { reject: true });
     await draft(page, "重试失败也不能发送或清空这段草稿");
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     await expect.poll(() => fixture.runs.length).toBe(1);
     expect(fixture.runs[0]).not.toHaveProperty("prompt");
     await expect(page.locator("#send-button")).toBeEnabled();
     await expect(page.locator("#composer-input")).toHaveValue("重试失败也不能发送或清空这段草稿");
     await expect(page.locator("#attachment-strip")).toContainText("draft.txt");
     await expect(page.getByRole("alert")).toContainText("模型连接认证失败");
-    await expect(page.getByRole("button", { name: "重试", exact: true })).toBeFocused();
+    await expect(page.getByRole("button", { name: "从中断步骤继续" })).toBeFocused();
     await expect(page.locator("#conversation")).not.toContainText("recovery fixture unavailable");
   } finally {
     await dashboard.stop();
@@ -327,7 +327,7 @@ test("a delayed retry belongs to its original task without consuming either task
     await page.evaluate(() => {
       window.staleRecoveryButton = document.querySelector("[data-retry-request]");
     });
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     await expect.poll(() => fixture.runs.length).toBe(1);
     await expect(page.locator("#send-button")).toBeDisabled();
     await page.evaluate(() => {
@@ -368,7 +368,7 @@ test("an empty composer retries by continuing saved history without duplicating 
   try {
     const fixture = await recoveryFixture(page, dashboard);
     await expect(page.locator("#composer-input")).toHaveValue("");
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     await expect.poll(() => fixture.runs.length).toBe(1);
     expect(fixture.runs[0]).toMatchObject({
       taskId: "recovery-a",
@@ -410,7 +410,7 @@ for (const httpStatus of [undefined, 400])
       await expect(alert).toContainText("历史上下文");
       await expect(alert).not.toContainText("检查连接");
       await expect(alert).not.toContainText("private-provider-detail");
-      await expect(page.getByRole("button", { name: "检查模型连接" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "切换模型" })).toHaveCount(0);
       await page.reload();
       await expect(alert).toContainText("cyber_policy");
       await expect(page.locator("#composer-input")).toBeVisible();
@@ -426,7 +426,7 @@ test("unavailable exact request records preserve drafts and do not launch a rege
   try {
     const fixture = await recoveryFixture(page, dashboard, { retryUnavailable: true });
     await draft(page, "无法重试时仍保留草稿");
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     await expect(page.locator("#toast")).toContainText("重试记录不可用");
     expect(fixture.runs).toHaveLength(0);
     await expect(page.locator("#composer-input")).toHaveValue("无法重试时仍保留草稿");
@@ -444,7 +444,7 @@ test("an interrupted partial reply retries exact bytes after restart without dup
     dashboard;
   const provider = createServer(async (request, response) => {
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     if (request.method !== "POST") return response.end(JSON.stringify({ data: [{ id: "browser-fixture" }] }));
     requests.push(raw);
     response.writeHead(200, { "content-type": "text/event-stream" });
@@ -470,7 +470,7 @@ test("an interrupted partial reply retries exact bytes after restart without dup
     await page.reload();
     await expect(page.getByRole("alert")).toBeVisible();
     rejecting = false;
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page.getByRole("button", { name: "从中断步骤继续" }).click();
     const answer = page.locator('[data-answer-kind="final"]');
     await expect(answer).toHaveCount(1);
     await expect(answer.locator(".markdown-body")).toHaveText("半句未完成，这是完整答案。");
@@ -502,7 +502,7 @@ for (const rejection of [
     try {
       await recoveryFixture(page, dashboard, { reject: true, rejection });
       await draft(page, "不要丢失这条草稿", "guard-draft.txt");
-      await page.getByRole("button", { name: "重试", exact: true }).click();
+      await page.getByRole("button", { name: "从中断步骤继续" }).click();
       await expect(page.locator("#toast")).toContainText(rejection.error);
       await expect(page.locator("#composer-input")).toHaveValue("不要丢失这条草稿");
       await expect(page.locator("#attachment-strip")).toContainText("guard-draft.txt");

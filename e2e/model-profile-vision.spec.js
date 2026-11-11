@@ -3,6 +3,19 @@ import { readFile } from "node:fs/promises";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 
+// app.js attaches the file-input listener only after its top-level boot await, so a
+// file chosen right after navigation can be dropped. Choose it again until the chip
+// exists (never while one is already shown), then wait for the finished upload.
+async function attachImage(page, name, buffer) {
+  const strip = page.locator("#attachment-strip");
+  await expect(async () => {
+    if (!((await strip.textContent()) ?? "").includes(name))
+      await page.locator("#file-input").setInputFiles({ name, mimeType: "image/png", buffer });
+    await expect(strip).toContainText(name, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(strip.locator(".attachment-chip").filter({ hasText: name })).toContainText("已添加");
+}
+
 for (const visionApi of ["openai-completions", "openai-responses"]) {
   test(`${visionApi}: vision to text and back preserves images and tool history without sending pixels to text models`, async ({
     page
@@ -48,10 +61,7 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
       });
       await page.goto(dashboard.base);
       // Use the real upload composer path for the pending attachment as well.
-      await page
-        .locator("#file-input")
-        .setInputFiles({ name: "history.png", mimeType: "image/png", buffer: image });
-      await expect(page.locator("#attachment-strip")).toContainText("已添加");
+      await attachImage(page, "history.png", image);
       // Capture its actual id; only task-attached inputs may be read by the tool.
       page.on("request", (req) => {
         if (req.method() === "POST" && /\/run$/.test(new URL(req.url()).pathname)) {
@@ -66,10 +76,7 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
       expect(vision.requests.at(-1).body.model).toBe("same-model-name");
       expect(JSON.stringify(vision.requests.at(-1).body)).toContain(pixels);
       const first = (await status()).profiles[0];
-      await page
-        .locator("#file-input")
-        .setInputFiles({ name: "pending.png", mimeType: "image/png", buffer: image });
-      await expect(page.locator("#attachment-strip")).toContainText("已添加");
+      await attachImage(page, "pending.png", image);
       await page.locator("#composer-input").fill("这是切换前的图片草稿");
       await save({
         profileId: "",

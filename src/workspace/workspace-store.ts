@@ -6,6 +6,7 @@ import {
   id,
   now,
   transitionTask,
+  type RunPause,
   type TaskCapabilities,
   type TaskCompletion,
   type TaskRecord,
@@ -46,6 +47,7 @@ export type TaskPatch = Partial<
     | "successCriteria"
     | "capabilities"
     | "activeRunId"
+    | "pause"
     | "kind"
     | "monitoring"
     | "watchRecovery"
@@ -243,6 +245,7 @@ export class LocalWorkspaceStore implements WorkspaceStore {
         successCriteria: value.successCriteria,
         capabilities: normalizeCapabilities(value.capabilities),
         activeRunId: value.activeRunId,
+        pause: normalizeRunPause(value.pause),
         lastError: value.lastError,
         createdAt,
         updatedAt: value.updatedAt ?? createdAt,
@@ -479,6 +482,17 @@ function normalizeCapabilities(value: unknown): TaskCapabilities | undefined {
     grantedBy: candidate.grantedBy === "operator" ? "operator" : "user",
     ...(typeof candidate.grantedAt === "string" ? { grantedAt: candidate.grantedAt } : {}),
     ...(typeof candidate.reason === "string" ? { reason: candidate.reason } : {})
+  };
+}
+
+function normalizeRunPause(value: unknown): RunPause | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Partial<RunPause>;
+  if (typeof candidate.requestedAt !== "string") return undefined;
+  return {
+    requestedAt: candidate.requestedAt,
+    requestedBy: "user",
+    ...(typeof candidate.pausedAt === "string" ? { pausedAt: candidate.pausedAt } : {})
   };
 }
 

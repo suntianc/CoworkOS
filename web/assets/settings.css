@@ -156,139 +156,705 @@
 .settings-card .profile-setting small:empty {
   display: none;
 }
-.settings-backdrop .profile-card.settings-card {
-  width: min(560px, calc(100vw - 32px));
-  border-radius: 16px;
-}
-.profile-card .settings-heading {
-  padding-bottom: 14px;
-}
-.settings-overview {
+/* Settings page ---------------------------------------------------------------
+   Six sections behind one left navigation. The page replaces the shell while it
+   is open, so it owns the window backdrop and the floating content panel. */
+.settings-entry {
+  position: fixed;
+  inset: 0;
   display: grid;
-  align-content: start;
-  gap: 24px;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 10px 10px 0;
+  z-index: 5;
 }
-.settings-overview-group {
+.settings-entry[hidden] {
+  display: none;
+}
+/* The page owns the window while it is open: the margins outside the two
+   panels stay draggable, and macOS keeps room for its traffic lights. */
+html[data-desktop-platform] .settings-entry {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+html[data-desktop-platform] .settings-entry :is(.settings-nav, .settings-content) {
+  -webkit-app-region: no-drag;
+}
+html[data-desktop-platform] .settings-content {
+  user-select: text;
+}
+html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .settings-nav {
+  padding-top: 44px;
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 12px;
   min-width: 0;
 }
-.settings-overview-group > h3 {
-  margin: 0 0 4px;
-  color: var(--ui-muted);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.5;
-}
-.settings-card .settings-overview .profile-setting {
-  flex-wrap: nowrap;
-  gap: 12px;
-  padding: 12px 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-.settings-card .settings-overview .settings-overview-rows > * + * {
-  border-top: 1px solid var(--ui-border);
-}
-.settings-card .settings-overview .settings-row-copy {
-  flex: 1 1 0;
-  align-items: flex-start;
-  gap: 12px;
-}
-.settings-card .settings-overview .settings-row-icon {
-  width: 20px;
-  height: 20px;
-  margin-top: 1px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-.settings-card .settings-overview .settings-row-icon .ui-icon {
-  width: 18px;
-  height: 18px;
-}
-.settings-card .settings-overview .profile-setting > .app-button.is-secondary,
-.settings-card .settings-overview .user-memory-actions .app-button.is-secondary {
-  flex: 0 0 auto;
-  gap: 3px;
-  min-height: 32px;
-  padding: 5px 0 5px 8px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--ui-secondary);
-}
-.settings-card .settings-overview .profile-setting > .app-button .ui-icon,
-.settings-card .settings-overview .user-memory-actions .app-button .ui-icon {
-  width: 14px;
-  height: 14px;
-  color: var(--ui-faint);
-}
-.settings-card .settings-overview .profile-setting > .app-button:hover,
-.settings-card .settings-overview .user-memory-actions .app-button:hover {
-  border-color: transparent;
-  background: var(--ui-hover);
-}
-.settings-card .settings-overview .appearance-setting select {
-  min-width: 120px;
-  min-height: 32px;
-  padding-block: 5px;
-  background: var(--ui-panel);
-}
-.settings-card .settings-overview .desktop-updates {
-  display: grid;
+.settings-back {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 0;
+  margin-bottom: 14px;
+  padding: 6px 8px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-control);
   background: transparent;
+  color: var(--color-text);
+  font: 600 15px/1.4 var(--ui-font);
+  text-align: left;
+  cursor: pointer;
 }
-.settings-card .settings-overview .desktop-updates .profile-setting {
-  padding: 12px 0;
+.settings-back .ui-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-2);
 }
-.settings-card .settings-overview .desktop-updates .profile-setting > .app-button {
-  appearance: none;
-  min-height: 32px;
-  padding: 5px 12px;
-  border-radius: 8px;
-  font: 400 13px/20px var(--ui-font);
+.settings-back:hover {
+  background: var(--color-surface-3);
 }
-.settings-card .settings-overview .desktop-updates .profile-setting > .app-button.is-secondary {
-  color: var(--ui-secondary);
-  border-color: transparent;
-  background: var(--ui-raised);
-}
-.settings-card
-  .settings-overview
-  .desktop-updates
-  .profile-setting
-  > .app-button.is-secondary:hover:not(:disabled) {
-  color: var(--ui-text);
-  background: var(--ui-hover);
-}
-.settings-card .settings-overview .desktop-updates .profile-setting > .app-button:focus-visible {
-  outline: 2px solid var(--ui-accent);
+.settings-back:focus-visible {
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
-.settings-card .settings-overview .desktop-updates > :is(p, progress) {
-  margin-left: 32px;
+.settings-nav-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.settings-card .settings-overview .desktop-updates > p {
-  padding: 0;
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-2);
+  font: 400 14px/1.4 var(--ui-font);
+  text-align: left;
+  cursor: pointer;
+}
+.settings-nav-item .ui-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.settings-nav-item:hover:not([aria-current="page"]) {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.settings-nav-item[aria-current="page"] {
+  border-color: var(--selected-edge);
+  background: var(--selected-fill);
+  box-shadow: 0 2px 8px #00000040;
+  color: var(--color-text);
+  font-weight: 500;
+}
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.settings-content {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  height: 100%;
+  padding: 48px 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--radius-panel);
+  background-color: var(--panel-fill);
+  background-image: var(--panel-sheen);
+  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: var(--panel-shadow);
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+.settings-column {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  width: 680px;
+  max-width: 100%;
+  min-width: 0;
+}
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  min-width: 0;
+}
+.settings-panel[hidden] {
+  display: none;
+}
+.settings-page-title {
+  margin: 0;
+  color: var(--color-text);
+  font: 600 22px/1.3 var(--ui-font);
+}
+.settings-panel.is-large .settings-page-title {
+  font-size: 24px;
+}
+.settings-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.settings-group.is-placeholder {
+  opacity: 0.45;
+}
+.settings-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+}
+.settings-group-head > .ui-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--color-text);
+}
+.settings-group-title {
+  margin: 0;
+  color: var(--color-text);
+  font: 600 15px/1.4 var(--ui-font);
+}
+.settings-group-spacer,
+.settings-row-spacer {
+  flex: 1 1 auto;
+}
+.settings-phase {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--color-surface-3);
+  color: var(--color-text-2);
+  font:
+    400 11px/1.5 "Inter",
+    var(--ui-font);
+}
+.settings-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: 400 13px/1.4 var(--ui-font);
+  cursor: pointer;
+}
+.settings-link .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+.settings-link:hover {
+  color: color-mix(in srgb, var(--color-accent), var(--color-text) 24%);
+}
+.settings-rows {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+.settings-rows > * + * {
+  border-top: 1px solid var(--color-line);
+}
+.settings-row,
+.settings-rows > .profile-setting,
+.settings-rows > .computer-setting > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px 16px;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
-.settings-card .settings-overview .desktop-updates > progress {
-  width: calc(100% - 32px);
+.settings-rows > .computer-setting > summary {
+  cursor: pointer;
+  list-style: none;
 }
-.settings-card .settings-overview .user-memory-setting {
+.settings-rows > .computer-setting > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-rows > .computer-setting > .computer-setting-content {
+  padding: 0 16px 14px;
+}
+.settings-rows > .user-memory-settings {
+  display: block;
+}
+.settings-rows > .user-memory-settings > .profile-setting {
+  border: 0;
+  background: transparent;
+}
+.settings-row-label,
+.settings-row-name {
+  color: var(--color-text);
+  font: 400 14px/1.4 var(--ui-font);
+  white-space: nowrap;
+}
+.settings-row > :is(.settings-segmented, .settings-select, .ui-switch, .settings-outline-button) {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.settings-row-name {
+  font-weight: 500;
+}
+.settings-row-state {
+  color: var(--color-text-2);
+  font: 400 12px/1.5 var(--ui-font);
+  white-space: nowrap;
+}
+.settings-row-state.is-ok {
+  color: var(--color-ok);
+}
+.settings-row-state.is-warn {
+  color: var(--color-warn);
+}
+.settings-row-line {
   display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
-.settings-card .settings-overview .user-memory-actions {
+.settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.settings-row-meta {
+  color: var(--color-text-3);
+  font: 400 12px/1.5 var(--ui-font);
+  overflow-wrap: anywhere;
+}
+.settings-rows small {
+  display: block;
+  margin-top: 3px;
+  color: var(--color-text-3);
+  font: 400 12px/1.55 var(--ui-font);
+}
+.settings-rows small:empty {
+  display: none;
+}
+.settings-rows .settings-row-copy {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.settings-rows .settings-row-copy > span:last-child {
+  min-width: 0;
+}
+.settings-rows .settings-row-copy strong {
+  display: block;
+  color: var(--color-text);
+  font: 500 14px/1.4 var(--ui-font);
+}
+.settings-row-meta.is-mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+}
+.settings-role {
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--color-surface-3);
+  color: var(--color-text-2);
+  font: 400 11px/1.5 var(--ui-font);
+}
+.settings-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-text-3);
+}
+.settings-dot.is-ok {
+  background: var(--color-ok);
+}
+.settings-dot.is-muted {
+  background: var(--color-text-3);
+}
+.settings-info {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-3);
+  cursor: help;
+}
+.settings-info .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+.settings-icon-box {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+.settings-icon-box .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+.settings-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font: 600 13px/1 var(--ui-font);
+}
+.settings-chip {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--color-surface-3);
+  color: var(--color-text-2);
+  font: 400 12px/1.5 var(--ui-font);
+  white-space: nowrap;
+}
+.settings-chip.is-accent {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.settings-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-warn);
+  font: 400 12px/1.5 var(--ui-font);
+}
+.settings-warn .ui-icon {
+  width: 13px;
+  height: 13px;
+}
+.settings-segmented {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--color-surface-2);
+}
+.settings-segmented > button {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-3);
+  font: 400 12px/1.4 var(--ui-font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.settings-segmented > button[aria-checked="true"] {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.settings-segmented > button:hover:not([aria-checked="true"]) {
+  color: var(--color-text-2);
+}
+.settings-segmented > button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.settings-select {
+  min-width: 200px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font: 400 13px/1.4 var(--ui-font);
+}
+.settings-select.is-narrow {
+  min-width: 140px;
+}
+.settings-select:disabled {
+  color: var(--color-text-2);
+}
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 8px 0 0;
+}
+.settings-primary-button {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font: 500 13px/1.4 var(--ui-font);
+  cursor: pointer;
+}
+.settings-primary-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text), var(--color-bg) 12%);
+}
+.settings-text-button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-2);
+  font: 400 13px/1.4 var(--ui-font);
+  cursor: pointer;
+}
+.settings-text-button:hover:not(:disabled) {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.settings-outline-button {
+  padding: 5px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text);
+  font: 400 12px/1.4 var(--ui-font);
+  cursor: pointer;
+}
+.settings-row.has-error {
+  flex-wrap: wrap;
+}
+.settings-row-error {
+  flex: 0 0 100%;
+  margin-top: 4px;
+  color: var(--color-danger);
+  font: 400 12px/1.5 var(--ui-font);
+}
+.settings-row-error[hidden] {
+  display: none;
+}
+
+.settings-stepper {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+}
+.settings-stepper > button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-2);
+  cursor: pointer;
+}
+.settings-stepper > button:disabled {
+  color: var(--color-text-3);
+  cursor: default;
+}
+.settings-stepper > button .ui-icon {
+  width: 13px;
+  height: 13px;
+}
+.settings-stepper-value {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 30px;
+  color: var(--color-text);
+  font: 600 14px/1 var(--ui-font);
+}
+.settings-capacity-usage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 150px;
+}
+.settings-capacity-bar {
+  display: inline-flex;
+  gap: 3px;
+}
+.settings-capacity-seg {
+  width: 14px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--color-surface-3);
+}
+.settings-capacity-seg.is-accent {
+  background: var(--color-accent);
+}
+.settings-capacity-seg.is-warn {
+  background: var(--color-warn);
+}
+.settings-error {
+  color: var(--color-danger);
+  font: 400 12px/1.5 var(--ui-font);
+}
+.settings-error[hidden] {
+  display: none;
+}
+.settings-icon-button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-3);
+  cursor: pointer;
+}
+.settings-icon-button:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.settings-icon-button .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+.settings-rows > .settings-row > .ui-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--color-text-2);
+}
+.settings-role-name {
+  width: 140px;
+  flex: 0 0 auto;
+}
+.settings-select.is-model {
+  width: 260px;
+  min-width: 0;
+  flex: 0 1 260px;
+}
+.settings-select.is-effort {
+  width: 84px;
+  min-width: 0;
+  flex: 0 0 84px;
+}
+
+/* Tool rows are created by three controllers installed in boot order; the
+   design reads search, memory, then window access. */
+#profile-settings-tools > .profile-setting {
+  order: 1;
+}
+#profile-settings-tools > .user-memory-settings {
+  order: 2;
+}
+#profile-settings-tools > .computer-setting {
+  order: 3;
+}
+.settings-rows .user-memory-setting {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.settings-rows .user-memory-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.settings-rows .user-memory-switch {
+  padding: 0;
+}
+.settings-rows .user-memory-learning-options {
+  border-top: 1px solid var(--color-line);
+}
+.settings-rows .user-memory-learning-options > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 16px;
+  color: var(--color-text-2);
+  font: 400 13px/1.4 var(--ui-font);
+  cursor: pointer;
+  list-style: none;
+}
+.settings-rows .user-memory-learning-options > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-rows .user-memory-learning-options > summary small {
+  margin: 0;
+  color: var(--color-text-3);
+}
+.settings-rows .user-memory-learning-options > summary .ui-icon {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+}
+.settings-rows .user-memory-learning-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px 14px;
+}
+.settings-rows .computer-setting > summary .settings-row-action {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
+  margin-left: auto;
+  color: var(--color-text-2);
+  font: 400 12px/1.4 var(--ui-font);
 }
-.settings-card .settings-overview .user-memory-switch {
-  padding: 6px 0;
+.settings-rows .computer-setting > summary .settings-row-action .ui-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--color-text-3);
 }
+
+.settings-row #appearance-status,
+.settings-row #language-status {
+  flex-basis: auto;
+  margin: 0;
+  color: var(--color-danger);
+  font: 400 12px/1.5 var(--ui-font);
+}
+.settings-row #appearance-status:empty,
+.settings-row #language-status:empty {
+  display: none;
+}
+
+.settings-rows .desktop-updates {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.settings-rows .desktop-updates > :is(p, progress) {
+  margin: 0;
+  padding: 0 16px 14px;
+  border: 0;
+  background: transparent;
+}
+.settings-rows .desktop-updates > :is(p, progress)[hidden],
+.settings-rows .desktop-updates > p:empty {
+  display: none;
+}
+.settings-rows .desktop-updates > progress {
+  width: calc(100% - 32px);
+  margin: 0 16px 14px;
+  padding: 0;
+}
+
 .settings-card .settings-form {
   display: flex;
   flex: 1 1 auto;
@@ -380,7 +946,7 @@
   border: 1px solid var(--ui-border);
   border-radius: 12px;
 }
-.settings-card .settings-toggle {
+.settings-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -405,7 +971,7 @@
   font-size: 12px;
   line-height: 1.6;
 }
-.settings-card .settings-toggle input[type="checkbox"] {
+.settings-toggle input[type="checkbox"] {
   appearance: none;
   position: relative;
   flex: 0 0 32px;
@@ -428,7 +994,7 @@
   border-radius: 50%;
   transition: transform 0.15s;
 }
-.settings-card .settings-toggle input:checked {
+.settings-toggle input:checked {
   background: var(--ui-accent);
 }
 .settings-toggle input:checked::before {
@@ -670,7 +1236,7 @@
     background: Canvas;
     border-color: CanvasText;
   }
-  .settings-card .settings-toggle input[type="checkbox"] {
+  .settings-toggle input[type="checkbox"] {
     appearance: auto;
   }
   .settings-toggle input::before {
@@ -876,25 +1442,19 @@
   display: none;
 }
 @media (max-width: 480px) {
-  .settings-card .user-memory-setting {
+  :is(.settings-card, .settings-rows) .user-memory-setting {
     gap: 6px 10px;
   }
   .user-memory-actions {
     gap: 8px;
   }
-  .settings-card .settings-overview .appearance-setting .settings-row-copy {
-    flex-basis: 0;
-  }
-  .settings-card .settings-overview .profile-setting > :is(.app-button, select) {
-    margin-left: 0;
-  }
-  .settings-card .settings-overview .user-memory-setting {
+  .settings-rows .user-memory-setting {
     flex-wrap: wrap;
   }
-  .settings-card .settings-overview .user-memory-setting .settings-row-copy {
+  .settings-rows .user-memory-setting .settings-row-copy {
     flex-basis: calc(100% - 32px);
   }
-  .settings-card .settings-overview .user-memory-actions {
+  .settings-rows .user-memory-actions {
     margin-left: 32px;
     margin-top: -6px;
   }
@@ -923,4 +1483,169 @@
 .user-memory-compose [data-memory-compose-result]:empty,
 .settings-scroll > [data-memory-view-status]:empty {
   display: none;
+}
+
+/* Node connections: the row's retry, its action menu and the add/rename form.
+   Sizes come from the 「设置 · 节点连接」 board: 16px ellipsis, 5×10 retry,
+   200px menu with 7px rows and the popover's own shadow. */
+.settings-dot.is-alert {
+  background: var(--color-danger);
+}
+.settings-retry {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text);
+  font: 400 12px/1.3 var(--ui-font);
+  cursor: pointer;
+}
+.settings-retry:hover {
+  background: var(--color-surface-2);
+}
+.settings-icon-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-3);
+  cursor: pointer;
+}
+/* The mark stays 16px; the hit area reaches the 28px row control size. */
+.settings-icon-button::after {
+  position: absolute;
+  inset: -6px;
+  content: "";
+}
+.settings-icon-button:hover {
+  color: var(--color-text-2);
+}
+.settings-icon-button .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+.settings-node-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 200px;
+  padding: 6px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 10px;
+  background: #1e1e26eb;
+  box-shadow: 0 12px 28px #00000080;
+  backdrop-filter: blur(30px);
+}
+html[data-theme="light"] .settings-node-menu {
+  background: #fbfbfdf2;
+  box-shadow: 0 12px 28px #2a2a6a1f;
+}
+.settings-node-menu[hidden] {
+  display: none;
+}
+.settings-node-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text);
+  font: 400 13px/1.4 var(--ui-font);
+  text-align: left;
+  cursor: pointer;
+}
+.settings-node-menu button:hover:not(:disabled) {
+  background: var(--color-surface-3);
+}
+.settings-node-menu button:disabled {
+  color: var(--color-text-3);
+  cursor: default;
+}
+.settings-node-menu button .ui-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-2);
+}
+.settings-node-menu button.is-danger,
+.settings-node-menu button.is-danger .ui-icon {
+  color: var(--color-danger);
+}
+.node-dialog {
+  width: min(420px, calc(100vw - 32px));
+}
+.node-dialog [hidden] {
+  display: none;
+}
+.node-dialog .project-dialog-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.node-dialog .node-dialog-label {
+  margin-top: 6px;
+  color: var(--color-text-2);
+  font: 400 12px/1.4 var(--ui-font);
+}
+.node-dialog .settings-segmented {
+  align-self: flex-start;
+}
+
+/* A web phone-sized window stacks the navigation over one full-width column. */
+@media (max-width: 639px) {
+  .settings-entry {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+  }
+  .settings-nav {
+    gap: 6px;
+    min-height: 0;
+    padding: 0;
+  }
+  .settings-back {
+    align-self: flex-start;
+    margin: 0;
+    padding: 4px 6px;
+    font-size: 14px;
+  }
+  .settings-nav-items {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .settings-nav-item {
+    width: auto;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  .settings-nav-item .ui-icon {
+    width: 14px;
+    height: 14px;
+  }
+  .settings-content {
+    height: auto;
+    min-height: 0;
+    padding: 20px 16px;
+  }
+  .settings-column {
+    gap: 28px;
+  }
+  .settings-panel {
+    gap: 28px;
+  }
+  .settings-page-title {
+    font-size: 20px;
+  }
 }

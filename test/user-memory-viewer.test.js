@@ -10,7 +10,7 @@ function setup(t, fetch) {
   Object.assign(globalThis, { window, document: window.document, fetch });
   window.HTMLElement.prototype.getClientRects = () => [1];
   t.after(() => Object.assign(globalThis, previous));
-  const viewer = createUserMemoryViewer({ overview: { open() {}, close() {} } });
+  const viewer = createUserMemoryViewer({ host: { open() {}, close: () => true } });
   const panel = document.querySelector(".modal-backdrop");
   const input = panel.querySelector("textarea");
   const form = panel.querySelector("form");

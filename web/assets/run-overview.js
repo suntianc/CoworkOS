@@ -1,5 +1,5 @@
 import { ui } from "./ui/language.js";
-import { agentName } from "./agent-room.js";
+import { agentName } from "./agent-names.js";
 
 const esc = (value) =>
   String(value ?? "").replace(
@@ -43,8 +43,7 @@ function cacheLabel(usage, field) {
 
 function agentUsageRow(agent) {
   const current = agent.current !== false;
-  const tag = current ? "button" : "div";
-  return `<${tag} ${current ? ui`type="button" data-usage-agent="${esc(agent.callId || agent.agentId)}" title="查看 ${esc(agentName(agent))} 当前轮次的执行轨迹"` : ui('title="历史轮次的累计用量"')} class="run-agent-row${current ? "" : " historical"}"><span>${agent.agentId === "main" ? '<img src="/assets/atria-symbol.png" alt="" />' : '<svg class="ui-icon"><use href="#i-team"/></svg>'}<strong>${esc(agentName(agent))}</strong>${current ? "" : ui("<small>历史</small>")}</span><span title="${agent.usage.totalTokens == null ? ui("累计 Token") : `${number(agent.usage.totalTokens)} Token`}">${tokenLabel(agent.usage)}${current ? "<small>↗</small>" : ""}</span></${tag}>`;
+  return `<div class="run-agent-row${current ? "" : " historical"}"><span>${agent.agentId === "main" ? '<svg class="avatar-mark" aria-hidden="true"><use href="#i-formicand-mark-small" /></svg>' : '<svg class="ui-icon"><use href="#i-team"/></svg>'}<strong>${esc(agentName(agent) || ui("协作成员"))}</strong>${current ? "" : ui("<small>历史</small>")}</span><span title="${agent.usage.totalTokens == null ? ui("累计 Token") : `${number(agent.usage.totalTokens)} Token`}">${tokenLabel(agent.usage)}</span></div>`;
 }
 
 export function renderRunOverview(statistics, now = Date.now()) {

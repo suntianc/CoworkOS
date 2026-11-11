@@ -1,15 +1,15 @@
-import { agentName } from "../agent-room.js";
+import { agentName } from "../agent-names.js";
 import {
-  artifactParentPath,
   artifactRequestUrls,
   artifactVersion,
   formatArtifactSize,
   normalizeArtifactPreview,
   renderArtifactMedia
 } from "../artifacts.js";
+import { filePatchText, parseUnifiedDiff } from "../diff-view.js";
 import { renderMarkdown } from "../markdown.js";
 import { icon } from "../ui/icons.js";
-import { createMenu } from "../ui/menu.js";
+import { ui } from "../ui/language.js";
 import { escapeHtml as esc } from "../workbench/html.js";
 
 /** Owns artifact loading, preview and editor handoff. It never writes a published artifact. */
@@ -21,13 +21,14 @@ export function createArtifactController({
   renderRightPanel,
   getWorkbench,
   mediaUrl,
-  openArtifactViewer
+  openArtifactViewer,
+  getDelivery = () => undefined
 }) {
   function fileBaseName(path) {
     const parts = String(path || "")
       .split(/[\\/]/)
       .filter(Boolean);
-    return parts.at(-1) || String(path || "未命名文件");
+    return parts.at(-1) || String(path || ui("未命名文件"));
   }
 
   function fileLanguage(path) {
@@ -57,155 +58,11 @@ export function createArtifactController({
   }
 
   function artifactSource(artifact) {
-    if (artifact.producerAgentId === "main") return "CoworkOS";
+    if (artifact.producerAgentId === "main") return "Formicand";
     const agents = state.detail?.progress?.agents || state.detail?.coordination?.calls || [];
     const agent = agents.find((entry) => entry.agentId === artifact.producerAgentId);
     if (!agent) return "";
     return agentName(agent);
-  }
-
-  let outputMenu;
-
-  function outputMenuSignature(kind, resourceId, entries) {
-    return JSON.stringify([state.selected, kind, resourceId, entries]);
-  }
-
-  function outputDownloadLink(file, className = "output-download") {
-    const artifact =
-      state.detail?.artifacts?.find((entry) => entry.relativePath === file.relativePath) || file;
-    const { downloadUrl } = artifactRequestUrls(state.selected, file.relativePath, artifactVersion(artifact));
-    const name = file.displayName || fileBaseName(file.relativePath);
-    const menuItem = className === "app-button";
-    return `<a class="${className}" data-output-download data-download-artifact="${esc(file.relativePath)}" href="${esc(downloadUrl)}" download="${esc(name)}" ${menuItem ? 'role="menuitem"' : `aria-label="下载 ${esc(name)}"`} title="下载 ${esc(name)}">${icon("download")}<span>${menuItem ? esc(name) : "下载"}</span></a>`;
-  }
-
-  function outputVersionItem(version) {
-    const date = new Date(version.updatedAt);
-    const time = Number.isNaN(date.getTime())
-      ? version.name
-      : new Intl.DateTimeFormat("zh-CN", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: false
-        }).format(date);
-    return `<button class="app-button" type="button" role="menuitem" data-output-version="${esc(version.resourceId)}" title="${esc(version.name)} · r${esc(version.revision)}">${icon("history")}<span>${esc(time)} · r${esc(version.revision)}</span></button>`;
-  }
-
-  function openOutputMenu(trigger, resourceId, entries, kind) {
-    if (outputMenu?.resourceId === resourceId && outputMenu.kind === kind) {
-      outputMenu.menu.close(true);
-      return;
-    }
-    outputMenu?.menu.close();
-    const taskId = state.selected;
-    const versions = kind === "versions";
-    const panel = document.createElement("div");
-    panel.className = `ui-menu output-download-menu${versions ? " output-version-menu" : ""}`;
-    panel.hidden = true;
-    panel.setAttribute("role", "menu");
-    panel.setAttribute("aria-label", versions ? "较早版本" : "下载产出物文件");
-    panel.innerHTML = versions
-      ? entries.map(outputVersionItem).join("")
-      : entries.map((file) => outputDownloadLink(file, "app-button")).join("");
-    if (versions)
-      panel.addEventListener("click", (event) => {
-        const id = event.target.closest("[data-output-version]")?.dataset.outputVersion;
-        if (state.selected === taskId && entries.some((entry) => entry.resourceId === id))
-          void openResourceInEditor(id);
-      });
-    document.body.append(panel);
-    const place = () => {
-      const anchor = trigger.getBoundingClientRect();
-      const width = Math.min(320, window.innerWidth - 16);
-      panel.style.width = `${width}px`;
-      panel.style.left = `${Math.max(8, Math.min(anchor.right - width, window.innerWidth - width - 8))}px`;
-      const below = window.innerHeight - anchor.bottom - 16;
-      const above = anchor.top - 16;
-      const down = below >= Math.min(panel.scrollHeight, 260) || below >= above;
-      panel.style.maxHeight = `${Math.max(60, Math.min(320, down ? below : above))}px`;
-      panel.style.top = down ? `${anchor.bottom + 6}px` : "auto";
-      panel.style.bottom = down ? "auto" : `${window.innerHeight - anchor.top + 6}px`;
-    };
-    const menu = createMenu(trigger, panel, {
-      toggleOnClick: false,
-      onOpen: place,
-      onClose() {
-        menu.dispose();
-        window.removeEventListener("resize", place);
-        panel.remove();
-        if (outputMenu?.menu === menu) outputMenu = undefined;
-      }
-    });
-    outputMenu = {
-      kind,
-      resourceId,
-      signature: outputMenuSignature(kind, resourceId, entries),
-      menu,
-      setTrigger(next) {
-        trigger = next;
-        menu.setTrigger(next);
-        place();
-      }
-    };
-    window.addEventListener("resize", place);
-    menu.open();
-  }
-
-  function renderOutputActions(row) {
-    const files = row.kind === "resource" && Array.isArray(row.files) ? row.files : [];
-    const history =
-      row.kind === "resource" && row.previousVersions?.length
-        ? `<button class="output-history" type="button" data-output-version-menu="${esc(row.resourceId)}" aria-haspopup="menu" aria-expanded="false" aria-label="查看 ${esc(row.name)} 的较早版本" title="较早版本">${icon("history")}</button>`
-        : "";
-    const download =
-      files.length === 1
-        ? outputDownloadLink(files[0])
-        : files.length > 1
-          ? `<button class="output-download" type="button" data-output-download data-output-download-menu="${esc(row.resourceId)}" aria-haspopup="menu" aria-expanded="false" aria-label="下载 ${esc(row.name)} 的文件">${icon("download")}<span>下载</span>${icon("chevron-down")}</button>`
-          : "";
-    return history || download ? `<span class="output-file-actions">${history}${download}</span>` : "";
-  }
-
-  function bindOutputActions(outputList, rows) {
-    outputList.querySelectorAll("[data-output-download], [data-output-version-menu]").forEach((node) => {
-      node.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const kind = node.hasAttribute("data-output-version-menu") ? "versions" : "downloads";
-        const resourceId = node.dataset.outputVersionMenu ?? node.dataset.outputDownloadMenu;
-        if (!resourceId) return;
-        const row = rows.find((entry) => entry.resourceId === resourceId);
-        const entries = kind === "versions" ? row?.previousVersions : row?.files;
-        if (entries?.length) openOutputMenu(node, resourceId, entries, kind);
-      });
-      node.addEventListener("keydown", (event) => {
-        event.stopPropagation();
-        if (
-          (node.dataset.outputDownloadMenu || node.dataset.outputVersionMenu) &&
-          ["ArrowDown", "ArrowUp"].includes(event.key) &&
-          node.getAttribute("aria-expanded") !== "true"
-        ) {
-          event.preventDefault();
-          node.click();
-          if (event.key === "ArrowUp") $(".output-download-menu [role=menuitem]:last-child")?.focus();
-        }
-      });
-    });
-    if (outputMenu) {
-      const row = rows.find((entry) => entry.resourceId === outputMenu.resourceId);
-      const kind = outputMenu.kind;
-      const attribute = kind === "versions" ? "data-output-version-menu" : "data-output-download-menu";
-      const entries = kind === "versions" ? row?.previousVersions : row?.files;
-      const trigger = [...outputList.querySelectorAll(`[${attribute}]`)].find(
-        (node) => node.getAttribute(attribute) === outputMenu.resourceId
-      );
-      if (trigger && outputMenu.signature === outputMenuSignature(kind, row.resourceId, entries))
-        outputMenu.setTrigger(trigger);
-      else outputMenu.menu.close();
-    }
   }
 
   function openArtifact(path) {
@@ -218,9 +75,42 @@ export function createArtifactController({
     getWorkbench().captureNavigation();
     if (!state.openFiles.includes(path)) state.openFiles.push(path);
     state.previewPath = path;
+    state.drawerTab = { kind: "attachment", path };
+    rememberDrawerTrigger();
     state.artifactDrawerOpen = true;
     renderRightPanel();
     ensureArtifactLoaded(path);
+  }
+
+  /**
+   * Open the side preview on one of the change's tabs.
+   *
+   * The drawer is the work entry's own preview, so opening it never navigates
+   * away from the conversation and closing it returns to the same reading
+   * position.
+   */
+  function openPreview({ tab, path } = {}) {
+    if (!state.selected) return;
+    rememberDrawerTrigger();
+    state.artifactDrawerOpen = true;
+    if (tab === "diff") state.drawerTab = { kind: "diff" };
+    else if (tab === "file") {
+      if (path) state.drawerFile = path;
+      state.drawerTab = { kind: "file" };
+    } else if (tab === "attachment" && path) {
+      state.previewPath = path;
+      state.drawerTab = { kind: "attachment", path };
+      ensureArtifactLoaded(path);
+    }
+    renderRightPanel();
+  }
+
+  /** Closing the preview returns the reader to the control that opened it. */
+  function rememberDrawerTrigger() {
+    // Switching tabs inside an open drawer keeps the original trigger.
+    if (state.artifactDrawerOpen) return;
+    const active = document.activeElement;
+    state.drawerTrigger = active && active !== document.body ? active : null;
   }
 
   function canEditArtifact(artifact) {
@@ -290,7 +180,7 @@ export function createArtifactController({
 
   async function openEditableArtifact(taskId, artifact, opening) {
     try {
-      showToast("正在打开文件…");
+      showToast(ui("正在打开文件…"));
       const created = await getWorkbench().importArtifact(taskId, artifact);
       if (created.resource?.resourceId) {
         await getWorkbench().api.openTab({
@@ -311,15 +201,19 @@ export function createArtifactController({
         if (navigation === opening.navigation) break;
       }
       if (opening.navigation.current()) closeArtifactDrawer();
-      showToast(`已打开文档：${created.resource.title}`);
+      showToast(`${ui("已打开文档：")}${created.resource.title}`);
     } catch (error) {
-      showToast(`无法在编辑器中打开：${error.message}`);
+      showToast(`${ui("无法在编辑器中打开：")}${error.message}`);
     }
   }
 
-  function closeArtifactDrawer() {
+  function closeArtifactDrawer(restoreFocus = false) {
     state.artifactDrawerOpen = false;
     renderArtifactDrawer();
+    if (!restoreFocus) return;
+    const trigger = state.drawerTrigger;
+    state.drawerTrigger = null;
+    if (trigger?.isConnected) trigger.focus();
   }
 
   function closeArtifact(path) {
@@ -387,108 +281,319 @@ export function createArtifactController({
       });
   }
 
+  function changedFiles() {
+    return getDelivery()?.view?.diff?.files || [];
+  }
+
+  function selectedFile() {
+    const files = changedFiles();
+    return files.find((file) => file.path === state.drawerFile)?.path ?? files[0]?.path;
+  }
+
+  function drawerTabs(attachments) {
+    const tabs = [];
+    if (changedFiles().length) {
+      tabs.push({ id: "diff", kind: "diff", label: "diff" });
+      tabs.push({ id: "file", kind: "file", label: ui("文件"), path: selectedFile() });
+    }
+    for (const entry of attachments)
+      tabs.push({
+        id: `attachment:${entry.relativePath}`,
+        kind: "attachment",
+        path: entry.relativePath,
+        label: entry.displayName || fileBaseName(entry.relativePath)
+      });
+    return tabs;
+  }
+
+  function currentTab(tabs) {
+    // An attachment picked without naming a tab opens its own preview.
+    const tab =
+      state.drawerTab ?? (state.previewPath ? { kind: "attachment", path: state.previewPath } : undefined);
+    if (!tab) return undefined;
+    if (tab.kind === "attachment") return tabs.find((entry) => entry.id === `attachment:${tab.path}`);
+    return tabs.find((entry) => entry.kind === tab.kind);
+  }
+
+  /** The committed change behind the panel's diff; fetched once per candidate. */
+  function ensureDiffLoaded() {
+    const view = getDelivery()?.view;
+    const development = view?.development;
+    if (!development || !view?.diff) return;
+    const key = `${state.selected}:${development.developmentId}:${view.diff.candidateCommit}`;
+    if (state.drawerDiff?.key === key) return;
+    const pending = { key, status: "loading" };
+    state.drawerDiff = pending;
+    api(`/api/tasks/${encodeURIComponent(state.selected)}/deliveries`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "diff", developmentId: development.developmentId })
+    })
+      .then((result) => {
+        if (state.drawerDiff !== pending) return;
+        state.drawerDiff = {
+          key,
+          status: "ready",
+          files: parseUnifiedDiff(result.diff.patch),
+          contents: new Map((result.diff.contents || []).map((entry) => [entry.path, entry.content])),
+          patch: result.diff.patch,
+          truncated: Boolean(result.diff.truncated)
+        };
+        renderArtifactDrawer();
+      })
+      .catch((error) => {
+        if (state.drawerDiff !== pending) return;
+        state.drawerDiff = { key, status: "error", error: error.message };
+        renderArtifactDrawer();
+      });
+  }
+
+  function renderDiffLines(files) {
+    return files
+      .map(
+        (file) =>
+          `<section class="drawer-diff-file" data-diff-file="${esc(file.path)}"><header>${esc(
+            file.path
+          )}</header>${file.lines
+            .map(
+              (hunk) =>
+                `${file.lines.length > 1 ? `<div class="drawer-hunk">${esc(hunk.header)}</div>` : ""}${hunk.lines
+                  .map(
+                    (line) =>
+                      `<div class="drawer-line" data-kind="${line.kind}"><span class="drawer-line-number">${line.number}</span><span class="drawer-line-sign">${
+                        line.kind === "add" ? "+" : line.kind === "delete" ? "−" : ""
+                      }</span><code>${esc(line.text) || " "}</code></div>`
+                  )
+                  .join("")}`
+            )
+            .join("")}</section>`
+      )
+      .join("");
+  }
+
+  function downloadText(text, name) {
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.dataset.managedDownload = "local";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function renderDiffBody(tab, files) {
+    if (state.drawerDiff?.status === "error")
+      return `<div class="drawer-state is-error"><strong>${ui("无法显示改动")}</strong><p>${esc(
+        state.drawerDiff.error
+      )}</p></div>`;
+    if (!state.drawerDiff || state.drawerDiff.status === "loading") {
+      ensureDiffLoaded();
+      return `<div class="drawer-state"><span class="editor-spinner"></span><strong>${ui(
+        "正在读取改动"
+      )}</strong></div>`;
+    }
+    if (tab.kind === "file") {
+      const file = files.find((entry) => entry.path === tab.path) || files[0];
+      const list =
+        files.length > 1
+          ? `<nav class="drawer-file-picker" aria-label="${ui("改动文件")}">${files
+              .map(
+                (entry) =>
+                  `<button type="button" class="drawer-file${
+                    entry.path === file?.path ? " active" : ""
+                  }" data-diff-select="${esc(entry.path)}" aria-current="${
+                    entry.path === file?.path ? "true" : "false"
+                  }">${esc(entry.path)}</button>`
+              )
+              .join("")}</nav>`
+          : "";
+      const content = file ? state.drawerDiff.contents?.get(file.path) : undefined;
+      if (content === undefined)
+        return `${list}<div class="drawer-state"><strong>${ui("这个文件以二进制保存")}</strong><p>${ui(
+          "请用 diff 或下载查看。"
+        )}</p></div>`;
+      const lines = content
+        .split("\n")
+        .map(
+          (line, index) =>
+            `<div class="drawer-file-line"><span class="drawer-line-number">${index + 1}</span><code>${
+              esc(line) || " "
+            }</code></div>`
+        );
+      return `${list}<div class="drawer-lines">${lines.join("")}</div>`;
+    }
+    return `<div class="drawer-lines">${renderDiffLines(state.drawerDiff.files)}</div>`;
+  }
+
   function renderArtifactDrawer() {
     const drawer = $("#artifact-drawer");
-    const scrim = $("#artifact-drawer-scrim");
-    if (!drawer || !scrim) return;
-    const artifacts = state.detail?.artifacts || [];
-    const activePath = state.previewPath;
-    if (
-      !state.artifactDrawerOpen ||
-      !activePath ||
-      !artifacts.some((artifact) => artifact.relativePath === activePath)
-    ) {
+    if (!drawer) return;
+    const attachments = state.detail?.artifacts || [];
+    const tabs = drawerTabs(attachments);
+    const tab = currentTab(tabs);
+    if (!state.artifactDrawerOpen || !tabs.length || !tab) {
       drawer.hidden = true;
-      scrim.hidden = true;
       drawer.innerHTML = "";
       delete drawer.dataset.signature;
-      delete drawer.dataset.activePath;
+      delete drawer.dataset.tab;
       return;
     }
-    const artifact = artifacts.find((entry) => entry.relativePath === activePath) || {};
-    const cached = state.artifactCache.get(activePath);
+    const artifact = attachments.find((entry) => entry.relativePath === tab.path) || {};
+    const cached = tab.kind === "attachment" ? state.artifactCache.get(tab.path) : undefined;
     const signature = JSON.stringify([
       state.selected,
-      activePath,
-      artifacts.map((entry) => [entry.relativePath, entry.displayName, artifactVersion(entry)]),
+      tab.id,
+      tab.path,
+      selectedFile(),
+      attachments.map((entry) => [entry.relativePath, entry.displayName, artifactVersion(entry)]),
       cached?.status,
       cached?.version,
       cached?.mediaHref,
-      cached?.error
+      cached?.error,
+      state.drawerDiff?.key,
+      state.drawerDiff?.status
     ]);
     // Polling task status must not reload a PDF or reset the reader every 3.5 s.
     if (drawer.dataset.signature === signature) return;
     const scrollTop =
-      drawer.dataset.activePath === activePath ? drawer.querySelector(".drawer-content")?.scrollTop || 0 : 0;
-    const fileListScrollTop = drawer.querySelector(".drawer-file-list")?.scrollTop || 0;
-    const urls = artifactRequestUrls(
-      state.selected,
-      activePath,
-      cached?.version || artifactVersion(artifact),
-      cached
-    );
-    const files = artifacts
-      .map(
-        (entry) =>
-          `<button class="drawer-file ${entry.relativePath === activePath ? "active" : ""}" data-drawer-file="${esc(entry.relativePath)}" aria-current="${entry.relativePath === activePath ? "true" : "false"}" title="artifacts/${esc(entry.relativePath)}"><svg class="ui-icon"><use href="#i-file"/></svg><span class="drawer-file-copy"><strong>${esc(entry.displayName || fileBaseName(entry.relativePath))}</strong><small>${esc(artifactParentPath(entry.relativePath) || "artifacts/")} · ${esc(formatArtifactSize(entry.size))}</small></span></button>`
-      )
-      .join("");
+      drawer.dataset.tab === tab.id ? drawer.querySelector(".drawer-content")?.scrollTop || 0 : 0;
+    drawer.dataset.signature = signature;
+    drawer.dataset.tab = tab.id;
+    const files = changedFiles();
+    const change = files.find((entry) => entry.path === tab.path);
+    const totalAdds = files.reduce((sum, entry) => sum + Number(entry.additions || 0), 0);
+    const totalDels = files.reduce((sum, entry) => sum + Number(entry.deletions || 0), 0);
+    const commit = String(getDelivery()?.view?.diff?.candidateCommit || "").slice(0, 8);
+    const changeMeta = commit
+      ? ui`候选 ${commit} · +${totalAdds} −${totalDels}`
+      : ui`+${totalAdds} −${totalDels}`;
+    const isChange = tab.kind !== "attachment";
+    const title = isChange
+      ? tab.kind === "diff"
+        ? ui("改动")
+        : fileBaseName(tab.path)
+      : artifact.displayName || fileBaseName(tab.path);
+    const meta = isChange
+      ? `${changeMeta}${change ? ` · +${change.additions} −${change.deletions}` : ""}`
+      : `${fileLanguage(tab.path)} · ${formatArtifactSize(cached?.size ?? artifact.size)}`;
+    const urls = isChange
+      ? { previewUrl: "", rawUrl: "", downloadUrl: "" }
+      : artifactRequestUrls(state.selected, tab.path, cached?.version || artifactVersion(artifact), cached);
+    const downloadHref =
+      cached?.previewKind === "pdf" && cached.mediaHref ? cached.mediaHref : urls.downloadUrl;
+    const canCopy = !isChange && cached?.status === "ready" && cached.previewKind === "text";
+    const copyAction = canCopy
+      ? `<button type="button" class="drawer-action is-icon" data-copy-drawer aria-label="${ui(
+          "复制内容"
+        )}" title="${ui("复制内容")}">${icon("copy")}</button>`
+      : "";
+    const canEdit = !isChange && canEditArtifact(artifact);
+    const editAction = canEdit
+      ? `<button type="button" class="drawer-action is-icon" data-edit-drawer aria-label="${ui(
+          "在应用中打开"
+        )}" title="${ui("在应用中打开")}">${icon("pencil")}</button>`
+      : "";
+    const openAction = isChange
+      ? ""
+      : `<a class="drawer-action is-icon" data-open-artifact-viewer href="${esc(
+          urls.rawUrl
+        )}" target="_blank" rel="noopener noreferrer" aria-label="${ui("打开 ↗")}" title="${ui(
+          "打开 ↗"
+        )}">${icon("external")}</a>`;
+    const downloadAction = isChange
+      ? `<button type="button" class="drawer-action is-icon" data-download-diff aria-label="${ui(
+          "下载"
+        )}" title="${ui("下载")}">${icon("download")}</button>`
+      : `<a class="drawer-action is-icon" href="${esc(downloadHref)}" download="${esc(
+          fileBaseName(tab.path)
+        )}" aria-label="${ui("下载")}" title="${ui("下载")}">${icon("download")}</a>`;
     let content;
-    if (!cached || cached.status === "loading")
-      content = `<div class="drawer-state"><span class="editor-spinner"></span><strong>正在打开 ${esc(artifact.displayName || fileBaseName(activePath))}</strong><p>正在读取产出物…</p></div>`;
+    if (isChange) content = renderDiffBody(tab, files);
+    else if (!cached || cached.status === "loading")
+      content = `<div class="drawer-state"><span class="editor-spinner"></span><strong>${ui`正在打开 ${esc(
+        title
+      )}`}</strong></div>`;
     else if (cached.status === "error")
-      content = `<div class="drawer-state is-error"><strong>文件读取失败</strong><p>${esc(cached.error || "未知错误")}</p><button class="drawer-action" data-retry-artifact>重新加载</button></div>`;
+      content = `<div class="drawer-state is-error"><strong>${ui("文件读取失败")}</strong><p>${esc(
+        cached.error || ui("未知错误")
+      )}</p><button class="drawer-action" data-retry-artifact>${ui("重新加载")}</button></div>`;
     else
-      content = renderArtifactDocument(cached, activePath, {
+      content = renderArtifactDocument(cached, tab.path, {
         ...urls,
         rawUrl: cached.mediaHref || (mediaUrl ? "" : urls.rawUrl)
       });
-    const canCopy = cached?.status === "ready" && cached.previewKind === "text";
-    const copyAction = canCopy
-      ? `<button class="drawer-action" data-copy-drawer>${cached.truncated ? "复制已预览内容" : "复制内容"}</button>`
-      : "";
-    const canEdit = canEditArtifact(artifact);
-    const editAction = canEdit ? '<button class="drawer-action" data-edit-drawer>在应用中打开</button>' : "";
-    const downloadHref =
-      cached?.previewKind === "pdf" && cached.mediaHref ? cached.mediaHref : urls.downloadUrl;
-    const previewNote = cached?.truncated
-      ? '<div class="artifact-preview-note" role="status">文件较大，仅显示前部分内容。下载可查看完整文件。</div>'
-      : "";
+    const previewNote = isChange
+      ? state.drawerDiff?.truncated
+        ? `<div class="artifact-preview-note" role="status">${ui("改动较大，仅显示前部分内容。下载可查看完整改动。")}</div>`
+        : ""
+      : cached?.truncated
+        ? `<div class="artifact-preview-note" role="status">${ui(
+            "文件较大，仅显示前部分内容。下载可查看完整文件。"
+          )}</div>`
+        : "";
     drawer.hidden = false;
-    scrim.hidden = false;
-    drawer.dataset.signature = signature;
-    drawer.dataset.activePath = activePath;
-    drawer.innerHTML = `<div class="artifact-drawer-head"><div class="artifact-drawer-title"><span class="drawer-eyebrow">产出物详情</span><h2>${esc(artifact.displayName || fileBaseName(activePath))}</h2><p title="artifacts/${esc(activePath)}">artifacts/${esc(activePath)}</p></div><button class="drawer-close" data-close-drawer aria-label="关闭产出物详情">×</button></div><div class="artifact-drawer-body"><nav class="drawer-file-list" aria-label="产出物文件"><div class="drawer-section-label">产出物 <span>${artifacts.length}</span></div>${files}</nav><section class="drawer-document"><div class="drawer-toolbar"><span class="drawer-file-type">${esc(fileLanguage(activePath))}</span><span class="drawer-file-size">${esc(formatArtifactSize(cached?.size ?? artifact.size))}</span><div class="drawer-actions">${editAction}${copyAction}<a class="drawer-action" data-open-artifact-viewer href="${esc(urls.rawUrl)}" target="_blank" rel="noopener noreferrer">打开 ↗</a><a class="drawer-action" href="${esc(downloadHref)}" download="${esc(fileBaseName(activePath))}">下载</a></div></div>${previewNote}<div class="drawer-content ${cached?.previewKind === "pdf" ? "is-pdf" : ""}">${content}</div></section></div>`;
+    drawer.innerHTML = `<header class="artifact-drawer-head">${icon(
+      isChange ? "git-commit" : "file"
+    )}<div class="artifact-drawer-title"><strong>${esc(title)}</strong><span>${esc(
+      meta
+    )}</span></div><span class="rp-spacer"></span><div class="drawer-actions">${editAction}${copyAction}${openAction}${downloadAction}<button type="button" class="drawer-close" data-close-drawer aria-label="${ui(
+      "关闭预览"
+    )}" title="${ui("关闭预览")}">${icon("close")}</button></div></header><nav class="drawer-tabs" role="tablist" aria-label="${ui(
+      "预览内容"
+    )}">${tabs
+      .map(
+        (entry) =>
+          `<button type="button" role="tab" class="drawer-tab${
+            entry.id === tab.id ? " active" : ""
+          }" aria-selected="${entry.id === tab.id}" data-drawer-tab="${esc(entry.id)}" ${
+            entry.kind === "attachment" ? `data-drawer-file="${esc(entry.path)}"` : ""
+          } title="${esc(entry.label)}">${esc(entry.label)}</button>`
+      )
+      .join("")}</nav><div class="artifact-drawer-body"><div class="drawer-content ${
+      cached?.previewKind === "pdf" ? "is-pdf" : ""
+    }">${previewNote}${content}</div></div>`;
     drawer.querySelector(".drawer-content").scrollTop = scrollTop;
-    drawer.querySelector(".drawer-file-list").scrollTop = fileListScrollTop;
-    drawer
-      .querySelectorAll("[data-drawer-file]")
-      .forEach((node) => node.addEventListener("click", () => openArtifact(node.dataset.drawerFile)));
-    drawer
-      .querySelector("[data-edit-drawer]")
-      ?.addEventListener("click", () => void editArtifact(activePath));
-    drawer.querySelector("[data-close-drawer]")?.addEventListener("click", closeArtifactDrawer);
+    for (const node of drawer.querySelectorAll("[data-drawer-tab]"))
+      node.addEventListener("click", () => {
+        const id = node.dataset.drawerTab;
+        if (id === "diff") openPreview({ tab: "diff" });
+        else if (id === "file") openPreview({ tab: "file" });
+        else openPreview({ tab: "attachment", path: id.slice("attachment:".length) });
+      });
+    for (const node of drawer.querySelectorAll("[data-diff-select]"))
+      node.addEventListener("click", () => openPreview({ tab: "file", path: node.dataset.diffSelect }));
+    drawer.querySelector("[data-download-diff]")?.addEventListener("click", () => {
+      const data = state.drawerDiff;
+      if (data?.status !== "ready") return;
+      const selected = tab.kind === "file" ? tab.path : undefined;
+      const text = selected ? filePatchText(data.files, selected) : data.patch;
+      downloadText(text, selected ? `${fileBaseName(selected)}.diff` : "changes.diff");
+    });
+    drawer.querySelector("[data-edit-drawer]")?.addEventListener("click", () => void editArtifact(tab.path));
+    drawer.querySelector("[data-close-drawer]")?.addEventListener("click", () => closeArtifactDrawer(true));
     drawer.querySelector("[data-open-artifact-viewer]")?.addEventListener("click", (event) => {
       event.preventDefault();
       void openArtifactViewer(urls.rawUrl).catch((error) => showToast(error.message));
     });
     drawer.querySelector("[data-retry-artifact]")?.addEventListener("click", () => {
-      state.artifactCache.delete(activePath);
+      state.artifactCache.delete(tab.path);
       renderArtifactDrawer();
     });
     drawer.querySelector("[data-copy-drawer]")?.addEventListener("click", async () => {
-      const preview = state.artifactCache.get(activePath);
+      const preview = state.artifactCache.get(tab.path);
       if (preview?.previewKind !== "text") return;
       try {
         if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
         await navigator.clipboard.writeText(preview.content);
-        showToast(preview.truncated ? "已复制当前预览内容" : "产出物内容已复制");
+        showToast(preview.truncated ? ui("已复制当前预览内容") : ui("产出物内容已复制"));
         // eslint-disable-next-line no-restricted-syntax -- the browser refuses clipboard writes outside a secure context or without permission; the toast reports that copy is unavailable
       } catch {
-        showToast("当前环境不支持复制");
+        showToast(ui("当前环境不支持复制"));
       }
     });
-    if (!cached) ensureArtifactLoaded(activePath);
+    if (!isChange && !cached) ensureArtifactLoaded(tab.path);
   }
 
   function renderArtifactDocument(preview, path, urls) {
@@ -537,13 +642,9 @@ export function createArtifactController({
     closeArtifact,
     ensureArtifactLoaded,
     renderArtifactDrawer,
-    renderOutputActions,
-    bindOutputActions,
+    openPreview,
     resetMedia() {
       mediaUrls.clear();
-    },
-    closeOutputMenu() {
-      outputMenu?.menu.close();
     }
   };
 }

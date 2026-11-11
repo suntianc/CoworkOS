@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { chooseAppearance, closeSettings } from "./settings-helper.js";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 
 async function uiColors(page) {
@@ -13,6 +14,15 @@ async function uiColors(page) {
         return [name, getComputedStyle(probe).color];
       })
     );
+    for (const [key, name] of [
+      ["panelFill", "--panel-fill"],
+      ["composerFill", "--composer-fill"],
+      ["popoverFill", "--popover-fill"]
+    ]) {
+      probe.style.color = "";
+      probe.style.backgroundColor = `var(${name})`;
+      colors[key] = getComputedStyle(probe).backgroundColor;
+    }
     probe.remove();
     return colors;
   });
@@ -66,8 +76,8 @@ for (const initial of ["light", "dark"]) {
         await expect(page.locator("html")).toHaveAttribute("data-theme", colorScheme);
         await expect(page.locator("html")).toHaveAttribute("data-appearance", "system");
         const colors = await uiColors(page);
-        await expect(page.locator(".chat-pane")).toHaveCSS("background-color", colors.bg);
-        await expect(page.locator(".composer")).toHaveCSS("background-color", colors.panel);
+        await expect(page.locator(".chat-pane")).toHaveCSS("background-color", colors.panelFill);
+        await expect(page.locator(".composer")).toHaveCSS("background-color", colors.composerFill);
         await expect(input).toHaveValue("未发送的草稿 preserved");
         await expect(input).toBeFocused();
         expect(
@@ -81,15 +91,15 @@ for (const initial of ["light", "dark"]) {
         await expect(input).toHaveCSS("color", colors.text);
       }
       await page.locator("#user-menu-button").click();
-      await expect(page.locator("#appearance-select")).toHaveValue("system");
-      await expect(page.locator("#profile-modal .modal-card")).toHaveCSS(
+      await expect(page.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
+      await expect(page.locator("#settings-entry .settings-content")).toHaveCSS(
         "background-color",
-        (await uiColors(page)).panel
+        (await uiColors(page)).panelFill
       );
-      await page.locator("#appearance-select").selectOption("dark");
-      await expect(page.locator("#profile-modal .modal-card")).toHaveCSS(
+      await chooseAppearance(page, "dark");
+      await expect(page.locator("#settings-entry .settings-content")).toHaveCSS(
         "background-color",
-        (await uiColors(page)).panel
+        (await uiColors(page)).panelFill
       );
       expect(errors).toEqual([]);
     } finally {
@@ -199,11 +209,8 @@ test("light search and sidebar text remain readable in ordinary and hovered stat
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto(dashboard.base);
     await page.locator('.conversation-item[data-task="theme-selected"]').click();
-    await page.evaluate(() => {
-      const select = document.querySelector("#appearance-select");
-      select.value = "light";
-      select.dispatchEvent(new Event("change"));
-    });
+    await chooseAppearance(page, "light");
+    await closeSettings(page);
     const brand = page.locator(".brand-lockup strong");
     const project = page.locator(".project-group:not(.is-selected) .project-row").first();
     const searchButton = page.getByRole("button", { name: "搜索", exact: true });
@@ -239,23 +246,16 @@ test("light search and sidebar text remain readable in ordinary and hovered stat
     await expect(page.locator(".search-no-results")).toBeVisible();
     const empty = await textContrast(page.locator(".search-no-results"));
     expect(empty.ratio, JSON.stringify(empty)).toBeGreaterThanOrEqual(4.5);
-    await page.evaluate(() => {
-      const select = document.querySelector("#appearance-select");
-      select.value = "dark";
-      select.dispatchEvent(new Event("change"));
-    });
+    // The search dialog covers the sidebar, so the preference is set through the page API.
+    await page.evaluate(() => window.atriaAppearance.set("dark"));
     const darkColors = await uiColors(page);
     await expect(input).toHaveCSS("color", darkColors.text);
     await expect(brand).toHaveCSS("color", darkColors.text);
-    await expect(project).toHaveCSS("color", darkColors.secondary);
+    await expect(project).toHaveCSS("color", darkColors.text);
     await page.locator(".search-dialog-head button").click();
     await searchButton.hover();
     await expect(searchButton).toHaveCSS("color", darkColors.text);
-    await page.evaluate(() => {
-      const select = document.querySelector("#appearance-select");
-      select.value = "light";
-      select.dispatchEvent(new Event("change"));
-    });
+    await page.evaluate(() => window.atriaAppearance.set("light"));
     expect((await textContrast(searchButton)).ratio).toBeGreaterThanOrEqual(4.5);
   } finally {
     await dashboard.stop();
@@ -338,8 +338,7 @@ test("tool outcomes and recovery summaries stay readable in both neutral themes"
         ".tool-subject",
         ".activity-status",
         ".tool-context",
-        ".request-error > strong",
-        ".request-error > p:not([data-error-type])",
+        ".request-error .run-error-head strong",
         ".request-error-actions button"
       ]) {
         const text = page.locator(selector);
@@ -371,44 +370,38 @@ test("manual appearance persists, ignores OS overrides and can return to system 
     const input = page.locator("#composer-input");
     await input.fill("外观切换草稿");
     await page.locator("#user-menu-button").click();
-    const choice = page.locator("#appearance-select");
-    await expect(choice).toHaveValue("system");
-    const sample = () =>
-      page.locator("#starfield-background").evaluate((canvas) => {
-        const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
-        let visible = 0,
-          dark = 0;
-        for (let i = 0; i < pixels.length; i += 4)
-          if (pixels[i + 3] > 100) {
-            visible++;
-            if (pixels[i] < 160) dark++;
-          }
-        return { visible, dark };
+    await expect(page.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
+    const surface = () =>
+      page.evaluate(() => {
+        const style = getComputedStyle(document.body);
+        return { color: style.backgroundColor, image: style.backgroundImage };
       });
-    await expect(choice.locator("option")).toHaveText(["跟随系统", "深色", "浅色"]);
-    await choice.selectOption("light");
-    const light = await sample();
-    expect(light.visible).toBeGreaterThan(100);
-    expect(light.dark).toBeGreaterThan(100);
-    await choice.selectOption("dark");
+    for (const [value, label] of [
+      ["system", "跟随系统"],
+      ["light", "浅色"],
+      ["dark", "深色"]
+    ])
+      await expect(page.locator(`[data-appearance-value="${value}"]`)).toContainText(label);
+    await chooseAppearance(page, "light");
+    expect(await surface()).toEqual({ color: "rgb(244, 244, 248)", image: "none" });
+    await chooseAppearance(page, "dark");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await page.emulateMedia({ colorScheme: "light" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    const dark = await sample();
-    expect(dark.dark).toBeLessThan(light.dark / 4);
+    expect(await surface()).toEqual({ color: "rgb(14, 14, 15)", image: "none" });
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(input).toHaveValue("外观切换草稿");
     await page.locator("#user-menu-button").click();
-    await choice.selectOption("light");
+    await chooseAppearance(page, "light");
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await page.emulateMedia({ colorScheme: "light" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await choice.selectOption("system");
+    await chooseAppearance(page, "system");
     await expect(page.locator("html")).toHaveAttribute("data-appearance", "system");
     expect(await page.evaluate(() => localStorage.getItem("atria.appearance"))).toBe("system");
-    await page.locator("#profile-close").click();
+    await page.locator("#settings-back").click();
     await input.focus();
     await input.evaluate((el) => {
       el.setSelectionRange(2, 4);
@@ -424,7 +417,7 @@ test("manual appearance persists, ignores OS overrides and can return to system 
     await expect(input).toHaveValue("外观切换草稿");
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await expect(choice).toHaveValue("system");
+    await expect(page.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
     await page.emulateMedia({ colorScheme: "light" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   } finally {
@@ -452,23 +445,22 @@ test("rapid native selections keep the last saved appearance when a later save f
     });
     await page.emulateMedia({ colorScheme: "dark" });
     await page.goto(dashboard.base);
-    await page.locator("#profile-modal").evaluate((element) => (element.hidden = false));
-    const select = page.locator("#appearance-select");
-    await select.selectOption("light");
+    await page.locator("#settings-entry").evaluate((element) => (element.hidden = false));
+    await chooseAppearance(page, "light");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await select.selectOption("dark");
+    await chooseAppearance(page, "dark");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await page.evaluate(() => {
       window.savedAppearance = "light";
       window.appearanceChange({ preference: "light", effective: "light" });
       window.appearanceWrites[0].resolve({ preference: "light", effective: "light" });
     });
-    await expect(select).toHaveValue("dark");
+    await expect(page.locator('[data-appearance-value="dark"]')).toHaveAttribute("aria-checked", "true");
     await page.evaluate(() => window.appearanceWrites[1].reject(new Error("disk unavailable")));
-    await expect(select).toHaveValue("light");
+    await expect(page.locator('[data-appearance-value="light"]')).toHaveAttribute("aria-checked", "true");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expect(page.locator("#appearance-status")).toContainText("无法保存");
-    await select.selectOption("dark");
+    await chooseAppearance(page, "dark");
     await page.evaluate(() => {
       window.savedAppearance = "dark";
       window.appearanceWrites[2].resolve({ preference: "dark", effective: "dark" });
@@ -497,9 +489,8 @@ test("a late native system save cannot overwrite a newer host theme change", asy
     });
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto(dashboard.base);
-    await page.locator("#profile-modal").evaluate((element) => (element.hidden = false));
-    const select = page.locator("#appearance-select");
-    await select.selectOption("system");
+    await page.locator("#settings-entry").evaluate((element) => (element.hidden = false));
+    await chooseAppearance(page, "system");
     await page.evaluate(() => window.appearanceChange({ preference: "system", effective: "dark" }));
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await page.evaluate(async () => {
@@ -507,7 +498,7 @@ test("a late native system save cannot overwrite a newer host theme change", asy
       await Promise.resolve();
     });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await expect(select).toHaveValue("system");
+    await expect(page.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
   } finally {
     await dashboard.stop();
   }
@@ -534,7 +525,7 @@ test("native system appearance uses host changes even when browser media differs
     const html = page.locator("html");
     await expect(html).toHaveAttribute("data-appearance", "system");
     await expect(html).toHaveAttribute("data-theme", "dark");
-    await expect(page.locator("#appearance-select")).toHaveValue("system");
+    await expect(page.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
     await page.evaluate(() => window.appearanceChange({ preference: "system", effective: "light" }));
     await expect(html).toHaveAttribute("data-theme", "light");
     await page.emulateMedia({ colorScheme: "dark" });
@@ -542,8 +533,8 @@ test("native system appearance uses host changes even when browser media differs
     await page.evaluate(() => window.appearanceChange({ preference: "system", effective: "dark" }));
     await expect(html).toHaveAttribute("data-theme", "dark");
     await expect(html).toHaveCSS("color-scheme", "dark");
-    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute("content", "#0d0d0d");
-    await expect(page.locator("#appearance-select")).toHaveValue("system");
+    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute("content", "#0e0e0f");
+    await expect(page.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
   } finally {
     await dashboard.stop();
   }
@@ -568,22 +559,21 @@ test("web tabs sync appearance preferences and storage removal restores each tab
     await peer.goto(dashboard.base);
     const html = page.locator("html");
     const peerHtml = peer.locator("html");
-    const select = page.locator("#appearance-select");
     await expect(html).toHaveAttribute("data-theme", "light");
     await expect(peerHtml).toHaveAttribute("data-theme", "dark");
     await page.locator("#user-menu-button").click();
-    await select.selectOption("dark");
+    await chooseAppearance(page, "dark");
     await expect(peerHtml).toHaveAttribute("data-appearance", "dark");
     await expect(peerHtml).toHaveAttribute("data-theme", "dark");
-    await select.selectOption("system");
+    await chooseAppearance(page, "system");
     await expect(html).toHaveAttribute("data-theme", "light");
     await expect(peerHtml).toHaveAttribute("data-appearance", "system");
     await expect(peerHtml).toHaveAttribute("data-theme", "dark");
     await peer.reload();
     await expect(peerHtml).toHaveAttribute("data-theme", "dark");
-    await expect(peer.locator("#appearance-select")).toHaveValue("system");
+    await expect(peer.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
     for (const operation of ["remove", "clear", "invalid"]) {
-      await select.selectOption("dark");
+      await chooseAppearance(page, "dark");
       await expect(peerHtml).toHaveAttribute("data-appearance", "dark");
       await peer.evaluate((operation) => {
         if (operation === "clear") localStorage.clear();
@@ -592,7 +582,7 @@ test("web tabs sync appearance preferences and storage removal restores each tab
       }, operation);
       await expect(html).toHaveAttribute("data-appearance", "system");
       await expect(html).toHaveAttribute("data-theme", "light");
-      await expect(select).toHaveValue("system");
+      await expect(page.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
     }
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(html).toHaveAttribute("data-theme", "dark");
@@ -623,9 +613,9 @@ test("system appearance still follows OS changes when browser preference storage
     await page.goto(dashboard.base);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await page.locator("#user-menu-button").click();
-    await page.locator("#appearance-select").selectOption("dark");
+    await chooseAppearance(page, "dark");
     await expect(page.locator("#appearance-status")).toContainText("无法保存");
-    await page.locator("#appearance-select").selectOption("system");
+    await chooseAppearance(page, "system");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await page.emulateMedia({ colorScheme: "dark" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -653,9 +643,16 @@ test("system, invalid and empty web preferences follow the current OS after relo
         followsSystem ? "system" : "dark"
       );
       await page.locator("#user-menu-button").click();
-      await expect(page.locator("#appearance-select")).toHaveValue(followsSystem ? "system" : "dark");
-      await expect(page.locator("#appearance-select option")).toHaveText(["跟随系统", "深色", "浅色"]);
-      await page.locator("#profile-close").click();
+      await expect(
+        page.locator(`[data-appearance-value="${followsSystem ? "system" : "dark"}"]`)
+      ).toHaveAttribute("aria-checked", "true");
+      for (const [value, label] of [
+        ["system", "跟随系统"],
+        ["light", "浅色"],
+        ["dark", "深色"]
+      ])
+        await expect(page.locator(`[data-appearance-value="${value}"]`)).toContainText(label);
+      await page.locator("#settings-back").click();
       await page.emulateMedia({ colorScheme: "dark" });
       await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
       await page.emulateMedia({ colorScheme: "light" });

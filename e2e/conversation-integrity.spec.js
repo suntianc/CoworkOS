@@ -145,7 +145,7 @@ test("partial output, empty tool completion and stopped calls retain truthful vi
     await expect(tools.first().locator(".activity-status")).toHaveText("执行中");
     await page.evaluate(() => window.integrityFixture.emptyResult());
     await expect(tools.first()).toHaveClass(/is-done/);
-    await expect(tools.first().locator(".activity-status")).toHaveText("调用完成");
+    await expect(tools.first().locator(".activity-status")).toHaveText("完成");
     await page.evaluate(() => window.integrityFixture.stop());
     await expect(tools.last().locator(".activity-status")).toHaveText("已停止");
     await expect(page.locator(".tool-step.is-running")).toHaveCount(0);
@@ -177,13 +177,13 @@ test("zero-output stream errors expose safe keyboard recovery without automatic 
     await expect(page.locator('[data-answer-kind="final"]')).toHaveCount(0);
     await expect(page.locator(".thinking-spinner")).toHaveCount(0);
     expect(await page.evaluate(() => window.recoveryRetries || 0)).toBe(0);
-    const retry = page.getByRole("button", { name: "重试", exact: true });
+    const retry = page.getByRole("button", { name: "从中断步骤继续" });
     await retry.focus();
     await page.evaluate(() => window.integrityFixture.failure({ partial: true }));
     await expect(retry).toBeFocused();
     await page.keyboard.press("Enter");
     expect(await page.evaluate(() => window.recoveryRetries)).toBe(1);
-    await page.getByRole("button", { name: "检查模型连接" }).focus();
+    await page.getByRole("button", { name: "切换模型" }).focus();
     await page.keyboard.press("Enter");
     expect(await page.evaluate(() => window.recoverySettings)).toBe(1);
     await page.evaluate(() =>

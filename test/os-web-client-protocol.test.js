@@ -735,11 +735,14 @@ test("another trusted local browser origin may manage this backend, and only whe
 
   const preflight = await crossOrigin("OPTIONS", "/api/session", {
     "access-control-request-method": "POST",
-    "access-control-request-headers": "content-type,x-atria-token"
+    "access-control-request-headers": "content-type,x-atria-token,x-cowork-read-only"
   });
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get("access-control-allow-origin"), pageOrigin);
   assert.match(preflight.headers.get("access-control-allow-headers"), /x-atria-token/);
+  // The observation entry watches this backend from its own page and marks
+  // those reads; a browser needs the marker allowed through the preflight.
+  assert.match(preflight.headers.get("access-control-allow-headers"), /x-cowork-read-only/);
 
   const allowed = await crossOrigin("GET", "/api/backend", { "x-atria-token": secondInstance.token });
   assert.equal(allowed.status, 200);

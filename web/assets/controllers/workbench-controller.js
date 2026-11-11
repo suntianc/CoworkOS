@@ -7,7 +7,6 @@ import {
 } from "../workbench/workspace-scope.js";
 import { createWorkbenchHost } from "../workbench/host.js";
 import { createApplicationApi } from "../workbench/api.js";
-import { createAppsPanel } from "../workbench/apps-panel.js";
 import { createBindingControl } from "../workbench/binding.js";
 import { createWorkbenchRegistry } from "../workbench/registry.js";
 import { importArtifactFile } from "../workbench/file-import.js";
@@ -34,11 +33,15 @@ export function createWorkbenchController({
   activateDraft = () => {},
   saveDraft = () => {},
   getNavigationContext = () => state.selected,
+  /** The selected requirement's phase, for the title-bar panel control. */
+  getRequirementStage = () => "",
   connectEventStream,
   backendRequest,
   fetchBytes
 }) {
   const STANDALONE_TASK = "workspace";
+  // Below this width the requirement panel is a drawer, so its control names it.
+  const narrowWindow = window.matchMedia?.("(max-width: 1279px)") ?? { matches: false };
   let pendingConnections = 0;
   function conversationWorkspace() {
     const detail = state.detail?.task?.taskId === state.selected ? state.detail : undefined;
@@ -77,11 +80,6 @@ export function createWorkbenchController({
           (entry) => entry.taskId === state.selected
         ))
     );
-  }
-  function applicationWorkspace() {
-    return workbench?.activeTab?.kind === "application"
-      ? workbench.activeTab.workspaceRoot || conversationWorkspace()
-      : conversationWorkspace();
   }
   async function connectApplication(action) {
     pendingConnections++;
@@ -347,7 +345,6 @@ export function createWorkbenchController({
     if (getNavigationContext() === context && state.selected === taskId) navigation?.rebase();
     return taskId;
   }
-  let appsPanel;
   let binding;
   /** The catalog, kept for labels in the binding menu and the apps panel. */
   let applicationCatalog = [];
@@ -364,9 +361,6 @@ export function createWorkbenchController({
     try {
       const { applications } = await applicationApi.listApplications();
       applicationCatalog = applications || [];
-      const navButton = $("#apps-nav");
-      if (navButton) navButton.hidden = applicationCatalog.length === 0;
-      if (!applicationCatalog.length) appsPanel?.close();
       syncBindingFromTabs();
       for (const application of applicationCatalog) {
         if (!application.capabilities?.includes("edit")) continue;
@@ -391,10 +385,6 @@ export function createWorkbenchController({
       api: applicationApi,
       getTaskId: () => state.selected,
       getContext: getNavigationContext,
-      onOpenApplications: () => {
-        const panel = ensureAppsPanel();
-        if (!panel?.isOpen) return panel?.toggle();
-      },
       onError: (message) => showToast(message),
       onRefresh: async () => {
         await refreshTabs({ poll: true });
@@ -473,75 +463,6 @@ export function createWorkbenchController({
     return binding;
   }
 
-  /**
-   * The sidebar "应用" entry, created once the workbench is enabled.
-   *
-   * It lives beside "工作台" rather than on the tab strip: opening an application
-   * is navigation, not an action on the current tabs.
-   */
-  function ensureAppsPanel() {
-    const navButton = $("#apps-nav");
-    const panel = $("#apps-panel");
-    if (!navButton || !panel) return undefined;
-    navButton.hidden = applicationCatalog.length === 0;
-    appsPanel ??= createAppsPanel({
-      navButton,
-      panel,
-      api: applicationApi,
-      captureNavigation,
-      getNavigationContext,
-      getTaskId: () => {
-        const tab = workbench?.activeTab;
-        return tab?.kind !== "application" || canLoadApplication(tab) ? state.selected : undefined;
-      },
-      getWorkspaceRoot: applicationWorkspace,
-      getProjects: () => state.projects || [],
-      getOpenResourceIds: () =>
-        (workbench?.openTabs || []).flatMap((tab) => (tab.resourceId ? [tab.resourceId] : [])),
-      getOpenApplications: () => (workbench?.openTabs || []).filter((tab) => tab.kind === "application"),
-      supportsApplication: (appType) => Boolean(workbenchRegistry[appType]),
-      onCloseInstance: async (tabId) => {
-        await workbench?.close(tabId);
-        await refreshTabs();
-      },
-      onOpenInstance: async (tabId) => {
-        const host = ensureWorkbench();
-        await host?.activate(tabId);
-        if (host?.activeTabId === tabId) host.setExpanded(true);
-      },
-      onError: (message) => showToast(message),
-      onOpened: async ({ resourceId, appInstanceId, taskId, navigation = captureNavigation() } = {}) => {
-        if (!navigation.current()) {
-          await refreshTabs();
-          await workbench?.persistSelection();
-          return;
-        }
-        document.body.classList.remove("sidebar-mobile-open");
-        // Re-read the strip first: activating a tab the host has not seen yet
-        // would simply be ignored. `follow` because the person just asked for
-        // this — a draft conversation must not keep the front against it.
-        await refreshTabs();
-        if (!navigation.current()) {
-          await workbench?.persistSelection();
-          return;
-        }
-        // A document is named by itself; an editor opened with nothing in it is
-        // named by its window, because there is no document yet to name it after.
-        const tabId = appInstanceId
-          ? `window:${appInstanceId}`
-          : resourceId
-            ? tabState.tabs.find((entry) => entry.resourceId === resourceId)?.tabId
-            : undefined;
-        if (tabId) {
-          await workbench?.activate(tabId, { navigation: navigation.navigation });
-          if (workbench?.navigationToken === navigation.navigation && workbench.activeTabId === tabId)
-            workbench.setExpanded(true);
-        }
-      }
-    });
-    return appsPanel;
-  }
-
   function ensureWorkbench() {
     if (workbench) return workbench;
     const root = $("#workbench");
@@ -584,7 +505,6 @@ export function createWorkbenchController({
         // Closing a tab updates the host immediately, before the next poll.
         if (workbench) tabState = { tabs: workbench.openTabs, activeTabId: workbench.activeTabId };
         syncBindingFromTabs();
-        appsPanel?.updateInstances();
       },
       // Selecting a conversation tab is what switches the conversation, so the
       // strip drives the pane rather than the left-hand list doing it alone.
@@ -654,7 +574,6 @@ export function createWorkbenchController({
       tabState = { tabs, activeTabId };
       const host = ensureWorkbench();
       if (!host) return;
-      ensureAppsPanel();
       // A draft conversation exists only in this browser and must stay visible.
       root.hidden = tabs.length === 0 && !state.selected && !state.composingNew;
       void loadEditableKinds();
@@ -686,8 +605,6 @@ export function createWorkbenchController({
       if (error.status !== 404) return;
       const root = $("#workbench");
       if (root) root.hidden = true;
-      const navButton = $("#apps-nav");
-      if (navButton) navButton.hidden = true;
     }
   });
   function refreshTabs({ follow = false, navigation, poll = false } = {}) {
@@ -729,7 +646,6 @@ export function createWorkbenchController({
   }
 
   function paintComposerContext() {
-    appsPanel?.syncContext();
     const button = $("[data-composer-context]");
     if (!button) return;
     const id =
@@ -817,6 +733,32 @@ export function createWorkbenchController({
     }
   }
 
+  /**
+   * One control, two jobs: it collapses the workspace when an application is
+   * open, and the requirement panel otherwise. A narrow window shows the
+   * panel's name and phase as text; a wide one keeps the icon alone and gives
+   * the same words to assistive technology.
+   */
+  function paintPanelToggle() {
+    const outputToggle = $("#output-pane-toggle");
+    if (!outputToggle) return;
+    const workspace = Boolean(workbench?.canToggleApplication);
+    const visible = workspace && Boolean(workbench?.applicationVisible);
+    const stage = workspace ? "" : getRequirementStage();
+    const name = workspace ? (visible ? ui("收起工作区") : ui("展开工作区")) : ui("需求进度");
+    const text = workspace || !stage ? name : `${name} · ${ui(stage)}`;
+    const label = workspace ? name : narrowWindow.matches ? text : ui("切换任务面板");
+    const value = outputToggle.querySelector("[data-panel-toggle-label]");
+    if (value && value.textContent !== text) value.textContent = text;
+    outputToggle.setAttribute("aria-label", label);
+    outputToggle.title = label;
+    outputToggle.setAttribute("aria-controls", workspace ? "workbench" : "agent-pane");
+    outputToggle.setAttribute(
+      "aria-expanded",
+      String(workspace ? visible : !document.body.classList.contains("output-collapsed"))
+    );
+  }
+
   /** The binding control offers the application tabs of the current conversation. */
   function syncBindingFromTabs() {
     const application = workbench?.workspaceApplicationTab;
@@ -855,19 +797,7 @@ export function createWorkbenchController({
       if (label && label.textContent !== status) label.textContent = status;
       if (label) label.title = status;
     }
-    const outputToggle = $("#output-pane-toggle");
-    if (outputToggle) {
-      const workspace = workbench?.canToggleApplication;
-      const visible = workspace && workbench.applicationVisible;
-      const label = workspace ? (visible ? ui("收起工作区") : ui("展开工作区")) : ui("切换任务面板");
-      outputToggle.setAttribute("aria-label", label);
-      outputToggle.title = label;
-      outputToggle.setAttribute("aria-controls", workspace ? "workbench" : "agent-pane");
-      outputToggle.setAttribute(
-        "aria-expanded",
-        String(workspace ? visible : !document.body.classList.contains("output-collapsed"))
-      );
-    }
+    paintPanelToggle();
     if (!tabState.tabs.length && !workbench) return;
     const control = ensureBinding();
     if (!control) return;
@@ -938,6 +868,7 @@ export function createWorkbenchController({
     },
     captureNavigation,
     refreshTabs,
+    paintPanelToggle,
     loadEditableKinds,
     toggleSidebarVisibility() {
       if (!taskPanel.toggleVisibility({ mobile: window.matchMedia("(max-width: 900px)").matches }))
@@ -948,7 +879,6 @@ export function createWorkbenchController({
     enterConversation,
     activateConversationTab,
     ensureWorkbench,
-    ensureAppsPanel,
     ensureBinding,
     syncBindingFromTabs,
     get host() {
@@ -959,9 +889,6 @@ export function createWorkbenchController({
     },
     get binding() {
       return binding;
-    },
-    get appsPanel() {
-      return appsPanel;
     },
     iconForDocument(row) {
       const appType =

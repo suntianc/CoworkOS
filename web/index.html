@@ -3,23 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0d0d0d" />
-    <title>CoworkOS</title>
-    <link rel="icon" type="image/png" href="/assets/atria-symbol.png" />
+    <meta name="theme-color" content="#0e0e0f" />
+    <title>Formicand</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/brand/app-icon.svg" />
+    <link rel="alternate icon" type="image/svg+xml" sizes="32x32" href="/assets/brand/app-icon-32.svg" />
     <script src="/assets/controllers/appearance.js"></script>
+    <script src="/assets/controllers/preferences.js"></script>
     <link rel="preload" href="/assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/assets/math.css" />
     <link rel="stylesheet" href="/assets/workbench.css" />
-    <link rel="stylesheet" href="/assets/agent-galaxy.css" />
-    <link rel="stylesheet" href="/assets/starfield.css" />
     <link rel="stylesheet" href="/assets/ui.css" />
-    <link rel="stylesheet" href="/assets/watch.css" />
-    <link rel="stylesheet" href="/assets/goal.css" />
-    <link rel="stylesheet" href="/assets/ledger.css" />
-    <link rel="stylesheet" href="/assets/main-sessions.css" />
-    <link rel="stylesheet" href="/assets/main-capacity.css" />
-    <link rel="stylesheet" href="/assets/board.css" />
     <link rel="stylesheet" href="/assets/system-theme.css" />
     <link rel="stylesheet" href="/assets/settings.css" />
     <link rel="stylesheet" href="/assets/styles/project-experience.css" />
@@ -27,11 +21,15 @@
     <link rel="stylesheet" href="/assets/workbench/dialogs.css" />
     <link rel="stylesheet" href="/assets/workbench/chrome.css" />
     <link rel="stylesheet" href="/assets/styles/attachment-preview.css" />
+    <link rel="stylesheet" href="/assets/formicand.css" />
+    <link rel="stylesheet" href="/assets/work-sidebar.css" />
+    <link rel="stylesheet" href="/assets/styles/requirement-panel.css" />
+    <link rel="stylesheet" href="/assets/styles/observe-requirements.css" />
+    <link rel="stylesheet" href="/assets/styles/run-control.css" />
+    <link rel="stylesheet" href="/assets/styles/observe-runs.css" />
+    <link rel="stylesheet" href="/assets/styles/observe-overview.css" />
   </head>
   <body class="output-collapsed">
-    <div id="night-sky" class="night-sky" aria-hidden="true">
-      <canvas id="starfield-background" class="starfield-background"></canvas>
-    </div>
     <svg aria-hidden="true" class="icon-defs">
       <defs>
         <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 4l-4 16" /></symbol>
@@ -45,7 +43,58 @@
         <symbol id="i-file" viewBox="0 0 24 24">
           <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6M8 13h8M8 17h5" />
         </symbol>
+        <symbol id="i-file-code" viewBox="0 0 24 24">
+          <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6" />
+          <path d="m10 12.5-2 2.5 2 2.5m4-5 2 2.5-2 2.5" />
+        </symbol>
+        <symbol id="i-shield-check" viewBox="0 0 24 24">
+          <path
+            d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z"
+          />
+          <path d="m9 12 2 2 4-4" />
+        </symbol>
         <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></symbol>
+        <symbol id="i-radar" viewBox="0 0 24 24">
+          <path d="M17.4 5.3a9 9 0 1 0 1.3 1.4" />
+          <path d="M14.4 8.6a4.5 4.5 0 1 0 1 1.1" />
+          <path d="m12 12 6.5-6.5" />
+          <circle cx="12" cy="12" r="1" />
+        </symbol>
+        <symbol id="i-list-checks" viewBox="0 0 24 24">
+          <path d="m3 5 2 2 3-3M3 13l2 2 3-3M3 21l2 2 3-3" />
+          <path d="M13 6h8M13 14h8M13 22h8" />
+        </symbol>
+        <symbol id="i-panel-right" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M15 4v16" />
+        </symbol>
+        <symbol id="i-panel-left" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M9 4v16" />
+        </symbol>
+        <symbol id="i-gauge" viewBox="0 0 24 24">
+          <path d="m12 14 3.6-5.4" />
+          <path d="M3.4 19a9.6 9.6 0 1 1 17.2 0" />
+          <circle cx="12" cy="14" r="1.2" />
+        </symbol>
+        <symbol id="i-circle-check" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="m8.2 12.2 2.6 2.6 5-5.4" />
+        </symbol>
+        <symbol id="i-git-commit" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3.2" />
+          <path d="M3 12h5.8M15.2 12H21" />
+        </symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24">
+          <path d="m12 3 9 5-9 5-9-5Z" />
+          <path d="m3 13 9 5 9-5" />
+        </symbol>
+        <symbol id="i-loader" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9" /></symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24">
+          <path d="M5 7h14M5 17h14" />
+          <circle cx="9" cy="7" r="2" />
+          <circle cx="15" cy="17" r="2" />
+        </symbol>
         <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
         <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 19 19 5M9 5h10v10" /></symbol>
         <symbol id="i-search" viewBox="0 0 24 24">
@@ -178,6 +227,62 @@
           <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" />
         </symbol>
         <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
+        <symbol id="i-circle-check" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" />
+          <path d="m9 12 2 2 4-4" />
+        </symbol>
+        <symbol id="i-loader-circle" viewBox="0 0 24 24">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </symbol>
+        <symbol id="i-square" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" /></symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24">
+          <rect x="6" y="4" width="4" height="16" rx="1" />
+          <rect x="14" y="4" width="4" height="16" rx="1" />
+        </symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z" /></symbol>
+        <symbol id="i-circle-alert" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 8v4M12 16h.01" />
+        </symbol>
+        <symbol id="i-circle-x" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" />
+          <path d="m15 9-6 6M9 9l6 6" />
+        </symbol>
+        <symbol id="i-inbox" viewBox="0 0 24 24">
+          <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+          <path
+            d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"
+          />
+        </symbol>
+        <symbol id="i-git-branch" viewBox="0 0 24 24">
+          <path d="M6 3v12" />
+          <circle cx="18" cy="6" r="3" />
+          <circle cx="6" cy="18" r="3" />
+          <path d="M18 9a9 9 0 0 1-9 9" />
+        </symbol>
+        <symbol id="i-rotate-ccw" viewBox="0 0 24 24">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+          <path d="M3 3v5h5" />
+        </symbol>
+        <symbol id="i-cpu" viewBox="0 0 24 24">
+          <rect x="5" y="5" width="14" height="14" rx="2" />
+          <rect x="9" y="9" width="6" height="6" rx="1" />
+          <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
+        </symbol>
+        <symbol id="i-wifi-off" viewBox="0 0 24 24">
+          <path
+            d="M12 20h.01M8.5 16.4a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.2-2.7M19 12.9a10 10 0 0 0-2-1.5M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8a15 15 0 0 0-11.3-3.8M2 2l20 20"
+          />
+        </symbol>
+        <symbol id="i-message-circle-question" viewBox="0 0 24 24">
+          <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+          <path d="M9.1 9a3 3 0 1 1 4.6 2.5c-.8.5-1.2 1-1.2 2M12 17h.01" />
+        </symbol>
+        <symbol id="i-folder-open" viewBox="0 0 24 24">
+          <path
+            d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 1 1.67.9H18a2 2 0 0 1 2 2v2"
+          />
+        </symbol>
         <symbol id="i-slides" viewBox="0 0 24 24">
           <rect x="3" y="3" width="18" height="13" rx="1.5" />
           <path d="M12 16v5m-5 0 5-3 5 3M7 8h10M7 11h5" />
@@ -217,71 +322,120 @@
         <symbol id="i-file-plus" viewBox="0 0 24 24">
           <path d="M14 3H5v18h14V8ZM14 3v5h5M12 11v6M9 14h6" />
         </symbol>
+        <symbol id="i-formicand-mark" viewBox="0 0 280 280">
+          <g fill="currentColor">
+            <circle transform="translate(22.0817 22.0817)" cx="30.008" cy="30.008" r="30.008" />
+            <circle transform="translate(65.8663 65.8663)" cx="45.012" cy="45.012" r="45.012" />
+            <circle transform="translate(129.7018 129.7018)" cx="64.108" cy="64.108" r="64.108" />
+            <circle transform="translate(164.0747 5.9183)" cx="16.368" cy="16.368" r="16.368" />
+            <circle transform="translate(5.9183 164.0747)" cx="16.368" cy="16.368" r="16.368" />
+            <path
+              transform="translate(90.6209 28.1481)"
+              d="M-1.234 9.68l64.577-14.995 2.468 10.63-64.577 14.994z"
+            />
+            <path
+              transform="translate(144.5738 42.6695)"
+              d="M24.155 3.37l-19.864 25.296-8.582-6.739 19.863-25.297z"
+            />
+            <path
+              transform="translate(42.6695 144.5738)"
+              d="M28.666 4.291l-25.296 19.864-6.74-8.583 25.297-19.863z"
+            />
+            <path
+              transform="translate(48.1241 182.4564)"
+              d="M.424-5.44l72.252 5.631-.848 10.879-72.252-5.63z"
+            />
+          </g>
+        </symbol>
+        <symbol id="i-formicand-mark-small" viewBox="0 0 16 16">
+          <g fill="currentColor">
+            <circle transform="translate(1.1121 1.1121)" cx="1.753" cy="1.753" r="1.753" />
+            <circle transform="translate(3.6697 3.6697)" cx="2.629" cy="2.629" r="2.629" />
+            <circle transform="translate(7.3985 7.3985)" cx="3.745" cy="3.745" r="3.745" />
+            <circle transform="translate(9.4063 0.1679)" cx="0.956" cy="0.956" r="0.956" />
+            <circle transform="translate(0.1679 9.4063)" cx="0.956" cy="0.956" r="0.956" />
+          </g>
+        </symbol>
+        <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5m7 7-7-7 7-7" /></symbol>
+        <symbol id="i-server" viewBox="0 0 24 24">
+          <rect x="2" y="3" width="20" height="7" rx="2" />
+          <rect x="2" y="14" width="20" height="7" rx="2" />
+          <path d="M6 6.5h.01M6 17.5h.01" />
+        </symbol>
+        <symbol id="i-cpu" viewBox="0 0 24 24">
+          <rect x="5" y="5" width="14" height="14" rx="2" />
+          <rect x="9" y="9" width="6" height="6" rx="1" />
+          <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
+        </symbol>
+        <symbol id="i-gauge" viewBox="0 0 24 24">
+          <path d="m12 14 4-4" />
+          <path d="M3.34 19a10 10 0 1 1 17.32 0" />
+        </symbol>
+        <symbol id="i-wrench" viewBox="0 0 24 24">
+          <path
+            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"
+          />
+        </symbol>
+        <symbol id="i-laptop" viewBox="0 0 24 24">
+          <path
+            d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4l1.6 2.4a1 1 0 0 0 .84.6h11.12a1 1 0 0 0 .84-.6Z"
+          />
+        </symbol>
+        <symbol id="i-database" viewBox="0 0 24 24">
+          <ellipse cx="12" cy="5" rx="9" ry="3" />
+          <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+          <path d="M3 12a9 3 0 0 0 18 0" />
+        </symbol>
+        <symbol id="i-key-round" viewBox="0 0 24 24">
+          <path
+            d="M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4Z"
+          />
+          <circle cx="16.5" cy="7.5" r=".5" />
+        </symbol>
+        <symbol id="i-unplug" viewBox="0 0 24 24">
+          <path d="m19 5 3-3M2 22l3-3" />
+          <path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
+          <path d="m7.5 13.5 2.5-2.5M10.5 16.5 13 14" />
+          <path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
+        </symbol>
+        <symbol id="i-plug" viewBox="0 0 24 24">
+          <path d="M12 22v-5M9 8V2M15 8V2M6 8h12v4a6 6 0 0 1-12 0Z" />
+        </symbol>
+        <symbol id="i-globe" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18Z" />
+        </symbol>
+        <symbol id="i-brain" viewBox="0 0 24 24">
+          <path d="M12 5a3 3 0 0 0-6 0 3 3 0 0 0-1.5 5.5A3 3 0 0 0 6 16a3 3 0 0 0 6 1Z" />
+          <path d="M12 5a3 3 0 0 1 6 0 3 3 0 0 1 1.5 5.5A3 3 0 0 1 18 16a3 3 0 0 1-6 1Z" />
+        </symbol>
+        <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8" /></symbol>
+        <symbol id="i-monitor" viewBox="0 0 24 24">
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <path d="M8 21h8M12 17v4" />
+        </symbol>
+        <symbol id="i-messages-square" viewBox="0 0 24 24">
+          <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2Z" />
+          <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" />
+        </symbol>
+        <symbol id="i-triangle-alert" viewBox="0 0 24 24">
+          <path d="M12 3 2 20h20Z" />
+          <path d="M12 9v4M12 17h.01" />
+        </symbol>
+        <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
       </defs>
     </svg>
     <div class="app-shell">
-      <header class="app-topbar">
-        <div class="window-controls">
-          <button class="window-nav" aria-label="切换侧栏" aria-controls="conversation-sidebar">
-            <svg class="ui-icon"><use href="#i-layout" /></svg></button
-          ><button class="window-nav" aria-label="后退">
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-left" /></svg></button
-          ><button class="window-nav disabled" aria-label="前进" disabled>
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
-          </button>
-        </div>
-        <div class="topbar-context">
-          <svg class="ui-icon context-icon"><use href="#i-folder" /></svg
-          ><span id="project-context" hidden></span><strong id="topbar-task">新任务</strong>
-          <button
-            class="topbar-button square"
-            id="session-menu-button"
-            type="button"
-            title="会话菜单"
-            aria-label="会话菜单"
-            aria-haspopup="menu"
-            aria-controls="session-menu"
-            aria-expanded="false"
-            hidden
-          >
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-more" /></svg>
-          </button>
-          <div id="connection-state" role="status" hidden></div>
-          <span id="workspace-path" hidden>Connected</span>
-        </div>
-        <div class="topbar-actions">
-          <button
-            class="topbar-button square"
-            id="output-pane-toggle"
-            type="button"
-            title="切换任务面板"
-            aria-label="切换任务面板"
-            aria-controls="agent-pane"
-            aria-expanded="false"
-          >
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-layout" /></svg>
-          </button>
-        </div>
-      </header>
-
-      <div class="app-layout">
-        <aside class="conversation-sidebar" id="conversation-sidebar">
+      <div class="app-layout" id="app-layout" data-entry="work">
+        <aside class="conversation-sidebar" id="conversation-sidebar" aria-label="工作与观测">
           <div class="sidebar-header">
             <div class="brand-lockup">
-              <div class="brand-mark"><img src="/assets/atria-symbol.png" alt="CoworkOS" /></div>
-              <strong>CoworkOS</strong>
+              <svg class="brand-symbol" role="img" aria-label="Formicand">
+                <use href="#i-formicand-mark" />
+              </svg>
+              <strong>Formicand</strong>
             </div>
             <div class="sidebar-header-actions">
-              <button
-                class="sidebar-icon sidebar-view-toggle sidebar-view-toggle-compact"
-                data-sidebar-view="tasks"
-                title="显示任务面板"
-                aria-label="显示任务面板"
-                aria-controls="agent-pane"
-                hidden
-              >
-                <svg class="ui-icon" aria-hidden="true"><use href="#i-switch" /></svg>
-              </button>
               <button
                 class="sidebar-icon"
                 title="搜索"
@@ -289,91 +443,114 @@
                 aria-haspopup="dialog"
                 aria-keyshortcuts="Control+P Meta+P"
               >
-                <svg class="ui-icon"><use href="#i-search" /></svg></button
-              ><button class="sidebar-icon" title="任务动态" aria-label="任务动态">
-                <svg class="ui-icon"><use href="#i-bell" /></svg>
+                <svg class="ui-icon"><use href="#i-search" /></svg>
+              </button>
+              <button
+                class="sidebar-icon sidebar-drawer-close"
+                id="sidebar-drawer-close"
+                type="button"
+                title="关闭侧栏"
+                aria-label="关闭侧栏"
+                aria-controls="conversation-sidebar"
+              >
+                <svg class="ui-icon"><use href="#i-close" /></svg>
               </button>
             </div>
           </div>
-          <div class="sidebar-top">
-            <button class="new-conversation" id="new-conversation" disabled>
-              <span class="new-icon"
-                ><svg class="ui-icon"><use href="#i-arrow" /></svg></span
-              ><span>新对话</span><span class="shortcut">⌘ K</span>
-            </button>
-          </div>
-          <nav class="sidebar-nav">
-            <button class="nav-item active">
-              <span class="nav-icon"
-                ><svg class="ui-icon"><use href="#i-grid" /></svg></span
-              >工作台</button
-            ><button
-              class="nav-item"
-              id="apps-nav"
+          <div class="entry-switch ui-segmented" role="tablist" aria-label="入口">
+            <button
+              class="entry-switch-option"
               type="button"
-              aria-expanded="false"
-              aria-controls="apps-panel"
-              hidden
+              role="tab"
+              id="entry-work"
+              data-entry-mode="work"
+              aria-label="工作"
+              aria-selected="true"
+              aria-controls="work-entry"
+              tabindex="0"
             >
-              <span class="nav-icon"
-                ><svg class="ui-icon"><use href="#i-apps" /></svg></span
-              >应用<span class="nav-chevron"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-              ></span>
+              <svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg><span>工作</span>
             </button>
-            <div class="apps-panel" id="apps-panel" hidden></div>
-            <button class="nav-item" id="goals-nav" type="button" aria-current="false">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-bell" /></svg></span
-              ><span>长期任务</span><span id="goals-unread" class="goal-unread" hidden></span>
-            </button>
-            <button class="nav-item" id="ledger-nav" type="button" aria-haspopup="dialog">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-file" /></svg></span
-              ><span>需求台账</span>
-            </button>
-            <button class="nav-item" id="development-nav" type="button" aria-haspopup="dialog">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-code" /></svg></span
-              ><span>需求现场</span>
-            </button>
-            <button class="nav-item" id="main-sessions-nav" type="button" aria-haspopup="dialog">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg></span
-              ><span>Main 会话</span>
-            </button>
-            <button class="nav-item" id="main-capacity-nav" type="button" aria-haspopup="dialog">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-activity" /></svg></span
-              ><span>外部容量</span>
-            </button>
-            <button class="nav-item" id="board-nav" type="button" aria-haspopup="dialog">
-              <span class="nav-icon"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-grid" /></svg></span
-              ><span>需求看板</span>
-            </button>
-          </nav>
-          <div class="sidebar-section-label">
-            <span>项目 <span id="conversation-count" hidden>0</span></span
-            ><button id="new-project" type="button" aria-label="新建项目" title="新建项目">
-              <svg class="ui-icon"><use href="#i-plus" /></svg>
+            <button
+              class="entry-switch-option"
+              type="button"
+              role="tab"
+              id="entry-observe"
+              data-entry-mode="observe"
+              aria-label="观测"
+              aria-selected="false"
+              aria-controls="observe-entry"
+              tabindex="-1"
+            >
+              <svg class="ui-icon" aria-hidden="true"><use href="#i-radar" /></svg><span>观测</span>
             </button>
           </div>
-          <div class="project-list" id="project-list" aria-label="项目与对话列表"></div>
+          <div class="work-sidebar" data-entry-panel="work">
+            <div class="sidebar-top">
+              <button class="new-conversation" id="new-conversation" aria-label="新会话" disabled>
+                <span class="new-icon"
+                  ><svg class="ui-icon"><use href="#i-plus" /></svg></span
+                ><span class="new-label">新会话</span><kbd class="shortcut">⌘K</kbd>
+              </button>
+            </div>
+            <div class="sidebar-section-label">
+              <span class="sidebar-section-title">项目 <span id="conversation-count" hidden>0</span></span
+              ><button id="new-project" type="button" aria-label="添加项目" title="添加项目">
+                <svg class="ui-icon"><use href="#i-plus" /></svg>
+              </button>
+            </div>
+            <div class="project-list" id="project-list" aria-label="项目、Main 会话与子 Agent"></div>
+          </div>
+          <nav class="observe-nav" data-entry-panel="observe" aria-label="观测视图" hidden>
+            <div class="observe-views">
+              <button class="nav-item" type="button" data-observe-view="overview" aria-current="page">
+                <span class="nav-icon"
+                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-grid" /></svg></span
+                ><span>总览</span>
+              </button>
+              <button class="nav-item" type="button" data-observe-view="requirements">
+                <span class="nav-icon"
+                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-list-checks" /></svg></span
+                ><span>需求</span><span class="observe-count" data-observe-count="requirements" hidden></span>
+              </button>
+              <button class="nav-item" type="button" data-observe-view="runs">
+                <span class="nav-icon"
+                  ><svg class="ui-icon" aria-hidden="true"><use href="#i-activity" /></svg></span
+                ><span>运行</span><span class="observe-count" data-observe-count="runs" hidden></span>
+              </button>
+            </div>
+            <div class="observe-group" data-observe-nodes-group>
+              <div class="observe-group-head">
+                <span class="observe-group-title">节点</span>
+                <span class="observe-group-spacer"></span>
+                <button
+                  class="observe-group-add"
+                  type="button"
+                  data-observe-add-node
+                  aria-label="添加节点"
+                  title="添加节点"
+                >
+                  <svg class="ui-icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                </button>
+              </div>
+              <div class="observe-list" data-observe-node-list></div>
+            </div>
+            <div class="observe-group" data-observe-projects-group>
+              <div class="observe-group-head"><span class="observe-group-title">项目</span></div>
+              <div class="observe-list" data-observe-project-list></div>
+            </div>
+          </nav>
           <div class="sidebar-bottom">
             <button class="account-row" id="recover-drafts" type="button" hidden>恢复草稿</button>
             <button
               class="account-row"
               id="user-menu-button"
               aria-label="设置"
-              aria-haspopup="dialog"
-              aria-controls="profile-modal"
+              aria-controls="settings-entry"
+              aria-expanded="false"
             >
-              <svg class="ui-icon account-icon" aria-hidden="true"><use href="#i-sliders" /></svg
-              ><span class="account-name">设置</span
-              ><span class="account-more"
-                ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-right" /></svg
-              ></span>
+              <svg class="ui-icon account-icon" aria-hidden="true"><use href="#i-settings" /></svg
+              ><span class="account-name">设置</span>
             </button>
           </div>
         </aside>
@@ -387,268 +564,354 @@
           aria-orientation="vertical"
           title="拖动调整侧栏宽度，双击恢复默认"
         ></div>
-        <main class="chat-pane">
-          <div id="workbench" class="workbench" hidden>
-            <div
-              class="workbench-header"
-              data-workbench-header
-              aria-describedby="workbench-session-status"
-              hidden
+        <main class="chat-pane" id="work-entry" data-entry-panel="work">
+          <header class="session-header">
+            <button
+              class="session-header-button sidebar-drawer-toggle"
+              id="sidebar-drawer-toggle"
+              type="button"
+              title="打开侧栏"
+              aria-label="打开侧栏"
+              aria-controls="conversation-sidebar"
+              aria-expanded="false"
             >
-              <nav class="workbench-rail" data-tab-rail aria-label="打开的文件与应用" hidden></nav>
-              <span id="workbench-session-status" class="sr-only" data-app-task-status role="status"></span>
-              <div class="workbench-view-actions">
-                <button class="app-button" data-app-expand aria-label="全屏编辑" title="全屏编辑">
-                  <svg class="ui-icon" aria-hidden="true"><use href="#i-fit" /></svg>
-                </button>
-                <button
-                  class="app-button"
-                  data-app-collaborate
-                  aria-label="在对话中使用"
-                  title="在对话中使用"
-                >
-                  <svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg>
-                </button>
+              <svg class="ui-icon" aria-hidden="true"><use href="#i-panel-left" /></svg>
+            </button>
+            <h1 class="session-title" id="topbar-task">新任务</h1>
+            <div class="session-header-actions">
+              <button
+                class="session-header-button"
+                id="session-menu-button"
+                type="button"
+                title="会话菜单"
+                aria-label="会话菜单"
+                aria-haspopup="menu"
+                aria-controls="session-menu"
+                aria-expanded="false"
+                hidden
+              >
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-more" /></svg>
+              </button>
+              <button
+                class="session-header-button"
+                id="output-pane-toggle"
+                type="button"
+                title="切换任务面板"
+                aria-label="切换任务面板"
+                aria-controls="agent-pane"
+                aria-expanded="false"
+              >
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-panel-right" /></svg>
+                <span class="session-header-label" data-panel-toggle-label></span>
+              </button>
+            </div>
+          </header>
+          <div class="chat-body">
+            <div id="workbench" class="workbench" hidden>
+              <div
+                class="workbench-header"
+                data-workbench-header
+                aria-describedby="workbench-session-status"
+                hidden
+              >
+                <nav class="workbench-rail" data-tab-rail aria-label="打开的文件与应用" hidden></nav>
+                <span id="workbench-session-status" class="sr-only" data-app-task-status role="status"></span>
+                <div class="workbench-view-actions">
+                  <button class="app-button" data-app-expand aria-label="全屏编辑" title="全屏编辑">
+                    <svg class="ui-icon" aria-hidden="true"><use href="#i-fit" /></svg>
+                  </button>
+                  <button
+                    class="app-button"
+                    data-app-collaborate
+                    aria-label="在对话中使用"
+                    title="在对话中使用"
+                  >
+                    <svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="workbench-tabs" data-tab-strip role="tablist" aria-label="工作台标签"></div>
+            </div>
+            <div
+              class="workspace-divider"
+              data-workspace-divider
+              role="separator"
+              aria-label="调整对话与工作台宽度"
+              aria-orientation="vertical"
+              tabindex="0"
+              hidden
+            ></div>
+            <div id="conversation-pane" class="conversation-pane">
+              <section class="chat-scroll" id="conversation">
+                <div class="welcome-empty">
+                  <div class="welcome-symbol">
+                    <svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg>
+                  </div>
+                  <h2>有什么可以帮忙的？</h2>
+                </div>
+              </section>
+              <div class="composer-wrap">
+                <section
+                  id="human-questions"
+                  class="human-questions"
+                  aria-label="需要你的回复"
+                  hidden
+                ></section>
+                <div class="composer">
+                  <section id="run-control" class="run-control" aria-label="运行控制" hidden>
+                    <svg class="run-control-spinner" aria-hidden="true"><use href="#i-loader-circle" /></svg>
+                    <span class="run-control-label" data-run-label>Main 正在工作</span>
+                    <span class="run-control-time" data-run-time></span>
+                    <span class="run-control-spacer"></span>
+                    <button
+                      class="run-control-button"
+                      type="button"
+                      data-run-pause
+                      title="暂停"
+                      aria-label="暂停"
+                    >
+                      <svg class="ui-icon" aria-hidden="true"><use href="#i-pause" /></svg><span>暂停</span>
+                    </button>
+                    <button
+                      class="run-control-button is-danger"
+                      type="button"
+                      data-run-cancel
+                      title="取消运行"
+                      aria-label="取消运行"
+                    >
+                      <svg class="ui-icon" aria-hidden="true"><use href="#i-square" /></svg
+                      ><span>取消运行</span>
+                    </button>
+                  </section>
+                  <div
+                    id="run-cancel-confirm"
+                    class="run-cancel-confirm"
+                    role="dialog"
+                    aria-modal="false"
+                    aria-labelledby="run-cancel-title"
+                    hidden
+                  >
+                    <h2 id="run-cancel-title">取消本次运行？</h2>
+                    <div class="run-cancel-actions">
+                      <button class="run-control-button" type="button" data-confirm-continue>继续运行</button>
+                      <button class="run-control-button is-danger" type="button" data-confirm-cancel>
+                        取消运行
+                      </button>
+                    </div>
+                  </div>
+                  <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
+                  <button class="composer-context" data-composer-context type="button" hidden></button>
+                  <textarea
+                    id="composer-input"
+                    rows="3"
+                    aria-label="任务描述"
+                    placeholder="描述任务，或添加后续要求…"
+                  ></textarea>
+                  <div id="upload-status" class="upload-status" role="status" hidden></div>
+                  <div id="attachment-strip" class="attachment-strip" hidden></div>
+                  <div class="composer-bar">
+                    <div class="composer-left">
+                      <button
+                        class="attach-button"
+                        title="添加文件 · 支持图片、PDF、Office，也可拖拽或粘贴截图"
+                        aria-label="添加文件"
+                      >
+                        <svg class="ui-icon"><use href="#i-plus" /></svg>
+                      </button>
+                      <button
+                        class="composer-project"
+                        id="composer-project"
+                        type="button"
+                        title="选择会话所在的项目"
+                        aria-label="选择项目"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                        hidden
+                      >
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-folder-open" /></svg
+                        ><span class="composer-project-name"></span
+                        ><span class="model-chevron"
+                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
+                        ></span>
+                      </button>
+                      <button id="model-setup-button" type="button" hidden>连接模型</button>
+                      <button
+                        class="model-select"
+                        id="model-select"
+                        type="button"
+                        title="切换模型"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                      >
+                        <span class="model-logo"
+                          ><svg class="brand-symbol" aria-hidden="true">
+                            <use href="#i-formicand-mark-small" /></svg
+                        ></span>
+                        <span class="model-name">Formicand Main</span
+                        ><span class="model-chevron"
+                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="reasoning-select"
+                        id="reasoning-select"
+                        type="button"
+                        title="设置推理强度"
+                        aria-label="推理强度：自动"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                      >
+                        <span class="reasoning-name">自动</span
+                        ><span class="model-chevron"
+                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
+                        ></span>
+                      </button>
+                    </div>
+                    <div class="composer-right">
+                      <button
+                        class="app-bind-select"
+                        id="app-bind-select"
+                        type="button"
+                        title="指定本轮对话加载的应用"
+                        aria-label="加载应用"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                        hidden
+                      >
+                        <span class="app-bind-icon"
+                          ><svg class="ui-icon"><use href="#i-apps" /></svg></span
+                        ><span class="app-bind-name">未加载应用</span
+                        ><span class="model-chevron"
+                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        id="stop-button"
+                        class="stop-button"
+                        type="button"
+                        aria-label="停止任务"
+                        title="停止任务"
+                        hidden
+                      >
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-stop" /></svg>
+                      </button>
+                      <button id="send-button" class="send-button" aria-label="发送">
+                        <svg class="ui-icon"><use href="#i-send" /></svg>
+                      </button>
+                    </div>
+                    <div class="model-menu" id="model-menu" role="listbox" aria-label="可用模型" hidden></div>
+                    <div
+                      class="model-menu reasoning-menu"
+                      id="reasoning-menu"
+                      role="listbox"
+                      aria-label="推理强度"
+                      hidden
+                    ></div>
+                    <div
+                      class="model-menu app-bind-menu"
+                      id="app-bind-menu"
+                      role="listbox"
+                      aria-label="可加载的应用"
+                      hidden
+                    ></div>
+                  </div>
+                  <div
+                    class="model-menu composer-project-menu"
+                    id="composer-project-menu"
+                    role="listbox"
+                    aria-label="会话项目"
+                    hidden
+                  ></div>
+                </div>
               </div>
             </div>
-            <div class="workbench-tabs" data-tab-strip role="tablist" aria-label="工作台标签"></div>
           </div>
+          <aside id="artifact-drawer" class="artifact-drawer" aria-label="预览" hidden></aside>
+        </main>
+        <section
+          class="observe-pane"
+          id="observe-entry"
+          data-entry-panel="observe"
+          aria-labelledby="observe-title"
+          hidden
+        >
+          <header class="observe-header">
+            <button
+              class="session-header-button sidebar-drawer-toggle"
+              id="observe-sidebar-drawer-toggle"
+              type="button"
+              title="打开侧栏"
+              aria-label="打开侧栏"
+              aria-controls="conversation-sidebar"
+              aria-expanded="false"
+            >
+              <svg class="ui-icon" aria-hidden="true"><use href="#i-panel-left" /></svg>
+            </button>
+            <h1 id="observe-title" tabindex="-1">总览</h1>
+            <div class="observe-header-actions" data-observe-requirements-actions hidden>
+              <label class="observe-search">
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-search" /></svg>
+                <input type="search" data-observe-search placeholder="搜索需求" autocomplete="off" />
+              </label>
+              <button class="observe-publish" type="button" data-observe-publish>
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-plus" /></svg><span>发布到看板</span>
+              </button>
+            </div>
+            <div class="runs-controls" data-observe-runs-controls hidden></div>
+          </header>
           <div
-            class="workspace-divider"
-            data-workspace-divider
-            role="separator"
-            aria-label="调整对话与工作台宽度"
-            aria-orientation="vertical"
-            tabindex="0"
+            class="observe-tabs"
+            data-observe-requirements-tabs
+            role="tablist"
+            aria-label="需求阶段"
             hidden
           ></div>
-          <div id="conversation-pane" class="conversation-pane">
-            <section class="chat-scroll" id="conversation">
-              <div class="welcome-empty">
-                <div class="welcome-symbol"><img src="/assets/atria-symbol.png" alt="" /></div>
-                <h2>有什么可以帮忙的？</h2>
-                <p>描述目标，或先打开应用准备文档。连接模型并选择项目后，即可开始协作。</p>
-                <div class="starter-prompts">
-                  <button data-prompt="帮我梳理这个项目的结构">
-                    <span class="prompt-icon"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-folder" /></svg></span
-                    >梳理项目结构
-                    <span class="prompt-arrow"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
-                    ></span></button
-                  ><button data-prompt="检查最近的代码改动并运行测试">
-                    <span class="prompt-icon"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-check" /></svg></span
-                    >检查代码改动
-                    <span class="prompt-arrow"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
-                    ></span></button
-                  ><button data-prompt="研究这个主题并整理一份简报">
-                    <span class="prompt-icon"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-search" /></svg></span
-                    >研究并整理简报
-                    <span class="prompt-arrow"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
-                    ></span>
-                  </button>
-                  <button data-prompt="读取我提供的文件，整理关键信息并生成一份报告。">
-                    <span class="prompt-icon"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-apps" /></svg
-                    ></span>
-                    整理文件并生成报告
-                    <span class="prompt-arrow"
-                      ><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow" /></svg
-                    ></span>
-                  </button>
-                </div>
-              </div>
-            </section>
-            <div class="composer-wrap">
-              <section
-                id="human-questions"
-                class="human-questions"
-                aria-label="需要你的回复"
-                hidden
-              ></section>
-              <div class="composer">
-                <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
-                <button class="composer-context" data-composer-context type="button" hidden></button>
-                <textarea
-                  id="composer-input"
-                  rows="3"
-                  aria-label="任务描述"
-                  placeholder="描述任务，或添加后续要求…"
-                ></textarea>
-                <div id="upload-status" class="upload-status" role="status" hidden></div>
-                <div id="attachment-strip" class="attachment-strip" hidden></div>
-                <div class="composer-bar">
-                  <div class="composer-left">
-                    <button
-                      class="attach-button"
-                      title="添加文件 · 支持图片、PDF、Office，也可拖拽或粘贴截图"
-                      aria-label="添加文件"
-                    >
-                      <svg class="ui-icon"><use href="#i-plus" /></svg>
-                    </button>
-                    <button id="model-setup-button" type="button" hidden>连接模型</button>
-                    <button
-                      class="model-select"
-                      id="model-select"
-                      type="button"
-                      title="切换模型"
-                      aria-haspopup="listbox"
-                      aria-expanded="false"
-                    >
-                      <span class="model-logo"><img src="/assets/atria-symbol.png" alt="" /></span
-                      ><span class="model-name">CoworkOS Main</span
-                      ><span class="model-chevron"
-                        ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-                      ></span>
-                    </button>
-                    <button
-                      class="reasoning-select"
-                      id="reasoning-select"
-                      type="button"
-                      title="设置推理强度"
-                      aria-label="推理强度：自动"
-                      aria-haspopup="listbox"
-                      aria-expanded="false"
-                    >
-                      <span class="reasoning-name">自动</span
-                      ><span class="model-chevron"
-                        ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-                      ></span>
-                    </button>
-                  </div>
-                  <div class="composer-right">
-                    <button
-                      class="app-bind-select"
-                      id="app-bind-select"
-                      type="button"
-                      title="指定本轮对话加载的应用"
-                      aria-label="加载应用"
-                      aria-haspopup="listbox"
-                      aria-expanded="false"
-                      hidden
-                    >
-                      <span class="app-bind-icon"
-                        ><svg class="ui-icon"><use href="#i-apps" /></svg></span
-                      ><span class="app-bind-name">未加载应用</span
-                      ><span class="model-chevron"
-                        ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-                      ></span>
-                    </button>
-                    <button
-                      id="stop-button"
-                      class="stop-button"
-                      type="button"
-                      aria-label="停止任务"
-                      title="停止任务"
-                      hidden
-                    >
-                      <svg class="ui-icon" aria-hidden="true"><use href="#i-stop" /></svg>
-                    </button>
-                    <button id="send-button" class="send-button" aria-label="发送">
-                      <svg class="ui-icon"><use href="#i-send" /></svg>
-                    </button>
-                  </div>
-                  <div class="model-menu" id="model-menu" role="listbox" aria-label="可用模型" hidden></div>
-                  <div
-                    class="model-menu reasoning-menu"
-                    id="reasoning-menu"
-                    role="listbox"
-                    aria-label="推理强度"
-                    hidden
-                  ></div>
-                  <div
-                    class="model-menu app-bind-menu"
-                    id="app-bind-menu"
-                    role="listbox"
-                    aria-label="可加载的应用"
-                    hidden
-                  ></div>
-                </div>
-              </div>
-            </div>
+          <div class="observe-body">
+            <section class="observe-view" data-observe-panel="overview"></section>
+            <section
+              class="observe-view"
+              data-observe-panel="requirements"
+              data-observe-requirements-list
+              hidden
+            ></section>
+            <section class="observe-view" data-observe-panel="runs" hidden></section>
           </div>
-        </main>
+        </section>
+        <aside class="observe-detail" id="observe-detail" aria-label="需求详情" hidden></aside>
 
-        <aside class="agent-pane" id="agent-pane" aria-label="任务工作空间">
-          <div class="agent-pane-header">
-            <div class="output-heading">
-              <h2 id="panel-heading" tabindex="-1" aria-label="任务面板">
-                <span data-panel-title>任务面板</span>
-                <button
-                  class="sidebar-view-toggle"
-                  data-sidebar-view="navigation"
-                  title="显示默认侧栏"
-                  aria-label="显示默认侧栏"
-                  aria-controls="conversation-sidebar"
-                  hidden
-                >
-                  <span>任务面板</span>
-                  <svg class="ui-icon" aria-hidden="true"><use href="#i-switch" /></svg>
-                </button>
-              </h2>
-              <span id="agent-count" hidden>0</span
-              ><button class="panel-add" aria-label="刷新任务面板" title="刷新">
-                <svg class="ui-icon"><use href="#i-refresh" /></svg>
+        <aside class="agent-pane" id="agent-pane" aria-label="需求进度">
+          <div class="requirement-panel" data-requirement-panel>
+            <header class="requirement-panel-head">
+              <h2 id="panel-heading" tabindex="-1"><span data-panel-title>需求进度</span></h2>
+              <button
+                class="sidebar-view-toggle"
+                data-sidebar-view="navigation"
+                type="button"
+                title="显示默认侧栏"
+                aria-label="显示默认侧栏"
+                aria-controls="conversation-sidebar"
+                hidden
+              >
+                <span>需求进度</span>
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-switch" /></svg>
               </button>
-            </div>
-          </div>
-          <div id="workspace-view" class="panel-view workspace-view">
-            <div class="workspace-start">
-              <strong>从一个任务或文档开始</strong>
-              <p>先在输入框准备任务，或打开应用编辑文档。运行任务前，连接模型并选择项目文件夹。</p>
-              <small>开始协作后，这里会显示产出物、运行用量和智能体团队。</small>
-            </div>
-            <div class="output-section">
-              <div class="output-section-title">
-                <span>产出物</span><span id="workspace-artifact-count">0</span>
-              </div>
-              <div class="output-list" id="output-list"></div>
-            </div>
-            <div class="detail-heading" id="detail-heading">
-              <span>会话运行概览</span><span id="run-statistics-status"></span>
-            </div>
-            <div class="right-body" id="detail-body"></div>
-            <section id="team-view" class="team-section" aria-labelledby="team-heading">
-              <h3 class="output-section-title" id="team-heading">智能体团队</h3>
-              <div
-                class="agent-galaxy"
-                id="agent-galaxy"
-                role="group"
-                aria-label="智能体星系，点击星体查看执行轨迹"
-              ></div>
-              <div class="team-summary">
-                <div>
-                  <span class="team-status-dot" id="team-status-dot"></span
-                  ><strong id="team-caption-text">空闲中</strong
-                  ><small id="team-count-label">等待新任务</small>
-                </div>
-              </div>
-              <div class="member-history">
-                <span>成员记录</span>
-                <div id="team-members" aria-label="查看成员轨迹"></div>
-              </div>
-              <details id="team-trace-details" class="team-trace-details">
-                <summary>查看执行轨迹<span>⌄</span></summary>
-                <section class="team-trace" id="agent-focus" aria-label="智能体执行轨迹"></section>
-              </details>
-            </section>
-            <section id="monitor-section" class="watch-section" aria-label="本会话的监控" hidden>
-              <button id="monitor-manage" class="watch-session-link" type="button" aria-haspopup="dialog">
-                <svg class="ui-icon" aria-hidden="true"><use href="#i-bell" /></svg>
-                <span id="monitor-label">监控</span><span id="monitor-count"></span>
-                <svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+              <button
+                class="requirement-panel-close"
+                data-panel-collapse
+                type="button"
+                aria-label="收起需求进度"
+                title="收起需求进度"
+              >
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-close" /></svg>
               </button>
-            </section>
+            </header>
+            <div class="requirement-panel-body" data-requirement-body></div>
+            <div class="requirement-usage" data-requirement-usage></div>
           </div>
         </aside>
       </div>
     </div>
-    <div id="artifact-drawer-scrim" class="artifact-drawer-scrim" hidden></div>
-    <aside id="artifact-drawer" class="artifact-drawer" aria-label="产出物详情" hidden></aside>
+    <div id="connection-state" role="status" hidden></div>
     <input
       id="file-input"
       type="file"
@@ -656,81 +919,272 @@
       multiple
       hidden
     />
-    <div class="modal-backdrop settings-backdrop" id="profile-modal" hidden>
-      <section
-        class="modal-card profile-card settings-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="profile-modal-title"
-      >
-        <header class="settings-heading">
-          <div>
-            <h2 id="profile-modal-title">设置</h2>
-          </div>
-          <button
-            class="settings-nav-button"
-            type="button"
-            id="profile-close"
-            aria-label="关闭设置"
-            title="关闭设置"
-          >
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-close" /></svg>
+    <section class="settings-entry" id="settings-entry" aria-label="设置" hidden>
+      <div class="settings-nav">
+        <button class="settings-back" type="button" id="settings-back" aria-label="返回设置入口">
+          <svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left" /></svg
+          ><span class="settings-back-label">设置</span>
+        </button>
+        <nav class="settings-nav-items" aria-label="设置分区">
+          <button class="settings-nav-item" type="button" data-settings-section="general" aria-current="page">
+            <svg class="ui-icon" aria-hidden="true"><use href="#i-sliders" /></svg><span>通用</span>
           </button>
-        </header>
-        <div class="settings-scroll settings-overview" id="profile-settings-sections">
-          <section class="settings-overview-group" aria-labelledby="settings-general-heading">
-            <h3 id="settings-general-heading">通用</h3>
-            <div class="settings-overview-rows" id="profile-settings-general">
-              <div class="profile-setting appearance-setting">
-                <span class="settings-row-copy"
-                  ><span class="settings-row-icon"
-                    ><svg class="ui-icon" aria-hidden="true"><use href="#i-layout" /></svg></span
-                  ><span><label for="appearance-select">外观</label></span></span
-                >
-                <select id="appearance-select" aria-describedby="appearance-status">
-                  <option value="system">跟随系统</option>
-                  <option value="dark">深色</option>
-                  <option value="light">浅色</option>
-                </select>
-                <span id="appearance-status" role="status"></span>
+          <button class="settings-nav-item" type="button" data-settings-section="nodes">
+            <svg class="ui-icon" aria-hidden="true"><use href="#i-server" /></svg><span>节点连接</span>
+          </button>
+          <button class="settings-nav-item" type="button" data-settings-section="models">
+            <svg class="ui-icon" aria-hidden="true"><use href="#i-cpu" /></svg><span>模型与角色</span>
+          </button>
+          <button class="settings-nav-item" type="button" data-settings-section="capacity">
+            <svg class="ui-icon" aria-hidden="true"><use href="#i-gauge" /></svg><span>运行名额</span>
+          </button>
+          <button class="settings-nav-item" type="button" data-settings-section="members">
+            <svg class="ui-icon" aria-hidden="true"><use href="#i-team" /></svg><span>成员与通道</span>
+          </button>
+          <button class="settings-nav-item" type="button" data-settings-section="tools">
+            <svg class="ui-icon" aria-hidden="true"><use href="#i-wrench" /></svg><span>工具</span>
+          </button>
+        </nav>
+      </div>
+      <div class="settings-content">
+        <div class="settings-column">
+          <section class="settings-panel is-large" data-settings-panel="general" aria-label="通用">
+            <h1 class="settings-page-title">通用</h1>
+            <div class="settings-group">
+              <div class="settings-group-head"><h2 class="settings-group-title">外观</h2></div>
+              <div class="settings-rows">
+                <div class="settings-row">
+                  <span class="settings-row-label">主题</span>
+                  <div class="settings-segmented" role="radiogroup" aria-label="主题" id="appearance-choices">
+                    <button type="button" role="radio" data-appearance-value="system" aria-checked="true">
+                      跟随系统
+                    </button>
+                    <button type="button" role="radio" data-appearance-value="light" aria-checked="false">
+                      浅色
+                    </button>
+                    <button type="button" role="radio" data-appearance-value="dark" aria-checked="false">
+                      深色
+                    </button>
+                  </div>
+                  <span id="appearance-status" role="status"></span>
+                </div>
+                <div class="settings-row" id="window-material-row" hidden>
+                  <span class="settings-row-label">窗口材质</span>
+                  <button
+                    class="ui-switch"
+                    type="button"
+                    role="switch"
+                    id="window-material-toggle"
+                    aria-checked="true"
+                    aria-label="窗口材质"
+                  ></button>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-row-label">减少动态效果</span>
+                  <div
+                    class="settings-segmented"
+                    role="radiogroup"
+                    aria-label="减少动态效果"
+                    id="reduced-motion-choices"
+                  >
+                    <button type="button" role="radio" data-reduced-motion-value="system" aria-checked="true">
+                      跟随系统
+                    </button>
+                    <button type="button" role="radio" data-reduced-motion-value="on" aria-checked="false">
+                      开启
+                    </button>
+                    <button type="button" role="radio" data-reduced-motion-value="off" aria-checked="false">
+                      关闭
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div class="profile-setting appearance-setting">
-                <span class="settings-row-copy"
-                  ><span class="settings-row-icon"
-                    ><svg class="ui-icon" aria-hidden="true"><use href="#i-text" /></svg></span
-                  ><span><label for="language-select">语言</label></span></span
-                >
-                <select id="language-select" aria-describedby="language-status">
-                  <option value="zh-CN" lang="zh-CN">简体中文</option>
-                  <option value="en" lang="en">English</option>
-                </select>
-                <span id="language-status" role="status"></span>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-head"><h2 class="settings-group-title">语言与区域</h2></div>
+              <div class="settings-rows">
+                <div class="settings-row">
+                  <label class="settings-row-label" for="language-select">界面语言</label>
+                  <select id="language-select" class="settings-select" aria-describedby="language-status">
+                    <option value="zh-CN" lang="zh-CN">简体中文</option>
+                    <option value="en" lang="en">English</option>
+                  </select>
+                  <span id="language-status" role="status"></span>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-row-label">时间格式</span>
+                  <div
+                    class="settings-segmented"
+                    role="radiogroup"
+                    aria-label="时间格式"
+                    id="time-format-choices"
+                  >
+                    <button type="button" role="radio" data-time-format-value="relative" aria-checked="true">
+                      相对时间
+                    </button>
+                    <button type="button" role="radio" data-time-format-value="absolute" aria-checked="false">
+                      绝对时间
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-head"><h2 class="settings-group-title">关于</h2></div>
+              <div class="settings-rows" id="profile-settings-about">
+                <div class="desktop-updates">
+                  <div class="settings-row about-product">
+                    <span class="settings-row-copy"
+                      ><span class="about-mark"
+                        ><svg class="brand-symbol" aria-hidden="true">
+                          <use href="#i-formicand-mark" /></svg></span
+                      ><span><strong>Formicand</strong><small data-update-version hidden></small></span
+                    ></span>
+                    <button class="about-update" type="button" data-update-action hidden>检查更新</button>
+                  </div>
+                  <p data-update-message role="status" aria-live="polite" hidden></p>
+                  <progress data-update-progress aria-label="更新进度" hidden></progress>
+                  <p data-update-error role="alert" hidden></p>
+                </div>
               </div>
             </div>
           </section>
-          <section class="settings-overview-group" aria-labelledby="settings-connections-heading">
-            <h3 id="settings-connections-heading">连接</h3>
-            <div class="settings-overview-rows" id="profile-settings-connections"></div>
+          <section class="settings-panel" data-settings-panel="nodes" aria-label="节点连接" hidden>
+            <h1 class="settings-page-title">节点连接</h1>
+            <div class="settings-group">
+              <div class="settings-group-head"><h2 class="settings-group-title">本机</h2></div>
+              <div class="settings-rows" id="settings-node-local"></div>
+            </div>
+            <div class="settings-group" id="settings-node-remote-group" hidden>
+              <div class="settings-group-head">
+                <h2 class="settings-group-title">远程节点</h2>
+                <span class="settings-group-spacer"></span>
+                <button class="settings-link" type="button" id="settings-node-add" hidden>
+                  <svg class="ui-icon" aria-hidden="true"><use href="#i-plus" /></svg><span>添加节点</span>
+                </button>
+              </div>
+              <div class="settings-rows" id="settings-node-remote"></div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-head"><h2 class="settings-group-title">项目数据</h2></div>
+              <div class="settings-rows" id="settings-node-data"></div>
+            </div>
           </section>
-          <section class="settings-overview-group" aria-labelledby="settings-tools-heading">
-            <h3 id="settings-tools-heading">工具</h3>
-            <div class="settings-overview-rows" id="profile-settings-tools"></div>
+          <section class="settings-panel" data-settings-panel="models" aria-label="模型与角色" hidden>
+            <h1 class="settings-page-title">模型与角色</h1>
+            <div class="settings-group">
+              <div class="settings-group-head">
+                <h2 class="settings-group-title">模型连接</h2>
+                <span class="settings-group-spacer"></span>
+                <button class="settings-link" type="button" id="settings-model-add">
+                  <svg class="ui-icon" aria-hidden="true"><use href="#i-plus" /></svg><span>添加连接</span>
+                </button>
+              </div>
+              <div class="settings-rows" id="profile-settings-connections"></div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-head">
+                <h2 class="settings-group-title">角色</h2>
+                <span class="settings-group-spacer"></span>
+              </div>
+              <div class="settings-rows" id="settings-role-rows"></div>
+            </div>
           </section>
-          <section
-            class="settings-overview-group"
-            id="settings-about-group"
-            aria-labelledby="settings-about-heading"
-            hidden
-          >
-            <h3 id="settings-about-heading">关于</h3>
-            <div class="settings-overview-rows" id="profile-settings-about"></div>
+          <section class="settings-panel" data-settings-panel="capacity" aria-label="运行名额" hidden>
+            <div class="settings-title-row">
+              <h1 class="settings-page-title">运行名额</h1>
+              <span class="settings-info" title="本机不配置名额；只对远程对外节点设置常驻与接续数量"
+                ><svg class="ui-icon" aria-hidden="true"><use href="#i-info" /></svg
+              ></span>
+            </div>
+            <div id="settings-capacity-nodes"></div>
+          </section>
+          <section class="settings-panel" data-settings-panel="members" aria-label="成员与通道" hidden>
+            <h1 class="settings-page-title">成员与通道</h1>
+            <div class="settings-group">
+              <div class="settings-group-head"><h2 class="settings-group-title">成员</h2></div>
+              <div class="settings-rows" id="settings-member-rows"></div>
+            </div>
+            <div class="settings-group is-placeholder">
+              <div class="settings-group-head">
+                <h2 class="settings-group-title">通知通道</h2>
+                <span class="settings-phase">P5 开放</span>
+                <span class="settings-group-spacer"></span>
+              </div>
+              <div class="settings-rows">
+                <div class="settings-row">
+                  <span class="settings-icon-box"
+                    ><svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg
+                  ></span>
+                  <span class="settings-row-text"><span class="settings-row-name">飞书</span></span>
+                  <span class="settings-row-spacer"></span>
+                  <button class="settings-outline-button" type="button" disabled>连接</button>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-icon-box"
+                    ><svg class="ui-icon" aria-hidden="true"><use href="#i-messages-square" /></svg
+                  ></span>
+                  <span class="settings-row-text"><span class="settings-row-name">企业微信</span></span>
+                  <span class="settings-row-spacer"></span>
+                  <button class="settings-outline-button" type="button" disabled>连接</button>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-icon-box"
+                    ><svg class="ui-icon" aria-hidden="true"><use href="#i-send" /></svg
+                  ></span>
+                  <span class="settings-row-text"><span class="settings-row-name">Telegram</span></span>
+                  <span class="settings-row-spacer"></span>
+                  <button class="settings-outline-button" type="button" disabled>连接</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-group is-placeholder">
+              <div class="settings-group-head">
+                <h2 class="settings-group-title">回访</h2>
+                <span class="settings-phase">P5 开放</span>
+                <span class="settings-group-spacer"></span>
+              </div>
+              <div class="settings-rows">
+                <div class="settings-row">
+                  <span class="settings-row-label">回访间隔</span>
+                  <span class="settings-row-spacer"></span>
+                  <select class="settings-select is-narrow" aria-label="回访间隔" disabled>
+                    <option>每 1 天</option>
+                  </select>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-row-label">3 次无回复后通知</span>
+                  <span class="settings-info" title="三次回访都没有回复时提醒项目负责人"
+                    ><svg class="ui-icon" aria-hidden="true"><use href="#i-info" /></svg
+                  ></span>
+                  <span class="settings-row-spacer"></span>
+                  <span class="settings-row-state">项目负责人</span>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="settings-panel is-large" data-settings-panel="tools" aria-label="工具" hidden>
+            <h1 class="settings-page-title">工具</h1>
+            <div class="settings-group">
+              <div class="settings-group-head"><h2 class="settings-group-title">内置工具</h2></div>
+              <div class="settings-rows" id="profile-settings-tools"></div>
+            </div>
+            <div class="settings-group" id="settings-mcp-group" hidden>
+              <div class="settings-group-head">
+                <h2 class="settings-group-title">MCP 服务</h2>
+                <span class="settings-group-spacer"></span>
+                <button class="settings-link" type="button" id="settings-mcp-add" hidden>
+                  <svg class="ui-icon" aria-hidden="true"><use href="#i-plus" /></svg><span>添加服务</span>
+                </button>
+              </div>
+              <div class="settings-rows" id="settings-mcp-rows"></div>
+            </div>
           </section>
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
     <div class="session-menu" id="session-menu" hidden></div>
-    <div class="toast" id="toast"></div>
-    <script type="module" src="/assets/starfield.js"></script>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

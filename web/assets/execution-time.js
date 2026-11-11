@@ -1,6 +1,6 @@
 import { ui } from "./ui/language.js";
 const START = "main.run_spawned";
-const STOPS = new Set(["main.run_completed", "main.run_failed", "main.run_waiting"]);
+const STOPS = new Set(["main.run_completed", "main.run_failed", "main.run_paused", "main.run_waiting"]);
 
 function ledgerTime(value) {
   // Ledger timestamps carry a timezone. Do not let Date.parse turn a budget,

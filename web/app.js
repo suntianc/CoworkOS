@@ -1,8 +1,6 @@
 import { ui, localizeShell } from "./assets/ui/language.js";
 import { installLanguageSettings } from "./assets/controllers/language-settings.js";
 import { createCoalescedRead } from "./assets/controllers/coalesced-read.js";
-import { createGoalController } from "./assets/controllers/goal-controller.js";
-import { createWatchController } from "./assets/controllers/watch-controller.js";
 import { createMessageEditController } from "./assets/controllers/message-edit.js";
 import { createComposerClipboard } from "./assets/controllers/composer-clipboard.js";
 import { createComposerSession } from "./assets/controllers/composer-session.js";
@@ -14,9 +12,11 @@ import { composePrompt } from "./assets/attachments.js";
 import { requestErrorMessage } from "./assets/request-error.js";
 import { renderMessageQueue } from "./assets/message-queue.js";
 import { createSidebarLayout } from "./assets/sidebar-layout.js";
+import { createResponsiveShell } from "./assets/controllers/responsive-shell.js";
 import { icon } from "./assets/ui/icons.js";
 import { createMenu } from "./assets/ui/menu.js";
 import { createModal } from "./assets/ui/modal.js";
+import { formatStamp } from "./assets/ui/time-format.js";
 import { createVisiblePoll } from "./assets/ui/visible-poll.js";
 import { installDesktopSettings } from "./assets/controllers/desktop-settings.js";
 import { installUserMemorySettings } from "./assets/controllers/user-memory-settings.js";
@@ -35,27 +35,28 @@ import { createTaskNotifications } from "./assets/controllers/task-notifications
 import { createBackendConnection } from "./assets/controllers/backend-connection.js";
 import { createProjectExperienceController } from "./assets/controllers/project-experience.js";
 import { createProjectController } from "./assets/controllers/project-controller.js";
-import { createProjectLedgerController } from "./assets/controllers/project-ledger.js";
-import { createProjectDevelopmentController } from "./assets/controllers/project-development.js";
-import { createMainSessionsController } from "./assets/controllers/main-sessions.js";
-import { createMainCapacityController } from "./assets/controllers/main-capacity.js";
-import { createProjectBoardController } from "./assets/controllers/project-board.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
 import { createConversationReadState, conversationTaskId } from "./assets/conversation-actions.js";
 import { renderMarkdown } from "./assets/markdown.js";
 import { mergeRuntimeEvents } from "./assets/conversation.js";
-import { agentIdentity, agentName, galaxyMembers, isWorking } from "./assets/agent-room.js";
-import { createAgentGalaxy } from "./assets/agent-galaxy.js";
-import { renderRunOverview, runElapsed, formatRunDuration } from "./assets/run-overview.js";
+import { createEntryController } from "./assets/controllers/entry-controller.js";
+import { createSettingsPages } from "./assets/controllers/settings-pages.js";
+import { createObserveData } from "./assets/controllers/observe-data.js";
+import { createObserveOverview } from "./assets/controllers/observe-overview.js";
+import { createObserveRuns } from "./assets/controllers/observe-runs.js";
+import { createObserveSidebar } from "./assets/controllers/observe-sidebar.js";
+import { createObserveRequirements } from "./assets/controllers/observe-requirements.js";
+import { createRequirementPanel } from "./assets/controllers/requirement-panel.js";
+import { createRunControl } from "./assets/controllers/run-control.js";
+import { createNewSessionView } from "./assets/controllers/new-session.js";
+import { createFirstUseView } from "./assets/controllers/first-use.js";
+import { createAddProjectController } from "./assets/controllers/add-project.js";
 import { createHumanQuestions } from "./assets/human-questions.js";
 import { installComputerUse } from "./assets/controllers/computer-use.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
 
 localizeShell(document.body);
-
-const trajectoryCache = new Map();
-const trajectoryRequests = new Set();
 
 const state = {
   online: true,
@@ -63,16 +64,27 @@ const state = {
   tasks: [],
   projects: [],
   collapsedProjects: new Set(),
+  collapsedSessions: new Set(),
   models: [],
   defaultModel: null,
   model: null,
   modelByTask: new Map(),
+  /**
+   * The level the user picked for the current conversation, or null to let the
+   * Main connection's saved level govern. The two are separate on purpose: an
+   * inherited level must never be sent as if it were a choice.
+   */
   thinkingLevel: null,
   thinkingLevelByTask: new Map(),
+  /** The Main connection's saved level, reported by the server for the label. */
+  mainThinkingLevel: null,
   selected: null,
   detail: null,
-  selectedAgent: null,
   previewPath: null,
+  drawerTab: null,
+  drawerFile: null,
+  drawerDiff: null,
+  drawerTrigger: null,
   artifactDrawerOpen: false,
   openFiles: [],
   artifactCache: new Map(),
@@ -91,8 +103,11 @@ let attachmentReadVersion = 0;
 let readingAttachments = false;
 let fileUpload;
 let attachmentPreview;
+let observeRequirements;
+let observeOverview;
 const creatingTasks = new Map();
 const stoppingTasks = new Set();
+const continuingTasks = new Set();
 const stopEpochs = new Map();
 const promotingMessages = new Set();
 let detailRequestSequence = 0;
@@ -101,25 +116,52 @@ let latestListRead;
 const catalogReads = createCoalescedRead((_key, options) => refreshState(options));
 const detailReads = createCoalescedRead(readDetail);
 let renderedDetailSignature;
-let renderedEmpty = false;
-const navigationHistory = [];
-let navigationIndex = -1;
 
 const $ = (selector) => document.querySelector(selector);
 createComposerLayout($("#composer-input"));
 createSidebarLayout($(".app-layout"), $(".conversation-sidebar"), $("#sidebar-divider"), {
-  sidebarToggle: $(ui('.window-nav[aria-label="切换侧栏"]')),
   outputPane: $(".agent-pane"),
   outputToggle: $("#output-pane-toggle")
 });
+createResponsiveShell({
+  toggles: [...document.querySelectorAll(".sidebar-drawer-toggle")],
+  closeButton: $("#sidebar-drawer-close"),
+  sidebar: $("#conversation-sidebar")
+});
 let draftStorage;
+let browserSessionStorage;
 try {
   draftStorage = window.localStorage;
   // eslint-disable-next-line no-restricted-syntax -- the localStorage getter throws SecurityError when the browser blocks storage, and every reader below treats draftStorage as optional
 } catch {
   /* storage may be disabled */
 }
+try {
+  browserSessionStorage = window.sessionStorage;
+  // eslint-disable-next-line no-restricted-syntax -- the sessionStorage getter throws when storage is blocked; the management client then keeps sessions in memory
+} catch {
+  /* storage may be disabled */
+}
 const conversationReadState = createConversationReadState(draftStorage);
+const entryController = createEntryController({
+  root: $(".app-layout"),
+  storage: draftStorage,
+  onChange: (next) => {
+    observeOverview?.applyEntry(next);
+    observeRequirements?.applyEntry(next);
+  }
+});
+for (const button of document.querySelectorAll("[data-entry-mode]"))
+  button.addEventListener("click", () => entryController.setMode(button.dataset.entryMode));
+$(".entry-switch")?.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+  event.preventDefault();
+  const next = entryController.state().mode === "work" ? "observe" : "work";
+  entryController.setMode(next);
+  $(`[data-entry-mode="${next}"]`)?.focus();
+});
+for (const button of document.querySelectorAll("[data-observe-view]"))
+  button.addEventListener("click", () => entryController.setObserveView(button.dataset.observeView));
 let initialConversationTaskId = conversationTaskId(location.href);
 let linkedConversationNavigation;
 let lastReadSelection;
@@ -149,14 +191,7 @@ const management = createManagementClient({
         }
       }
     : {}),
-  storage: (() => {
-    try {
-      return window.sessionStorage;
-      // eslint-disable-next-line no-restricted-syntax -- the sessionStorage getter throws when storage is blocked by privacy settings; the management client then keeps the session in memory
-    } catch {
-      return undefined;
-    }
-  })(),
+  storage: browserSessionStorage,
   targetStorage: draftStorage,
   events: {
     onSnapshot: (snapshot) => adoptCatalogSnapshot(snapshot),
@@ -174,6 +209,7 @@ const management = createManagementClient({
   onStateChange: (state) => {
     backendConnection?.apply(state);
     updateSendButton();
+    observeData.localChanged();
   }
 });
 const artifactViewer = createArtifactViewer({
@@ -186,6 +222,9 @@ window.addEventListener(
   () => {
     artifactViewer.dispose();
     clearManagedMedia();
+    observeOverview?.dispose();
+    observeRequirements?.dispose();
+    observeData.dispose();
     management.stop();
   },
   { once: true }
@@ -198,7 +237,6 @@ window.addEventListener("pageshow", (event) => {
 // The last model a person picked stays as the default for the next new
 // conversation, so switching once is enough instead of re-picking each time.
 const PREFERRED_MODEL_KEY = "atria.model.preferred";
-const PREFERRED_THINKING_LEVEL_KEY = "atria.reasoning.preferred";
 function readPreferredModel() {
   try {
     return (draftStorage && draftStorage.getItem(PREFERRED_MODEL_KEY)) || "";
@@ -213,27 +251,6 @@ function writePreferredModel(model) {
     if (model) draftStorage.setItem(PREFERRED_MODEL_KEY, model);
     else draftStorage.removeItem(PREFERRED_MODEL_KEY);
     // eslint-disable-next-line no-restricted-syntax -- best-effort preference write: blocked or full storage only loses the remembered model
-  } catch {
-    /* storage may be disabled */
-  }
-}
-function readPreferredThinkingLevel() {
-  try {
-    const value = draftStorage?.getItem(PREFERRED_THINKING_LEVEL_KEY) || "";
-    return value === "off" || ["minimal", "low", "medium", "high", "xhigh", "max"].includes(value)
-      ? value
-      : null;
-    // eslint-disable-next-line no-restricted-syntax -- getItem throws in blocked-storage sessions, where no preferred reasoning level can be read
-  } catch {
-    return null;
-  }
-}
-function writePreferredThinkingLevel(level) {
-  try {
-    if (!draftStorage) return;
-    if (level) draftStorage.setItem(PREFERRED_THINKING_LEVEL_KEY, level);
-    else draftStorage.removeItem(PREFERRED_THINKING_LEVEL_KEY);
-    // eslint-disable-next-line no-restricted-syntax -- best-effort preference write: blocked or full storage only loses the remembered reasoning level
   } catch {
     /* storage may be disabled */
   }
@@ -295,11 +312,11 @@ const esc = (value) =>
     /[&<>"']/g,
     (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]
   );
-const safeClass = (value) => String(value ?? "created").replace(/[^a-z0-9_-]/gi, "");
 const statusLabel = {
   created: ui("已创建"),
   idle: ui("空闲中"),
   running: ui("工作中"),
+  paused: ui("已暂停"),
   waiting: ui("等待中"),
   completed: ui("已完成"),
   failed: ui("失败"),
@@ -312,13 +329,6 @@ const statusLabel = {
   interrupted: ui("已结束")
 };
 const stateText = (value) => statusLabel[value] || value || ui("未知");
-const memberStateText = (member) => (member?.blocked ? ui("等待前置") : stateText(member?.status));
-const updateAgentGalaxy = createAgentGalaxy($("#agent-galaxy"), {
-  onSelect: showAgentTrace,
-  nameFor: agentName,
-  stateFor: stateText,
-  keyFor: agentKey
-});
 
 /**
  * The workbench, created only once a Task reports application state.
@@ -341,7 +351,6 @@ const workbenchController = createWorkbenchController({
   onViewChanged: paintTopbarContext,
   onShowTaskPanel: ({ focus = false } = {}) => {
     document.body.classList.remove("output-collapsed");
-    renderAgentRoom();
     renderRightPanel();
     if (focus) $("#panel-heading")?.focus();
   },
@@ -351,6 +360,7 @@ const workbenchController = createWorkbenchController({
   activateDraft: (taskId) => composerSession.activate(taskId, { projectId: state.selectedProjectId }),
   saveDraft: () => composerSession.save(),
   getNavigationContext: () => composerSession.currentToken,
+  getRequirementStage: () => runControl?.stage ?? "",
   connectEventStream: (taskId) => connection.connect(taskId),
   backendRequest: (path, options) => api(path, options),
   fetchBytes: (path, signal) => management.blob(path, { signal })
@@ -369,10 +379,11 @@ const {
   enterConversation,
   activateConversationTab,
   ensureWorkbench,
-  ensureAppsPanel,
   ensureBinding,
   syncBindingFromTabs
 } = workbenchController;
+let requirementPanel;
+let runControl;
 const artifacts = createArtifactController({
   state,
   $,
@@ -381,33 +392,51 @@ const artifacts = createArtifactController({
   renderRightPanel,
   getWorkbench: () => workbenchController,
   mediaUrl: mediaObjectUrl,
-  openArtifactViewer: (path) => artifactViewer.open(path)
+  openArtifactViewer: (path) => artifactViewer.open(path),
+  getDelivery: () => requirementPanel?.records()
 });
 const {
-  fileBaseName,
-  artifactSource,
   openArtifact,
   appDisplayName,
   openResourceInEditor,
-  editArtifact,
   closeArtifactDrawer,
-  closeArtifact,
-  ensureArtifactLoaded,
   renderArtifactDrawer,
-  renderOutputActions,
-  bindOutputActions,
-  closeOutputMenu
+  openPreview
 } = artifacts;
+requirementPanel = createRequirementPanel({
+  state,
+  $,
+  api,
+  onCollapse: () => void toggleOutputPane(),
+  openArtifact,
+  openResource: openResourceInEditor,
+  openPreview,
+  iconForDocument: (row) => workbenchController.iconForDocument(row),
+  onRendered: (stage) => {
+    runControl?.setRequirementStage(stage);
+    workbenchController.paintPanelToggle();
+  }
+});
 const conversationView = createConversationView({
   state,
   $,
-  bindStarterPrompts,
   textContent,
   openArtifact,
-  openSettings: () => modelSettings.open(),
+  // The recovery card's model action switches the composer's model; the
+  // settings surface remains one click away from the composer selector.
+  openSettings: () => setTimeout(() => void toggleModelMenu(), 0),
   retry: (taskId) => void retryFailedRequest(taskId),
+  continueRun: (taskId) => void continuePausedRun(taskId),
   messageEdit,
   edit: (taskId, target) => messageEdit.begin(taskId, target)
+});
+runControl = createRunControl({
+  state,
+  $,
+  api,
+  showToast,
+  onChanged: () => refresh(),
+  cancelRun: (taskId) => stopTask(taskId)
 });
 /**
  * Backend files shown as images or iframes.
@@ -500,6 +529,7 @@ const workspaceDisplayName = (value) => {
 const projectExperienceController = createProjectExperienceController({ api, showToast });
 const projectController = createProjectController({
   openProjectExperience: (project) => projectExperienceController.open(project),
+  openAddProject: () => addProjectController.open(),
   state,
   $,
   api,
@@ -513,13 +543,11 @@ const projectController = createProjectController({
     (workbenchController.host?.openTabs || [])
       .filter((tab) => tab.kind === "application")
       .map((tab) => tab.workspaceRoot),
-  isContextVisible: () => !$("#conversation-pane").hidden,
   isTaskVisible: (task) =>
     task.monitoring?.scope !== "background" || task.pinned || task.taskId === state.selected,
   isUnread: (taskId) => conversationReadState.isUnread(taskId),
   selectConversation,
   conversationTitle,
-  stateText,
   taskMenuOpen: () => sessionMenu.isOpen,
   openTaskMenu: (node, taskId, last) => {
     sessionMenu.open(node, taskId, { last });
@@ -545,34 +573,28 @@ const projectController = createProjectController({
     ]),
   onUpdated: () => void refresh()
 });
-const ledgerController = createProjectLedgerController({ api, state, showToast });
-$("#ledger-nav").addEventListener("click", () => ledgerController.open());
-const developmentController = createProjectDevelopmentController({
+const addProjectController = createAddProjectController({
   api,
-  state,
-  getBackend: () => boundBackendId,
-  showToast
-});
-$("#development-nav").addEventListener("click", () => developmentController.open());
-const mainSessionsController = createMainSessionsController({
-  api,
-  state,
-  openSession: ({ projectId, taskId }) => {
-    const project = state.projects.find((entry) => entry.projectId === projectId);
-    if (project) projectController.select(project.projectId);
-    selectConversation(taskId);
+  command: (path, options) => (api.command ? api.command(path, options) : api(path, options)),
+  showToast,
+  onCreated: async (project) => {
+    await refresh();
+    projectController.select(project.projectId);
+    beginNewConversation(project.projectId);
   }
 });
-$("#main-sessions-nav").addEventListener("click", () => mainSessionsController.open());
-const mainCapacityController = createMainCapacityController({ api, state, showToast });
-$("#main-capacity-nav").addEventListener("click", () => mainCapacityController.open());
-const boardController = createProjectBoardController({
-  api,
+const newSession = createNewSessionView({
   state,
-  getBackend: () => boundBackendId,
-  showToast
+  $,
+  titleFor: (task) => conversationTitle(task),
+  onOpenTask: (taskId) => {
+    const task = state.tasks.find((entry) => entry.taskId === taskId);
+    if (task) projectController.selectTask(task);
+    selectConversation(taskId);
+  },
+  onSelectProject: (projectId) => beginNewConversation(projectId),
+  onAddProject: () => projectController.openCreate()
 });
-$("#board-nav").addEventListener("click", () => boardController.open());
 const draftRecovery = createDraftRecovery({
   button: $("#recover-drafts"),
   session: composerSession,
@@ -643,30 +665,6 @@ function renameConversation(task = state.detail?.task) {
   dialog.open();
   panel.querySelector("input").select();
 }
-function openTaskActivity() {
-  const panel = document.createElement("div");
-  panel.className = "modal-backdrop app-dialog-backdrop";
-  panel.hidden = true;
-  const tasks = state.tasks
-    .filter(
-      (task) =>
-        !task.archived &&
-        (task.monitoring?.scope !== "background" || task.pinned || task.taskId === state.selected)
-    )
-    .slice(0, 12);
-  panel.innerHTML = ui`<section class="modal-card app-dialog" role="dialog" aria-modal="true" aria-labelledby="activity-title"><h2 id="activity-title">最近会话</h2><div class="dialog-list">${tasks.length ? tasks.map((task) => `<button class="search-result" data-activity-task="${esc(task.taskId)}"><span>${esc(conversationTitle(task))}</span><small>${esc(stateText(task.status))}</small></button>`).join("") : ui('<p class="dialog-help">暂无会话</p>')}</div><div class="dialog-actions"><button class="app-button is-secondary" type="button" data-close>关闭</button></div></section>`;
-  document.body.append(panel);
-  const dialog = createModal(panel, panel.querySelector("[data-close]"), { onClose: () => panel.remove() });
-  panel.querySelectorAll("[data-activity-task]").forEach((button) =>
-    button.addEventListener("click", () => {
-      dialog.close();
-      panel.remove();
-      void activateConversationTab(button.dataset.activityTask);
-    })
-  );
-  dialog.open();
-}
-
 function setModelLabel(value) {
   const label = String(value || "").trim();
   if (!label) return;
@@ -686,18 +684,16 @@ const THINKING_LEVEL_LABELS = {
   max: ui("最大")
 };
 function setThinkingLabel(value) {
-  const selected = value || null;
-  const label = selected ? THINKING_LEVEL_LABELS[selected] || selected : ui("自动");
+  // An unpicked level is not a choice: the label names what this Run will
+  // actually send, which is the Main connection's saved level.
+  const effective = value || state.mainThinkingLevel || null;
+  const label = effective ? THINKING_LEVEL_LABELS[effective] || effective : ui("自动");
   const name = $(".reasoning-name");
   if (name) name.textContent = label;
   const button = $("#reasoning-select");
   if (!button) return;
   button.title = ui`设置推理强度 · ${label}`;
   button.setAttribute("aria-label", ui`推理强度：${label}`);
-}
-
-function defaultThinkingLevelForNewConversation() {
-  return readPreferredThinkingLevel() || "high";
 }
 
 // A new conversation inherits the last picked model when it is still offered
@@ -708,13 +704,16 @@ function defaultModelForNewConversation() {
   return state.defaultModel;
 }
 
-function syncModelConnection(model, profileId) {
+function syncModelConnection(model, profileId, mainEffort) {
+  // Only the model list reports the Main connection's level; a catalog refresh
+  // omits it and must not erase what the composer is showing.
+  if (mainEffort !== undefined) state.mainThinkingLevel = mainEffort;
   if (state.connectionProfileId !== profileId || state.defaultModel !== model) {
     state.connectionProfileId = profileId;
     state.modelByTask.clear();
     state.thinkingLevelByTask.clear();
     state.model = model;
-    state.thinkingLevel = defaultThinkingLevelForNewConversation();
+    state.thinkingLevel = null;
   }
   state.defaultModel = model;
   state.model ||= model;
@@ -734,7 +733,7 @@ async function loadModels() {
       typeof data.current === "string" && data.current.trim()
         ? data.current.trim()
         : state.models[0] || "glm-5.3";
-    syncModelConnection(defaultModel, data.connectionProfileId);
+    syncModelConnection(defaultModel, data.connectionProfileId, data.reasoningEffort ?? null);
     // eslint-disable-next-line no-restricted-syntax -- /api/models is unavailable while the backend restarts or is offline; the picker keeps a usable model instead of an empty list
   } catch {
     state.models = state.model ? [state.model] : ["glm-5.3"];
@@ -764,12 +763,33 @@ async function humanAction(taskId, action, body) {
   return result;
 }
 
-function showToast(message) {
+/**
+ * One transient notice card.
+ *
+ * Every caller gets the same stack: a title, an optional second line and a
+ * tone. The stack keeps at most three cards so notices about another session,
+ * a question or a connection never cover the whole conversation.
+ */
+function showToast(message, options = {}) {
   const toast = $("#toast");
-  toast.textContent = message;
-  toast.classList.add("visible");
-  clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove("visible"), 2600);
+  if (!toast) return;
+  const tone = ["success", "warn", "info", "danger"].includes(options.tone) ? options.tone : "info";
+  const iconName = {
+    success: "circle-check",
+    warn: "message-circle-question",
+    danger: "wifi-off",
+    info: "info"
+  }[tone];
+  const card = document.createElement("div");
+  card.className = `toast-card is-${tone}`;
+  card.innerHTML = ui`${icon(iconName)}<span class="toast-copy"><span class="toast-title">${esc(message)}</span>${options.detail ? ui`<span class="toast-detail">${esc(options.detail)}</span>` : ""}</span>`;
+  toast.append(card);
+  while (toast.children.length > 3) toast.firstElementChild.remove();
+  requestAnimationFrame(() => card.classList.add("visible"));
+  setTimeout(() => {
+    card.classList.remove("visible");
+    setTimeout(() => card.remove(), 200);
+  }, options.duration ?? 3200);
 }
 
 function readProjectCatalog(requestSequence = ++listRequestSequence, isCurrent = () => true) {
@@ -790,12 +810,52 @@ function refresh(options) {
 }
 
 /**
+ * The connection is one state with one transition notice.
+ *
+ * Repeated polling failures must not stack identical warnings; the reconnect
+ * notice is the same state turning back on, and the catalog read that follows
+ * it refreshes every conversation from the backend rather than from memory.
+ */
+function setOnlineState(online) {
+  const changed = state.online !== online;
+  state.online = online;
+  backendConnection?.setOnline(online);
+  if (!changed) return;
+  if (online) showToast(ui("本机节点已重新连接"), { tone: "success" });
+  else showToast(ui("本机节点连接中断，正在重连…"), { tone: "danger" });
+}
+
+/**
+ * A Main question in another conversation is a notification, not a reason to
+ * switch: the selected conversation keeps its place and the sidebar carries
+ * the dot. The first catalog seeds the set so opening the page is quiet.
+ */
+let catalogQuestionsSeen = false;
+const pendingQuestionIds = new Set();
+function announcePendingQuestions() {
+  const current = new Set();
+  for (const task of state.tasks) {
+    if (!task.pendingQuestion) continue;
+    current.add(task.taskId);
+    if (catalogQuestionsSeen && task.taskId !== state.selected && !pendingQuestionIds.has(task.taskId))
+      showToast(ui("Main 有问题等你回答"), {
+        detail: conversationTitle(task),
+        tone: "warn"
+      });
+  }
+  pendingQuestionIds.clear();
+  for (const taskId of current) pendingQuestionIds.add(taskId);
+  catalogQuestionsSeen = true;
+}
+
+/**
  * Adopt one authoritative catalog, whether it came from `/api/tasks` or from a
  * snapshot the event client took. Replacing the lists here is what makes a
  * reconnect consistent: the sequence and revisions move in the same step.
  */
 async function applyCatalog(data, { poll = false } = {}) {
   if (!data || typeof data !== "object") return;
+  announcePendingQuestions();
   if (typeof data.workspaceRoot === "string" && data.workspaceRoot.trim()) {
     state.workspaceRoot = data.currentWorkspaceRoot || data.workspaceRoot;
     if (!state.workspacePath) state.workspacePath = state.workspaceRoot;
@@ -811,9 +871,7 @@ async function applyCatalog(data, { poll = false } = {}) {
       if (!state.selected || !state.modelByTask.has(state.selected)) setModelLabel(state.model);
     }
   }
-  state.online = true;
-  backendConnection?.setOnline(true);
-  $("#workspace-path").textContent = "Connected";
+  setOnlineState(true);
   const defaultTask = state.tasks.find((task) => !task.archived && task.monitoring?.scope !== "background");
   const linkedTaskId = initialConversationTaskId;
   initialConversationTaskId = null;
@@ -837,7 +895,7 @@ async function applyCatalog(data, { poll = false } = {}) {
     connectEventStream(state.selected);
     if (linkedTaskId && state.selected === linkedTaskId && linkedConversationNavigation?.current())
       await activateConversationTab(linkedTaskId, linkedConversationNavigation);
-  } else if (!poll || !renderedEmpty) renderEmpty();
+  } else renderEmpty();
   updateSendButton();
 }
 
@@ -847,6 +905,7 @@ async function refreshState({ poll = false, isCurrent = () => true } = {}) {
     const data = await readProjectCatalog(requestSequence, isCurrent);
     if (!isCurrent() || requestSequence !== listRequestSequence) return;
     await applyCatalog(data, { poll });
+    observeData.localChanged();
   } catch (error) {
     // A request from the backend this page switched away from is not an outage.
     if (error?.stale || error?.code === "stale_client") return;
@@ -856,9 +915,9 @@ async function refreshState({ poll = false, isCurrent = () => true } = {}) {
       updateSendButton();
       return;
     }
-    state.online = false;
-    backendConnection?.setOnline(false);
+    setOnlineState(false);
     updateSendButton();
+    observeData.localChanged();
   }
 }
 
@@ -906,7 +965,6 @@ function resetBackendView() {
   state.projects = [];
   state.projectsLoaded = false;
   state.localMessages = [];
-  state.selectedAgent = null;
   state.previewPath = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
@@ -914,6 +972,7 @@ function resetBackendView() {
   state.viewerTaskId = null;
   state.modelByTask.clear();
   state.thinkingLevelByTask.clear();
+  state.mainThinkingLevel = null;
   state.models = [];
   state.model = null;
   state.defaultModel = null;
@@ -925,7 +984,6 @@ function resetBackendView() {
   state.selectedProjectId = null;
   state.composingNew = false;
   renderedDetailSignature = undefined;
-  renderedEmpty = false;
   projectController.reset();
   composerSession.detach();
   renderConversationList();
@@ -944,6 +1002,7 @@ function adoptCatalogSnapshot(snapshot) {
   projectController.accept(snapshot);
   // eslint-disable-next-line no-restricted-syntax -- a snapshot whose detail read fails while the backend restarts is re-applied by the 3.5s catalog poll
   void applyCatalog(snapshot).catch(() => undefined);
+  observeData.localChanged();
 }
 
 /** Apply one live catalog event without waiting for a poll. */
@@ -981,9 +1040,11 @@ function applyCatalogEvent(record) {
         (project.tasks || []).some((entry) => entry.taskId === task.taskId)
     );
   }
+  announcePendingQuestions();
   renderConversationList();
   if (state.selected) connectEventStream(state.selected);
   updateSendButton();
+  observeData.localChanged();
 }
 
 function detailViewSignature(detail) {
@@ -1004,8 +1065,6 @@ function loadDetail(taskId, options) {
         state.defaultModel ||
         state.model;
       setModelLabel(state.model);
-      if (!state.thinkingLevelByTask.has(taskId))
-        state.thinkingLevelByTask.set(taskId, defaultThinkingLevelForNewConversation());
       state.thinkingLevel = state.thinkingLevelByTask.get(taskId) ?? null;
       setThinkingLabel(state.thinkingLevel);
       renderAll();
@@ -1025,7 +1084,11 @@ async function readDetail(taskId, { poll = false, isCurrent = () => true } = {})
       state.openFiles = [];
       state.artifactCache.clear();
       state.previewPath = null;
+      state.drawerTab = null;
+      state.drawerFile = null;
+      state.drawerDiff = null;
       state.artifactDrawerOpen = false;
+      requirementPanel.reset(taskId);
     }
     if (state.detail?.task?.taskId === taskId) {
       if (state.detail.conversationVersion === detail.conversationVersion)
@@ -1042,8 +1105,6 @@ async function readDetail(taskId, { poll = false, isCurrent = () => true } = {})
     if (state.selected === taskId) {
       state.model = state.modelByTask.get(taskId) || taskModel || state.model;
       setModelLabel(state.model);
-      if (!state.thinkingLevelByTask.has(taskId))
-        state.thinkingLevelByTask.set(taskId, defaultThinkingLevelForNewConversation());
       state.thinkingLevel = state.thinkingLevelByTask.get(taskId) ?? null;
       setThinkingLabel(state.thinkingLevel);
     }
@@ -1081,403 +1142,112 @@ function renderConversationList() {
     else url.searchParams.delete("task");
     if (url.href !== location.href) history.replaceState(null, "", url.href);
   }
-  syncNavigationHistory();
   projectController.render();
-  ledgerController.render();
-  developmentController.render();
-  mainSessionsController.render();
-  mainCapacityController.render();
-  boardController.render();
+  syncIdleComposer();
+}
+
+/**
+ * Switching away never stops the previous Main; say so once so the choice is
+ * not mistaken for a cancellation.
+ */
+function announceBackgroundRun(previousTaskId, nextTitle) {
+  if (!previousTaskId || previousTaskId === state.selected) return;
+  const previous = state.tasks.find((task) => task.taskId === previousTaskId);
+  if (!previous || !["running", "waiting"].includes(previous.status)) return;
+  showToast(`${ui("已切换到")}“${nextTitle}”`, {
+    detail: `“${conversationTitle(previous)}”${ui(" 仍在后台运行")}`,
+    tone: "success"
+  });
 }
 
 function selectConversation(taskId) {
+  const previousTaskId = state.selected;
   sessionMenu.close();
   conversationReadState.setUnread(taskId, false);
   document.body.classList.remove("sidebar-mobile-open");
   state.selected = taskId;
+  if (taskId !== previousTaskId) {
+    const next = state.tasks.find((task) => task.taskId === taskId);
+    announceBackgroundRun(previousTaskId, next ? conversationTitle(next) : ui("新的对话"));
+  }
   state.composingNew = false;
-  state.selectedAgent = null;
   state.previewPath = null;
+  state.drawerTab = null;
+  state.drawerFile = null;
+  state.drawerDiff = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
   state.artifactCache.clear();
   state.viewerTaskId = null;
   state.localMessages = [];
+  requirementPanel.reset();
+  runControl?.reset();
   connectEventStream(taskId);
   renderConversationList();
   void loadDetail(taskId);
   void enterConversation(taskId);
 }
 
-const selectGoalTask = async (taskId) => {
-  sessionMenu.close();
-  document.body.classList.remove("sidebar-mobile-open");
-  state.selected = taskId;
-  state.composingNew = false;
-  state.selectedAgent = null;
-  state.viewerTaskId = null;
-  state.localMessages = [];
-  state.previewPath = null;
-  state.artifactDrawerOpen = false;
-  state.openFiles = [];
-  state.artifactCache.clear();
-  connectEventStream(taskId);
-  renderConversationList();
-  const loading = loadDetail(taskId);
-  // loadDetail activates this task's composer synchronously. Reserve navigation
-  // before yielding so an earlier tab's pending activation cannot select it back.
-  const navigation = workbenchController.captureNavigation();
-  await loading;
-  if (state.selected !== taskId || !navigation.current()) return;
-  await activateConversationTab(taskId, navigation);
-};
-const watchView = createWatchController({ api, state, refresh, selectTask: selectGoalTask });
-const goalView = createGoalController({
-  api,
-  state,
-  refresh,
-  watchView,
-  selectTask: selectGoalTask,
-  openRecentActivity: openTaskActivity
-});
-
 function renderAll() {
-  renderedEmpty = false;
   computerUse.syncTask();
   const detail = state.detail || {};
   const task = detail.task || {};
-  const coordination = detail.coordination || { calls: [], pending: [], callbackPending: [] };
-  const events = detail.events || [];
-  const artifacts = detail.artifacts || [];
-  const progress = detail.progress;
   $("#topbar-task").textContent = truncate(conversationTitle(task), 44);
-  $("#agent-count").textContent = progress?.summary?.total ?? coordination.calls.length;
   if (detail.runtime?.model) setModelLabel(detail.runtime.model);
   updateSendButton();
+  runControl?.render();
   renderConversation(detail.messages || [], task);
-  renderAgentRoom(coordination, task, progress);
   humanQuestions.update(detail);
-  watchView.update(detail);
-  goalView.update(detail);
   renderRightPanel();
   syncBindingFromTabs();
   renderedDetailSignature = detailViewSignature(detail);
 }
 
-function bindStarterPrompts() {
-  $("#conversation")
-    .querySelectorAll("[data-prompt]")
-    .forEach((node) =>
-      node.addEventListener("click", () => {
-        $("#composer-input").value = node.dataset.prompt;
-        composerSession.save();
-        $("#composer-input").focus();
-      })
-    );
-}
-
-function renderAgentRoom(coordination = {}, task = {}, progress) {
-  if (document.body.classList.contains("output-collapsed")) return;
-  const detail = state.detail || { coordination, task, progress };
-  const members = galaxyMembers(detail);
-  if (!members.some((member) => agentKey(member) === state.selectedAgent)) state.selectedAgent = "main";
-  const active = members.filter(isWorking).length;
-  const queued = members.filter((member) => member.status === "queued" || member.status === "waiting").length;
-  const humanPending = (detail.humanRequests || []).filter((request) => request.status === "pending").length;
-  $("#team-caption-text").textContent = humanPending
-    ? ui("等待你的回复")
-    : active
-      ? ui`${active} 位智能体工作中`
-      : queued
-        ? ui`${queued} 位智能体等待中`
-        : ui("空闲中");
-  $("#team-status-dot").classList.toggle("working", active > 0);
-  $("#team-count-label").textContent = humanPending ? ui`${humanPending} 个问题待回答` : "";
-  updateAgentGalaxy({ task: state.selected || "new", members, selected: state.selectedAgent });
-  const chips = $("#team-members");
-  const chipMarkup = members
-    .map(
-      (member) =>
-        `<button class="member-chip ${agentKey(member) === state.selectedAgent ? "active" : ""}" aria-pressed="${agentKey(member) === state.selectedAgent}" data-agent="${esc(agentKey(member))}">${esc(agentName(member, member.index))}<small>${esc(member.__main ? ui("主智能体") : memberStateText(member))}</small></button>`
-    )
-    .join("");
-  if (chips.innerHTML !== chipMarkup) {
-    chips.innerHTML = chipMarkup;
-    chips
-      .querySelectorAll("[data-agent]")
-      .forEach((node) => node.addEventListener("click", () => showAgentTrace(node.dataset.agent)));
-  }
-  renderFocus(members.find((member) => agentKey(member) === state.selectedAgent));
-}
-
-function showAgentTrace(agentKey) {
-  state.selectedAgent = agentKey;
-  $("#team-trace-details").open = true;
-  renderAgentRoom();
-  $("#team-trace-details").scrollIntoView({ behavior: "smooth", block: "nearest" });
-}
-
-function trajectoryKey(agent) {
-  return `${state.selected || "new"}:${state.detail?.task?.activeRunId || "none"}:${agent?.agentId || "main"}`;
-}
-
-function renderFocus(agent) {
-  if (!agent) return;
-  const root = $("#agent-focus");
-  const key = trajectoryKey(agent);
-  if (root.dataset.member !== key) {
-    root.dataset.member = key;
-    root.innerHTML = '<div id="trace-identity"></div><div id="agent-trajectory"></div>';
-  }
-  const identityParts = agentIdentity(agent);
-  const roleModel = [identityParts.role, identityParts.model].filter(Boolean).join(" · ");
-  // The checkout is only worth naming when it is not the Task's own project:
-  // a delegate bound to a requirement's isolated workspace works somewhere else.
-  const isolatedWorkspace =
-    identityParts.workspace && identityParts.workspace !== state.detail?.task?.projectDirectory
-      ? identityParts.workspace
-      : "";
-  const identity = `<div class="trace-heading"><div class="trace-title"><span class="trace-avatar">${agent.__main ? '<img src="/assets/atria-symbol.png" alt="" />' : '<svg class="ui-icon"><use href="#i-team"/></svg>'}</span><div><strong>${esc(agentName(agent, agent.index))}</strong>${roleModel ? `<small>${esc(roleModel)}</small>` : ""}</div></div><span>${esc(memberStateText(agent))}</span></div><p class="trace-task">${esc(agent.task || ui("等待分派任务"))}</p>${isolatedWorkspace ? `<p class="trace-workspace" title="${esc(isolatedWorkspace)}">${esc(isolatedWorkspace)}</p>` : ""}`;
-  if ($("#trace-identity").innerHTML !== identity) $("#trace-identity").innerHTML = identity;
-  if (!state.selected || !state.detail?.task?.activeRunId) {
-    paintTrajectory({ entries: [], total: 0 });
-    return;
-  }
-  const cached = trajectoryCache.get(key);
-  if (cached) paintTrajectory(cached);
-  else $("#agent-trajectory").innerHTML = ui('<div class="trace-empty">正在读取执行轨迹…</div>');
-  if (!$("#team-trace-details").open || trajectoryRequests.has(key)) return;
-  trajectoryRequests.add(key);
-  const taskId = state.selected;
-  api(`/api/tasks/${encodeURIComponent(taskId)}/agents/${encodeURIComponent(agent.agentId)}/trajectory`)
-    .then((result) => {
-      trajectoryCache.set(key, result);
-      if (trajectoryCache.size > 30) trajectoryCache.delete(trajectoryCache.keys().next().value);
-      if (root.dataset.member === key && trajectoryKey(agent) === key) paintTrajectory(result);
-    })
-    .catch((error) => {
-      if (root.dataset.member === key && trajectoryKey(agent) === key && !cached)
-        $("#agent-trajectory").innerHTML =
-          ui`<div class="trace-empty">轨迹读取失败：${esc(error.message)}</div>`;
-    })
-    .finally(() => trajectoryRequests.delete(key));
-}
-
-function paintTrajectory(result) {
-  const body = $("#agent-trajectory");
-  if (!body) return;
-  const signature = JSON.stringify(result);
-  if (body.dataset.signature === signature) return;
-  const opened = new Set([...body.querySelectorAll("details[open]")].map((node) => node.dataset.entry));
-  body.dataset.signature = signature;
-  const entries = result.entries || [];
-  body.innerHTML = entries.length
-    ? `${result.total > entries.length ? ui`<div class="trace-note">显示最近 ${entries.length} 条轨迹</div>` : ""}${entries
-        .map((entry) => {
-          const presentation =
-            entry.kind === "tool"
-              ? presentToolCall(
-                  {
-                    name: entry.title,
-                    arguments: entry.text,
-                    result: entry.result,
-                    completed: entry.status !== "running",
-                    failed: entry.status === "failed"
-                  },
-                  {
-                    active: Boolean(state.detail?.runtime?.active),
-                    workspaceRoot: state.detail?.storageRoot || state.detail?.workspaceRoot,
-                    taskId: state.selected,
-                    detail: state.detail
-                  }
-                )
-              : undefined;
-          const title = presentation?.title || entry.title;
-          const time = entry.time ? shortDate(entry.time) : "";
-          const cleanMessage =
-            entry.kind === "message"
-              ? assistantDisplayContent(entry.text)
-                  .map((part) =>
-                    part.type === "thinking" ? normalizeReasoningDisplay(part.thinking) : part.text || ""
-                  )
-                  .join("\n\n")
-              : entry.text;
-          const resultContext = /^(?:命令执行完成|已完成|调用成功)[。.!]?$/.test(
-            presentation?.resultSummary || ""
-          )
-            ? ""
-            : presentation?.resultSummary;
-          const text = presentation
-            ? [
-                ...new Set(
-                  [
-                    presentation.subject,
-                    presentation.summary,
-                    presentation.failureReason || resultContext
-                  ].filter(Boolean)
-                )
-              ].join(" · ")
-            : cleanMessage;
-          return `<div class="trace-entry ${safeClass(presentation?.status || entry.status)}"><span class="trace-marker"></span><details data-entry="${esc(entry.id)}" ${opened.has(entry.id) ? "open" : ""}><summary><strong>${esc(title)}</strong><time>${esc(time)}</time><em>${esc(presentation?.statusLabel || stateText(entry.status))}</em></summary>${entry.text ? `<pre>${esc(entry.text)}</pre>` : ""}${entry.result ? `<pre>${esc(entry.result)}</pre>` : ""}</details>${text ? (entry.kind === "message" ? `<div class="trace-preview markdown-body">${renderMarkdown(text, { preserveMath: true })}</div>` : `<p class="trace-preview">${esc(text)}</p>`) : ""}</div>`;
-        })
-        .join("")}`
-    : ui(
-        '<div class="trace-empty"><svg class="ui-icon"><use href="#i-activity"/></svg>还没有执行记录<br>开始任务后，工具调用和执行结果会出现在这里。</div>'
-      );
-}
-
 function renderRightPanel() {
-  const { artifacts = [], statistics } = state.detail || {};
-  $("#workspace-view").classList.toggle("is-empty-task", !state.selected);
-  $("#workspace-artifact-count").textContent =
-    state.detail?.applications?.deliverables?.length ?? artifacts.length;
-  const body = $("#detail-body");
-  const outputList = $("#output-list");
+  const artifacts = state.detail?.artifacts || [];
   const artifactPaths = new Set(artifacts.map((artifact) => artifact.relativePath));
   invalidateArtifactCache(state.artifactCache, artifacts);
   state.openFiles = state.openFiles.filter((path) => artifactPaths.has(path));
   if (state.previewPath && !artifactPaths.has(state.previewPath))
     state.previewPath = state.openFiles.at(-1) || null;
-  if (!state.previewPath) state.artifactDrawerOpen = false;
-  if (document.body.classList.contains("output-collapsed")) {
-    closeOutputMenu();
-    renderArtifactDrawer();
-    return;
-  }
-  if (outputList) {
-    // The panel shows two kinds of thing: live resources, which carry a
-    // revision and open in an editor, and published files, which are read-only
-    // downloads. A resource keeps its own home on disk so the same document can
-    // appear in more than one conversation, so this list comes from the
-    // server's assembled view rather than one directory.
-    const deliverables = state.detail?.applications?.deliverables;
-    const rows =
-      deliverables ??
-      artifacts.map((artifact) => ({
-        kind: "file",
-        name: artifact.displayName || fileBaseName(artifact.relativePath),
-        relativePath: artifact.relativePath,
-        mimeType: artifact.mimeType,
-        size: artifact.size,
-        editable:
-          Boolean(state.detail?.applications) && workbenchController.editableKinds.has(artifact.mimeType)
-      }));
-    outputList.innerHTML = rows.length
-      ? rows
-          .map((row) => {
-            const open = row.relativePath ? state.openFiles.includes(row.relativePath) : false;
-            const meta =
-              row.kind === "resource"
-                ? `<span>r${esc(row.revision)}</span><span>${esc(appDisplayName(row.appType))}</span>`
-                : `<span>${esc(artifactParentPath(row.relativePath) || "artifacts/")}</span><span>${esc(formatArtifactSize(row.size))}</span>`;
-            const download = renderOutputActions(row);
-            const action =
-              row.kind === "resource"
-                ? ui`<span class="output-edit" role="button" tabindex="0" data-open-resource="${esc(row.resourceId)}" title="在编辑器中打开">打开</span>`
-                : row.editable
-                  ? ui`<span class="output-edit" role="button" tabindex="0" data-edit-artifact="${esc(row.relativePath)}" title="在应用中打开">打开</span>`
-                  : "";
-            // The row is a span, not a button: it carries a control of its own, and a
-            // button inside a button is invalid HTML that browsers hoist out.
-            return `<span class="output-row ${open ? "is-open" : ""} ${row.kind === "resource" ? "is-resource" : ""}" role="button" tabindex="0" ${row.relativePath ? `data-artifact="${esc(row.relativePath)}"` : `data-resource-row="${esc(row.resourceId)}"`} title="${esc(row.name)}"><span class="output-file"><svg class="ui-icon"><use href="#${esc(workbenchController.iconForDocument(row))}"/></svg></span><span class="output-copy"><strong>${esc(row.name)}</strong><small>${meta}</small></span><span class="output-actions">${action}${download}</span><span class="output-open-mark">${open ? "●" : ""}</span></span>`;
-          })
-          .join("")
-      : ui(
-          '<div class="output-empty"><span class="output-file"><svg class="ui-icon"><use href="#i-folder"/></svg></span><span>还没有产出物</span></div>'
-        );
-    bindOutputActions(outputList, rows);
-    outputList.querySelectorAll("[data-artifact]").forEach((node) => {
-      const open = (event) => {
-        if (event.target.closest("[data-edit-artifact]")) return;
-        openArtifact(node.dataset.artifact);
-      };
-      node.addEventListener("click", open);
-      node.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          open(event);
-        }
-      });
-    });
-    outputList.querySelectorAll("[data-edit-artifact]").forEach((node) => {
-      const edit = (event) => {
-        event.stopPropagation();
-        void editArtifact(node.dataset.editArtifact);
-      };
-      node.addEventListener("click", edit);
-      node.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          edit(event);
-        }
-      });
-    });
-    for (const selector of ["[data-open-resource]", "[data-resource-row]"]) {
-      outputList.querySelectorAll(selector).forEach((node) => {
-        const open = (event) => {
-          if (event.target.closest("[data-output-download]")) return;
-          event.stopPropagation();
-          void openResourceInEditor(node.dataset.openResource || node.dataset.resourceRow);
-        };
-        node.addEventListener("click", open);
-        node.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            open(event);
-          }
-        });
-      });
-    }
-  }
-  $("#run-statistics-status").textContent = statistics ? (statistics.active ? ui("实时") : "") : "";
-  const { elapsedMs: _elapsed, observedAt: _observed, ...overview } = statistics || {};
-  const signature = JSON.stringify([state.selected, overview]);
-  if (body.dataset.signature !== signature) {
-    const expanded =
-      body.dataset.task === state.selected && Boolean(body.querySelector("[data-usage-breakdown][open]"));
-    body.dataset.signature = signature;
-    body.dataset.task = state.selected || "";
-    body.innerHTML = renderRunOverview(statistics);
-    if (expanded) body.querySelector("[data-usage-breakdown]")?.setAttribute("open", "");
-    body
-      .querySelectorAll("[data-usage-agent]")
-      .forEach((node) => node.addEventListener("click", () => showAgentTrace(node.dataset.usageAgent)));
-  }
-  const timer = body.querySelector("[data-run-elapsed]");
-  if (timer) timer.textContent = formatRunDuration(runElapsed(statistics));
+  requirementPanel.render();
   renderArtifactDrawer();
 }
-
 function renderEmpty() {
-  renderedEmpty = true;
   renderedDetailSignature = undefined;
   computerUse.syncTask();
-  watchView.update(null);
-  goalView.update(null);
-  $("#topbar-task").textContent = ui("新任务");
-  $("#conversation").innerHTML =
-    ui`<div class="welcome-empty"><div class="welcome-symbol"><img src="/assets/atria-symbol.png" alt="" /></div><h2>有什么可以帮忙的？</h2><div class="starter-prompts"><button data-prompt="帮我梳理这个项目的结构"><span class="prompt-icon">${icon("folder")}</span>梳理项目结构 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="检查最近的代码改动并运行测试"><span class="prompt-icon">${icon("check")}</span>检查代码改动 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="研究这个主题并整理一份简报"><span class="prompt-icon">${icon("search")}</span>研究并整理简报 <span class="prompt-arrow">${icon("arrow")}</span></button><button data-prompt="读取我提供的文件，整理关键信息并生成一份报告。"><span class="prompt-icon">${icon("apps")}</span>整理文件并生成报告 <span class="prompt-arrow">${icon("arrow")}</span></button></div></div>`;
-  bindStarterPrompts();
-  state.selectedAgent = null;
-  renderAgentRoom({ calls: [] }, { status: "created" }, null);
+  if (firstUse.active()) firstUse.render();
+  else newSession.render();
+  syncIdleComposer();
   humanQuestions.update(null);
-  $("#team-trace-details").open = false;
   renderRightPanel();
   paintTopbarContext();
+}
+
+/**
+ * Before a conversation exists the same composer belongs to either the
+ * first-use guide or the new-session start, so one place decides its chrome.
+ */
+function syncIdleComposer() {
+  newSession.sync();
+  firstUse.sync();
+  // The guide's composer cannot start a session, so it offers no project picker;
+  // adding a project is a step above it.
+  if (firstUse.blocksSending()) $("#composer-project").hidden = true;
 }
 function paintTopbarContext() {
   const application = workbenchController.host?.applicationTab;
   const editing = Boolean(application && $("#conversation-pane").hidden);
+  const idleTitle = firstUse.active() ? ui("开始使用") : ui("新会话");
   const name = editing
     ? application.title || appDisplayName(application.appType)
     : state.selected
       ? conversationTitle(state.detail?.task || state.tasks.find((task) => task.taskId === state.selected))
-      : ui("新任务");
+      : idleTitle;
   $("#topbar-task").textContent = truncate(name, 44);
   $("#topbar-task").title = name;
   $("#session-menu-button").hidden = editing;
   $("#session-menu-button").title = state.selected ? ui("会话菜单") : ui("会话菜单 · 发送消息后可管理会话");
-  projectController.paintContext();
   if (
     sessionMenu.trigger === $("#session-menu-button") &&
     sessionMenu.context !== currentSessionMenuContext()
@@ -1490,14 +1260,7 @@ function textContent(content) {
   return content.map((part) => (typeof part === "string" ? part : part?.text || "")).join("");
 }
 function shortDate(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf())
-    ? value
-    : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-function agentKey(agent) {
-  return agent?.callId || agent?.agentId || "agent";
+  return formatStamp(value, window.atriaPreferences?.format() ?? "relative");
 }
 function truncate(value, length) {
   const text = String(value ?? "");
@@ -1527,17 +1290,21 @@ function beginNewConversation(projectId, applicationWorkspace) {
   state.selected = null;
   state.detail = null;
   state.composingNew = true;
+  runControl?.reset();
   state.model = defaultModelForNewConversation();
   setModelLabel(state.model);
-  state.thinkingLevel = defaultThinkingLevelForNewConversation();
+  state.thinkingLevel = null;
   setThinkingLabel(state.thinkingLevel);
   state.localMessages = [];
-  state.selectedAgent = null;
   state.previewPath = null;
+  state.drawerTab = null;
+  state.drawerFile = null;
+  state.drawerDiff = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
   state.artifactCache.clear();
   state.viewerTaskId = null;
+  requirementPanel.reset();
   state.workspacePath = state.workspaceRoot;
   state.workspaceLabel = state.workspaceRoot ? workspaceDisplayName(state.workspaceRoot) : null;
   renderConversationList();
@@ -1721,7 +1488,7 @@ function renderThinkingMenu() {
     ["xhigh", ui("极高")],
     ["max", ui("最大")]
   ];
-  const selected = state.thinkingLevel || "auto";
+  const selected = state.thinkingLevel || state.mainThinkingLevel || "auto";
   menu.innerHTML = ui`<div class="model-menu-title">推理强度</div>${options
     .map(
       ([value, label]) =>
@@ -1757,70 +1524,14 @@ function chooseThinkingLevel(value) {
   if (selected && !Object.hasOwn(THINKING_LEVEL_LABELS, selected)) return;
   state.thinkingLevel = selected;
   if (state.selected) state.thinkingLevelByTask.set(state.selected, selected);
-  writePreferredThinkingLevel(selected);
   setThinkingLabel(selected);
   closeThinkingMenu();
-}
-
-function toggleSidebar() {
-  if (workbenchController.toggleSidebarVisibility()) return;
-  if (window.matchMedia("(max-width: 900px)").matches) {
-    document.body.classList.toggle("sidebar-mobile-open");
-    return;
-  }
-  document.body.classList.toggle("sidebar-collapsed");
 }
 
 async function toggleOutputPane() {
   if (await workbenchController.toggleWorkspace()) return;
   document.body.classList.toggle("output-collapsed");
-  if (!document.body.classList.contains("output-collapsed")) {
-    renderAgentRoom();
-    renderRightPanel();
-  }
-}
-
-function navigateTask(direction) {
-  const nextIndex = navigationIndex + direction;
-  if (nextIndex < 0 || nextIndex >= navigationHistory.length) return;
-  sessionMenu.close();
-  const taskId = navigationHistory[nextIndex];
-  navigationIndex = nextIndex;
-  if (!taskId) return beginNewConversation();
-  state.selected = taskId;
-  state.composingNew = false;
-  state.localMessages = [];
-  state.previewPath = null;
-  state.artifactDrawerOpen = false;
-  state.openFiles = [];
-  state.artifactCache.clear();
-  state.viewerTaskId = null;
-  void enterConversation(taskId);
-  renderConversationList();
-  connectEventStream(state.selected);
-  void loadDetail(state.selected);
-}
-
-function syncNavigationHistory() {
-  const taskId = state.selected || null;
-  if (navigationIndex < 0 || navigationHistory[navigationIndex] !== taskId) {
-    navigationHistory.splice(navigationIndex + 1);
-    navigationHistory.push(taskId);
-    navigationIndex = navigationHistory.length - 1;
-  }
-  for (const [label, enabled] of [
-    [ui("后退"), navigationIndex > 0],
-    [ui("前进"), navigationIndex < navigationHistory.length - 1]
-  ]) {
-    const button = document.querySelector(`.window-nav[aria-label="${label}"]`);
-    if (!button) continue;
-    button.disabled = !enabled;
-    button.classList.toggle("disabled", !enabled);
-  }
-}
-
-function openProfileMenu() {
-  profileDialog.open();
+  if (!document.body.classList.contains("output-collapsed")) renderRightPanel();
 }
 
 function renderAttachments() {
@@ -1851,9 +1562,6 @@ function clearAttachments() {
   renderAttachments();
 }
 
-$("#team-trace-details").addEventListener("toggle", () => {
-  if ($("#team-trace-details").open) renderAgentRoom();
-});
 createConversationLayout($("#conversation"));
 async function stopTask(taskId = state.selected) {
   if (!taskId || isTaskStopping(taskId)) return;
@@ -1886,19 +1594,8 @@ $("#composer-input").addEventListener("keydown", (event) => {
   }
 });
 $("#new-conversation").addEventListener("click", beginNewConversation);
-document.querySelector(ui('.window-nav[aria-label="切换侧栏"]'))?.addEventListener("click", toggleSidebar);
-document
-  .querySelector(ui('.window-nav[aria-label="后退"]'))
-  ?.addEventListener("click", () => navigateTask(-1));
-document
-  .querySelector(ui('.window-nav[aria-label="前进"]'))
-  ?.addEventListener("click", () => navigateTask(1));
 $("#output-pane-toggle").addEventListener("click", toggleOutputPane);
-document
-  .querySelector(ui('.sidebar-icon[title="任务动态"]'))
-  ?.addEventListener("click", () => goalView.open(null, "activity"));
-document.querySelector(".nav-item")?.addEventListener("click", () => showToast(ui("当前已在工作台")));
-$("#artifact-drawer-scrim")?.addEventListener("click", closeArtifactDrawer);
+$("[data-panel-collapse]")?.addEventListener("click", () => void toggleOutputPane());
 document.addEventListener("keydown", (event) => {
   const modifier = event.metaKey || event.ctrlKey;
   const modalOpen =
@@ -1912,7 +1609,7 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     beginNewConversation();
   }
-  if (event.key === "Escape" && state.artifactDrawerOpen) closeArtifactDrawer();
+  if (event.key === "Escape" && state.artifactDrawerOpen) closeArtifactDrawer(true);
 });
 
 $("#model-select").addEventListener("click", () => void toggleModelMenu());
@@ -1921,7 +1618,6 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest("#model-select, #model-menu")) closeModelMenu();
   if (!event.target.closest("#reasoning-select, #reasoning-menu")) closeThinkingMenu();
 });
-$("#apps-nav")?.addEventListener("click", () => void ensureAppsPanel()?.toggle());
 $("#app-bind-select")?.addEventListener("click", () => ensureBinding()?.toggle());
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#app-bind-select, #app-bind-menu")) workbenchController.binding?.close();
@@ -1967,7 +1663,7 @@ window.addEventListener("storage", (event) => {
 });
 window.addEventListener("popstate", () => {
   const taskId = conversationTaskId(location.href);
-  if (location.hash.startsWith("#goals") || !taskId || taskId === state.selected) return;
+  if (!taskId || taskId === state.selected) return;
   if (state.tasks.some((task) => task.taskId === taskId)) selectConversation(taskId);
 });
 createMenu($("#model-select"), $("#model-menu"), { toggleOnClick: false, onClose: closeModelMenu });
@@ -1983,17 +1679,90 @@ createMenu($("#app-bind-select"), $("#app-bind-menu"), {
   toggleOnClick: false,
   onClose: () => workbenchController.binding?.close()
 });
-$(".panel-add").addEventListener("click", () => void refresh());
-const profileDialog = createModal($("#profile-modal"), $("#profile-close"));
-const settingsOverview = {
-  open: () => profileDialog.open(),
-  close: () => {
-    if ($("#profile-close").disabled) return false;
-    profileDialog.close();
-    return true;
+/**
+ * The observation entry's read-only port.
+ *
+ * The local node is the page's existing client; every remote node gets one of
+ * its own, stored per origin, so a token or failure never crosses nodes. The
+ * work entry keeps using only the local client above.
+ */
+let observeSidebar;
+const observeData = createObserveData({
+  storage: draftStorage,
+  sessionStorage: browserSessionStorage,
+  local: {
+    origin: location.origin,
+    name: ui("本机"),
+    role: "internal",
+    status: () => {
+      // The same "online" flag the page's offline banner uses: a catalog read
+      // that could not reach the backend means the local node is offline even
+      // while the management client still reports its old session.
+      if (!state.online) return "offline";
+      const status = management.state().status;
+      if (status === "connected") return "online";
+      if (status === "connecting" || status === "idle") return "connecting";
+      if (status === "unauthorized") return "unauthorized";
+      return "offline";
+    },
+    snapshot: () => ({ projects: state.projects, tasks: state.tasks }),
+    request: (path, options) => management.request(path, options)
   }
-};
-$("#user-menu-button").addEventListener("click", openProfileMenu);
+});
+const settingsPages = createSettingsPages({
+  root: $("#settings-entry"),
+  app: $("#app-layout"),
+  api,
+  showToast,
+  nodes: () => observeData.nodes(),
+  members: () => [{ id: "self", name: ui("我"), owner: true }],
+  addNode: (input) => observeData.addNode(input),
+  renameNode: (origin, name) => observeData.renameNode(origin, name),
+  reauthorizeNode: (origin) => observeData.reauthorizeNode(origin),
+  reconnectNode: (origin) => observeData.reconnectNode(origin),
+  disconnectNode: (origin) => observeData.disconnectNode(origin),
+  removeNode: (origin) => observeData.removeNode(origin)
+});
+observeSidebar = createObserveSidebar({
+  root: $(".observe-nav"),
+  pane: $("#observe-entry"),
+  data: observeData,
+  addNode: () => settingsPages.addNodeDialog()
+});
+/**
+ * The observation requirement view reads through the same port: the list, its
+ * phase tabs and the detail are one read-only view of every connected node.
+ */
+observeRequirements = createObserveRequirements({
+  pane: $("#observe-entry"),
+  detail: $("#observe-detail"),
+  layout: $(".app-layout"),
+  data: observeData,
+  showToast
+});
+observeRequirements.applyEntry(entryController.state());
+createObserveRuns({
+  root: $('[data-observe-panel="runs"]'),
+  header: $("[data-observe-runs-controls]"),
+  data: observeData
+});
+observeOverview = createObserveOverview({
+  root: $('[data-observe-panel="overview"]'),
+  data: observeData,
+  onOpenView: (view) => entryController.setObserveView(view)
+});
+observeOverview.applyEntry(entryController.state());
+observeData.subscribe(() => {
+  observeSidebar.render();
+  settingsPages.refresh();
+});
+const firstUse = createFirstUseView({
+  state,
+  $,
+  projectCount: () => projectController.visibleProjects().length,
+  onConnectModel: () => settingsPages.open("models"),
+  onAddProject: () => projectController.openCreate()
+});
 document.querySelector(ui('.sidebar-icon[title="搜索"]'))?.addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
@@ -2169,7 +1938,6 @@ async function createTaskFromDraft(
   state.composingNew = false;
   state.detail = { task, messages: [] };
   state.localMessages = [];
-  state.selectedAgent = null;
   state.previewPath = null;
   state.artifactDrawerOpen = false;
   state.openFiles = [];
@@ -2394,26 +2162,35 @@ function updateSendButton() {
   });
   const connecting = workbenchController.connecting;
   const backendReady = Boolean(backendConnection && backendConnection.ready());
+  const awaitingSetup = firstUse.blocksSending();
   $("#send-button").hidden = showStop;
   $("#send-button").disabled =
-    isSending || readingAttachments || connecting || stopping || !state.online || !backendReady;
+    awaitingSetup ||
+    isSending ||
+    readingAttachments ||
+    connecting ||
+    stopping ||
+    !state.online ||
+    !backendReady;
   $("#stop-button").hidden = !showStop;
   $("#stop-button").disabled = stopping;
   $("#stop-button").setAttribute("aria-busy", String(stopping));
   $("#stop-button").setAttribute("aria-label", stopping ? ui("正在停止任务") : ui("停止任务"));
   $("#stop-button").title = stopping ? ui("正在停止任务…") : ui("停止任务");
   $("#model-setup-button").hidden = state.modelConfigured !== false;
-  $("#send-button").title = !backendReady
-    ? ui("后端连接不可用")
-    : connecting
-      ? ui("正在关联文件…")
-      : isSending
-        ? ui("正在发送…")
-        : readingAttachments
-          ? ui("正在读取附件…")
-          : running
-            ? ui("排队发送（当前任务结束后处理）")
-            : ui("发送（Enter）");
+  $("#send-button").title = awaitingSetup
+    ? firstUse.lockReason()
+    : !backendReady
+      ? ui("后端连接不可用")
+      : connecting
+        ? ui("正在关联文件…")
+        : isSending
+          ? ui("正在发送…")
+          : readingAttachments
+            ? ui("正在读取附件…")
+            : running
+              ? ui("排队发送（当前任务结束后处理）")
+              : ui("发送（Enter）");
   $("#send-button").setAttribute("aria-label", running ? ui("排队发送") : ui("发送"));
   if (composerSession.editing) {
     $("#send-button").title = ui("请先保存或取消正在编辑的消息");
@@ -2477,6 +2254,7 @@ async function submitMessageEdit() {
 
 async function sendMessage() {
   if (!$("#human-questions").hidden) return;
+  if (firstUse.blocksSending()) return;
   const input = $("#composer-input");
   const text = input.value.trim() || (state.attachments.length ? ui("请查看这些附件。") : "");
   if (!text) return;
@@ -2530,6 +2308,30 @@ async function sendMessage() {
     finishSubmission(submission);
     renderAll();
     updateSendButton();
+  }
+}
+
+async function continuePausedRun(taskId = state.selected) {
+  const detail = state.detail?.task?.taskId === taskId ? state.detail : null;
+  if (
+    !taskId ||
+    state.selected !== taskId ||
+    !detail ||
+    detail.runtime?.active ||
+    detail.task.status !== "paused" ||
+    continuingTasks.has(taskId)
+  )
+    return;
+  continuingTasks.add(taskId);
+  try {
+    await launchPrompt(taskId, undefined, { resume: true });
+    await refresh();
+  } catch (error) {
+    showToast(ui`继续失败：${requestErrorMessage(error)}`);
+    await refresh();
+  } finally {
+    continuingTasks.delete(taskId);
+    renderAll();
   }
 }
 
@@ -2590,11 +2392,6 @@ async function retryFailedRequest(taskId) {
   }
 }
 
-setInterval(() => {
-  const timer = $("[data-run-elapsed]");
-  if (timer && state.detail?.statistics?.active)
-    timer.textContent = formatRunDuration(runElapsed(state.detail.statistics));
-}, 1000);
 composerSession.activate(state.selected, { projectId: state.selectedProjectId });
 // Opening a conversation link is a navigation choice. Reserve it before the
 // first tab poll can restore a different conversation or independent editor.
@@ -2655,9 +2452,10 @@ async function prepareInterfaceClose() {
   const composerSaved = composerSession.prepareClose();
   return documentsSaved && repliesSaved && composerSaved;
 }
+observeData.start();
 backendConnection = createBackendConnection({
   management,
-  overview: settingsOverview,
+  settingsHost: settingsPages.host,
   showToast,
   onReady: async ({ backendId }) => {
     adoptBackendIdentity(backendId);
@@ -2669,9 +2467,9 @@ backendConnection = createBackendConnection({
 });
 window.bookmanDesktop?.onPrepareClose(prepareInterfaceClose);
 installLanguageSettings({ prepareClose: prepareInterfaceClose, storage: draftStorage });
-installDesktopUpdates({ overview: settingsOverview });
+installDesktopUpdates({ host: settingsPages.host });
 const modelSettings = installDesktopSettings({
-  overview: settingsOverview,
+  host: settingsPages.host,
   showToast,
   api,
   projectId: () => state.selectedProjectId ?? "",
@@ -2688,4 +2486,4 @@ const modelSettings = installDesktopSettings({
   }
 });
 $("#model-setup-button").addEventListener("click", () => void modelSettings.open());
-installUserMemorySettings({ overview: settingsOverview, showToast, api });
+installUserMemorySettings({ host: settingsPages.host, showToast, api });

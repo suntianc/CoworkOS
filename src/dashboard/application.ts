@@ -67,6 +67,7 @@ import { createDashboardRunService } from "./run-service.js";
 import { LocalAccess } from "./local-access.js";
 import { FileCommandRunner } from "./management-commands.js";
 import { createCatalogEvents } from "./catalog-events.js";
+import { createProjectCloneService } from "./project-clone-service.js";
 import { EventLedger } from "./event-ledger.js";
 import { createWorkspaceDirectory } from "./workspace-directory.js";
 import { createMainSessionService } from "./main-session-service.js";
@@ -324,6 +325,31 @@ export function createDashboardApplication(
     ...(process.env.COWORK_EVENT_RECONCILE_MS
       ? { reconcileMs: Number(process.env.COWORK_EVENT_RECONCILE_MS) }
       : {})
+  });
+  /**
+   * Git clones for the add-project dialog. The record carries the operation
+   * identity; a project exists only after git exits successfully.
+   */
+  const projectClones = createProjectCloneService({
+    dataRoot: join(dirname(globalIndexPath), "project-clones"),
+    createProject: async (input) => {
+      const project = await workspaces.createProject({
+        projectName: input.projectName,
+        projectDirectory: input.projectDirectory
+      });
+      await catalogEvents.project(project);
+      return project;
+    },
+    projectForDirectory: async (directory) => {
+      const project = await workspaces.applicationProjectForRoot(directory);
+      return project
+        ? {
+            projectId: project.projectId,
+            projectName: project.projectName,
+            projectDirectory: project.projectDirectory
+          }
+        : undefined;
+    }
   });
   const computer = new ComputerUse(
     options.computerDriver ?? computerDriver,
@@ -754,7 +780,7 @@ export function createDashboardApplication(
       editableMessageError = "原消息或附件记录无法校验，历史已保留，请重新添加有效附件并主动发送新消息。";
     }
     return {
-      task: taskListItem(location),
+      task: await taskListItem(location),
       workspaceRoot: location.projectDirectory,
       storageRoot: taskWorkspace,
       projectId: location.projectId,
@@ -917,6 +943,7 @@ export function createDashboardApplication(
     projectData,
     mainSessions,
     developments,
+    projectClones,
     mainCapacity,
     launchMainRun,
     access,
@@ -973,6 +1000,7 @@ export function createDashboardApplication(
     normalizeModel,
     runtimeValue,
     startMainRun,
+    pauseTask: runs.pauseTask,
     editMainMessage: runs.editMainMessage,
     messageVersion: async (taskId, versionId) => {
       const location = await locateTask(taskId);
@@ -1013,6 +1041,7 @@ export function createDashboardApplication(
       computer.close();
       await watchers.stop();
       server.closeAllConnections();
+      await projectClones.stop();
       // Stop admitting before the processes exit, so no shutdown release
       // starts the next demand while the service is going away.
       await mainCapacity.stop();

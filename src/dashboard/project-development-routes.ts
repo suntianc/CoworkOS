@@ -30,6 +30,20 @@ function declaredBackend(request: IncomingMessage): string | undefined {
   return text || undefined;
 }
 
+/**
+ * The observation entry's marker: read the stored records, act on nothing.
+ *
+ * Only the documented value is accepted. Silently ignoring an unrecognized
+ * marker would leave a caller believing it is watching a node while the read
+ * replays that node's pending deliveries on its behalf.
+ */
+function readOnlyRead(request: IncomingMessage): boolean {
+  const value = request.headers["x-cowork-read-only"];
+  if (value === undefined) return false;
+  if (value !== "1") throw new HttpError(400, "只读标记格式不合法", "invalid_read_only");
+  return true;
+}
+
 function reply(response: ServerResponse, status: number, body: unknown): true {
   sendJson(response, status, body);
   return true;
@@ -202,6 +216,8 @@ async function handleMergeRequest(
     scopedTaskId?: string;
     itemId?: string;
     declared?: string;
+    /** The observation entry's read: answer from stored records, act on nothing. */
+    readOnly?: boolean;
   }
 ): Promise<boolean> {
   const service = ports.service;
@@ -209,8 +225,8 @@ async function handleMergeRequest(
   const list = async (developmentId?: string) => ({
     projectId: scope.projectId,
     merges: task
-      ? await service.queryMergesForTask(task, developmentId)
-      : await service.queryMerges(scope.projectId, developmentId)
+      ? await service.queryMergesForTask(task, developmentId, { readOnly: scope.readOnly })
+      : await service.queryMerges(scope.projectId, developmentId, { readOnly: scope.readOnly })
   });
   const one = async (mergeId: string) =>
     task ? service.getMergeForTask(task, mergeId) : service.getMerge(scope.projectId, mergeId);
@@ -291,6 +307,8 @@ async function handleDeliveryRequest(
     scopedTaskId?: string;
     itemId?: string;
     declared?: string;
+    /** The observation entry's read: answer from stored records, act on nothing. */
+    readOnly?: boolean;
   }
 ): Promise<boolean> {
   const service = ports.service;
@@ -298,8 +316,8 @@ async function handleDeliveryRequest(
   const list = async (developmentId?: string) => ({
     projectId: scope.projectId,
     deliveries: task
-      ? await service.deliveriesForTask(task, developmentId)
-      : await service.deliveries(scope.projectId, developmentId)
+      ? await service.deliveriesForTask(task, developmentId, { readOnly: scope.readOnly })
+      : await service.deliveries(scope.projectId, developmentId, { readOnly: scope.readOnly })
   });
   const one = async (deliveryId: string) =>
     task ? service.getDeliveryForTask(task, deliveryId) : service.getDelivery(scope.projectId, deliveryId);
@@ -323,9 +341,19 @@ async function handleDeliveryRequest(
     }
     case "view": {
       const view = task
-        ? await service.deliveryViewForTask(task, body)
-        : await service.deliveryView(scope.projectId, body);
+        ? await service.deliveryViewForTask(task, body, { readOnly: scope.readOnly })
+        : await service.deliveryView(scope.projectId, body, { readOnly: scope.readOnly });
       return reply(response, 200, { view });
+    }
+    case "diff": {
+      // The patch is read from the checkout this backend owns. A remote
+      // reader asks its own execution host, so the authority never runs Git
+      // against another backend's directory.
+      if (scope.declared) throw new HttpError(403, "diff 只能在需求现场所在后端读取", "delivery_owner_only");
+      const patch = task
+        ? await service.deliveryPatchForTask(task, body, { readOnly: scope.readOnly })
+        : await service.deliveryPatch(scope.projectId, body, { readOnly: scope.readOnly });
+      return reply(response, 200, { diff: patch });
     }
     case "retry": {
       if (typeof body.deliveryId === "string") {
@@ -374,6 +402,7 @@ export async function handleDevelopmentRequest(
   if (!projectMatch && !taskMatch) return false;
   response.setHeader("cache-control", "no-store");
   const declared = declaredBackend(request);
+  const readOnly = readOnlyRead(request);
   const backendId = declared ?? ports.backendId;
   let projectId: string;
   let taskId: string | undefined;
@@ -411,7 +440,8 @@ export async function handleDevelopmentRequest(
       taskId,
       scopedTaskId,
       itemId,
-      declared
+      declared,
+      readOnly
     });
   }
 
@@ -431,7 +461,8 @@ export async function handleDevelopmentRequest(
       taskId,
       scopedTaskId,
       itemId,
-      declared
+      declared,
+      readOnly
     });
   }
 
@@ -462,14 +493,14 @@ export async function handleDevelopmentRequest(
     if (itemId !== undefined)
       return reply(response, 200, {
         development: taskId
-          ? await ports.service.getForTask(taskId, itemId, backendId)
-          : await ports.service.get(projectId, itemId, backendId)
+          ? await ports.service.getForTask(taskId, itemId, backendId, { readOnly })
+          : await ports.service.get(projectId, itemId, backendId, { readOnly })
       });
     return reply(response, 200, {
       projectId,
       developments: taskId
-        ? await ports.service.listForTask(taskId, backendId)
-        : await ports.service.list(projectId, backendId)
+        ? await ports.service.listForTask(taskId, backendId, { readOnly })
+        : await ports.service.list(projectId, backendId, { readOnly })
     });
   }
   if (request.method !== "POST") throw new HttpError(405, "method not allowed");
@@ -480,15 +511,15 @@ export async function handleDevelopmentRequest(
         return reply(response, 200, {
           projectId,
           developments: taskId
-            ? await ports.service.listForTask(taskId, backendId)
-            : await ports.service.list(projectId, backendId)
+            ? await ports.service.listForTask(taskId, backendId, { readOnly })
+            : await ports.service.list(projectId, backendId, { readOnly })
         });
       case "get": {
         if (typeof body.developmentId !== "string") throw new HttpError(400, "get 需要 developmentId");
         return reply(response, 200, {
           development: taskId
-            ? await ports.service.getForTask(taskId, body.developmentId, backendId)
-            : await ports.service.get(projectId, body.developmentId, backendId)
+            ? await ports.service.getForTask(taskId, body.developmentId, backendId, { readOnly })
+            : await ports.service.get(projectId, body.developmentId, backendId, { readOnly })
         });
       }
       case "create":
@@ -527,8 +558,8 @@ export async function handleDevelopmentRequest(
       }
       case "find_by_requirement": {
         const development = taskId
-          ? await ports.service.findForTask(taskId, body.requirementId, backendId)
-          : await ports.service.find(projectId, body.requirementId, backendId);
+          ? await ports.service.findForTask(taskId, body.requirementId, backendId, { readOnly })
+          : await ports.service.find(projectId, body.requirementId, backendId, { readOnly });
         if (!development) throw new HttpError(404, "该需求还没有开发记录", "not_found");
         return reply(response, 200, { development });
       }

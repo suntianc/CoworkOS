@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 
 const paths = ["/api/tasks", "/api/workbench/tabs", "/api/workbench/revisions"];
@@ -38,7 +39,9 @@ async function post(page, base, path, data) {
 test("a task catalog slower than the polling period still applies and preserves the later draft", async ({
   page
 }) => {
-  const dashboard = await startDashboard();
+  // A usable connection keeps the new-conversation surface as the idle pane;
+  // this test observes catalog polling and draft retention, not first-use setup.
+  const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });
   const gate = deferred();
   let reads = 0;
   try {
@@ -63,10 +66,10 @@ test("a task catalog slower than the polling period still applies and preserves 
     gate.resolve();
     await expect(page.locator('[data-task="slow-a"]')).toBeVisible();
     await expect(page.locator("#composer-input")).toHaveValue("等待期间写下的新草稿");
-    await expect(page.locator("#topbar-task")).toHaveText("新任务");
+    await expect(page.locator("#topbar-task")).toHaveText("新会话");
     await expect(page.locator('[data-task="slow-a"]')).not.toHaveClass(/active/);
     await page.evaluate(() => {
-      window.pollingDraftPrompt = document.querySelector("#conversation .starter-prompts button");
+      window.pollingDraftPrompt = document.querySelector("#topbar-task");
     });
     const next = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/tasks");
     await page.clock.fastForward(4000);
@@ -86,22 +89,25 @@ test("unchanged detail polls retain current controls and a collapsed output pane
   const dashboard = await startDashboard();
   try {
     await post(page, dashboard.base, "/api/tasks", { taskId: "stable-a", goal: "界面保持稳定" });
-    await post(page, dashboard.base, "/api/tasks/stable-a/resources", {
-      kind: "text/plain",
-      title: "开始.txt",
-      initialContent: "保留内容"
-    });
+    const seedArtifact = async (name, content) => {
+      const detail = await (await page.request.get(`${dashboard.base}/api/tasks/stable-a`)).json();
+      const directory = join(detail.storageRoot, "stable-a", "artifacts");
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, name), content);
+    };
+    await seedArtifact("开始.txt", "保留内容");
     await instrument(page);
     await page.goto(`${dashboard.base}/?task=stable-a`);
     await expect(page.locator("#topbar-task")).toHaveText("界面保持稳定");
     await expect(page.locator("#output-pane-toggle")).toBeVisible();
-    await expect(page.locator("#output-list [data-resource-row]")).toHaveCount(0);
+    const rows = page.locator("[data-requirement-panel] [data-artifact]");
+    await expect(rows).toHaveCount(0);
     await page.locator("#output-pane-toggle").click();
-    await expect(page.locator("#output-list [data-resource-row]")).toHaveCount(1);
+    await expect(rows).toHaveCount(1);
     await page.evaluate(() => {
       window.pollingNodes = [
-        document.querySelector("#conversation .starter-prompts button"),
-        document.querySelector("#output-list [data-resource-row]")
+        document.querySelector("#topbar-task"),
+        document.querySelector("[data-requirement-panel] [data-artifact]")
       ];
     });
     const detail = page.waitForResponse(
@@ -113,19 +119,15 @@ test("unchanged detail polls retain current controls and a collapsed output pane
       .poll(() => page.evaluate(() => window.pollingNodes.every((node) => node.isConnected)))
       .toBe(true);
     await page.locator("#output-pane-toggle").click();
-    await post(page, dashboard.base, "/api/tasks/stable-a/resources", {
-      kind: "text/plain",
-      title: "后来.txt",
-      initialContent: "新内容"
-    });
+    await seedArtifact("后来.txt", "新内容");
     const updated = page.waitForResponse(
       (response) => new URL(response.url()).pathname === "/api/tasks/stable-a"
     );
     await page.clock.fastForward(4000);
     await (await updated).finished();
-    await expect(page.locator("#output-list [data-resource-row]")).toHaveCount(1);
+    await expect(rows).toHaveCount(1);
     await page.locator("#output-pane-toggle").click();
-    await expect(page.locator("#output-list [data-resource-row]")).toHaveCount(2);
+    await expect(rows).toHaveCount(2);
   } finally {
     await dashboard.stop();
   }
@@ -264,6 +266,12 @@ test("idle catalog polls skip full history while task changes and the fallback s
     });
     await page.goto(`${dashboard.base}/?task=idle-history`);
     await expect(page.locator("#topbar-task")).toHaveText("闲置会话");
+    // The first paint may still be finishing its own reads; count only after they settle.
+    let settled = -1;
+    while (settled !== details) {
+      settled = details;
+      await page.waitForTimeout(500);
+    }
     const initial = details;
     for (let i = 0; i < 3; i++) {
       const response = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/tasks");

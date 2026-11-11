@@ -66,11 +66,32 @@ test("steering reaches the next model call while queued input waits until the cu
     expect(duplicate.ok()).toBe(true);
     release();
     await expect.poll(() => provider.requests.length, { timeout: 20000 }).toBe(2);
-    const next = JSON.stringify(provider.requests[1].body.messages);
+    const steerRequest = provider.requests.find(({ body }) =>
+      JSON.stringify(body.messages).includes("STEER_REQUEST")
+    );
+    expect(steerRequest).toBeTruthy();
+    const next = JSON.stringify(steerRequest.body.messages);
     expect(next).toContain("STEER_REQUEST");
     expect(next).not.toContain("QUEUED_REQUEST");
-    expect(next.split("STEER_REQUEST")).toHaveLength(2);
-    expect(next.indexOf("STEP_DONE")).toBeLessThan(next.indexOf("STEER_REQUEST"));
+    // The persisted Main context can quote the same text in the system prompt, so the
+    // "delivered once" claim counts user turns rather than raw occurrences.
+    expect(
+      steerRequest.body.messages.filter(
+        (message) => message.role === "user" && JSON.stringify(message).includes("STEER_REQUEST")
+      )
+    ).toHaveLength(1);
+    // Steering drains only after the in-flight tool call returns, so the steer user turn
+    // follows that call's result (docs/product-api.md, steering). Compare message
+    // positions: the system prompt may quote both texts and must not decide the order.
+    const messages = steerRequest.body.messages;
+    const stepResult = messages.findIndex(
+      (message) => message.role === "tool" && JSON.stringify(message).includes("STEP_DONE")
+    );
+    const steerTurn = messages.findIndex(
+      (message) => message.role === "user" && JSON.stringify(message).includes("STEER_REQUEST")
+    );
+    expect(stepResult).toBeGreaterThan(-1);
+    expect(steerTurn).toBeGreaterThan(stepResult);
     const instruction = page.locator(".chat-message.user").filter({ hasText: "STEER_REQUEST" });
     await expect(instruction).toHaveCount(1);
     await expect(page.locator('[data-answer-kind="continuation"] .tool-step')).toHaveCount(1);
@@ -174,8 +195,16 @@ test("stopped queued messages can be cancelled or sent once without losing the c
       `${dashboard.base}/api/tasks/${taskId}/interject/${messageId}/steer`
     );
     expect(duplicate.ok()).toBe(true);
-    const sent = JSON.stringify(provider.requests[1].body.messages);
-    expect(sent.split("SEND_AFTER_STOP")).toHaveLength(2);
+    const sendRequest = provider.requests.find(({ body }) =>
+      JSON.stringify(body.messages).includes("SEND_AFTER_STOP")
+    );
+    expect(sendRequest).toBeTruthy();
+    const sent = JSON.stringify(sendRequest.body.messages);
+    expect(
+      sendRequest.body.messages.filter(
+        (message) => message.role === "user" && JSON.stringify(message).includes("SEND_AFTER_STOP")
+      )
+    ).toHaveLength(1);
     expect(sent).toContain("START_BEFORE_STOP");
     expect(sent).not.toContain("CANCEL_AFTER_STOP");
     expect(sent).not.toContain("CANCEL_WHILE_RUNNING");

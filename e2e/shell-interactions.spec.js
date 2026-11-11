@@ -31,8 +31,8 @@ test("project collapse responds once and preserves state and keyboard focus thro
     await page.locator('.conversation-item[data-task="shell-a"]').click();
     await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
     await row.focus();
+    // The catalog poll is the only refresh control; the panel no longer has one.
     const refresh = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/tasks");
-    await page.locator(".panel-add").dispatchEvent("click");
     await refresh;
     await expect(row).toBeFocused();
     await expect(page.locator('.conversation-item[data-task="shell-a"]')).toHaveAttribute(
@@ -221,45 +221,6 @@ test("a pending rename keeps keyboard focus inside the dialog when its save butt
   }
 });
 
-test("back and forward follow visited conversations and preserve each draft", async ({ page }) => {
-  const dashboard = await startDashboard();
-  try {
-    await seed(page, dashboard);
-    const back = page.getByRole("button", { name: "后退", exact: true });
-    const forward = page.getByRole("button", { name: "前进", exact: true });
-    await page.locator('.conversation-item[data-task="shell-a"]').click();
-    await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
-    await page.locator("#composer-input").fill("A 未发送的草稿");
-    await page.locator('.conversation-item[data-task="shell-b"]').click();
-    await expect(page.locator("#topbar-task")).toHaveText("建模方案 B");
-    await page.locator("#composer-input").fill("B 未发送的草稿");
-    await page.locator('.conversation-item[data-task="shell-a"]').click();
-    await expect(page.locator("#composer-input")).toHaveValue("A 未发送的草稿");
-    await expect(forward).toBeDisabled();
-    await back.click();
-    await expect(page.locator("#topbar-task")).toHaveText("建模方案 B");
-    await expect(page.locator("#composer-input")).toHaveValue("B 未发送的草稿");
-    await back.click();
-    await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
-    await forward.click();
-    await expect(page.locator("#topbar-task")).toHaveText("建模方案 B");
-    await page.locator("#session-menu-button").click();
-    await expect(page.locator("#session-menu")).toBeVisible();
-    await page.keyboard.press("Control+k");
-    await expect(page.locator("#session-menu")).toBeHidden();
-    await expect(page.locator("#topbar-task")).toHaveText("新任务");
-    await page.locator("#composer-input").fill("新对话草稿");
-    await expect(forward).toBeDisabled();
-    await back.click();
-    await expect(page.locator("#composer-input")).toHaveValue("B 未发送的草稿");
-    await forward.click();
-    await expect(page.locator("#composer-input")).toHaveValue("新对话草稿");
-    await expect(page.locator("#topbar-task")).toHaveText("新任务");
-  } finally {
-    await dashboard.stop();
-  }
-});
-
 test("sidebar conversation menus stay anchored and edit their own session without navigating", async ({
   page
 }) => {
@@ -268,18 +229,19 @@ test("sidebar conversation menus stay anchored and edit their own session withou
     await seed(page, dashboard);
     await page.locator('.conversation-item[data-task="shell-a"]').click();
     await page.locator("#composer-input").fill("保留 A 的草稿");
-    const topMenuTrigger = page.locator(".topbar-context #session-menu-button");
+    const topMenuTrigger = page.locator(".session-header #session-menu-button");
     await expect(topMenuTrigger).toBeVisible();
     const trigger = page.locator('[data-session-menu="shell-b"]');
     const menu = page.locator("#session-menu");
-    for (const width of [1440, 1280, 474, 320]) {
+    for (const width of [1440, 1280, 700]) {
       await page.setViewportSize({ width, height: 700 });
-      if (await page.locator("body").evaluate((node) => node.classList.contains("sidebar-mobile-open")))
-        await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
       const titleBox = await page.locator("#topbar-task").boundingBox();
       const topTriggerBox = await topMenuTrigger.boundingBox();
+      const headerBox = await page.locator(".session-header").boundingBox();
       expect(topTriggerBox.x).toBeGreaterThanOrEqual(titleBox.x + titleBox.width - 1);
-      expect(topTriggerBox.x - titleBox.x - titleBox.width).toBeLessThanOrEqual(16);
+      expect(topTriggerBox.x).toBeGreaterThanOrEqual(0);
+      expect(topTriggerBox.x + topTriggerBox.width).toBeLessThanOrEqual(width);
+      expect(headerBox.width).toBeGreaterThan(0);
       await topMenuTrigger.click();
       await expect(menu).toBeVisible();
       await expect(menu.getByRole("menuitem")).toHaveCount(8);
@@ -298,8 +260,8 @@ test("sidebar conversation menus stay anchored and edit their own session withou
       await page.keyboard.press("Escape");
       await expect(menu).toBeHidden();
       await expect(topMenuTrigger).toBeFocused();
-      if (!(await trigger.isVisible()))
-        await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
+      // A 640-1023 window folds the tree into the icon rail; its project opens it.
+      if (!(await trigger.isVisible())) await page.locator(".project-heading .project-row").first().focus();
       await trigger.focus();
       await trigger.press("ArrowDown");
       await expect(menu.locator('[data-session-action="rename"]')).toBeFocused();
@@ -376,26 +338,20 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
     const sidebar = page.locator(".conversation-sidebar");
     const selected = sidebar.locator('.conversation-item[data-task="shell-a"]');
     const newConversation = sidebar.locator("#new-conversation");
-    const sidebarToggle = page.getByRole("button", { name: "切换侧栏", exact: true });
     await expect(sidebar.locator(".brand-chevron")).toHaveCount(0);
-    await expect(sidebar.locator(".brand-lockup")).toHaveText("CoworkOS");
+    await expect(sidebar.locator(".brand-lockup")).toHaveText("Formicand");
     await expect(sidebar.locator(".conversation-item-meta")).toHaveCount(0);
     await expect(selected).toHaveText("设计方案 A");
-    await expect(selected).toHaveAttribute("aria-description", /已创建/);
-    for (const width of [1440, 1280, 1024, 474, 320]) {
+    await expect(selected).toHaveAttribute("data-status", "created");
+    await expect(selected).not.toHaveAttribute("aria-description");
+    for (const width of [1440, 1280, 1024]) {
       await page.setViewportSize({ width, height: 900 });
-      if (width <= 900) {
-        await expect(sidebar).toBeHidden();
-        await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
-        await sidebarToggle.click();
-      }
       await expect(sidebar).toBeVisible();
-      await expect(sidebarToggle).toHaveAttribute("aria-expanded", "true");
       const box = await sidebar.boundingBox();
-      expect(box.width).toBeGreaterThanOrEqual(200);
-      expect(box.width).toBeLessThanOrEqual(232);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeLessThanOrEqual(248);
       expect((await selected.boundingBox()).height).toBe(36);
-      for (const label of ["搜索", "任务动态", "设置"]) {
+      for (const label of ["搜索", "设置"]) {
         const control = sidebar.getByRole("button", { name: label, exact: true });
         await expect(control).toBeVisible();
         const rect = await control.boundingBox();
@@ -408,14 +364,52 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
       await expect(newConversation).toHaveCSS("box-shadow", "none");
       expect(await newConversation.boundingBox()).toEqual(beforeHover);
       await page.screenshot({ path: test.info().outputPath(`sidebar-${width}.png`) });
-      if (width <= 900) {
-        await sidebarToggle.click();
-        await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
-      }
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
       await expect(page.locator("#composer-input")).toHaveValue("侧栏调整保留草稿");
       await expect(page.locator("#topbar-task")).toHaveText("设计方案 A");
     }
+    // From 1024 down the sidebar is a 56 icon rail: the entry, the new-session
+    // command and settings stay reachable, and the project opens its tree.
+    await page.setViewportSize({ width: 700, height: 900 });
+    await expect(sidebar).toBeVisible();
+    expect(Math.round((await sidebar.boundingBox()).width)).toBe(56);
+    for (const [role, label] of [
+      ["tab", "工作"],
+      ["tab", "观测"],
+      ["button", "设置"],
+      ["button", "新会话"]
+    ]) {
+      const control = sidebar.getByRole(role, { name: label, exact: true });
+      await expect(control).toBeVisible();
+      const rect = await control.boundingBox();
+      const box = await sidebar.boundingBox();
+      expect(rect.x + rect.width).toBeLessThanOrEqual(box.x + box.width);
+    }
+    await expect(selected).toBeHidden();
+    await page.locator(".project-heading .project-row").first().focus();
+    await expect(selected).toBeVisible();
+    expect((await selected.boundingBox()).height).toBe(36);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(700);
+
+    // A web phone-sized window keeps the same commands in a fullscreen drawer.
+    await page.setViewportSize({ width: 320, height: 900 });
+    await expect(sidebar).toBeHidden();
+    await page.locator("#sidebar-drawer-toggle").click();
+    await expect(sidebar).toBeVisible();
+    expect(Math.round((await sidebar.boundingBox()).width)).toBe(320);
+    for (const [role, label] of [
+      ["tab", "工作"],
+      ["tab", "观测"],
+      ["button", "设置"]
+    ]) {
+      const control = page.getByRole(role, { name: label, exact: true });
+      await expect(control).toBeVisible();
+      const rect = await control.boundingBox();
+      const box = await sidebar.boundingBox();
+      expect(rect.x + rect.width).toBeLessThanOrEqual(box.x + box.width);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    await expect(page.locator("#composer-input")).toHaveValue("侧栏调整保留草稿");
   } finally {
     await dashboard.stop();
   }
@@ -453,10 +447,7 @@ test("sidebar divider resizes without navigating, persists, supports keyboard an
     await expect(divider).toHaveAttribute("aria-valuenow", "420");
     await divider.dblclick({ position: { x: 3, y: 150 } });
     expect(Math.abs((await sidebar.boundingBox()).width - before.width)).toBeLessThan(2);
-    await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
-    await expect(divider).toBeHidden();
-    await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
-    await expect(divider).toBeVisible();
+    // The icon rail and the phone drawer are not resizable, so the divider goes away.
     await page.setViewportSize({ width: 474, height: 800 });
     await expect(divider).toBeHidden();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(474);

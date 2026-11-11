@@ -1,10 +1,7 @@
+import { ui } from "./ui/language.js";
+
 /** Sidebar sizing is presentation state, independent of the selected task. */
-export function createSidebarLayout(
-  layout,
-  sidebar,
-  divider,
-  { sidebarToggle, outputPane, outputToggle } = {}
-) {
+export function createSidebarLayout(layout, sidebar, divider, { outputPane, outputToggle } = {}) {
   const storageKey = "atria.sidebar-share";
   let share,
     dragging = false;
@@ -29,13 +26,11 @@ export function createSidebarLayout(
     divider.setAttribute("aria-valuemin", String(min));
     divider.setAttribute("aria-valuemax", String(max));
     divider.setAttribute("aria-valuenow", String(Math.round(rect.width)));
-    divider.setAttribute("aria-valuetext", `${Math.round(rect.width)} 像素`);
-    const label = tasksOnLeft() ? "任务面板" : "会话侧栏";
-    divider.setAttribute("aria-label", `调整${label}宽度`);
+    divider.setAttribute("aria-valuetext", ui`${Math.round(rect.width)} 像素`);
+    const label = tasksOnLeft() ? ui("任务面板") : ui("会话侧栏");
+    divider.setAttribute("aria-label", ui`调整${label}宽度`);
     divider.setAttribute("aria-controls", pane.id);
-    divider.title = `拖动调整${label}宽度，双击恢复默认`;
-    sidebarToggle?.setAttribute("aria-expanded", String(rect.width > 0));
-    sidebarToggle?.setAttribute("aria-controls", pane.id);
+    divider.title = ui`拖动调整${label}宽度，双击恢复默认`;
     if (outputToggle?.getAttribute("aria-controls") !== "workbench")
       outputToggle?.setAttribute("aria-expanded", String(outputPane?.getBoundingClientRect().width > 0));
   };

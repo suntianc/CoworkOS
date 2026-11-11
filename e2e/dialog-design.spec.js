@@ -9,6 +9,8 @@ async function seed(page, dashboard) {
     const created = await page.request.post(`${dashboard.base}/api/tasks`, { data: { taskId, goal } });
     expect(created.ok()).toBe(true);
   }
+  // Emulated color schemes drive the theme only while the page follows the system.
+  await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
   await page.goto(`${dashboard.base}/?task=dialog-a`);
   await expect(page.locator("#topbar-task")).toHaveText("需要保留草稿的会话 A");
   await page.locator("#composer-input").fill("打开弹窗前保留的草稿");
@@ -55,8 +57,8 @@ test("rename uses the shared dialog controls in light and dark at desktop and na
         await expect(input).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
         await expect(input).toHaveCSS("border-radius", "12px");
         await expect(input).toHaveCSS("outline-width", "2px");
-        await expect(dialog).toHaveCSS("border-top-width", "0px");
-        await expect(dialog).toHaveCSS("border-radius", "24px");
+        await expect(dialog).toHaveCSS("border-top-width", "1px");
+        await expect(dialog).toHaveCSS("border-radius", "16px");
         await expect(cancel).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
         await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
         await expect(save).toHaveCSS("font-size", "14px");
@@ -80,9 +82,11 @@ test("rename uses the shared dialog controls in light and dark at desktop and na
           };
         });
         expect(Math.abs(controls.inputWidth - controls.fieldWidth)).toBeLessThan(1);
-        expect(controls.primaryBackground).toBe(theme === "light" ? "rgb(38, 38, 38)" : "rgb(237, 237, 237)");
-        expect(controls.primaryColor).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(32, 32, 32)");
-        expect(controls.panelBackground).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(25, 25, 25)");
+        expect(controls.primaryBackground).toBe(theme === "light" ? "rgb(28, 28, 34)" : "rgb(236, 236, 238)");
+        expect(controls.primaryColor).toBe(theme === "light" ? "rgb(244, 244, 248)" : "rgb(14, 14, 15)");
+        expect(controls.panelBackground).toBe(
+          theme === "light" ? "rgba(251, 251, 253, 0.95)" : "rgba(16, 16, 20, 0.88)"
+        );
         expect(controls.backdrop).toBe("none");
         await expect(save).toBeInViewport();
         await expect(cancel).toBeInViewport();
@@ -138,31 +142,13 @@ test("rename retains its field and focus while saving fails, and recent conversa
     await expect(dialog.getByRole("button", { name: "取消", exact: true })).toBeFocused();
     release();
     await expect(dialog.getByRole("alert")).toHaveText("暂时无法保存，请重试");
-    await expect(dialog.getByRole("alert")).toHaveCSS("color", "rgb(179, 78, 70)");
+    await expect(dialog.getByRole("alert")).toHaveCSS("color", "rgb(192, 58, 58)");
     await expect(input).toHaveValue("保存失败后保留的新名称");
     await expect(save).toBeEnabled();
     await page.screenshot({ path: info.outputPath("rename-save-failed.png") });
     await page.keyboard.press("Escape");
-    const goals = page.getByRole("button", { name: "长期任务", exact: true });
-    if (!(await goals.isVisible())) await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
-    await goals.click();
-    await page.getByRole("button", { name: "最近会话 ↗", exact: true }).click();
-    const recent = page.getByRole("dialog", { name: "最近会话", exact: true });
-    await expect(recent).toBeVisible();
-    await expect(recent.locator(".dialog-list button")).toHaveCount(2);
-    await expect(recent.getByRole("button", { name: "关闭", exact: true })).toHaveCSS(
-      "border-top-color",
-      "rgba(0, 0, 0, 0)"
-    );
-    await page.setViewportSize({ width: 320, height: 420 });
-    await contained(recent, 320, 420);
-    const title = await recent.locator(".dialog-list button > span").first().boundingBox();
-    const status = await recent.locator(".dialog-list button > small").first().boundingBox();
-    expect(Math.abs(title.y + title.height / 2 - status.y - status.height / 2)).toBeLessThan(1);
-    await page.screenshot({ path: info.outputPath("recent-320.png") });
-    await recent.getByRole("button", { name: "可以继续处理的会话 B" }).click();
-    await expect(recent).toHaveCount(0);
-    await expect(page.locator("#topbar-task")).toHaveText("可以继续处理的会话 B");
+    // Emulated color schemes drive the theme only while the page follows the system.
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(`${dashboard.base}/?task=dialog-a`);
     await expect(page.locator("#composer-input")).toHaveValue("打开弹窗前保留的草稿");
   } finally {

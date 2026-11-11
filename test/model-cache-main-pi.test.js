@@ -25,7 +25,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
         let output = "";
         const server = createServer(async (req, res) => {
           let raw = "";
-          for await (const chunk of req) raw += chunk;
+          for await (const chunk of req.setEncoding("utf8")) raw += chunk;
           requests.push(JSON.parse(raw));
           const reported = requests.length > 1;
           const usage =

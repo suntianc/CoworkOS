@@ -13,6 +13,7 @@ export function desktopSmokeEnvironment({ data, source = process.env }) {
   return {
     ...env,
     PATH: "/usr/bin:/bin",
+    FORMICAND_DESKTOP_BACKGROUND: source.FORMICAND_DESKTOP_BACKGROUND ?? "1",
     ATRIA_HOME: data,
     COWORK_DESKTOP_DATA: data,
     PI_CODING_AGENT_DIR: join(data, "pi"),

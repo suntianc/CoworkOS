@@ -41,15 +41,14 @@ async function seed(page, dashboard, { extraTasks = 0 } = {}) {
     expect(response.ok()).toBe(true);
   }
   await page.goto(dashboard.base);
-  if (!(await page.locator("#project-list").isVisible()))
-    await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
   await expect(page.locator(".project-group")).toHaveCount(2);
   await expect(page.locator(".conversation-item")).toHaveCount(3 + extraTasks);
-  await page.locator('[data-task="sidebar-current"]').click();
-  await page.locator("#composer-input").fill("保留当前会话的未发送草稿");
-  if (!(await page.locator("#project-list").isVisible()))
-    await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
+  // A 640-1023 window folds the tree into the icon rail; its project opens it.
   const group = page.locator(`[data-project="${projects[0].projectId}"]`);
+  const current = page.locator('[data-task="sidebar-current"]');
+  if (!(await current.isVisible())) await group.locator(".project-row").focus();
+  await current.click();
+  await page.locator("#composer-input").fill("保留当前会话的未发送草稿");
   return {
     group,
     heading: group.locator(".project-heading"),
@@ -96,8 +95,8 @@ test("long sidebar titles keep their geometry while project and conversation act
     await expectStableBox(title, titleBox);
     for (const action of [sidebar.settings, sidebar.create, sidebar.menu]) {
       const box = await action.boundingBox();
-      expect(box.width).toBe(32);
-      expect(box.height).toBe(32);
+      expect(box.width).toBe(24);
+      expect(box.height).toBe(24);
     }
     await sidebar.menu.click();
     await page.locator('[data-session-action="unread"]').click();
@@ -188,15 +187,16 @@ test("an open conversation menu keeps its row highlighted and mouse dismissal cl
 }, info) => {
   const dashboard = await startDashboard({ defaultProject: false });
   try {
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     const sidebar = await seed(page, dashboard);
     const panel = page.locator("#session-menu");
     await sidebar.row.hover();
-    const hoverBackground = await sidebar.task.evaluate((node) => getComputedStyle(node).backgroundColor);
+    const hoverBackground = await sidebar.row.evaluate((node) => getComputedStyle(node).backgroundColor);
     expect(hoverBackground).not.toBe("rgba(0, 0, 0, 0)");
     await sidebar.menu.click();
     await expect(panel).toBeVisible();
     await moveOutside(page);
-    await expect(sidebar.task).toHaveCSS("background-color", hoverBackground);
+    await expect(sidebar.row).toHaveCSS("background-color", hoverBackground);
     await expect(sidebar.menu).toHaveAttribute("aria-expanded", "true");
     for (const theme of ["dark", "light"]) {
       await page.emulateMedia({ colorScheme: theme });
@@ -230,12 +230,18 @@ test("touch devices keep project and conversation actions visible without hover"
   const context = await browser.newContext({
     hasTouch: true,
     isMobile: true,
-    viewport: { width: 474, height: 900 }
+    viewport: { width: 700, height: 900 }
   });
   try {
     const page = await context.newPage();
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     const sidebar = await seed(page, dashboard);
-    for (const action of [sidebar.settings, sidebar.create, sidebar.menu]) {
+    // The rail has no hover to reveal actions with: focusing the project icon
+    // opens its floating tree, which carries the project and session commands.
+    await sidebar.project.focus();
+    const railSettings = sidebar.group.locator("[data-rail-settings]");
+    const railCreate = sidebar.group.locator("[data-rail-create]");
+    for (const action of [railSettings, railCreate, sidebar.menu]) {
       await expect(action).toHaveCSS("opacity", "1");
       expect(await pointerHits(action)).toBe(true);
     }
@@ -257,10 +263,8 @@ test("menus beside bottom sidebar rows keep their trigger clear and flip above i
     const row = sidebar.group.locator(".conversation-row").last(),
       trigger = row.locator(".conversation-menu"),
       panel = page.locator("#session-menu");
-    for (const width of [1440, 608, 320]) {
+    for (const width of [1440, 640]) {
       await page.setViewportSize({ width, height: 900 });
-      if (!(await page.locator("#project-list").isVisible()))
-        await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
       await row.scrollIntoViewIfNeeded();
       await row.hover();
       await trigger.click();
@@ -268,7 +272,7 @@ test("menus beside bottom sidebar rows keep their trigger clear and flip above i
       const rowBox = await row.boundingBox(),
         anchorBox = await trigger.boundingBox(),
         menuBox = await panel.boundingBox();
-      expect(anchorBox.y).toBeGreaterThan(600);
+      expect(anchorBox.y).toBeGreaterThan(500);
       expect(menuBox.x).toBeGreaterThanOrEqual(8);
       expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(width - 8);
       expect(menuBox.y).toBeGreaterThanOrEqual(8);

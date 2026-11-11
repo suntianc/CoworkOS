@@ -35,11 +35,14 @@ POST /api/workspace/choose
 POST /api/projects
 PATCH /api/projects/:projectId
 POST /api/projects/choose-directory
+POST /api/project-clones
+GET  /api/project-clones/:cloneId
+POST /api/project-clones/:cloneId/cancel
 GET  /api/projects/:projectId/experience
 POST /api/projects/:projectId/experience
 ```
 
-Models returns `{ current, models, configured }`. `GET /api/tasks` returns the grouped catalog `{ workspaceRoot, currentWorkspaceRoot, model, tasks, projects }`, rather than a bare Task array. Explicit projects remain in `projects` with `tasks: []`; legacy automatic groups retain their directory-based IDs and the sidebar hides them when they have no unarchived conversations.
+Models returns `{ current, models, configured }`. `GET /api/tasks` returns the grouped catalog `{ workspaceRoot, currentWorkspaceRoot, model, tasks, projects }`, rather than a bare Task array. Explicit projects remain in `projects` with `tasks: []`; legacy automatic groups retain their directory-based IDs and the sidebar hides them when they have no unarchived conversations. A Task that Main is waiting on a person carries `pendingQuestion: true`; the field is absent once the question is answered or the Task is no longer running or waiting.
 
 `GET /api/backend` returns `{ backendId, pid, startedAt, protocol }` for the process serving this data root. `protocol` is `{ version, minClientVersion, capabilities }`. The standalone backend keeps `backendId` across restarts, so a client can tell a restarted process from a different backend, and `pid` lets a host stop only the process it recorded. The route is local and credential-checked like the other `/api/*` routes and exposes no configuration.
 
@@ -54,6 +57,8 @@ Create a project with `POST /api/projects { projectName, projectDirectory, proje
 Folder changes apply to every associated conversation. Active Main/subagents, waiting work, scheduled wakeups, or command jobs reject directory changes with 409; renaming is allowed. Project changes and run startup are serialized to prevent changing a running conversation's CWD.
 
 `POST /api/projects/choose-directory` opens the local picker and returns `{ cancelled, projectDirectory? }`; choosing a folder does not save a project.
+
+`POST /api/project-clones { remoteUrl, destination, branch?, operationId? }` starts a Git clone on the execution host and returns 202 `{ clone: { cloneId, state, progress } }`; `GET /api/project-clones/:cloneId` reports the same shape with `state` `cloning`, `registering`, `completed`, `failed` or `cancelled`, a 0–100 `progress`, a readable `error` for failures, and the registered `project` after completion. The clone uses the host's own Git credentials (SSH agent/key or credential helper). URLs and credentials are never returned or written to the record, and git error text has URLs removed, so a token in a path or query cannot leak. Only `http`, `https`, `ssh`, `git`, `file` and scp-style `user@host:path` addresses (or a local filesystem path) are accepted, and git runs with `GIT_ALLOW_PROTOCOL` restricted to the supported transports so a host or repository configuration cannot re-enable a command transport. Git only registers the project after it exits successfully; a failed or cancelled clone removes the folder it created and registers nothing. `POST .../cancel` stops the Git process and removes the incomplete folder. A destination that already exists is refused with 409. The optional `operationId` is the clone's durable identity: a retry with the same id and content returns the existing clone, and the same id with different content returns 409. A clone still marked `cloning` when a later process starts has no owner, so startup reports it as failed and removes its folder unless the catalog already references it. A record in `registering` is never deleted: startup checks the catalog, finishes a missing registration, or keeps the complete clone and reports why registration failed.
 
 Empty migrated records without valid history or application documents are omitted from `GET /api/tasks`, while their persisted indexes and files remain intact. An otherwise empty legacy project with a real document exposes `hasApplications: true`. Internal editor holding Tasks do not establish projects; empty legacy groups derived only from Task storage are omitted. Explicit creation or editing adopts the project as a user choice, so it remains visible when empty.
 
@@ -265,6 +270,8 @@ POST bodies carry `action`:
 - `get` (`developmentId`), `query` and `find_by_requirement` (`requirementId`) read; an unknown record returns 404.
 - `record_workspace` records the authenticated backend's own checkout (`developmentId`, `workspace`); it is used by a secondary backend's client and refuses a workspace for another backend with 403 `development_workspace_backend_mismatch`.
 
+Reads of developments, merges, deliveries and the delivery view that carry `x-cowork-read-only: 1` answer from the stored records only: they never replay this host's pending deliveries before answering, so the delivery outbox entry and the merged row stay for the next work read or the host's own periodic pass. The observation entry's data port attaches the marker to every request it sends a node; the work entry and the Main tool send none, so their reads still complete a pending delivery first. `1` is the only accepted value and anything else returns 400 `invalid_read_only`; the response shape and content are the same either way, including the delivery view's `diff`, which is still read from the checkout that owns it. A trusted cross-origin page may send the header, so the trusted-client preflight allows it.
+
 The Task-scoped routes are the Main tool's boundary: the Dashboard resolves the Task's project and Main session, so a tool argument cannot select another project or session. On the project routes a request carrying `x-cowork-task-id` is refused with 403 `project_scope_denied` unless that Task belongs to the named project. The production tool is `project_development` with actions `create`, `get`, `query`, `find_by_requirement`, `update`, `ensure_workspace`, `review_plan`, `freeze_candidate`, `attach_reviewer`, `record_finding`, `rule_finding`, `record_rework`, `complete_review`, `delivery_check`, `query_reviews`, `get_review`, `request_merge`, `apply_merge`, `merge_status` and `delivery_status`. `delivery_status` returns the same {projectId, development, stage, plan, reviews, qualification, merges, delivery, board?, diff?, roles, pendingSync?} view the Web controller reads; it accepts a `developmentId` or a `requirementId`.
 
 ## Fixed-candidate reviews
@@ -335,6 +342,7 @@ Applying a delivery writes the ledger and board together with the `synced` state
 POST bodies carry `action`:
 
 - `query` (optional `developmentId`), `get` (`deliveryId`) and `view` (`developmentId` or `requirementId`) read. The view returns `{ projectId, development, stage, plan?, reviews, qualification?, merges, delivery?, board?, diff?, roles, pendingSync? }`, where `stage` is `developing`/`reviewing`/`merge_pending`/`merged`/`delivered`, `roles` are the recorded Executor/Reviewer work items with their durable status when this host still has them, `diff` is the committed baseline-to-candidate change read from the checkout that owns it, and `pendingSync` names a locally published merge whose shared delivery has not been accepted yet. The same view is reachable from the project route, the Task route and the `project_development` tool (`delivery_status`).
+- `diff` (`developmentId` or `requirementId`, optional `path`) returns `{ base, head, candidateCommit, mergedCommit?, path?, patch, truncated, contents }`: the unified patch of the accepted change and each changed file's text at the same commit. Only a file the delivery diff already lists may be named; a patch past 200 KB is cut and marked `truncated`; a checkout this host does not own returns 409 `delivery_patch_unavailable`, and a declared remote backend gets 403 `delivery_owner_only` because it must ask its own execution host. The work panel's preview reads this instead of running Git in the page.
 - `retry` (`deliveryId` or `developmentId`) re-applies the persisted delivery or completes the latest merged operation of that development; a retry cannot create a second delivery or a second target commit.
 - `sync` (`receipt`) is accepted only from the authenticated execution backend that owns the merge and is how a secondary backend records what it published. The authority verifies the receipt against its own merged row before writing anything.
 
@@ -437,7 +445,9 @@ The response is accepted asynchronously:
 { "taskId": "task-1", "runId": "main-...", "status": "running" }
 ```
 
-The Runtime owns Task transitions. The UI may request `cancel`, `resume`, or `complete`, but it must render the returned state rather than assuming the action succeeded.
+The Runtime owns Task transitions. The UI may request `pause`, `cancel`, `resume`, or `complete`, but it must render the returned state rather than assuming the action succeeded.
+
+`POST /api/tasks/:taskId/action` with `{ "action": "pause" }` records a durable pause request for the Task's running Main and returns the updated catalog entry. Main reads that request at the next step boundary — after the in-flight tool call or model reply, before another tool call or model request — and the Run's close path then sets `task.status: "paused"` and writes `pause.pausedAt`. A pause is refused with `409` when the Task has no live Main process. Work already produced (files, candidates, development records) stays in place, and a Task that finished its step before the boundary is `completed` rather than `paused`. Continue with `POST /api/tasks/:taskId/run` and `{ "resume": true }`: it reuses the paused Run and Pi session, keeps saved tool results, and starts from the next step instead of repeating finished work. A paused Task occupies no Main capacity because its process has exited, and `cancel` from `paused` is the normal terminal cancellation. The catalog and Task detail expose the optional `pause` object (`requestedAt`, `pausedAt`) and the `paused` status; `runtime.active` stays false until the continuation starts.
 
 `POST /api/tasks/:taskId/run` with `{ "resume": true }` and no prompt continues the saved Main turn without adding a user message or recovery instruction. It requires a prior run and retains saved tool results. The full accepted input is saved privately as `runs/<runId>/main-input.json` before process launch; an input missing from the Pi transcript after a startup failure is restored once. For a captured failed or interrupted Main request, continuation replays its exact serialized body and original model, ignoring a replacement `model` selection for that retry. The returned `model` identifies the model actually used. A completed request is never selected for replay; a new nonempty prompt invalidates the prior retry slot and uses current settings. Changed project/binding/endpoint returns `409` with `code: "main_retry_context_changed"`; an invalid snapshot returns `400` with `code: "main_retry_snapshot_invalid"`, retaining the saved record and prior Run state. Legacy sessions with no request snapshot retain context-based continuation. An empty prompt without `resume: true` is rejected. Supplying a nonempty prompt remains a new user turn, including with `resume: true`.
 
@@ -520,7 +530,7 @@ Main can inspect candidates through `browse_workspace`, then use `publish_artifa
 
 The single task panel contains artifacts, the agent team, 会话运行概览, and background processes in that order. Member selection opens a collapsible, bounded execution trace in the same panel; there are no workspace/team tabs.
 
-`elapsedMs` sums Main process intervals across every durable run in the conversation, including tool execution and waits for delegated work. Idle gaps between runs or resumed invocations are excluded. The UI may advance the timer from `observedAt` only while `statistics.active` is true. Completion/failure/waiting events freeze the duration. A historical run without an exit event freezes at its own last recorded activity, never at the current Task's update time. Unknown timing is `null`; `timingPartial` marks a sum with missing run timing. Follow-ups, page reloads and server restarts recover the same cumulative values from disk.
+`elapsedMs` sums Main process intervals across every durable run in the conversation, including tool execution and waits for delegated work. Idle gaps between runs or resumed invocations are excluded. The UI may advance the timer from `observedAt` only while `statistics.active` is true. Completion/failure/pause/waiting events freeze the duration; a resumed run opens a new interval. A historical run without an exit event freezes at its own last recorded activity, never at the current Task's update time. Unknown timing is `null`; `timingPartial` marks a sum with missing run timing. Follow-ups, page reloads and server restarts recover the same cumulative values from disk.
 
 Each `usage` contains `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `responses`, `reportedResponses`, `coverage` (`complete`, `partial`, or `unavailable`), and `scanning`.
 
@@ -535,6 +545,42 @@ Missing/zero-filled provider usage is unavailable, not zero consumption. `totalT
 The UI displays accumulated numeric counts without qualifiers or reporting-status notes; missing totals render as `—`. Coverage metadata remains available in the API.
 
 Large legacy traces are scanned incrementally with bounded memory and read budgets; `scanning` marks totals still being collected. Missing, malformed, or oversized records can leave coverage partial. There is no monetary estimate because configured model prices are placeholders.
+
+### Activity metrics
+
+Implementation: [activity metrics](../src/runtime/activity-metrics.ts); the catalog entry is assembled by [workspace-directory](../src/dashboard/workspace-directory.ts) and published through the [snapshot and event stream](#snapshot-and-event-recovery).
+
+A Task that has run inside the retained window carries `task.activity`: sampled activity for its running Main and each of its Subagents. The same object appears in `GET /api/tasks`, in the snapshot, in `task.changed` payloads and in the task detail, so one reader can draw a lane from any of them. The samples are derived on the execution host from logs the Run already writes — Main's `runtime-output.log` and each Subagent's `sessions/<agentId>/<runId>.jsonl`. Nothing on the model request path changes, and no conversation text, tool arguments or credentials are carried.
+
+```json
+{
+  "version": 1,
+  "sliceMs": 60000,
+  "windowMs": 7200000,
+  "from": "2026-01-01T00:00:00.000Z",
+  "active": true,
+  "agents": [
+    {
+      "agentId": "main",
+      "name": "CoworkOS",
+      "role": "main",
+      "state": "running",
+      "stage": "working",
+      "stageChangedAt": "2026-01-01T00:01:00.000Z",
+      "lastProgressAt": "2026-01-01T00:03:12.000Z",
+      "samples": [{ "toolCalls": 2, "outputBytes": 812 }]
+    }
+  ]
+}
+```
+
+- `sliceMs` is the fixed slice and `windowMs` the retained window (2 hours). `samples[i]` covers `[from + i*sliceMs, from + (i+1)*sliceMs)`; a quiet slice is `0`/`0`, and the output rate is `outputBytes / (sliceMs / 1000)` bytes per second. `from` is a multiple of `sliceMs` and never earlier than the Run's start or the retained window.
+- `toolCalls` counts tool executions that started in the slice; `outputBytes` counts the UTF-8 bytes of assistant text and tool result text recorded in it.
+- Only finished slices are published, so a live Run's entry changes at most once per finished slice — a sample appears and `lastProgressAt` advances together — plus once when the stage itself changes (`working` to `idle`, or the Run ending). A subscriber therefore sees the sample cadence, not the agent's write rate. `active` is true while Main's Run still executes. A finished Run keeps its frozen samples until the window passes.
+- `agents[]` holds `main` plus one entry per durable work item: `role` is `main` or `subagent`, `workRole` is the dispatched `executor`/`reviewer` role when it had one, and `callId` names that work item.
+- `state` is the durable state (`queued`, `running`, `waiting`, `completed`, `failed`, `cancelled`, `timed_out`). `stage` is what the execution host observed (`starting`, `working`, `idle`, `waiting`, `completed`, `failed`, `cancelled`, `timed_out`): a slice without records turns `working` into `idle`, and `stageChangedAt` is when the current stage began. `lastProgressAt` is the last record the agent wrote, reported no later than the end of the last published slice, or `null` before it wrote one.
+
+The field is additive: nothing persisted gains a key (the metrics are derived, so no migration or backup rewrite), and a reader that does not know it keeps every field it already used. A Task with no Run in the window has no `activity`, and readers fall back instead of waiting for it.
 
 ### Human questions and continuation
 
@@ -812,9 +858,10 @@ Application tools return operations for the platform to commit through revision 
 ## 交互与恢复契约
 
 - `PATCH /api/tasks/:taskId` 接受 optional `title`（1–100 字符）、`pinned`、`archived`。原有 goal 与 Task 身份保持不变；旧记录缺省为未置顶、未归档。运行中的任务需先停止才能归档；搜索可重新打开已归档会话并恢复。
+- `POST /api/tasks/:taskId/action` 的 pause 在 Task 记录写入持久暂停请求，Main 在当前工具调用或模型回复结束、下一次工具调用或模型请求之前读取并停下；进程退出后状态为 `paused`，`pause.pausedAt` 记录边界时间，已完成文件、候选与需求记录保留。没有运行中的 Main 时返回 409；该边界已完成 Task 时保持 `completed`。`/run` 携带 `{ "resume": true }` 从同一 Run 和 Pi 会话继续，保留已完成的工具结果，不重复已完成步骤。暂停后进程已退出，不占 Main 名额；`cancel` 从暂停状态正常终止。目录与详情提供 optional `pause`（`requestedAt`、`pausedAt`）和 `paused` 状态，继续前 `runtime.active` 为 false。
 - `POST /api/tasks/:taskId/action` 的 cancel 通过 Run 服务终止对应 Pi 进程组、取消未完成委派并等待输出落盘，再返回。其他任务和后续运行不受影响。Detail 的 `runtime.stopping` 为停止中的 optional 标志。
 - Web 和桌面共用 `GET /api/model-settings`：返回当前连接状态以及 `activeProfileId`、`visionProfileId`、`profiles`（`id`、`name`、`active`、`vision`、`configured` 和非密钥参数），不返回明文或加密密钥。POST 接受 `baseUrl`、`model`、`apiKey`、`api`、`supportsImages`、`contextWindow`（上下文容量，默认 256000 token，正的安全整数）、推理/输出参数，以及 `profileId`、`profileName`、`activate` 和 `vision`；`profileId: ""` 新建，非空编辑指定组，省略则兼容原单组调用、修改当前组。`activate: true` 保存并启用；首组自动启用。`vision: true` 将图像配置用于 `read_image` 的纯文本模型兜底，保存为 `modelConnections.visionId`；`vision: false` 只在该组当前承担此用途时取消，不切换聊天连接。空密钥只保留指定组原密钥，新组必须提供密钥。测试接口按 `profileId` 查找该组密钥，不修改当前启用项。环境管理的连接和运行中的任务拒绝保存。配置列表使用 `modelConnections.version: 1`，首次写入前保留 `.before-model-profiles` 备份，配置与备份权限为 0600。模型密钥保存在所选执行主机的凭据文件中，保存设置不重启后端。`GET /api/model-settings?projectId=<项目 ID>` 额外返回 `modelRoles`：Main 的有效来源（项目覆盖、主机默认、当前启用连接或启动环境）、连接名称、模型和推理强度；Executor、Reviewer 已接通委派，有绑定时给出该绑定的有效来源，未绑定时 `effective` 为 `null`（工作项沿用启动 Run 的连接）；Router 仍以 `wired: false` 列出。`POST /api/model-settings/roles` 以 `{ role, profileId, projectId? }` 保存主机默认或项目覆盖，`profileId: ""` 清除；引用的连接不存在时拒绝保存，已保存的失效引用在状态中给出可定位错误并拒绝下一次 Run，不会改用其他账号。项目覆盖按共享项目 ID 保存在执行主机本机配置中，不随项目进入共享数据或远端主机。角色变更对下一次 Run 生效，在途 Run 保持启动时的快照。
-- `GET /api/models` 新增 `connectionProfileId`，配置切换后前端清除旧服务的会话模型选择；已有会话历史保留，后续请求使用新启用的模型配置。
+- `GET /api/models` 新增 `connectionProfileId`，配置切换后前端清除旧服务的会话模型选择；已有会话历史保留，后续请求使用新启用的模型配置。响应还带 `reasoningEffort`：下一次 Main 运行将使用的推理强度，取自 Main 角色解析到的连接（主机默认、项目覆盖或当前启用连接）；该连接尚不可用时省略。Composer 的推理强度选择以它为默认显示；用户未显式选择时不随请求发送 `thinkingLevel`，各角色运行使用其绑定连接保存的强度，显式选择只作用于该次运行。
 - 本地附件通过下方 [Local input uploads](#local-input-uploads) 的上传、预览与引用接口读取；现有文本草稿附件的限制不代表上传接口的文件能力。Run prompt 通过 stdin 传给 Pi，服务边界仍拒绝 NUL 和超限消息。
 - interject 的 Inbox 投递不变；响应增加 `messageId`，事件保存完整消息用于跨 Run 的对话投影。`steer` 在界面显示为补充指令；`followUp` 排队时显示等待状态，消费后按新请求分组，保留前一请求的最终回复。
 - `GET /api/tasks/:taskId/resources/:resourceId/review` 返回最近已保存操作的 `revision`、`baseRevision`、`eventId`、前后文本及摘要；无可还原历史时 `available=false`。可选 Adapter `reviewContent` 提供领域投影。

@@ -13,17 +13,16 @@ export function createProjectController({
   beginConversation,
   selectConversation,
   conversationTitle,
-  stateText,
   openTaskMenu,
   taskMenuOpen,
   onRendered = () => {},
   getNavigationIdentity,
   onSelectionChanged = () => {},
   getApplicationWorkspaces = () => [],
-  isContextVisible = () => true,
   isTaskVisible = () => true,
   isUnread = () => false,
   openProjectExperience = () => {},
+  openAddProject,
   onUpdated = () => {}
 }) {
   /** Change commands carry an operation id; the fallback keeps partial handlers working. */
@@ -34,17 +33,58 @@ export function createProjectController({
   const localProjects = new Map(),
     localTasks = new Map();
   const selectedKey = "atria.selected-project.v1";
+  const collapsedKey = "atria.collapsed-projects.v1";
   try {
     state.selectedProjectId ||= storage?.getItem(selectedKey) || null;
-    // eslint-disable-next-line no-restricted-syntax -- the remembered selection is optional; blocked storage just leaves the first visible project selected
+    const remembered = JSON.parse(storage?.getItem(collapsedKey) || "null");
+    if (Array.isArray(remembered))
+      for (const id of remembered) if (typeof id === "string") state.collapsedProjects.add(id);
+    // eslint-disable-next-line no-restricted-syntax -- the remembered selection and folds are optional; blocked storage just leaves the defaults
   } catch {
     /* optional persistence */
   }
+  function rememberCollapsed() {
+    try {
+      storage?.setItem(collapsedKey, JSON.stringify([...state.collapsedProjects]));
+      // eslint-disable-next-line no-restricted-syntax -- a full or blocked storage keeps the fold for this session only
+    } catch {
+      /* optional persistence */
+    }
+  }
+  // Below this width the sidebar is an icon rail, where every project shows
+  // its tree only while open, so the project icon answers for its questions.
+  const railWindow = window.matchMedia?.("(max-width: 1023px)") ?? { matches: false };
   const projects = () => state.projects || [];
+  const subagentsOf = (task) => (task.activity?.agents || []).filter((agent) => agent.role === "subagent");
+  const roleLabel = (agent) =>
+    agent.workRole === "reviewer" ? "Reviewer" : agent.workRole === "executor" ? "Executor" : "";
+  const subagentRow = (agent) => {
+    const active = ["running", "waiting", "queued"].includes(agent.state);
+    const tone = active
+      ? agent.workRole === "reviewer"
+        ? "is-review"
+        : "is-running"
+      : agent.state === "completed"
+        ? "is-done"
+        : "is-idle";
+    const role = roleLabel(agent);
+    return `<div class="subagent-row" data-agent="${esc(agent.agentId)}" data-state="${esc(agent.state)}"><span class="subagent-guide" aria-hidden="true"></span><span class="subagent-state ${tone}" aria-hidden="true">${icon(active ? "loader-circle" : "circle-check")}</span><span class="subagent-name">${esc(agent.name || agent.agentId)}</span>${role ? `<span class="subagent-role">${role}</span>` : ""}</div>`;
+  };
   const taskLabel = (task) =>
-    `<span class="conversation-item-title"><span class="conversation-title-text">${task.pinned ? "★ " : ""}${esc(conversationTitle(task))}</span>${["running", "leased", "waiting", "queued"].includes(task.status) ? `<span class="conversation-activity" data-state="${task.status}" aria-hidden="true"></span>` : ""}${isUnread(task.taskId) ? ui('<span class="conversation-unread" role="img" aria-label="未读"></span>') : ""}</span>`;
-  const taskRow = (task) =>
-    ui`<div class="conversation-row"><button class="conversation-item ${task.taskId === state.selected ? "active" : ""} ${isUnread(task.taskId) ? "is-unread" : ""}" data-task="${esc(task.taskId)}" title="${esc(conversationTitle(task))}" aria-description="${esc(stateText(task.status || "created"))}" ${task.taskId === state.selected ? 'aria-current="page"' : ""}>${taskLabel(task)}</button><button class="conversation-menu" type="button" data-session-menu="${esc(task.taskId)}" aria-label="会话菜单：${esc(conversationTitle(task))}" title="会话菜单" aria-haspopup="menu" aria-controls="session-menu">${icon("more")}</button></div>`;
+    `<span class="conversation-item-title">${task.pendingQuestion ? `<span class="conversation-question" role="img" aria-label="${esc(ui("有待回答的问题"))}"></span>` : ""}<span class="conversation-title-text">${task.pinned ? "★ " : ""}${esc(conversationTitle(task))}</span>${isUnread(task.taskId) ? ui('<span class="conversation-unread" role="img" aria-label="未读"></span>') : ""}</span>`;
+  const taskRow = (task) => {
+    const id = esc(task.taskId),
+      agents = subagentsOf(task),
+      expanded = agents.length > 0 && !state.collapsedSessions?.has(task.taskId);
+    const disclosure = agents.length
+      ? `<button class="conversation-toggle" type="button" data-session-toggle="${id}" aria-expanded="${expanded}" aria-label="${esc(expanded ? ui("收起子 Agent") : ui("展开子 Agent"))}">${icon(expanded ? "chevron-down" : "chevron-right")}</button>`
+      : '<span class="conversation-indent" aria-hidden="true"></span>';
+    const subagents =
+      expanded && agents.length
+        ? `<div class="subagent-list" aria-label="${esc(ui`${conversationTitle(task)}的子 Agent`)}">${agents.map(subagentRow).join("")}</div>`
+        : "";
+    return ui`<div class="conversation-row">${disclosure}<button class="conversation-item ${task.taskId === state.selected ? "active" : ""} ${isUnread(task.taskId) ? "is-unread" : ""}" data-task="${id}" data-status="${esc(task.status || "created")}" title="${esc(conversationTitle(task))}" ${task.taskId === state.selected ? 'aria-current="page"' : ""}>${taskLabel(task)}</button><button class="conversation-menu" type="button" data-session-menu="${id}" aria-label="会话菜单：${esc(conversationTitle(task))}" title="会话菜单" aria-haspopup="menu" aria-controls="session-menu">${icon("more")}</button></div>${subagents}`;
+  };
   const visibleTask = (task) => !task.archived && isTaskVisible(task);
   const visibleProjects = () =>
     projects().filter(
@@ -81,28 +121,15 @@ export function createProjectController({
     } catch {
       /* navigation still works */
     }
-    paintContext();
     if (automatic) onSelectionChanged(project);
     return project;
-  }
-  function paintContext() {
-    const project = state.tasks.find((task) => task.taskId === state.selected)?.temporaryWorkspaceRoot
-      ? undefined
-      : state.selected
-        ? projectForTask(state.tasks.find((task) => task.taskId === state.selected)) || current()
-        : current();
-    const label = $("#project-context");
-    if (label) {
-      label.hidden = !project || !isContextVisible();
-      label.textContent = project?.projectName || "";
-      label.title = project?.projectDirectory || project?.workspaceRoot || "";
-    }
   }
   function render() {
     const root = $("#project-list");
     const focused = root.contains(document.activeElement) ? document.activeElement : null;
     const focusTask = focused?.dataset.task,
-      focusMenu = focused?.dataset.sessionMenu;
+      focusMenu = focused?.dataset.sessionMenu,
+      focusToggle = focused?.dataset.sessionToggle;
     const focusProject = focused?.closest("[data-project]")?.dataset.project;
     const focusAction = focused?.hasAttribute("data-project-create")
       ? "[data-project-create]"
@@ -124,23 +151,31 @@ export function createProjectController({
       (visibleProjects()
         .map((project) => {
           const id = project.projectId,
-            tasks = (project.tasks || []).filter(visibleTask);
-          return ui`<section class="project-group ${state.collapsedProjects.has(id) ? "collapsed" : ""} ${state.selectedProjectId === id ? "is-selected" : ""}" data-project="${esc(id)}">
-        <div class="project-heading"><button class="project-row" type="button" data-project-id="${esc(id)}" aria-expanded="${!state.collapsedProjects.has(id)}" title="${esc(project.projectDirectory || project.workspaceRoot || "")}"><span class="project-disclosure" aria-hidden="true"><span class="project-folder">${icon("folder")}</span><span class="project-chevron">${icon("chevron-down")}</span></span><span class="project-name">${esc(project.projectName)}</span></button><button class="project-settings" type="button" data-project-settings="${esc(id)}" aria-label="项目设置：${esc(project.projectName)}" title="项目设置">${icon("more")}</button><button class="project-create" type="button" data-project-create="${esc(id)}" aria-label="在 ${esc(project.projectName)} 中新建会话" title="新建会话">${icon("plus")}</button></div>
-        <div class="conversation-list" aria-label="${esc(project.projectName)}中的对话">${
+            tasks = (project.tasks || []).filter(visibleTask),
+            collapsed = state.collapsedProjects.has(id);
+          const question = (collapsed || railWindow.matches) && tasks.some((task) => task.pendingQuestion);
+          return ui`<section class="project-group ${collapsed ? "collapsed" : ""} ${state.selectedProjectId === id ? "is-selected" : ""}" data-project="${esc(id)}">
+        <div class="project-heading"><button class="project-row" type="button" data-project-id="${esc(id)}" aria-expanded="${!collapsed}" title="${esc(project.projectDirectory || project.workspaceRoot || "")}"><span class="project-disclosure" aria-hidden="true"><span class="project-chevron">${icon("chevron-down")}</span><span class="project-folder">${icon(collapsed ? "folder" : "folder-open")}</span></span><span class="project-name">${esc(project.projectName)}</span>${question ? `<span class="project-question" role="img" aria-label="${esc(ui("有待回答的问题"))}"></span>` : ""}${collapsed && tasks.length ? `<span class="project-count">${tasks.length}</span>` : ""}</button><button class="project-settings" type="button" data-project-settings="${esc(id)}" aria-label="项目设置：${esc(project.projectName)}" title="项目设置">${icon("more")}</button><button class="project-create" type="button" data-project-create="${esc(id)}" aria-label="在 ${esc(project.projectName)} 中新建会话" title="在此项目新建会话">${icon("plus")}</button></div>
+        <div class="conversation-list" aria-label="${esc(project.projectName)}中的对话"><div class="project-rail-head"><span class="project-rail-name">${esc(project.projectName)}</span><button class="project-rail-action" type="button" data-rail-settings="${esc(id)}" aria-label="${esc(ui("项目设置"))}" title="${esc(ui("项目设置"))}">${icon("more")}</button><button class="project-rail-action" type="button" data-rail-create="${esc(id)}" aria-label="${esc(ui("新建会话"))}" title="${esc(ui("在此项目新建会话"))}">${icon("plus")}</button></div>${
           tasks
             .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
             .map(taskRow)
-            .join("") || ui('<div class="project-empty">还没有对话</div>')
+            .join("") || ui('<div class="project-empty" data-project-empty>还没有对话</div>')
         }</div></section>`;
         })
-        .join("") ||
-        (temporary.length ? "" : ui('<div class="sidebar-empty">拖入文件或发送消息，开始临时协作</div>')));
-    paintContext();
+        .join("") || (temporary.length ? "" : ui('<div class="sidebar-empty-state">还没有项目</div>')));
     if (root.conversationMarkup === markup) return;
     root.conversationMarkup = markup;
     root.innerHTML = markup;
     root.scrollTop = scrollTop;
+    root.querySelectorAll("[data-session-toggle]").forEach((node) =>
+      node.addEventListener("click", () => {
+        const id = node.dataset.sessionToggle;
+        if (state.collapsedSessions?.has(id)) state.collapsedSessions.delete(id);
+        else state.collapsedSessions?.add(id);
+        render();
+      })
+    );
     root.querySelectorAll("[data-task]").forEach((node) =>
       node.addEventListener("click", () => {
         const task = state.tasks.find((entry) => entry.taskId === node.dataset.task);
@@ -165,6 +200,13 @@ export function createProjectController({
     root
       .querySelectorAll("[data-project-settings]")
       .forEach((node) => node.addEventListener("click", () => openSettings(node.dataset.projectSettings)));
+    // The icon rail repeats the same two project commands inside its hover tree.
+    root
+      .querySelectorAll("[data-rail-create]")
+      .forEach((node) => node.addEventListener("click", () => beginConversation(node.dataset.railCreate)));
+    root
+      .querySelectorAll("[data-rail-settings]")
+      .forEach((node) => node.addEventListener("click", () => openSettings(node.dataset.railSettings)));
     root.querySelectorAll("[data-project-id]").forEach((node) =>
       node.addEventListener("click", () => {
         const id = node.dataset.projectId;
@@ -172,17 +214,39 @@ export function createProjectController({
         if (!state.selected) beginConversation(id);
         if (state.collapsedProjects.has(id)) state.collapsedProjects.delete(id);
         else state.collapsedProjects.add(id);
+        rememberCollapsed();
         render();
       })
     );
+    // The icon rail's hover tree is a fixed panel, so it follows the icon it
+    // belongs to. Delegated, because every render replaces the rows.
+    if (!root.dataset.railPinned) {
+      root.dataset.railPinned = "1";
+      const pin = (event) => {
+        const group = event.target.closest?.(".project-group");
+        const heading = group?.querySelector(".project-heading");
+        if (heading)
+          group.style.setProperty(
+            "--rail-flyout-top",
+            `${Math.round(heading.getBoundingClientRect().top)}px`
+          );
+      };
+      root.addEventListener("pointerover", pin);
+      root.addEventListener("focusin", pin);
+      // A question dot belongs to the folded project in the rail and to the
+      // session in a wide tree, so crossing the breakpoint re-renders the rows.
+      railWindow.addEventListener?.("change", () => render());
+    }
     onRendered();
     const focusSelector = focusMenu
       ? `[data-session-menu="${CSS.escape(focusMenu)}"]`
-      : focusTask
-        ? `[data-task="${CSS.escape(focusTask)}"]`
-        : focusProject
-          ? `[data-project="${CSS.escape(focusProject)}"] ${focusAction}`
-          : null;
+      : focusToggle
+        ? `[data-session-toggle="${CSS.escape(focusToggle)}"]`
+        : focusTask
+          ? `[data-task="${CSS.escape(focusTask)}"]`
+          : focusProject
+            ? `[data-project="${CSS.escape(focusProject)}"] ${focusAction}`
+            : null;
     if (focusSelector) root.querySelector(focusSelector)?.focus({ preventScroll: true });
   }
   function upsert(project) {
@@ -283,10 +347,12 @@ export function createProjectController({
     dialog.open();
     $("#project-name").focus();
   }
-  $("#new-project").addEventListener("click", () => openSettings());
+  const openCreateDialog = () => (openAddProject ? openAddProject() : openSettings());
+  $("#new-project").addEventListener("click", () => openCreateDialog());
   return {
-    paintContext,
     render,
+    /** The projects the tree actually shows; the work entry follows the same list. */
+    visibleProjects,
     currentProject: current,
     async ensureProject(projectDirectory, projectName) {
       const existing = projects().find((project) => project.projectDirectory === projectDirectory);
@@ -364,7 +430,7 @@ export function createProjectController({
       state.projectsLoaded = true;
       $("#new-conversation").disabled = false;
     },
-    openCreate: () => openSettings(),
+    openCreate: () => openCreateDialog(),
     addTask(task) {
       localTasks.set(task.taskId, task);
       let project = projectForTask(task);

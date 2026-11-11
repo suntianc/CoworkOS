@@ -2,6 +2,12 @@ import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 
+/** A box read is only meaningful once the bubble is attached and laid out. */
+const stableBox = async (locator) => {
+  await expect.poll(async () => (await locator.boundingBox()) !== null).toBe(true);
+  return locator.boundingBox();
+};
+
 const layout = (page) =>
   page.evaluate(() => {
     const rect = (selector, last = false) => {
@@ -69,6 +75,13 @@ for (const pause of ["restart", "stop"]) {
         await dashboard.restart();
         await page.reload();
         await expect(page.locator("#human-questions")).toBeVisible();
+        // Recovery reattaches the saved turn; editing is only accepted once it settles.
+        await expect
+          .poll(
+            async () =>
+              (await (await page.request.get(`${dashboard.base}/api/tasks/${taskId}`)).json()).runtime.active
+          )
+          .toBe(false);
       } else {
         await page.getByRole("button", { name: "会话菜单", exact: true }).click();
         await page.locator('[data-session-action="stop"]').click();
@@ -208,7 +221,7 @@ test("compact bubbles expand for editing with keyboard controls at desktop and n
     for (const width of [1440, 1280, 474, 320]) {
       await page.setViewportSize({ width, height: 900 });
       await message.hover();
-      const bubble = await message.locator(".user-message-bubble").boundingBox();
+      const bubble = await stableBox(message.locator(".user-message-bubble"));
       if (width >= 1280) expect(bubble.height).toBeLessThan(50);
       await edit.focus();
       await expect(edit).toHaveCSS("opacity", "1");
@@ -227,8 +240,8 @@ test("compact bubbles expand for editing with keyboard controls at desktop and n
       expectExpanded(before, await layout(page));
       await expect(message.locator("[data-cancel-message-edit]")).toHaveText("取消");
       await expect(message.locator("[data-submit-message-edit]")).toHaveText("发送");
-      const editingBubble = await message.locator(".user-message-bubble").boundingBox();
-      const send = await message.locator("[data-submit-message-edit]").boundingBox();
+      const editingBubble = await stableBox(message.locator(".user-message-bubble"));
+      const send = await stableBox(message.locator("[data-submit-message-edit]"));
       expect(send.y + send.height).toBeLessThan(editingBubble.y + editingBubble.height);
       expect(send.x + send.width).toBeLessThan(editingBubble.x + editingBubble.width);
       await testInfo.attach(`layout-${width}`, {

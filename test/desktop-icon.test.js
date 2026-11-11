@@ -43,34 +43,34 @@ function readPng(bytes) {
 
 const native = { skip: process.platform !== "darwin" && "Mac app icons are built on macOS" };
 
-test(
-  "Dock icon has transparent rounded corners and retains the blue-violet CoworkOS mark",
-  native,
-  async () => {
-    const master = await readFile("build/atria-icon.png");
-    assert.deepEqual(await readFile("dist/src/desktop/atria-icon.png"), master);
-    const icon = readPng(master);
-    assert.equal(icon.width, 1024);
-    assert.equal(icon.height, 1024);
-    for (const [x, y] of [
-      [0, 0],
-      [1023, 0],
-      [0, 1023],
-      [1023, 1023]
-    ]) {
-      assert.equal(icon.alpha(x, y), 0, "outer canvas stays transparent");
-    }
-    assert.ok(icon.alpha(100, 100) < 32, "tile corner is rounded");
-    assert.equal(icon.alpha(512, 120), 255, "tile is solid inside the top edge");
-    assert.equal(icon.alpha(512, 512), 255, "tile center is solid");
-    let markPixels = 0;
-    for (let index = 0; index < icon.pixels.length; index += 4) {
-      const [red, green, blue, alpha] = icon.pixels.subarray(index, index + 4);
-      if (alpha === 255 && blue > red * 1.2 && blue > green * 1.05) markPixels++;
-    }
-    assert.ok(markPixels > 60000, "the original colored mark remains prominent");
+test("Dock icon has transparent rounded corners and carries the dark Formicand tile", native, async () => {
+  const master = await readFile("build/atria-icon.png");
+  assert.deepEqual(await readFile("dist/src/desktop/atria-icon.png"), master);
+  const icon = readPng(master);
+  assert.equal(icon.width, 1024);
+  assert.equal(icon.height, 1024);
+  for (const [x, y] of [
+    [0, 0],
+    [1023, 0],
+    [0, 1023],
+    [1023, 1023]
+  ]) {
+    assert.equal(icon.alpha(x, y), 0, "outer canvas stays transparent");
   }
-);
+  assert.ok(icon.alpha(100, 100) < 32, "tile corner is rounded");
+  assert.equal(icon.alpha(512, 120), 255, "tile is solid inside the top edge");
+  assert.equal(icon.alpha(512, 512), 255, "tile center is solid");
+  let lightPixels = 0;
+  let tilePixels = 0;
+  for (let index = 0; index < icon.pixels.length; index += 4) {
+    const [red, green, blue, alpha] = icon.pixels.subarray(index, index + 4);
+    if (alpha !== 255) continue;
+    if (red > 200 && green > 200 && blue > 200) lightPixels++;
+    if (red < 40 && green < 40 && blue < 40) tilePixels++;
+  }
+  assert.ok(lightPixels > 50000, "the five-node mark remains prominent");
+  assert.ok(tilePixels > 300000, "the tile is dark rather than the previous white tile");
+});
 
 test("Finder ICNS includes transparent artwork at every standard and Retina size", native, async () => {
   const bytes = await readFile("build/atria.icns");

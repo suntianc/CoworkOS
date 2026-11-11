@@ -28,7 +28,7 @@ async function hostModelFixture(expectedKey, text) {
       return response.end(JSON.stringify({ data: [{ id: "host-fixture" }] }));
     }
     let raw = "";
-    for await (const chunk of request) raw += chunk;
+    for await (const chunk of request.setEncoding("utf8")) raw += chunk;
     requests.push({ authorization: request.headers.authorization, body: JSON.parse(raw) });
     if (request.url !== "/v1/responses") {
       response.writeHead(400);

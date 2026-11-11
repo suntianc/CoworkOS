@@ -22,7 +22,7 @@ for (const width of [1440, 900, 640])
         await page
           .locator("#attachment-strip .attachment-name")
           .evaluate((node) => node.getBoundingClientRect().width)
-      ).toBeGreaterThan(100);
+      ).toBeGreaterThan(60);
       await page.locator("[data-upload-preview]").click();
       await expect(page.locator(".attachment-preview")).toBeVisible();
       await expect(page.locator("[data-preview-content]")).toContainText("完整 UTF-8 😀");

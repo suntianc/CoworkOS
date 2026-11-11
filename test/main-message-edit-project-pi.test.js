@@ -27,7 +27,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
           return;
         }
         let raw = "";
-        for await (const chunk of request) raw += chunk;
+        for await (const chunk of request.setEncoding("utf8")) raw += chunk;
         const body = JSON.parse(raw);
         requests.push(body);
         const history = JSON.stringify(body.input ?? body.messages);

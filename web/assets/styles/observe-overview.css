@@ -1,0 +1,588 @@
+/* Observation · overview. Geometry follows the 「观测 · 总览」 board in
+   design/formicand-p4.5-ui.pen: 28 px between the card rows, 16 px between the
+   node cards, a 12 px card radius with 18 px padding, and 72 px phase columns.
+   Colours come from the theme tokens, so the dark and light boards share one
+   rule set. */
+
+html[data-theme] .observe-view[data-observe-panel="overview"] {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+/* The overview board's header keeps the design's 32 px side padding; the
+   requirement list narrows its own header to fit the table. */
+html[data-theme] .app-layout[data-observe-view-name="overview"] .observe-header {
+  padding: 0 32px;
+}
+
+.oo-spacer {
+  flex: 1 1 auto;
+}
+
+/* ------------------------------------------------------------ node cards */
+
+.oo-cards {
+  display: flex;
+  gap: 16px;
+  min-width: 0;
+}
+
+.oo-card {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.oo-card.is-offline {
+  opacity: 0.6;
+}
+
+.oo-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.oo-card-head .ui-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text);
+}
+
+.oo-card-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 21px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oo-role {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--color-surface-3);
+  color: var(--color-text-2);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.oo-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--color-text-3);
+}
+
+.oo-dot.is-ok {
+  background: var(--color-ok);
+}
+
+.oo-card-stats {
+  display: flex;
+  gap: 24px;
+  min-width: 0;
+}
+
+.oo-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.oo-stat-value {
+  color: var(--color-text);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  white-space: nowrap;
+}
+
+.oo-stat-key {
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------- middle panels */
+
+.oo-middle {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+}
+
+.oo-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 18px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.oo-progress {
+  flex: 1 1 auto;
+}
+
+.oo-attention {
+  flex: 0 0 400px;
+}
+
+.oo-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 10px;
+}
+
+.oo-panel-head h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 21px;
+}
+
+.oo-link {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.oo-link:hover {
+  text-decoration: underline;
+}
+
+.oo-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------- phase matrix */
+
+.oo-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.oo-matrix-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.oo-matrix-row.is-head {
+  padding: 6px 0;
+}
+
+.oo-matrix-project {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.oo-matrix-project .ui-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-3);
+}
+
+.oo-matrix-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oo-matrix-stage {
+  display: flex;
+  flex: 0 0 72px;
+  justify-content: center;
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.oo-cell {
+  display: flex;
+  flex: 0 0 72px;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  min-width: 0;
+  border-radius: 7px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+/* An empty phase stays visibly empty without becoming a second label. */
+.oo-cell[data-level="0"] {
+  background: var(--color-surface-2);
+  color: var(--color-text-3);
+  font-weight: 400;
+}
+
+.oo-cell[data-tone="accent"][data-level="1"] {
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
+.oo-cell[data-tone="accent"][data-level="2"] {
+  background: color-mix(in srgb, var(--color-accent) 27%, transparent);
+}
+
+.oo-cell[data-tone="accent"][data-level="3"] {
+  background: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+.oo-cell[data-tone="warn"][data-level="1"] {
+  background: color-mix(in srgb, var(--color-warn) 15%, transparent);
+}
+
+.oo-cell[data-tone="warn"][data-level="2"] {
+  background: color-mix(in srgb, var(--color-warn) 27%, transparent);
+}
+
+.oo-cell[data-tone="warn"][data-level="3"] {
+  background: color-mix(in srgb, var(--color-warn) 40%, transparent);
+}
+
+.oo-cell[data-tone="ok"][data-level="1"] {
+  background: color-mix(in srgb, var(--color-ok) 15%, transparent);
+}
+
+.oo-cell[data-tone="ok"][data-level="2"] {
+  background: color-mix(in srgb, var(--color-ok) 27%, transparent);
+}
+
+.oo-cell[data-tone="ok"][data-level="3"] {
+  background: color-mix(in srgb, var(--color-ok) 40%, transparent);
+}
+
+/* ------------------------------------------------------------- attention */
+
+.oo-badge {
+  flex: 0 0 auto;
+  padding: 0 7px;
+  border-radius: 9px;
+  background: var(--color-warn-soft);
+  color: var(--color-warn);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.oo-badge[hidden] {
+  display: none;
+}
+
+.oo-attention-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 9px 0;
+}
+
+.oo-attention-icon {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.oo-attention-icon .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.oo-attention-icon.is-warn {
+  color: var(--color-warn);
+}
+
+.oo-attention-icon.is-danger {
+  color: var(--color-danger);
+}
+
+.oo-attention-icon.is-accent {
+  color: var(--color-accent);
+}
+
+.oo-attention-icon.is-muted {
+  color: var(--color-text-3);
+}
+
+.oo-attention-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.oo-attention-title {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oo-attention-detail {
+  overflow: hidden;
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oo-attention-chevron {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.oo-attention-chevron .ui-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-3);
+}
+
+/* ---------------------------------------------------------- running table */
+
+.oo-table {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.oo-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.oo-row:hover {
+  background: var(--color-surface-2);
+}
+
+.oo-row-head,
+.oo-row-head:hover {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--color-line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.oo-row .oo-cell {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  height: auto;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 0;
+  color: var(--color-text-2);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oo-row-head .oo-cell {
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.oo-row .oo-col-requirement {
+  flex: 1 1 auto;
+}
+
+.oo-row .oo-col-project {
+  flex: 0 0 150px;
+}
+
+.oo-row .oo-col-node {
+  flex: 0 0 110px;
+}
+
+.oo-row .oo-col-session {
+  flex: 0 0 120px;
+}
+
+.oo-row .oo-col-stage {
+  flex: 0 0 90px;
+}
+
+.oo-row .oo-col-duration {
+  flex: 0 0 70px;
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.oo-row .oo-col-node .ui-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-3);
+}
+
+.oo-run-title {
+  overflow: hidden;
+  color: var(--color-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oo-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.oo-pill.is-accent {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.oo-pill.is-review {
+  background: var(--color-review-soft);
+  color: var(--color-review);
+}
+
+.oo-pill.is-warn {
+  background: var(--color-warn-soft);
+  color: var(--color-warn);
+}
+
+.oo-pill.is-ok {
+  background: var(--color-ok-soft);
+  color: var(--color-ok);
+}
+
+.oo-pill.is-muted {
+  background: var(--color-surface-2);
+  color: var(--color-text-2);
+}
+
+.oo-empty {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--color-text-3);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* A narrow window stacks the middle row instead of squeezing both to nothing. */
+@media (max-width: 1180px) {
+  .oo-middle {
+    flex-direction: column;
+  }
+
+  .oo-attention {
+    flex-basis: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .oo-cards {
+    flex-direction: column;
+  }
+}
+
+/* A web phone-sized window gives each project its own row above five equal
+   phase cells instead of letting the fixed 72 px columns run off the panel. */
+@media (max-width: 639px) {
+  html[data-theme] .app-layout[data-observe-view-name="overview"] .observe-header {
+    padding: 0 16px;
+  }
+  html[data-theme] .oo-middle {
+    gap: 12px;
+  }
+  html[data-theme] .oo-matrix-row {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  html[data-theme] .oo-matrix-project {
+    flex: 1 1 100%;
+  }
+  html[data-theme] .oo-matrix-row.is-head .oo-matrix-project {
+    display: none;
+  }
+  html[data-theme] .oo-matrix-stage,
+  html[data-theme] .oo-cell {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  html[data-theme] .oo-card-stats {
+    gap: 16px;
+  }
+}
+
+/* A narrow window keeps the requirement, its session, phase and duration; the
+   project and node are the same on every row and stay in the requirement view. */
+@media (max-width: 639px) {
+  html[data-theme] .oo-row > :is(.oo-col-project, .oo-col-node) {
+    display: none;
+  }
+  html[data-theme] .oo-row .oo-col-session {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  html[data-theme] .oo-row .oo-col-stage {
+    flex: 0 0 64px;
+  }
+  html[data-theme] .oo-row .oo-col-duration {
+    flex: 0 0 44px;
+  }
+}

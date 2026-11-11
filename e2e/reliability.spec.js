@@ -7,7 +7,9 @@ import { startDashboard } from "../test/dashboard-fixture.mjs";
 test("composer drafts and complete attachments survive conversations, refresh and rejection", async ({
   page
 }) => {
-  const dashboard = await startDashboard();
+  // A usable connection keeps the send action available; this test observes
+  // draft and attachment recovery, not first-use setup.
+  const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   try {
@@ -119,7 +121,7 @@ test("real Pi receives a complete attachment and steering; stop aborts inference
       return;
     }
     let body = "";
-    for await (const chunk of req) body += chunk;
+    for await (const chunk of req.setEncoding("utf8")) body += chunk;
     requests.push(JSON.parse(body));
     res.writeHead(200, { "content-type": "text/event-stream" });
     const send = (delta, finish_reason = null) =>

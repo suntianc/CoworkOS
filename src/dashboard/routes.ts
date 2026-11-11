@@ -61,6 +61,8 @@ import type { WatchCreation } from "../runtime/watch-management.js";
 import type { createWebSearchSettings } from "./web-search-settings.js";
 import type { createModelSettings } from "./model-settings.js";
 import type { createDashboardRunService, RunServicePorts } from "./run-service.js";
+import { ProjectCloneError, type ProjectCloneService } from "./project-clone-service.js";
+import { handleProjectCloneRequest } from "./project-clone-routes.js";
 import type { createWorkspaceDirectory } from "./workspace-directory.js";
 import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
 
@@ -82,6 +84,8 @@ export interface DashboardRoutePorts {
   mainSessions?: ReturnType<typeof createMainSessionService>;
   /** Requirement development records and their isolated Git checkouts. */
   developments?: ProjectDevelopmentService;
+  /** Git clones behind the add-project dialog; absent in partial handlers. */
+  projectClones?: ProjectCloneService;
   mainCapacity?: MainCapacityService;
   watchers?: ReturnType<typeof createWatchService>;
   goals?: ReturnType<typeof createGoalService>;
@@ -124,6 +128,7 @@ export interface DashboardRoutePorts {
   normalizeModel(value: unknown): string | undefined;
   runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
   startMainRun: RunService["startMainRun"];
+  pauseTask: RunService["pauseTask"];
   launchMainRun: MainRunLauncher;
   editMainMessage: RunService["editMainMessage"];
   messageVersion(taskId: string, versionId: string): Promise<unknown>;
@@ -159,6 +164,7 @@ export function createDashboardHandler(
     normalizeModel,
     runtimeValue,
     startMainRun,
+    pauseTask,
     activeRuns,
     cancelTask,
     resumeHumanAnswers,
@@ -520,6 +526,7 @@ export function createDashboardHandler(
         });
         return;
       }
+      if (await handleProjectCloneRequest(request, response, url, ports.projectClones)) return;
       if (request.method === "POST" && url.pathname === "/api/projects/choose-directory") {
         const directory = await chooseLocalDirectory();
         sendJson(response, 200, {
@@ -682,9 +689,16 @@ export function createDashboardHandler(
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/models") {
+        const status = ports.modelSettings.status();
+        // The effort of the connection the next Main run resolves to, so the
+        // composer can show it instead of an assumed default. Read from the same
+        // role resolution the launch uses; absent when that connection is unusable.
+        const mainEffort = status.modelRoles.roles.find((entry) => entry.role === "main")?.effective
+          ?.thinkingLevel;
         sendJson(response, 200, {
           current: runtimeValue("COWORK_MODEL"),
-          connectionProfileId: ports.modelSettings.status().activeProfileId,
+          connectionProfileId: status.activeProfileId,
+          ...(mainEffort ? { reasoningEffort: mainEffort } : {}),
           models: await availableModels(),
           configured: Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
         });
@@ -763,7 +777,7 @@ export function createDashboardHandler(
               const taskStore = new LocalWorkspaceStore(root);
               await taskStore.createTask(requested, { goal: goal.slice(0, 4_000) });
               const location = await locateTask(requested);
-              return { status: 201, body: await publishTask(taskListItem(location)) };
+              return { status: 201, body: await publishTask(await taskListItem(location)) };
             }
           })
         );
@@ -1111,7 +1125,7 @@ export function createDashboardHandler(
           response,
           200,
           await publishTask(
-            taskListItem({ ...location, task: await location.store.updateTask(taskId, patch) })
+            await taskListItem({ ...location, task: await location.store.updateTask(taskId, patch) })
           )
         );
         return;
@@ -1119,10 +1133,19 @@ export function createDashboardHandler(
       if (request.method === "POST" && url.pathname.endsWith("/action")) {
         const body = await readJsonBody(request);
         const action = body.action;
-        if (action !== "cancel" && action !== "resume" && action !== "complete")
+        if (action !== "pause" && action !== "cancel" && action !== "resume" && action !== "complete")
           throw new Error("unsupported task action");
         const location = await locateTask(taskId);
         const task = location.task;
+        if (action === "pause") {
+          const paused = await pauseTask(taskId);
+          if (paused.refused) {
+            sendJson(response, 409, { error: "当前没有运行中的 Main" });
+            return;
+          }
+          sendJson(response, 200, await publishTask(await taskListItem({ ...location, task: paused.task })));
+          return;
+        }
         if (action === "complete") {
           if ((await new HumanRequestStore(location.workspaceRoot).list(taskId, "pending")).length) {
             sendJson(response, 409, { error: "任务仍有待回答的问题" });
@@ -1162,7 +1185,7 @@ export function createDashboardHandler(
             .settle(location.projectId, taskId, cancelledRunId, "cancelled")
             // eslint-disable-next-line no-restricted-syntax -- 取消已完成，主会话结算失败不能让取消响应变成错误；会话行留待下次读取对账
             .catch(() => undefined);
-        sendJson(response, 200, await publishTask(taskListItem({ ...location, task: next })));
+        sendJson(response, 200, await publishTask(await taskListItem({ ...location, task: next })));
         return;
       }
       sendJson(response, 405, { error: "method not allowed" });
@@ -1174,6 +1197,7 @@ export function createDashboardHandler(
           error instanceof MainMessageEditConflict ||
             error instanceof HttpError ||
             error instanceof ProjectCatalogError ||
+            error instanceof ProjectCloneError ||
             error instanceof ProjectDataError ||
             error instanceof MainRequestConflictError ||
             error instanceof MainRequestSnapshotError

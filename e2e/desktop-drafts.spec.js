@@ -86,7 +86,7 @@ test("desktop preload restores drafts before page modules on a new origin and re
     await expect(restored.locator("#composer-input")).toHaveValue("保存失败时必须留在当前窗口的草稿");
   } finally {
     await first.stop();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -119,7 +119,7 @@ test("the native draft bridge captures async attachment saves and programmatic c
     await expect.poll(() => store.snapshot().entries["atria.composer.v1:new"]).toBeUndefined();
   } finally {
     await dashboard.stop();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -163,7 +163,7 @@ test("real composer attachment changes reach the desktop mirror and memory-only 
     expect(JSON.parse(activeDraft(store)).text).toBe("存储配额失败后的最新内存草稿");
   } finally {
     await dashboard.stop();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -212,6 +212,6 @@ test("an attachment still being read keeps the window open until its complete te
     ).toBe("必须完整保存的附件首尾");
   } finally {
     await dashboard.stop();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

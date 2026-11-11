@@ -96,7 +96,7 @@ const constellations = [
  * @returns {string}
  */
 export function agentDisplayName(agentId) {
-  if (agentId === "main") return "CoworkOS";
+  if (agentId === "main") return "Formicand";
   const number = /^subagent[_-](\d+)$/.exec(agentId)?.[1];
   const index =
     number && Number.isSafeInteger(Number(number))
@@ -110,4 +110,14 @@ export function agentDisplayName(agentId) {
     generation = Math.floor((generation - 1) / 26);
   }
   return constellations[index % constellations.length] + (designation ? ` ${designation}` : "");
+}
+
+/** The display name of one agent, including names persisted by older snapshots.
+ * @param {Record<string, any>} [agent]
+ * @returns {string}
+ */
+export function agentName(agent = {}) {
+  if (agent.__main || agent.agentId === "main") return "Formicand";
+  if (/^subagent[_-]\d+$/.test(agent.agentId || "")) return agentDisplayName(agent.agentId);
+  return agent.name || (agent.agentId ? agentDisplayName(agent.agentId) : "");
 }

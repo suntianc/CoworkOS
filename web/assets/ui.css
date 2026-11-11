@@ -61,13 +61,6 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-/* Retain the night-sky identity without competing with long task transcripts. */
-.starfield-background {
-  opacity: 0.2;
-}
-.meteor-canvas {
-  opacity: 0.28;
-}
 .chat-pane {
   background: rgba(0, 0, 0, 0.48);
   container-type: inline-size;
@@ -1180,7 +1173,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   }
 }
 @media (min-width: 1100px) {
-  .chat-pane.is-collaborating {
+  .chat-body.is-collaborating {
     display: grid;
     grid-template-columns: minmax(320px, var(--chat-share, 42%)) 6px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
@@ -2010,7 +2003,6 @@ textarea {
   .account-name,
   .conversation-item-title,
   .output-file strong,
-  .team-member-name,
   .model-name,
   .session-menu button,
   .modal-card label,
@@ -2027,7 +2019,6 @@ textarea {
   .output-heading small,
   .output-section-title,
   .output-file small,
-  .team-member-role,
   .model-provider,
   .model-menu-label,
   .attachment-chip small
@@ -2070,7 +2061,6 @@ textarea {
   .modal-card button,
   .output-copy strong,
   .output-file strong,
-  .team-member-name,
   .app-tile-copy strong,
   .apps-group-label
 ) {
@@ -2219,9 +2209,6 @@ textarea {
 .workspace-view.is-empty-task > :not(.workspace-start),
 .workspace-view:not(.is-empty-task) > .workspace-start {
   display: none;
-}
-.night-sky {
-  background: var(--ui-bg);
 }
 /* Component roles set their sizes; body remains the shared reading baseline. */
 body {
@@ -2425,14 +2412,6 @@ body {
 }
 .workbench-tabs {
   background: var(--ui-bg);
-}
-.galaxy-eyebrow {
-  gap: 8px;
-  letter-spacing: 0.3px;
-}
-.galaxy-count {
-  flex-shrink: 0;
-  letter-spacing: 0;
 }
 /* The input occupies its own row instead of covering conversation content. */
 .composer-wrap,

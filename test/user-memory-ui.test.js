@@ -5,7 +5,7 @@ import { installUserMemorySettings } from "../web/assets/controllers/user-memory
 
 test("memory use and automatic learning are independent and failed changes restore their controls", async (t) => {
   const { window } = parseHTML(
-    '<html><body><div id="profile-modal" hidden><div id="profile-settings-connections"></div></div></body></html>'
+    '<html><body><div id="settings-entry" hidden><div id="profile-settings-tools"></div></div></body></html>'
   );
   const previous = {
     window: globalThis.window,

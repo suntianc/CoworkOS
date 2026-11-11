@@ -3,14 +3,14 @@ import { createSettingsModal } from "./settings-modal.js";
 import { icon } from "../ui/icons.js";
 
 /** One profile editor. Drafts and revision conflicts never silently overwrite user input. */
-export function createUserMemoryViewer({ overview, returnFocus, api }) {
+export function createUserMemoryViewer({ host, returnFocus, api }) {
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
   panel.hidden = true;
   panel.innerHTML = ui`<section class="modal-card settings-card" role="dialog" aria-modal="true" aria-labelledby="user-memory-title">
     <header class="settings-heading"><button class="settings-nav-button" type="button" data-settings-back aria-label="返回设置">${icon("chevron-left")}</button><div><h2 id="user-memory-title">个人记忆</h2><p>记住你的偏好与习惯，让协作更默契</p></div><button class="settings-nav-button" type="button" data-memory-close aria-label="关闭记忆">${icon("close")}</button></header>
     <div class="settings-scroll"><form class="user-memory-editor user-memory-compose" data-memory-compose>
-      <label class="settings-field">你希望 CoworkOS 记住什么？<textarea aria-label="个人记忆内容" maxlength="2000" rows="8" placeholder="例如：我叫张三，你可以叫我小张；我喜欢简洁、自然的回答。"></textarea></label>
+      <label class="settings-field">你希望 Formicand 记住什么？<textarea aria-label="个人记忆内容" maxlength="2000" rows="8" placeholder="例如：我叫张三，你可以叫我小张；我喜欢简洁、自然的回答。"></textarea></label>
       <p class="settings-help" data-memory-count>0 / 2000</p>
       <div class="user-memory-compose-actions"><p class="settings-help">可以提前填写，也可以随时补充。关闭个人记忆后，内容仍会保留。</p><button type="button" class="app-button is-secondary" data-memory-discard hidden>取消修改</button><button type="submit" class="app-button is-primary" disabled>保存记忆</button></div>
       <p role="alert" data-memory-compose-result></p>
@@ -60,7 +60,7 @@ export function createUserMemoryViewer({ overview, returnFocus, api }) {
     controller?.abort();
   };
   const dialog = createSettingsModal(panel, panel.querySelector("[data-memory-close]"), {
-    overview,
+    host,
     returnFocus,
     onClose: cancel
   });

@@ -17,7 +17,7 @@ async function checkToolbar(page, width) {
   await page.setViewportSize({ width, height: 800 });
   const composer = await page.locator(".composer").boundingBox();
   const contextVisible = await page.locator("[data-composer-context]").isVisible();
-  expect(composer.height).toBeLessThanOrEqual(contextVisible ? 155 : 125);
+  expect(composer.height).toBeLessThanOrEqual(contextVisible ? 155 : 145);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   await expect(page.locator(".mic-button, #i-mic")).toHaveCount(0);
   const centers = [];
@@ -33,8 +33,16 @@ async function checkToolbar(page, width) {
   expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(2);
   const attach = await page.locator(".attach-button").boundingBox();
   const selectedModel = await page.locator("#model-select").boundingBox();
-  expect(selectedModel.x - attach.x - attach.width).toBeGreaterThanOrEqual(0);
-  expect(selectedModel.x - attach.x - attach.width).toBeLessThanOrEqual(8);
+  const projectChip = page.locator("#composer-project");
+  if (await projectChip.isVisible()) {
+    const chip = await projectChip.boundingBox();
+    expect(chip.x - attach.x - attach.width).toBeGreaterThanOrEqual(0);
+    expect(chip.x - attach.x - attach.width).toBeLessThanOrEqual(8);
+    expect(selectedModel.x - chip.x - chip.width).toBeGreaterThanOrEqual(0);
+  } else {
+    expect(selectedModel.x - attach.x - attach.width).toBeGreaterThanOrEqual(0);
+    expect(selectedModel.x - attach.x - attach.width).toBeLessThanOrEqual(8);
+  }
   await expect(page.locator(".composer #computer-access, .composer #task-capabilities")).toHaveCount(0);
   const name = await page
     .locator(".model-name")
@@ -69,8 +77,11 @@ test("the composer keeps one compact action row with long model and project name
     await expect(page.locator(".model-name")).toHaveText(model);
     await expect(page.locator("#app-bind-select")).toHaveClass(/is-empty/);
     await expect(page.locator("#app-bind-select")).toBeHidden();
-    await expect(page.locator("#project-context")).toHaveText(folder);
-    await expect(page.locator("#project-context")).toHaveAttribute("title", workspacePath);
+    await expect(page.locator(".project-group.is-selected .project-name")).toHaveText(folder);
+    await expect(page.locator(".project-group.is-selected .project-row")).toHaveAttribute(
+      "title",
+      workspacePath
+    );
     await expect(page.locator("#workspace-button, #workspace-label")).toHaveCount(0);
     for (const width of [1440, 1280, 474, 320]) {
       await checkToolbar(page, width);
@@ -109,29 +120,11 @@ test("an unconfigured workspace shows a clear connection action without a placeh
     for (const width of [1440, 474, 320]) {
       await page.setViewportSize({ width, height: 800 });
       const composer = await page.locator(".composer").boundingBox();
-      expect(composer.height).toBeLessThanOrEqual(125);
+      expect(composer.height).toBeLessThanOrEqual(145);
       const connect = await page.locator("#model-setup-button").boundingBox();
       const send = await page.locator("#send-button").boundingBox();
       expect(Math.abs(connect.y + connect.height / 2 - send.y - send.height / 2)).toBeLessThanOrEqual(2);
       expect(send.x + send.width).toBeLessThan(composer.x + composer.width);
-    }
-  } finally {
-    await dashboard.stop();
-  }
-});
-
-test("low-height home screens keep all starter tasks above the composer", async ({ page }) => {
-  const dashboard = await startDashboard();
-  try {
-    await configuredModel(page);
-    await page.goto(dashboard.base);
-    for (const width of [1280, 752, 320]) {
-      await page.setViewportSize({ width, height: 700 });
-      const composer = await page.locator(".composer").boundingBox();
-      for (const prompt of await page.locator(".starter-prompts button").all()) {
-        const box = await prompt.boundingBox();
-        expect(box.y + box.height).toBeLessThan(composer.y);
-      }
     }
   } finally {
     await dashboard.stop();

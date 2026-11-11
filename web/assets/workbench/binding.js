@@ -68,8 +68,7 @@ export function renderBindingMenu(model, { appLabels = {} } = {}) {
       <span class="model-option-check" aria-hidden="true">${checked ? icon("check") : ""}</span>
     </button>`;
   if (!model.hasOptions)
-    return ui`<div class="binding-menu-empty" role="status">当前工作区没有打开的应用</div>
-      <button type="button" class="model-option binding-empty-action" data-bind-open-apps>${icon("apps", "binding-option-icon")}<span class="model-option-name">打开应用</span></button>`;
+    return ui`<div class="binding-menu-empty" role="status">当前工作区没有打开的应用</div>`;
   return [
     ...model.options.map((option) => {
       const warning = option.mcp && option.mcp.state !== "running" ? ui("专用工具不可用") : "";
@@ -96,7 +95,6 @@ export function createBindingControl({
   getTaskId,
   getContext = getTaskId,
   onSelect,
-  onOpenApplications,
   onError,
   onPendingChange,
   onRefresh
@@ -152,9 +150,9 @@ export function createBindingControl({
     button.classList.toggle("is-bound", Boolean(model.selected));
     button.classList.toggle("is-empty", !model.hasOptions);
     button.title = model.selected
-      ? ui`本轮对话加载「${model.label}」，CoworkOS 会收到它的选区和改动`
+      ? ui`本轮对话加载「${model.label}」，Formicand 会收到它的选区和改动`
       : model.hasOptions
-        ? ui("未加载应用：CoworkOS 只收到你的消息。点击选择要加载的应用。")
+        ? ui("未加载应用：Formicand 只收到你的消息。点击选择要加载的应用。")
         : ui("这个对话还没有打开的应用");
   }
 
@@ -223,10 +221,6 @@ export function createBindingControl({
       // catalog changes, keep the same document and scroll position reachable.
       if (menu.innerHTML !== html) {
         menu.innerHTML = html;
-        menu.querySelector("[data-bind-open-apps]")?.addEventListener("click", () => {
-          close();
-          onOpenApplications?.();
-        });
         menu.querySelectorAll("[data-bind-instance]").forEach((node) =>
           node.addEventListener("click", async () => {
             if (pending) return;

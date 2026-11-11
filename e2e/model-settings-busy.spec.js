@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { openModelConnectionEditor } from "./settings-helper.js";
 
 test("model test locks its input snapshot and keeps the pending state when reopened", async ({ page }) => {
   const dashboard = await startDashboard();
@@ -63,8 +64,7 @@ test("advanced connection parameters round-trip without losing a key and invalid
     await dialog.locator('[name="subagentMaxTokens"]').fill("2048");
     await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
     await expect(dialog).toBeHidden();
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.getByRole("button", { name: "管理模型连接", exact: true }).click();
+    await openModelConnectionEditor(page);
     await expect(dialog.locator('[name="apiKey"]')).toHaveValue("");
     await expect(dialog.locator('[name="reasoningEffort"]')).toHaveValue("low");
     await expect(dialog.locator('[name="mainMaxTokens"]')).toHaveValue("4096");
@@ -94,18 +94,16 @@ test("configured connections remain manageable from personal settings with corre
     expect(saved.ok()).toBe(true);
     await page.goto(dashboard.base);
     await expect(page.locator("#model-setup-button")).toBeHidden();
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    const profile = page.getByRole("dialog", { name: "设置" });
-    await expect(profile.getByText("模型连接", { exact: true })).toBeVisible();
-    await profile.getByRole("button", { name: "管理模型连接", exact: true }).click();
-    await expect(profile).toBeHidden();
-    const connection = page.getByRole("dialog", { name: "连接模型" });
+    const connection = await openModelConnectionEditor(page);
     await expect(connection).toBeVisible();
     await expect(connection.locator('[name="model"]')).toHaveValue("configured-fixture");
     await expect(connection.locator('[name="apiKey"]')).toHaveValue("");
     await expect(connection.locator('[name="apiKey"]')).toHaveAttribute("placeholder", "留空保留已有密钥");
     await connection.getByRole("button", { name: "关闭设置", exact: true }).click();
-    await expect(page.getByRole("button", { name: "设置", exact: true })).toBeFocused();
+    await expect(connection).toBeHidden();
+    // Closing the connection keeps the settings page it was opened from.
+    await expect(page.locator("#settings-entry")).toBeVisible();
+    expect(await page.evaluate(() => document.activeElement?.closest("#settings-entry") !== null)).toBe(true);
   } finally {
     await dashboard.stop();
   }
@@ -126,7 +124,7 @@ test("closing model setup preserves unsaved fields and a save failure keeps the 
     await page.locator("#composer-input").fill("模型设置失败不能影响任务草稿");
     await page.locator("#model-setup-button").click();
     const dialog = page.getByRole("dialog", { name: "连接模型" });
-    await expect(dialog.locator("[data-model-result]")).toContainText("现在也可以关闭此窗口");
+    await expect(dialog.locator("[data-model-result]")).toContainText("测试连接会消耗模型额度");
     await dialog.locator('[name="baseUrl"]').fill("https://example.com/v1");
     await dialog.locator('[name="model"]').fill("keep-model-fields");
     await dialog.locator('[name="apiKey"]').fill("synthetic-unsaved-ui-key");

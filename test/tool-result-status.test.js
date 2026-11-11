@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildLiveActivity } from "../web/assets/activity.js";
 import { toolExecutionFailed } from "../web/assets/tool-result.js";
-import { buildWorkLog } from "../web/assets/work-log.js";
 import { readAgentTrajectory } from "../dist/src/runtime/agent-trajectory.js";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -23,10 +22,6 @@ test("rejected tools show failure in current events and older structured-result 
     ]);
     assert.equal(turn.calls[0].statusLabel, "调用失败");
     assert.equal(turn.calls[0].failed, true);
-    assert.equal(
-      buildWorkLog({ runtimeEvents: [{ type: "runtime_event", payload: end }] })[0].status,
-      "failed"
-    );
   }
   assert.equal(toolExecutionFailed({ isError: false, result: { details: { ok: true } } }), false);
 });

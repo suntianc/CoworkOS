@@ -1,189 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { parseHTML } from "linkedom";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { projectDataConfig } from "./p3-storage-fixture.mjs";
-import { createProjectLedgerController } from "../web/assets/controllers/project-ledger.js";
 import { createProjectLedgerTool } from "../dist/src/runtime/project-ledger-tool.js";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 
-const project = (id, name) => ({
-  projectId: id,
-  projectName: name,
-  projectDirectory: `/tmp/${id}`,
-  tasks: []
-});
-
-const summary = (overrides) => ({
-  projectId: "project_a",
-  requirementId: "requirement_a",
-  title: "登录记住设备",
-  content: "同一台设备 30 天内不再验证。",
-  source: { kind: "internal", reference: "会话" },
-  status: "open",
-  revision: 1,
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
-  decisions: [],
-  references: [],
-  revisions: [],
-  ...overrides
-});
-
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-/** The ledger view with a stubbed transport; no page boot and no real network. */
-function ledgerView(t) {
-  const { window, document } = parseHTML(readFileSync("web/index.html", "utf8"));
-  const previous = { window: globalThis.window, document: globalThis.document, CSS: globalThis.CSS };
-  globalThis.window = window;
-  globalThis.document = document;
-  globalThis.CSS = { escape: (value) => value };
-  window.HTMLElement.prototype.getClientRects ??= () => [];
-  const calls = [];
-  const toasts = [];
-  const requirements = {
-    project_a: [
-      summary({
-        decisions: [
-          {
-            decisionId: "decision_a",
-            text: "使用设备令牌",
-            effective: true,
-            source: { kind: "internal" },
-            atRevision: 1,
-            createdAt: "2026-01-02T00:00:00.000Z"
-          }
-        ]
-      })
-    ],
-    project_b: [summary({ projectId: "project_b", requirementId: "requirement_b", title: "报表导出" })]
-  };
-  const state = {
-    projects: [project("project_a", "项目 A"), project("project_b", "项目 B")],
-    selectedProjectId: "project_a",
-    selected: null
-  };
-  const controller = createProjectLedgerController({
-    api: async (path, options) => {
-      calls.push({ path, options });
-      const url = new URL(path, "http://local.invalid");
-      const projectId = decodeURIComponent(url.pathname.split("/")[3]);
-      if (options?.method === "POST") {
-        const body = JSON.parse(options.body);
-        if (body.action === "create")
-          return {
-            requirement: summary({
-              projectId,
-              requirementId: "requirement_new",
-              title: body.title,
-              content: body.content,
-              source: body.source
-            })
-          };
-        if (body.action === "set_decision_effective")
-          return {
-            requirement: summary({
-              projectId,
-              revision: 1,
-              decisions: [{ ...requirements.project_a[0].decisions[0], effective: body.effective }]
-            })
-          };
-      }
-      const match = url.pathname.match(/^\/api\/projects\/([^/]+)\/ledger\/([^/]+)$/);
-      if (match)
-        return { requirement: summary({ projectId, decisions: requirements.project_a[0].decisions }) };
-      const text = url.searchParams.get("q") ?? "";
-      return {
-        projectId,
-        requirements: (requirements[projectId] ?? []).filter(
-          (entry) => !text || entry.title.includes(text) || entry.content.includes(text)
-        )
-      };
-    },
-    state,
-    showToast: (message) => toasts.push(message)
-  });
-  t.after(() => {
-    controller.close();
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete globalThis[key];
-      else globalThis[key] = value;
-    }
-  });
-  const $ = (selector) => document.querySelector(selector);
-  return { window, document, controller, calls, toasts, state, $ };
-}
-
-test("ledger view creates and queries requirements and switches projects", async (t) => {
-  const view = ledgerView(t);
-  assert.ok(view.$("#ledger-nav"), "the sidebar offers the ledger view");
-  view.controller.open();
-  await tick();
-  assert.equal(view.calls[0].path, "/api/projects/project_a/ledger");
-  assert.equal(view.$("[data-project]").value, "project_a");
-  assert.match(view.$("[data-list]").textContent, /登录记住设备/);
-
-  // Switching project reads that project's ledger, not the previous one.
-  const select = view.$("[data-project]");
-  select.children[0].removeAttribute("selected");
-  select.children[1].setAttribute("selected", "");
-  select.dispatchEvent(new view.window.Event("change"));
-  await tick();
-  assert.equal(view.calls.at(-1).path, "/api/projects/project_b/ledger");
-  assert.match(view.$("[data-list]").textContent, /报表导出/);
-  assert.doesNotMatch(view.$("[data-list]").textContent, /登录记住设备/);
-
-  // Back to A, then query text narrows the list through the HTTP query parameter.
-  select.children[1].removeAttribute("selected");
-  select.children[0].setAttribute("selected", "");
-  select.dispatchEvent(new view.window.Event("change"));
-  await tick();
-  const query = view.$("[data-query]");
-  query.value = "设备";
-  query.dispatchEvent(new view.window.Event("input"));
-  await new Promise((resolve) => setTimeout(resolve, 260));
-  assert.match(view.calls.at(-1).path, /^\/api\/projects\/project_a\/ledger\?q=%E8%AE%BE%E5%A4%87$/);
-  assert.match(view.$("[data-list]").textContent, /登录记住设备/);
-
-  // A new requirement is written to the selected project and shown afterwards.
-  const form = view.$("[data-create]");
-  form.querySelector('[name="title"]').value = "导出月度报表";
-  form.querySelector('[name="content"]').value = "管理员每月导出一次。";
-  form.dispatchEvent(new view.window.Event("submit", { cancelable: true }));
-  await tick();
-  const write = view.calls.filter((call) => call.options?.method === "POST").at(-1);
-  assert.equal(write.path, "/api/projects/project_a/ledger");
-  assert.deepEqual(
-    { action: JSON.parse(write.options.body).action, title: JSON.parse(write.options.body).title },
-    { action: "create", title: "导出月度报表" }
-  );
-  assert.equal(JSON.parse(write.options.body).source.kind, "internal");
-  assert.equal(view.toasts.at(-1), "需求已记录");
-  assert.equal(form.querySelector('[name="title"]').value, "");
-});
-
-test("ledger view shows a requirement's decisions and can retract one", async (t) => {
-  const view = ledgerView(t);
-  view.controller.open();
-  await tick();
-  view.$("[data-list] button").click();
-  await tick();
-  assert.match(view.$("[data-detail]").textContent, /使用设备令牌/);
-  const retract = view.$("[data-decide]");
-  assert.equal(retract.dataset.effective, "true");
-  retract.click();
-  await tick();
-  const body = JSON.parse(view.calls.filter((call) => call.options?.method === "POST").at(-1).options.body);
-  assert.equal(body.action, "set_decision_effective");
-  assert.equal(body.decisionId, "decision_a");
-  assert.equal(body.effective, false);
-  assert.equal(view.$("[data-decide]").dataset.effective, "false");
-});
-
+/**
+ * The ledger keeps serving the Main tool that reads it.
+ *
+ * Observation replaced the ledger dialog, so the view those tests exercised is
+ * gone; the tool, its project scope and its credential handling are backend
+ * behaviour and stay covered here.
+ */
 test("ledger configuration is checked when the tool runs, not when it registers", async () => {
   const token = "fixture-ledger-token";
   const cases = [

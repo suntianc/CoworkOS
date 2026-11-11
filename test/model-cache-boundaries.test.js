@@ -217,7 +217,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
     const requests = [];
     const server = createServer(async (req, res) => {
       let raw = "";
-      for await (const chunk of req) raw += chunk;
+      for await (const chunk of req.setEncoding("utf8")) raw += chunk;
       requests.push(JSON.parse(raw));
       res.writeHead(200, { "content-type": current.contentType ?? "text/event-stream" });
       // One server write exposes diagnostic lookahead ahead of SDK parser failures.

@@ -25,6 +25,7 @@ import {
   deliveryFromMerge,
   deliveryReceipt,
   type DeliveryDiff,
+  type DeliveryPatch,
   type DeliveryRoleProgress,
   type DeliveryStage,
   type DeliveryView,
@@ -70,6 +71,18 @@ export interface DevelopmentProject {
   projectDirectory: string;
 }
 
+/**
+ * How a development read may act on the host it reads.
+ *
+ * `readOnly` is the observation entry's contract: it watches nodes and never
+ * works on them, so its reads answer from the stored records without replaying
+ * this host's pending deliveries. Work entry and Main tool reads send no
+ * marker and still complete a pending delivery before they answer.
+ */
+export interface DevelopmentReadOptions {
+  readOnly?: boolean;
+}
+
 /** One work item's durable facts, read from this host's queue rather than a model claim. */
 export interface WorkItemCallFact {
   callId: string;
@@ -105,6 +118,11 @@ export interface ProjectDevelopmentPorts {
   /** A call this Task's own durable queue recorded; never an identity the model supplied. */
   call?(taskId: string, callId: string): Promise<WorkItemCallFact | undefined>;
 }
+
+/** Longest patch text one preview reads; a larger change is cut and marked truncated. */
+const DELIVERY_PATCH_LIMIT = 200_000;
+/** Longest single file the preview renders as content; a larger file is read from its patch. */
+const DELIVERY_FILE_LIMIT = 120_000;
 
 /**
  * The development-record service: shared goal, criteria, route and baseline,
@@ -1491,6 +1509,19 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     return task;
   }
 
+  /**
+   * Catch this host's deliveries up before a work read answers.
+   *
+   * A read-only read is the observation entry watching this node: it answers
+   * from stored records and leaves the pending facts for the next work read or
+   * the host's own periodic pass, so watching a host never writes on it.
+   */
+  async function replayBeforeRead(projectId: string, options: DevelopmentReadOptions): Promise<void> {
+    if (options.readOnly) return;
+    // eslint-disable-next-line no-restricted-syntax -- 补投失败不阻断这次读取，pending 条目留到下一次工作读取或定期重放
+    await replayDeliveries(projectId).catch(() => undefined);
+  }
+
   async function applyMerges(projectId: string): Promise<DevelopmentMerge[]> {
     await project(projectId);
     const config = await requiredMergeConfig(projectId);
@@ -1698,19 +1729,12 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     return "developing";
   }
 
-  /**
-   * The delivery view one project, Task or requirement can read.
-   *
-   * It reuses the authoritative records and only adds what a reader needs to
-   * follow the delivery: the phase, role progress, the committed diff this host
-   * can read, the merge receipt and its synchronization state, and the board
-   * projection (present only for an external demand).
-   */
-  async function deliveryView(
+  /** One requirement's records and the diff this host can read them against. */
+  async function resolvedDelivery(
     projectId: string,
-    input: { developmentId?: unknown; requirementId?: unknown }
-  ): Promise<DeliveryView> {
-    await project(projectId);
+    input: { developmentId?: unknown; requirementId?: unknown },
+    options: DevelopmentReadOptions
+  ) {
     const developmentId =
       input.developmentId === undefined || input.developmentId === null
         ? undefined
@@ -1721,8 +1745,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
         : developmentIdentifier(input.requirementId, "需求 ID");
     if (!developmentId && !requirementId)
       throw conflict("交付视图需要 developmentId 或 requirementId", "delivery_view_target_missing");
-    // eslint-disable-next-line no-restricted-syntax -- 补投失败不阻断视图读取，outbox 条目留到下一次读取或定期重放
-    await replayDeliveries(projectId).catch(() => undefined);
+    await replayBeforeRead(projectId, options);
     const service = await gateway();
     const record = developmentId
       ? await service.getDevelopment(projectId, developmentId, ports.backendId)
@@ -1735,8 +1758,36 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       service.queryDeliveries(projectId, record.developmentId),
       service.boardEntries(projectId)
     ]);
-    const delivery = deliveries.at(-1);
-    const board = boardEntries.find((entry) => entry.requirementId === record.requirementId);
+    return {
+      service,
+      record,
+      plan,
+      reviews,
+      merges,
+      delivery: deliveries.at(-1),
+      board: boardEntries.find((entry) => entry.requirementId === record.requirementId)
+    };
+  }
+
+  /**
+   * The delivery view one project, Task or requirement can read.
+   *
+   * It reuses the authoritative records and only adds what a reader needs to
+   * follow the delivery: the phase, role progress, the committed diff this host
+   * can read, the merge receipt and its synchronization state, and the board
+   * projection (present only for an external demand).
+   */
+  async function deliveryView(
+    projectId: string,
+    input: { developmentId?: unknown; requirementId?: unknown },
+    options: DevelopmentReadOptions = {}
+  ): Promise<DeliveryView> {
+    await project(projectId);
+    const { record, plan, reviews, merges, delivery, board } = await resolvedDelivery(
+      projectId,
+      input,
+      options
+    );
     // eslint-disable-next-line no-restricted-syntax -- 资格计算读失败时视图省略该字段，合入与交付记录本身仍可读
     const qualification = await deliveryQualification(projectId, record.developmentId).catch(() => undefined);
     const diff = await deliveryDiff(record, delivery, merges, plan, reviews);
@@ -1770,6 +1821,54 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     };
   }
 
+  /**
+   * The unified patch of the accepted change, for the read-only preview.
+   *
+   * Only a file the delivery diff already lists can be read, and only from the
+   * checkout this backend owns: the request names a path inside the change, not
+   * a file on the machine. A workspace this host no longer has reports that
+   * instead of returning an empty patch that looks like "no changes".
+   */
+  async function deliveryPatch(
+    projectId: string,
+    input: { developmentId?: unknown; requirementId?: unknown; path?: unknown },
+    options: DevelopmentReadOptions = {}
+  ): Promise<DeliveryPatch> {
+    await project(projectId);
+    const { record, plan, reviews, merges, delivery } = await resolvedDelivery(projectId, input, options);
+    const workspace = record.workspace;
+    if (!workspace || workspace.state !== "ready")
+      throw conflict("需求现场不在这台设备上，无法显示 diff", "delivery_patch_unavailable");
+    const diff = await deliveryDiff(record, delivery, merges, plan, reviews);
+    if (!diff) throw conflict("这台设备读不到需求现场，无法显示 diff", "delivery_patch_unavailable");
+    const path = typeof input.path === "string" ? input.path : undefined;
+    if (path !== undefined && !diff.files.some((file) => file.path === path))
+      throw conflict("该文件不在这次改动中", "delivery_patch_path_unknown");
+    const raw = await git(workspace.directory, [
+      "diff",
+      "--no-color",
+      "--unified=3",
+      `${diff.base}..${diff.head}`,
+      ...(path === undefined ? [] : ["--", path])
+    ]);
+    const truncated = raw.length > DELIVERY_PATCH_LIMIT;
+    const contents: Array<{ path: string; content: string }> = [];
+    for (const file of path === undefined ? diff.files : diff.files.filter((entry) => entry.path === path)) {
+      const text = await git(workspace.directory, ["show", `${diff.head}:${file.path}`])
+        // eslint-disable-next-line no-restricted-syntax -- 该提交里读不到这个文件（例如二进制或被删除）时省略它的正文，diff 本身仍然完整
+        .catch(() => undefined);
+      if (text === undefined || text.includes("\0") || text.length > DELIVERY_FILE_LIMIT) continue;
+      contents.push({ path: file.path, content: text });
+    }
+    return {
+      ...diff,
+      ...(path === undefined ? {} : { path }),
+      patch: truncated ? raw.slice(0, DELIVERY_PATCH_LIMIT) : raw,
+      truncated,
+      contents
+    };
+  }
+
   return {
     async mergeConfig(projectId: string) {
       await project(projectId);
@@ -1792,63 +1891,75 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       );
     },
 
-    async list(projectId: string, backendId = ports.backendId) {
+    async list(projectId: string, backendId = ports.backendId, options: DevelopmentReadOptions = {}) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 开发列表读取前的补投失败不阻断列表本身，pending 条目留到下一次读取
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).queryDevelopments(projectId, backendId);
     },
 
-    async listForTask(taskId: string, backendId = ports.backendId) {
+    async listForTask(taskId: string, backendId = ports.backendId, options: DevelopmentReadOptions = {}) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的开发列表同样只做尽力补投，失败时列表按已存记录返回
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).queryDevelopments(found.projectId, backendId);
     },
 
-    async get(projectId: string, developmentId: string, backendId = ports.backendId) {
+    async get(
+      projectId: string,
+      developmentId: string,
+      backendId = ports.backendId,
+      options: DevelopmentReadOptions = {}
+    ) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 单条开发记录读取前的补投失败不阻断读取，条目留到下一次读取
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).getDevelopment(projectId, developmentId, backendId);
     },
 
-    async getForTask(taskId: string, developmentId: string, backendId = ports.backendId) {
+    async getForTask(
+      taskId: string,
+      developmentId: string,
+      backendId = ports.backendId,
+      options: DevelopmentReadOptions = {}
+    ) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的单条读取同样不让补投失败变成读取失败
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).getDevelopment(found.projectId, developmentId, backendId);
     },
 
-    async find(projectId: string, requirementId: unknown, backendId = ports.backendId) {
+    async find(
+      projectId: string,
+      requirementId: unknown,
+      backendId = ports.backendId,
+      options: DevelopmentReadOptions = {}
+    ) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 按需求查找前的补投失败不阻断查找，outbox 条目留到下一次读取
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).findDevelopmentByRequirement(projectId, requirementId, backendId);
     },
 
-    async findForTask(taskId: string, requirementId: unknown, backendId = ports.backendId) {
+    async findForTask(
+      taskId: string,
+      requirementId: unknown,
+      backendId = ports.backendId,
+      options: DevelopmentReadOptions = {}
+    ) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的按需求查找同样只做尽力补投，失败不影响返回已存记录
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).findDevelopmentByRequirement(found.projectId, requirementId, backendId);
     },
 
     /** Delivery rows for a project or one development; a pending row is readable with its error. */
-    async deliveries(projectId: string, developmentId?: unknown) {
+    async deliveries(projectId: string, developmentId?: unknown, options: DevelopmentReadOptions = {}) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 交付行读取前的补投失败不阻断读取，pending 行仍带原始错误返回
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).queryDeliveries(
         projectId,
         developmentId === undefined ? undefined : developmentIdentifier(developmentId, "开发记录 ID")
       );
     },
 
-    async deliveriesForTask(taskId: string, developmentId?: unknown) {
+    async deliveriesForTask(taskId: string, developmentId?: unknown, options: DevelopmentReadOptions = {}) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的交付行读取同样只做尽力补投，失败时按已存行返回
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).queryDeliveries(
         found.projectId,
         developmentId === undefined ? undefined : developmentIdentifier(developmentId, "开发记录 ID")
@@ -1901,13 +2012,38 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       return stopDeliveryRecovery();
     },
 
-    async deliveryView(projectId: string, input: Record<string, unknown>) {
-      return deliveryView(projectId, input);
+    async deliveryView(
+      projectId: string,
+      input: Record<string, unknown>,
+      options: DevelopmentReadOptions = {}
+    ) {
+      return deliveryView(projectId, input, options);
     },
 
-    async deliveryViewForTask(taskId: string, input: Record<string, unknown>) {
+    async deliveryViewForTask(
+      taskId: string,
+      input: Record<string, unknown>,
+      options: DevelopmentReadOptions = {}
+    ) {
       const found = await taskProject(taskId);
-      return deliveryView(found.projectId, input);
+      return deliveryView(found.projectId, input, options);
+    },
+
+    async deliveryPatch(
+      projectId: string,
+      input: Record<string, unknown>,
+      options: DevelopmentReadOptions = {}
+    ) {
+      return deliveryPatch(projectId, input, options);
+    },
+
+    async deliveryPatchForTask(
+      taskId: string,
+      input: Record<string, unknown>,
+      options: DevelopmentReadOptions = {}
+    ) {
+      const found = await taskProject(taskId);
+      return deliveryPatch(found.projectId, input, options);
     },
 
     /** Record the receipt a remote execution backend produced for a real merge. */
@@ -2098,17 +2234,15 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       return applyMerges(found.projectId);
     },
 
-    async queryMerges(projectId: string, developmentId?: string) {
+    async queryMerges(projectId: string, developmentId?: string, options: DevelopmentReadOptions = {}) {
       await project(projectId);
-      // eslint-disable-next-line no-restricted-syntax -- 合入行读取前的补投失败不阻断读取，outbox 条目留到下一次重放
-      await replayDeliveries(projectId).catch(() => undefined);
+      await replayBeforeRead(projectId, options);
       return (await gateway()).queryMerges(projectId, developmentId);
     },
 
-    async queryMergesForTask(taskId: string, developmentId?: string) {
+    async queryMergesForTask(taskId: string, developmentId?: string, options: DevelopmentReadOptions = {}) {
       const found = await taskProject(taskId);
-      // eslint-disable-next-line no-restricted-syntax -- Task 视角的合入行读取同样只做尽力补投，失败时按已存行返回
-      await replayDeliveries(found.projectId).catch(() => undefined);
+      await replayBeforeRead(found.projectId, options);
       return (await gateway()).queryMerges(found.projectId, developmentId);
     },
 

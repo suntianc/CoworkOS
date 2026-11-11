@@ -28,6 +28,15 @@ const {
 const { createAppearanceHost } = require("./appearance.cjs");
 const { createLanguageHost } = require("./language.cjs");
 const { windowBackground, followNativeTheme } = require("./system-theme.cjs");
+const { PRODUCT_NAME } = require("./product-name.cjs");
+const { windowMaterial } = require("./window-material.cjs");
+const {
+  backgroundMode,
+  prepareBackgroundApp,
+  enterBackground,
+  showInBackground,
+  revealWindow
+} = require("./background-mode.cjs");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { randomUUID } = require("node:crypto");
@@ -71,6 +80,9 @@ const profile = desktopProfile({
   appRoot: app.getAppPath(),
   appData: app.getPath("appData")
 });
+const material = windowMaterial();
+const background = backgroundMode();
+if (background) prepareBackgroundApp(app);
 
 let backend,
   mainWindow,
@@ -121,6 +133,9 @@ const documents = createRendererFlush(() => mainWindow);
 // Establish the stable profile before Chromium and the single-instance lock use it.
 app.setName(profile.name);
 app.setPath("userData", profile.userData);
+// The profile keeps the vendor identity used for runtime, data and update compatibility;
+// the application name people see is the product name.
+app.setName(PRODUCT_NAME);
 const owner = app.requestSingleInstanceLock();
 if (!owner) app.quit();
 else recordManagedUpdateLaunch(managedLaunch);
@@ -138,6 +153,16 @@ const credentialStorage =
 
 function trust(event) {
   assertTrustedSender(event, mainWindow, selectedBackend?.url || backend?.url);
+}
+function windowMaterialState(event) {
+  // Only the trusted main window may read the material; it is host capability data.
+  try {
+    trust(event);
+    event.returnValue = { material: material.material };
+    // eslint-disable-next-line no-restricted-syntax -- an untrusted sender gets no host capability data and has no other error channel on a synchronous reply
+  } catch {
+    event.returnValue = null;
+  }
 }
 function openExternalLink(url) {
   const target = externalNavigationUrl(url, selectedBackend?.url || backend?.url);
@@ -204,14 +229,16 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1560,
     height: 980,
+    show: !background,
     minWidth: 752,
     minHeight: 700,
-    backgroundColor: windowBackground(nativeTheme),
-    title: profile.name,
+    backgroundColor: windowBackground(nativeTheme, process.platform),
+    title: PRODUCT_NAME,
     ...(icon ? { icon } : {}),
     ...(process.platform === "darwin"
       ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 25 } }
       : {}),
+    ...material.options,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -219,6 +246,7 @@ function createWindow() {
       sandbox: true
     }
   });
+  if (background) showInBackground(mainWindow);
   installEditContextMenu(mainWindow, {
     Menu,
     clipboard,
@@ -230,7 +258,7 @@ function createWindow() {
   mainWindow.on("leave-full-screen", publishWindowState);
   mainWindow.on("focus", refreshApplicationIcon);
   mainWindow.webContents.on("did-finish-load", publishWindowState);
-  followNativeTheme(mainWindow, nativeTheme);
+  followNativeTheme(mainWindow, nativeTheme, { transparent: material.material !== "none" });
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (!isDashboardUrl(url, selectedBackend?.url || backend?.url)) {
       event.preventDefault();
@@ -251,6 +279,7 @@ function createWindow() {
       const viewer = new BrowserWindow({
         width: 1000,
         height: 800,
+        show: !background,
         webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false }
       });
       viewer.webContents.setWindowOpenHandler(({ url: target }) => {
@@ -260,6 +289,7 @@ function createWindow() {
       viewer.webContents.on("will-navigate", (event, target) => {
         if (!isDashboardUrl(target, selectedBackend?.url || backend?.url)) event.preventDefault();
       });
+      if (background) showInBackground(viewer);
       void viewer.loadURL(url);
     } else openExternalLink(url);
     return { action: "deny" };
@@ -277,8 +307,9 @@ function applicationIcon() {
   return selectApplicationIcon(profile.appRoot);
 }
 function refreshApplicationIcon() {
-  if (process.platform === "darwin") refreshDockIcon(profile.appRoot, app.dock);
+  if (process.platform === "darwin" && !background) refreshDockIcon(profile.appRoot, app.dock);
 }
+ipcMain.on("bookman:window-material", windowMaterialState);
 ipcMain.handle("bookman:choose-project", async (event) => {
   trust(event);
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -308,7 +339,8 @@ ipcMain.handle("bookman:open-artifact-viewer", async (event, value, pdf) => {
       webPreferences = { ...webPreferences, session: pdfSession, javascript: true, plugins: true };
       target = PDF_VIEWER_URL;
     }
-    viewer = new BrowserWindow({ width: 1000, height: 800, webPreferences });
+    viewer = new BrowserWindow({ width: 1000, height: 800, show: !background, webPreferences });
+    if (background) showInBackground(viewer);
   } catch (error) {
     await releasePdf?.();
     throw error;
@@ -457,7 +489,7 @@ async function initializeUpdates(userData) {
       try {
         await computerTargets.beginSwitch();
         updateComputerTransition = true;
-        await prepareDesktopChange({ backend, documents, action: "更新 CoworkOS" });
+        await prepareDesktopChange({ backend, documents, action: "更新 Formicand" });
         updateStoppedBackend = true;
         await stopSelectedExecutionHost(backend);
       } catch (error) {
@@ -525,6 +557,7 @@ if (owner)
   startupPromise = app
     .whenReady()
     .then(async () => {
+      if (background) enterBackground(app);
       const userData = process.env.COWORK_DESKTOP_DATA || app.getPath("userData");
       const appearance = createAppearanceHost({
         userData,
@@ -576,10 +609,7 @@ if (owner)
         language: language.get(),
         show: () => {
           if (!mainWindow) app.emit("activate");
-          else {
-            mainWindow.show();
-            mainWindow.focus();
-          }
+          else revealWindow(mainWindow, background);
         },
         quit: () => app.quit()
       });
@@ -605,12 +635,11 @@ if (owner)
         );
     })
     .catch((error) => {
-      dialog.showErrorBox("CoworkOS 无法启动", error.message);
+      dialog.showErrorBox("Formicand 无法启动", error.message);
       app.quit();
     });
 app.on("second-instance", () => {
-  mainWindow?.show();
-  mainWindow?.focus();
+  if (mainWindow) revealWindow(mainWindow, background);
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
@@ -621,8 +650,9 @@ app.on("activate", () => {
     createWindow();
     // Reconnect before showing the page: a backend restarted outside the app
     // publishes a new host credential, and the window must carry the new one.
-    void launchBackend().catch((error) => dialog.showErrorBox("CoworkOS 无法连接本地服务", error.message));
-  } else mainWindow.show();
+    void launchBackend().catch((error) => dialog.showErrorBox("Formicand 无法连接本地服务", error.message));
+  } else if (background) showInBackground(mainWindow);
+  else mainWindow.show();
 });
 app.on("before-quit", (event) => {
   if (quitting || !owner || !app.isReady()) return;

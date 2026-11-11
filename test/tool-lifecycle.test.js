@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { presentToolCall } from "../web/assets/tool-presentation.js";
 import { outstandingWork } from "../web/assets/tool-lifecycle.js";
 import { finalAnswerIndex } from "../web/assets/conversation.js";
-import { buildWorkLog } from "../web/assets/work-log.js";
 
 const call = {
   name: "call_subagent",
@@ -142,23 +141,6 @@ test("outstanding work deduplicates live snapshots and blocks final presentation
   };
   assert.deepEqual(outstandingWork(detail), { agents: 1, callbacks: 1, jobs: 1, human: 1 });
   assert.equal(finalAnswerIndex([{ role: "assistant", content: "尚有任务在运行" }], detail), -1);
-});
-
-test("work log preserves live background work after the Main process returns", () => {
-  const rows = buildWorkLog({
-    runtime: { active: false },
-    jobs: [{ jobId: "job-1", state: "running" }],
-    runtimeEvents: [
-      {
-        type: "tool_execution_end",
-        toolCallId: "start",
-        toolName: "start_job",
-        result: { details: { jobId: "job-1" } }
-      }
-    ]
-  });
-  assert.equal(rows[0].status, "running");
-  assert.equal(rows[0].statusLabel, "后台运行中");
 });
 
 test("old dispatches recover completion from durable callbacks without borrowing another call's result", () => {

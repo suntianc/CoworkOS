@@ -360,16 +360,6 @@ button {
 .conversation-status.cancelled {
   background: #ef6d7d;
 }
-.sidebar-empty {
-  padding: 28px 9px;
-  color: #7585a6;
-  font-size: 11px;
-  text-align: center;
-}
-.sidebar-empty span {
-  color: #5b6b8e;
-  font-size: 10px;
-}
 .sidebar-bottom {
   padding-top: 13px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -1732,12 +1722,6 @@ body::before {
 .conversation-status.cancelled {
   background: #aaa;
   box-shadow: none;
-}
-.sidebar-empty {
-  color: #707070;
-}
-.sidebar-empty span {
-  color: #555;
 }
 .sidebar-bottom {
   border-color: #2e2e2e;

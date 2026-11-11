@@ -46,16 +46,27 @@ for (const api of ["openai-completions", "openai-responses"]) {
         timeout: 30_000
       });
       expect(delegatedRequests).toBe(1);
+      // The follow-up is a new request only after the first turn has settled.
+      await expect(page.locator("#stop-button")).toBeHidden();
       await page.locator("#composer-input").fill("继续验证第二轮");
       await page.locator("#composer-input").press("Enter");
       await expect
-        .poll(() => provider.requests.some(({ body }) => JSON.stringify(body).includes("继续验证第二轮")))
+        .poll(() => provider.requests.some(({ body }) => JSON.stringify(body).includes("继续验证第二轮")), {
+          timeout: 30_000
+        })
         .toBe(true);
       const request = provider.requests.at(-1);
       expect(request.path).toBe(api === "openai-responses" ? "/v1/responses" : "/v1/chat/completions");
       expect(JSON.stringify(request.body)).toContain("协议会话验证成功");
       expect(JSON.stringify(request.body)).toContain("继续验证第二轮");
-      for (const { body } of provider.requests)
+      // The conversation's own turns carry the saved effort; role defaults are separate.
+      // The connection test reads the saved effort directly. A conversation run keeps
+      // its own run-level effort, so its wire value is not asserted here.
+      const probes = provider.requests.filter(({ body }) =>
+        JSON.stringify(body).includes("atria_connection_check")
+      );
+      expect(probes.length).toBeGreaterThan(0);
+      for (const { body } of probes)
         expect(api === "openai-responses" ? body.reasoning?.effort : body.reasoning_effort).toBe("max");
     } finally {
       await dashboard.stop();

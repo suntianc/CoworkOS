@@ -25,9 +25,7 @@ test("a delayed request remains stale after switching A to B and back to A", asy
 });
 
 function searchFixture(t, intercept) {
-  const { window, document } = parseHTML(
-    '<html><body><div id="profile-settings-connections"></div></body></html>'
-  );
+  const { window, document } = parseHTML('<html><body><div id="profile-settings-tools"></div></body></html>');
   const previous = { window: globalThis.window, document: globalThis.document };
   Object.assign(globalThis, { window, document });
   t.after(() => Object.assign(globalThis, previous));
@@ -42,7 +40,7 @@ function searchFixture(t, intercept) {
   };
   installWebSearchSettings({
     showToast() {},
-    overview: { close: () => true, open() {} },
+    host: { close: () => true, open() {}, onSection: () => () => {} },
     identity: () => backend,
     async api(path, options) {
       const target = backend;
@@ -117,7 +115,7 @@ test("search settings retain A's draft while reopening, reading and saving B", a
 
 function modelFixture(t, intercept) {
   const { window, document } = parseHTML(
-    '<html><body><div id="profile-settings-general"></div><div id="profile-settings-connections"></div></body></html>'
+    '<html><body><div id="profile-settings-connections"></div><div id="settings-role-rows"></div><div id="profile-settings-tools"></div></body></html>'
   );
   const previous = { window: globalThis.window, document: globalThis.document };
   Object.assign(globalThis, { window, document });
@@ -143,9 +141,9 @@ function modelFixture(t, intercept) {
     profiles: [value],
     managedByEnvironment: false
   });
-  installDesktopSettings({
+  const modelSettings = installDesktopSettings({
     showToast() {},
-    overview: { close: () => true, open() {} },
+    host: { close: () => true, open() {}, onSection: () => () => {} },
     identity: () => backend,
     async api(path, options) {
       const target = backend;
@@ -178,7 +176,7 @@ function modelFixture(t, intercept) {
       backend = value;
     },
     async open() {
-      document.querySelector("#desktop-model-settings").click();
+      void modelSettings.open();
       await tick();
     },
     close() {

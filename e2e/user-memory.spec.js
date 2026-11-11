@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { join } from "node:path";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { openSettings } from "./settings-helper.js";
 import { UserMemoryStore } from "../dist/src/runtime/user-memory-store.js";
 
 test("memory use, independent learning and budgets survive restart without losing data", async ({
@@ -10,8 +11,7 @@ test("memory use, independent learning and budgets survive restart without losin
   const store = new UserMemoryStore(join(dashboard.root, "home", "memory", "user-memory.json"));
   try {
     await page.goto(dashboard.base);
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    let dialog = page.getByRole("dialog", { name: "设置", exact: true });
+    let dialog = await openSettings(page, "tools");
     const use = () => dialog.getByRole("checkbox", { name: "使用个人记忆", exact: true });
     const learning = () => dialog.getByRole("checkbox", { name: "自动学习", exact: true });
     const learningOptions = () => dialog.locator(".user-memory-learning-options");
@@ -36,8 +36,7 @@ test("memory use, independent learning and budgets survive restart without losin
     await page.screenshot({ path: testInfo.outputPath("user-memory-inline.png"), fullPage: true });
     await dashboard.restart();
     await page.goto(dashboard.base);
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    dialog = page.getByRole("dialog", { name: "设置", exact: true });
+    dialog = await openSettings(page, "tools");
     await expect(learningOptions().locator("summary")).toContainText("已开启");
     await learningOptions().locator("summary").click();
     await expect(learning()).toBeChecked();

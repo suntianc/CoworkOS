@@ -1,12 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
-import { loadCurrentApplication } from "./application-context-helper.js";
 
 const taskId = "surface-hierarchy";
 const draft = "保留未发送的界面调整要求";
 
-async function setup(page) {
-  const dashboard = await startDashboard();
+async function setup(page, { application = false } = {}) {
+  const dashboard = await startDashboard(application ? { env: { COWORK_APPLICATION_DUMMY: "1" } } : {});
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   try {
@@ -23,6 +22,7 @@ async function setup(page) {
     await page.goto(`${dashboard.base}/?task=${taskId}`);
     await expect(page.locator("#composer-input")).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
+    if (application) await openApplication(page, dashboard);
     return {
       dashboard,
       async stop() {
@@ -36,6 +36,30 @@ async function setup(page) {
     await dashboard.stop();
     throw error;
   }
+}
+
+/**
+ * Open a tab through the architecture test adapter and bind it from the conversation,
+ * which is what puts the workbench into its split layout.
+ */
+async function openApplication(page, dashboard) {
+  const resource = await page.request.post(`${dashboard.base}/api/tasks/${taskId}/resources`, {
+    data: { kind: "model/counter+json", title: "界面层次验收", initialContent: { counters: { a: 1 } } }
+  });
+  expect(resource.ok()).toBe(true);
+  const { resource: created } = await resource.json();
+  const tab = await page.request.post(`${dashboard.base}/api/workbench/tabs`, {
+    data: { kind: "application", resourceId: created.resourceId, bindTo: taskId }
+  });
+  expect(tab.ok()).toBe(true);
+  await page.reload();
+  await page.locator("#app-bind-select").click();
+  await page.locator("[data-bind-instance]", { hasText: "界面层次验收" }).first().click();
+  await expect(page.locator("#app-bind-select")).toContainText("界面层次验收");
+  // The split is painted by the layout: the divider is present and no longer hidden.
+  await expect
+    .poll(() => page.locator("[data-workspace-divider]").evaluate((node) => !node.hidden))
+    .toBe(true);
 }
 
 async function surfaceGeometry(page) {
@@ -110,7 +134,11 @@ for (const theme of ["light", "dark"]) {
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         const resting = await surfaceGeometry(page);
         expectCardSpacing(resting, width);
-        for (const [selector, borders] of Object.entries(resting.visibleBorders))
+        // The glass conversation panel owns one continuous edge in both themes.
+        expect(resting.visibleBorders[".chat-pane"]).toEqual(["Top", "Right", "Bottom", "Left"]);
+        for (const [selector, borders] of Object.entries(resting.visibleBorders).filter(
+          ([selector]) => selector !== ".chat-pane"
+        ))
           expect(borders, `${width}px ${selector} permanent borders`).toEqual([]);
         await page.screenshot({ path: info.outputPath(`${theme}-${width}-resting.png`) });
 
@@ -151,28 +179,7 @@ async function expectKeyboardDivider(divider) {
   expect(cue.background).not.toBe("rgba(0, 0, 0, 0)");
 }
 
-async function openSplit(page, dashboard) {
-  const created = await page.request.post(`${dashboard.base}/api/tasks/${taskId}/resources`, {
-    data: {
-      kind: "text/markdown",
-      title: "界面层次验收.md",
-      initialContent: "# 界面层次验收\n\n检查并排布局中的留白与交互。"
-    }
-  });
-  expect(created.ok()).toBe(true);
-  const { resource } = await created.json();
-  const opened = await page.request.post(`${dashboard.base}/api/workbench/tabs`, {
-    data: { kind: "application", resourceId: resource.resourceId, bindTo: taskId }
-  });
-  expect(opened.ok()).toBe(true);
-  await page.goto(dashboard.base);
-  await expect(page.locator("[data-editor-input]:visible")).toBeVisible();
-  await loadCurrentApplication(page);
-  await expect(page.locator(".chat-pane")).toHaveClass(/is-collaborating/);
-  await expect(page.locator("#composer-input")).toHaveValue(draft);
-}
-
-test("thin sidebar and split dividers strengthen on keyboard focus and resize without losing the draft", async ({
+test("thin sidebar divider strengthens on keyboard focus and resizes without losing the draft", async ({
   page
 }, info) => {
   const fixture = await setup(page);
@@ -191,39 +198,88 @@ test("thin sidebar and split dividers strengthen on keyboard focus and resize wi
     await page.keyboard.press("ArrowLeft");
     await expect(sidebar).toHaveAttribute("aria-valuenow", String(sidebarWidth));
 
-    await openSplit(page, fixture.dashboard);
+    for (const theme of ["light", "dark"]) {
+      await page.emulateMedia({ colorScheme: theme });
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await input.focus();
+      await expectRestingDivider(sidebar);
+      await expect.poll(async () => (await surfaceGeometry(page)).shadowBlur).toBeGreaterThanOrEqual(12);
+      const geometry = await surfaceGeometry(page);
+      expectCardSpacing(geometry, 1440);
+      expect(geometry.visibleBorders[".workbench-header"]).toEqual([]);
+      await page.screenshot({ path: info.outputPath(`${theme}-1440.png`) });
+      await expectKeyboardDivider(sidebar);
+      await page.screenshot({ path: info.outputPath(`${theme}-1440-divider-focused.png`) });
+    }
+  } finally {
+    await fixture.stop();
+  }
+});
 
+test("the split divider is visible with an application and resizes the conversation by keyboard", async ({
+  page
+}, info) => {
+  const fixture = await setup(page, { application: true });
+  try {
+    const input = page.locator("#composer-input");
+    await input.fill(draft);
     const split = page.locator("[data-workspace-divider]");
     await input.focus();
     await page.mouse.move(700, 32);
     await expectRestingDivider(split);
     const originalShare = Number(await split.getAttribute("aria-valuenow"));
-    const originalWidth = (await page.locator("#conversation-pane").boundingBox()).width;
+    const share = () =>
+      page
+        .locator(".chat-body")
+        .evaluate((node) => getComputedStyle(node).getPropertyValue("--chat-share").trim());
+    const originalWidth = await share();
     await expectKeyboardDivider(split);
     await page.keyboard.press("ArrowRight");
     await expect(split).toHaveAttribute("aria-valuenow", String(originalShare + 2));
-    expect((await page.locator("#conversation-pane").boundingBox()).width).toBeGreaterThan(originalWidth);
+    await expect.poll(share).not.toBe(originalWidth);
     await page.keyboard.press("ArrowLeft");
     await expect(split).toHaveAttribute("aria-valuenow", String(originalShare));
     await expect(input).toHaveValue(draft);
-
     for (const theme of ["light", "dark"]) {
       await page.emulateMedia({ colorScheme: theme });
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await input.focus();
       await expectRestingDivider(split);
-      await expect.poll(async () => (await surfaceGeometry(page)).shadowBlur).toBeGreaterThanOrEqual(12);
       const geometry = await surfaceGeometry(page);
       expectCardSpacing(geometry, 1440);
       expect(geometry.visibleBorders[".workbench-header"]).toEqual([]);
-      expect(geometry.collaborationBackground).toBe(geometry.paneBackground);
       await page.screenshot({ path: info.outputPath(`${theme}-1440-split.png`) });
-      await expectKeyboardDivider(split);
-      await page.screenshot({ path: info.outputPath(`${theme}-1440-split-divider-focused.png`) });
     }
   } finally {
     await fixture.stop();
   }
+});
+
+test.describe("split divider touch feedback", () => {
+  test.use({ hasTouch: true });
+  test("the split divider accepts a touch drag and steps the conversation share", async ({
+    page,
+    context
+  }) => {
+    const fixture = await setup(page, { application: true });
+    let cdp;
+    try {
+      cdp = await context.newCDPSession(page);
+      await expect(page.locator("#composer-input")).toBeVisible();
+      await page.locator("#composer-input").fill(draft);
+      const split = page.locator("[data-workspace-divider]");
+      await expect.poll(async () => (await split.boundingBox()).height).toBeGreaterThan(0);
+      for (const ending of ["cancel", "lost-capture", "end"])
+        await touchResize(page, cdp, split, ending, page.locator("#sidebar-divider"));
+      await expect(page.locator("#composer-input")).toHaveValue(draft);
+    } finally {
+      try {
+        await cdp?.detach();
+      } finally {
+        await fixture.stop();
+      }
+    }
+  });
 });
 
 async function touchResize(page, cdp, divider, ending, otherDivider) {
@@ -286,7 +342,7 @@ async function touchResize(page, cdp, divider, ending, otherDivider) {
 
 test.describe("touch divider feedback", () => {
   test.use({ hasTouch: true });
-  test("sidebar and split show only the current drag and recover after end, cancel and capture loss", async ({
+  test("the sidebar shows only the current drag and recovers after end, cancel and capture loss", async ({
     page,
     context
   }) => {
@@ -299,12 +355,6 @@ test.describe("touch divider feedback", () => {
       expect(await page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches)).toBe(true);
       const sidebar = page.locator("#sidebar-divider");
       for (const ending of ["cancel", "lost-capture", "end"]) await touchResize(page, cdp, sidebar, ending);
-      await openSplit(page, fixture.dashboard);
-      const split = page.locator("[data-workspace-divider]");
-      for (const ending of ["cancel", "lost-capture", "end"]) {
-        await touchResize(page, cdp, split, ending, sidebar);
-        await expectRestingDivider(sidebar);
-      }
     } finally {
       try {
         await cdp?.detach();

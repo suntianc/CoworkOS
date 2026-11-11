@@ -13,13 +13,12 @@ async function contained(dialog, page) {
   expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
 }
 
-test("new project keeps a quiet form and keyboard-accessible folder chooser in both themes and sizes", async ({
-  page
-}, info) => {
+test("adding a project keeps a quiet two-mode dialog in both themes and sizes", async ({ page }, info) => {
   const dashboard = await startDashboard({ defaultProject: false });
   try {
     const directory = join(dashboard.root, "new-project");
     await mkdir(directory);
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(dashboard.base);
     await page.locator("#composer-input").fill("创建项目之前的草稿");
     await page.evaluate((directory) => {
@@ -27,39 +26,39 @@ test("new project keeps a quiet form and keyboard-accessible folder chooser in b
     }, directory);
     for (const theme of ["light", "dark"]) {
       for (const width of [1440, 320]) {
-        await page.setViewportSize({ width, height: 720 });
+        // The narrow work sidebar is off-canvas; open from the desktop width
+        // and shrink the open dialog, which is the surface this test owns.
+        await page.setViewportSize({ width: 1440, height: 720 });
         await page.emulateMedia({ colorScheme: theme });
-        if (!(await page.locator("#new-project").isVisible()))
-          await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
         await page.locator("#new-project").click();
-        const dialog = page.getByRole("dialog", { name: "新建项目", exact: true });
+        if (width !== 1440) await page.setViewportSize({ width, height: 720 });
+        const dialog = page.getByRole("dialog", { name: "添加项目", exact: true });
         const name = dialog.getByRole("textbox", { name: "项目名称", exact: true });
         const folder = dialog.getByRole("textbox", { name: "工作文件夹", exact: true });
         const choose = dialog.getByRole("button", { name: "选择文件夹", exact: true });
         const cancel = dialog.getByRole("button", { name: "取消", exact: true });
         await contained(dialog, page);
         await expect(name).toBeFocused();
-        await expect(dialog).toHaveCSS("border-top-width", "0px");
-        await expect(dialog).toHaveCSS("border-radius", "24px");
-        await expect(name).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-        await expect(name).toHaveCSS("outline-width", "2px");
+        await expect(dialog).toHaveCSS("border-top-width", "1px");
+        await expect(dialog).toHaveCSS("border-radius", "18px");
         await name.fill("新的研究项目");
         await name.press("Tab");
         await expect(folder).toBeFocused();
-        await expect(dialog.locator(".project-directory-field")).toHaveCSS("outline-width", "2px");
         await folder.press("Tab");
         await expect(choose).toBeFocused();
-        await expect(choose).toHaveCSS("outline-width", "2px");
         await choose.click();
         await expect(folder).toHaveValue(directory);
-        await cancel.focus();
-        await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-        await expect(cancel).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-        await expect(dialog.getByRole("button", { name: "创建", exact: true })).toBeInViewport();
+        await dialog.getByRole("tab", { name: "Git 地址" }).click();
+        await expect(dialog.getByRole("textbox", { name: "仓库地址" })).toBeVisible();
+        await expect(dialog.getByRole("textbox", { name: "分支 可选" })).toBeVisible();
+        await expect(dialog.getByRole("button", { name: "克隆并添加", exact: true })).toBeInViewport();
+        await dialog.getByRole("tab", { name: "本地目录" }).click();
+        await expect(name).toHaveValue("新的研究项目");
+        await expect(dialog.getByRole("button", { name: "添加项目", exact: true })).toBeInViewport();
         await dialog.locator("h2").click();
-        await page.screenshot({ path: info.outputPath(`new-project-${theme}-${width}.png`) });
+        await page.screenshot({ path: info.outputPath(`add-project-${theme}-${width}.png`) });
         await cancel.click();
-        await expect(dialog).toHaveCount(0);
+        await expect(dialog).toBeHidden();
         await expect(page.locator("#composer-input")).toHaveValue("创建项目之前的草稿");
       }
     }
@@ -85,6 +84,7 @@ test("project dialogs and project experience confirmations use shared controls w
       data: { projectName: "视觉检查项目", projectDirectory }
     });
     const { project } = await created.json();
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(dashboard.base);
     await expect(page.locator(`[data-project="${project.projectId}"]`)).toBeVisible();
     for (const [width, theme] of [
@@ -95,9 +95,10 @@ test("project dialogs and project experience confirmations use shared controls w
     ]) {
       await page.setViewportSize({ width, height: 720 });
       await page.emulateMedia({ colorScheme: theme });
+      // A web phone-sized window holds the sidebar in a drawer, so open it first.
+      const drawer = page.locator(".sidebar-drawer-toggle:visible");
+      if (await drawer.isVisible()) await drawer.click();
       const trigger = page.locator(`[data-project-settings="${project.projectId}"]`);
-      if (!(await trigger.isVisible()))
-        await page.getByRole("button", { name: "切换侧栏", exact: true }).click();
       await trigger.locator("..").hover();
       await trigger.click();
       const dialog = page.getByRole("dialog", { name: "项目设置", exact: true });
@@ -106,7 +107,7 @@ test("project dialogs and project experience confirmations use shared controls w
       await expect(dialog.getByRole("button", { name: "保存", exact: true })).toHaveCSS("font-size", "14px");
       await expect(dialog.getByRole("button", { name: "保存", exact: true })).toHaveCSS(
         "background-color",
-        theme === "dark" ? "rgb(237, 237, 237)" : "rgb(38, 38, 38)"
+        theme === "dark" ? "rgb(236, 236, 238)" : "rgb(28, 28, 34)"
       );
       await page.screenshot({ path: info.outputPath(`project-${theme}-${width}.png`) });
       await dialog.getByRole("button", { name: "取消", exact: true }).click();
@@ -152,6 +153,7 @@ test("attachment previews retain file content and styled page controls at deskto
 }, info) => {
   const dashboard = await startDashboard();
   try {
+    await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(dashboard.base);
     await page.locator("#composer-input").fill("预览结束后保留的草稿");
     await page.locator("#file-input").setInputFiles({
