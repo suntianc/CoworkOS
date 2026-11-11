@@ -194,3 +194,24 @@ export function messagesWithRuntimeHistory(
     })
     .sort((a, b) => (a.timestamp !== undefined && b.timestamp !== undefined ? a.timestamp - b.timestamp : 0));
 }
+
+/**
+ * A runtime event as the conversation view needs it.
+ *
+ * Every Run records Pi's full system prompt (start and end) and an
+ * `agent_end` carrying the whole message list again; together they are most of
+ * a long conversation's history and the page reads none of it. The events stay,
+ * so identities and order are unchanged; only those bodies are dropped.
+ */
+export function viewRuntimeEvent(record: Record<string, unknown>): Record<string, unknown> {
+  if (record.type !== "runtime_event") return record;
+  const payload = record.payload as Record<string, unknown> | undefined;
+  if (payload?.type === "agent_end" && "messages" in payload) {
+    const { messages: _messages, ...rest } = payload;
+    return { ...record, payload: rest };
+  }
+  const message = payload?.message as Record<string, unknown> | undefined;
+  if (message?.role === "system" && (payload?.type === "message_start" || payload?.type === "message_end"))
+    return { ...record, payload: { ...payload, message: { role: "system", timestamp: message.timestamp } } };
+  return record;
+}

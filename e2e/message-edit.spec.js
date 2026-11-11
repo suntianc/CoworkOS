@@ -330,7 +330,7 @@ test("opening the latest editor near the bottom does not jump the conversation",
   const dashboard = await startDashboard({ modelEndpoint: provider.baseUrl });
   try {
     await page.goto(dashboard.base);
-    for (const text of ["先说明情况", "继续"]) {
+    for (const [index, text] of ["先说明情况", "继续"].entries()) {
       await page.locator("#composer-input").fill(text);
       await page.locator("#send-button").click();
       const taskId = await page.locator(".conversation-item.active").getAttribute("data-task");
@@ -340,6 +340,10 @@ test("opening the latest editor near the bottom does not jump the conversation",
             (await (await page.request.get(`${dashboard.base}/api/tasks/${taskId}`)).json()).runtime.active
         )
         .toBe(false);
+      // The page, not only the backend, has to see the round end; otherwise
+      // the next message is sent as an instruction to a run it thinks is live.
+      await expect(page.locator('.chat-message.main[data-answer-kind="final"]')).toHaveCount(index + 1);
+      await expect(page.locator("#run-control")).toBeHidden();
     }
     await expect(page.locator('.chat-message.main[data-answer-kind="final"]')).toHaveCount(2);
     await page.locator("#conversation").evaluate((node) => {

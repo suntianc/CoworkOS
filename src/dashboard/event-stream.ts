@@ -3,7 +3,7 @@ import { open, readFile, stat, readdir, type FileHandle } from "node:fs/promises
 import { type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { runtimeEventRecord } from "../runtime/conversation-history.js";
+import { runtimeEventRecord, viewRuntimeEvent } from "../runtime/conversation-history.js";
 
 export async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
   try {
@@ -279,7 +279,7 @@ export function streamRunEvents(
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，读取运行日志期间连接可能已断开
       if (closed) return;
       for (const event of runtimeEvents) {
-        const record = runtimeEventRecord(taskId, runId, runtimeCursor, event);
+        const record = viewRuntimeEvent(runtimeEventRecord(taskId, runId, runtimeCursor, event));
         response.write(`id: ${record.eventId}\ndata: ${JSON.stringify(record)}\n\n`);
         runtimeCursor += 1;
       }

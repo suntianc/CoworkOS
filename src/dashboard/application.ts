@@ -34,7 +34,11 @@ import { configuredWebTools } from "../runtime/web-search-config.js";
 import { visionModelConfig } from "../runtime/vision-config.js";
 import { availableModelIds } from "../runtime/model-catalog.js";
 import { atriaDataPaths } from "../../scripts/data-home.cjs";
-import { messagesWithRuntimeHistory, readTaskRuntimeEvents } from "../runtime/conversation-history.js";
+import {
+  messagesWithRuntimeHistory,
+  readTaskRuntimeEvents,
+  viewRuntimeEvent
+} from "../runtime/conversation-history.js";
 import { conversationMessages } from "../runtime/conversation-view.js";
 import { MainRequestStore, mainRequestPath } from "../storage/main-request-store.js";
 import { CoordinatorRuntime } from "../runtime/coordinator-runtime.js";
@@ -823,7 +827,7 @@ export function createDashboardApplication(
       projectDirectory: location.projectDirectory,
       coordination,
       events,
-      runtimeEvents,
+      runtimeEvents: runtimeEvents.map(viewRuntimeEvent),
       artifacts,
       messages,
       editableMessage,

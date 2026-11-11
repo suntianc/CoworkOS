@@ -18,7 +18,7 @@ import { resolveArtifactLink } from "../artifacts.js";
 import { escapeHtml as esc } from "../workbench/html.js";
 import { icon } from "../ui/icons.js";
 import { executionElapsedMs, formatExecutionDuration } from "../execution-time.js";
-import { reconcileMarkup } from "../ui/reconcile.js";
+import { reconcileParts } from "../ui/reconcile.js";
 
 const replyClock = new Intl.DateTimeFormat(language, {
   hour: "2-digit",
@@ -223,7 +223,9 @@ export function createConversationView({
   const activityStates = new Map();
   const errorDetailsOpen = new Set();
   const boundNodes = new WeakSet();
-  let lastMarkup;
+  // What the conversation's children were built from: one markup string per
+  // exchange, how many top-level nodes each became, and the trailing parts.
+  let lastRender;
   let historyMarkup = new Map();
   let renderedEditTask;
   const thinkingStartedAt = new Map();
@@ -381,7 +383,7 @@ export function createConversationView({
               `<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2></div>`
             );
       thinkingStartedAt.clear();
-      lastMarkup = undefined;
+      lastRender = undefined;
       historyMarkup.clear();
       renderedEditTask = undefined;
       return;
@@ -413,124 +415,130 @@ export function createConversationView({
           "cowork-callback"
       )
     ]);
-    const conversationMarkup = exchanges
-      .map((exchange, exchangeIndex) => {
-        const isCurrent = exchangeIndex === currentExchangeIndex;
-        const cacheable = !isCurrent && !editing && !exchange.awaitingDelivery && !exchange.continued;
-        const cacheKey = `${task.taskId}:${exchange.key}`;
-        const historyOpen = state.executionHistoryOpen.get(cacheKey) ?? false;
-        const elapsed = cacheable ? executionElapsedMs(exchange.events, state.detail?.events) : undefined;
-        const cached = historyMarkup.get(cacheKey);
-        // The append-only projector retains historical exchange identities.
-        // Avoid serializing their unchanged events on every streamed delta.
-        if (
-          cacheable &&
-          cached?.context === historyContext &&
-          cached.exchange === exchange &&
-          cached.open === historyOpen &&
-          cached.elapsed === elapsed
-        ) {
-          nextHistoryMarkup.set(cacheKey, cached);
-          return cached.markup;
-        }
-        const signature = cacheable ? JSON.stringify([exchange, elapsed, historyOpen]) : undefined;
-        if (cacheable && cached?.context === historyContext && cached.signature === signature) {
-          nextHistoryMarkup.set(cacheKey, { ...cached, exchange });
-          return cached.markup;
-        }
-        const active =
-          Boolean(state.detail?.runtime?.active || state.submittingTaskId === task.taskId) && isCurrent;
-        const execution = exchangeExecutionState(exchange.events);
-        const interrupted = ["cancelled", "failed", "paused", "waiting"].includes(execution.terminal);
-        const parked =
-          isCurrent &&
-          execution.terminal === "waiting" &&
-          task.status === "waiting" &&
-          Boolean(state.detail?.monitoring?.sleep);
-        const finalIndex =
-          interrupted || exchange.continued
-            ? -1
-            : finalAnswerIndex(exchange.messages, state.detail, isCurrent);
-        const finalText = finalIndex >= 0 ? visibleText(exchange.messages[finalIndex].content).trim() : "";
-        const historyKey = `${task.taskId}:${exchange.key}`;
-        const workflow = renderLiveActivity(
-          exchange.events,
-          active,
-          finalIndex >= 0,
-          finalText,
-          historyOpen,
-          historyKey,
-          finalIndex < 0,
-          (interrupted && !parked && !paused) || (isCurrent && Boolean(failure)),
-          isCurrent,
-          exchange.continued
-        );
-        const workflowIndex = !active && finalIndex >= 0 ? finalIndex : -1;
-        const rendered =
-          exchange.messages
-            .map((message, index) => {
-              const user = message.role === "user";
-              const text = visibleText(message.content);
-              if (!text.trim()) return "";
-              if (user) {
-                if (message.delivery === "followUp" && message.pending) return "";
-                // An answer the person gave to Formicand's own question is not a new
-                // request. It has to travel to the model as a user turn for the run to
-                // continue, but showing it as one made the transcript read as if they
-                // had asked for something twice. It is rendered where it belongs:
-                // attached to the question it answers.
-                const answered = answeredRequestFor(message, state.detail?.humanRequests);
-                if (answered) {
-                  const key = `${task.taskId}:human-answer:${answered.requestId}`;
-                  return ui`<article class="chat-message human-answer" data-view-key="${esc(key)}"><div class="message-copy"><details class="human-answer-details" data-activity-key="${esc(key)}"><summary title="已回答，点击查看问题和回复">${icon("help")}<span>回答问题</span>${icon("check", "human-answer-check")}<span class="sr-only">已回答</span></summary><div class="human-answer-content"><div class="human-answer-question">${esc(answered.question)}</div><div class="human-answer-value markdown-body">${markdown(answered.answer)}</div></div></details></div></article>`;
-                }
-                const editor = messageEdit?.markup(task.taskId, message.id) || "";
-                if (editor) inlineEditorRendered = true;
-                const editable = message.id && message.id === state.detail?.editableMessage?.messageId;
-                const status =
-                  message.delivery === "followUp"
-                    ? ui("排队消息")
-                    : message.interjected
-                      ? ui("补充指令")
-                      : "";
-                return `<article class="chat-message user${editor ? " is-editing" : ""}" data-view-key="${esc(`${historyKey}:user:${message.id || index}`)}"><div class="message-copy"><div class="user-message-bubble">${status ? `<div class="message-meta">${status}</div>` : ""}<div class="markdown-body">${renderUserText(text, markdown)}</div>${editor}${editor ? messageEdit.actions?.(task.taskId, message.id) || "" : ""}</div>${!editor && editable ? ui`<div class="user-message-actions"><button type="button" class="app-button" data-edit-message="${esc(message.id)}" aria-label="编辑消息" title="编辑消息">${icon("pencil")}</button></div>` : ""}</div></article>`;
+    const parts = exchanges.map((exchange, exchangeIndex) => {
+      const isCurrent = exchangeIndex === currentExchangeIndex;
+      const cacheable = !isCurrent && !editing && !exchange.awaitingDelivery && !exchange.continued;
+      const cacheKey = `${task.taskId}:${exchange.key}`;
+      const historyOpen = state.executionHistoryOpen.get(cacheKey) ?? false;
+      const elapsed = cacheable ? executionElapsedMs(exchange.events, state.detail?.events) : undefined;
+      const cached = historyMarkup.get(cacheKey);
+      // The append-only projector retains historical exchange identities.
+      // Avoid serializing their unchanged events on every streamed delta.
+      if (
+        cacheable &&
+        cached?.context === historyContext &&
+        cached.exchange === exchange &&
+        cached.open === historyOpen &&
+        cached.elapsed === elapsed
+      ) {
+        nextHistoryMarkup.set(cacheKey, cached);
+        return cached.markup;
+      }
+      const signature = cacheable ? JSON.stringify([exchange, elapsed, historyOpen]) : undefined;
+      if (cacheable && cached?.context === historyContext && cached.signature === signature) {
+        nextHistoryMarkup.set(cacheKey, { ...cached, exchange });
+        return cached.markup;
+      }
+      const active =
+        Boolean(state.detail?.runtime?.active || state.submittingTaskId === task.taskId) && isCurrent;
+      const execution = exchangeExecutionState(exchange.events);
+      const interrupted = ["cancelled", "failed", "paused", "waiting"].includes(execution.terminal);
+      const parked =
+        isCurrent &&
+        execution.terminal === "waiting" &&
+        task.status === "waiting" &&
+        Boolean(state.detail?.monitoring?.sleep);
+      const finalIndex =
+        interrupted || exchange.continued ? -1 : finalAnswerIndex(exchange.messages, state.detail, isCurrent);
+      const finalText = finalIndex >= 0 ? visibleText(exchange.messages[finalIndex].content).trim() : "";
+      const historyKey = `${task.taskId}:${exchange.key}`;
+      const workflow = renderLiveActivity(
+        exchange.events,
+        active,
+        finalIndex >= 0,
+        finalText,
+        historyOpen,
+        historyKey,
+        finalIndex < 0,
+        (interrupted && !parked && !paused) || (isCurrent && Boolean(failure)),
+        isCurrent,
+        exchange.continued
+      );
+      const workflowIndex = !active && finalIndex >= 0 ? finalIndex : -1;
+      const rendered =
+        exchange.messages
+          .map((message, index) => {
+            const user = message.role === "user";
+            const text = visibleText(message.content);
+            if (!text.trim()) return "";
+            if (user) {
+              if (message.delivery === "followUp" && message.pending) return "";
+              // An answer the person gave to Formicand's own question is not a new
+              // request. It has to travel to the model as a user turn for the run to
+              // continue, but showing it as one made the transcript read as if they
+              // had asked for something twice. It is rendered where it belongs:
+              // attached to the question it answers.
+              const answered = answeredRequestFor(message, state.detail?.humanRequests);
+              if (answered) {
+                const key = `${task.taskId}:human-answer:${answered.requestId}`;
+                return ui`<article class="chat-message human-answer" data-view-key="${esc(key)}"><div class="message-copy"><details class="human-answer-details" data-activity-key="${esc(key)}"><summary title="已回答，点击查看问题和回复">${icon("help")}<span>回答问题</span>${icon("check", "human-answer-check")}<span class="sr-only">已回答</span></summary><div class="human-answer-content"><div class="human-answer-question">${esc(answered.question)}</div><div class="human-answer-value markdown-body">${markdown(answered.answer)}</div></div></details></div></article>`;
               }
-              if (index !== finalIndex) return "";
-              return `${index === workflowIndex ? workflow : ""}<article class="chat-message main" data-answer-kind="final"${message.id ? ` data-message-id="${esc(message.id)}"` : ""}><div class="message-copy"><div class="markdown-body">${markdown(text)}</div>${active ? "" : replyActions(message, isCurrent)}</div></article>`;
-            })
-            .join("") +
-          (workflowIndex < 0
-            ? active || exchange.continued
-              ? `<article class="chat-message main" data-view-key="${esc(`${historyKey}:response`)}" data-answer-kind="${active ? "pending" : "continuation"}"${active ? ' aria-busy="true"' : ""}><div class="message-copy">${workflow || (active ? renderThinkingPlaceholder(historyKey) : "")}</div></article>`
-              : workflow
-            : "");
-        if (cacheable)
-          nextHistoryMarkup.set(cacheKey, {
-            context: historyContext,
-            signature,
-            markup: rendered,
-            exchange,
-            open: historyOpen,
-            elapsed
-          });
-        return rendered;
-      })
-      .join("");
+              const editor = messageEdit?.markup(task.taskId, message.id) || "";
+              if (editor) inlineEditorRendered = true;
+              const editable = message.id && message.id === state.detail?.editableMessage?.messageId;
+              const status =
+                message.delivery === "followUp" ? ui("排队消息") : message.interjected ? ui("补充指令") : "";
+              return `<article class="chat-message user${editor ? " is-editing" : ""}" data-view-key="${esc(`${historyKey}:user:${message.id || index}`)}"><div class="message-copy"><div class="user-message-bubble">${status ? `<div class="message-meta">${status}</div>` : ""}<div class="markdown-body">${renderUserText(text, markdown)}</div>${editor}${editor ? messageEdit.actions?.(task.taskId, message.id) || "" : ""}</div>${!editor && editable ? ui`<div class="user-message-actions"><button type="button" class="app-button" data-edit-message="${esc(message.id)}" aria-label="编辑消息" title="编辑消息">${icon("pencil")}</button></div>` : ""}</div></article>`;
+            }
+            if (index !== finalIndex) return "";
+            return `${index === workflowIndex ? workflow : ""}<article class="chat-message main" data-answer-kind="final"${message.id ? ` data-message-id="${esc(message.id)}"` : ""}><div class="message-copy"><div class="markdown-body">${markdown(text)}</div>${active ? "" : replyActions(message, isCurrent)}</div></article>`;
+          })
+          .join("") +
+        (workflowIndex < 0
+          ? active || exchange.continued
+            ? `<article class="chat-message main" data-view-key="${esc(`${historyKey}:response`)}" data-answer-kind="${active ? "pending" : "continuation"}"${active ? ' aria-busy="true"' : ""}><div class="message-copy">${workflow || (active ? renderThinkingPlaceholder(historyKey) : "")}</div></article>`
+            : workflow
+          : "");
+      if (cacheable)
+        nextHistoryMarkup.set(cacheKey, {
+          context: historyContext,
+          signature,
+          markup: rendered,
+          exchange,
+          open: historyOpen,
+          elapsed
+        });
+      return rendered;
+    });
     historyMarkup = nextHistoryMarkup;
     // A restored edit can outlive its message after another window branches
     // the conversation. Keep its draft reachable for cancellation or recovery.
     const restoredEditor = inlineEditorRendered
       ? ""
       : messageEdit?.markup(task.taskId, messageEdit.editingMessageId) || "";
-    const markup =
-      conversationMarkup +
+    parts.push(
       (restoredEditor
         ? `<article class="chat-message user is-editing" data-view-key="${esc(`${task.taskId}:restored-edit`)}"><div class="message-copy"><div class="user-message-bubble">${restoredEditor}${messageEdit.actions?.(task.taskId, messageEdit.editingMessageId) || ""}</div></div></article>`
-        : "") +
-      (failure ? renderFailure(task, failure) : "");
-    if (lastMarkup !== markup) {
-      reconcileMarkup(scroll, markup);
-      lastMarkup = markup;
+        : "") + (failure ? renderFailure(task, failure) : "")
+    );
+    // A streamed delta changes the last exchange only. Patch from the first
+    // part that differs; everything before it stays as it is in the page.
+    // Anything else that touched the list (another task, an empty state)
+    // shows as a node count that no longer adds up, and gets a full patch.
+    const previous =
+      lastRender?.taskId === task.taskId &&
+      scroll.childNodes.length === lastRender.counts.reduce((sum, count) => sum + count, 0)
+        ? lastRender
+        : undefined;
+    let first = 0;
+    if (previous)
+      while (first < parts.length && first < previous.parts.length && parts[first] === previous.parts[first])
+        first += 1;
+    if (!previous || first < parts.length || parts.length !== previous.parts.length) {
+      const kept = previous ? previous.counts.slice(0, first) : [];
+      const offset = kept.reduce((sum, count) => sum + count, 0);
+      const counts = reconcileParts(scroll, parts.slice(kept.length), scroll.childNodes[offset] ?? null);
+      lastRender = { taskId: task.taskId, parts, counts: [...kept, ...counts] };
       const ownsRecovery = () => state.selected === task.taskId && state.detail?.task?.taskId === task.taskId;
       for (const [selector, action] of [
         ["[data-edit-message]", () => edit?.(task.taskId, state.detail?.editableMessage)],

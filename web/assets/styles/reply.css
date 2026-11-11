@@ -655,3 +655,10 @@ button.file-chip:focus-visible {
 .chat-pane .markdown-body .callout-body > :last-child {
   margin-bottom: 0;
 }
+
+/* Long conversations (#17): rounds out of view skip style and layout work.
+   The last few children stay live; that is where streaming and focus are. */
+#conversation > :not(:nth-last-child(-n + 4)) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}

@@ -19,6 +19,7 @@
     "start": "node scripts/atria.mjs start",
     "check:workbench": "tsc -p tsconfig.workbench.json",
     "test:browser": "npm run build:full && playwright test",
+    "test:perf": "playwright test --config playwright.perf.config.js",
     "check:extensions": "tsc -p tsconfig.extensions.json",
     "lint": "eslint src web desktop scripts .pi --max-warnings=0",
     "desktop:pack": "npm run desktop:prepare && electron-builder --config electron-builder.config.cjs --mac --arm64 --dir",

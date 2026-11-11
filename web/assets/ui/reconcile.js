@@ -11,13 +11,14 @@ const key = (node) =>
 const matches = (left, right) =>
   left && left.nodeType === right.nodeType && left.nodeName === right.nodeName && key(left) === key(right);
 
-function patchChildren(parent, source) {
-  let current = parent.firstChild;
+function patchChildren(parent, source, start = parent.firstChild) {
+  let current = start;
   for (const next of [...source.childNodes]) {
     if (!matches(current, next)) {
       const found = key(next) && [...parent.childNodes].find((node) => matches(node, next));
       if (found) parent.insertBefore(found, current);
-      else parent.insertBefore(next.cloneNode(true), current);
+      // The source is a throwaway fragment: its nodes move in, uncopied.
+      else parent.insertBefore(next, current);
       current = found || (current ? current.previousSibling : parent.lastChild);
     }
     patchNode(current, next);
@@ -31,6 +32,7 @@ function patchChildren(parent, source) {
 }
 
 function patchNode(node, source) {
+  if (node === source) return;
   if (node.nodeType !== 1) {
     if (node.nodeValue !== source.nodeValue) node.nodeValue = source.nodeValue;
     return;
@@ -55,4 +57,22 @@ export function reconcileMarkup(parent, markup) {
   const template = parent.ownerDocument.createElement("template");
   template.innerHTML = markup;
   patchChildren(parent, template.content);
+}
+
+/**
+ * Patch the children from `start` on to the markup in `parts`, leaving every
+ * child before `start` untouched. Returns how many top-level nodes each part
+ * became, so a caller can find where a later part begins next time.
+ */
+export function reconcileParts(parent, parts, start = parent.firstChild) {
+  const fragment = parent.ownerDocument.createDocumentFragment();
+  const counts = parts.map((part) => {
+    const template = parent.ownerDocument.createElement("template");
+    template.innerHTML = part;
+    const count = template.content.childNodes.length;
+    fragment.append(template.content);
+    return count;
+  });
+  patchChildren(parent, fragment, start);
+  return counts;
 }
