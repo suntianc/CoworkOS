@@ -55,3 +55,51 @@
 - **Confirm：** 比较默认输出与有效基线下的 `FORMAT_BASE=<变更前提交> npm run format:check`；后者应打印已提交差异的格式检查结果。先用 `git diff --name-only <变更前提交>...HEAD` 核对选择。
 - **Avoid：** 独立审查已提交候选时记录并验证基线：`git rev-parse --verify '<变更前提交>^{commit}'`；按 [格式检查说明](../testing-local-run.md#日常开发验证) 使用 `FORMAT_BASE`。未提交修改仍用默认命令。
 - **Sources：** 2026-11-07 [科学剪枝复盘摘录](evidence/os-core-pruning/retro.md)、[提交前后日志摘录](evidence/os-core-pruning/checks.md)。
+
+## Docker 守护进程停止后 PostgreSQL 契约成批失败
+
+- **Trigger：** 运行 `npm run verify:full`、`node scripts/test.mjs` 或集成门禁时，Docker Desktop 没有运行或在中途停止。
+- **What happens：** PostgreSQL fixture 起不来，用例报 `PostgreSQL fixture 已退出：没有输出`。停止发生在检查中途时，Node 套件只剩 1 项失败；开跑前就已停止时，失败多达 48 项。集成门禁只打印尾部汇总，看不到失败的用例名，容易误判为偶发。
+- **Confirm：** 运行 `docker info --format '{{.ServerVersion}}'`，连接失败即为此原因。在同一候选上启动 Docker 后，单独重跑 Node 套件，结果应为 0 失败。
+- **Avoid：** 长时间检查开跑前确认 `docker info` 成功。失败时先查看完整日志里的失败用例名，`PostgreSQL fixture` 类错误直接核对 Docker 状态，不要重复跑整轮门禁。
+- **Sources：** 2026-11-11 [P4.5 复盘](../p4.5-retrospective.md#4-长时间检查前先预检环境)。#14 集成连续两轮各失败 1 项，手动复现时失败 48 项，启动 Docker 后为 0 失败。
+
+## 锁屏或本机系统权限改变界面检查结果
+
+- **Trigger：** 运行涉及电脑操控设置或原生窗口的检查（如 `e2e/computer-use.spec.js`、`e2e/p45-english-catalogue.spec.js` 的设置页用例），同时屏幕锁定，或本机已授予屏幕录制、辅助功能权限。
+- **What happens：** 后端返回的是本机真实状态：锁屏时提示「桌面已锁定或没有可操作的前台应用」，已授权时显示「执行主机窗口访问已关闭」，与测试预期的「不可用」不一致。改动前的基线上同样失败，容易被误认为是候选的回归。
+- **Confirm：** 在同一台机器上，对基线提交运行同一用例，结果相同即为环境原因。锁屏状态可用 `ioreg -n Root -d1 -a | grep CGSSessionScreenIsLocked` 查看，有输出即为锁屏。
+- **Avoid：** 原生和桌面检查在解锁的桌面上运行。新写的测试不要读取主机真实的权限或桌面状态，用 `page.route` 固定 `/api/computer/status` 等接口。`computer-use.spec.js` 已按此修复。
+- **Sources：** 2026-11-11 [P4.5 复盘](../p4.5-retrospective.md#2-偶发失败多数是测试自身的问题)。#14 集成中该用例在基线 `addfeed2` 上同样失败。
+
+## 测试假服务器在块边界切断多字节字符
+
+- **Trigger：** 测试里用 `for await (const chunk of request) raw += chunk` 读取 HTTP 请求体，请求中含中文等多字节字符。
+- **What happens：** 每个 Buffer 块被单独转成字符串，一个字符的字节如果落在两块之间就变成 `�`（如「谱系」读成「谱���」）。请求被切成几块取决于负载，所以只在全量或高负载时偶发失败，比如 `request-recovery` 要求逐字节一致的重试检查。
+- **Confirm：** 读取失败现场的差异，出现 `�` 即为此原因。单独重复运行通常全部通过。
+- **Avoid：** 读取请求体使用 `request.setEncoding("utf8")`，或先用 `Buffer.concat` 拼接字节、最后统一解码。e2e/ 与 test/ 中已有的 38 处已改为前者。
+- **Sources：** 2026-11-11 [P4.5 复盘](../p4.5-retrospective.md#2-偶发失败多数是测试自身的问题)，修复提交 `724dcff`。
+
+## 应用就绪前输入的草稿被恢复覆盖
+
+- **Trigger：** 页面打开后立即向 `#composer-input` 填入文字或选择附件，此时 `web/app.js` 中的 `await composerSession.ready` 还没完成。
+- **What happens：** 草稿恢复和 `#file-input` 监听在就绪之后才执行：已输入的文字会被恢复的空草稿覆盖，选择的附件会被忽略。在全量运行时偶发失败，例如 `e2e/markdown-links.spec.js:6` 读到的输入框值为空。
+- **Confirm：** 失败时输入框值为空或附件条缺失，单独重复运行通过。
+- **Avoid：** 测试先等应用加载完成（会话行或回复已渲染），再填写内容。上传附件时重复选择文件，直到附件条出现（见 `e2e/model-profile-vision.spec.js` 的 `attachImage`）。产品层面的修复在 [P4.5 打磨清单](../p4.5-polish-backlog.md) 第 19 条。
+- **Sources：** 2026-11-11 P4.5 finish 失败记录；#16 中的同类附件竞态。
+
+## 遗留的无头测试浏览器推高负载
+
+- **Trigger：** 测试中断、超时或被 kill 后，Playwright 启动的 Chrome for Testing 失去父进程继续运行，多轮之后积累下来。
+- **What happens：** 机器负载长期偏高，依赖时序的用例更容易超时，表现为偶发失败。P4.5 期间积累了 58 个此类进程，最早的已运行 4 天以上，负载长期在 7–8。
+- **Confirm：** `ps -Ao pid,ppid,etime,command | grep 'Chrome for Testing.app/Contents/MacOS/' | awk '$2==1'`，有输出即为遗留进程（父进程为 1）。
+- **Avoid：** 没有 Playwright 在运行时，结束父进程为 1 的 Chrome for Testing 进程，再开始长时间检查。中断测试后顺手检查一次。
+- **Sources：** 2026-11-11 P4.5 归档后的清理，负载降到 5–6。
+
+## 合入失败后整轮重跑全量
+
+- **Trigger：** 集成门禁或收尾检查中有个别用例失败，修复后重新运行整个门禁。
+- **What happens：** 门禁每次都运行公共检查加全部回归命令，回归里的全量又包含各个单项，一轮约 20–30 分钟。P4.5 #14 因此跑了 6 轮，其中 3 轮失败是环境原因。
+- **Confirm：** 对比失败用例与本次改动的关系，单独重复运行失败项，确认是回归、测试缺陷还是环境问题。
+- **Avoid：** 失败后只单独重跑失败项，确认原因并修好后再整体合入。只改动部分模块时只跑相关测试；全量（`npm run verify:full` 加 `npx playwright test --workers=1`）只在合入 main 前或终审时跑一次，收尾复用同一提交上的全量结果。
+- **Sources：** 2026-11-11 [P4.5 复盘](../p4.5-retrospective.md#3-测试重复导致合入很慢)、[WL-11](../workloop-followups.md#wl-11-合入与收尾的重复检查)。
