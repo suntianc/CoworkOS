@@ -1,47 +1,114 @@
 /* P4.5 run feedback: run bar, paused boundary, cancel confirmation, error card
    and notifications. Geometry and type follow the「工作 · 运行反馈」board. */
 
-.run-control {
+/* The run strip sits on the composer's top edge as part of the same card: it
+   never takes room from the input and disappears when nothing runs. */
+html[data-theme] .composer .run-control {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 0 10px;
-  margin: 0 0 8px;
-  border-bottom: 1px solid var(--color-line);
+  gap: 8px;
+  min-width: 0;
+  height: 38px;
+  margin: -16px -16px 12px;
+  padding: 0 10px 0 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent);
+  border-radius: 17px 17px 0 0;
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
   color: var(--color-text);
+  font-size: 13px;
+  line-height: 19px;
 }
 .run-control[hidden] {
-  display: none;
+  display: none !important;
 }
-.run-control-spinner {
-  width: 15px;
-  height: 15px;
+.run-control-dot {
   flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  color: var(--color-accent);
-  animation: run-control-spin 1s linear infinite;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: run-control-pulse 1.6s ease-in-out infinite;
 }
-@keyframes run-control-spin {
-  to {
-    transform: rotate(360deg);
+@keyframes run-control-pulse {
+  50% {
+    opacity: 0.35;
   }
 }
-.run-control-label {
-  font-size: 13px;
-  color: var(--color-text);
+.run-control-paused-icon {
+  display: none;
+  flex: none;
+  width: 15px;
+  height: 15px;
 }
-.run-control-time {
-  font-size: 12px;
+.run-control-label {
+  flex: none;
+  color: var(--color-text-2);
+  font-weight: 500;
+}
+.run-control-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-control-detail::before {
+  content: "·";
+  margin-right: 8px;
   color: var(--color-text-3);
+}
+.run-control-detail[hidden] {
+  display: none;
+}
+.run-control-step,
+.run-control-time {
+  flex: none;
+  color: var(--color-text-3);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+.run-control-step[hidden] {
+  display: none;
 }
 .run-control-spacer {
   flex: 1;
   min-width: 8px;
+}
+/* A paused round turns amber and offers 继续 as its one primary action. */
+html[data-theme] .composer .run-control[data-state="paused"] {
+  border-bottom-color: color-mix(in srgb, var(--color-warn) 30%, transparent);
+  background: color-mix(in srgb, var(--color-warn) 11%, transparent);
+}
+.run-control[data-state="paused"] .run-control-dot {
+  display: none;
+}
+.run-control[data-state="paused"] .run-control-paused-icon {
+  display: block;
+  color: var(--color-warn);
+}
+.run-control[data-state="paused"] .run-control-label {
+  color: var(--color-warn);
+}
+.run-control[data-state="pausing"] .run-control-dot {
+  background: var(--color-warn);
+  animation: none;
+}
+.run-control .run-control-button {
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--color-text-2);
+}
+.run-control .run-control-button.is-primary {
+  padding: 4px 10px;
+  background: var(--color-warn);
+  color: #17130a;
+  font-weight: 600;
+}
+.run-control .run-control-button.is-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-warn) 86%, #fff);
+}
+.run-control-button[hidden] {
+  display: none;
 }
 .run-control-button {
   display: inline-flex;
@@ -86,11 +153,11 @@
    title and two choices only. */
 .run-cancel-confirm {
   position: absolute;
-  right: 18px;
+  right: 0;
   bottom: calc(100% + 10px);
   z-index: 30;
   display: flex;
-  width: 260px;
+  width: 280px;
   flex-direction: column;
   gap: 12px;
   padding: 16px;
@@ -111,38 +178,16 @@
   font-weight: 600;
   line-height: 20px;
 }
+.run-cancel-confirm p {
+  margin: -4px 0 0;
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .run-cancel-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-}
-
-/* The paused boundary stays with the transcript, so reopening the
-   conversation shows where Main stopped and the single action that resumes. */
-.run-paused {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 10px;
-  margin-top: 16px;
-  padding: 10px 14px;
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
-}
-.run-paused > svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
-  color: var(--color-warn);
-}
-.run-paused-text {
-  color: var(--color-text-2);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-.run-paused-spacer {
-  flex: 1;
-  min-width: 8px;
 }
 
 /* Model failure recovery keeps the old read-only classifications but takes
@@ -334,12 +379,8 @@ html[data-theme] #toast.toast {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .run-control-spinner {
-    display: none;
-  }
-  .run-control[data-state] .run-control-label::before {
-    content: "… ";
-    color: var(--color-accent);
+  :root:not([data-reduced-motion="off"]) .run-control-dot {
+    animation: none;
   }
   .toast-card {
     transform: none;
@@ -350,12 +391,7 @@ html[data-theme] #toast.toast {
   .run-control {
     gap: 6px;
   }
-  .run-control-label {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+  .run-control-step,
   .run-control-time {
     display: none;
   }
@@ -371,5 +407,82 @@ html[data-theme] #toast.toast {
   .run-control-button svg {
     width: 14px;
     height: 14px;
+  }
+}
+
+:root[data-reduced-motion="reduce"] .run-control-dot {
+  animation: none;
+}
+
+/* Queued messages: one row each, sent when the round ends, with insert-now and withdraw. */
+html[data-theme] .composer .queued-messages {
+  margin: 0 0 8px;
+  padding: 0;
+  border-bottom: 0;
+}
+html[data-theme] .composer .queued-message {
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--color-surface-2, var(--color-surface-3));
+}
+html[data-theme] .composer .queued-message + .queued-message {
+  margin-top: 4px;
+}
+.queued-message-icon {
+  flex: none;
+  color: var(--color-text-3);
+}
+.queued-message-state {
+  flex: none;
+  color: var(--color-text-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+html[data-theme] .composer .queued-message-text {
+  color: var(--color-text-2);
+}
+html[data-theme] .composer .queued-message .queued-message-action {
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-text-2);
+}
+html[data-theme] .composer .queued-message .queued-message-action:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface-3);
+}
+
+/* Model and reasoning effort share one button and one menu. */
+html[data-theme] .composer .model-select {
+  flex: 0 1 auto;
+  max-width: 300px;
+  color: var(--color-text-2);
+}
+html[data-theme] .composer .model-select .model-logo .ui-icon {
+  width: 15px;
+  height: 15px;
+}
+.composer .model-separator {
+  flex: none;
+  color: var(--color-text-3);
+}
+.composer .reasoning-label {
+  flex: none;
+  white-space: nowrap;
+}
+.model-menu-separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--color-line);
+}
+@media (max-width: 520px) {
+  .composer .model-separator,
+  .composer .reasoning-label {
+    display: none;
   }
 }

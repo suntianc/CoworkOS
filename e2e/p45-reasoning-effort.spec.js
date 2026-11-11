@@ -58,9 +58,10 @@ test("the composer shows and sends the Main connection's reasoning strength, and
     expect(saved.ok()).toBe(true);
 
     await page.goto(dashboard.base);
-    const reasoning = page.locator("#reasoning-select");
+    // Model and reasoning effort share one composer button and one menu.
+    const reasoning = page.locator("#model-select .reasoning-name");
     // Nothing has been picked here: the label names the connection's saved strength.
-    await expect(reasoning).toHaveAttribute("aria-label", "推理强度：最大");
+    await expect(reasoning).toHaveText("最大");
 
     const beforeFirst = provider.requests.length;
     await page.locator("#composer-input").fill("用连接保存的推理强度完成这条消息");
@@ -82,12 +83,13 @@ test("the composer shows and sends the Main connection's reasoning strength, and
       })
       .not.toBeUndefined();
     await page.locator("#settings-back").click();
-    await expect(reasoning).toHaveAttribute("aria-label", "推理强度：低");
+    await expect(reasoning).toHaveText("低");
 
     // An explicit pick is sent for this conversation; the connection stays as saved.
-    await reasoning.click();
-    await page.locator('#reasoning-menu [data-thinking-level="high"]').click();
-    await expect(reasoning).toHaveAttribute("aria-label", "推理强度：高");
+    await page.locator("#model-select").click();
+    await page.locator('#model-menu [data-thinking-level="high"]').click();
+    await expect(reasoning).toHaveText("高");
+    await expect(page.locator("#model-select")).toHaveAttribute("aria-label", /推理强度：高/);
     const beforeSecond = provider.requests.length;
     await page.locator("#composer-input").fill("这次用显式选择的推理强度");
     await page.locator("#send-button").click();

@@ -161,7 +161,8 @@ test("late follow-up 409 after completed cancellation cannot restart its task or
     await select(page, "task-a");
     await page.locator("#composer-input").fill("停止后必须保留的原始补充");
     await attach(page, "cancelled-follow-up.txt", "FOLLOW_UP_ATTACHMENT_END");
-    await page.locator("#send-button").click();
+    // ⌥Enter queues the message until the round ends.
+    await page.locator("#composer-input").press("Alt+Enter");
     await expect.poll(() => followUp?.attachmentIds?.length).toBe(1);
     expect(followUp.delivery).toBe("followUp");
 

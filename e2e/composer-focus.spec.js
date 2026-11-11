@@ -62,7 +62,7 @@ async function runningTask(page, dashboard, { held = false } = {}) {
   return { release, started: () => started, settled: () => settled };
 }
 
-test("a clicked send returns focus to the composer after an accepted run and queued follow-up", async ({
+test("a clicked send returns focus to the composer after an accepted run and an inserted follow-up", async ({
   page,
   dashboard
 }) => {
@@ -75,8 +75,10 @@ test("a clicked send returns focus to the composer after an accepted run and que
   await expect(input).toBeFocused();
   await page.keyboard.type("补充一条合成指令");
   await page.locator("#send-button").click();
-  await expect(page.locator("#queued-messages")).toContainText("补充一条合成指令");
-  await expect(page.locator(".chat-message.user").last()).toContainText("启动合成任务");
+  // Sending while Main runs inserts the message into its next step.
+  await expect(page.locator(".chat-message.user").filter({ hasText: "补充一条合成指令" })).toHaveCount(1);
+  await expect(page.locator("#queued-messages")).toBeHidden();
+  await expect(page.locator(".chat-message.user").filter({ hasText: "启动合成任务" })).toHaveCount(1);
   await expect(input).toHaveValue("");
   await expect(input).toBeFocused();
 });

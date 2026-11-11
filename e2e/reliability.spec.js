@@ -204,12 +204,13 @@ test("real Pi receives a complete attachment and steering; stop aborts inference
     await page.locator("#composer-input").fill("补充指令必须保留在记录里");
     await expect(page.locator("#stop-button")).toBeHidden();
     await expect(page.locator("#send-button")).toBeVisible();
-    await page.locator("#send-button").click();
+    // ⌥Enter queues the message until the round ends.
+    await page.locator("#composer-input").press("Alt+Enter");
     await expect.poll(() => interjectionStarted).toBe(true);
     expect(followUp.delivery).toBe("followUp");
     await page.locator("#composer-input").fill("等待发送期间写的下一条草稿");
     releaseInterjection();
-    await page.getByRole("button", { name: "立即发送：补充指令必须保留在记录里", exact: true }).click();
+    await page.getByRole("button", { name: "立即插入：补充指令必须保留在记录里", exact: true }).click();
     await expect(page.locator(".chat-message.user").last()).toContainText("补充指令必须保留");
     await expect(page.locator("#composer-input")).toHaveValue("等待发送期间写的下一条草稿");
     await page.reload();

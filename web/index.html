@@ -423,6 +423,10 @@
           <path d="M12 9v4M12 17h.01" />
         </symbol>
         <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
+        <symbol id="i-sparkles" viewBox="0 0 24 24">
+          <path d="M11 3 9.5 7.5 5 9l4.5 1.5L11 15l1.5-4.5L17 9l-4.5-1.5Z" />
+          <path d="M18 14v4M16 16h4M6 17v3M4.5 18.5h3" />
+        </symbol>
         <symbol id="i-square-pen" viewBox="0 0 24 24">
           <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
           <path d="M18.4 2.6a2.1 2.1 0 0 1 3 3l-9 9-4 1 1-4Z" />
@@ -692,11 +696,16 @@
                   hidden
                 ></section>
                 <div class="composer">
-                  <section id="run-control" class="run-control" aria-label="运行控制" hidden>
-                    <svg class="run-control-spinner" aria-hidden="true"><use href="#i-loader-circle" /></svg>
+                  <section id="run-control" class="run-control" aria-label="运行状态" hidden>
+                    <span class="run-control-dot" aria-hidden="true"></span>
+                    <svg class="ui-icon run-control-paused-icon" aria-hidden="true">
+                      <use href="#i-pause" />
+                    </svg>
                     <span class="run-control-label" data-run-label>Main 正在工作</span>
-                    <span class="run-control-time" data-run-time></span>
+                    <span class="run-control-detail" data-run-detail hidden></span>
                     <span class="run-control-spacer"></span>
+                    <span class="run-control-step" data-run-step hidden></span>
+                    <span class="run-control-time" data-run-time></span>
                     <button
                       class="run-control-button"
                       type="button"
@@ -706,15 +715,8 @@
                     >
                       <svg class="ui-icon" aria-hidden="true"><use href="#i-pause" /></svg><span>暂停</span>
                     </button>
-                    <button
-                      class="run-control-button is-danger"
-                      type="button"
-                      data-run-cancel
-                      title="取消运行"
-                      aria-label="取消运行"
-                    >
-                      <svg class="ui-icon" aria-hidden="true"><use href="#i-square" /></svg
-                      ><span>取消运行</span>
+                    <button class="run-control-button is-primary" type="button" data-run-continue hidden>
+                      <svg class="ui-icon" aria-hidden="true"><use href="#i-play" /></svg><span>继续</span>
                     </button>
                   </section>
                   <div
@@ -723,9 +725,11 @@
                     role="dialog"
                     aria-modal="false"
                     aria-labelledby="run-cancel-title"
+                    aria-describedby="run-cancel-detail"
                     hidden
                   >
-                    <h2 id="run-cancel-title">取消本次运行？</h2>
+                    <h2 id="run-cancel-title">取消这次运行？</h2>
+                    <p id="run-cancel-detail">已完成的步骤和文件改动会保留，正在执行的命令会被终止。</p>
                     <div class="run-cancel-actions">
                       <button class="run-control-button" type="button" data-confirm-continue>继续运行</button>
                       <button class="run-control-button is-danger" type="button" data-confirm-cancel>
@@ -775,29 +779,16 @@
                         class="model-select"
                         id="model-select"
                         type="button"
-                        title="切换模型"
+                        title="切换模型与推理强度"
                         aria-haspopup="listbox"
                         aria-expanded="false"
                       >
                         <span class="model-logo"
-                          ><svg class="brand-symbol" aria-hidden="true">
-                            <use href="#i-formicand-mark-small" /></svg
+                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-sparkles" /></svg
                         ></span>
                         <span class="model-name">Formicand Main</span
-                        ><span class="model-chevron"
-                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-                        ></span>
-                      </button>
-                      <button
-                        class="reasoning-select"
-                        id="reasoning-select"
-                        type="button"
-                        title="设置推理强度"
-                        aria-label="推理强度：自动"
-                        aria-haspopup="listbox"
-                        aria-expanded="false"
-                      >
-                        <span class="reasoning-name">自动</span
+                        ><span class="model-separator" aria-hidden="true">·</span
+                        ><span class="reasoning-label">推理 <span class="reasoning-name">自动</span></span
                         ><span class="model-chevron"
                           ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
                         ></span>
@@ -835,12 +826,11 @@
                         <svg class="ui-icon"><use href="#i-send" /></svg>
                       </button>
                     </div>
-                    <div class="model-menu" id="model-menu" role="listbox" aria-label="可用模型" hidden></div>
                     <div
-                      class="model-menu reasoning-menu"
-                      id="reasoning-menu"
+                      class="model-menu"
+                      id="model-menu"
                       role="listbox"
-                      aria-label="推理强度"
+                      aria-label="模型与推理强度"
                       hidden
                     ></div>
                     <div

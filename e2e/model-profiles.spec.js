@@ -394,12 +394,12 @@ test("composer reasoning level is sent with the selected Main request", async ({
   try {
     await page.goto(dashboard.base);
     // Nothing is picked yet: the label is the effort this fixture's connection saved.
-    await expect(page.locator("#reasoning-select")).toHaveAttribute("aria-label", "推理强度：关闭");
-    await page.locator("#reasoning-select").click();
-    await expect(page.locator("#reasoning-menu")).toBeVisible();
-    await expect(page.locator("#reasoning-menu [data-thinking-level]")).toHaveCount(7);
-    await page.locator('#reasoning-menu [data-thinking-level="high"]').click();
-    await expect(page.locator("#reasoning-select")).toHaveAttribute("aria-label", "推理强度：高");
+    await expect(page.locator("#model-select .reasoning-name")).toHaveText("关闭");
+    await page.locator("#model-select").click();
+    await expect(page.locator("#model-menu")).toBeVisible();
+    await expect(page.locator("#model-menu [data-thinking-level]")).toHaveCount(7);
+    await page.locator('#model-menu [data-thinking-level="high"]').click();
+    await expect(page.locator("#model-select .reasoning-name")).toHaveText("高");
     await page.locator("#composer-input").fill("用高推理强度完成这条消息");
     await page.locator("#send-button").click();
     await expect(page.locator("#conversation")).toContainText("推理档位已生效", { timeout: 30_000 });

@@ -48,7 +48,10 @@ async function checkToolbar(page, width) {
     .locator(".model-name")
     .evaluate((node) => ({ width: node.clientWidth, full: node.scrollWidth }));
   expect(name.width).toBeLessThan(name.full);
-  await expect(page.locator("#model-select")).toHaveAttribute("title", `切换模型 · ${model}`);
+  // One button names the model and the reasoning effort.
+  expect(await page.locator("#model-select").getAttribute("title")).toContain(
+    `切换模型与推理强度 · ${model} · 推理`
+  );
 }
 
 test("the composer keeps one compact action row with long model and project names at desktop and narrow widths", async ({
@@ -231,18 +234,29 @@ test("the running composer switches one primary action and preserves the draft t
     await expect(stop).toBeHidden();
     await send.click();
     await expect.poll(() => followUps.length).toBe(1);
-    expect(followUps[0].delivery).toBe("followUp");
+    // Sending while Main runs inserts the message into its next step.
+    expect(followUps[0].delivery).toBe("steer");
     expect(followUps[0].message).toBe("请查看这些附件。");
     expect(followUps[0].attachmentIds).toHaveLength(1);
     await expect(page.locator(".attachment-chip")).toHaveCount(0);
     await expect(stop).toBeVisible();
     await expect(send).toBeHidden();
-    await input.fill("运行中排队的文字补充");
+    await input.fill("运行中插入的文字补充");
     await expect(send).toBeVisible();
+    await expect(send).toHaveAttribute("aria-label", "插入下一步");
     await expect(stop).toBeHidden();
     await send.click();
     await expect.poll(() => followUps.length).toBe(2);
     expect(followUps[1]).toEqual({
+      message: "运行中插入的文字补充",
+      delivery: "steer",
+      attachmentIds: []
+    });
+    // ⌥Enter queues the message until the round ends instead.
+    await input.fill("运行中排队的文字补充");
+    await input.press("Alt+Enter");
+    await expect.poll(() => followUps.length).toBe(3);
+    expect(followUps[2]).toEqual({
       message: "运行中排队的文字补充",
       delivery: "followUp",
       attachmentIds: []
@@ -251,6 +265,7 @@ test("the running composer switches one primary action and preserves the draft t
     await expect(stop).toBeVisible();
     await expect(send).toBeHidden();
     await stop.click();
+    await page.locator("#run-cancel-confirm").getByRole("button", { name: "取消运行" }).click();
     await expect(stop).toHaveAttribute("aria-label", "正在停止任务");
     await expect(stop).toBeDisabled();
     await expect(stop).toHaveAttribute("aria-busy", "true");
@@ -263,7 +278,7 @@ test("the running composer switches one primary action and preserves the draft t
     await expect(stop).toBeVisible();
     await expect(stop).toBeDisabled();
     await expect(stop.locator("svg use")).toHaveAttribute("href", "#i-stop");
-    expect(followUps).toHaveLength(2);
+    expect(followUps).toHaveLength(3);
     expect(cancellations).toEqual([{ action: "cancel" }]);
     if (process.env.COWORK_KEEP_STOP_PROBE === "1")
       await page.locator(".composer").screenshot({
@@ -284,7 +299,7 @@ test("the running composer switches one primary action and preserves the draft t
     await expect(send).toBeVisible();
     await expect(send).toHaveAttribute("aria-label", "发送");
     await expect(input).toHaveValue("停止等待期间写的草稿");
-    expect(followUps).toHaveLength(2);
+    expect(followUps).toHaveLength(3);
     expect(cancellations).toEqual([{ action: "cancel" }, { action: "cancel" }]);
   } finally {
     releaseCancel();

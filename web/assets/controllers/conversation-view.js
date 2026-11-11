@@ -25,12 +25,6 @@ const toolKinds = new Map([
   ...["bash", "run_command", "exec_command", "run_tests"].map((name) => [name, "command"])
 ]);
 
-function clockTime(value) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
 function latestModelRetry(events) {
   const retry = events
     .map((record) => (record?.type === "runtime_event" ? record.payload : record))
@@ -163,8 +157,7 @@ export function createConversationView({
   edit,
   messageEdit,
   openSettings,
-  openArtifact,
-  continueRun
+  openArtifact
 }) {
   const markdown = (source, options = {}) =>
     renderMarkdown(source, {
@@ -262,10 +255,6 @@ export function createConversationView({
   }
   function allPreservedMessage(task) {
     return task.taskId && state.detail?.messages?.length ? ui("你发送的内容和已有过程已保留。") : "";
-  }
-  function renderPaused(task, pause) {
-    const at = clockTime(pause.pausedAt || task.updatedAt);
-    return ui`<div class="run-paused" role="status" data-run-paused>${icon("pause")}<span class="run-paused-text">已暂停${at ? ` · ${at}` : ""}</span><span class="run-paused-spacer"></span><button class="run-control-button" type="button" data-run-continue>${icon("play")}<span>继续</span></button></div>`;
   }
   function renderConversation(messages, task) {
     const scroll = $("#conversation");
@@ -465,8 +454,7 @@ export function createConversationView({
       (restoredEditor
         ? `<article class="chat-message user is-editing" data-view-key="${esc(`${task.taskId}:restored-edit`)}"><div class="message-copy"><div class="user-message-bubble">${restoredEditor}${messageEdit.actions?.(task.taskId, messageEdit.editingMessageId) || ""}</div></div></article>`
         : "") +
-      (failure ? renderFailure(task, failure) : "") +
-      (paused ? renderPaused(task, paused) : "");
+      (failure ? renderFailure(task, failure) : "");
     if (lastMarkup !== markup) {
       reconcileMarkup(scroll, markup);
       lastMarkup = markup;
@@ -474,8 +462,7 @@ export function createConversationView({
       for (const [selector, action] of [
         ["[data-edit-message]", () => edit?.(task.taskId, state.detail?.editableMessage)],
         ["[data-retry-request]", () => retry?.(task.taskId)],
-        ["[data-error-settings]", () => openSettings?.()],
-        ["[data-run-continue]", () => continueRun?.(task.taskId)]
+        ["[data-error-settings]", () => openSettings?.()]
       ]) {
         const node = scroll.querySelector(selector);
         if (!node || boundNodes.has(node)) continue;

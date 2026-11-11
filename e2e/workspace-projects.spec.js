@@ -120,7 +120,8 @@ test("project drafts inherit the selected project and canceling settings preserv
     expect((await taskDetail(page, dashboard, "original")).projectDirectory).toBe(a.projectDirectory);
     await expect(groupFor(page, a.projectId)).toContainText("项目 A");
     await expect(page.locator("#workspace-button")).toHaveCount(0);
-    await page.getByRole("button", { name: "会话菜单", exact: true }).click();
+    await page.locator(".conversation-item.active").click({ button: "right" });
+    await expect(page.locator("#session-menu")).toBeVisible();
     await expect(page.locator('[data-session-action="workspace"]')).toHaveCount(0);
     await page.keyboard.press("Escape");
     await newConversationFor(page, b.projectId).locator("..").hover();
@@ -297,6 +298,11 @@ test("legacy directory groups keep their identities while explicit empty project
     await expect(page.locator(".project-group.is-selected .project-row")).toHaveAttribute("title", legacy);
     await page.request.patch(`${dashboard.base}/api/tasks/legacy`, { data: { archived: true } });
     await page.reload();
+    // The open conversation stays listed, marked archived, until the user leaves it.
+    await expect(page.locator('.conversation-item[data-task="legacy"]').locator("..")).toHaveClass(
+      /is-archived/
+    );
+    await page.locator("#titlebar-new-session").click();
     await expect(groupFor(page, legacy)).toHaveCount(0);
     await expect(groupFor(page, empty.projectId)).toBeVisible();
   } finally {

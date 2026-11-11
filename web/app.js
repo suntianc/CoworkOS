@@ -439,7 +439,6 @@ const conversationView = createConversationView({
   // settings surface remains one click away from the composer selector.
   openSettings: () => setTimeout(() => void toggleModelMenu(), 0),
   retry: (taskId) => void retryFailedRequest(taskId),
-  continueRun: (taskId) => void continuePausedRun(taskId),
   messageEdit,
   edit: (taskId, target) => messageEdit.begin(taskId, target)
 });
@@ -449,7 +448,9 @@ runControl = createRunControl({
   api,
   showToast,
   onChanged: () => refresh(),
-  cancelRun: (taskId) => stopTask(taskId)
+  cancelRun: (taskId) => stopTask(taskId),
+  continueRun: (taskId) => continuePausedRun(taskId),
+  isContinuing: (taskId) => continuingTasks.has(taskId)
 });
 /**
  * Backend files shown as images or iframes.
@@ -681,7 +682,16 @@ function setModelLabel(value) {
   const name = $(".model-name");
   if (name) name.textContent = label;
   else $(".model-select").textContent = label;
-  $("#model-select").title = ui`切换模型 · ${label}`;
+  paintModelButton();
+}
+/** One button names the model and the reasoning level this Run will send. */
+function paintModelButton() {
+  const button = $("#model-select");
+  if (!button) return;
+  const model = $(".model-name")?.textContent || "";
+  const level = $(".reasoning-name")?.textContent || "";
+  button.title = ui`切换模型与推理强度 · ${model} · 推理 ${level}`;
+  button.setAttribute("aria-label", ui`模型：${model}，推理强度：${level}`);
 }
 
 const THINKING_LEVEL_LABELS = {
@@ -700,10 +710,7 @@ function setThinkingLabel(value) {
   const label = effective ? THINKING_LEVEL_LABELS[effective] || effective : ui("自动");
   const name = $(".reasoning-name");
   if (name) name.textContent = label;
-  const button = $("#reasoning-select");
-  if (!button) return;
-  button.title = ui`设置推理强度 · ${label}`;
-  button.setAttribute("aria-label", ui`推理强度：${label}`);
+  paintModelButton();
 }
 
 // A new conversation inherits the last picked model when it is still offered
@@ -1154,6 +1161,7 @@ function renderConversationList() {
   }
   projectController.render();
   conversationHistory.visit(state.selected);
+  runControl?.render();
   syncIdleComposer();
 }
 
@@ -1458,14 +1466,26 @@ function renderModelMenu() {
   const button = $("#model-select");
   if (!menu || !button) return;
   const models = state.models.length ? state.models : [state.model || state.defaultModel || "glm-5.3"];
-  menu.innerHTML = ui`<div class="model-menu-title">选择模型</div>${models.map((model) => `<button type="button" class="model-option ${model === state.model ? "active" : ""}" data-model="${esc(model)}" role="option" aria-selected="${model === state.model}"><span class="model-option-check">${model === state.model ? icon("check") : ""}</span><span class="model-option-name">${esc(model)}</span></button>`).join("")}`;
+  const option = (attribute, value, label, selected) =>
+    `<button type="button" class="model-option ${selected ? "active" : ""}" ${attribute}="${esc(value)}" role="option" aria-selected="${selected}"><span class="model-option-check">${selected ? icon("check") : ""}</span><span class="model-option-name">${esc(label)}</span></button>`;
+  const level = state.thinkingLevel || state.mainThinkingLevel || "auto";
+  menu.innerHTML = ui`<div class="model-menu-title" role="presentation">选择模型</div>${models
+    .map((model) => option("data-model", model, model, model === state.model))
+    .join(
+      ""
+    )}<div class="model-menu-separator" role="presentation"></div><div class="model-menu-title" role="presentation">推理强度</div>${THINKING_LEVEL_OPTIONS.map(
+    ([value, label]) => option("data-thinking-level", value, label, value === level)
+  ).join("")}`;
   menu.hidden = false;
   positionModelMenu();
   button.setAttribute("aria-expanded", "true");
-  menu.querySelector("button.active, button")?.focus();
+  menu.querySelector("[data-model].active, button")?.focus();
   menu
     .querySelectorAll("[data-model]")
     .forEach((node) => node.addEventListener("click", () => chooseModel(node.dataset.model)));
+  menu
+    .querySelectorAll("[data-thinking-level]")
+    .forEach((node) => node.addEventListener("click", () => chooseThinkingLevel(node.dataset.thinkingLevel)));
 }
 
 function closeModelMenu() {
@@ -1495,49 +1515,15 @@ function chooseModel(model) {
   showToast(ui`已切换模型：${selected}`);
 }
 
-function renderThinkingMenu() {
-  const menu = $("#reasoning-menu");
-  const button = $("#reasoning-select");
-  if (!menu || !button) return;
-  const options = [
-    ["auto", ui("自动")],
-    ["off", ui("关闭")],
-    ["low", ui("低")],
-    ["medium", ui("中")],
-    ["high", ui("高")],
-    ["xhigh", ui("极高")],
-    ["max", ui("最大")]
-  ];
-  const selected = state.thinkingLevel || state.mainThinkingLevel || "auto";
-  menu.innerHTML = ui`<div class="model-menu-title">推理强度</div>${options
-    .map(
-      ([value, label]) =>
-        `<button type="button" class="model-option ${value === selected ? "active" : ""}" data-thinking-level="${value}" role="option" aria-selected="${value === selected}"><span class="model-option-check">${value === selected ? icon("check") : ""}</span><span class="model-option-name">${label}</span></button>`
-    )
-    .join("")}`;
-  menu.hidden = false;
-  positionModelMenu(button, menu);
-  button.setAttribute("aria-expanded", "true");
-  menu.querySelector("button.active, button")?.focus();
-  menu
-    .querySelectorAll("[data-thinking-level]")
-    .forEach((node) => node.addEventListener("click", () => chooseThinkingLevel(node.dataset.thinkingLevel)));
-}
-
-function closeThinkingMenu() {
-  const menu = $("#reasoning-menu");
-  const button = $("#reasoning-select");
-  if (!menu || !button) return;
-  menu.hidden = true;
-  button.setAttribute("aria-expanded", "false");
-}
-
-function toggleThinkingMenu() {
-  const menu = $("#reasoning-menu");
-  if (!menu) return;
-  if (!menu.hidden) return closeThinkingMenu();
-  renderThinkingMenu();
-}
+const THINKING_LEVEL_OPTIONS = [
+  ["auto", ui("自动")],
+  ["off", ui("关闭")],
+  ["low", ui("低")],
+  ["medium", ui("中")],
+  ["high", ui("高")],
+  ["xhigh", ui("极高")],
+  ["max", ui("最大")]
+];
 
 function chooseThinkingLevel(value) {
   const selected = value === "auto" ? null : String(value || "").trim();
@@ -1545,7 +1531,8 @@ function chooseThinkingLevel(value) {
   state.thinkingLevel = selected;
   if (state.selected) state.thinkingLevelByTask.set(state.selected, selected);
   setThinkingLabel(selected);
-  closeThinkingMenu();
+  closeModelMenu();
+  $("#model-select").focus();
 }
 
 async function toggleOutputPane() {
@@ -1603,14 +1590,17 @@ async function stopTask(taskId = state.selected) {
     updateSendButton();
   }
 }
-$("#stop-button").addEventListener("click", () => void stopTask());
+// Stopping a run discards the step in flight, so the stop key asks first.
+$("#stop-button").addEventListener("click", () => runControl.confirmStop($("#stop-button")));
 $("#send-button").addEventListener("click", () => void sendMessage());
 $("#composer-input").addEventListener("input", updateSendButton);
 $("#composer-input").addEventListener("keydown", (event) => {
   // Enter sends like a desktop chat client; Shift+Enter keeps the textarea multiline.
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
-    void sendMessage();
+    // While Main runs, Enter inserts the message into its next step and ⌥Enter
+    // queues it until the current round ends.
+    void sendMessage({ queue: event.altKey });
   }
 });
 $("#new-conversation").addEventListener("click", beginNewConversation);
@@ -1638,10 +1628,8 @@ document.addEventListener("keydown", (event) => {
 });
 
 $("#model-select").addEventListener("click", () => void toggleModelMenu());
-$("#reasoning-select").addEventListener("click", toggleThinkingMenu);
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#model-select, #model-menu")) closeModelMenu();
-  if (!event.target.closest("#reasoning-select, #reasoning-menu")) closeThinkingMenu();
 });
 $("#app-bind-select")?.addEventListener("click", () => ensureBinding()?.toggle());
 document.addEventListener("click", (event) => {
@@ -1687,14 +1675,7 @@ window.addEventListener("popstate", () => {
   if (state.tasks.some((task) => task.taskId === taskId)) selectConversation(taskId);
 });
 createMenu($("#model-select"), $("#model-menu"), { toggleOnClick: false, onClose: closeModelMenu });
-createMenu($("#reasoning-select"), $("#reasoning-menu"), {
-  toggleOnClick: false,
-  onClose: closeThinkingMenu
-});
-window.addEventListener("resize", () => {
-  positionModelMenu();
-  positionModelMenu($("#reasoning-select"), $("#reasoning-menu"));
-});
+window.addEventListener("resize", () => positionModelMenu());
 createMenu($("#app-bind-select"), $("#app-bind-menu"), {
   toggleOnClick: false,
   onClose: () => workbenchController.binding?.close()
@@ -2195,8 +2176,8 @@ function updateSendButton() {
   $("#stop-button").hidden = !showStop;
   $("#stop-button").disabled = stopping;
   $("#stop-button").setAttribute("aria-busy", String(stopping));
-  $("#stop-button").setAttribute("aria-label", stopping ? ui("正在停止任务") : ui("停止任务"));
-  $("#stop-button").title = stopping ? ui("正在停止任务…") : ui("停止任务");
+  $("#stop-button").setAttribute("aria-label", stopping ? ui("正在停止任务") : ui("取消运行"));
+  $("#stop-button").title = stopping ? ui("正在停止任务…") : ui("取消运行");
   $("#model-setup-button").hidden = state.modelConfigured !== false;
   $("#send-button").title = awaitingSetup
     ? firstUse.lockReason()
@@ -2209,9 +2190,9 @@ function updateSendButton() {
           : readingAttachments
             ? ui("正在读取附件…")
             : running
-              ? ui("排队发送（当前任务结束后处理）")
+              ? ui("插入下一步（Enter）· 本轮结束后发送（⌥Enter）")
               : ui("发送（Enter）");
-  $("#send-button").setAttribute("aria-label", running ? ui("排队发送") : ui("发送"));
+  $("#send-button").setAttribute("aria-label", running ? ui("插入下一步") : ui("发送"));
   if (composerSession.editing) {
     $("#send-button").title = ui("请先保存或取消正在编辑的消息");
     $("#send-button").disabled = true;
@@ -2272,7 +2253,7 @@ async function submitMessageEdit() {
   }
 }
 
-async function sendMessage() {
+async function sendMessage({ queue = false } = {}) {
   if (!$("#human-questions").hidden) return;
   if (firstUse.blocksSending()) return;
   const input = $("#composer-input");
@@ -2284,10 +2265,10 @@ async function sendMessage() {
     return showToast(ui("请先保存或取消正在编辑的消息，底部草稿会保留。"));
   }
   if (state.modelConfigured === false) return void modelSettings.open();
-  // Running input waits for the current work to end unless the user promotes it.
+  // Running input joins Main's next step; a queued message waits for the round to end.
   if (state.detail?.task?.taskId === state.selected && state.detail?.runtime?.active && state.selected) {
     try {
-      return interject(state.selected, composePrompt(text, state.attachments));
+      return interject(state.selected, composePrompt(text, state.attachments), queue ? "followUp" : "steer");
     } catch (error) {
       showToast(error.message);
       return;

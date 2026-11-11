@@ -79,6 +79,7 @@ test("real retries announce HTTP failure and a stopped request never becomes com
     await send("需要停止的请求");
     await expect(page.locator("#conversation")).toContainText("只输出了部分内容", { timeout: 30000 });
     await page.locator("#stop-button").click();
+    await page.locator("#run-cancel-confirm").getByRole("button", { name: "取消运行" }).click();
     await expect(page.locator("#send-button")).toBeVisible();
     await send("继续新的请求");
     await expect(page.locator('[data-answer-kind="final"]').last()).toContainText("后续请求完成", {

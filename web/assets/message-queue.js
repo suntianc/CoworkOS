@@ -19,8 +19,8 @@ export function renderMessageQueue(
   reconcileMarkup(
     host,
     pending.length
-      ? ui`<div class="queued-heading">排队中 <span>${pending.length}</span><small>${running ? ui("当前任务结束后发送") : ui("等待发送")}</small></div>${pending
-          .map((message) => {
+      ? pending
+          .map((message, index) => {
             const text =
               typeof message.content === "string"
                 ? message.content
@@ -28,9 +28,14 @@ export function renderMessageQueue(
             const preview =
               splitUploadedFiles(text).text.split("\n\nAttached files:")[0].trim() || ui("附件消息");
             const busy = promoting.has(`${taskId}:${message.id}`);
-            return ui`<div class="queued-message"><span class="queued-message-text" title="${esc(preview.slice(0, 500))}">${esc(preview)}</span><button type="button" data-promote-message="${esc(message.id)}" ${disabled || busy ? "disabled" : ""} aria-label="立即发送：${esc(preview.slice(0, 60))}" title="${running ? ui("插入下一轮模型调用") : ui("启动新一轮对话")}"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6" /></svg><span>${busy ? ui("处理中…") : ui("立即发送")}</span></button><button type="button" data-cancel-message="${esc(message.id)}" ${disabled || busy ? "disabled" : ""} aria-label="取消排队：${esc(preview.slice(0, 60))}" title="从队列中移除">取消</button></div>`;
+            const short = esc(preview.slice(0, 60));
+            // While Main runs a queued message can join its next step; once the
+            // round is over it starts the next one.
+            const promoteLabel = running ? ui`立即插入：${short}` : ui`立即发送：${short}`;
+            const promoteTitle = running ? ui("立即插入到下一步") : ui("立即发送，启动新一轮对话");
+            return ui`<div class="queued-message"><svg class="ui-icon queued-message-icon" aria-hidden="true"><use href="#i-history"/></svg><span class="queued-message-state">排队 ${index + 1}<span aria-hidden="true"> · </span>${running ? ui("本轮结束后发送") : ui("等待发送")}</span><span class="queued-message-text" title="${esc(preview.slice(0, 500))}">${esc(preview)}</span><button type="button" class="queued-message-action" data-promote-message="${esc(message.id)}" ${disabled || busy ? "disabled" : ""} aria-label="${promoteLabel}" title="${promoteTitle}" ${busy ? 'aria-busy="true"' : ""}><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 5v7a3 3 0 0 0 3 3h11m-4-4 4 4-4 4" /></svg></button><button type="button" class="queued-message-action" data-cancel-message="${esc(message.id)}" ${disabled || busy ? "disabled" : ""} aria-label="撤回：${short}" title="撤回，不再发送"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>`;
           })
-          .join("")}`
+          .join("")
       : ""
   );
   host.querySelectorAll("[data-cancel-message]").forEach((button) => {

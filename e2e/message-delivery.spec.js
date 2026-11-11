@@ -34,8 +34,9 @@ test("steering reaches the next model call while queued input waits until the cu
       data: { message: "不应接受", delivery: "invalid" }
     });
     expect(invalid.ok()).toBe(false);
+    // While Main runs, ⌥Enter queues a message until the round ends.
     await page.locator("#composer-input").fill("QUEUED_REQUEST");
-    await page.locator("#send-button").click();
+    await page.locator("#composer-input").press("Alt+Enter");
     await expect(page.locator("#queued-messages")).toContainText("QUEUED_REQUEST");
     await page.reload();
     await expect(page.locator("#queued-messages")).toContainText("QUEUED_REQUEST");
@@ -48,10 +49,10 @@ test("steering reaches the next model call while queued input waits until the cu
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.locator("#composer-input").fill("STEER_REQUEST");
-    await page.locator("#send-button").click();
+    await page.locator("#composer-input").press("Alt+Enter");
     await expect(page.locator("#composer-input")).toHaveValue("");
     await page.reload();
-    const promote = page.getByRole("button", { name: "立即发送：STEER_REQUEST", exact: true });
+    const promote = page.getByRole("button", { name: "立即插入：STEER_REQUEST", exact: true });
     await expect(promote).toBeVisible();
     await page.locator("#composer-input").fill("下一条未发送的草稿");
     await page.locator(".composer").screenshot({ path: ".tmp/message-queue-preview.png" });
@@ -163,17 +164,18 @@ test("stopped queued messages can be cancelled or sent once without losing the c
     const taskId = await page.locator(".conversation-item.active").getAttribute("data-task");
     for (const message of ["SEND_AFTER_STOP", "CANCEL_AFTER_STOP", "CANCEL_WHILE_RUNNING"]) {
       await page.locator("#composer-input").fill(message);
-      await page.locator("#send-button").click();
+      await page.locator("#composer-input").press("Alt+Enter");
       await expect(page.locator("#queued-messages")).toContainText(message);
     }
-    await page.getByRole("button", { name: "取消排队：CANCEL_WHILE_RUNNING", exact: true }).click();
+    await page.getByRole("button", { name: "撤回：CANCEL_WHILE_RUNNING", exact: true }).click();
     await expect(page.locator("#queued-messages")).not.toContainText("CANCEL_WHILE_RUNNING");
     await page.locator("#stop-button").click();
+    await page.locator("#run-cancel-confirm").getByRole("button", { name: "取消运行" }).click();
     await expect(page.locator("#stop-button")).toBeHidden();
     releaseFirst();
     await page.reload();
     await expect(page.locator("#queued-messages")).toContainText("等待发送");
-    const cancelled = page.getByRole("button", { name: "取消排队：CANCEL_AFTER_STOP", exact: true });
+    const cancelled = page.getByRole("button", { name: "撤回：CANCEL_AFTER_STOP", exact: true });
     const cancelId = await cancelled.getAttribute("data-cancel-message");
     await cancelled.click();
     await expect(page.locator("#queued-messages")).not.toContainText("CANCEL_AFTER_STOP");
