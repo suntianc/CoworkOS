@@ -4,14 +4,12 @@
    Colours come from the shared tokens, so both themes keep one palette. */
 
 :root {
-  /* The preview stays opaque enough to read code over the conversation. */
-  --drawer-fill: #17171df7;
+  /* The preview is an overlay (#28): solid, so code reads over the conversation. */
+  --drawer-fill: var(--popover-fill);
   --drawer-shadow: -12px 0 48px #00000099;
-  --drawer-blur: 40px;
 }
 html[data-theme="light"] {
-  --drawer-fill: #fbfbfdf7;
-  --drawer-shadow: -12px 0 48px #2a2a6a26;
+  --drawer-shadow: -12px 0 48px #00000024;
 }
 
 /* ---- requirement panel ---------------------------------------------------- */
@@ -560,13 +558,12 @@ html[data-theme] .artifact-drawer {
   flex-direction: column;
   overflow: hidden;
   padding: 0;
-  border: 1px solid var(--color-glass-edge);
+  border: 1px solid var(--popover-edge);
   border-radius: 16px;
   color: var(--color-text);
   background-color: var(--drawer-fill);
   background-image: none;
   box-shadow: var(--drawer-shadow);
-  backdrop-filter: blur(var(--drawer-blur));
 }
 .artifact-drawer[hidden] {
   display: none;

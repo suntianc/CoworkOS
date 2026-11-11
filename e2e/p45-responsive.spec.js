@@ -559,7 +559,7 @@ test("the light theme keeps every page's text and status colours readable at eac
       await expect.poll(() => documentWidth(page)).toBe(width);
       // The page itself stays the theme's own solid colour.
       const backdrop = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-      expect(backdrop, `backdrop at ${width}`).toBe("rgb(244, 244, 248)");
+      expect(backdrop, `backdrop at ${width}`).toBe("rgb(233, 233, 236)");
       await expectReadable(workPage, width, "work");
 
       await chooseEntry(page, "观测");

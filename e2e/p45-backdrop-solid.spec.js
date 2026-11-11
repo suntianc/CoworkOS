@@ -51,11 +51,14 @@ test("Web paints one solid backdrop per theme with no gradients and keeps the gl
     await expect(page.locator("html")).toHaveAttribute("data-window-material", "none");
 
     const dark = await surfaces(page);
-    expectSolidBackdrop(dark, "rgb(14, 14, 15)");
+    expectSolidBackdrop(dark, "rgb(11, 11, 12)");
+    // Layers (#30): the conversation nearly solid, the task panel clearer.
+    expect(dark.conversation.color).toBe("rgba(22, 22, 25, 0.92)");
+    expect(dark.conversation.blur).toBe("blur(24px)");
+    expect(dark.taskPanel.color).toBe("rgba(20, 20, 23, 0.8)");
+    expect(dark.taskPanel.blur).toBe("blur(32px)");
     for (const panel of [dark.conversation, dark.taskPanel]) {
-      expect(panel.color).toBe("rgba(255, 255, 255, 0.06)");
       expect(panel.image).toContain("linear-gradient");
-      expect(panel.blur).toBe("blur(20px)");
       expect(panel.radius).toBe("16px");
     }
 
@@ -66,18 +69,20 @@ test("Web paints one solid backdrop per theme with no gradients and keeps the gl
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
     const light = await surfaces(page);
-    expectSolidBackdrop(light, "rgb(244, 244, 248)");
+    expectSolidBackdrop(light, "rgb(233, 233, 236)");
+    expect(light.conversation.color).toBe("rgba(255, 255, 255, 0.95)");
+    expect(light.conversation.blur).toBe("blur(24px)");
+    expect(light.taskPanel.color).toBe("rgba(250, 250, 251, 0.78)");
+    expect(light.taskPanel.blur).toBe("blur(32px)");
     for (const panel of [light.conversation, light.taskPanel]) {
-      expect(panel.color).toBe("rgba(255, 255, 255, 0.55)");
       expect(panel.image).toContain("linear-gradient");
-      expect(panel.blur).toBe("blur(20px)");
       expect(panel.radius).toBe("16px");
     }
 
     // Switching back keeps the painted page solid and the panels untouched.
     await settings.locator('[data-appearance-value="dark"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    expectSolidBackdrop(await surfaces(page), "rgb(14, 14, 15)");
+    expectSolidBackdrop(await surfaces(page), "rgb(11, 11, 12)");
   } finally {
     await dashboard.stop();
   }

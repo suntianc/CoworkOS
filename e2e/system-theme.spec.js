@@ -383,12 +383,12 @@ test("manual appearance persists, ignores OS overrides and can return to system 
     ])
       await expect(page.locator(`[data-appearance-value="${value}"]`)).toContainText(label);
     await chooseAppearance(page, "light");
-    expect(await surface()).toEqual({ color: "rgb(244, 244, 248)", image: "none" });
+    expect(await surface()).toEqual({ color: "rgb(233, 233, 236)", image: "none" });
     await chooseAppearance(page, "dark");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await page.emulateMedia({ colorScheme: "light" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    expect(await surface()).toEqual({ color: "rgb(14, 14, 15)", image: "none" });
+    expect(await surface()).toEqual({ color: "rgb(11, 11, 12)", image: "none" });
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(input).toHaveValue("外观切换草稿");
@@ -533,7 +533,7 @@ test("native system appearance uses host changes even when browser media differs
     await page.evaluate(() => window.appearanceChange({ preference: "system", effective: "dark" }));
     await expect(html).toHaveAttribute("data-theme", "dark");
     await expect(html).toHaveCSS("color-scheme", "dark");
-    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute("content", "#0e0e0f");
+    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute("content", "#0b0b0c");
     await expect(page.locator('[data-appearance-value="system"]')).toHaveAttribute("aria-checked", "true");
   } finally {
     await dashboard.stop();

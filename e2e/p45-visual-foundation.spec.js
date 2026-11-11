@@ -2,47 +2,47 @@ import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 
 const dark = {
-  "--color-bg": "#0e0e0f",
+  "--color-bg": "#0b0b0c",
   "--color-surface": "#ffffff0a",
   "--color-surface-2": "#ffffff0f",
   "--color-surface-3": "#ffffff1a",
   "--color-line": "#ffffff14",
-  "--color-text": "#ececee",
-  "--color-text-2": "#a8a8af",
-  "--color-text-3": "#8f8f97",
-  "--color-accent": "#9198ff",
-  "--color-accent-soft": "#9198ff22",
-  "--color-ok": "#5bd08a",
-  "--color-ok-soft": "#5bd08a1f",
-  "--color-warn": "#f2b54b",
-  "--color-warn-soft": "#f2b54b1f",
-  "--color-danger": "#f27272",
-  "--color-danger-soft": "#f272721f",
-  "--color-review": "#c08bff",
-  "--color-review-soft": "#c08bff22",
+  "--color-text": "#ededef",
+  "--color-text-2": "#a1a1a8",
+  "--color-text-3": "#8a8a92",
+  "--color-accent": "#ededef",
+  "--color-accent-soft": "#ffffff12",
+  "--color-ok": "#4cc38a",
+  "--color-ok-soft": "#4cc38a1f",
+  "--color-warn": "#e8b04b",
+  "--color-warn-soft": "#e8b04b1f",
+  "--color-danger": "#f0706b",
+  "--color-danger-soft": "#f0706b1f",
+  "--color-review": "#6cb0f0",
+  "--color-review-soft": "#6cb0f01f",
   "--color-glass": "#ffffff0d",
-  "--color-glass-edge": "#ffffff24"
+  "--color-glass-edge": "#ffffff1c"
 };
 
 const light = {
-  "--color-bg": "#f4f4f8",
+  "--color-bg": "#e9e9ec",
   "--color-surface": "#ffffff8c",
   "--color-surface-2": "#0000000a",
   "--color-surface-3": "#00000012",
-  "--color-line": "#00000014",
-  "--color-text": "#1c1c22",
-  "--color-text-2": "#565663",
-  "--color-text-3": "#63636e",
-  "--color-accent": "#4d55d8",
-  "--color-accent-soft": "#4d55d81f",
-  "--color-ok": "#1e9b55",
-  "--color-ok-soft": "#1e9b551a",
-  "--color-warn": "#b97a06",
-  "--color-warn-soft": "#e3a0201f",
-  "--color-danger": "#d64545",
-  "--color-danger-soft": "#d645451a",
-  "--color-review": "#8a4fd6",
-  "--color-review-soft": "#8a4fd61f",
+  "--color-line": "#0000000f",
+  "--color-text": "#18181b",
+  "--color-text-2": "#52525b",
+  "--color-text-3": "#64646d",
+  "--color-accent": "#18181b",
+  "--color-accent-soft": "#0000000a",
+  "--color-ok": "#157f45",
+  "--color-ok-soft": "#157f451a",
+  "--color-warn": "#8a5a04",
+  "--color-warn-soft": "#b9780a1a",
+  "--color-danger": "#c03a3a",
+  "--color-danger-soft": "#c03a3a14",
+  "--color-review": "#1f6fb8",
+  "--color-review-soft": "#1f6fb81a",
   "--color-glass": "#ffffff99",
   "--color-glass-edge": "#ffffffd9"
 };
@@ -96,14 +96,17 @@ test("Web keeps one token set for both themes and floats glass panels over its s
     });
     // The browser has no window material, so the page paints one solid backdrop.
     expect(surface.backdrop.image).toBe("none");
-    expect(surface.backdrop.color).toBe("rgb(14, 14, 15)");
+    expect(surface.backdrop.color).toBe("rgb(11, 11, 12)");
+    // Layers (#30): the conversation is nearly solid, the task panel clearer.
+    expect(surface.conversation.color).toBe("rgba(22, 22, 25, 0.92)");
+    expect(surface.conversation.blur).toBe("blur(24px)");
+    expect(surface.taskPanel.color).toBe("rgba(20, 20, 23, 0.8)");
+    expect(surface.taskPanel.blur).toBe("blur(32px)");
     for (const panel of [surface.conversation, surface.taskPanel]) {
-      expect(panel.color).toBe("rgba(255, 255, 255, 0.06)");
       expect(panel.image).toContain("linear-gradient");
-      expect(panel.blur).toBe("blur(20px)");
       expect(panel.radius).toBe("16px");
     }
-    expect(surface.brandColor).toBe("rgb(236, 236, 238)");
+    expect(surface.brandColor).toBe("rgb(237, 237, 239)");
 
     // Switching the existing preference keeps the same component tokens.
     const settings = await openSettings(page);
@@ -120,9 +123,9 @@ test("Web keeps one token set for both themes and floats glass panels over its s
       };
     });
     expect(lightBackdrop.image).toBe("none");
-    expect(lightBackdrop.color).toBe("rgb(244, 244, 248)");
-    expect(lightBackdrop.panel).toBe("rgba(255, 255, 255, 0.55)");
-    expect(lightBackdrop.text).toBe("rgb(28, 28, 34)");
+    expect(lightBackdrop.color).toBe("rgb(233, 233, 236)");
+    expect(lightBackdrop.panel).toBe("rgba(255, 255, 255, 0.95)");
+    expect(lightBackdrop.text).toBe("rgb(24, 24, 27)");
     await settings.locator('[data-appearance-value="dark"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   } finally {

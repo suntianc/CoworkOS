@@ -108,7 +108,7 @@ test("project dialogs and project experience confirmations use shared controls w
       await expect(dialog.getByRole("button", { name: "保存", exact: true })).toHaveCSS("font-size", "14px");
       await expect(dialog.getByRole("button", { name: "保存", exact: true })).toHaveCSS(
         "background-color",
-        theme === "dark" ? "rgb(236, 236, 238)" : "rgb(28, 28, 34)"
+        theme === "dark" ? "rgb(237, 237, 239)" : "rgb(24, 24, 27)"
       );
       await page.screenshot({ path: info.outputPath(`project-${theme}-${width}.png`) });
       await dialog.getByRole("button", { name: "取消", exact: true }).click();

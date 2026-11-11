@@ -54,7 +54,7 @@
       button.setAttribute("aria-checked", String(button.dataset.appearanceValue === preference));
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
       meta.removeAttribute("media");
-      meta.content = effective === "dark" ? "#0e0e0f" : "#f4f4f8";
+      meta.content = effective === "dark" ? "#0b0b0c" : "#e9e9ec";
     });
     window.dispatchEvent(new CustomEvent("atria:appearance", { detail: { preference, effective } }));
   }

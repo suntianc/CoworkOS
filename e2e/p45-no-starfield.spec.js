@@ -57,12 +57,12 @@ test("Web keeps the solid per-theme backdrop without a starfield canvas or motio
     await expectNoSky(page);
     const dark = await backdrop(page);
     for (const layer of [dark.html, dark.body]) {
-      expect(layer.color).toBe("rgb(14, 14, 15)");
+      expect(layer.color).toBe("rgb(11, 11, 12)");
       expect(layer.image).toBe("none");
     }
     // The shell only forwards the painted page, so its own background stays clear.
     expect(dark.shell).toEqual({ color: "rgba(0, 0, 0, 0)", image: "none" });
-    expect(await corner(page)).toEqual(["14,14,15"]);
+    expect(await corner(page)).toEqual(["11,11,12"]);
 
     const settings = await openSettings(page);
     await expect(settings).not.toContainText(skyText);
@@ -73,18 +73,18 @@ test("Web keeps the solid per-theme backdrop without a starfield canvas or motio
 
     const light = await backdrop(page);
     for (const layer of [light.html, light.body]) {
-      expect(layer.color).toBe("rgb(244, 244, 248)");
+      expect(layer.color).toBe("rgb(233, 233, 236)");
       expect(layer.image).toBe("none");
     }
     expect(light.shell).toEqual({ color: "rgba(0, 0, 0, 0)", image: "none" });
-    expect(await corner(page)).toEqual(["244,244,248"]);
+    expect(await corner(page)).toEqual(["233,233,236"]);
 
     const reopened = await openSettings(page);
     await reopened.locator('[data-appearance-value="dark"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await page.locator("#settings-back").click();
     await expect(reopened).toBeHidden();
-    expect(await corner(page)).toEqual(["14,14,15"]);
+    expect(await corner(page)).toEqual(["11,11,12"]);
     await expectNoSky(page);
   } finally {
     await dashboard.stop();
