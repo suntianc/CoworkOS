@@ -12,10 +12,10 @@
   --color-line: #ffffff14;
   --color-line-strong: #ffffff24;
   --color-text: #ececee;
-  --color-text-2: #a1a1a8;
-  --color-text-3: #6e6e76;
-  --color-accent: #8b93ff;
-  --color-accent-soft: #8b93ff22;
+  --color-text-2: #a8a8af;
+  --color-text-3: #8f8f97;
+  --color-accent: #9198ff;
+  --color-accent-soft: #9198ff22;
   --color-ok: #5bd08a;
   --color-ok-soft: #5bd08a1f;
   --color-warn: #f2b54b;
@@ -64,9 +64,9 @@ html[data-theme="light"] {
   --color-line-strong: #00000024;
   --color-text: #1c1c22;
   --color-text-2: #565663;
-  --color-text-3: #8a8a96;
-  --color-accent: #5b63e6;
-  --color-accent-soft: #5b63e61f;
+  --color-text-3: #63636e;
+  --color-accent: #4d55d8;
+  --color-accent-soft: #4d55d81f;
   --color-ok: #1e9b55;
   --color-ok-soft: #1e9b551a;
   --color-warn: #b97a06;
@@ -411,7 +411,7 @@ html[data-theme] .toast {
   padding: 6px 12px;
   border: 0;
   border-radius: 7px;
-  color: var(--color-text-3);
+  color: var(--color-text-2);
   background: transparent;
   font: inherit;
   font-size: var(--type-nav);
@@ -621,6 +621,11 @@ html[data-theme] .sidebar-header-actions {
 html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .conversation-sidebar {
   padding-top: 44px;
 }
+/* Window dragging. Chromium applies drag regions in document order, so each
+   later rule carves its rectangle out of the earlier ones: the margins and the
+   top band (the space above the sidebar brand plus each pane header) drag the
+   window, pane content does not, and controls inside the band stay clickable.
+   Only the chrome refuses text selection; pane content selects normally. */
 html[data-desktop-platform] :is(.app-shell, .app-layout) {
   -webkit-app-region: drag;
   user-select: none;
@@ -628,6 +633,29 @@ html[data-desktop-platform] :is(.app-shell, .app-layout) {
 html[data-desktop-platform] .conversation-sidebar,
 html[data-desktop-platform] :is(.chat-pane, .observe-pane, .agent-pane) {
   -webkit-app-region: no-drag;
+}
+html[data-desktop-platform] :is(.chat-pane, .observe-pane, .agent-pane) {
+  user-select: text;
+}
+.window-drag-band {
+  display: none;
+}
+html[data-desktop-platform] .conversation-sidebar {
+  position: relative;
+}
+html[data-desktop-platform] .window-drag-band {
+  display: block;
+  position: absolute;
+  inset: 0 0 auto;
+  height: 16px;
+}
+html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .window-drag-band {
+  height: 44px;
+}
+html[data-desktop-platform]
+  :is(.window-drag-band, .sidebar-header, .session-header, .observe-header, .requirement-panel-head) {
+  -webkit-app-region: drag;
+  user-select: none;
 }
 html[data-desktop-platform] :is(button, a, input, select, textarea, [role="button"], [role="tab"], summary) {
   -webkit-app-region: no-drag;

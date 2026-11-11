@@ -132,18 +132,34 @@ test("the desktop window has no title bar, panels reach the top and traffic ligh
 
     const regions = await page.evaluate(() =>
       Object.fromEntries(
-        [".app-shell", ".app-layout", "#conversation-sidebar", "#work-entry", "#agent-pane"].map(
-          (selector) => [
-            selector,
-            getComputedStyle(document.querySelector(selector)).getPropertyValue("-webkit-app-region")
-          ]
-        )
+        [
+          ".app-shell",
+          ".app-layout",
+          "#conversation-sidebar",
+          "#conversation-sidebar .window-drag-band",
+          ".sidebar-header",
+          ".session-header",
+          "#output-pane-toggle",
+          "#work-entry",
+          ".chat-body",
+          "#agent-pane"
+        ].map((selector) => [
+          selector,
+          getComputedStyle(document.querySelector(selector)).getPropertyValue("-webkit-app-region")
+        ])
       )
     );
     expect(regions[".app-shell"]).toBe("drag");
     expect(regions[".app-layout"]).toBe("drag");
     expect(regions["#conversation-sidebar"]).toBe("no-drag");
+    // The top band drags the window; its controls and the pane content do not.
+    expect(regions["#conversation-sidebar .window-drag-band"]).toBe("drag");
+    expect(regions[".sidebar-header"]).toBe("drag");
+    expect(regions[".session-header"]).toBe("drag");
+    expect(regions["#output-pane-toggle"]).toBe("no-drag");
     expect(regions["#work-entry"]).toBe("no-drag");
+    // Electron inherits the pane's region into its content.
+    expect(regions[".chat-body"]).toBe("no-drag");
     expect(regions["#agent-pane"]).toBe("no-drag");
 
     await page.locator("#session-menu-button").click();

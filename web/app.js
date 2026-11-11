@@ -2393,6 +2393,11 @@ async function retryFailedRequest(taskId) {
 }
 
 composerSession.activate(state.selected, { projectId: state.selectedProjectId });
+// The page ships the composer read-only: the draft lease and this first
+// activation both write the input, so earlier typing would be overwritten.
+// Text typed from here on, including while the backend connects, is kept.
+$("#composer-input").readOnly = false;
+$("#composer-input").removeAttribute("aria-busy");
 // Opening a conversation link is a navigation choice. Reserve it before the
 // first tab poll can restore a different conversation or independent editor.
 if (initialConversationTaskId) linkedConversationNavigation = workbenchController.captureNavigation();

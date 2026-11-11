@@ -428,6 +428,7 @@
     <div class="app-shell">
       <div class="app-layout" id="app-layout" data-entry="work">
         <aside class="conversation-sidebar" id="conversation-sidebar" aria-label="工作与观测">
+          <div class="window-drag-band" aria-hidden="true"></div>
           <div class="sidebar-header">
             <div class="brand-lockup">
               <svg class="brand-symbol" role="img" aria-label="Formicand">
@@ -704,6 +705,8 @@
                   <textarea
                     id="composer-input"
                     rows="3"
+                    readonly
+                    aria-busy="true"
                     aria-label="任务描述"
                     placeholder="描述任务，或添加后续要求…"
                   ></textarea>

@@ -422,10 +422,10 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   white-space: nowrap;
 }
 .settings-row-state.is-ok {
-  color: var(--color-ok);
+  color: var(--ui-success);
 }
 .settings-row-state.is-warn {
-  color: var(--color-warn);
+  color: var(--ui-warning);
 }
 .settings-row-line {
   display: flex;
@@ -542,7 +542,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--color-warn);
+  color: var(--ui-warning);
   font: 400 12px/1.5 var(--ui-font);
 }
 .settings-warn .ui-icon {
@@ -562,7 +562,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: var(--color-text-3);
+  color: var(--color-text-2);
   font: 400 12px/1.4 var(--ui-font);
   white-space: nowrap;
   cursor: pointer;
@@ -572,7 +572,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   color: var(--color-text);
 }
 .settings-segmented > button:hover:not([aria-checked="true"]) {
-  color: var(--color-text-2);
+  color: var(--color-text);
 }
 .settings-segmented > button:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -639,7 +639,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
 .settings-row-error {
   flex: 0 0 100%;
   margin-top: 4px;
-  color: var(--color-danger);
+  color: var(--ui-danger);
   font: 400 12px/1.5 var(--ui-font);
 }
 .settings-row-error[hidden] {
@@ -701,7 +701,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   background: var(--color-warn);
 }
 .settings-error {
-  color: var(--color-danger);
+  color: var(--ui-danger);
   font: 400 12px/1.5 var(--ui-font);
 }
 .settings-error[hidden] {
@@ -824,7 +824,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
 .settings-row #language-status {
   flex-basis: auto;
   margin: 0;
-  color: var(--color-danger);
+  color: var(--ui-danger);
   font: 400 12px/1.5 var(--ui-font);
 }
 .settings-row #appearance-status:empty,
@@ -1579,7 +1579,7 @@ html[data-theme="light"] .settings-node-menu {
 }
 .settings-node-menu button.is-danger,
 .settings-node-menu button.is-danger .ui-icon {
-  color: var(--color-danger);
+  color: var(--ui-danger);
 }
 .node-dialog {
   width: min(420px, calc(100vw - 32px));

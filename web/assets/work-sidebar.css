@@ -373,7 +373,7 @@ html[data-theme] .subagent-state .ui-icon {
   height: 13px;
 }
 html[data-theme] .subagent-state.is-done {
-  color: var(--color-ok);
+  color: var(--ui-success);
 }
 html[data-theme] .subagent-state.is-running {
   color: var(--color-accent);
@@ -556,11 +556,12 @@ html[data-theme] .conversation-pane.is-new-session .composer {
   font-weight: 600;
 }
 .first-use-step[data-state="current"] .first-use-num {
-  color: var(--color-bg);
+  /* A fixed dark ink: the warning fill is light in both themes. */
+  color: #17130a;
   background: var(--color-warn);
 }
 .first-use-num.is-done {
-  color: var(--color-ok);
+  color: var(--ui-success);
   background: var(--color-ok-soft);
 }
 .first-use-num .ui-icon {
@@ -928,7 +929,7 @@ html[data-theme="light"] .add-project-state {
   animation: ui-spin 1s linear infinite;
 }
 .add-project-state.is-error .ui-icon {
-  color: var(--color-danger);
+  color: var(--ui-danger);
 }
 .add-project-footer {
   display: flex;
