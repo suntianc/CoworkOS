@@ -70,6 +70,14 @@ html[data-theme] .agent-pane {
   width: 16px;
   height: 16px;
 }
+/* As a column (1280 and up) the panel is put away with the title bar's
+   control, which stays beside it (#22). Below that the panel is a drawer over
+   the title bar, and this button is how it closes. */
+@media (min-width: 1280px) {
+  .requirement-panel-close {
+    display: none;
+  }
+}
 
 .requirement-panel-body {
   display: flex;

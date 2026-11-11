@@ -159,3 +159,51 @@ for (const source of ["system", "setting"])
       await dashboard.stop();
     }
   });
+
+test("the side panel opens in one motion and does not replay its entrance", async ({ page }) => {
+  const dashboard = await startDashboard();
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await createTask(page, dashboard, { taskId: "pane-a", goal: "面板会话", projectId: dashboard.projectId });
+    await page.goto(dashboard.base);
+    await page.locator('.conversation-item[data-task="pane-a"]').click();
+    const body = page.locator("body");
+    const toggle = page.locator("#output-pane-toggle");
+    if (!(await body.evaluate((node) => node.classList.contains("output-collapsed")))) await toggle.click();
+    await expect(body).toHaveClass(/output-collapsed/);
+    await expect(body).not.toHaveAttribute("data-layout-animating");
+    await page.evaluate(() => {
+      const frames = [];
+      window.__pane = frames;
+      const pane = document.querySelector(".agent-pane");
+      const step = () => {
+        const look = getComputedStyle(pane);
+        frames.push({
+          animating: document.body.dataset.layoutAnimating || "",
+          opacity: Number(look.opacity),
+          transform: look.transform,
+          y: pane.getBoundingClientRect().y
+        });
+        if (frames.length < 60) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+    await toggle.click();
+    await page.waitForTimeout(900);
+    const frames = await page.evaluate(() => window.__pane);
+    const opened = frames.findIndex((frame) => frame.animating === "pane");
+    expect(opened).toBeGreaterThanOrEqual(0);
+    const settled = frames.slice(opened).findIndex((frame) => !frame.animating) + opened;
+    expect(settled).toBeGreaterThan(opened);
+    // Once the columns have settled the panel stays put and fully shown.
+    for (const frame of frames.slice(settled)) {
+      expect(frame.opacity).toBe(1);
+      expect(frame.transform).toBe("none");
+      expect(frame.y).toBe(frames.at(-1).y);
+    }
+    // While opening it only fades: it never moves vertically.
+    expect(new Set(frames.slice(opened).map((frame) => frame.y)).size).toBe(1);
+  } finally {
+    await dashboard.stop();
+  }
+});

@@ -477,9 +477,9 @@ html[data-theme] .toast {
     transform: none;
   }
 }
-.agent-pane {
-  animation: formicand-panel-in var(--motion-enter);
-}
+/* The side panel is a layout column, not an entrance: opening it is the
+   grid's motion (styles/motion.css), and a keyframe here would replay once
+   that motion ends (#22). */
 .ui-panel {
   animation: formicand-panel-in var(--motion-enter);
 }

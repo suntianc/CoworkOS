@@ -136,7 +136,9 @@ test("the work surface keeps three columns at 1440 and turns the requirement pan
     expect(wideOpen.panel.x).toBe(wideOpen.main.x + wideOpen.main.width + 10);
     expect(wideOpen.main.width).toBeLessThan(wide.main.width);
     expect(await documentWidth(page)).toBe(1440);
-    await page.locator("[data-panel-collapse]").click();
+    // As a column it has no close button of its own; the title bar control puts it away (#22).
+    await expect(page.locator("[data-panel-collapse]")).toBeHidden();
+    await page.locator("#output-pane-toggle").click();
     await expect.poll(async () => visible((await layout(page)).panel)).toBe(false);
 
     // 1100 keeps two columns and the panel floats over the conversation.
