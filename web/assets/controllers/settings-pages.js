@@ -648,7 +648,14 @@ export function createSettingsPages({
     root.hidden = true;
     if (app) app.hidden = false;
     trigger?.setAttribute("aria-expanded", "false");
-    if (restoreFocus && previousFocus?.isConnected) previousFocus.focus();
+    if (!restoreFocus) return;
+    if (previousFocus?.isConnected) previousFocus.focus();
+    // Below 640 the opener sits in the sidebar drawer, which closed on the way in:
+    // hand focus to the drawer's own opener instead of losing it.
+    if (document.activeElement !== previousFocus)
+      [...document.querySelectorAll(".sidebar-drawer-toggle")]
+        .find((toggle) => toggle.checkVisibility())
+        ?.focus();
   }
 
   function setSection(next) {
