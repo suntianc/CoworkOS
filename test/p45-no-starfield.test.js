@@ -6,8 +6,13 @@ import { test } from "node:test";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-// These two files name the removed ids to assert they are absent everywhere else.
-const assertionFiles = new Set(["test/p45-no-starfield.test.js", "e2e/p45-no-starfield.spec.js"]);
+// These files name the removed ids to assert they are absent everywhere else;
+// the retrospective records the removal itself as history.
+const assertionFiles = new Set([
+  "test/p45-no-starfield.test.js",
+  "e2e/p45-no-starfield.spec.js",
+  "docs/p4.5-retrospective.md"
+]);
 const sourceRoots = ["web", "desktop", "src", "test", "e2e", "scripts", "docs", ".pi"];
 const rootFiles = ["AGENTS.md", "CLAUDE.md", "README.md", "package.json"];
 const sourceFile = /\.(?:js|mjs|cjs|ts|html|css|md|json)$/;
