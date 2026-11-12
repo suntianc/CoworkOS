@@ -14,6 +14,45 @@ Pause is not stop: the request is written to the Task record, and Main reads it 
 
 Editing the latest accepted message runs again from the preceding conversation history with the new input. It does not undo earlier file changes or external actions. See [request retry and context recovery](#request-retry-and-context-recovery) for exact replay of failed requests.
 
+## Pi version and rollback
+
+Main, subagents and session files all run on Pi. `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai` and `@earendil-works/pi-agent-core` stay on one version, currently 1.5.2. Pi writes session files verbatim under `sessions/` (see [data layout](../task-workspace-layout.md)); CoworkOS applies no format conversion of its own.
+
+### Reading sessions in both directions
+
+0.87.1 and 1.5.2 both write v3 session files. `test/p46-session-compat-pi.test.js` measures both directions with real Pi processes that load the real Main extension and a recorded local provider:
+
+| Direction                                      | Measured result                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Written by 0.87.1, read and continued by 1.5.2 | It continues. The model receives the complete history: `system → user → assistant(toolCall) → toolResult → assistant → user`; the tool call ID matches its result, the result text is unchanged, earlier user messages keep their text, and the continuation appends to the same session file.            |
+| Written by 1.5.2, read and continued by 0.87.1 | It continues with the same complete history. Assistant fields only 1.5.2 writes (such as `thinkingLevel`) and system-message fields (such as `toolsRemoved`) are ignored by 0.87.1; its session projection maps entry types it does not know to empty entries and does not break the surrounding history. |
+
+Both runs confirm Main's system prompt injection (`<current_workspace>`) is present. The test covers an ordinary Main conversation (system prompt, user/assistant messages, tool call and result); compaction, branch and custom-message entries were not measured one by one. The test installs 0.87.1 from the local npm cache into a temporary directory, so project dependencies do not change; when the cache is missing it skips with a stated reason, and a skip is not evidence of compatibility.
+
+### Rolling back to 0.87.1
+
+Downgrading the three packages is not enough to start: the upgraded launcher passes `--no-mcp`, which only 1.x accepts, and 0.87.1 exits with `Error: Unknown option: --no-mcp`; `scripts/cli-ui-policy.json` and `scripts/cli-shell-policy.json` pin 1.5.2 bundle hashes; and the source now imports `Type` from the direct `typebox` dependency. The rollback therefore reverts the whole upgrade commit `4e5bde0` ("升级 Pi 运行时到 1.5.2（行为不变）"), restoring the 0.87.1 dependencies, launch arguments and UI policy together:
+
+```sh
+# Stop App/CLI, Main, workers and the guardian first so running processes cannot keep writing sessions.
+cd <repository root>
+git status --short                     # the worktree must be clean
+git switch -c rollback/pi-0.87.1       # keep the current branch
+git revert --no-edit 4e5bde0
+npm ci
+npm run build:cli
+npm run build:web-assets
+npm run verify
+```
+
+For a packaged CLI/App install, reinstall the 0.87.1 package; installing and uninstalling do not touch `sessions/` in the user data directory, so existing sessions are available immediately after the rollback.
+
+Handling sessions after the rollback:
+
+- Main sessions that 1.5.x wrote during the upgrade continue as the table above says; no conversion or rewriting of the session file is needed, and editing the session JSONL by hand to make it "work" is not supported.
+- If a session cannot be opened or continued by 0.87.1 (for example because it uses an entry 0.87.1 does not have), keep the original file and back it up first, preserve evidence with `coworkos session export <session-id-or-path> --format json --output audit.json`, then start a new session and restate the still-active objective and finished results in its first message. See [request retry and context recovery](#request-retry-and-context-recovery) for recovery entry points.
+- On a later upgrade, sessions written by 0.87.1 still continue under 1.5.x (the first row above), but the upgrade commit reintroduces the launch arguments and UI policy described here, so changing only the versions in `package.json` is not enough.
+
 ## Input formats
 
 ### Mathematical formulas
