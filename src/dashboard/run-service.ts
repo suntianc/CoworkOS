@@ -30,6 +30,7 @@ import { listJobs } from "../tools/jobs.js";
 import { join, resolve } from "node:path";
 import { mainRunEnv } from "./main-run-env.js";
 import { MainRequestConflictError, mainRequestEnvironment } from "../runtime/main-request-retry.js";
+import { retiredSectionReplayRefusal, retiredSectionsWithText } from "../runtime/retired-system-sections.js";
 import {
   MainRequestStore,
   MainRequestSnapshotError,
@@ -118,7 +119,6 @@ export interface RunServicePorts {
   resolveMainModel(request: ModelRoleRequest): ResolvedModelRole;
   /** The chosen model's own limits from its connection's `/models` entry, when listed (#27). */
   endpointLimits?: (selection: ResolvedModelRole) => Promise<EndpointLimits | undefined>;
-  onRunStarting?: () => void;
   onRunExit?: (taskId: string) => void;
   onRunFinalized?: (location: TaskLocation, runId: string) => Promise<void>;
   withTaskProjectLock?<T>(taskId: string, action: () => Promise<T>): Promise<T>;
@@ -167,7 +167,6 @@ export function createDashboardRunService({
   locateTask,
   resolveMainModel,
   endpointLimits = async () => undefined,
-  onRunStarting = () => {},
   onRunExit = () => {},
   onRunFinalized = async () => {},
   withTaskProjectLock = (_taskId, action) => action(),
@@ -226,7 +225,7 @@ export function createDashboardRunService({
     return current;
   }
 
-  async function launchMainRunWithActivity(
+  async function launchMainRunWithAdmission(
     taskId: string,
     prompt: string,
     requestedRunId?: string,
@@ -249,9 +248,6 @@ export function createDashboardRunService({
     if (submission?.admittedRequestId) admission.requestId = submission.admittedRequestId;
     const existing = activeRuns.get(taskId);
     if (existing && !existing.killed) throw new Error("Task already has an active Main run");
-    // Cancel only the background request. Task state still changes after the
-    // normal validation below, and isBusy covers this asynchronous startup.
-    onRunStarting();
     const location = await locateTask(taskId);
     const task = location.task;
     const taskWorkspace = location.workspaceRoot;
@@ -292,6 +288,10 @@ export function createDashboardRunService({
             throw new MainRequestSnapshotError(
               "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
             );
+          // Refuse before spawning: an archive written before user memory and
+          // project experience were removed would resend their text verbatim.
+          const retired = retiredSectionsWithText(snapshot.context.messages);
+          if (retired.length) throw new MainRequestConflictError(retiredSectionReplayRefusal(retired));
           if (
             (await realpath(resolve(task.projectDirectory ?? taskWorkspace))) !==
             snapshot.environment.projectDirectory
@@ -838,7 +838,7 @@ export function createDashboardRunService({
   ) {
     const admission: MainLaunchAdmission = { spawned: false };
     try {
-      return await launchMainRunWithActivity(
+      return await launchMainRunWithAdmission(
         args[0],
         args[1],
         args[2],

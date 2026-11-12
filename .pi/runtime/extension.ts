@@ -1,6 +1,7 @@
 import { resetMainSupervisorBackoff } from "../../dist/src/runtime/main-supervisor.js";
 import { configuredWebTools } from "../../dist/src/runtime/web-search-config.js";
 import { readQueuedUserTurn } from "../../dist/src/runtime/queued-user-turn.js";
+import { withoutRetiredSections } from "../../dist/src/runtime/retired-system-sections.js";
 import type { ExtensionAPI, ExtensionContext, SessionEntry, Skill } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -606,13 +607,19 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         ctx.ui.notify(`Main current context refresh failed: ${errorMessage(error)}`, "warning");
       }
     }
+    // Sessions started before the memory/experience removal keep the retired
+    // sections in their persisted system message; strip them from every request
+    // so resuming such a session never sends that text to a model again.
     const skillSection = currentSkillsSection;
-    const scoped = messages.map((message) =>
-      message.role === "system" && skillSection
-        ? { ...message, sections: { ...message.sections, skills: skillSection } }
-        : message
-    );
-    return { messages: projectDefaultIdentity ? scoped.map(projectAtriaSystemMessage) : scoped };
+    const scoped = messages.map((message) => {
+      const stripped = withoutRetiredSections(message);
+      if (stripped.role !== "system") return stripped;
+      const withSkills = skillSection
+        ? { ...stripped, sections: { ...stripped.sections, skills: skillSection } }
+        : stripped;
+      return projectDefaultIdentity ? projectAtriaSystemMessage(withSkills) : withSkills;
+    });
+    return { messages: scoped };
   });
 
   // Keep a bounded copy of the user-facing Main transcript. It is passed to

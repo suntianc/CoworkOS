@@ -49,8 +49,7 @@ function fixture(t, records = new Map()) {
     taskMenuOpen: () => false,
     openTaskMenu() {},
     showToast() {},
-    getNavigationIdentity: () => "",
-    openProjectExperience() {}
+    getNavigationIdentity: () => ""
   });
   t.after(() => {
     for (const [key, value] of Object.entries(previous)) {

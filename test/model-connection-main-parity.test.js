@@ -124,7 +124,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
             maxBuffer: 4000000,
             env: {
               ...cleanEnv,
-              // Keep user memory and background work inside this disposable fixture.
+              // Keep every host-owned path inside this disposable fixture.
               ATRIA_HOME: join(root, "home"),
               COWORK_CONFIG: configPath,
               COWORK_PROJECT_DIR: project,

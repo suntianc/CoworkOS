@@ -99,7 +99,7 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 Main 的项目上下文只来自需求台账：项目与需求、完成标准和交付记录由 [项目数据服务](../src/workspace/project-data-service.ts) 与 [Main 工具](../.pi/runtime/tools/project-ledger.ts) 提供，工具的装配在 [Pi 扩展](../.pi/runtime/extension.ts)。每个 Task 的 Main 上下文目录（[main-context](../src/runtime/main-context.ts)）只保存这个 Task 自己的 `memory.md` 与运行快照，不是跨 Task 的用户记忆。
 
-用户记忆、自动学习与项目经验已在 P4.6 剔除：源码、HTTP 接口、Pi 工具、界面入口与专门测试均已删除，磁盘上的旧文件不再读取。回归见 [剔除回归](../test/p46-memory-removed.test.js) 与[浏览器](../e2e/p46-memory-removed.spec.js)。
+用户记忆、自动学习与项目经验已在 P4.6 剔除：源码、HTTP 接口、Pi 工具、界面入口与专门测试均已删除，磁盘上的旧文件不再读取。升级前建立的 Main 会话在每轮请求里剥离这三个系统提示段落（[退役段落](../src/runtime/retired-system-sections.ts)），仍含这些段落的请求归档拒绝精确重放。回归见 [剔除回归](../test/p46-memory-removed.test.js) 与[浏览器](../e2e/p46-memory-removed.spec.js)。
 
 ### 联网搜索
 

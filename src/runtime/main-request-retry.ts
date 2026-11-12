@@ -18,6 +18,7 @@ import {
   currentMainRequestExecutionScope,
   type MainRequestExecutionScope
 } from "./main-request-execution-scope.js";
+import { retiredSectionReplayRefusal, retiredSectionsWithText } from "./retired-system-sections.js";
 
 export interface MainRequestExecutionEnvironment extends MainRequestEnvironment {
   executionScope?: MainRequestExecutionScope;
@@ -103,9 +104,16 @@ export class MainRequestRetry {
           }));
       this.deferredContext ||=
         JSON.stringify(input(context.messages)) !== JSON.stringify(input(this.replay.context.messages));
+      const archived = normalizeContext(this.replay.context);
+      // An archive written before user memory and project experience were
+      // removed still holds their rendered text. Refuse the exact replay
+      // instead of resending it; the caller sends a new message, which rebuilds
+      // the context without those sections.
+      const retired = retiredSectionsWithText(archived.messages);
+      if (retired.length) throw new MainRequestConflictError(retiredSectionReplayRefusal(retired));
       return {
         model: this.replay.model,
-        context: normalizeContext(this.replay.context),
+        context: archived,
         main,
         replay: this.replay,
         replayBody: this.replay.body

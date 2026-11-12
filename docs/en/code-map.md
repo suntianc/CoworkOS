@@ -94,7 +94,7 @@ These tests are starting points; cross-layer changes also validate consumers. Ru
 
 Main's project context comes only from the requirement ledger: projects, requirements, completion standards and delivery records come from the [project data service](../../src/workspace/project-data-service.ts) and the [Main tool](../../.pi/runtime/tools/project-ledger.ts), and the ledger tool is registered by the [Pi extension](../../.pi/runtime/extension.ts). Each Task's Main context directory ([main-context](../../src/runtime/main-context.ts)) holds only that Task's own `memory.md` and run snapshot, not cross-Task user memory.
 
-User memory, automatic learning and project experience were removed in P4.6: sources, HTTP routes, Pi tools, UI entries and dedicated tests are gone, and old files on disk are no longer read. Regression: [removal regressions](../../test/p46-memory-removed.test.js) and [browser](../../e2e/p46-memory-removed.spec.js).
+User memory, automatic learning and project experience were removed in P4.6: sources, HTTP routes, Pi tools, UI entries and dedicated tests are gone, and old files on disk are no longer read. Main sessions created before the removal have those three system-prompt sections stripped from every request ([retired sections](../../src/runtime/retired-system-sections.ts)), and a request archive that still holds them refuses exact replay. Regression: [removal regressions](../../test/p46-memory-removed.test.js) and [browser](../../e2e/p46-memory-removed.spec.js).
 
 ### Web search
 

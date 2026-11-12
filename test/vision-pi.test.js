@@ -143,7 +143,7 @@ for (const [api, native] of [
           maxBuffer: 4000000,
           env: {
             ...env,
-            // Keep user memory and background work inside this disposable fixture.
+            // Keep every host-owned path inside this disposable fixture.
             ATRIA_HOME: join(root, "home"),
             COWORK_CONFIG: configPath,
             COWORK_PROJECT_DIR: project,
