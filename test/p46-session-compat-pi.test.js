@@ -135,7 +135,7 @@ async function sessionHarness(t) {
     env: {
       ...Object.fromEntries(
         Object.entries(process.env).filter(
-          ([key]) => !/^(?:COWORK_|PI_|ATRIA_|OPENAI_|ANTHROPIC_|NODE_OPTIONS)/.test(key)
+          ([key]) => !/^(?:COWORK_|PI_|ATRIA_|OPENAI_|ANTHROPIC_|SERPER_|EXA_|NODE_OPTIONS)/.test(key)
         )
       ),
       HOME: root,
@@ -244,12 +244,17 @@ function spawnPi(fixture, { bundleEntry, session }) {
 /** Send one prompt and return the model requests it produced. */
 async function runTurn(harness, { bundleEntry, session, prompt }) {
   const before = harness.requests.length;
+  const writtenBefore = session ? (await readSession(session)).length : 0;
   const pi = spawnPi(harness, { bundleEntry, session });
   try {
     await pi.send("get_state");
     await pi.send("prompt", { message: prompt });
     await pi.waitFor((event) => event.type === "agent_settled");
-    await delay(300);
+    await waitForWrittenTurn(harness.sessions, {
+      session,
+      prompt,
+      minEntries: writtenBefore + 1
+    });
     assert.equal(pi.events.filter((event) => event.type === "error").length, 0, pi.getStderr());
     assert.equal(pi.getStderr().includes("Error:"), false, pi.getStderr());
     return harness.requests.slice(before);
@@ -269,6 +274,31 @@ async function sessionFiles(directory) {
 async function readSession(file) {
   const lines = (await readFile(file, "utf8")).split("\n").filter((line) => line.trim());
   return lines.map((line) => JSON.parse(line));
+}
+
+/**
+ * `agent_settled` fires when the turn ends, but the JSONL append that records
+ * the settled turn can still be in flight. Wait for the file itself to hold the
+ * finished turn — the new user message followed by an assistant answer with
+ * `stopReason: "stop"` — instead of pausing for a fixed delay.
+ */
+async function waitForWrittenTurn(directory, { session, prompt, minEntries, timeout = 15_000 }) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const file = session ?? (await sessionFiles(directory))[0];
+    // A half-written line makes the file unparsable for a moment; read it again.
+    const entries = file ? await readSession(file).catch(() => null) : null;
+    if (entries && entries.length >= minEntries) {
+      const messages = entries.filter((entry) => entry.type === "message").map((entry) => entry.message);
+      const last = messages.at(-1);
+      const asked = messages.some(
+        (message) => message.role === "user" && messageText(message.content) === prompt
+      );
+      if (asked && last?.role === "assistant" && last.stopReason === "stop") return;
+    }
+    await delay(25);
+  }
+  throw new Error(`the "${prompt}" turn was not on disk within ${timeout}ms`);
 }
 
 function messageText(content) {
