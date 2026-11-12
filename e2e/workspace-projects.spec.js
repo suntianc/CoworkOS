@@ -309,7 +309,7 @@ test("legacy directory groups keep their identities while explicit empty project
     await expect(page.locator('.conversation-item[data-task="legacy"]').locator("..")).toHaveClass(
       /is-archived/
     );
-    await page.locator("#titlebar-new-session").click();
+    await page.locator("#new-conversation").click();
     await expect(groupFor(page, legacy)).toHaveCount(0);
     await expect(groupFor(page, empty.projectId)).toBeVisible();
   } finally {

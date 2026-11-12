@@ -5,8 +5,19 @@ html[data-theme] .work-sidebar {
   gap: 8px;
 }
 html[data-theme] .sidebar-top {
+  display: flex;
   flex: 0 0 auto;
+  flex-direction: column;
+  gap: 6px;
   padding: 0;
+}
+/* Search sits under the main entry as a quieter row: same geometry, no frame (#32). */
+html[data-theme] .new-conversation.sidebar-search {
+  border-color: transparent;
+  color: var(--color-text-2);
+}
+html[data-theme] .new-conversation.sidebar-search .new-icon {
+  color: var(--color-text-2);
 }
 html[data-theme] .new-conversation {
   display: flex;
@@ -1034,8 +1045,7 @@ html[data-theme="light"] .add-project-state {
     width: 100%;
   }
   html[data-theme] .sidebar-top {
-    display: flex;
-    justify-content: center;
+    align-items: center;
     width: 100%;
   }
   html[data-theme] .new-conversation {
@@ -1168,5 +1178,17 @@ html[data-theme="light"] .add-project-state {
   html[data-theme] .project-rail-head .ui-icon {
     width: 14px;
     height: 14px;
+  }
+}
+
+/* One set of entry points (#32): while the work sidebar shows 新会话 and 搜索,
+   the title row leaves them out; collapsed, in a drawer or while observing,
+   the title row carries them. */
+@media (min-width: 640px) {
+  html[data-theme]
+    body:not(.sidebar-collapsed)
+    .app-layout[data-entry="work"]
+    :is(#titlebar-search, #titlebar-new-session) {
+    display: none;
   }
 }

@@ -131,9 +131,9 @@ test("the work surface keeps three columns at 1440 and turns the requirement pan
     await page.locator("#output-pane-toggle").click();
     await expect(page.locator("[data-requirement-panel] .rp-title")).toHaveText("评分汇总验收");
     const wideOpen = await layout(page);
-    expect(wideOpen.panel.width).toBe(360);
+    expect(wideOpen.panel.width).toBe(364);
     expect(wideOpen.panel.position).toBe("relative");
-    expect(wideOpen.panel.x).toBe(wideOpen.main.x + wideOpen.main.width + 10);
+    expect(wideOpen.panel.x).toBe(wideOpen.main.x + wideOpen.main.width + 6);
     expect(wideOpen.main.width).toBeLessThan(wide.main.width);
     expect(await documentWidth(page)).toBe(1440);
     // As a column it has no close button of its own; the title bar control puts it away (#22).

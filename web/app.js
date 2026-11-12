@@ -1804,6 +1804,7 @@ const firstUse = createFirstUseView({
   onAddProject: () => projectController.openCreate()
 });
 $("#titlebar-search").addEventListener("click", openTaskSearch);
+$("#sidebar-search").addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
   upload: (file, options) => management.upload(file, options),
