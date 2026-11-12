@@ -169,14 +169,14 @@ UI state and DOM stay separate; drafts and async request ownership live in their
 
 ## Troubleshooting
 
-| Symptom                                        | First inspect                                                                 |
-| ---------------------------------------------- | ----------------------------------------------------------------------------- |
-| Save failure/409                               | Revision, external/shared writes; preserve draft before rereading             |
-| Agent lacks document/tools                     | Resource binding, MCP, first `before_agent_start` and later `context`         |
-| Waiting/stop/recovery errors                   | Task/Run events, inbox, questions/workers/jobs, process exit, checkpoints     |
-| Draft/resource missing after restart           | Workspace/catalog/tab paths, desktop data and draft mirror                    |
-| Model launch failure                           | Endpoint/protocol/model/parameters/env and redacted errors; never full config |
-| Late UI response replaces another conversation | Captured Task/draft identity, navigation token and serialization              |
+| Symptom                                        | First inspect                                                                                     |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Save failure/409                               | Revision, external edits and concurrent writes; preserve the draft before rereading or recovering |
+| Agent lacks attachments/tools                  | Upload records, enabled tool groups, first `before_agent_start` and later `context`               |
+| Waiting/stop/recovery errors                   | Task/Run events, inbox, questions/workers/jobs, process exit, checkpoints                         |
+| Draft/attachment missing after restart         | Workspace/global index, desktop data and draft mirror                                             |
+| Model launch failure                           | Endpoint/protocol/model/parameters/env and redacted errors; never full config                     |
+| Late UI response replaces another conversation | Captured Task/draft identity, navigation token and serialization                                  |
 
 Reports include version/commit, OS, entrypoint, reproduction, redacted logs and test paths. Trace paths are in the workspace reference.
 

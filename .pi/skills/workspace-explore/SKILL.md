@@ -18,7 +18,7 @@ Use `call_subagent` with `mode: "async"`. Include:
 - what is already known, the scope to inspect, and the desired depth;
 - an instruction to load `workspace-explore` with `load_skill` and follow only the Subagent workflow below, without modifying user files.
 
-Main loading this skill does not load its body into the child's context. Explicitly share uploaded IDs through `attachments` and application resources through `resources` with `access: "read"` when needed. The child does not inherit Main's application binding. Use only existing Task authorization; this skill adds no permissions or tool parameters.
+Main loading this skill does not load its body into the child's context. Explicitly share uploaded IDs through `attachments` when needed. Use only existing Task authorization; this skill adds no permissions or tool parameters.
 
 For example, after filling in the actual goal and paths:
 
@@ -45,17 +45,17 @@ Default to medium for an unfamiliar workspace. Search broadly enough to locate t
 
 1. Establish the actual project and Task roots from Main's brief. Inspect relevant directory structure, README/index files and applicable project instructions. The user's project can be outside the shared Task workspace; do not substitute the CoworkOS installation or your private working directory for it.
 2. Locate materials by names and content. For code, follow entry points, imports, callers and tests. For documents or data, follow source files, schemas, templates, linked assets and references. Use independent inspection calls in parallel when useful.
-3. Read key files with enough surrounding context to answer the questions. Search matches are pointers to inspect, not a replacement for reading. Follow pagination or truncation notices when needed; distinguish a limited search from a verified absence. Read binary documents with their attachment/application readers and images with image tools.
+3. Read key files with enough surrounding context to answer the questions. Search matches are pointers to inspect, not a replacement for reading. Follow pagination or truncation notices when needed; distinguish a limited search from a verified absence. Read binary documents with `read_attachment` and images with image tools.
 4. Stop when the brief supports Main's next decisions. State unavailable paths, access limits, stale references and remaining uncertainty instead of guessing or expanding the scope.
 
-Use `browse_workspace` for shared Task paths and the delegated read tools for attachments and resources. `read_file` normally addresses your private directory; project access depends on existing Task capabilities. When needed, use authorized read-only `run_command` inspections with the actual absolute input paths in arguments. Its `cwd` must be relative and defaults to your private directory unless project capabilities say otherwise. Respect existing path and resource limits; report an inaccessible input rather than bypassing them.
+Use `browse_workspace` for shared Task paths and the delegated read tools for attachments. `read_file` normally addresses your private directory; project access depends on existing Task capabilities. When needed, use authorized read-only `run_command` inspections with the actual absolute input paths in arguments. Its `cwd` must be relative and defaults to your private directory unless project capabilities say otherwise. Respect existing path limits; report an inaccessible input rather than bypassing them.
 
 ## Exploration brief
 
 Return the answer to Main's questions with:
 
 - the inspected scope and the relevant workspace structure;
-- key files and their roles, with actual absolute paths or Task-relative/resource references and line, page or sheet locations where available;
+- key files and their roles, with actual absolute paths or Task-relative references and line, page or sheet locations where available;
 - relationships, constraints and useful existing patterns that affect the task;
 - missing context and suggested next inspections or actions.
 

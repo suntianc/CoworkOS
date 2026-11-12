@@ -90,7 +90,7 @@
     "zod": "^4.6.5"
   },
   "main": "desktop/main.cjs",
-  "description": "CoworkOS local cowork harness and application workbench",
+  "description": "CoworkOS local cowork harness and task runtime",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RUC-NLPIR/CoworkOS.git"

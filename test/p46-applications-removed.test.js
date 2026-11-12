@@ -54,7 +54,45 @@ const retiredIdentifiers = [
   "ResourceMappingStore",
   "COWORK_TABS_INDEX",
   "boundResourceId",
-  "loadedInstanceId"
+  "loadedInstanceId",
+  // Removed workbench/resource residue surfaces: stylesheet selectors, the
+  // resource-layout migration script and the old conversation parameter.
+  "workbench",
+  "migrate-resources",
+  "applications\\/",
+  "app-instance",
+  "[data-app-instances]",
+  "collaboration-picker",
+  "local-file-opener",
+  "component-manager",
+  "component-preparation",
+  "component-card",
+  "component-status",
+  "component-list",
+  "component-actions",
+  "component-auth",
+  "component-details",
+  "component-progress",
+  "is-resource",
+  "resource-review",
+  "applicationWorkspace",
+  "drawer-eyebrow",
+  "drawer-file-list",
+  "drawer-document",
+  "drawer-toolbar",
+  "drawer-file-size",
+  "editor-name-form",
+  "editor-surface",
+  "editor-conflict",
+  "editor-empty-icon",
+  "editor-empty-action",
+  "editor-empty-body",
+  "editor-state",
+  "output-heading",
+  "output-section",
+  "output-file",
+  "output-copy",
+  "output-open-mark"
 ];
 
 /** Run one real Main process from this checkout and collect its exit code and output. */
@@ -369,4 +407,26 @@ test("application and workbench modules and identifiers are gone", async () => {
     }
   }
   assert.deepEqual(found, [], `retired identifiers still referenced:\n${found.join("\n")}`);
+});
+
+test("maintained docs and packaging metadata do not advertise the removed capability", async () => {
+  // AC6 is manual wording review; this guards the generation surfaces so a
+  // deleted page or a removed troubleshooting row cannot creep back in.
+  const targets = ["docs/development.md", "docs/en/development.md", "scripts/docs-site.mjs", "package.json"];
+  const retiredPhrases = [
+    "MCP 状态",
+    "资源绑定",
+    "Resource binding",
+    "Tab 索引",
+    "应用工作台",
+    "application workbench",
+    "applications and development",
+    "docs/applications.md"
+  ];
+  const found = [];
+  for (const path of targets) {
+    const text = await readFile(resolve(path), "utf8");
+    for (const phrase of retiredPhrases) if (text.includes(phrase)) found.push(`${path} → ${phrase}`);
+  }
+  assert.deepEqual(found, [], `removed capability still advertised:\n${found.join("\n")}`);
 });

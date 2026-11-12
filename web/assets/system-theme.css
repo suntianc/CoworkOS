@@ -186,15 +186,7 @@ html[data-theme] {
     background: rgba(36, 42, 56, 0.16);
   }
   .composer,
-  :is(
-    .ui-menu,
-    .model-menu,
-    .session-menu,
-    .search-dialog,
-    .modal-card,
-    .artifact-drawer,
-    .editor-name-form
-  ) {
+  :is(.ui-menu, .model-menu, .session-menu, .search-dialog, .modal-card, .artifact-drawer) {
     background: var(--ui-panel);
     color: var(--ui-text);
     border-color: var(--ui-border);
@@ -204,8 +196,7 @@ html[data-theme] {
     border-color: transparent;
     box-shadow: var(--ui-composer-shadow);
   }
-  .composer textarea,
-  .editor-surface {
+  .composer textarea {
     color: var(--ui-text);
     caret-color: var(--ui-accent);
   }
@@ -286,8 +277,7 @@ html[data-theme] {
     background: color-mix(in srgb, var(--ui-accent), var(--ui-panel) 12%);
     border-color: transparent;
   }
-  .app-button.is-danger:hover:not(:disabled),
-  .editor-conflict {
+  .app-button.is-danger:hover:not(:disabled) {
     background: color-mix(in srgb, var(--ui-danger), var(--ui-panel) 94%);
     color: var(--ui-danger);
   }
@@ -349,10 +339,6 @@ html[data-theme] {
   .request-error [data-error-type] {
     color: var(--ui-muted);
     font-size: var(--ui-type-caption);
-  }
-  .editor-surface::selection {
-    color: var(--ui-text);
-    background: var(--ui-accent-soft);
   }
   .agent-pane *,
   .chat-scroll,

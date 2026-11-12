@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { discoverNodeTests } from "./test.mjs";
 
-export const stageIds = ["basic", "cli", "app", "applications", "cases"];
+export const stageIds = ["basic", "cli", "app", "cases"];
 
 export function parseOptions(args) {
   const options = {
@@ -26,7 +26,7 @@ export function parseOptions(args) {
       const value = args[++i];
       options.stages = value?.split(",");
       if (!options.stages?.length || options.stages.some((id) => !stageIds.includes(id)))
-        throw new Error("--stage 必须为 basic,cli,app,applications,cases 的一个或多个值");
+        throw new Error("--stage 必须为 basic,cli,app,cases 的一个或多个值");
       options.stages = stageIds.filter((id) => options.stages.includes(id));
     } else if (arg === "--timeout-seconds") {
       options.timeoutSeconds = Number(args[++i]);
@@ -72,7 +72,7 @@ export function automationOutcome(steps, selectedStages, completedStages) {
 export async function loadPlan(root, options, platform = process.platform) {
   const catalog = JSON.parse(await readFile(join(root, "test/release/catalog.json"), "utf8"));
   if (JSON.stringify(catalog.stages.map((stage) => stage.id)) !== JSON.stringify(stageIds))
-    throw new Error("发布目录必须保留五个环节");
+    throw new Error("发布目录必须保留四个环节");
   for (const rule of catalog.rules) {
     if (!stageIds.includes(rule.stage)) throw new Error(`未知目录环节：${rule.stage}`);
     for (const kind of ["node", "browser"]) if (rule[kind]) new RegExp(rule[kind]);

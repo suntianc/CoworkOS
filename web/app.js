@@ -1252,7 +1252,7 @@ function truncate(value, length) {
   return text.length > length ? `${text.slice(0, length - 1)}…` : text;
 }
 
-function beginNewConversation(projectId, applicationWorkspace) {
+function beginNewConversation(projectId) {
   if (!state.projectsLoaded) return false;
   sessionMenu.close();
   const project =
@@ -1260,7 +1260,7 @@ function beginNewConversation(projectId, applicationWorkspace) {
       ? projectController.select(projectId)
       : projectId === null
         ? undefined
-        : projectController.projectForWorkspace(applicationWorkspace) || projectController.currentProject();
+        : projectController.currentProject();
   if (project) projectController.select(project.projectId);
   else state.selectedProjectId = null;
   composerSession.activate(null, {

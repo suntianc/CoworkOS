@@ -9,7 +9,7 @@ import { parseOptions, loadPlan, parseTap, stepStatus, automationOutcome } from 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const help = `本地发布验收：npm run test:release -- [选项]
   --list                    查看分组和未自动执行项，不构建、不写报告
-  --stage basic,cli,app,applications,cases  选择环节，默认全部
+  --stage basic,cli,app,cases  选择环节，默认全部
   --native                  Mac 上加入真实 Electron/Computer Use 测试，串行浏览器
   --packages                构建 CLI tgz/Mac DMG；最终安装仍需人工验收
   --skip-build              调试已有构建，报告记录跳过构建

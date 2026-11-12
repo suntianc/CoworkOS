@@ -945,28 +945,12 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   width: var(--ui-icon-small);
   height: var(--ui-icon-small);
 }
-.output-row.is-resource .output-file {
-  color: var(--ui-accent);
-  background: var(--ui-accent-soft);
-  border-color: light-dark(var(--ui-border), #554e66);
-}
 
 .activity-status.failed,
 .tool-step.is-failed .tool-marker {
   color: var(--ui-danger);
 }
-/* Conversation and document share one workspace, with independent focus. */
 
-.workspace-divider {
-  position: relative;
-  width: 6px;
-  background: transparent;
-  cursor: col-resize;
-  touch-action: none;
-}
-.workspace-divider:focus-visible {
-  outline: none;
-}
 .workspace-resizing {
   cursor: col-resize;
   user-select: none;
@@ -975,32 +959,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 .workspace-resizing canvas {
   pointer-events: none;
 }
-.composer-context {
-  display: block;
-  max-width: 100%;
-  padding: 0 0 10px;
-  border: 0;
-  background: transparent;
-  color: var(--ui-muted);
-  text-align: left;
-  font-size: var(--ui-type-caption);
-  line-height: 1.6;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-.composer-context:hover {
-  color: var(--ui-text);
-}
-@media (min-width: 901px) {
-  .app-fullbleed .app-layout {
-    grid-template-columns: var(--sidebar-width, var(--conversation-width)) minmax(0, 1fr) 0;
-  }
-  .sidebar-collapsed.app-fullbleed .app-layout {
-    grid-template-columns: 0 minmax(0, 1fr) 0;
-  }
-}
+
 @media (max-width: 900px) {
   .sidebar-mobile-open .conversation-sidebar {
     width: min(var(--conversation-width), 85vw);
@@ -1009,54 +968,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
     box-shadow: var(--ui-popup-shadow);
   }
 }
-@media (min-width: 1100px) {
-  .chat-body.is-collaborating {
-    display: grid;
-    grid-template-columns: minmax(320px, var(--chat-share, 42%)) 6px minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
-  }
-  .is-collaborating .conversation-pane {
-    grid-column: 1;
-    grid-row: 1;
-    min-width: 0;
-  }
-  .is-collaborating .workspace-divider {
-    grid-column: 2;
-    grid-row: 1;
-  }
 
-  .is-collaborating .chat-header {
-    padding: 18px 20px 12px;
-  }
-  .is-collaborating .chat-scroll {
-    padding: 12px 20px 24px;
-  }
-  .is-collaborating .composer-wrap {
-    padding: 12px 16px 18px;
-  }
-  .is-collaborating .composer-bar {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-}
-
-@media (min-width: 1100px) {
-  .is-collaborating .composer-right {
-    width: 100%;
-    min-width: 0;
-    gap: 6px;
-  }
-
-  .is-collaborating .model-select {
-    max-width: 130px;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .is-collaborating .send-button,
-  .is-collaborating .stop-button {
-    flex-shrink: 0;
-  }
-}
 /* The composer has one action row. Labels yield space before task controls do. */
 .composer {
   container-type: inline-size;
@@ -1078,8 +990,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
     height: auto;
   }
 }
-.composer-bar,
-.is-collaborating .composer-bar {
+.composer-bar {
   position: relative;
   display: flex;
   flex-direction: row;
@@ -1089,8 +1000,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   min-width: 0;
 }
 .composer-left,
-.composer-right,
-.is-collaborating .composer-right {
+.composer-right {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
@@ -1101,8 +1011,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 .composer-left {
   flex: 1 1 0;
 }
-.composer-right,
-.is-collaborating .composer-right {
+.composer-right {
   flex: 0 0 auto;
 }
 .composer-left .attach-button,
@@ -1112,8 +1021,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 }
 
 .composer .model-select,
-.composer .reasoning-select,
-.is-collaborating .model-select {
+.composer .reasoning-select {
   flex: 0 1 186px;
   min-width: 58px;
   max-width: 186px;
@@ -1169,13 +1077,11 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 }
 
 @container (max-width: 520px) {
-  .composer-bar,
-  .is-collaborating .composer-bar {
+  .composer-bar {
     gap: 6px;
   }
   .composer-left,
-  .composer-right,
-  .is-collaborating .composer-right {
+  .composer-right {
     gap: 4px;
   }
 }
@@ -1669,43 +1575,12 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   .chat-pane {
     min-width: 0;
   }
-  .composer-wrap,
-  .is-collaborating .composer-wrap {
+  .composer-wrap {
     padding-left: 12px;
     padding-right: 12px;
   }
 }
-.resource-review {
-  width: min(1100px, 95vw);
-  max-width: 95vw;
-  max-height: 90vh;
-  overflow: auto;
-}
-.review-columns {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-.review-columns section {
-  min-width: 0;
-}
-.review-columns pre {
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 55vh;
-  border: 1px solid var(--ui-border);
-  padding: 12px;
-  font: var(--ui-type-control)/1.6 var(--ui-mono);
-}
-.review-columns h3 {
-  font-size: var(--ui-type-body);
-}
-@media (max-width: 600px) {
-  .review-columns {
-    grid-template-columns: 1fr;
-  }
-}
+
 /* Window access is requested for a concrete conversation and target. */
 .session-menu #computer-access.is-controlling {
   color: var(--ui-success);
@@ -1784,34 +1659,7 @@ textarea {
 ) {
   font-family: var(--ui-font);
 }
-:is(
-  .account-name,
-  .conversation-item-title,
-  .output-file strong,
-  .model-name,
-  .session-menu button,
-  .modal-card label,
-  .modal-card input,
-  .modal-card select,
-  .modal-card button
-) {
-  font-size: var(--ui-type-control);
-}
-:is(
-  .message-meta,
-  .conversation-item-meta,
-  .sidebar-section-label,
-  .output-heading small,
-  .output-section-title,
-  .output-file small,
-  .model-provider,
-  .model-menu-label,
-  .attachment-chip small
-) {
-  font-family: var(--ui-font);
-  font-size: var(--ui-type-caption);
-  letter-spacing: 0;
-}
+
 .chat-pane .message-copy {
   font-family: var(--ui-font);
   font-size: var(--ui-type-body);
@@ -1821,19 +1669,14 @@ textarea {
 .chat-message.main > .message-avatar {
   display: none;
 }
-:is(.task-title, .chat-title-block h1, .output-heading h2, .modal-card h2, .artifact-drawer h2) {
-  font-size: var(--ui-type-heading);
-  line-height: 1.4;
-}
+
 /* Restrained weight and natural spacing for Chinese and Latin text. */
 .brand-lockup strong {
   font-weight: var(--ui-weight-emphasis);
 }
 .chat-pane .chat-header h1,
-.agent-pane .output-heading h2,
 .artifact-drawer-title h2,
-.attachment-preview-card header strong,
-.editor-empty-body > strong {
+.attachment-preview-card header strong {
   font-weight: var(--ui-weight-medium);
   letter-spacing: normal;
   line-height: 1.5;
@@ -1903,11 +1746,7 @@ textarea {
   border-bottom: 0;
   background: transparent;
 }
-.agent-pane .output-heading h2 {
-  font-size: 18px;
-  font-weight: var(--ui-weight-emphasis);
-  letter-spacing: -0.025em;
-}
+
 .agent-pane {
   font-size: var(--panel-type-body);
 }
@@ -2159,8 +1998,7 @@ body {
 }
 
 /* The input occupies its own row instead of covering conversation content. */
-.composer-wrap,
-.is-collaborating .composer-wrap {
+.composer-wrap {
   position: relative;
   inset: auto;
   flex: 0 0 auto;
@@ -2671,7 +2509,7 @@ body {
 .sidebar-divider:focus-visible {
   outline: none;
 }
-:is(.sidebar-divider, .workspace-divider)::after {
+.sidebar-divider::after {
   content: "";
   position: absolute;
   inset: 0 auto 0 50%;
@@ -2681,16 +2519,19 @@ body {
   transform: translateX(-50%);
   transition: background-color var(--motion-fast);
 }
-:is(.sidebar-divider, .workspace-divider):hover::after,
-:is(.sidebar-divider, .workspace-divider):focus-visible::after,
-:is(.sidebar-divider, .workspace-divider).is-dragging::after {
+.sidebar-divider:hover::after,
+.sidebar-divider:focus-visible::after,
+.sidebar-divider.is-dragging::after {
   width: 2px;
   background: var(--ui-border-hover);
 }
 /* Only keyboard focus uses the accent; a drag shows no coloured line (#20). */
-:is(.sidebar-divider, .workspace-divider):focus-visible::after {
+.sidebar-divider:focus-visible::after {
   background: var(--ui-accent);
 }
+
+/* Only keyboard focus uses the accent; a drag shows no coloured line (#20). */
+
 .sidebar-collapsed .sidebar-divider {
   display: none;
 }

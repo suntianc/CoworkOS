@@ -283,7 +283,7 @@ html[data-theme] .sidebar-bottom {
 }
 html[data-theme] :is(.sidebar-section-label, .nav-item, .conversation-item, .project-row),
 html[data-theme] .sidebar-header .brand-lockup strong,
-html[data-theme] :is(.output-heading h2, .output-section-title, .welcome-empty h2) {
+html[data-theme] .welcome-empty h2 {
   color: var(--color-text);
 }
 html[data-theme] :is(.nav-item, .conversation-item, .project-row) {
@@ -376,8 +376,7 @@ html[data-theme]
     .search-dialog,
     .artifact-drawer,
     .ui-menu,
-    .attachment-preview-card,
-    .editor-name-form
+    .attachment-preview-card
   ) {
   border: 1px solid var(--popover-edge);
   border-radius: var(--radius-panel);
@@ -386,9 +385,6 @@ html[data-theme]
   backdrop-filter: none;
   box-shadow: var(--popover-shadow);
   color: var(--color-text);
-}
-:is(.output-section, .detail-body) {
-  border-color: var(--color-line);
 }
 /* Controls */
 html[data-theme] :is(.app-button.is-primary, .modal-card .modal-primary, .send-button) {
@@ -1183,11 +1179,7 @@ html[data-theme] .sidebar-bottom .account-icon {
   flex-direction: column;
   min-height: 0;
 }
-.chat-body.is-collaborating {
-  display: grid;
-  grid-template-columns: minmax(320px, var(--chat-share, 42%)) 6px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-}
+
 html[data-theme] .composer :is(#model-setup-button, .model-select, .reasoning-select) {
   white-space: nowrap;
 }
