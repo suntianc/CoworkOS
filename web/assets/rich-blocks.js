@@ -1,6 +1,7 @@
 import { escapeHtml as esc } from "./workbench/html.js";
 import { icon } from "./ui/icons.js";
 import { ui } from "./ui/language.js";
+import { highlightCode } from "./ui/highlight.js";
 
 /**
  * Markup for the richer blocks a reply can carry: code, diffs, terminal
@@ -48,7 +49,7 @@ export function fencedBlock(info, code) {
 }
 
 export function codeBlock(language, code) {
-  return `<figure class="code-block" data-ui-owned="${sourceKey(`code:${language}\n${code}`)}"><figcaption class="code-block-head"><span class="code-block-language">${esc(language || "text")}</span>${action('data-code-wrap aria-pressed="false"', "wrap-text", ui("换行"), ui("自动换行"))}${copyAction(ui("复制代码"))}</figcaption><pre><code class="language-${esc(language)}">${esc(code)}</code></pre></figure>`;
+  return `<figure class="code-block" data-ui-owned="${sourceKey(`code:${language}\n${code}`)}"><figcaption class="code-block-head"><span class="code-block-language">${esc(language || "text")}</span>${action('data-code-wrap aria-pressed="false"', "wrap-text", ui("换行"), ui("自动换行"))}${copyAction(ui("复制代码"))}</figcaption><pre><code class="language-${esc(language)}">${highlightCode(language, code)}</code></pre></figure>`;
 }
 
 /* Terminal output -------------------------------------------------------- */

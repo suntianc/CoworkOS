@@ -68,6 +68,30 @@
   overflow-wrap: anywhere;
 }
 
+/* Syntax colours (#26), from the theme's code tokens; plain text keeps the block colour. */
+.code-block code .tok-keyword {
+  color: var(--code-keyword, #c2410c);
+}
+.code-block code .tok-string {
+  color: var(--code-string, #15803d);
+}
+.code-block code .tok-number {
+  color: var(--code-number, #a16207);
+}
+.code-block code .tok-function {
+  color: var(--code-function, #1d4ed8);
+}
+.code-block code .tok-type {
+  color: var(--code-type, #0f766e);
+}
+.code-block code .tok-comment {
+  color: var(--code-comment, #6b6b74);
+  font-style: italic;
+}
+.code-block code .tok-punct {
+  color: var(--code-punct, #52525b);
+}
+
 /* The bar under a settled reply: copy, Fork, time (#14). */
 .reply-actions {
   display: flex;
