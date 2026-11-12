@@ -262,6 +262,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   }
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
+  // An app opened from Finder or the Dock shows the system's time zone; a TZ
+  // left in the launching terminal would shift every time the app prints.
+  delete env.TZ;
   env.COWORK_DESKTOP_DEV = "1";
   env.COWORK_DESKTOP_SOURCE_ROOT = projectRoot;
   const tools = developmentToolchain();
