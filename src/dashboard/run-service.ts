@@ -384,7 +384,9 @@ export function createDashboardRunService({
     if (edit?.rollback) submission?.onPrepared?.(edit.rollback);
     // Preparing an edit retires only questions from the replaced message's tail.
     // Ordinary continuation and unrelated pending decisions retain the same gate.
-    if ((await new HumanRequestStore(taskWorkspace).list(taskId, "pending")).length)
+    // A decision left by the retired goal tool is not such a question: nobody
+    // can answer it, so it must not refuse the launch.
+    if ((await new HumanRequestStore(taskWorkspace).listBlockingPending(taskId)).length)
       throw new Error("请先回答任务中待确认的问题，再继续运行。");
     const savedVersions = await readMessageVersions(taskWorkspace, taskId);
     const versions = savedVersions
@@ -1383,7 +1385,7 @@ export function createDashboardRunService({
         humanWakeups.delete(taskId);
         return { status: "cancelled" };
       }
-      const pending = await new HumanRequestStore(location.workspaceRoot).list(taskId, "pending");
+      const pending = await new HumanRequestStore(location.workspaceRoot).listBlockingPending(taskId);
       if (pending.length) {
         humanWakeups.delete(taskId);
         return { status: "waiting" };

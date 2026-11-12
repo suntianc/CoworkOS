@@ -169,9 +169,9 @@ Task/Worker 命令在执行前验证选项。以 `-` 开头的任务或回答文
 
 ## 停泊与定时唤醒
 
-`sleep_until(reason, wakeInSeconds)` 把当前 Task 记为等待：Task 跨进程重启保持打开，到期后由 Main 守护写入一条持久 Inbox 唤醒消息，Main 读取后清除停泊记录。`wakeInSeconds` 最小 60 秒；没有到期时间的停泊会被拒绝，因为已经没有别的调度器能唤醒它。结束一轮不等于停泊：没有停泊记录且没有未了结工作的 Task 按完成处理。
+`sleep_until(reason, wakeInSeconds)` 把当前 Task 记为等待：Task 跨进程重启保持打开，到期后由 Main 守护把一条持久 Inbox 唤醒消息写入 Task 当前活动 Run 的收件箱，并在写入后清除停泊记录。停泊后 Task 可能已经换了 Run，只有当前 Run 的 Main 会读取收件箱，所以唤醒不写回停泊时那个 Run。`wakeInSeconds` 最小 60 秒；没有到期时间的停泊会被拒绝，因为已经没有别的调度器能唤醒它。结束一轮不等于停泊：没有停泊记录且没有未了结工作的 Task 按完成处理。
 
-`COWORK_DISABLE_MAIN_GUARDIAN=1` 关闭守护；`COWORK_MAIN_GUARDIAN_INTERVAL_MS` 默认为 60000。守护只读取 Task、Inbox、人工问题和停泊记录；有未消费回调、没有存活 Main、且没有等待人回答的 Task 会被重新拉起。
+`COWORK_DISABLE_MAIN_GUARDIAN=1` 关闭守护；`COWORK_MAIN_GUARDIAN_INTERVAL_MS` 默认为 60000。守护只读取 Task、Inbox、人工问题和停泊记录；有未消费回调、没有存活 Main、且没有等待人回答的 Task 会被重新拉起。已删除的长期目标工具留下的待处理决定无法再被回答，不算等待人回答，也不阻塞 Main 启动。
 
 ## 程序化运行
 

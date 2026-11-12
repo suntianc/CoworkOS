@@ -8,7 +8,7 @@ import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import { JsonlEventStore } from "../storage/event-store.js";
 import { id, now } from "../domain/types.js";
 import { mainIsAlive, readHeartbeat } from "./main-heartbeat.js";
-import { markWakeFired, readSleep } from "./main-sleep.js";
+import { clearSleep, readSleep } from "./main-sleep.js";
 
 /**
  * Restarts a Main that stopped while work was still addressed to it.
@@ -126,19 +126,25 @@ export class MainSupervisor {
 
     // A Task parked on a question belongs to the user until they answer it.
     // Restarting past that would let the supervisor decide the question by
-    // resuming without it.
-    if ((await new HumanRequestStore(this.options.workspaceRoot).list(taskId, "pending")).length) {
+    // resuming without it. A decision left by the retired goal tool is not
+    // such a question: nobody can answer it, so it must not hold the Task.
+    if ((await new HumanRequestStore(this.options.workspaceRoot).listBlockingPending(taskId)).length) {
       return { taskId, action: "skipped", reason: "awaiting_human" };
     }
 
-    // Runtime owns the park clock. A due park becomes one durable wake message;
-    // the record is marked after enqueueing, so a crash cannot wake it twice.
+    // Runtime owns the park clock. A due park becomes one durable wake message
+    // in the Inbox the Task's current Main reads: the Run that parked may have
+    // been replaced since, and only the active Run has a Main to consume it.
+    // The message id is derived from the park, so queueing twice after a crash
+    // is a no-op rather than a second wake. The record is retired once the wake
+    // is durable; if the Main that should read it dies, the queued message is
+    // what starts it again.
     // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏的含义就是没有可用的停泊，按普通 Task 继续检查
     const parked = await readSleep(this.options.workspaceRoot, taskId).catch(() => undefined);
     const nowMs = this.options.nowMs?.() ?? Date.now();
-    if (parked && !parked.wakeFiredAt && Date.parse(parked.wakeAt) <= nowMs) {
+    if (parked && Date.parse(parked.wakeAt) <= nowMs) {
       await new InboxStore(
-        join(this.options.workspaceRoot, taskId, "runs", parked.runId, "agents", "main", "inbox-store.json")
+        join(this.options.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
       ).enqueue({
         messageId: `park-wake-${parked.parkedAt}`,
         recipientAgentId: "main",
@@ -154,7 +160,7 @@ export class MainSupervisor {
           wakeAt: parked.wakeAt
         }
       });
-      await markWakeFired(this.options.workspaceRoot, taskId);
+      await clearSleep(this.options.workspaceRoot, taskId);
       wake.count += 1;
     }
 
