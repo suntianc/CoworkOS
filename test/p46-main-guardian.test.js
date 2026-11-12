@@ -45,7 +45,10 @@ const setEnv = (t, values) => {
 const enabledGuardian = (t) =>
   setEnv(t, { COWORK_DISABLE_MAIN_GUARDIAN: undefined, COWORK_DISABLE_WATCH_SUPERVISOR: undefined });
 
-async function fixture(t, { tasks = [], capacity, mainSessions, projectId } = {}) {
+async function fixture(
+  t,
+  { tasks = [], capacity, mainSessions, projectId, modelConfigured = () => true } = {}
+) {
   const root = await mkdtemp(join(tmpdir(), "atria-main-guardian-"));
   const workspaceRoot = join(root, WORKSPACE);
   // The fake Main stays alive until shutdown, which is what an owned Run looks
@@ -88,7 +91,7 @@ async function fixture(t, { tasks = [], capacity, mainSessions, projectId } = {}
       records.push({ workspace, taskId, runId, type, payload });
     },
     readJsonFile,
-    mainGuardian: { workspaceRoots: async () => [workspaceRoot] },
+    mainGuardian: { workspaceRoots: async () => [workspaceRoot], modelConfigured },
     ...(capacity ? { mainCapacity: capacity.port } : {}),
     ...(mainSessions ? { mainSessions } : {})
   });
@@ -156,6 +159,24 @@ test("the Run service resumes a parked Task while leaving answered and live Task
   // another Main for the same Task.
   await f.service.runMainGuardianCycle();
   assert.equal(f.spawned("resume-me").length, 1);
+});
+
+test("a host without a Main connection takes no recovery decision until one is configured", async (t) => {
+  enabledGuardian(t);
+  let configured = false;
+  const taskId = "waiting-for-model";
+  const f = await fixture(t, { tasks: [{ taskId }], modelConfigured: () => configured });
+  const runEvents = join(f.workspaceRoot, taskId, "runs", RUN(taskId), "run_events.jsonl");
+
+  assert.deepEqual(await f.service.runMainGuardianCycle(), [], "no connection means no launch decision");
+  assert.equal(f.spawned(taskId).length, 0);
+  assert.equal(await readFile(runEvents, "utf8"), "", "an unconfigured host records no resume attempt");
+
+  configured = true;
+  const [cycle] = await f.service.runMainGuardianCycle();
+  assert.equal(decisionFor(cycle, taskId).action, "resumed");
+  assert.equal(f.spawned(taskId).length, 1, "the next cycle sees the connection and starts Main");
+  assert.match(await readFile(runEvents, "utf8"), /main\.supervisor_resume/);
 });
 
 test("a full budget queues the wake and starts it when a slot frees", async (t) => {
@@ -239,6 +260,12 @@ test("the guardian implementation does not import monitoring or goal routing", a
   const runService = await readFile(resolve("src/dashboard/run-service.ts"), "utf8");
   assert.match(runService, /new MainSupervisor\(/, "the Run service is where the guardian runs");
   assert.match(runService, /queueWhenFull: true/, "a full budget queues the wake");
+  assert.match(runService, /modelConfigured\(\)/, "each cycle checks the host's model connection");
+
+  const application = await readFile(resolve("src/dashboard/application.ts"), "utf8");
+  assert.match(application, /modelConfigured: \(\) =>/, "the host supplies the model gate");
+  assert.match(application, /runtimeValue\("COWORK_API_BASE"\)/);
+  assert.match(application, /runtimeValue\("COWORK_API_KEY"\)/);
 
   const watchService = await readFile(resolve("src/dashboard/watch-service.ts"), "utf8");
   assert.doesNotMatch(

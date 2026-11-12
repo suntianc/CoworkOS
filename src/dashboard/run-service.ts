@@ -161,6 +161,13 @@ export interface RunServicePorts {
    */
   mainGuardian?: {
     workspaceRoots(): Promise<string[]>;
+    /**
+     * Whether this host has a Main model connection.
+     *
+     * Read every cycle, not at startup: a connection completed later applies
+     * on the next tick, while a host without one takes no launch decision.
+     */
+    modelConfigured(): boolean;
   };
   normalizeModel(value: unknown): string | undefined;
   appendRunEvent(
@@ -926,7 +933,14 @@ export function createDashboardRunService({
   let mainGuardianStopped = false;
 
   async function runMainGuardianCycle(): Promise<MainSupervisorCycleResult[]> {
-    if (stopping || mainGuardianStopped || mainGuardianDisabled() || !mainGuardian) return [];
+    if (
+      stopping ||
+      mainGuardianStopped ||
+      mainGuardianDisabled() ||
+      !mainGuardian ||
+      !mainGuardian.modelConfigured()
+    )
+      return [];
     const results: MainSupervisorCycleResult[] = [];
     for (const workspaceRoot of await mainGuardian.workspaceRoots()) {
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stop() 可在读取工作区期间置位，此时不能再启动新周期

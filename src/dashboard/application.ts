@@ -422,7 +422,12 @@ export function createDashboardApplication(
       resolve: (location, input) => mainSessions.resolve(location, input)
     },
     mainCapacity,
-    mainGuardian: { workspaceRoots: knownWorkspaceRoots },
+    mainGuardian: {
+      workspaceRoots: knownWorkspaceRoots,
+      // Same gate the watch cycle used: a host with no Main connection has
+      // nothing to launch, and a connection added later is seen next cycle.
+      modelConfigured: () => Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
+    },
     withTaskProjectLock: workspaces.withTaskProjectLock,
     resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
     endpointLimits: async (selection) =>
