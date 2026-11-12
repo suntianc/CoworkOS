@@ -136,8 +136,7 @@ export class MainSupervisor {
     // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏的含义就是没有可用的停泊，按普通 Task 继续检查
     const parked = await readSleep(this.options.workspaceRoot, taskId).catch(() => undefined);
     const nowMs = this.options.nowMs?.() ?? Date.now();
-    if (parked && !parked.wakeFiredAt) {
-      if (Date.parse(parked.wakeAt) > nowMs) return { taskId, action: "skipped", reason: "parked" };
+    if (parked && !parked.wakeFiredAt && Date.parse(parked.wakeAt) <= nowMs) {
       await new InboxStore(
         join(this.options.workspaceRoot, taskId, "runs", parked.runId, "agents", "main", "inbox-store.json")
       ).enqueue({
@@ -163,9 +162,14 @@ export class MainSupervisor {
       join(this.options.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
     );
     // A leased message was never consumed either: a Main that died mid-delivery
-    // leaves it that way, and it still needs someone to read it.
+    // leaves it that way, and it still needs someone to read it. Inbox work is
+    // checked before the park: a callback or external event that arrives while
+    // a Task sleeps means the condition it parked on has been met.
     const pending = (await inbox.list("main")).filter((entry) => entry.state !== "consumed");
-    if (pending.length === 0) return { taskId, action: "skipped", reason: "no_pending_work" };
+    if (pending.length === 0) {
+      if (parked) return { taskId, action: "skipped", reason: "parked" };
+      return { taskId, action: "skipped", reason: "no_pending_work" };
+    }
 
     const running = this.options.isRunning?.(taskId) ?? false;
     if (

@@ -496,9 +496,12 @@ These checks enforce execution and delivery state. Main remains responsible for 
   "statistics": null,
   "humanRequests": [],
   "humanResumePending": false,
+  "parked": { "wakeAt": "2026-01-01T00:10:00.000Z", "reason": "refresh the report" },
   "runtime": { "active": false }
 }
 ```
+
+`parked` is present only while a durable sleep record waits for a timed wake; it carries `wakeAt` and `reason` from `agents/main/sleep.json` and is absent otherwise. Readers use it to tell a genuinely parked Task from an unfinished stop.
 
 `coordination.calls` is the structured Agent Office state. A UI should use its `status`, `agentId`, `task`, `response`, and `error` fields to drive the agent card; it should not infer state from animation timers.
 

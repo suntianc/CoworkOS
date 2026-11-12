@@ -343,3 +343,17 @@ test("no goal or monitoring module or identifier remains in product sources", as
   }
   assert.deepEqual(offenders, []);
 });
+
+test("maintained docs no longer describe the removed retry ownership field or Watch domain", async () => {
+  const layout = await readFile("docs/task-workspace-layout.md", "utf8");
+  assert.equal(layout.includes("goalDelegationRequestId"), false);
+  const runtimeGuide = await readFile("src/runtime/AGENTS.md", "utf8");
+  assert.equal(/Task、Run、Agent、Watch、Job/.test(runtimeGuide), false);
+  for (const path of [
+    "docs/long-term-goals-architecture.md",
+    "docs/long-term-goals-ux.md",
+    "docs/monitoring-pause-contract.md",
+    "docs/watch-program-design.md"
+  ])
+    await assert.rejects(access(path), undefined, `${path} is removed`);
+});

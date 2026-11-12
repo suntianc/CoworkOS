@@ -761,7 +761,8 @@ export function createConversationView({
     flush();
     if (failed && !activity.some((item) => item.type === "tool" || item.text?.trim())) return "";
     const collapsible = !working && hasFinalAnswer && persistedAnswerMatches;
-    const waitingForWake = isCurrent && pending && !continued && !failed && !working;
+    const waitingForWake =
+      isCurrent && pending && !continued && !failed && !working && Boolean(state.detail?.parked);
     const latest = activity.at(-1);
     const currentTool = latest?.type === "tool" ? presentations.get(latest.call) : undefined;
     const phase = retry

@@ -242,13 +242,14 @@ test("waiting between reasoning, returned tools and the next model response keep
   assert.equal(document.querySelectorAll("[data-thinking-key]").length, 0);
 });
 
-test("a waiting run stays waiting after its terminal waiting event", () => {
-  const { document, state, render } = fixture("parked-monitor", "本轮变化已核实。");
+test("a genuinely parked run says it will wait for the next wake", () => {
+  const { document, state, render } = fixture("parked-run", "本轮变化已核实。");
   state.detail.runtimeEvents.push(update("thinking_end", 0, { content: "本轮变化已核实。" }), {
     type: "main.run_waiting"
   });
   state.detail.runtime.active = false;
   state.detail.task.status = "waiting";
+  state.detail.parked = { wakeAt: "2099-01-01T00:00:00Z", reason: "等待新变化" };
   render();
   assert.match(document.querySelector(".workflow-heading").textContent, /等待继续/);
   assert.match(document.querySelector(".live-caption").textContent, /本轮已处理/);
@@ -260,6 +261,18 @@ test("a waiting run stays waiting after its terminal waiting event", () => {
   render();
   assert.doesNotMatch(document.querySelector(".workflow-heading").textContent, /等待继续/);
   assert.equal(document.querySelectorAll(".workflow-progress-spinner").length, 1);
+});
+
+test("an unfinished stop without a park still says the round is incomplete", () => {
+  const { document, state, render } = fixture("unfinished-stop", "只完成了第一步。");
+  state.detail.runtimeEvents.push(update("thinking_end", 0, { content: "只完成了第一步。" }), {
+    type: "main.run_waiting"
+  });
+  state.detail.runtime.active = false;
+  state.detail.task.status = "waiting";
+  render();
+  assert.match(document.querySelector(".live-caption").textContent, /整轮任务未完成/);
+  assert.doesNotMatch(document.querySelector(".live-caption").textContent, /本轮已处理/);
 });
 
 test("no first token and an automatic retry both keep a visible waiting animation", () => {

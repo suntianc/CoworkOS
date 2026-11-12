@@ -206,6 +206,35 @@ test("a park whose time has not arrived is left alone", async (t) => {
   assert.equal((await store.readTask(TASK)).status, "waiting");
 });
 
+test("a parked Task still resumes when unconsumed Inbox work arrives first", async (t) => {
+  const { root, pi } = await harness(t);
+  await pi.tools
+    .get("sleep_until")
+    .execute("call-1", { reason: "wait for later", wakeInSeconds: 3_600 }, undefined, undefined, ctx);
+  await settle(pi);
+  await new InboxStore(join(root, TASK, "runs", RUN, "agents", "main", "inbox-store.json")).enqueue({
+    messageId: "callback-during-park",
+    recipientAgentId: "main",
+    kind: "callback",
+    eventId: "callback-event",
+    priority: 1,
+    state: "ready",
+    payload: { callId: "earlier" },
+    createdAt: new Date().toISOString()
+  });
+  const launches = [];
+  const result = await new MainSupervisor({
+    workspaceRoot: root,
+    launch: (input) => {
+      launches.push(input);
+    }
+  }).runCycle({ taskId: TASK });
+  assert.equal(result.parkWakes, 0, "an early callback is not a timed wake");
+  assert.equal(result.resumed, 1);
+  assert.equal(launches.length, 1);
+  assert.ok(await readSleep(root, TASK), "the park is still waiting for its own time");
+});
+
 test("finish_task supersedes a park and says so", async (t) => {
   const { root, store, pi } = await harness(t);
   await pi.tools

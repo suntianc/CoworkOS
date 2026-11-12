@@ -18,15 +18,7 @@ import { ResourceMappingStore } from "../applications/mapping-store.js";
 import { McpSupervisor } from "../applications/mcp-supervisor.js";
 import { id, now } from "../domain/types.js";
 import { coworkConfigPath, readCoworkConfig, readHostCoworkConfig } from "../runtime/config.js";
-import {
-  runtimeSettingsEnv,
-  normalizeReasoningEffort,
-  configuredContextWindow,
-  configuredModelApi,
-  configuredReasoningEffort,
-  configuredSupportsReasoningEffort,
-  configuredThinkingFormat
-} from "../runtime/runtime-settings.js";
+import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
 import {
   availableModels as catalogModels,
   cachedAvailableModels as cachedCatalog
@@ -51,6 +43,7 @@ import { listTaskArtifacts } from "../workspace/artifact-store.js";
 
 import { readJsonFile, readJsonLines } from "./event-stream.js";
 import { mainIsAlive, readHeartbeat } from "../runtime/main-heartbeat.js";
+import { readSleep } from "../runtime/main-sleep.js";
 import { createModelSettings } from "./model-settings.js";
 import { resolveModelRole } from "../runtime/role-models.js";
 import { createDashboardHandler, type DashboardRoutePorts } from "./routes.js";
@@ -742,6 +735,8 @@ export function createDashboardApplication(
         lastFailure?.failure?.kind === "model_request");
     const statistics = await readRunStatistics({ workspaceRoot: taskWorkspace, task, active });
     const humanRequests = await new HumanRequestStore(taskWorkspace).list(taskId);
+    // eslint-disable-next-line no-restricted-syntax -- 停泊记录缺失或损坏按未停泊展示，任务详情仍要返回其余字段
+    const parked = await readSleep(taskWorkspace, taskId).catch(() => undefined);
     const humanResumePending =
       !active &&
       task.status !== "cancelled" &&
@@ -809,6 +804,7 @@ export function createDashboardApplication(
         logPath
       })),
       humanResumePending,
+      ...(parked ? { parked: { wakeAt: parked.wakeAt, reason: parked.reason } } : {}),
       ...(applications ? { applications } : {}),
       runtime: {
         active,
