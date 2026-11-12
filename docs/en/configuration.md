@@ -87,7 +87,7 @@ Test again after fixing the error. In the App, save after the test passes. In th
 
 - [Images, reasoning, context and output limits](configuration-reference.md#model-parameters) · [Image input](configuration-reference.md#image-input)
 - [CLI file precedence and automated setup](configuration-reference.md#cli-files) · [Connection storage and compatibility](configuration-reference.md#connection-storage-and-compatibility)
-- <a id="app-and-web-project-folders"></a>[Project folders and internal data](../task-workspace-layout.md#项目应用资源与任务路径) (Chinese)
+- <a id="app-and-web-project-folders"></a>[Project folders and internal data](../task-workspace-layout.md#项目与任务路径) (Chinese)
 - [Interface language](configuration-reference.md#interface-language)
 - <a id="appearance"></a>[Appearance](configuration-reference.md#appearance-storage)
 - <a id="web-search"></a>[Web search](configuration-reference.md#web-search)

@@ -200,7 +200,6 @@ for (const mode of ["automatic", "explicit"])
         COWORK_TASK_ID: taskId,
         COWORK_RUN_ID: runId,
         COWORK_GLOBAL_INDEX: join(root, "workspaces.json"),
-        COWORK_TABS_INDEX: join(root, "tabs.json"),
         COWORK_API_BASE: `http://127.0.0.1:${server.address().port}/v1`,
         COWORK_API_KEY: "isolated-compaction-input-fixture",
         COWORK_MODEL: "protocol-fixture",

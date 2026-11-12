@@ -105,7 +105,6 @@ export interface MainLaunchAdmission {
 export interface RunServicePorts {
   uploads?: InputStore;
   projectRoot: string;
-  tabStorePath: string;
   dashboardUrl: string;
   runCredential: string;
   coordinator: CoordinatorRuntime;
@@ -177,7 +176,6 @@ export interface RunServicePorts {
 export function createDashboardRunService({
   projectRoot,
   uploads,
-  tabStorePath,
   dashboardUrl,
   runCredential,
   coordinator,
@@ -322,14 +320,8 @@ export function createDashboardRunService({
             taskId,
             snapshot.environment.projectDirectory
           );
-          if (current.binding !== snapshot.environment.binding)
-            throw new MainRequestConflictError(
-              "原请求的应用绑定已变化，已有内容仍保留。请恢复原绑定后重试，或发送新消息。"
-            );
           try {
-            assertMainRequestExecutionScope(snapshot.executionScope, current.executionScope!, {
-              checkMcpTools: false
-            });
+            assertMainRequestExecutionScope(snapshot.executionScope, current.executionScope!);
           } catch (error) {
             throw new MainRequestConflictError(error instanceof Error ? error.message : String(error));
           }
@@ -570,7 +562,6 @@ export function createDashboardRunService({
             projectDirectory: task.projectDirectory,
             taskId,
             runId,
-            tabStorePath,
             dashboardUrl,
             piAgentDir: process.env.PI_CODING_AGENT_DIR,
             projectRoot,

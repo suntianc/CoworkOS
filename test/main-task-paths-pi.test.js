@@ -221,7 +221,6 @@ const footer = "draft";
           COWORK_PROJECT_DIR: project,
           COWORK_TASK_ID: taskId,
           COWORK_RUN_ID: "paths-run",
-          COWORK_TABS_INDEX: join(root, "tabs.json"),
           COWORK_API_BASE: `http://127.0.0.1:${server.address().port}/v1`,
           COWORK_API_KEY: "local-path-fixture",
           COWORK_MODEL: "task-path-fixture",

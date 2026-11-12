@@ -48,7 +48,7 @@ const plain = (html) =>
 const isEnglish = (file) => file === "README.md" || file.includes("/en/") || file.endsWith(".en.md");
 const isDocument = (file) => file.endsWith(".md") || file === "LICENSE";
 const safeSource = (file) =>
-  files.has(file) && !/^(?:config\.json|\.tmp\/|\.cowork\/|applications\/|workspace\/|task-)/.test(file);
+  files.has(file) && !/^(?:config\.json|\.tmp\/|\.cowork\/|workspace\/|task-)/.test(file);
 
 function translated(file, english) {
   if (file === "README.md" || file === "README.zh-CN.md") return english ? "README.md" : "README.zh-CN.md";
@@ -188,10 +188,7 @@ function shell(page, body) {
   const counterpart = en ? translated(page.file, false) : translated(page.file, true);
   const hasTranslation = counterpart !== page.file && files.has(counterpart);
   const langTarget = hasTranslation ? counterpart : en ? "docs/README.md" : "docs/en/README.md";
-  const isApplication = page.file === translated("docs/applications.md", en);
-  const toc = page.headings.filter(
-    (heading) => heading.depth === 2 || (!isApplication && heading.depth === 3)
-  );
+  const toc = page.headings.filter((heading) => heading.depth === 2 || heading.depth === 3);
   const pager = (item, previous) =>
     item
       ? `<a class="${previous ? "pager-prev" : "pager-next"}" href="${escape(pageUrl(page.file, item.file))}">${previous ? '<span aria-hidden="true">←</span>' : ""}<strong>${escape(item.title)}</strong>${previous ? "" : '<span aria-hidden="true">→</span>'}</a>`
@@ -224,7 +221,7 @@ function shell(page, body) {
 <html lang="${en ? "en" : "zh-CN"}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="generator" content="CoworkOS Docs ${escape(manifest.version)}">
-<meta name="description" content="${escape(t("CoworkOS 使用文档：从安装与模型配置，到多智能体协作、应用工作台与开发扩展。", "CoworkOS documentation: installation, configuration, multi-agent workflows, applications and development."))}">
+<meta name="description" content="${escape(t("CoworkOS 使用文档：从安装与模型配置，到多智能体协作与开发扩展。", "CoworkOS documentation: installation, configuration, multi-agent workflows and development."))}">
 <meta name="theme-color" content="#ffffff"><title>${escape(isHome ? page.title : `${page.title} · CoworkOS Docs`)}</title>
 <link rel="icon" type="image/png" href="${asset("atria-logo.png")}"><link rel="stylesheet" href="${asset("theme.css")}">
 <link rel="stylesheet" href="${asset("components.css")}">

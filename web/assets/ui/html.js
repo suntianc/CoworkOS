@@ -1,4 +1,4 @@
-/** Escape text and attribute values inserted into workbench markup. */
+/** Escape text and attribute values inserted into page markup. */
 export const escapeHtml = (value) =>
   String(value ?? "").replace(
     /[&<>"']/g,

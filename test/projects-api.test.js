@@ -80,10 +80,6 @@ test("project API persists empty projects and conversation membership across res
     []
   );
   assert.equal(await readFile(memory, "utf8"), "Retained conversation history\n");
-  assert.deepEqual(
-    (await f.request("/api/workbench/workspaces", undefined, "GET")).body.workspaces.sort(),
-    [f.workspaceRoot, b, c].sort()
-  );
   const storageCatalog = JSON.parse(await readFile(join(f.root, "global.json"), "utf8"));
   assert.deepEqual(
     storageCatalog.workspaces.map((entry) => entry.workspaceRoot),

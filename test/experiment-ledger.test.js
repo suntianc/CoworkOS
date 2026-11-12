@@ -117,7 +117,6 @@ test("the ledger adds no tools for Main to operate", async (t) => {
   assert.deepEqual(Object.keys(pi.tools.get("call_subagent").parameters.properties), [
     "task",
     "attachments",
-    "resources",
     "mode",
     "role",
     "dependsOn",

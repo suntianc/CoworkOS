@@ -1,5 +1,3 @@
-import { useApplicationInConversation } from "./workbench-menu-helper.js";
-import { openSaveCopy } from "./application-file-helper.js";
 import { test, expect } from "@playwright/test";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -31,9 +29,7 @@ test("composer drop without a project creates a real temporary Main run and rest
     await page.goto(d.base);
     await dropFile(page, ".composer", "input.txt", "Retained attachment\n");
     await expect(page.locator("#attachment-strip")).toContainText("input.txt");
-    await expect(
-      page.getByText("请将文件拖入对话输入区或应用编辑区；当前内容已保留。", { exact: true })
-    ).toHaveCount(0);
+    await expect(page.getByText("请将文件拖入对话输入区；当前内容已保留。", { exact: true })).toHaveCount(0);
     await page.locator("#composer-input").fill("Process the attached file");
     await page.locator("#send-button").click();
     await expect(page.locator("#project-modal")).toHaveCount(0);

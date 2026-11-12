@@ -234,7 +234,6 @@ CoordinatorRuntime.prototype.waitForSubagents = async function(input) {
             COWORK_TASK_ID: taskId,
             COWORK_RUN_ID: runId,
             COWORK_GLOBAL_INDEX: join(root, "index.json"),
-            COWORK_TABS_INDEX: join(root, "tabs.json"),
             COWORK_API_BASE: provider.baseUrl,
             COWORK_API_KEY: "local-fixture",
             COWORK_MODEL: "protocol-fixture",

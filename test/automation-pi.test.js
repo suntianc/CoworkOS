@@ -65,7 +65,6 @@ test(
       assert.ok(response.ok, JSON.stringify(result));
       return result;
     };
-    assert.deepEqual((await api("/api/applications")).applications, []);
     directory = join(d.root, "project");
     await mkdir(directory);
     await writeFile(join(directory, "input.txt"), "自动化输入");
@@ -104,6 +103,5 @@ test(
     await api("/api/tasks/automation/run", { prompt: "读取刚生成的 report.md，确认内容。" });
     await settle();
     assert.equal(step, 2);
-    assert.deepEqual((await api("/api/applications")).applications, []);
   }
 );

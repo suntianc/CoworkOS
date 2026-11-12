@@ -1,5 +1,3 @@
-import { loadCurrentApplication } from "./application-context-helper.js";
-import { confirmApplicationWorkspace } from "./application-workspace-helper.js";
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 

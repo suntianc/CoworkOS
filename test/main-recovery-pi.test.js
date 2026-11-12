@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { once } from "node:events";

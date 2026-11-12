@@ -78,7 +78,6 @@ async function backendEnvironment(paths, settings) {
     COWORK_HARNESS_ROOT: paths.appRoot,
     COWORK_WORKSPACE: paths.workspaceRoot,
     COWORK_GLOBAL_INDEX: paths.globalIndex,
-    COWORK_TABS_INDEX: paths.tabsIndex,
     PI_CODING_AGENT_DIR: paths.piAgentDir,
     COWORK_CONFIG: paths.configPath,
     COWORK_UI_DIR: path.join(paths.appRoot, "web"),

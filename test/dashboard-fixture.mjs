@@ -63,7 +63,6 @@ export async function startDashboard({
       PI_TELEMETRY: "0",
       COWORK_WORKSPACE: workspaceRoot,
       COWORK_GLOBAL_INDEX: join(root, "global.json"),
-      COWORK_TABS_INDEX: join(root, "tabs.json"),
       COWORK_CONFIG: join(root, "config.json"),
       COWORK_UI_PORT: String(port),
       // Recovery is guardian-driven: only a fixture that tests it may relaunch a parked Task.

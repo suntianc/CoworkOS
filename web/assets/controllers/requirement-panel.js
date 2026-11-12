@@ -4,7 +4,7 @@ import { requirementProgress } from "../requirement-stages.js";
 import { formatRunDuration, runElapsed } from "../run-overview.js";
 import { icon } from "../ui/icons.js";
 import { ui } from "../ui/language.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 
 const SOURCE_LABELS = { internal: "内部", external: "外部", legacy: "遗留" };
 const ROUTE_LABELS = { quick: "快速", direct: "直接", full: "Full" };
@@ -45,9 +45,7 @@ export function createRequirementPanel({
   api,
   onCollapse,
   openArtifact,
-  openResource,
   openPreview,
-  iconForDocument,
   onRendered = () => {}
 }) {
   let loaded = null;
@@ -57,13 +55,12 @@ export function createRequirementPanel({
   let bodySignature;
   let usageSignature;
 
+  const documentIcon = () => icon("file");
+
   const selectedProjectId = () => {
     const detail = state.detail;
     return detail?.projectId ?? detail?.task?.projectId ?? null;
   };
-
-  /** The workbench names sprite symbols with their `i-` prefix; the icon helper adds it. */
-  const documentIcon = (row) => icon(String(iconForDocument(row) || "i-file").replace(/^i-/, ""));
 
   /** The records behind the selected conversation, or what is missing to show. */
   async function readRecords(taskId, projectId) {
@@ -255,26 +252,17 @@ export function createRequirementPanel({
   function attachmentRows() {
     const detail = state.detail || {};
     const artifacts = detail.artifacts || [];
-    const rows = detail.applications?.deliverables ?? artifacts;
-    return rows.map((row) => {
-      const isResource = row.kind === "resource";
-      const path = isResource ? row.files?.[0]?.relativePath : row.relativePath;
-      const artifact = artifacts.find((entry) => entry.relativePath === path) || { relativePath: path };
-      // Published files carry their friendly name on the artifact record; a
-      // resource row names itself. The path is only the last fallback.
-      const name = row.name || row.displayName || artifact.displayName || baseName(path);
-      const href = path
-        ? artifactRequestUrls(state.selected, path, artifactVersion(artifact)).downloadUrl
-        : "";
-      return `<span class="rp-attachment" role="button" tabindex="0" ${
-        isResource ? `data-resource-row="${esc(row.resourceId)}"` : `data-artifact="${esc(path)}"`
-      } title="${esc(path || name)}">${
-        isResource ? icon("layers") : documentIcon(artifact)
-      }<span class="rp-attachment-name">${esc(name)}</span><span class="rp-spacer"></span>${
-        href
-          ? `<a class="rp-download" href="${esc(href)}" download="${esc(name)}" aria-label="${ui`下载 ${name}`}" title="${ui`下载 ${name}`}">${icon("download")}</a>`
-          : ""
-      }</span>`;
+    return artifacts.map((artifact) => {
+      const path = artifact.relativePath;
+      const name = artifact.displayName || baseName(path);
+      const href = artifactRequestUrls(state.selected, path, artifactVersion(artifact)).downloadUrl;
+      return `<span class="rp-attachment" role="button" tabindex="0" data-artifact="${esc(
+        path
+      )}" title="${esc(path || name)}">${documentIcon(artifact)}<span class="rp-attachment-name">${esc(
+        name
+      )}</span><span class="rp-spacer"></span><a class="rp-download" href="${esc(href)}" download="${esc(
+        name
+      )}" aria-label="${ui`下载 ${name}`}" title="${ui`下载 ${name}`}">${icon("download")}</a></span>`;
     });
   }
 
@@ -429,8 +417,6 @@ export function createRequirementPanel({
     };
     for (const node of body.querySelectorAll("[data-artifact]"))
       activate(node, () => openArtifact(node.dataset.artifact));
-    for (const node of body.querySelectorAll("[data-resource-row]"))
-      activate(node, () => void openResource(node.dataset.resourceRow));
   }
 
   function bindUsage() {
@@ -473,13 +459,7 @@ export function createRequirementPanel({
             loaded.view.board?.assignment
           ]
         : null,
-      (state.detail?.applications?.deliverables ?? state.detail?.artifacts ?? []).map((row) => [
-        row.relativePath,
-        row.resourceId,
-        row.name,
-        row.files?.map((file) => file.relativePath),
-        artifactVersion(row)
-      ])
+      (state.detail?.artifacts ?? []).map((row) => [row.relativePath, artifactVersion(row)])
     ]);
     if (signature !== bodySignature) {
       bodySignature = signature;

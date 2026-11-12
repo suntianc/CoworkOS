@@ -11,11 +11,10 @@ import {
   type MainRequestSnapshot,
   type MainRequestEnvironment
 } from "../storage/main-request-store.js";
-import { applicationServiceForTask } from "../applications/task-service.js";
 import { realpath } from "node:fs/promises";
 import {
   assertMainRequestExecutionScope,
-  currentMainRequestExecutionScope,
+  mainRequestExecutionScope,
   type MainRequestExecutionScope
 } from "./main-request-execution-scope.js";
 import { retiredSectionReplayRefusal, retiredSectionsWithText } from "./retired-system-sections.js";
@@ -34,20 +33,9 @@ export async function mainRequestEnvironment(
   taskId: string,
   projectDirectory: string
 ): Promise<MainRequestExecutionEnvironment> {
-  const service = await applicationServiceForTask(storageRoot, taskId);
-  const manifest = await service.instances.readManifest(taskId);
   return {
     projectDirectory: await realpath(projectDirectory),
-    binding: JSON.stringify({
-      workspaceRoot: await realpath(service.resourceWorkspaceRoot),
-      loadedInstanceId: manifest.loadedInstanceId ?? null,
-      boundResourceId: manifest.boundResourceId ?? null
-    }),
-    executionScope: await currentMainRequestExecutionScope({
-      taskStorageRoot: storageRoot,
-      taskId,
-      projectDirectory
-    })
+    executionScope: await mainRequestExecutionScope({ taskStorageRoot: storageRoot, projectDirectory })
   };
 }
 
@@ -134,12 +122,9 @@ export class MainRequestRetry {
           "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
         );
       const current = await this.environment();
-      if (
-        current.projectDirectory !== this.replay.environment.projectDirectory ||
-        current.binding !== this.replay.environment.binding
-      )
+      if (current.projectDirectory !== this.replay.environment.projectDirectory)
         throw new MainRequestConflictError(
-          "原请求的项目目录或应用绑定已变化，已有内容仍保留。请恢复原设置后重试，或发送新消息。"
+          "原请求的项目目录已变化，已有内容仍保留。请恢复原设置后重试，或发送新消息。"
         );
       try {
         assertMainRequestExecutionScope(this.replay.executionScope, current.executionScope!);

@@ -94,7 +94,7 @@ export function objectKey(scope: ManagementScope, objectId: string): string {
  * each of those has its own event. Publishing that as a project change too would
  * double the stream and give a client two reasons to redraw the same project.
  */
-const DERIVED_FIELDS = new Set(["tasks", "hasApplications"]);
+const DERIVED_FIELDS = new Set(["tasks"]);
 
 function comparable(scope: ManagementScope, payload: Record<string, unknown>): Record<string, unknown> {
   if (scope !== "project") return payload;

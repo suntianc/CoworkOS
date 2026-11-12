@@ -15,7 +15,7 @@ import { finalAnswerIndex, isMachineTurn, exchangeExecutionState } from "../conv
 import { answeredRequestFor } from "../human-questions.js";
 import { renderMarkdown } from "../markdown.js";
 import { resolveArtifactLink } from "../artifacts.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 import { icon } from "../ui/icons.js";
 import { executionElapsedMs, formatExecutionDuration } from "../execution-time.js";
 import { reconcileParts } from "../ui/reconcile.js";

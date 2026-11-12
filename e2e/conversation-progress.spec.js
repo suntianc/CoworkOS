@@ -35,21 +35,21 @@ test("follow-up opens an assistant message before inference and animates each th
       send({ content: "第一轮回答已完成。" });
       send({}, "stop");
     } else if (current === 2) {
-      send({ reasoning_content: "先查看可用应用。" });
+      send({ reasoning_content: "先查看可用工具。" });
       await gates[0].promise;
       send({
         tool_calls: [
           {
             index: 0,
-            id: "inspect-apps",
+            id: "inspect-tools",
             type: "function",
-            function: { name: "list_applications", arguments: "{}" }
+            function: { name: "enable_tools", arguments: "{}" }
           }
         ]
       });
       send({}, "tool_calls");
     } else {
-      send({ reasoning_content: "根据应用信息继续思考。" });
+      send({ reasoning_content: "根据工具信息继续思考。" });
       await gates[1].promise;
       send({ content: "追问回答已完成。" });
       send({}, "stop");
@@ -77,7 +77,7 @@ test("follow-up opens an assistant message before inference and animates each th
       await holdSubmission;
       await route.continue();
     });
-    await page.locator("#composer-input").fill("继续追问，看看应用");
+    await page.locator("#composer-input").fill("继续追问，看看工具");
     await page.locator("#send-button").click();
     const pending = page.locator('[data-answer-kind="pending"]');
     await expect(pending).toContainText("正在思考…");
@@ -89,7 +89,7 @@ test("follow-up opens an assistant message before inference and animates each th
       await pending.locator(".thinking-spinner").evaluate((el) => getComputedStyle(el).animationName)
     ).toBe("ui-spin");
     releaseSubmission();
-    await expect(pending.locator(".reasoning-step")).toContainText("先查看可用应用。", { timeout: 30_000 });
+    await expect(pending.locator(".reasoning-step")).toContainText("先查看可用工具。", { timeout: 30_000 });
     await expect(pending.locator(".reasoning-step .thinking-spinner")).toHaveCount(1);
     gates[0].release();
     await expect(pending.locator(".reasoning-step")).toHaveCount(2, { timeout: 30_000 });

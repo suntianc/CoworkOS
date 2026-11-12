@@ -255,7 +255,6 @@ async function runMain(t, { supportsImages, reply }) {
         COWORK_PROJECT_DIR: project,
         COWORK_TASK_ID: "image-task",
         COWORK_RUN_ID: "image-run",
-        COWORK_TABS_INDEX: join(root, "tabs.json"),
         COWORK_API_BASE: `http://127.0.0.1:${server.address().port}/v1`,
         COWORK_API_KEY: "local-p46-key",
         COWORK_MODEL: "p46-fixture",

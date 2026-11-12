@@ -71,7 +71,6 @@ for (const width of [1280, 1440, 474, 320])
     try {
       await page.setViewportSize({ width, height: 800 });
       await page.goto(dashboard.base);
-      await expect(page.locator("#app-bind-select")).toBeHidden();
       await expect(page.locator("#model-select")).toBeHidden();
       for (const configured of [false, true]) {
         if (configured) {

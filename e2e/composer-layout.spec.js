@@ -1,5 +1,3 @@
-import { loadCurrentApplication } from "./application-context-helper.js";
-import { confirmApplicationWorkspace } from "./application-workspace-helper.js";
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 
@@ -78,8 +76,6 @@ test("the composer keeps one compact action row with long model and project name
     });
     await page.goto(dashboard.base);
     await expect(page.locator(".model-name")).toHaveText(model);
-    await expect(page.locator("#app-bind-select")).toHaveClass(/is-empty/);
-    await expect(page.locator("#app-bind-select")).toBeHidden();
     await expect(page.locator(".project-group.is-selected .project-name")).toHaveText(folder);
     await expect(page.locator(".project-group.is-selected .project-row")).toHaveAttribute(
       "title",
@@ -115,7 +111,7 @@ test("the composer keeps one compact action row with long model and project name
   }
 });
 
-test("an unconfigured workspace shows a clear connection action without a placeholder model or empty application control", async ({
+test("an unconfigured workspace shows a clear connection action without a placeholder model", async ({
   page
 }) => {
   const dashboard = await startDashboard();
@@ -123,7 +119,6 @@ test("an unconfigured workspace shows a clear connection action without a placeh
     await page.goto(dashboard.base);
     await expect(page.locator("#model-setup-button")).toBeVisible();
     await expect(page.locator("#model-select")).toBeHidden();
-    await expect(page.locator("#app-bind-select")).toBeHidden();
     for (const width of [1440, 474, 320]) {
       await page.setViewportSize({ width, height: 800 });
       const composer = await page.locator(".composer").boundingBox();

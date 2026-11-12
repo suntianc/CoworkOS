@@ -9,7 +9,7 @@
   "scripts": {
     "build": "npm run build:base",
     "build:computer-use": "node scripts/build-computer-use.mjs",
-    "test": "npm run build:full && npm run check:workbench && node scripts/test.mjs",
+    "test": "npm run build:full && node scripts/test.mjs",
     "smoke:coding": "npm run build:cli && if [ -x .tools/node-v22.19.0-linux-x64/bin/node ]; then .tools/node-v22.19.0-linux-x64/bin/node dist/src/cli/coding-smoke.js; else node dist/src/cli/coding-smoke.js; fi",
     "smoke:multi-subagent": "npm run build:cli && if [ -x .tools/node-v22.19.0-linux-x64/bin/node ]; then .tools/node-v22.19.0-linux-x64/bin/node dist/src/cli/multi-subagent-smoke.js; else node dist/src/cli/multi-subagent-smoke.js; fi",
     "ui": "npm run build && if [ -x .tools/node-v22.19.0-linux-x64/bin/node ]; then .tools/node-v22.19.0-linux-x64/bin/node dist/src/cli/dashboard.js; else node dist/src/cli/dashboard.js; fi",
@@ -17,7 +17,6 @@
     "main-worker": "node scripts/atria.mjs main-worker",
     "cli": "node scripts/atria.mjs",
     "start": "node scripts/atria.mjs start",
-    "check:workbench": "tsc -p tsconfig.workbench.json",
     "test:browser": "npm run build:full && playwright test",
     "test:perf": "playwright test --config playwright.perf.config.js",
     "check:extensions": "tsc -p tsconfig.extensions.json",
@@ -28,8 +27,8 @@
     "test:desktop": "npm run build:full && node scripts/desktop-smoke.mjs",
     "format": "node scripts/format.mjs --write",
     "format:check": "node scripts/format.mjs",
-    "check": "npm run build:full && npm run lint && npm run check:workbench && npm run check:extensions && npm run format:check && npm run check:docs && npm run check:source",
-    "check:ci": "npm run build:cli && npm run lint && npm run check:workbench && npm run check:extensions && npm run format:check && npm run check:docs && npm run check:source",
+    "check": "npm run build:full && npm run lint && npm run check:extensions && npm run format:check && npm run check:docs && npm run check:source",
+    "check:ci": "npm run build:cli && npm run lint && npm run check:extensions && npm run format:check && npm run check:docs && npm run check:source",
     "build:cli": "node scripts/build-cli.mjs",
     "build:web-assets": "node scripts/build-math.mjs",
     "cli:pack": "npm run build:cli && node scripts/package-cli.mjs",
@@ -91,7 +90,7 @@
     "zod": "^4.6.5"
   },
   "main": "desktop/main.cjs",
-  "description": "CoworkOS local cowork harness and application workbench",
+  "description": "CoworkOS local cowork harness and task runtime",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RUC-NLPIR/CoworkOS.git"

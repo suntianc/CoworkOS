@@ -2,14 +2,19 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 /**
  * System-prompt sections this product no longer produces (user memory,
- * automatic learning knowledge and project experience).
+ * automatic learning knowledge, project experience and a bound application).
  *
  * Sessions persisted and requests archived before that capability was removed
  * still carry the section text. Every model request strips the keys here, so
  * the text can never reach a model again, and exact replay refuses an archive
  * that still has content there. Nothing in the product generates these keys.
  */
-export const RETIRED_SYSTEM_SECTIONS = ["user_memory", "project_experience", "project_skills"] as const;
+export const RETIRED_SYSTEM_SECTIONS = [
+  "user_memory",
+  "project_experience",
+  "project_skills",
+  "application_context"
+] as const;
 
 /** Drop the retired section keys from one system message; everything else is left alone. */
 export function withoutRetiredSections(message: AgentMessage): AgentMessage {

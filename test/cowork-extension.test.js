@@ -75,6 +75,9 @@ test("restored selections retain core discovery without exposing ungranted compu
     COWORK_WORKSPACE: root,
     COWORK_TASK_ID: "selection-task",
     COWORK_RUN_ID: "main-selection",
+    // Desktop, browser and CUA tools are offered only to a Main connection
+    // that accepts image input.
+    COWORK_SUPPORTS_IMAGES: "1",
     COWORK_DASHBOARD_URL: "http://127.0.0.1:1"
   });
   await writeFile(process.env.COWORK_CONFIG, "{}");
@@ -112,7 +115,7 @@ test("restored selections retain core discovery without exposing ungranted compu
   assert.ok(selected.includes("read"));
 });
 
-test("call_subagent keeps task/mode required, scopes resources optionally, and tasks stay one-shot", async () => {
+test("call_subagent keeps task/mode required and tasks stay one-shot", async () => {
   const root = await mkdtemp(join(tmpdir(), "atria-extension-"));
   const previous = {
     COWORK_API_BASE: process.env.COWORK_API_BASE,
@@ -198,7 +201,6 @@ test("call_subagent keeps task/mode required, scopes resources optionally, and t
     assert.deepEqual(Object.keys(tool.parameters.properties), [
       "task",
       "attachments",
-      "resources",
       "mode",
       "role",
       "dependsOn",

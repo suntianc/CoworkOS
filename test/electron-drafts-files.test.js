@@ -2009,7 +2009,6 @@ test("selected bytes and artifacts stay with their authorized backend", { timeou
       COWORK_HARNESS_ROOT: repository,
       COWORK_WORKSPACE: workspace,
       COWORK_GLOBAL_INDEX: join(home, "runtime", "workspaces.json"),
-      COWORK_TABS_INDEX: join(home, "runtime", "tabs.json"),
       COWORK_CONFIG: config,
       COWORK_DISABLE_MAIN_GUARDIAN: "1",
       COWORK_API_BASE: model.baseUrl,

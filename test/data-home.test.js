@@ -16,7 +16,7 @@ test("App, CLI and direct runtime use the same default paths with explicit overr
   assert.equal(shared.workspaceRoot, "/private-fixture/atria/workspace");
   assert.equal(shared.piAgentDir, "/private-fixture/atria/pi");
   const desktop = desktopPaths("/install", shared.home, env);
-  for (const key of ["workspaceRoot", "piAgentDir", "globalIndex", "tabsIndex", "logs"])
+  for (const key of ["workspaceRoot", "piAgentDir", "globalIndex", "logs"])
     assert.equal(desktop[key], shared[key]);
   assert.equal(configuredWorkspaceRoot({}, env, "/project"), shared.workspaceRoot);
   assert.equal(
@@ -27,13 +27,11 @@ test("App, CLI and direct runtime use the same default paths with explicit overr
     ...env,
     COWORK_WORKSPACE: "/workspace",
     PI_CODING_AGENT_DIR: "/pi",
-    COWORK_GLOBAL_INDEX: "/indexes/catalog.json",
-    COWORK_TABS_INDEX: "/tabs.json"
+    COWORK_GLOBAL_INDEX: "/indexes/catalog.json"
   });
   assert.equal(explicit.workspaceRoot, "/workspace");
   assert.equal(explicit.piAgentDir, "/pi");
   assert.equal(explicit.globalIndex, "/indexes/catalog.json");
-  assert.equal(explicit.tabsIndex, "/tabs.json");
 });
 
 test("all source entrypoints honor user config fallback and existing explicit/project config", async (t) => {

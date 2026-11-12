@@ -200,8 +200,7 @@ async function relocateControlData(directory, mappings) {
         (/\/runs\//.test(local) ||
           /\/\.runtime\//.test(local) ||
           local === "runtime/projects.json" ||
-          entry.name === "task.json" ||
-          /\/applications\/(?:.*\/)?(?:metadata|manifest|mapping)\.json$/.test(local))
+          entry.name === "task.json")
       ) {
         await writeJson(file, relocateFields(JSON.parse(await fs.readFile(file, "utf8")), mappings));
       }

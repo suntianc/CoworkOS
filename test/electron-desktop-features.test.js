@@ -19,7 +19,6 @@ test("desktop leaves model and search configuration under the execution host", a
       appRoot: process.cwd(),
       workspaceRoot: "/fixture/workspace",
       globalIndex: "/fixture/global",
-      tabsIndex: "/fixture/tabs",
       piAgentDir: "/fixture/pi",
       configPath: "/fixture/config"
     });

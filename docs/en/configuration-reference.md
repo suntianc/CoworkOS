@@ -19,7 +19,7 @@ For everyday setup, see [model and runtime configuration](configuration.md).
 | `supportsPromptCacheKey`              | `false` for third-party services; enable after confirming support                                                                   |
 | `contextWindow`                       | 256000 tokens by default; must be a positive safe integer                                                                           |
 | `mainMaxTokens` / `subagentMaxTokens` | 8192 each for new connections; integer 1 to 65536, within service limits                                                            |
-| `workspaceRoot`                       | Persistent task and application data directory; prefer an absolute path                                                             |
+| `workspaceRoot`                       | Persistent task data directory; prefer an absolute path                                                                             |
 
 `contextWindow` controls context budgets and automatic compaction for Main, subagents and recovered tasks. It is not sent as a request parameter. Older connections without the field use 256000. Output limits are separate.
 
@@ -214,9 +214,9 @@ Run `coworkos data paths` to inspect selected paths. To import other desktop dat
 
 ## Interface language
 
-Choose Simplified Chinese or English under Settings → General → Language. The default is Simplified Chinese. Switching saves application documents, checks conflicts and saves conversation and human-reply drafts before reloading. If saving is blocked, the current interface stays open.
+Choose Simplified Chinese or English under Settings → General → Language. The default is Simplified Chinese. Switching saves conversation and human-reply drafts before reloading. If saving is blocked, the current interface stays open.
 
-Web stores the preference per origin in `localStorage` under `atria.language`. App stores it in `language.json` in its user data directory, independently of the backend's random port. This setting covers shared App/Web chrome, settings, conversations and workbench actions. It does not change existing user content, model response language, CLI, native system dialogs or third-party embedded editors' own language settings. Raw backend and external-tool errors retain their original language.
+Web stores the preference per origin in `localStorage` under `atria.language`. App stores it in `language.json` in its user data directory, independently of the backend's random port. This setting covers shared App/Web chrome, settings and conversations. It does not change existing user content, model response language, CLI, native system dialogs or third-party tools' own language settings. Raw backend and external-tool errors retain their original language.
 
 ## Appearance storage
 

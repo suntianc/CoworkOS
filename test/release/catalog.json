@@ -14,18 +14,14 @@
       "name": "三 App 功能"
     },
     {
-      "id": "applications",
-      "name": "四 App 内应用功能"
-    },
-    {
       "id": "cases",
-      "name": "五 用户 case"
+      "name": "四 用户 case"
     }
   ],
   "rules": [
     {
       "stage": "cases",
-      "node": "^(science-removal|machine-learning-skill-pi|publish-artifact-pi|automation-pi|main-recovery-pi|application-bootstrap-pi|input-files-pi|image-input-session|live-ui)\\.test\\.js$",
+      "node": "^(science-removal|machine-learning-skill-pi|publish-artifact-pi|automation-pi|main-recovery-pi|input-files-pi|image-input-session|live-ui)\\.test\\.js$",
       "browser": "^(human-interactions|message-delivery|conversation-integrity|request-recovery)\\.spec\\.js$"
     },
     {
@@ -34,13 +30,8 @@
       "browser": "(?!)"
     },
     {
-      "stage": "applications",
-      "node": "^(application-|binding-|computer-|text-document-session|software-boundaries|independent-instance-model|workspace-text)",
-      "browser": "^(app-instances|binding-menu|collaboration-picker|computer-use|independent-applications|local-file-open|original-file|recovery-review|workbench|workspace-applications|workspace-projects)"
-    },
-    {
       "stage": "app",
-      "node": "^(desktop-|composer-|conversation-view|artifact-ui|artifact-navigation|voice-input|markdown|workbench-dom|workbench-ui|tab-refresh|workbench-tab-identity|model-settings|app-boot|request-error)"
+      "node": "^(desktop-|composer-|conversation-view|artifact-ui|voice-input|markdown|model-settings|app-boot|request-error|computer-)"
     }
   ],
   "nativeNode": [
@@ -135,19 +126,6 @@
     },
     {
       "cases": [
-        "TXT-01",
-        "TXT-02",
-        "TXT-03",
-        "TXT-04",
-        "TXT-05"
-      ],
-      "files": [
-        "e2e/workbench.spec.js"
-      ],
-      "note": "已有文本资源/草稿与工作台测试；按应用手册核对具体子项。"
-    },
-    {
-      "cases": [
         "GUI-01",
         "GUI-02",
         "GUI-03",
@@ -167,24 +145,11 @@
     },
     {
       "cases": [
-        "APPINSTANCE-01",
-        "APPINSTANCE-02",
-        "APPINSTANCE-03",
-        "APPINSTANCE-04"
-      ],
-      "files": [
-        "test/independent-instance-model.test.js"
-      ],
-      "note": "独立实例/工作区/原文件使用生产路径；新清单仍标部分映射。"
-    },
-    {
-      "cases": [
         "CASE-04",
         "CASE-05",
         "CASE-06",
         "CASE-07",
         "CASE-08",
-        "CASE-09",
         "CASE-12",
         "CASE-13",
         "CASE-18",
@@ -219,14 +184,8 @@
       "description": "原生窗口、IPC、草稿、模型配置与协议的实际桌面体验。"
     },
     {
-      "id": "release-applications",
-      "stage": "applications",
-      "document": "docs/testing-application-release.md",
-      "description": "TXT 固定素材、实际文件/工程、布局与体验。"
-    },
-    {
       "id": "release-computer-use",
-      "stage": "applications",
+      "stage": "app",
       "document": "docs/testing-application-release.md",
       "description": "解锁 Mac 的系统权限、真实输入与保存、接管；宽松策略单列待实现。"
     },

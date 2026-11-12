@@ -464,16 +464,18 @@ for (const api of ["openai-completions", "openai-responses"])
     async (t) => {
       const f = await fixture(t, api, ({ response, received }) => {
         if (received.length === 1)
-          return answer(response, api, { name: "enable_tools", arguments: { groups: ["applications"] } });
+          return answer(response, api, { name: "enable_tools", arguments: { groups: ["delivery"] } });
         if (received.length === 2) return reject(response);
-        if (received.length === 3) return answer(response, api, { name: "list_applications", arguments: {} });
-        return answer(response, api, { text: "已恢复应用工具并列出应用。" });
+        if (received.length === 3)
+          return answer(response, api, { name: "publish_artifact", arguments: { sourcePath: "report.md" } });
+        return answer(response, api, { text: "已恢复交付工具并发布产物。" });
       });
-      await f.call({ prompt: "启用应用工具并列出应用。" });
+      await writeFile(join(f.dashboard.workspaceRoot, "report.md"), "已核对。\n");
+      await f.call({ prompt: "启用交付工具并发布产物。" });
       const failed = await f.settle("failed");
       assert.ok(
         getCurrentTools(f.received[1].snapshot.context.messages).some(
-          (tool) => tool.name === "list_applications"
+          (tool) => tool.name === "publish_artifact"
         )
       );
       await f.dashboard.restart();
@@ -484,14 +486,14 @@ for (const api of ["openai-completions", "openai-responses"])
         (event) => event.payload.type === "tool_execution_end"
       );
       assert.equal(executions.filter((event) => event.payload.toolName === "enable_tools").length, 1);
-      assert.equal(executions.filter((event) => event.payload.toolName === "list_applications").length, 1);
+      assert.equal(executions.filter((event) => event.payload.toolName === "publish_artifact").length, 1);
       assert.equal(
-        executions.find((event) => event.payload.toolName === "list_applications").payload.isError,
+        executions.find((event) => event.payload.toolName === "publish_artifact").payload.isError,
         false
       );
       assert.ok(
         getCurrentTools(f.received[3].snapshot.context.messages).some(
-          (tool) => tool.name === "list_applications"
+          (tool) => tool.name === "publish_artifact"
         )
       );
       assert.equal(completed.messages.filter((message) => message.role === "user").length, 1);

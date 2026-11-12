@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseHTML } from "linkedom";
 import { presentToolCall, toolArgumentSummary, friendlyToolName } from "../web/assets/tool-presentation.js";
-import { escapeHtml } from "../web/assets/workbench/html.js";
+import { escapeHtml } from "../web/assets/ui/html.js";
 
 const args = { command: "python3 agents/main/work/create_harness_ppt.py", timeout: 120 };
 const envelope = (details) => ({

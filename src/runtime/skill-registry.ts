@@ -3,30 +3,6 @@ import { basename, dirname, join, resolve } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import type { RuntimeTool } from "./tool.js";
 
-export interface SkillDiscoveryOptions {
-  /** Only explicitly bound/delegated applications may contribute application-only skills. */
-  applications?: readonly string[];
-}
-
-export interface ApplicationSkillScope {
-  skillRoots: string[];
-  skillApplications: string[];
-}
-
-/** Application skills take precedence over general skills with the same name. */
-export function applicationSkillScope(
-  baseRoots: readonly string[],
-  application: { appType: string; skillRoots: string[] } | undefined,
-  harnessRoot: string
-): ApplicationSkillScope {
-  return {
-    skillRoots: [
-      ...new Set([...(application?.skillRoots ?? []).map((root) => resolve(harnessRoot, root)), ...baseRoots])
-    ],
-    skillApplications: application ? [application.appType] : []
-  };
-}
-
 export interface SkillMetadata {
   name: string;
   description: string;
@@ -40,14 +16,10 @@ export interface SkillMetadata {
  * gives the lower-level PiSession the same progressive-disclosure contract
  * without copying full skill instructions into every prompt.
  */
-export async function discoverSkills(
-  roots: string[],
-  options: SkillDiscoveryOptions = {}
-): Promise<SkillMetadata[]> {
+export async function discoverSkills(roots: string[]): Promise<SkillMetadata[]> {
   const found: SkillMetadata[] = [];
   const seen = new Set<string>();
-  const applications = new Set(options.applications ?? []);
-  for (const root of roots) await scanRoot(resolve(root), found, seen, applications);
+  for (const root of roots) await scanRoot(resolve(root), found, seen);
   return found.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -101,14 +73,9 @@ export function createLoadSkillTool(skills: SkillMetadata[]): RuntimeTool {
   };
 }
 
-async function scanRoot(
-  root: string,
-  found: SkillMetadata[],
-  seen: Set<string>,
-  applications: Set<string>
-): Promise<void> {
+async function scanRoot(root: string, found: SkillMetadata[], seen: Set<string>): Promise<void> {
   const add = (skill: ParsedSkill | undefined, path: string, directory: string) => {
-    if (!skill || seen.has(skill.name) || (skill.application && !applications.has(skill.application))) return;
+    if (!skill || seen.has(skill.name)) return;
     seen.add(skill.name);
     found.push({ name: skill.name, description: skill.description, path, directory });
   };
@@ -134,7 +101,7 @@ async function scanRoot(
       const skill = await parseSkill(skillPath);
       add(skill, skillPath, path);
       // Nested grouping directories are valid in the Agent Skills convention.
-      await scanRoot(path, found, seen, applications);
+      await scanRoot(path, found, seen);
     } else if (entry.isFile() && entry.name.endsWith(".md")) {
       const skill = await parseSkill(path);
       add(skill, path, dirname(path));
@@ -145,7 +112,6 @@ async function scanRoot(
 interface ParsedSkill {
   name: string;
   description: string;
-  application?: string;
 }
 
 async function parseSkill(path: string): Promise<ParsedSkill | undefined> {
@@ -160,12 +126,7 @@ async function parseSkill(path: string): Promise<ParsedSkill | undefined> {
         : basename(dirname(path));
     const description = typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
     if (!description) return undefined;
-    return {
-      name,
-      description,
-      application:
-        typeof frontmatter.application === "string" ? frontmatter.application.trim() || undefined : undefined
-    };
+    return { name, description };
     // eslint-disable-next-line no-restricted-syntax -- 单个 SKILL.md 读不出或 frontmatter 损坏时跳过该技能，其余目录继续被发现
   } catch {
     return undefined;

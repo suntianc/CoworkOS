@@ -16,7 +16,7 @@
 | Computer Use  | Mac、Xcode Command Line Tools；截图需 macOS 14+、系统权限                  | 编译随 `npm run build`；动作验收需解锁桌面      |
 | Mac 安装包    | macOS 14+、Apple Silicon Mac；离线完整包另需 uv                            | `npm run desktop:pack` / `npm run desktop:dist` |
 
-`build:cli` 编译共享运行时并准备 CLI；`build`、`build:base` 和 `build:full` 准备文本工作台、数学排版与桌面宿主资源。非 Mac 环境跳过原生辅助程序和图标构建。
+`build:cli` 编译共享运行时并准备 CLI；`build`、`build:base` 和 `build:full` 准备 Web 界面依赖、数学排版、Computer Use 辅助程序与桌面宿主资源。非 Mac 环境跳过原生辅助程序和图标构建。
 
 文档附件测试需要 Python 3.11 和 PDF/Office 解析依赖，缺库应修环境，不能把跳过当成通过。使用独立环境，并让夹具和读取器共用 `COWORK_PYTHON`：
 
@@ -29,16 +29,15 @@ COWORK_PYTHON="$PWD/.tmp/document-python/bin/python" npm run verify:full
 
 ## 使用隔离的开发工作区
 
-开发与测试不要使用真实用户任务、模型设置或应用文档。Web 可以显式指定工作区和全局索引：
+开发与测试不要使用真实用户任务、模型设置或用户文档。Web 可以显式指定工作区和全局索引：
 
 ```sh
 COWORK_WORKSPACE=/tmp/atria-dev \
 COWORK_GLOBAL_INDEX=/tmp/atria-dev-index/workspaces.json \
-COWORK_TABS_INDEX=/tmp/atria-dev-index/workbench-tabs.json \
 COWORK_UI_PORT=3881 npm run ui
 ```
 
-先完成无需模型的 TXT 新建、保存、重开和绑定，再按 [模型配置](configuration.md) 配置模型验证任务。不要用删除数据来排查恢复问题；路径归属见 [工作区说明](task-workspace-layout.md)。
+先完成无需模型的会话创建、附件读取和产出物预览/下载，再按 [模型配置](configuration.md) 配置模型验证任务。不要用删除数据来排查恢复问题；路径归属见 [工作区说明](task-workspace-layout.md)。
 
 Mac 开发版显示为 CoworkOS Dev (短后缀)，应用标识为 `org.atria.cowork.dev.runtime.<运行时哈希>`。每份不可变的 ad-hoc 开发运行时独立授权，避免不同 worktree 或运行时的签名共用同一条系统权限记录；同一运行时重复启动复用身份。
 
@@ -65,7 +64,7 @@ Finder 安装入口复制已签名的缓存包，不改内容或再次签名，�
 
 独立后端可以脱离启动它的客户端继续运行。开发包支持 macOS 14+ Apple Silicon；App 首次连接会启动或复用同一数据根的后端，桌面退出不会停止它。独立运行 CLI 需要 Node.js ≥22.19.0，所用 CLI 与 App 应来自同一候选版本。完成 `npm run build:cli` 后，`node dist/src/cli/backend.js start`（或 `coworkos backend start`）在同一数据根启动分离进程，`status` 查看实例，`stop` 让后端完成受管进程收尾后退出；端口、会话 token 与实例身份记录在 `ATRIA_HOME/runtime/backend-instance.json`（权限 0600），后端身份在 `backend-identity.json` 中跨重启保持。直接执行 `serve` 遵守同一实例归属：已有可核验实例时只输出其身份并退出，另有启动中的后端或身份无法确认时明确报错，不覆盖实例记录。`stop` 只在后端完成收尾并删除实例记录后返回 `stopped`；超时被强制结束或收尾未完成时返回 `incomplete` 并以非零状态退出，同时保留实例记录供下次 `start` 沿用同一后端身份恢复。这些命令不安装 launchd/systemd 常驻服务。
 
-Web 入口默认只监听本机。模型请求、任务执行和文件操作仍由本地后端负责，单独托管静态前端不能运行完整工作台。若把后端部署到远程服务器，命令和文件操作也会在该服务器执行。
+Web 入口默认只监听本机。模型请求、任务执行和文件操作仍由本地后端负责，单独托管静态前端不能运行完整界面。若把后端部署到远程服务器，命令和文件操作也会在该服务器执行。
 
 ## 更新源码检出
 
@@ -95,15 +94,15 @@ App 启动后检查一次，用户主动执行才更新。草稿保存与运行�
 委派、返修、独立审查和归档使用 [开发交接与验证记录](development-handoffs.md)，并按 [坑点索引](pitfalls/README.md) 查阅匹配的环境问题。历次建议的落实位置见 [复盘索引](retrospectives.md)。
 
 1. 从 [代码地图](code-map.md) 找到行为负责人、消费者和测试，读取目标目录的 `AGENTS.md`。
-2. 在临时工作区复现，先运行已有相关测试；修复所属服务/Adapter/控制器，入口只装配。
+2. 在临时工作区复现，先运行已有相关测试；修复所属服务或控制器，入口只装配。
 3. 增加覆盖原失败或新用户行为的回归。异步行为覆盖归属、取消、晚返回、冲突与退出恢复；协议测试同时验证两端。
 4. 按范围运行相关测试和轻量 `npm run verify`；纯文档只做链接/格式检查。发布或广泛影响的修改运行 `npm run verify:full`，界面、原生驱动和发布包另做对应验收。
 5. 同步代码地图、现行文档和路线图状态；交付实际命令、结果、跳过项和剩余限制。
 
 ```sh
 npm run test:unit -- --list
-npm run test:unit -- --file test/application-resource-store.test.js
-npm run test:unit -- --match application
+npm run test:unit -- --file test/artifact-store.test.js
+npm run test:unit -- --match artifact
 npm run verify
 ```
 
@@ -121,24 +120,24 @@ npm run verify
 
 ## 验证分层
 
-| 命令                                                      | 验证范围                                                                                | 使用时机                                                    |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `npm run test:unit -- --file test/name.test.js`           | 有针对性的 Node 行为/协议/生命周期测试，默认先构建                                      | 每次相关修改的快速反馈                                      |
-| `npm run verify`                                          | CLI 与 Web 资源构建、源码卫生、lint、工作台/Pi 类型、增量格式和文档链接；不运行行为测试 | 完成一项修改后的默认本地门槛                                |
-| `npm run verify:full`                                     | 一次完整构建、静态检查、发布执行器自测和全量 Node 回归                                  | 发布验收或影响范围广的修改                                  |
-| `npm test` / `npm run check`                              | 保留的 Node 回归 / 构建与静态检查入口                                                   | 兼容现有本地脚本；已执行 verify:full 时无需为同一源码重复跑 |
-| `npm run check:ci`                                        | CLI 构建、源码卫生、lint、工作台/Pi 类型、增量格式和文档链接                            | 手动 GitHub 轻量检查；本地 verify 与相关测试仍是完成门槛    |
-| `npm run check:source`                                    | 当前受版本管理及非忽略的源码文件；检查私有配置、凭据、个人路径和不应提交的产物/旧文档   | 提交和发行前；不扫描 Git 历史                               |
-| `npm run check:docs`                                      | 现行导航的本地 Markdown 文件链接和标题锚点；不请求外部网站                              | 文档和代码路径修改，可 `-- --list` 查看范围                 |
-| `npx playwright install chromium`                         | 安装 Chromium                                                                           | 首次浏览器测试准备                                          |
-| `npm run test:browser`                                    | Chromium / Electron 用户流程；原生场景有各自环境要求                                    | UI、HTTP/UI 集成、草稿、导航、协作变更                      |
-| `npm run desktop:pack` 后 `npm run test:desktop`          | 搬移后的真实打包 App、设置、Pi/本地模型、退出/重启/模拟升级                             | 桌面宿主、运行生命周期、打包变更                            |
-| `npm run test:release -- --list` / `npm run test:release` | 五环节发版用例，记录版本、日志、跳过与人工项                                            | 候选发布验收；原生/包阶段显式加入                           |
-| `npm run smoke:coding` / `npm run smoke:multi-subagent`   | 实际 endpoint 和多智能体；消耗模型额度                                                  | 模型能力与真实服务验收，先配置连接                          |
+| 命令                                                      | 验证范围                                                                              | 使用时机                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `npm run test:unit -- --file test/name.test.js`           | 有针对性的 Node 行为/协议/生命周期测试，默认先构建                                    | 每次相关修改的快速反馈                                      |
+| `npm run verify`                                          | CLI 与 Web 资源构建、源码卫生、lint、扩展类型、增量格式和文档链接；不运行行为测试     | 完成一项修改后的默认本地门槛                                |
+| `npm run verify:full`                                     | 一次完整构建、静态检查、发布执行器自测和全量 Node 回归                                | 发布验收或影响范围广的修改                                  |
+| `npm test` / `npm run check`                              | 保留的 Node 回归 / 构建与静态检查入口                                                 | 兼容现有本地脚本；已执行 verify:full 时无需为同一源码重复跑 |
+| `npm run check:ci`                                        | CLI 构建、源码卫生、lint、扩展类型、增量格式和文档链接                                | 手动 GitHub 轻量检查；本地 verify 与相关测试仍是完成门槛    |
+| `npm run check:source`                                    | 当前受版本管理及非忽略的源码文件；检查私有配置、凭据、个人路径和不应提交的产物/旧文档 | 提交和发行前；不扫描 Git 历史                               |
+| `npm run check:docs`                                      | 现行导航的本地 Markdown 文件链接和标题锚点；不请求外部网站                            | 文档和代码路径修改，可 `-- --list` 查看范围                 |
+| `npx playwright install chromium`                         | 安装 Chromium                                                                         | 首次浏览器测试准备                                          |
+| `npm run test:browser`                                    | Chromium / Electron 用户流程；原生场景有各自环境要求                                  | UI、HTTP/UI 集成、草稿、导航、协作变更                      |
+| `npm run desktop:pack` 后 `npm run test:desktop`          | 搬移后的真实打包 App、设置、Pi/本地模型、退出/重启/模拟升级                           | 桌面宿主、运行生命周期、打包变更                            |
+| `npm run test:release -- --list` / `npm run test:release` | 五环节发版用例，记录版本、日志、跳过与人工项                                          | 候选发布验收；原生/包阶段显式加入                           |
+| `npm run smoke:coding` / `npm run smoke:multi-subagent`   | 实际 endpoint 和多智能体；消耗模型额度                                                | 模型能力与真实服务验收，先配置连接                          |
 
 普通 Node 回归排除单独的原生桌面/CUA 验收入口，并打印原因；可选引擎仍可能报告 TAP skip。详细前提、报告和显式原生命令见 [本地测试指南](testing-local-run.md)。本地协议夹具验证真实 Pi 的协议/生命周期，不证明实际模型能力；浏览器通过也不证明干净机器安装。检查范围以 [package.json](../package.json) 和执行器为准。
 
-浏览器可先 `npm run build`，再用 `npx playwright test e2e/automation-workspace.spec.js --output=.tmp/playwright-workbench` 运行对应文件。并行的 Playwright 进程须使用不同 `--output`，避免清理对方产物。无需模型的测试不应读取个人连接配置。
+浏览器可先 `npm run build`，再用 `npx playwright test e2e/conversation-menu.spec.js --output=.tmp/playwright-conversation` 运行对应文件。并行的 Playwright 进程须使用不同 `--output`，避免清理对方产物。无需模型的测试不应读取个人连接配置。
 
 `test:unit` 与 Playwright 每次运行都在系统临时目录下建一个本次专属的根目录（`formicand-run-*`），并把 `TMPDIR` 指向它，测试里的 `mkdtemp(tmpdir())` 都落在其中（[`scripts/test-run-root.mjs`](../scripts/test-run-root.mjs)）。运行结束时，仍以该目录为数据根存活的后端会被停掉并判本次运行失败；上一次运行被强行结束留下的根目录，在下一次运行开始时清理。启动 App 的用例须在收尾调用 `stopNativeBackend(<桌面数据根>)`（[`test/native-backend-fixture.mjs`](../test/native-backend-fixture.mjs)）：后端按设计在窗口关闭后继续运行，数据根是 `COWORK_DESKTOP_DATA`，未设置时才是 `ATRIA_HOME`。
 
@@ -148,36 +147,35 @@ npm run verify
 
 先按任务阶段和操作频率组织界面，再调整视觉样式。空白/生成中状态不铺满不可用功能；选择对象后再显示对象操作，启用工具后再显示结果。主工作区优先保留内容，次要面板可关闭并按所在容器宽度适配；文字不能逐字挤压，隐藏面板不能留下空列。功能列表使用有意义的分组，避免把每种导出格式、诊断说明和常用动作平铺为同一级。截图验收同时检查有效内容占比与任务路径，不能只检查控件边界和主题颜色。
 
-页面和 TXT 应用共用 [ui.css](../web/assets/ui.css) 的颜色、字体、按钮、菜单与状态变量；应用样式使用自身类名。字体使用本地 Inter 可变字体，中文回退到苹方、微软雅黑或系统字体，离线可用；来源与许可见[第三方声明](../THIRD_PARTY_NOTICES.md#inter-界面字体--interface-typeface)。正文 15px、控件 14px、辅助文字 12px、栏目标题 16px、任务面板及设置弹窗标题 18px、欢迎标题 22 至 26px；常规 400、标题 500、强调 600，默认正常字间距，正文行高 1.8。深色界面采用近黑底、低对比度分隔线和实色输入表面；桌面侧栏默认 232px，正文与输入框沿同一阅读列对齐。
+页面各视图共用 [ui.css](../web/assets/ui.css) 的颜色、字体、按钮、菜单与状态变量。字体使用本地 Inter 可变字体，中文回退到苹方、微软雅黑或系统字体，离线可用；来源与许可见[第三方声明](../THIRD_PARTY_NOTICES.md#inter-界面字体--interface-typeface)。正文 15px、控件 14px、辅助文字 12px、栏目标题 16px、任务面板及设置弹窗标题 18px、欢迎标题 22 至 26px；常规 400、标题 500、强调 600，默认正常字间距，正文行高 1.8。深色界面采用近黑底、低对比度分隔线和实色输入表面；桌面侧栏默认 232px，正文与输入框沿同一阅读列对齐。
 
 `ui.css` 装配共享组件后，[system-theme.css](../web/assets/system-theme.css) 加载中性浅深色表面与文字颜色；[settings.css](../web/assets/settings.css) 在其后统一设置总览、模型连接和联网搜索的表面、表单与固定操作栏，始终使用实色表面。图标来自 [icons.js](../web/assets/ui/icons.js) 与 SVG sprite；图标按钮须有 `aria-label`，优先使用 32px 点击区域。
 
 - 菜单使用 [menu.js](../web/assets/ui/menu.js)，支持方向键、Home/End、Esc、外部关闭和焦点归还；弹窗使用 [modal.js](../web/assets/ui/modal.js)，限制 Tab 并恢复发起控件焦点。
 - 单选下拉框保留原生 `<select>` 作为取值和读屏控件，点开时由 [select-menu.js](../web/assets/ui/select-menu.js) 弹出应用自绘的选项菜单；需要系统菜单的控件可在祖先上加 `data-native-select`。
-- 重命名、项目编辑、另存等短表单统一使用 [dialogs.css](../web/assets/dialogs.css) 的 `.app-dialog`、字段、说明、错误和操作栏；输入框须有明确标签，动作区分主次，覆盖提交中、失败、禁用与键盘焦点状态，不依赖浏览器默认控件外观。工作台扩展样式归 [workbench/dialogs.css](../web/assets/workbench/dialogs.css)，附件预览归 [attachment-preview.css](../web/assets/styles/attachment-preview.css)。设置保留各自布局并共用主题变量。
-- 会话标题和项目归属统一放在顶栏。顶栏与侧栏复用 [会话菜单](../web/assets/controllers/conversation-menu.js)，按整理、复制/导出/打开和归档分组；运行或等待中的会话额外显示停止任务。复制子菜单支持标题、ID、本机链接和对话正文，导出保留用户/助手的 Markdown 正文，不包含思考和原始工具日志。未读标记保存在本机浏览器，显式打开会话后清除；链接使用 `?task=<id>` 定位原会话。子菜单支持左右方向键与逐层 Esc，刷新时保留目标与焦点，窄屏切换为内嵌菜单。新任务页显示菜单但禁用会话操作，独立编辑器隐藏该菜单。右侧任务面板在打开或刷新页面时默认收起，右上角开关在有工作区时收起或恢复当前会话的编辑视图，否则展开任务面板，全局设置位于左下角侧栏，不再重复显示会话标题栏。宽度 1280 及以上任务面板是一列，只用这个开关收起，面板内不再放关闭按钮；更窄时面板浮在顶栏之上，保留面板内的收起按钮。
-- 应用命名用 [document-name-dialog.js](../web/assets/workbench/adapters/document-name-dialog.js)，提交中保留表单、错误与输入；保存失败/冲突用文字说明并保留草稿。
+- 重命名、项目编辑等短表单统一使用 [dialogs.css](../web/assets/dialogs.css) 的 `.app-dialog`、字段、说明、错误和操作栏；输入框须有明确标签，动作区分主次，覆盖提交中、失败、禁用与键盘焦点状态，不依赖浏览器默认控件外观。附件预览归 [attachment-preview.css](../web/assets/styles/attachment-preview.css)。设置保留各自布局并共用主题变量。
+- 会话标题和项目归属统一放在顶栏。顶栏与侧栏复用 [会话菜单](../web/assets/controllers/conversation-menu.js)，按整理、复制/导出/打开和归档分组；运行或等待中的会话额外显示停止任务。复制子菜单支持标题、ID、本机链接和对话正文，导出保留用户/助手的 Markdown 正文，不包含思考和原始工具日志。未读标记保存在本机浏览器，显式打开会话后清除；链接使用 `?task=<id>` 定位原会话。子菜单支持左右方向键与逐层 Esc，刷新时保留目标与焦点，窄屏切换为内嵌菜单。新任务页显示菜单但禁用会话操作。右侧任务面板在打开或刷新页面时默认收起，右上角开关在选中会话时收起或恢复右侧需求进度面板，全局设置位于左下角侧栏，不再重复显示会话标题栏。宽度 1280 及以上任务面板是一列，只用这个开关收起，面板内不再放关闭按钮；更窄时面板浮在顶栏之上，保留面板内的收起按钮。
 - 对话输入在正常布局流内，以圆角、独立底色和柔和阴影形成悬浮卡片，聚焦时保留阴影；外侧留白与画布同色。滚动区占剩余高度，附件条独立限高。流式更新保留 DOM 身份、展开、焦点和用户阅读位置；异步交互始终捕获原 Task/导航 token。
 - 界面只展示实际能力、进度和状态；侧栏设置不显示占位身份，Web 不模拟 Mac 窗口按钮。主要动作和危险操作使用现有状态类。
-- 容器优先以留白和中性表面区分层级；左右侧栏与主体之间保留一条低对比细线，侧栏与主面板之间平时和拖动时都不显示线，靠列宽光标和移动的边缘反馈；工作台分隔条悬浮或拖动时细线加深为中性色；只有键盘聚焦时显示强调色细线；命中范围不随线宽缩小。工作区文件和视图操作共用一行，当前文件与必要操作使用圆角胶囊分组；项目归属和运行状态通过悬浮提示及无障碍状态提供。短表单使用柔和填充输入和无框次要动作，保留明确的焦点与错误提示；只有确实需要的内容边界使用细线，避免堆叠边框与阴影。成功状态用低强调的图标和文字表达，保留完成、停止与失败的语义区别。错误先显示简短原因与可用恢复动作，技术细节和长日志默认折叠；展开状态、键盘焦点和日志阅读位置在刷新中保持。
-- 没有活动会话时，任务面板提供简短的开始说明；运行用量位于团队星系之前。独立应用在顶栏显示当前文档名称，窄编辑区的身份和保存动作分别占行，避免逐字挤压。
+- 容器优先以留白和中性表面区分层级；左右侧栏与主体之间保留一条低对比细线，侧栏与主面板之间平时和拖动时都不显示线，靠列宽光标和移动的边缘反馈；只有键盘聚焦时显示强调色细线；命中范围不随线宽缩小。项目归属和运行状态通过悬浮提示及无障碍状态提供。短表单使用柔和填充输入和无框次要动作，保留明确的焦点与错误提示；只有确实需要的内容边界使用细线，避免堆叠边框与阴影。成功状态用低强调的图标和文字表达，保留完成、停止与失败的语义区别。错误先显示简短原因与可用恢复动作，技术细节和长日志默认折叠；展开状态、键盘焦点和日志阅读位置在刷新中保持。
+- 没有活动会话时，任务面板提供简短的开始说明；运行用量位于团队星系之前。
 - 活动对话从等待首个响应、思考到工具执行和自动重试均显示持续的运行指示与当前阶段；完成和停止时退出动画。工具标题使用可读的具体工具名，未知工具仍显示名称。
 - 配色以 [formicand.css](../web/assets/formicand.css) 开头的令牌为准，浅深色各自取值（设计稿 `design/formicand-p4.5-ui.pen`「打磨 34」）。强调只用黑白：主要操作是正文色底、`--color-on-accent` 字，链接用正文色加下划线，不引入彩色强调色；颜色只用于语义（成功、警告、危险、审查）。表面分层：侧栏透明，需求面板 `--side-fill` 半透，主面板 `--panel-fill` 接近实色，输入框 `--composer-fill` 实色；菜单、提示、弹窗、抽屉、放大查看等浮层一律用 `--popover-fill`/`--popover-edge`/`--popover-shadow` 实色，不加模糊。选中态用 `--selected-fill`/`--selected-edge`/`--selected-shadow`/`--selected-weight`：深色是亮一级填充，浅色是抬起的白色卡片；不要写死阴影。代码高亮用 `--code-*` 令牌。
 - 动效统一用 [ui.css](../web/assets/ui.css) 的令牌：`--motion-fast`（120ms，悬停/按下/颜色反馈）、`--motion-base`（200ms，弹层、面板、抽屉进入）、`--motion-layout`（240ms，侧栏或面板收起展开）、`--motion-glide`（300ms，选中背景滑动）；缓动 `--ease-standard` 用于进入和移动，`--ease-exit` 用于离开，`--ease-glide` 用于滑动。不写裸时长。分段选项、设置导航、观测筛选、需求阶段和会话行的选中背景由 [motion.js](../web/assets/ui/motion.js) 的 `installSelectionGlide` 在用户点击或按键后滑到新选项，新增同类控件在 `SELECTION_GROUPS` 登记；侧栏和右侧面板的收起展开通过 `animateLayout` 只在切换的那一刻让网格列过渡，拖拽分隔条和窗口缩放仍即时跟随。系统或设置开启「减少动态效果」时，滑动和列过渡都不发生，脚本动画用 `reducedMotion()` 判断，不直接读媒体查询。
 - 检查浅深色下实际渲染的文字对比度，以及 1440/1280 和 474/320 宽度、菜单定位、标题截断、控件可达性、键盘焦点和横向溢出；增加对应实际浏览器回归，并复核截图中的表面层级与状态强调。
 
-TXT 状态与 DOM 分开，文档 session 负责保存协作。使用 [代码地图](code-map.md) 中的领域入口和行为测试，不向 `web/app.js` 添加应用专用状态机。
+界面状态与 DOM 分开，草稿与异步请求归属由各自控制器保存。使用 [代码地图](code-map.md) 中的领域入口和行为测试，不向 `web/app.js` 添加功能专用状态机。
 
 ## 定位故障
 
-| 现象                           | 优先核对                                                           |
-| ------------------------------ | ------------------------------------------------------------------ |
-| 保存失败 / 409                 | revision、外部修改、共享写入；保留草稿后重读，不自动覆盖           |
-| Agent 看不到文档或工具         | 实际资源绑定、MCP 状态、首轮 `before_agent_start` 和后续 `context` |
-| 任务等待、停止不完整、恢复重复 | Task/Run 事件、Inbox 消费、问答/委派/jobs、进程结束和 checkpoint   |
-| 重启后草稿/资源消失            | 工作区、全局/Tab 索引、桌面用户目录与草稿镜像；先记录路径          |
-| 模型启动失败                   | endpoint、协议、模型、参数、环境覆盖和脱敏错误；不输出完整配置     |
-| UI 异步回包覆盖新会话          | 捕获的 Task/草稿身份、导航 token、迟到请求和同 Task 串行化         |
+| 现象                           | 优先核对                                                             |
+| ------------------------------ | -------------------------------------------------------------------- |
+| 保存失败 / 409                 | revision、外部修改与并发提交；保留草稿后重读或按提示恢复，不自动覆盖 |
+| Agent 看不到附件或工具         | 上传记录、工具组启用状态、首轮 `before_agent_start` 和后续 `context` |
+| 任务等待、停止不完整、恢复重复 | Task/Run 事件、Inbox 消费、问答/委派/jobs、进程结束和 checkpoint     |
+| 重启后草稿/附件消失            | 工作区、全局索引、桌面用户目录与草稿镜像；先记录路径                 |
+| 模型启动失败                   | endpoint、协议、模型、参数、环境覆盖和脱敏错误；不输出完整配置       |
+| UI 异步回包覆盖新会话          | 捕获的 Task/草稿身份、导航 token、迟到请求和同 Task 串行化           |
 
 日志/trace 位置见 [数据布局](task-workspace-layout.md)。报告问题注明版本/commit、系统、入口、复现、脱敏日志和测试目录。
 
@@ -185,7 +183,7 @@ TXT 状态与 DOM 分开，文档 session 负责保存协作。使用 [代码地
 
 仓库只保留 main 一条长期主分支，功能/修复临时分支经 PR 合入后删除。main 是已评审集成代码；发布版本由固定 tag/Release 标识，完整流程见 [版本管理](beta-release-process.md)。
 
-[常规工作流](../.github/workflows/test.yml) 仅通过 Actions 手动触发，使用单组 Ubuntu + Node 24；push 和 PR 不自动执行静态检查。安装时跳过 Electron 二进制下载，然后执行 `npm run check:ci`：`build:cli`、源码卫生、lint、工作台/Pi 类型、增量格式和现行文档链接检查。
+[常规工作流](../.github/workflows/test.yml) 仅通过 Actions 手动触发，使用单组 Ubuntu + Node 24；push 和 PR 不自动执行静态检查。安装时跳过 Electron 二进制下载，然后执行 `npm run check:ci`：`build:cli`、源码卫生、lint、扩展类型、增量格式和现行文档链接检查。
 
 完整 Node 回归、浏览器、原生引擎、实际模型和安装包体验在本地完成；日常使用轻量 `npm run verify` 与相关测试；发布或广泛影响的修改用 `npm run verify:full`，按改动增加对应层的验收。手动 GitHub 常规检查只提供构建与静态反馈，相关行为验证证据随 PR 提交。
 
@@ -197,4 +195,4 @@ TXT 状态与 DOM 分开，文档 session 负责保存协作。使用 [代码地
 
 在 Release Mac DMG 等待 DMG/CLI 与校验文件上传，签名构建还需 ZIP/feed，到对应 Release 草稿核对内容和安装验收，再由维护者选择发布分类并点击 Publish。可用手动输入已有 tag 重试/修复草稿；已发布同版本禁止替换，需新版本。完整命令与恢复规则见 [Mac 发布](mac-release.md#版本-tag-与-release-草稿)。
 
-`desktop:pack` / `desktop:dist` 打包文本工作台和完整编排运行时，不安装或分发 CAD、Blender、PPT 组件。见[能力范围](builtin-capabilities.md)。
+`desktop:pack` / `desktop:dist` 打包会话界面和完整编排运行时，不安装或分发 CAD、Blender、PPT 组件。见[能力范围](builtin-capabilities.md)。

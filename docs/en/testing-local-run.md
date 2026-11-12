@@ -18,7 +18,7 @@ npm run verify -- --list
 npm run verify:full -- --list
 ```
 
-`verify` runs `build:cli`, `build:web-assets`, `lint`, `check:workbench`, `check:extensions`, `format:check`, `check:docs` and `check:source`, without behavioral tests. `build:web-assets` prepares KaTeX and Markdown dependencies, but not native desktop resources. `verify:full` (equivalent to `verify -- --full`) uses one `build:full`, then static checks, `test:release:runner` and the complete Node suite. Both modes stop at the first failure and preserve its exit code. Quick checks do not certify related behavior or the full suite.
+`verify` runs `build:cli`, `build:web-assets`, `lint`, `check:extensions`, `format:check`, `check:docs` and `check:source`, without behavioral tests. `build:web-assets` prepares KaTeX and Markdown dependencies, but not native desktop resources. `verify:full` (equivalent to `verify -- --full`) uses one `build:full`, then static checks, `test:release:runner` and the complete Node suite. Both modes stop at the first failure and preserve its exit code. Quick checks do not certify related behavior or the full suite.
 
 `format:check` defaults to uncommitted changes. For committed changes, verify the baseline with `git rev-parse --verify '<base>^{commit}'`, then run `FORMAT_BASE=<base> npm run format:check` to select `<base>...HEAD`; manual CI uses `HEAD^`. On a clean worktree the default command may print `No changed files to format`; see the [empty-selection pitfall (Chinese)](../pitfalls/testing.md#提交后格式检查没有选中文件).
 
@@ -35,15 +35,15 @@ Focus on relevant files during development:
 node --test test/repository-checks.test.js
 
 # List matching files; an empty selection is a failure
-npm run test:unit -- --list --match application-
+npm run test:unit -- --list --match artifact
 
 # Build first, then run exact source test files; --file can be repeated
-npm run test:unit -- --file test/application-api.test.js
+npm run test:unit -- --file test/artifact-store.test.js
 npm run test:unit -- --file test/p0.test.ts
 
 # Explicitly reuse a complete build matching the current sources
 npm run test:unit -- --skip-build --match conversation
-npm run test:unit -- --skip-build --file test/application-resource-store.test.js --concurrency 1
+npm run test:unit -- --skip-build --file test/publish-artifact-pi.test.js --concurrency 1
 ```
 
 `--match` is a case-sensitive file-path substring. `--file` is an exact repository-relative source test path. They cannot be combined. Unknown files and empty matches fail before building.
@@ -82,12 +82,11 @@ It covers projects, ledger, board, Main sessions, external capacity and Main mod
 Use isolated data to check read counts, request concurrency and DOM retention before timing requests. This separates frontend costs from model or native computation load. With a current build, run:
 
 ```sh
-node --test test/workspace-directory-performance.test.js test/application-tab-read-cost.test.js test/resource-mapping-noop.test.js test/event-stream-ledger-performance.test.js test/event-stream-review-regressions.test.js test/visible-poll.test.js test/connection-controller.test.js
-npx playwright test e2e/dashboard-polling.spec.js e2e/editor-visibility-polling.spec.js e2e/binding-menu.spec.js --workers=1 --output=.tmp/browser-performance
+node --test test/workspace-directory-performance.test.js test/refresh-performance.test.js test/event-stream-ledger-performance.test.js test/event-stream-review-regressions.test.js test/visible-poll.test.js test/connection-controller.test.js
+npx playwright test e2e/dashboard-polling.spec.js e2e/composer-visibility.spec.js --workers=1 --output=.tmp/browser-performance
 ```
 
 - The directory fixture contains 57 assigned conversations: read each Task once per list and share project catalogs within the batch. The next request must observe renames and new Tasks.
-- The application fixture has 40 windows across two roots: discover roots once per revision request; unchanged holding references must not be rewritten. Lists and revision checks have file-read budgets. Verify first-resource creation races, external edits, aliases and transaction recovery separately.
 - Idle SSE must not reread ledger bodies, and initial connections read only the historical tail. An appended burst of 600 records must all be delivered, including with an initially empty/missing ledger; file replacement must keep working. A detail tail of 30 ordinary short records needs only one 64 KiB range, including short reads, Chinese, emoji and a missing final newline. Closed connections must stop response writes and further log-body reads.
 - Browser cases cover nonoverlapping slow polls, retained drafts and unchanged detail DOM, and repainting a collapsed panel on expansion. Hidden pages/editors stop automatic reads and refresh immediately when visible; SSE, explicit loading, saves and autosaves retain correct behavior.
 
@@ -100,15 +99,15 @@ npx playwright install chromium
 npm run test:browser
 
 # Select a browser file after a current build
-npx playwright test e2e/automation-workspace.spec.js --output .tmp/browser-workbench
+npx playwright test e2e/conversation-menu.spec.js --output .tmp/browser-conversation
 
 # Mac native windows/input require existing permissions and an unlocked desktop
-npm run test:release -- --native --stage app,applications
+npm run test:release -- --native --stage app
 ```
 
 Browser checks build and run Playwright; native variants follow the tests and release catalog prerequisites. Use independent `--output` directories for parallel local browser processes. Real model smoke checks consume model service resources; configure them explicitly using the [model configuration](configuration.md). Final installation, upgrades, signing/notarization and manual experience require separate records using the [Mac release guide](../mac-release.md).
 
-`npm run test:desktop` verifies TXT, Pi/local-model tasks, save/recovery, quit/restart and relocated upgrades. With a current candidate, run `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs` to avoid rebuilding.
+`npm run test:desktop` verifies conversations, artifact previews, Pi/local-model tasks, save/recovery, quit/restart and relocated upgrades. With a current candidate, run `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs` to avoid rebuilding.
 
 For the settings stage on an existing candidate package, run `ATRIA_DESKTOP_APP=.tmp/release/mac-arm64/CoworkOS.app node scripts/desktop-smoke.mjs --settings-only`. It checks the first save, redacted read and rejection of model/search changes during a run; the other desktop smoke stages are skipped.
 
@@ -116,7 +115,7 @@ The development-entry relaunch, composer and model-connection native tests use a
 
 ## Five-stage release acceptance
 
-The release runner groups existing deterministic tests into basic, CLI, App, applications and user cases, saving logs and reports. It does not call paid models or request additional system permissions. Detailed planned scenarios remain in the [case catalog](../testing-case-catalog.md) and [application acceptance manual](../testing-application-release.md); these detailed reference documents are currently in Chinese.
+The release runner groups existing deterministic tests into basic, CLI, App and user cases, saving logs and reports. It does not call paid models or request additional system permissions. Detailed planned scenarios remain in the [case catalog](../testing-case-catalog.md) and the [desktop/native acceptance manual](../testing-application-release.md); these detailed reference documents are currently in Chinese.
 
 ```sh
 npm ci
@@ -126,7 +125,7 @@ npm run test:release
 
 # Select stages; a shared build remains the default
 npm run test:release -- --stage cli
-npm run test:release -- --stage app,applications
+npm run test:release -- --stage app
 
 # Include isolated native Electron/window tests on Mac
 npm run test:release -- --native

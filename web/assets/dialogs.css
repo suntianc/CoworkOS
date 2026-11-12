@@ -13,7 +13,7 @@ html[data-theme] :is(.modal-backdrop, .search-overlay) {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-.app-dialog:is(.modal-card, .editor-name-form) {
+.app-dialog.modal-card {
   --dialog-field-bg: color-mix(in srgb, var(--ui-raised), var(--ui-panel) 25%);
   box-sizing: border-box;
   width: min(var(--dialog-width, 420px), calc(100vw - 32px));
@@ -97,7 +97,7 @@ html[data-theme] :is(.modal-backdrop, .search-overlay) {
 .app-dialog [aria-invalid="true"]:focus-visible {
   outline-color: var(--ui-danger);
 }
-.app-dialog:is(.modal-card, .editor-name-form) .dialog-error {
+.app-dialog.modal-card .dialog-error {
   margin: 12px 0 0;
   color: var(--ui-danger);
   font: 400 var(--ui-type-caption)/1.65 var(--ui-font);
@@ -252,7 +252,7 @@ html[data-theme] :is(.modal-backdrop, .search-overlay) {
   font-size: var(--ui-type-caption);
 }
 @media (max-width: 474px) {
-  .app-dialog:is(.modal-card, .editor-name-form) {
+  .app-dialog.modal-card {
     padding: 20px;
   }
 }
@@ -260,7 +260,7 @@ html[data-theme] :is(.modal-backdrop, .search-overlay) {
   .modal-backdrop.app-dialog-backdrop {
     padding-block: 12px;
   }
-  .app-dialog:is(.modal-card, .editor-name-form) {
+  .app-dialog.modal-card {
     max-height: calc(100dvh - 24px);
   }
 }

@@ -108,7 +108,7 @@ POST /api/tasks/:taskId/computer/end      {}
 - [会话与队列](../src/gui/computer-use.ts)：任务独占、全局续期、暂停/取消、单次观察及活动记录。
 - [辅助功能合同与等待条件](../src/gui/accessibility.ts)：有界树、观察绑定控件、匹配条件及不完整观察的缺失判定。
 - [Mac 驱动](../src/gui/macos-driver.ts)、[原生 helper](../src/gui/macos-helper.swift)：独立受信进程、ScreenCaptureKit 单窗口 PNG、窗口限定 AX 文本、窗口编号明确的 AppKit 鼠标事件转 CGEvent 定向投递、Unicode 小段投递与焦点复核；没有 shell 拼接。
-- [HTTP](../src/dashboard/computer-routes.ts)、[工具](../.pi/runtime/tools/computer-use.ts)、[界面](../web/assets/controllers/computer-use.js)：接口消费者；通用工作台文档协议保持兼容。
+- [HTTP](../src/dashboard/computer-routes.ts)、[工具](../.pi/runtime/tools/computer-use.ts)、[界面](../web/assets/controllers/computer-use.js)：接口消费者。
 
 `npm run build` 在 Mac 用 Xcode Command Line Tools 编译 helper，Linux 跳过；`npm run build:computer-use` 可单独编译。二进制随 `dist/src/gui/` 进入安装包。`COWORK_COMPUTER_USE_EXECUTABLE` 仅供受信宿主配置替代驱动，不能由模型参数指定。macOS 13 可查询 helper 状态，但截图明确要求 14+。
 

@@ -10,7 +10,7 @@ import { ui } from "../ui/language.js";
 import { createModal } from "../ui/modal.js";
 import { formatStamp } from "../ui/time-format.js";
 import { createVisiblePoll } from "../ui/visible-poll.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 
 /**
  * The observation requirement view: every connected node's requirements in one

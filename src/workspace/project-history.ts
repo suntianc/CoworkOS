@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { readFile, readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
 interface HistoryEntry {
@@ -95,52 +95,4 @@ export async function inferLegacyProjectDirectory(
     }
   }
   return undefined;
-}
-
-/** Read-only evidence: never delete catalog rows or repair/move user resources while listing projects. */
-export async function applicationProjectEvidence(
-  roots: string[],
-  projects: Array<{ projectId: string; projectDirectory: string }>,
-  internalRoot: string
-): Promise<Set<string>> {
-  const evidence = new Set<string>();
-  for (const root of roots) {
-    const applications = join(root, "applications");
-    // eslint-disable-next-line no-restricted-syntax -- 工作区根不一定有 applications 目录，缺目录就是没有应用证据，不能因此让项目列表失败
-    for (const app of await readdir(applications, { withFileTypes: true }).catch(() => [])) {
-      if (!app.isDirectory() || app.name === "instances") continue;
-      const resources = join(applications, app.name, "resources");
-      // eslint-disable-next-line no-restricted-syntax -- 应用没装资源就没有 resources 目录，缺目录表示没有证据可收集
-      for (const resource of await readdir(resources, { withFileTypes: true }).catch(() => [])) {
-        if (!resource.isDirectory()) continue;
-        try {
-          const metadata = JSON.parse(
-            await readFile(join(resources, resource.name, "metadata.json"), "utf8")
-          ) as {
-            resourceId?: string;
-            path?: string;
-            externalPath?: string;
-            project?: { projectId?: string } | null;
-            projectId?: string;
-          };
-          if (metadata.resourceId !== resource.name || typeof metadata.path !== "string") continue;
-          const file = metadata.externalPath ?? resolve(applications, app.name, "files", metadata.path);
-          const within = relative(join(applications, app.name, "files"), file);
-          if (!metadata.externalPath && (within.startsWith("..") || isAbsolute(within))) continue;
-          if (!(await stat(file)).isFile()) continue;
-          if (typeof metadata.project?.projectId === "string") evidence.add(metadata.project.projectId);
-          else if (metadata.project === undefined && typeof metadata.projectId === "string")
-            evidence.add(metadata.projectId);
-          else if (metadata.project === undefined && resolve(root) !== resolve(internalRoot)) {
-            for (const project of projects)
-              if (resolve(project.projectDirectory) === resolve(root)) evidence.add(project.projectId);
-          }
-          // eslint-disable-next-line no-restricted-syntax -- 目录里的残留 metadata.json 可能已损坏，读不了就不提供证据，且绝不修改这些文件
-        } catch {
-          /* Unreadable remnants supply no evidence; preserve every original file. */
-        }
-      }
-    }
-  }
-  return evidence;
 }

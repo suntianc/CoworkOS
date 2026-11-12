@@ -13,32 +13,31 @@ This guide is for contributors and coding agents. Users start with [README](READ
 
 ## Repository map
 
-| Location                                        | Responsibility                                                | Local instructions                           |
-| ----------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------- |
-| `src/cli/`, `scripts/atria.mjs`                 | User commands, launchers and smokes                           | [Code map](docs/en/code-map.md)              |
-| `src/dashboard/`                                | Local HTTP/SSE, composition and Run orchestration             | [Service](src/dashboard/AGENTS.md)           |
-| `src/runtime/`                                  | Task/Run, scheduling, recovery, models and Pi sessions        | [Runtime](src/runtime/AGENTS.md)             |
-| `src/applications/`                             | Registration, resources, revisions, windows, MCP and adapters | [Applications](src/applications/AGENTS.md)   |
-| `src/software/`, `src/gui/`, `src/security/`    | Software engines, native interaction and permissions          | [Integration](docs/software-integration.md)  |
-| `src/domain/`, `src/storage/`, `src/workspace/` | Domain types, persistence, workspaces and artifacts           | [Data layout](docs/task-workspace-layout.md) |
-| `.pi/`                                          | Product Pi composition, domain tools and skills               | [Pi](.pi/AGENTS.md)                          |
-| `web/`                                          | Shared Web/Desktop UI, controllers and editors                | [Frontend](web/AGENTS.md)                    |
-| `desktop/`                                      | Electron windows, trusted IPC and backend lifecycle           | [Desktop](desktop/AGENTS.md)                 |
-| `test/`, `e2e/`                                 | Node regressions and browser/native acceptance                | [Testing](test/AGENTS.md)                    |
-| `docs/`                                         | User guides, development conventions and API references       | [Documentation](docs/AGENTS.md)              |
-| `scripts/`, `.github/`                          | Builds, verification, packaging and CI                        | [Development](docs/en/development.md)        |
-| `vendor/`                                       | Third-party source                                            | Keep product business logic elsewhere        |
+| Location                                        | Responsibility                                              | Local instructions                           |
+| ----------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------- |
+| `src/cli/`, `scripts/atria.mjs`                 | User commands, launchers and smokes                         | [Code map](docs/en/code-map.md)              |
+| `src/dashboard/`                                | Local HTTP/SSE, composition and Run orchestration           | [Service](src/dashboard/AGENTS.md)           |
+| `src/runtime/`                                  | Task/Run, scheduling, recovery, models and Pi sessions      | [Runtime](src/runtime/AGENTS.md)             |
+| `src/gui/`, `src/security/`                     | Native interaction, window grants and execution permissions | [Computer Use](docs/computer-use.md)         |
+| `src/domain/`, `src/storage/`, `src/workspace/` | Domain types, persistence, workspaces and artifacts         | [Data layout](docs/task-workspace-layout.md) |
+| `.pi/`                                          | Product Pi composition, domain tools and skills             | [Pi](.pi/AGENTS.md)                          |
+| `web/`                                          | Shared Web/Desktop UI and controllers                       | [Frontend](web/AGENTS.md)                    |
+| `desktop/`                                      | Electron windows, trusted IPC and backend lifecycle         | [Desktop](desktop/AGENTS.md)                 |
+| `test/`, `e2e/`                                 | Node regressions and browser/native acceptance              | [Testing](test/AGENTS.md)                    |
+| `docs/`                                         | User guides, development conventions and API references     | [Documentation](docs/AGENTS.md)              |
+| `scripts/`, `.github/`                          | Builds, verification, packaging and CI                      | [Development](docs/en/development.md)        |
+| `vendor/`                                       | Third-party source                                          | Keep product business logic elsewhere        |
 
 Directory guides and specialized API references currently use Chinese. They are authoritative for those modules; the English code map and architecture summarize their boundaries.
 
 ## Implementation rules
 
-- CLI and Desktop share services. Shared modules must not import CLI entrypoints; runtime and applications must not import Dashboard. ESLint enforces these directions.
+- CLI and Desktop share services. Shared modules must not import CLI entrypoints; runtime must not import Dashboard. ESLint enforces these directions.
 - Routes validate, call services and map responses. Run/ProcessHost own processes. Importing a service must not bind ports, install signals or issue model requests.
-- Extend the owning service, Adapter, controller or `.pi/runtime/tools/`. Keep entrypoints focused on composition; do not centralize new capabilities in `web/app.js`, Coordinator or the Pi extension.
+- Extend the owning service, controller or `.pi/runtime/tools/`. Keep entrypoints focused on composition; do not centralize new capabilities in `web/app.js`, Coordinator or the Pi extension.
 - Use strict TypeScript and ESM with `.js` suffixes in local TS imports; Desktop keeps `.cjs`. Validate external JSON, files, tool arguments, HTTP and IPC at their entrypoints. Errors must be actionable and must not reveal secrets.
 - Handle or propagate errors, and use type-guaranteed values directly. ESLint checks discarded errors and unnecessary conditions/assertions; existing findings live in `eslint-suppressions.json`, and new code adds none. Document justified exceptions at their site with `// eslint-disable-next-line <rule> -- <reason>`. See the [lint baseline](docs/en/development.md#lint-baseline) for build prerequisites, rule coverage and pruning.
-- When changing persisted formats, events, HTTP, Adapter or IPC interfaces, update producers and consumers together. Document migration and recovery for breaking changes; do not reinterpret existing fields in place.
+- When changing persisted formats, events, HTTP or IPC interfaces, update producers and consumers together. Document migration and recovery for breaking changes; do not reinterpret existing fields in place.
 - Do not repair products by editing Pi in `node_modules` or generated files. Record origins, versions and local changes for vendored code.
 - Keep public entrypoints, licenses, example configuration and tool configuration at the root. Put maintained technical documentation in `docs/`, and build/launch scripts in `scripts/`. Do not commit generated outputs or machine-specific bindings as source.
 - Format only changed files. Avoid unrelated reformatting, dependency upgrades or module moves.

@@ -12,13 +12,11 @@
     <link rel="preload" href="/assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/assets/math.css" />
-    <link rel="stylesheet" href="/assets/workbench.css" />
+    <link rel="stylesheet" href="/assets/layout.css" />
     <link rel="stylesheet" href="/assets/ui.css" />
     <link rel="stylesheet" href="/assets/system-theme.css" />
     <link rel="stylesheet" href="/assets/settings.css" />
     <link rel="stylesheet" href="/assets/dialogs.css" />
-    <link rel="stylesheet" href="/assets/workbench/dialogs.css" />
-    <link rel="stylesheet" href="/assets/workbench/chrome.css" />
     <link rel="stylesheet" href="/assets/styles/attachment-preview.css" />
     <link rel="stylesheet" href="/assets/formicand.css" />
     <link rel="stylesheet" href="/assets/work-sidebar.css" />
@@ -659,40 +657,6 @@
         ></div>
         <main class="chat-pane" id="work-entry" data-entry-panel="work">
           <div class="chat-body">
-            <div id="workbench" class="workbench" hidden>
-              <div
-                class="workbench-header"
-                data-workbench-header
-                aria-describedby="workbench-session-status"
-                hidden
-              >
-                <nav class="workbench-rail" data-tab-rail aria-label="打开的文件与应用" hidden></nav>
-                <span id="workbench-session-status" class="sr-only" data-app-task-status role="status"></span>
-                <div class="workbench-view-actions">
-                  <button class="app-button" data-app-expand aria-label="全屏编辑" title="全屏编辑">
-                    <svg class="ui-icon" aria-hidden="true"><use href="#i-fit" /></svg>
-                  </button>
-                  <button
-                    class="app-button"
-                    data-app-collaborate
-                    aria-label="在对话中使用"
-                    title="在对话中使用"
-                  >
-                    <svg class="ui-icon" aria-hidden="true"><use href="#i-chat" /></svg>
-                  </button>
-                </div>
-              </div>
-              <div class="workbench-tabs" data-tab-strip role="tablist" aria-label="工作台标签"></div>
-            </div>
-            <div
-              class="workspace-divider"
-              data-workspace-divider
-              role="separator"
-              aria-label="调整对话与工作台宽度"
-              aria-orientation="vertical"
-              tabindex="0"
-              hidden
-            ></div>
             <div id="conversation-pane" class="conversation-pane">
               <section class="chat-scroll" id="conversation">
                 <div class="welcome-empty">
@@ -752,7 +716,6 @@
                     </div>
                   </div>
                   <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
-                  <button class="composer-context" data-composer-context type="button" hidden></button>
                   <textarea
                     id="composer-input"
                     rows="3"
@@ -809,23 +772,6 @@
                     </div>
                     <div class="composer-right">
                       <button
-                        class="app-bind-select"
-                        id="app-bind-select"
-                        type="button"
-                        title="指定本轮对话加载的应用"
-                        aria-label="加载应用"
-                        aria-haspopup="listbox"
-                        aria-expanded="false"
-                        hidden
-                      >
-                        <span class="app-bind-icon"
-                          ><svg class="ui-icon"><use href="#i-apps" /></svg></span
-                        ><span class="app-bind-name">未加载应用</span
-                        ><span class="model-chevron"
-                          ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
-                        ></span>
-                      </button>
-                      <button
                         id="stop-button"
                         class="stop-button"
                         type="button"
@@ -844,13 +790,6 @@
                       id="model-menu"
                       role="dialog"
                       aria-label="模型与推理强度"
-                      hidden
-                    ></div>
-                    <div
-                      class="model-menu app-bind-menu"
-                      id="app-bind-menu"
-                      role="listbox"
-                      aria-label="可加载的应用"
                       hidden
                     ></div>
                   </div>
@@ -911,18 +850,6 @@
           <div class="requirement-panel" data-requirement-panel>
             <header class="requirement-panel-head">
               <h2 id="panel-heading" tabindex="-1"><span data-panel-title>需求进度</span></h2>
-              <button
-                class="sidebar-view-toggle"
-                data-sidebar-view="navigation"
-                type="button"
-                title="显示默认侧栏"
-                aria-label="显示默认侧栏"
-                aria-controls="conversation-sidebar"
-                hidden
-              >
-                <span>需求进度</span>
-                <svg class="ui-icon" aria-hidden="true"><use href="#i-switch" /></svg>
-              </button>
               <button
                 class="requirement-panel-close"
                 data-panel-collapse

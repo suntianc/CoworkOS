@@ -214,7 +214,6 @@ test(
         COWORK_CONFIG: paths.configPath,
         COWORK_WORKSPACE: paths.workspaceRoot,
         COWORK_GLOBAL_INDEX: paths.globalIndex,
-        COWORK_TABS_INDEX: paths.tabsIndex,
         PI_CODING_AGENT_DIR: paths.piAgentDir,
         COWORK_DISABLE_MAIN_GUARDIAN: "1",
         PI_OFFLINE: "1"

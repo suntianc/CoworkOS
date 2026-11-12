@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCoalescedRead } from "../web/assets/controllers/coalesced-read.js";
-import { createRevisionSchedule } from "../web/assets/controllers/revision-schedule.js";
 import { createConversationProjection } from "../web/assets/controllers/conversation-projection.js";
 import { buildConversationExchanges } from "../web/assets/conversation.js";
 
@@ -56,48 +55,6 @@ test("independent tasks can load while a stale task is pending and failures can 
   assert.deepEqual(seen, ["old", "new", "new"]);
   gate.resolve();
   await old;
-});
-
-test("unchanged revisions back off, foreground switches and resource events bypass the delay", () => {
-  let clock = 0;
-  const schedule = createRevisionSchedule({ now: () => clock });
-  const tabs = ["a", "b"].map((appInstanceId) => ({ appInstanceId }));
-  assert.deepEqual(schedule.due(tabs, "a"), ["a", "b"]);
-  schedule.observe("a", "v1");
-  schedule.observe("b", "v1");
-  clock = 500;
-  assert.deepEqual(schedule.due(tabs, "a"), ["a"]);
-  schedule.observe("a", "v1");
-  clock = 1000;
-  assert.deepEqual(schedule.due(tabs, "a"), []);
-  assert.deepEqual(schedule.due(tabs, "b"), ["b"]);
-  schedule.observe("b", "v1");
-  schedule.invalidate("a");
-  assert.deepEqual(schedule.due(tabs, "b"), ["a"]);
-  schedule.observe("a", "v2");
-  assert.deepEqual(schedule.due(tabs, "b", true), ["a", "b"]);
-  schedule.due([], undefined);
-  assert.deepEqual(schedule.due(tabs, "a"), ["a", "b"], "reopened windows must reload");
-});
-
-test("revision backoff bounds foreground and background staleness and reduces idle work", () => {
-  let clock = 0;
-  const schedule = createRevisionSchedule({ now: () => clock });
-  const tabs = ["a", "b"].map((appInstanceId) => ({ appInstanceId }));
-  const reads = { a: [], b: [] };
-  for (clock = 0; clock <= 60000; clock += 500) {
-    for (const id of schedule.due(tabs, "a")) {
-      reads[id].push(clock);
-      schedule.observe(id, "unchanged");
-    }
-  }
-  assert.ok(reads.a.length < 20, `foreground checks: ${reads.a.length}`);
-  assert.ok(reads.b.length < 8, `background checks: ${reads.b.length}`);
-  for (const [id, limit] of [
-    ["a", 4000],
-    ["b", 15000]
-  ])
-    for (let i = 1; i < reads[id].length; i++) assert.ok(reads[id][i] - reads[id][i - 1] <= limit);
 });
 
 const user = (id) => ({ role: "user", id, timestamp: id, content: `request ${id}` });

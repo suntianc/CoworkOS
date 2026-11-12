@@ -49,7 +49,7 @@ export function conversationTaskId(value) {
     if (!["http:", "https:"].includes(url.protocol)) return null;
     const taskId = url.searchParams.get("task");
     return validTaskId(taskId) ? taskId : null;
-    // eslint-disable-next-line no-restricted-syntax -- 深链可能来自任意粘贴文本，不是合法 URL 时说明它不是本应用的任务链接
+    // eslint-disable-next-line no-restricted-syntax -- 深链可能来自任意粘贴文本，不是合法 URL 时说明它不是本产品的任务链接
   } catch {
     return null;
   }
