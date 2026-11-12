@@ -15,9 +15,9 @@ import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-requ
 import { MainRequestRetry } from "../dist/src/runtime/main-request-retry.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { cliHelp, parseCliCommand } from "../dist/src/cli/commands.js";
+import { installedPiVersion } from "./pi-version-fixture.mjs";
 
 const requirePi = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
-
 async function walk(directory) {
   const files = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -162,6 +162,7 @@ test("a failed Main request replays the original context exactly without reading
     environment: { projectDirectory, binding: environment.binding },
     executionScope: environment.executionScope,
     endpoint: "http://127.0.0.1:1/v1/chat/completions",
+    piVersion: installedPiVersion,
     body
   });
   await store.settle("original-request", "failed");
