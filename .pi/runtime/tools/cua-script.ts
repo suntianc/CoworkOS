@@ -1,5 +1,5 @@
-import { Type } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { CuaScriptController, type CuaScriptDispatcher } from "../../../dist/src/tools/cua-script.js";
 
 export function registerCuaScriptTools(
@@ -8,7 +8,7 @@ export function registerCuaScriptTools(
     name: string,
     params: Record<string, unknown>,
     signal: AbortSignal,
-    ctx: ExtensionContext
+    ctx: ExtensionToolContext
   ) => ReturnType<CuaScriptDispatcher>
 ) {
   const controller = new CuaScriptController();

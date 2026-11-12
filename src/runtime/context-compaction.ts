@@ -1,14 +1,9 @@
-import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/pi-agent-core/harness/context";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import { calculateContextTokens, estimateTokens, generateSummary } from "@earendil-works/pi-coding-agent";
 import {
-  estimateContextTokens,
-  estimateTokens,
-  generateSummary,
-  type AgentMessage
-} from "@earendil-works/pi-agent-core";
-import {
-  contentText,
   getCurrentSystemMessage,
   type Api,
+  type AssistantMessage,
   type Model,
   type Models
 } from "@earendil-works/pi-ai";
@@ -100,7 +95,7 @@ export class ContextCompactor {
     signal?: AbortSignal
   ): Promise<ContextCompactionResult> {
     const visible = this.visibleMessages(messages);
-    const estimated = estimateContextTokens(visible).tokens;
+    const estimated = contextTokens(visible);
     const shouldCompact =
       this.settings.enabled && estimated > this.model.contextWindow - this.settings.reserveTokens;
     if (!shouldCompact) return { messages: visible, state: this.state, compacted: false };
@@ -133,38 +128,28 @@ export class ContextCompactor {
     if (this.failureBackoff.shouldSkip(fingerprint))
       return { messages: visible, state: this.state, compacted: false };
     try {
-      // Keep Pi's summary serialization and retries, while refusing responses
-      // which would discard history without a complete, usable replacement.
-      const summaryModels: Models = Object.create(this.models);
-      summaryModels.completeSimple = async (...args) => {
-        const response = await this.models.completeSimple(...args);
-        if (
-          response.stopReason !== "error" &&
-          response.stopReason !== "aborted" &&
-          (response.stopReason !== "stop" ||
-            !contentText(response.content).trim() ||
-            response.content.some((block) => block.type === "toolCall"))
-        )
-          throw new Error("Context summary did not finish with a non-empty stop response without tool calls");
-        return response;
-      };
-      const generated = await generateSummary(
+      // Keep Pi's summary serialization, provider routing and retries; the SDK
+      // already refuses failed or tool-calling summaries, and the empty-text
+      // check below still prevents committing a blank replacement.
+      const summaryStream: StreamFn = (model, context, streamOptions) =>
+        this.models.streamSimple(model, context, streamOptions);
+      const summary = await generateSummary(
         projectCompactionMessages(toSummarize),
-        summaryModels,
         this.model,
-        this.settings.reserveTokens,
+        undefined,
+        undefined,
+        undefined,
+        signal,
         undefined,
         this.stateValue.summary,
         "off",
-        undefined,
-        undefined,
-        signal ? withAbortSignal(signal, BACKGROUND_CONTEXT) : BACKGROUND_CONTEXT
+        summaryStream
       );
-      if (!generated.ok) throw generated.error;
+      if (!summary.trim()) throw new Error("Context summary did not finish with a non-empty response");
       signal?.throwIfAborted();
 
       const nextState = {
-        summary: generated.value,
+        summary,
         summarizedMessageCount: cutIndex,
         compactionCount: this.stateValue.compactionCount + 1,
         lastTokensBefore: estimated,
@@ -202,6 +187,33 @@ export class ContextCompactor {
     );
     return [...(system ? [system] : []), summaryMessage, ...tail];
   }
+}
+
+/**
+ * Context size of a message list.
+ *
+ * Pi 1.5 keeps this calculation inside its coding-agent compaction module and
+ * no longer exports it with the harness, so this reproduces the same value from
+ * the public pieces: the last usable assistant usage covers everything up to
+ * its own reply, and each later message is estimated on its own.
+ */
+function contextTokens(messages: AgentMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const usage = assistantUsage(messages[index]);
+    if (!usage) continue;
+    let trailing = 0;
+    for (let later = index + 1; later < messages.length; later += 1)
+      trailing += estimateTokens(messages[later]);
+    return calculateContextTokens(usage) + trailing;
+  }
+  return messages.reduce((total, message) => total + estimateTokens(message), 0);
+}
+
+/** Provider usage from an assistant reply that finished with real numbers. */
+function assistantUsage(message: AgentMessage): AssistantMessage["usage"] | undefined {
+  if (message.role !== "assistant") return undefined;
+  if (message.stopReason === "aborted" || message.stopReason === "error") return undefined;
+  return calculateContextTokens(message.usage) > 0 ? message.usage : undefined;
 }
 
 function findCutIndex(messages: AgentMessage[], keepRecentTokens: number, startIndex: number): number {

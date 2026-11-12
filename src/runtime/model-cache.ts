@@ -199,7 +199,15 @@ function observeUsage(
       },
       flush() {
         inspect(decoder.decode());
-        // The SDK dispatches only blank-line-terminated events, never an EOF remainder.
+        // Pi 1.5 also dispatches a final event terminated by EOF rather than a
+        // blank line, so the observer must parse that remainder to stay in step
+        // with the provider parser that confirms usage.
+        if (pending) {
+          const remainder = pending;
+          pending = "";
+          line(remainder);
+        }
+        line("");
       }
     })
   );

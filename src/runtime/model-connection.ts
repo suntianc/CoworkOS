@@ -1,13 +1,8 @@
 import { createModelStreams, modelThinkingLevel } from "./model-provider.js";
 import { createHttpTransport } from "./http-transport.js";
 import { randomInt } from "node:crypto";
-import {
-  createModels,
-  createProvider,
-  Type,
-  type ImageContent,
-  type TextContent
-} from "@earendil-works/pi-ai";
+import { createModels, createProvider, type ImageContent, type TextContent } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import {
   connectionProfile,

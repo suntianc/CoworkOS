@@ -40,9 +40,9 @@ Browser Use 使用 `playwright-core` `1.63.0`，保留 [Apache-2.0 许可证](ht
 
 Browser Use uses `playwright-core` `1.63.0` with its [Apache-2.0 license](https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz) and [NOTICE](https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz), from [Playwright v1.63.0](https://github.com/microsoft/playwright/tree/v1.63.0). Browser binaries are installed separately and are absent from the CLI/App archive; their distribution licenses and installation checks are independent.
 
-Pi 的 `@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui`、`pi-telemetry` 与 `chord` 随当前 CLI/App 以 `0.87.1` 分发。两种包均携带[该版本上游完整 MIT 许可证及 Mario Zechner 版权声明](https://github.com/earendil-works/pi/blob/v0.87.1/LICENSE)，来源为 [Pi v0.87.1 的 LICENSE](https://github.com/earendil-works/pi/blob/v0.87.1/LICENSE)。
+Pi 的 `@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui`、`pi-telemetry`、`pi-schema`、`pi-codemode` 与 `pi-mcp` 随当前 CLI/App 以 `1.5.2` 分发（`chord` 自上游 1.2.0 起不再依赖）。两种包均携带[该版本上游完整 MIT 许可证及 Mario Zechner 版权声明](https://github.com/earendil-works/pi/blob/v1.5.2/LICENSE)，来源为 [Pi v1.5.2 的 LICENSE](https://github.com/earendil-works/pi/blob/v1.5.2/LICENSE)。
 
-The CLI/App distributes Pi's `@earendil-works/pi-agent-core`, `pi-ai`, `pi-coding-agent`, `pi-tui`, `pi-telemetry`, and `chord` at `0.87.1`. Both packages carry the [complete upstream MIT license and Mario Zechner copyright notice](https://github.com/earendil-works/pi/blob/v0.87.1/LICENSE), from [Pi v0.87.1's LICENSE](https://github.com/earendil-works/pi/blob/v0.87.1/LICENSE).
+The CLI/App distributes Pi's `@earendil-works/pi-agent-core`, `pi-ai`, `pi-coding-agent`, `pi-tui`, `pi-telemetry`, `pi-schema`, `pi-codemode`, and `pi-mcp` at `1.5.2` (`chord` is no longer a dependency since upstream 1.2.0). Both packages carry the [complete upstream MIT license and Mario Zechner copyright notice](https://github.com/earendil-works/pi/blob/v1.5.2/LICENSE), from [Pi v1.5.2's LICENSE](https://github.com/earendil-works/pi/blob/v1.5.2/LICENSE).
 
 CLI 的交互界面通过 Pi 公开的 `PI_PACKAGE_DIR`、`piConfig.name` 与扩展 UI API 显示 CoworkOS 品牌。适配器在 CLI 数据目录生成独立运行时元数据，保留 Pi 原始代码、资源、文档、版权及许可证；不会修改安装依赖。实现见 [CLI 品牌适配器](scripts/cli-branding.mjs)。
 
@@ -58,9 +58,9 @@ Node dependencies are pinned by the root and PPTist lockfiles. The CLI bundles p
 
 ## CoworkOS terminal UI compatibility adapter
 
-CoworkOS 使用原始 Pi coding agent 0.87.1，在交互子进程加载时应用六处受限 UI 差异；各 CLI 模式另有三处命令身份/输出路径差异，使新命令的 `AI_AGENT=atria`、完整输出文件为 `atria-bash-*.log`。不改写依赖文件、许可、历史内容、恢复格式或 RPC 协议结构；模型/工具记录仍保存实际内容与真实输出路径。具体来源、固定 hash、差异和升级门槛见 [终端适配说明](docs/cli-ui-adapter.md)。
+CoworkOS 使用原始 Pi coding agent 1.5.2，在交互子进程加载时应用六处受限 UI 差异；各 CLI 模式另有三处命令身份/输出路径差异，使新命令的 `AI_AGENT=atria`、完整输出文件为 `atria-bash-*.log`。不改写依赖文件、许可、历史内容、恢复格式或 RPC 协议结构；模型/工具记录仍保存实际内容与真实输出路径。具体来源、固定 hash、差异和升级门槛见 [终端适配说明](docs/cli-ui-adapter.md)。
 
-CoworkOS uses the original Pi coding agent 0.87.1 with six bounded UI differences applied at load time in the interactive subprocess and three shell identity/output-path differences across CLI modes. New commands use `AI_AGENT=atria` and `atria-bash-*.log` for full output. Dependency files, licenses, historical content, recovery formats and RPC protocol structure remain intact; model/tool records retain actual content and real output paths. Source, pinned hashes, differences and upgrade gates are documented in the [terminal adapter guide](docs/en/cli-ui-adapter.md).
+CoworkOS uses the original Pi coding agent 1.5.2 with six bounded UI differences applied at load time in the interactive subprocess and three shell identity/output-path differences across CLI modes. New commands use `AI_AGENT=atria` and `atria-bash-*.log` for full output. Dependency files, licenses, historical content, recovery formats and RPC protocol structure remain intact; model/tool records retain actual content and real output paths. Source, pinned hashes, differences and upgrade gates are documented in the [terminal adapter guide](docs/en/cli-ui-adapter.md).
 
 ## React Bits README hero / README 动画头图
 

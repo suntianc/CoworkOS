@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { PiSession } from "../dist/src/runtime/pi-session.js";
 import { createLoadSkillTool } from "../dist/src/runtime/skill-registry.js";
 import { createBuiltinTools } from "../dist/src/tools/builtin.js";

@@ -393,6 +393,9 @@ export async function startPi({ uiCompatibility } = {}) {
           connectionId
         );
     const args = [
+      // Pi 1.x loads a built-in MCP client that would add mcp__* tools to Main.
+      // Adopting it is a separate decision, so every CoworkOS launch keeps it off.
+      "--no-mcp",
       ...(hasExtension ? [] : ["--extension", resolve(harnessRoot, ".pi", "extensions", "cowork.ts")]),
       ...(hasModel ? [] : ["--provider", providerId, "--model", configuredModel]),
       // Pass the level explicitly: Pi otherwise restores old session defaults,
@@ -400,6 +403,12 @@ export async function startPi({ uiCompatibility } = {}) {
       ...(thinkingIndex >= 0 ? [] : ["--thinking", thinkingLevel]),
       "--append-system-prompt",
       coworkPrompt,
+      // Pi 1.0 runs the interactive TUI in fullscreen by default. The upgrade
+      // keeps the previous regular-scrollback default; an explicit
+      // `--tui-mode` (or a later launch flag) still chooses fullscreen.
+      ...(publicTui && !userArgs.some((arg) => arg === "--tui-mode" || arg.startsWith("--tui-mode="))
+        ? ["--tui-mode", "regular"]
+        : []),
       ...(projectDirectory !== harnessRoot ? ["--skill", resolve(harnessRoot, ".pi", "skills")] : []),
       ...userArgs
     ];
