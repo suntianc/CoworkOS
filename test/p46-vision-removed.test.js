@@ -352,3 +352,27 @@ test("no vision module or identifier remains in product sources", async () => {
   }
   assert.deepEqual(offenders, []);
 });
+
+test("product documentation names no removed vision capability", async () => {
+  const docs = (await walk("docs")).filter((path) => path.endsWith(".md"));
+  const offenders = [];
+  for (const path of docs) {
+    // The phase plan records the removal itself, so it may name what was removed.
+    if (path.endsWith("development-phases.md")) continue;
+    const text = await readFile(path, "utf8");
+    for (const term of ["视觉模型", "视觉连接", "视觉分析", "vision model", "vision connection"])
+      if (text.includes(term)) offenders.push(`${path}: ${term}`);
+  }
+  // The host stores model and search credentials only; the export paragraph must not list a vision kind.
+  const exportDoc = await readFile("docs/task-workspace-layout.md", "utf8");
+  const redaction = exportDoc
+    .split("\n")
+    .find((line) => line.includes("credentials.json") && line.includes("脱敏"));
+  assert.ok(redaction, "the session export redaction paragraph must exist");
+  if (redaction.includes("视觉")) offenders.push("docs/task-workspace-layout.md: vision credential");
+  // Image reads archive pixels; only the removed vision model cached analysis results.
+  const imageDoc = await readFile("docs/visual-observation.md", "utf8");
+  if (imageDoc.includes("结果缓存") || /analysis[- ]result cache/i.test(imageDoc))
+    offenders.push("docs/visual-observation.md: analysis result cache");
+  assert.deepEqual(offenders, []);
+});
