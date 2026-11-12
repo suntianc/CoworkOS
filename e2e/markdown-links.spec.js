@@ -3,9 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 
-test("a final local artifact link opens its indexed file and downloads it without leaving the draft", async ({
-  page
-}) => {
+test("a final local artifact link downloads its indexed file without leaving the draft", async ({ page }) => {
   const dashboard = await startDashboard({ defaultProject: false });
   const taskId = "markdown_task";
   const path = "exports/res_scene/光影 场景_01 & #?.blend";
@@ -78,13 +76,12 @@ test("a final local artifact link opens its indexed file and downloads it withou
     expect(href.searchParams.get("download")).toBe("1");
     // Capture the settled URL: the link itself must not navigate or reselect.
     const beforeUrl = page.url();
-    await link.click();
-    const drawer = page.locator("#artifact-drawer");
-    await expect(drawer).toBeVisible();
-    await expect(drawer.locator(".artifact-download-card")).toContainText("光影 场景_01 & #?.blend");
+    // A file the preview cannot show downloads straight away; it never opens
+    // the artifact drawer.
     const download = page.waitForEvent("download");
-    await drawer.locator("a.drawer-action[download]").first().click();
+    await link.click();
     const file = await download;
+    await expect(page.locator("#artifact-drawer")).toBeHidden();
     // Chromium sanitizes '?' in a suggested download filename; the request
     // below must still address the original indexed path and original bytes.
     expect(file.suggestedFilename()).toBe("光影 场景_01 & #_.blend");

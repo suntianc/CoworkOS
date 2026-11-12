@@ -212,10 +212,6 @@ export function createRunControl({
       stage = value || "";
       renderLabel();
     },
-    /** The same phase labels the title-bar control that opens the panel. */
-    get stage() {
-      return stage;
-    },
     reset() {
       stopTicker();
       closeConfirm();
