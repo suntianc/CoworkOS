@@ -149,14 +149,14 @@ test("two nodes' cards, phase matrix and running table follow their snapshots an
     await expect(page.locator("[data-observe-matrix-project]")).toHaveCount(1);
     await expect(running).toHaveCount(2);
 
-    // Clearing the node scope brings the other node back; the project scope is
-    // independent and still narrows both panels to that project.
+    // The scope tree has one current row: a project's node is implied, the node
+    // row widens back to that node, and 全部 restores every node and row.
+    await expect(page.locator('[data-observe-scope-list] [aria-current="true"]')).toHaveCount(1);
     await page.locator(`button[data-observe-node="${remote.base}"]`).click();
+    await expect(page.locator("[data-observe-node-card]")).toHaveCount(1);
+    await expect(matrixRow(localProject.projectId)).toHaveCount(0);
+    await page.locator("[data-observe-all]").click();
     await expect(page.locator("[data-observe-node-card]")).toHaveCount(2);
-    await expect(page.locator("[data-observe-matrix-project]")).toHaveCount(1);
-    await expect(running).toHaveCount(2);
-    // Clearing the project scope restores every project and row.
-    await page.locator(`button[data-observe-project="${remoteProject.projectId}"]`).click();
     await expect(page.locator("[data-observe-matrix-project]")).toHaveCount(2);
     await expect(running).toHaveCount(3);
 

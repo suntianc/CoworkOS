@@ -3,17 +3,17 @@ import { ui } from "../ui/language.js";
 import { escapeHtml as esc } from "../workbench/html.js";
 
 /**
- * The observation sidebar: three views with their counts, the connected nodes
- * and the projects each view can narrow to.
+ * The observation sidebar: three views with their counts, then one scope tree
+ * — 全部, each connected node, and that node's projects beneath it.
  *
- * It renders only what the data port reports. Selecting a node narrows the
- * projects, the counts and the view; selecting a project narrows the view to
- * that project. The filter is exposed on the observation pane as
+ * Exactly one row of the tree is current. 全部 shows everything; a node narrows
+ * the counts and the view to that node; a project narrows them to that project
+ * on its node. The filter is exposed on the observation pane as
  * `data-observe-node` and `data-observe-project` for the views to read, so no
  * view holds a node connection of its own.
  *
- * Rows are patched in place when the same nodes/projects are still listed: a
- * catalog event during a run must not replace the button the keyboard is on.
+ * Rows are patched in place when the same rows are still listed: a catalog
+ * event during a run must not replace the button the keyboard is on.
  */
 
 const STATUS_LABEL = {
@@ -29,9 +29,20 @@ export function createObserveSidebar({ root, pane, data, addNode } = {}) {
   const filter = { nodeOrigin: "", projectId: "" };
   const $ = (selector) => root.querySelector(selector);
 
+  const current = (nodeOrigin, projectId) =>
+    filter.nodeOrigin === nodeOrigin && filter.projectId === projectId;
+  const currentAttribute = (on) => (on ? ' aria-current="true"' : "");
+
+  function allRow() {
+    return `<button class="observe-item" type="button" data-observe-key="all" data-observe-all${currentAttribute(current("", ""))}>
+      ${icon("layers")}
+      <span class="observe-item-name">${esc(ui("全部"))}</span>
+    </button>`;
+  }
+
   function nodeRow(node) {
     const label = STATUS_LABEL[node.status];
-    return `<button class="observe-item" type="button" data-observe-node="${esc(node.origin)}" title="${esc(node.name)}" aria-pressed="${filter.nodeOrigin === node.origin}">
+    return `<button class="observe-item" type="button" data-observe-key="node:${esc(node.origin)}" data-observe-node="${esc(node.origin)}" title="${esc(node.name)}"${currentAttribute(current(node.origin, ""))}>
       ${icon(node.local ? "laptop" : "server")}
       <span class="observe-item-name">${esc(node.name)}</span>
       <span class="observe-item-spacer"></span>
@@ -40,8 +51,22 @@ export function createObserveSidebar({ root, pane, data, addNode } = {}) {
     </button>`;
   }
 
+  function projectRow(origin, project, count) {
+    return `<button class="observe-item is-nested" type="button" data-observe-key="project:${esc(origin)}|${esc(project.projectId)}" data-observe-project="${esc(project.projectId)}" data-observe-project-node="${esc(origin)}" title="${esc(project.projectName)}"${currentAttribute(current(origin, project.projectId))}>
+      ${icon("folder")}
+      <span class="observe-item-name">${esc(project.projectName)}</span>
+      <span class="observe-item-spacer"></span>
+      <span class="observe-item-count"${count > 0 ? "" : " hidden"}>${count > 0 ? esc(String(count)) : ""}</span>
+    </button>`;
+  }
+
+  function markCurrent(button, on) {
+    if (on) button.setAttribute("aria-current", "true");
+    else button.removeAttribute("aria-current");
+  }
+
   function updateNodeRow(button, node) {
-    button.setAttribute("aria-pressed", String(filter.nodeOrigin === node.origin));
+    markCurrent(button, current(node.origin, ""));
     button.querySelector(".observe-item-name").textContent = node.name;
     const state = button.querySelector(".observe-item-state");
     const label = STATUS_LABEL[node.status];
@@ -52,37 +77,58 @@ export function createObserveSidebar({ root, pane, data, addNode } = {}) {
     }`.trim();
   }
 
-  function projectRow(project, count) {
-    return `<button class="observe-item" type="button" data-observe-project="${esc(project.projectId)}" title="${esc(project.projectName)}" aria-pressed="${filter.projectId === project.projectId}">
-      ${icon("folder")}
-      <span class="observe-item-name">${esc(project.projectName)}</span>
-      <span class="observe-item-spacer"></span>
-      <span class="observe-item-count"${count > 0 ? "" : " hidden"}>${count > 0 ? esc(String(count)) : ""}</span>
-    </button>`;
-  }
-
-  function updateProjectRow(button, project, count) {
-    button.setAttribute("aria-pressed", String(filter.projectId === project.projectId));
+  function updateProjectRow(button, origin, project, count) {
+    markCurrent(button, current(origin, project.projectId));
     button.querySelector(".observe-item-name").textContent = project.projectName;
     const badge = button.querySelector(".observe-item-count");
     badge.textContent = count > 0 ? String(count) : "";
     badge.hidden = count <= 0;
   }
 
-  /** The listed identities still match, so rows can be patched without a rebuild. */
-  function sameRows(list, keys, attribute) {
-    return (
-      list.children.length === keys.length &&
-      [...list.children].every((child, index) => child.dataset[attribute] === keys[index])
-    );
+  /** The tree rows, in order: 全部, then each node followed by its projects. */
+  function treeRows() {
+    const rows = [{ key: "all", markup: allRow(), update: (button) => markCurrent(button, current("", "")) }];
+    for (const node of data.nodes()) {
+      rows.push({
+        key: `node:${node.origin}`,
+        markup: nodeRow(node),
+        update: (button) => updateNodeRow(button, node)
+      });
+      const scope = { nodeOrigin: node.origin, projectId: "" };
+      const counts = data.counts(scope).projects;
+      for (const project of data.scoped(scope).projects) {
+        const count = counts.get(project.projectId) || 0;
+        rows.push({
+          key: `project:${node.origin}|${project.projectId}`,
+          markup: projectRow(node.origin, project, count),
+          update: (button) => updateProjectRow(button, node.origin, project, count)
+        });
+      }
+    }
+    return rows;
   }
 
-  function renderList(list, rows, keys, attribute, update) {
-    if (!sameRows(list, keys, attribute)) {
-      list.innerHTML = rows.map((row) => row.markup).join("");
-      return;
+  /**
+   * Patch the tree by row key: rows still listed keep their element (and the
+   * keyboard focus on it), rows gone are removed, new rows are inserted in
+   * place. A node going offline drops its projects without rebuilding the tree.
+   */
+  function renderTree(list, rows) {
+    const existing = new Map([...list.children].map((child) => [child.dataset.observeKey, child]));
+    const keys = new Set(rows.map((row) => row.key));
+    for (const [key, element] of existing) if (!keys.has(key)) element.remove();
+    let cursor = list.firstElementChild;
+    for (const row of rows) {
+      let element = existing.get(row.key);
+      if (element) row.update(element);
+      else {
+        const template = document.createElement("template");
+        template.innerHTML = row.markup.trim();
+        element = template.content.firstElementChild;
+      }
+      if (element === cursor) cursor = cursor.nextElementSibling;
+      else list.insertBefore(element, cursor);
     }
-    rows.forEach((row, index) => update(list.children[index], row.value));
   }
 
   function setCount(view, value) {
@@ -114,26 +160,7 @@ export function createObserveSidebar({ root, pane, data, addNode } = {}) {
     const counts = data.counts(filter);
     setCount("requirements", counts.requirements);
     setCount("runs", counts.runs);
-    const nodes = data.nodes();
-    renderList(
-      $("[data-observe-node-list]"),
-      nodes.map((node) => ({ markup: nodeRow(node), value: node })),
-      nodes.map((node) => node.origin),
-      "observeNode",
-      updateNodeRow
-    );
-    const listCounts = data.counts({ nodeOrigin: filter.nodeOrigin, projectId: "" }).projects;
-    const projects = data.scoped({ nodeOrigin: filter.nodeOrigin, projectId: "" }).projects;
-    renderList(
-      $("[data-observe-project-list]"),
-      projects.map((project) => ({
-        markup: projectRow(project, listCounts.get(project.projectId) || 0),
-        value: project
-      })),
-      projects.map((project) => project.projectId),
-      "observeProject",
-      (button, project) => updateProjectRow(button, project, listCounts.get(project.projectId) || 0)
-    );
+    renderTree($("[data-observe-scope-list]"), treeRows());
     if (pane) {
       pane.dataset.observeNode = filter.nodeOrigin;
       pane.dataset.observeProject = filter.projectId;
@@ -141,31 +168,20 @@ export function createObserveSidebar({ root, pane, data, addNode } = {}) {
     if (cleared) data.setFilter({ ...filter });
   }
 
-  function selectNode(origin) {
-    filter.nodeOrigin = filter.nodeOrigin === origin ? "" : origin;
-    if (filter.projectId) {
-      const projects = data.scoped({ nodeOrigin: filter.nodeOrigin, projectId: "" }).projects;
-      if (!projects.some((project) => project.projectId === filter.projectId)) filter.projectId = "";
-    }
-    data.setFilter({ ...filter });
-  }
-
-  function selectProject(projectId) {
-    filter.projectId = filter.projectId === projectId ? "" : projectId;
+  /** One row is current: selecting it again changes nothing; 全部 clears the scope. */
+  function selectScope(nodeOrigin, projectId) {
+    if (current(nodeOrigin, projectId)) return;
+    filter.nodeOrigin = nodeOrigin;
+    filter.projectId = projectId;
     data.setFilter({ ...filter });
   }
 
   const onClick = (event) => {
+    if (event.target.closest("[data-observe-all]")) return selectScope("", "");
     const node = event.target.closest("[data-observe-node]");
-    if (node) {
-      selectNode(node.dataset.observeNode);
-      return;
-    }
+    if (node) return selectScope(node.dataset.observeNode, "");
     const project = event.target.closest("[data-observe-project]");
-    if (project) {
-      selectProject(project.dataset.observeProject);
-      return;
-    }
+    if (project) return selectScope(project.dataset.observeProjectNode, project.dataset.observeProject);
     if (event.target.closest("[data-observe-add-node]")) addNode?.();
   };
   root.addEventListener("click", onClick);

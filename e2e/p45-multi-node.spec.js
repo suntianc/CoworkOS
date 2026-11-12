@@ -109,24 +109,34 @@ test("two local nodes aggregate in observation while work stays on this machine"
     await expect(page.locator("button[data-observe-node]")).toHaveCount(2);
     await expect(page.locator(`button[data-observe-node="${a.base}"]`)).toContainText("本机");
     await expect(page.locator(`button[data-observe-node="${b.base}"]`)).toContainText("远程节点");
-    await expect(page.locator("[data-observe-project-list]")).toContainText("本机项目");
-    await expect(page.locator("[data-observe-project-list]")).toContainText("远程项目");
+    await expect(page.locator("[data-observe-scope-list]")).toContainText("本机项目");
+    await expect(page.locator("[data-observe-scope-list]")).toContainText("远程项目");
     await expect(page.locator('[data-observe-count="requirements"]')).toHaveText("3");
     await expect(page.locator('[data-observe-count="runs"]')).toHaveText("2");
 
-    // Selecting a node narrows the projects and the current view.
+    // Each node lists its own projects beneath it, and 全部 is current.
+    await expect(page.locator("[data-observe-all]")).toHaveAttribute("aria-current", "true");
+    await expect(
+      page.locator(`button[data-observe-project-node="${b.base}"]`).filter({ hasText: "远程项目" })
+    ).toHaveCount(1);
+    await expect(
+      page.locator(`button[data-observe-project-node="${a.base}"]`).filter({ hasText: "本机项目" })
+    ).toHaveCount(1);
+
+    // Selecting a node narrows the current view; it is the one current row.
     await page.locator(`button[data-observe-node="${b.base}"]`).click();
-    await expect(page.locator('button[data-observe-node="' + b.base + '"]')).toHaveAttribute(
-      "aria-pressed",
+    await expect(page.locator(`button[data-observe-node="${b.base}"]`)).toHaveAttribute(
+      "aria-current",
       "true"
     );
-    await expect(page.locator("[data-observe-project-list]")).toContainText("远程项目");
-    await expect(page.locator("[data-observe-project-list]")).not.toContainText("本机项目");
+    await expect(page.locator('[data-observe-scope-list] [aria-current="true"]')).toHaveCount(1);
     await expect(page.locator('[data-observe-count="requirements"]')).toHaveText("1");
     await expect(page.locator("#observe-entry")).toHaveAttribute("data-observe-node", b.base);
 
-    // Selecting a project adds the project scope the views read.
+    // Selecting a project scopes the views to it, on its node.
     await page.locator(`button[data-observe-project="${remoteProject.projectId}"]`).click();
+    await expect(page.locator("#observe-entry")).toHaveAttribute("data-observe-node", b.base);
+    await expect(page.locator('[data-observe-scope-list] [aria-current="true"]')).toHaveCount(1);
     await expect(page.locator("#observe-entry")).toHaveAttribute(
       "data-observe-project",
       remoteProject.projectId
@@ -135,8 +145,7 @@ test("two local nodes aggregate in observation while work stays on this machine"
 
     // A stopped node is offline without disturbing the local node; a restart
     // brings it back with a fresh snapshot.
-    await page.locator(`button[data-observe-node="${b.base}"]`).click();
-    await page.locator(`button[data-observe-project="${remoteProject.projectId}"]`).click();
+    await page.locator("[data-observe-all]").click();
     // The list updates in place: a node going offline keeps the keyboard
     // focus on its own row instead of replacing the list.
     const remoteNodeRow = page.locator(`button[data-observe-node="${b.base}"]`);
@@ -164,7 +173,7 @@ test("two local nodes aggregate in observation while work stays on this machine"
     await expect(remoteSettingsRow).toContainText("在线");
     await expect(page.locator("#settings-node-local [data-backend-open]")).toHaveCount(1);
     await page.locator("#settings-back").click();
-    await expect(page.locator("[data-observe-project-list]")).toContainText("远程项目");
+    await expect(page.locator("[data-observe-scope-list]")).toContainText("远程项目");
     await expect(page.locator('[data-observe-count="requirements"]')).toHaveText("3");
 
     // Rename, disconnect, reconnect, reauthorize and remove from the same page.
@@ -185,7 +194,7 @@ test("two local nodes aggregate in observation while work stays on this machine"
     await expect(page.locator("#settings-node-local [data-backend-open]")).toHaveCount(1);
     await page.locator("#settings-back").click();
     await expect(page.locator(`button[data-observe-node="${b.base}"]`)).toContainText("已断开");
-    await expect(page.locator("[data-observe-project-list]")).not.toContainText("远程项目");
+    await expect(page.locator("[data-observe-scope-list]")).not.toContainText("远程项目");
 
     const authsBefore = tokens.get(originOf(b))?.size ?? 0;
     await page.locator("#user-menu-button").click();

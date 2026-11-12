@@ -61,6 +61,7 @@
   --segmented-fill: #00000052;
   --segmented-active: #ffffff1a;
   --focus-ring: #ffffffa6;
+  --scope-current: #ffffff0f;
   /* Fields (text, select): a clicked field shows a soft edge and halo, not the
      keyboard ring; the select arrow sits 12 px from the right edge. */
   --field-focus-edge: #ffffff47;
@@ -136,6 +137,7 @@ html[data-theme="light"] {
   --segmented-fill: #0000000a;
   --segmented-active: #ffffff;
   --focus-ring: #18181ba6;
+  --scope-current: #00000012;
   --field-focus-edge: #0000003d;
   --field-focus-ring: #0000000f;
   --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2352525b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
@@ -978,7 +980,7 @@ html[data-theme] .observe-nav {
   gap: 2px;
   min-width: 0;
 }
-.observe-group[data-observe-projects-group] {
+.observe-group[data-observe-scope-group] {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -988,7 +990,7 @@ html[data-theme] .observe-nav {
   gap: 2px;
   min-width: 0;
 }
-.observe-group[data-observe-projects-group] .observe-list {
+.observe-group[data-observe-scope-group] .observe-list {
   min-height: 0;
   overflow: auto;
 }
@@ -1050,12 +1052,16 @@ html[data-theme] .observe-nav {
 .observe-item:hover {
   background: var(--color-surface-2);
 }
-.observe-item[aria-pressed="true"] {
+/* The scope's current row is a quiet wash, not the raised card the view
+   navigation above uses: the view and the scope are two separate choices. */
+.observe-item[aria-current="true"] {
   color: var(--color-text);
-  background: var(--selected-fill);
-  box-shadow:
-    inset 0 0 0 1px var(--selected-edge),
-    var(--selected-shadow);
+  background: var(--scope-current);
+  font-weight: 500;
+}
+/* A node's projects sit one step in, under the node they belong to. */
+.observe-item.is-nested {
+  padding-left: 26px;
 }
 .observe-item .ui-icon {
   flex: 0 0 auto;
