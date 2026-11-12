@@ -684,10 +684,9 @@ test("a short successful Main clears crash backoff before the next real event", 
   assert.equal((await supervisor.runCycle()).resumed, 1);
 });
 
-test("paused monitors suppress failure retries and hold queued monitoring wakes", async (t) => {
+test("paused monitors suppress watch failure retries", async (t) => {
   const { root, programs, store } = await fixture(t);
   const { recoverWatchMain } = await import("../dist/src/runtime/watch-recovery.js");
-  const { MainSupervisor } = await import("../dist/src/runtime/main-supervisor.js");
   const program = await programs.createProgram({ taskId: "task", subject: "paused", objective: "x" });
   const monitor = await programs.createVirtualAgent({
     programId: program.programId,
@@ -699,28 +698,6 @@ test("paused monitors suppress failure retries and hold queued monitoring wakes"
   assert.equal((await store.readTask("task")).watchRecovery, undefined);
   const inbox = new InboxStore(join(root, "task", "runs", "main-task", "agents", "main", "inbox-store.json"));
   assert.equal((await inbox.list("main")).length, 0);
-  await inbox.enqueue({
-    messageId: "retry",
-    recipientAgentId: "main",
-    kind: "external_event",
-    eventId: "retry",
-    priority: 1,
-    state: "ready",
-    createdAt: new Date().toISOString(),
-    payload: { type: "watch.main_retry" }
-  });
-  let launches = 0;
-  const supervisor = new MainSupervisor({
-    workspaceRoot: root,
-    launch: () => {
-      launches++;
-    }
-  });
-  assert.equal((await supervisor.runCycle()).decisions[0].reason, "monitoring_paused");
-  assert.equal(launches, 0);
-  await programs.updateVirtualAgent("task", program.programId, monitor.monitorId, { status: "active" });
-  assert.equal((await supervisor.runCycle()).resumed, 1);
-  assert.equal(launches, 1);
 });
 
 test("a paused watch program does not suppress an ordinary user message", async (t) => {

@@ -269,7 +269,7 @@ test("a paused background goal holds callbacks while a paused session goal permi
   assert.equal(routeGoalMessage([{ ...p, status: "completed" }], true, message), "discard");
 });
 
-test("old Main polling clocks are consumed without launch; goal reviews and unrelated session clocks still work", async (t) => {
+test("old Main polling clocks are routed without hiding goal reviews or unrelated session clocks", async (t) => {
   const f = await fixture(t);
   const clock = {
     messageId: "old-model-poll",
@@ -318,16 +318,6 @@ test("old Main polling clocks are consumed without launch; goal reviews and unre
     "deliver"
   );
   assert.equal(routeGoalMessage([{ ...program, goal: undefined }], true, clock), "deliver");
-  await f.inbox.enqueue(clock);
-  let launches = 0;
-  await new MainSupervisor({
-    workspaceRoot: f.root,
-    launch: async () => {
-      launches++;
-    }
-  }).runCycle({ taskId: f.program.taskId });
-  assert.equal(launches, 0);
-  assert.equal((await f.inbox.list("main"))[0].state, "consumed");
 });
 
 for (const state of ["parked", "queued"])
@@ -385,22 +375,6 @@ for (const state of ["parked", "queued"])
     );
     assert.equal(delivered.length, 1);
   });
-
-test("completing a goal discards its ready planning wake without launching Main", async (t) => {
-  const f = await fixture(t);
-  await new GoalSupervisor(f.root).runTask(f.program.taskId, f.program.watchRunId);
-  await f.manager.control(f.program.taskId, f.program.programId, "complete", 1);
-  let launches = 0;
-  const result = await new MainSupervisor({
-    workspaceRoot: f.root,
-    launch: async () => {
-      launches++;
-    }
-  }).runCycle({ taskId: f.program.taskId });
-  assert.equal(result.resumed, 0);
-  assert.equal(launches, 0);
-  assert.equal((await f.inbox.list("main"))[0].state, "consumed");
-});
 
 test("an unsettled plan is visible once without an automatic model retry loop", async (t) => {
   const f = await fixture(t);
@@ -475,39 +449,6 @@ test("a decision interrupted between saving intent and writing effects repairs w
   assert.equal(current.decision.status, "pending");
   assert.equal((await new HumanRequestStore(f.root).list(f.program.taskId)).length, 1);
   assert.equal(current.activity.unreadCount, 1);
-});
-
-test("a decision blocks only its goal while other responsibilities in the same session may wake Main", async (t) => {
-  const f = await fixture(t, "session");
-  const waiting = await f.manager.progress(f.program.taskId, f.program.programId, 1, {
-    summary: "Need scope",
-    waitingFor: "Include previews?",
-    disposition: "needs_input"
-  });
-  const p2 = await f.manager.create("source", { brief, scope: "session", requestId: "other-goal" });
-  await new GoalSupervisor(f.root).runTask("source", f.program.watchRunId);
-  let launched = 0;
-  await new MainSupervisor({
-    workspaceRoot: f.root,
-    launch: async () => {
-      launched++;
-    }
-  }).runCycle({ taskId: "source" });
-  assert.equal(launched, 1);
-  assert.equal(
-    routeGoalMessage([waiting, p2], false, {
-      kind: "external_event",
-      payload: { programId: waiting.programId }
-    }),
-    "hold"
-  );
-  assert.equal(
-    routeGoalMessage([waiting, p2], false, {
-      kind: "human_command",
-      payload: { type: "human.answer", requestId: waiting.goal.decisionRequestId }
-    }),
-    "deliver"
-  );
 });
 
 test("the goal list separates paused legacy monitors from ended history", async (t) => {

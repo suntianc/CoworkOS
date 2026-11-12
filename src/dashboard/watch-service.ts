@@ -1,10 +1,14 @@
 import { WatchManagement, WATCH_TEMPLATES, type WatchCreation } from "../runtime/watch-management.js";
 import { WatchSupervisor, type WatchSupervisorOptions } from "../runtime/watch-supervisor.js";
-import { MainSupervisor, SUPERVISOR_WAKE_TURN } from "../runtime/main-supervisor.js";
 import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import { now } from "../domain/types.js";
 
-/** One host-owned scheduler covers every known workspace and uses the Dashboard's Main launcher. */
+/**
+ * One host-owned scheduler covers every known workspace for monitor sources.
+ *
+ * Main recovery is not part of this cycle: the Run service owns that guardian
+ * from its own timer, so deleting monitoring cannot take it away.
+ */
 export function createWatchService(ports: {
   harnessRoot: string;
   workspaceRoot: () => string;
@@ -26,15 +30,6 @@ export function createWatchService(ports: {
     | "web"
   >;
   cancelTask: (taskId: string) => Promise<unknown>;
-  startMainRun: (
-    taskId: string,
-    prompt: string,
-    runId?: string,
-    resume?: boolean,
-    model?: string,
-    retryRequestId?: string,
-    submission?: { origin?: "http" | "worker" | "cli" | "internal"; queueWhenFull?: boolean }
-  ) => Promise<unknown>;
 }) {
   const disabled = process.env.COWORK_DISABLE_WATCH_SUPERVISOR === "1";
   const intervalMs = Math.max(1000, Number(process.env.COWORK_SUPERVISOR_INTERVAL_MS) || 60_000);
@@ -61,17 +56,6 @@ export function createWatchService(ports: {
         model: ports.runtimeValue("COWORK_MODEL"),
         signal: controller.signal
       });
-      const main = new MainSupervisor({
-        workspaceRoot: root,
-        launch: async ({ taskId, runId }) => {
-          // A wake that meets a full external budget waits in the same queue
-          // instead of being lost; the program starts it when a slot frees.
-          await ports.startMainRun(taskId, SUPERVISOR_WAKE_TURN, runId, true, undefined, undefined, {
-            origin: "internal",
-            queueWhenFull: true
-          });
-        }
-      });
       for (const task of await new LocalWorkspaceStore(root).listTasks()) {
         if (["completed", "cancelled", "failed"].includes(task.status)) continue;
         // Model work cannot hold up this Task's cheap source checks, timed
@@ -80,16 +64,7 @@ export function createWatchService(ports: {
           const key = `${root}\0${task.taskId}\0${phase}`;
           if (tasks.has(key)) continue;
           const job = (async () => {
-            if (
-              phase === "poll" &&
-              ports.runtimeValue("COWORK_API_KEY") &&
-              ports.runtimeValue("COWORK_API_BASE")
-            )
-              await main.runCycle({ taskId: task.taskId });
             await supervisor.runCycle({ taskId: task.taskId, phase });
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stop() 可在 poll 阶段运行期间置位 stopped，此时不能再启动唤醒周期
-            if (!stopped && ports.runtimeValue("COWORK_API_KEY") && ports.runtimeValue("COWORK_API_BASE"))
-              await main.runCycle({ taskId: task.taskId });
           })()
             .catch((error) => {
               health.status = "failed";
