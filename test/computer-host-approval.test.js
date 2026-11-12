@@ -17,7 +17,7 @@ async function fixture(t, options = {}) {
     COWORK_WORKSPACE: join(root, "workspace"),
     COWORK_CONFIG: join(root, "config.json"),
     COWORK_API_TOKEN: "business-fixture-token",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
   await writeFile(join(root, "config.json"), "{}\n");

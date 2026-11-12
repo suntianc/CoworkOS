@@ -92,7 +92,7 @@ test(
         COWORK_HARNESS_ROOT: resolve("."),
         COWORK_WORKSPACE: workspace,
         COWORK_CONFIG: config,
-        COWORK_DISABLE_WATCH_SUPERVISOR: "1"
+        COWORK_DISABLE_MAIN_GUARDIAN: "1"
       };
       await mkdir(env.HOME, { recursive: true });
       const started = await startBackend(env, resolve("."), process.execPath);

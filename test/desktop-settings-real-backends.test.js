@@ -32,7 +32,7 @@ async function setup() {
     COWORK_HARNESS_ROOT: repo,
     COWORK_WORKSPACE: workspace,
     COWORK_CONFIG: config,
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0"
   };

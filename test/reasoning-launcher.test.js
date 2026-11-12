@@ -49,7 +49,7 @@ console.log(JSON.stringify({
         COWORK_GLOBAL_INDEX: join(root, "global.json"),
         COWORK_TABS_INDEX: join(root, "tabs.json"),
         COWORK_CONFIG: configPath,
-        COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+        COWORK_DISABLE_MAIN_GUARDIAN: "1",
         ...env
       }
     });

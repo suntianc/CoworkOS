@@ -28,7 +28,7 @@ async function isolatedBackend(data, helper) {
     COWORK_WORKSPACE: join(data, "workspace"),
     COWORK_API_TOKEN: "isolated-settings-fixture",
     COWORK_COMPUTER_USE_EXECUTABLE: helper,
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
   await writeFile(process.env.COWORK_CONFIG, "{}\n");

@@ -176,7 +176,7 @@ async function fixture(t) {
     COWORK_CONFIG: config,
     COWORK_API_KEY: apiKey,
     COWORK_SERPER_API_KEY: searchKey,
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
   const run = (args, options = {}) => {

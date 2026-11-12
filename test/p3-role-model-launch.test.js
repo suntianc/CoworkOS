@@ -408,7 +408,7 @@ test(
       COWORK_WORKSPACE: join(root, "workspace"),
       COWORK_GLOBAL_INDEX: join(root, "global.json"),
       COWORK_PROJECT_DIR: projectDirectory,
-      COWORK_DISABLE_WATCH_SUPERVISOR: "1"
+      COWORK_DISABLE_MAIN_GUARDIAN: "1"
     });
     const child = spawn(
       process.execPath,
@@ -477,7 +477,7 @@ test(
       COWORK_WORKSPACE: join(root, "workspace"),
       COWORK_GLOBAL_INDEX: join(root, "global.json"),
       COWORK_PROJECT_DIR: join(root, "project"),
-      COWORK_DISABLE_WATCH_SUPERVISOR: "1"
+      COWORK_DISABLE_MAIN_GUARDIAN: "1"
     });
     const child = spawn(process.execPath, ["scripts/start-pi.mjs", "--print", "--no-session", "不应启动"], {
       cwd: resolve("."),

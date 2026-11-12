@@ -145,7 +145,7 @@ test(
       COWORK_API_KEY: "local-fixture",
       COWORK_MODEL: "protocol-fixture",
       COWORK_EXA_MCP_ENDPOINT: exa.endpoint,
-      COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+      COWORK_DISABLE_MAIN_GUARDIAN: "1",
       COWORK_REASONING_EFFORT: "off",
       COWORK_SUPPORTS_REASONING_EFFORT: "0",
       PI_CODING_AGENT_DIR: join(root, "pi"),

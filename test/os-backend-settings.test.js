@@ -516,7 +516,7 @@ test("session export redacts host-stored connection and search keys", async (t) 
   Object.assign(env, {
     ATRIA_HOME: join(root, "home"),
     COWORK_CONFIG: configPath,
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
   const exportSession = async (args) => {

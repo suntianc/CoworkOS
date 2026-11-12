@@ -60,7 +60,7 @@ test(
       ATRIA_HOME: user,
       COWORK_API_KEY: "resume-fixture-key",
       COWORK_MODEL_API: "openai-completions",
-      COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+      COWORK_DISABLE_MAIN_GUARDIAN: "1",
       PI_OFFLINE: "1",
       PI_TELEMETRY: "0"
     });

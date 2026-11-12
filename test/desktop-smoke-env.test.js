@@ -40,7 +40,7 @@ test("packaged smoke excludes inherited data/model/credential overrides while le
     ATRIA_HOME: "/fixture/owned-data",
     COWORK_DESKTOP_DATA: "/fixture/owned-data",
     PI_CODING_AGENT_DIR: "/fixture/owned-data/pi",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     FORMICAND_DESKTOP_BACKGROUND: "1",
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0"

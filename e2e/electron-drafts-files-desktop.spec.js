@@ -24,7 +24,7 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
     COWORK_DESKTOP_DATA: profile,
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1"
+    COWORK_DISABLE_MAIN_GUARDIAN: "1"
   };
   const otherEnv = {
     ...inherited,
@@ -36,7 +36,7 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
     COWORK_HARNESS_ROOT: resolve("."),
     COWORK_WORKSPACE: otherWorkspace,
     COWORK_CONFIG: join(root, "other-config.json"),
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1"
+    COWORK_DISABLE_MAIN_GUARDIAN: "1"
   };
   const { startBackend, stopBackend } = await import("../dist/src/cli/backend.js");
   await mkdir(env.HOME, { recursive: true });

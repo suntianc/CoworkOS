@@ -90,7 +90,7 @@ for (const api of ["openai-completions", "openai-responses"])
             COWORK_TASK_ID: "image-task",
             COWORK_RUN_ID: "image-run",
             PI_CODING_AGENT_DIR: join(root, "pi"),
-            COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+            COWORK_DISABLE_MAIN_GUARDIAN: "1",
             PI_OFFLINE: "1"
           }
         }
