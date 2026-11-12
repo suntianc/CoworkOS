@@ -45,11 +45,7 @@ const plain = (html) =>
     /&(?:amp|lt|gt|quot|#39);/g,
     (entity) => ({ "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" })[entity]
   );
-const isEnglish = (file) =>
-  file === "README.md" ||
-  file.includes("/en/") ||
-  file.endsWith(".en.md") ||
-  file === "docs/monitoring-pause-contract.md";
+const isEnglish = (file) => file === "README.md" || file.includes("/en/") || file.endsWith(".en.md");
 const isDocument = (file) => file.endsWith(".md") || file === "LICENSE";
 const safeSource = (file) =>
   files.has(file) && !/^(?:config\.json|\.tmp\/|\.cowork\/|applications\/|workspace\/|task-)/.test(file);

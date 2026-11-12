@@ -88,54 +88,6 @@ test("empty projects remain visible and project navigation creates only a draft"
   assert.deepEqual(f.began, ["b", "b"]);
 });
 
-test("background goals stay outside project and temporary conversation lists until selected or pinned", (t) => {
-  const f = fixture(
-    t,
-    undefined,
-    (task, state) => task.monitoring?.scope !== "background" || task.pinned || task.taskId === state.selected
-  );
-  const ordinary = { taskId: "daily", projectId: "a", goal: "普通会话", status: "waiting" };
-  const background = {
-    taskId: "goal",
-    projectId: "a",
-    goal: "后台跟进",
-    monitoring: { scope: "background" }
-  };
-  const pinned = { ...background, taskId: "pinned", pinned: true };
-  const temporary = {
-    ...background,
-    taskId: "temporary-goal",
-    projectId: undefined,
-    temporaryWorkspaceRoot: "/tmp/background"
-  };
-  const legacy = { ...background, taskId: "legacy-goal", projectId: "legacy" };
-  const archived = { ...pinned, taskId: "archived-goal", archived: true };
-  f.controller.accept({
-    projects: [project("a"), project("b"), { ...project("legacy"), legacy: true }],
-    tasks: [ordinary, background, pinned, temporary, legacy, archived]
-  });
-  f.$("#composer-input").value = "保持普通会话草稿";
-  f.controller.render();
-  assert.ok(f.$('[data-task="daily"]'));
-  assert.ok(f.$('[data-task="pinned"]'));
-  assert.equal(f.$('[data-task="goal"]'), null);
-  assert.equal(f.$('[data-task="temporary-goal"]'), null);
-  assert.equal(f.$('[data-project="legacy"]'), null);
-  assert.equal(f.$('[data-task="archived-goal"]'), null);
-  assert.ok(f.$('[data-project-create="b"]'), "explicit empty projects retain the new conversation action");
-  assert.equal(f.$("#conversation-count").textContent, "2");
-  f.state.selected = "goal";
-  f.controller.render();
-  assert.ok(f.$('[data-task="goal"]'));
-  assert.ok(f.$('[data-quick-task="goal"]'), "a selected goal keeps the row's quick actions");
-  assert.equal(f.$("#conversation-count").textContent, "3");
-  f.state.selected = "temporary-goal";
-  f.controller.render();
-  assert.equal(f.$('[data-task="goal"]'), null);
-  assert.ok(f.$('[data-task="temporary-goal"]'));
-  assert.equal(f.$("#composer-input").value, "保持普通会话草稿");
-});
-
 test("explicit collaboration can establish a project without changing navigation or drafts", async (t) => {
   const created = { ...project("document"), projectDirectory: "/document-home", projectName: "文档协作" };
   const f = fixture(t, async () => ({ project: created }));

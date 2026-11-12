@@ -279,7 +279,7 @@ test("wait wakes a parked Main but acknowledgement preserves a later standing wa
   const park = {
     runId: "run",
     reason: "wait for new evidence",
-    monitorIds: [],
+    wakeAt: new Date(Date.now() + 60_000).toISOString(),
     parkedAt: new Date().toISOString()
   };
   await writeSleep(root, "task", park);
@@ -682,13 +682,12 @@ test("a callback-triggered turn can create a new standing wake without delivery 
   await writeSleep(root, "task", {
     runId: "run",
     reason: "旧的等待条件。",
-    monitorIds: [],
+    wakeAt: new Date(Date.now() + 60_000).toISOString(),
     parkedAt: new Date().toISOString()
   });
   const park = {
     runId: "run",
     reason: "这次回调处理后的新等待条件。",
-    monitorIds: [],
     parkedAt: new Date().toISOString(),
     wakeAt: "2099-01-01T00:00:00Z"
   };

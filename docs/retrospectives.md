@@ -24,7 +24,7 @@
 
 | 历史问题                                                    | 当前覆盖入口                                                                                                                                                        |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 凭据迁移漏掉监控启动和会话脱敏                              | [主机设置](../test/os-backend-settings.test.js)、[监控启动](../test/watch-supervisor-launcher.test.js)                                                              |
+| 凭据迁移漏掉设置读取和会话脱敏                              | [主机设置](../test/os-backend-settings.test.js)                                                                                                                     |
 | 全局下载拦截器误接管本地 Markdown 导出                      | [页面启动](../test/app-boot.test.js)、[会话菜单](../e2e/conversation-menu.spec.js)、[产物链接](../e2e/markdown-links.spec.js)                                       |
 | 桌面/后端重复启动、后端接入与文件归属                       | [生命周期](../test/os-daemon-lifecycle.test.js)、[管理客户端](../test/os-web-client-protocol.test.js)、[Electron 草稿与文件](../test/electron-drafts-files.test.js) |
 | 草稿恢复记录依赖存活租约、多组草稿缺少恢复入口              | [草稿与文件](../test/electron-drafts-files.test.js)、[恢复选择器](../e2e/electron-draft-recovery-picker-desktop.spec.js)                                            |

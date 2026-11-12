@@ -55,10 +55,6 @@ import { handleComputerRequest } from "./computer-routes.js";
 import type { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerApproval } from "./computer-approval.js";
 
-import { handleGoalRequest } from "./goal-routes.js";
-import type { createGoalService } from "./goal-service.js";
-import type { createWatchService } from "./watch-service.js";
-import type { WatchCreation } from "../runtime/watch-management.js";
 import type { createWebSearchSettings } from "./web-search-settings.js";
 import type { createModelSettings } from "./model-settings.js";
 import type { createDashboardRunService, RunServicePorts } from "./run-service.js";
@@ -88,8 +84,6 @@ export interface DashboardRoutePorts {
   /** Git clones behind the add-project dialog; absent in partial handlers. */
   projectClones?: ProjectCloneService;
   mainCapacity?: MainCapacityService;
-  watchers?: ReturnType<typeof createWatchService>;
-  goals?: ReturnType<typeof createGoalService>;
   uploads?: InputStore;
   computer: ComputerUse;
   computerHostRequest?: (input: unknown) => Promise<unknown>;
@@ -476,53 +470,6 @@ export function createDashboardHandler(
           )[extension] ?? "application/octet-stream";
         response.writeHead(200, { "content-type": contentType, "cache-control": "no-cache" });
         response.end(asset);
-        return;
-      }
-      if (
-        ports.goals &&
-        ports.watchers &&
-        (await handleGoalRequest(request, response, url, ports.goals, ports.watchers.health(), {
-          principalId: principal.principalId,
-          ...(ports.commands ? { commands: ports.commands } : {})
-        }))
-      )
-        return;
-      if (ports.watchers && request.method === "GET" && url.pathname === "/api/monitors") {
-        sendJson(response, 200, await ports.watchers.all());
-        return;
-      }
-      if (ports.watchers && request.method === "POST" && url.pathname === "/api/monitors") {
-        const body = await readJsonBody(request);
-        const result = await ports.watchers.createStandalone(body as unknown as WatchCreation);
-        sendJson(response, result.activated ? 201 : 422, result);
-        return;
-      }
-      const monitorMatch = url.pathname.match(
-        /^\/api\/tasks\/([^/]+)\/monitors(?:\/([^/]+)(?:\/(events|control))?)?$/
-      );
-      if (ports.watchers && monitorMatch) {
-        const taskId = decodeURIComponent(monitorMatch[1]);
-        const monitorId = monitorMatch[2] ? decodeURIComponent(monitorMatch[2]) : undefined;
-        if (request.method === "GET" && monitorId && monitorMatch[3] === "events") {
-          sendJson(response, 200, { events: await ports.watchers.events(taskId, monitorId) });
-          return;
-        }
-        if (request.method === "GET" && !monitorId) {
-          sendJson(response, 200, await ports.watchers.list(taskId));
-          return;
-        }
-        if (request.method === "POST" && monitorId && monitorMatch[3] === "control") {
-          const body = await readJsonBody(request);
-          sendJson(response, 200, await ports.watchers.control(taskId, monitorId, String(body.action), body));
-          return;
-        }
-        if (request.method === "POST" && !monitorId) {
-          const body = await readJsonBody(request);
-          const result = await ports.watchers.create(taskId, body as unknown as WatchCreation);
-          sendJson(response, result.activated ? 201 : 422, result);
-          return;
-        }
-        sendJson(response, 405, { error: "method not allowed" });
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/tasks") {

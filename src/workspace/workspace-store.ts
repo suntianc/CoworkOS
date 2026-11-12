@@ -49,8 +49,6 @@ export type TaskPatch = Partial<
     | "activeRunId"
     | "pause"
     | "kind"
-    | "monitoring"
-    | "watchRecovery"
   >
 > & { completion?: Partial<TaskCompletion> };
 
@@ -129,16 +127,9 @@ export class LocalWorkspaceStore implements WorkspaceStore {
     await mkdir(join(path, "agents", "subagents"), { recursive: true });
     await mkdir(join(path, "sessions"), { recursive: true });
     await mkdir(join(path, "runs"), { recursive: true });
-    // Long-running Watch Programs live under the Task workspace. The
-    // directories are created with the Task so a fresh workspace has a stable
-    // layout even before Main creates its first monitor.
-    await mkdir(join(path, "watch", "programs"), { recursive: true });
     // Iterative training/evaluation work uses the same task-scoped control
     // plane, even before the first Experiment ledger is created.
     await mkdir(join(path, "experiments"), { recursive: true });
-    // Generic Virtual Agent projections share this task-level control plane;
-    // Watch and Experiment stores remain specialized adapters over it.
-    await mkdir(join(path, "virtual-agents"), { recursive: true });
     try {
       await writeFile(join(path, "agents", "main", "context", "messages.json"), "[]\n", { flag: "wx" });
     } catch (error) {
@@ -213,22 +204,6 @@ export class LocalWorkspaceStore implements WorkspaceStore {
         taskId,
         layoutVersion: value.layoutVersion ?? 2,
         kind: value.kind === "workspace" ? "workspace" : "conversation",
-        monitoring:
-          value.monitoring?.scope === "background"
-            ? {
-                scope: "background",
-                sourceTaskId:
-                  typeof value.monitoring.sourceTaskId === "string"
-                    ? value.monitoring.sourceTaskId
-                    : undefined
-              }
-            : undefined,
-        watchRecovery:
-          value.watchRecovery &&
-          typeof value.watchRecovery.day === "string" &&
-          Number.isSafeInteger(value.watchRecovery.retries)
-            ? value.watchRecovery
-            : undefined,
         status: value.status ?? "created",
         goal: value.goal,
         title: typeof value.title === "string" ? value.title : undefined,
@@ -385,7 +360,7 @@ export class LocalWorkspaceStore implements WorkspaceStore {
   /**
    * Create a Run's directories without claiming it as the Task's active Run.
    *
-   * A watcher Run is a place to file events, not a generation of Main's work.
+   * An auxiliary Run is a place to file events, not a generation of Main's work.
    * Claiming it would repoint activeRunId, and every reader that resolves Main's
    * Inbox through the Task would follow it to a directory Main never opens.
    */

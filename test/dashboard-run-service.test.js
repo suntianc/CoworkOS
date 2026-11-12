@@ -8,7 +8,6 @@ import { createDashboardRunService } from "../dist/src/dashboard/run-service.js"
 import { UserMemoryStore } from "../dist/src/runtime/user-memory-store.js";
 import { readJsonFile } from "../dist/src/dashboard/event-stream.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { WatchProgramStore } from "../dist/src/runtime/watch-program-store.js";
 import { readSleep, writeSleep } from "../dist/src/runtime/main-sleep.js";
 import { singleConnectionMainModel } from "./role-model-fixture.mjs";
 
@@ -260,18 +259,11 @@ test("cancellation still reaps its process when the cancellation event cannot be
       if (type === "main.run_cancelled") throw new Error("isolated cancellation event write failure");
     }
   });
-  const watches = new WatchProgramStore(f.workspaceRoot);
-  const program = await watches.createProgram({ taskId: "task", subject: "fixture", objective: "observe" });
-  const monitor = await watches.createVirtualAgent({
-    programId: program.programId,
-    task: "observe",
-    activate: true
-  });
   await f.service.startMainRun("task", "等待用户停止。", "cancel-event-failure");
   await writeSleep(f.workspaceRoot, "task", {
     runId: "cancel-event-failure",
     reason: "observe",
-    monitorIds: [monitor.monitorId],
+    wakeAt: new Date(Date.now() + 60_000).toISOString(),
     parkedAt: new Date().toISOString()
   });
   const child = f.service.activeRuns.get("task");
@@ -285,10 +277,6 @@ test("cancellation still reaps its process when the cancellation event cannot be
   assert.ok(child.exitCode !== null || child.signalCode !== null, "the child was reaped before returning");
   assert.equal((await f.store.readTask("task")).status, "cancelled");
   assert.equal(await readSleep(f.workspaceRoot, "task"), undefined);
-  assert.equal(
-    (await watches.readVirtualAgent("task", program.programId, monitor.monitorId)).status,
-    "paused"
-  );
   assert.equal(
     f.records.some((record) => record.type === "main.run_failed"),
     false

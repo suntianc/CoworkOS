@@ -23,6 +23,7 @@ export const CORE_TOOLS = [
   "finish_task",
   "askhuman",
   "clear_context",
+  "sleep_until",
   "grant_capabilities",
   "enable_tools"
 ];
@@ -51,18 +52,6 @@ const GROUPS = {
   jobs: {
     description: "Supervised background jobs. Requires a recorded longRunning grant.",
     tools: ["start_job", "check_job", "kill_job"]
-  },
-  monitors: {
-    description:
-      "Manage a long-term goal, record progress, publish meaningful updates, register a standard watcher or an accepted observer package, and park a continuing Task until an event/time.",
-    tools: [
-      "activate_virtual_agent",
-      "sleep_until",
-      "create_watcher",
-      "manage_goal",
-      "record_goal_progress",
-      "publish_goal_update"
-    ]
   },
   browser: {
     description:
@@ -220,7 +209,7 @@ export function registerCapabilityTools(
     name: "enable_tools",
     label: "Load Task Tools",
     description:
-      "Discover and enable optional tool groups for the current task. Omit groups to list availability. Applications, attachments, delivery, jobs, monitors, computer, browser and cua are loaded only when needed; desktop, browser and CUA tools require a model connection that accepts image input. Enabling is not authorization: job grants and desktop grants remain enforced. Scripts need their underlying browser/computer tools enabled. CLI and App share all non-host-specific groups.",
+      "Discover and enable optional tool groups for the current task. Omit groups to list availability. Applications, attachments, delivery, jobs, computer, browser and cua are loaded only when needed; desktop, browser and CUA tools require a model connection that accepts image input. Enabling is not authorization: job grants and desktop grants remain enforced. Scripts need their underlying browser/computer tools enabled. CLI and App share all non-host-specific groups.",
     parameters: Type.Object({
       groups: Type.Optional(
         Type.Array(Type.Union(Object.keys(groups).map((name) => Type.Literal(name))), { uniqueItems: true })

@@ -26,8 +26,6 @@ const optional = [
   "start_job",
   "check_job",
   "kill_job",
-  "activate_virtual_agent",
-  "sleep_until",
   "browser_open",
   "browser_observe",
   "browser_act",
@@ -35,10 +33,6 @@ const optional = [
   "browser_close",
   "cua_script",
   "cua_reset",
-  "create_watcher",
-  "manage_goal",
-  "record_goal_progress",
-  "publish_goal_update",
   "computer_status",
   "computer_observe",
   "computer_wait",
@@ -117,31 +111,6 @@ test("optional groups are discoverable, explicitly loadable, and durable across 
   const restarted = f.start();
   await restarted.controller.refresh();
   assert.deepEqual(restarted.pi.getActiveTools().sort(), main.pi.getActiveTools().sort());
-});
-
-test("goal and watcher tools share the optional monitors group and restore without widening other groups", async (t) => {
-  const f = await fixture(t),
-    main = f.start();
-  const names = [
-    "activate_virtual_agent",
-    "sleep_until",
-    "create_watcher",
-    "manage_goal",
-    "record_goal_progress",
-    "publish_goal_update"
-  ];
-  const discovery = await main.enable();
-  assert.deepEqual(discovery.details.groups.monitors.tools, names);
-  for (const name of names) assert.equal(main.pi.getActiveTools().includes(name), false);
-  await main.enable(["monitors"]);
-  for (const name of names) assert.ok(main.pi.getActiveTools().includes(name));
-  for (const name of ["create_resource", "start_job", "computer_observe", "science_run"])
-    assert.equal(main.pi.getActiveTools().includes(name), false);
-  const restarted = f.start();
-  await restarted.controller.refresh();
-  assert.deepEqual(restarted.pi.getActiveTools().sort(), main.pi.getActiveTools().sort());
-  await restarted.controller.restoreSelection(["manage_goal", "create_watcher"]);
-  for (const name of names) assert.ok(restarted.pi.getActiveTools().includes(name));
 });
 
 test("context adds resources and uploads without a keyword classifier", async (t) => {

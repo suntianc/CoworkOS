@@ -578,8 +578,7 @@ const projectController = createProjectController({
     (workbenchController.host?.openTabs || [])
       .filter((tab) => tab.kind === "application")
       .map((tab) => tab.workspaceRoot),
-  isTaskVisible: (task) =>
-    task.monitoring?.scope !== "background" || task.pinned || task.taskId === state.selected,
+  isTaskVisible: () => true,
   isUnread: (taskId) => conversationReadState.isUnread(taskId),
   selectConversation,
   conversationTitle,
@@ -920,7 +919,7 @@ async function applyCatalog(data, { poll = false } = {}) {
     }
   }
   setOnlineState(true);
-  const defaultTask = state.tasks.find((task) => !task.archived && task.monitoring?.scope !== "background");
+  const defaultTask = state.tasks.find((task) => !task.archived);
   const linkedTaskId = initialConversationTaskId;
   initialConversationTaskId = null;
   if (linkedTaskId && !state.tasks.some((task) => task.taskId === linkedTaskId))

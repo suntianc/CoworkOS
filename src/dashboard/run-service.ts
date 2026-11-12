@@ -39,11 +39,7 @@ import {
 import { assertMainRequestExecutionScope } from "../runtime/main-request-execution-scope.js";
 import { CoordinatorRuntime } from "../runtime/coordinator-runtime.js";
 import { humanAnswerTurn } from "../runtime/human-answer-turn.js";
-import { blockingHumanRequests } from "../runtime/goal-decisions.js";
 import { HumanRequestStore } from "../runtime/human.js";
-import { WatchProgramStore } from "../runtime/watch-program-store.js";
-import { recoverWatchMain } from "../runtime/watch-recovery.js";
-import { parkBackgroundWatchGoal } from "../runtime/watch-main-lifecycle.js";
 import {
   MainSupervisor,
   resetMainSupervisorBackoff,
@@ -156,8 +152,8 @@ export interface RunServicePorts {
   /**
    * Every workspace root whose Tasks the Main guardian inspects.
    *
-   * The guardian belongs to this service, not to monitoring: a parked Task
-   * with an unconsumed callback is resumed whether or not a watch cycle runs.
+   * The guardian belongs to this service: a parked Task with an unconsumed
+   * callback is resumed without any other scheduler running.
    */
   mainGuardian?: {
     workspaceRoots(): Promise<string[]>;
@@ -400,7 +396,7 @@ export function createDashboardRunService({
     if (edit?.rollback) submission?.onPrepared?.(edit.rollback);
     // Preparing an edit retires only questions from the replaced message's tail.
     // Ordinary continuation and unrelated pending decisions retain the same gate.
-    if ((await blockingHumanRequests(taskWorkspace, taskId)).length)
+    if ((await new HumanRequestStore(taskWorkspace).list(taskId, "pending")).length)
       throw new Error("请先回答任务中待确认的问题，再继续运行。");
     const savedVersions = await readMessageVersions(taskWorkspace, taskId);
     const versions = savedVersions
@@ -744,8 +740,6 @@ export function createDashboardRunService({
             parkedForWake: Boolean(await readSleep(taskWorkspace, taskId).catch(() => undefined)),
             hasFinalAnswer: isFinalAssistantMessage(last)
           });
-          if (assessment.ready && (await parkBackgroundWatchGoal(taskWorkspace, taskId, runId)))
-            assessment = { ready: false, reason: "parked_for_wake" };
           // A user pause owns this boundary only when the step did not finish
           // the Task. Completed work stays completed rather than becoming a
           // pause a person would have to resume.
@@ -790,12 +784,6 @@ export function createDashboardRunService({
           }
         } else {
           if (!(await prepareRunTransition(location, runId, "failed"))) return;
-          const recover = await recoverWatchMain(
-            taskWorkspace,
-            taskId,
-            runId,
-            prompt === SUPERVISOR_WAKE_TURN
-          );
           const { error, failure } = mainRunFailure(last, code, signal, spawnError);
           await appendRunEvent(taskWorkspace, taskId, runId, "main.run_failed", {
             error,
@@ -804,10 +792,10 @@ export function createDashboardRunService({
             failure
           });
           try {
-            await location.store.transitionTask(taskId, recover ? "waiting" : "failed", {
+            await location.store.transitionTask(taskId, "failed", {
               runId,
               error,
-              reason: recover ? "watch_main_retry" : "dashboard_main_exit"
+              reason: "dashboard_main_exit"
             });
             // eslint-disable-next-line no-restricted-syntax -- 失败事件的原始错误已落盘，状态转换失败不能覆盖或中断收尾
           } catch {
@@ -913,21 +901,15 @@ export function createDashboardRunService({
   }
 
   /**
-   * Main recovery owned by this service, not by a monitoring cycle.
+   * Main recovery owned by this service.
    *
    * A Task whose Main died while callbacks remained addressed to it is started
    * again through the ordinary Main entry, so a full external budget queues the
-   * wake instead of dropping it. Two switches keep the former off switch: the
-   * guardian's own name, and the watcher name existing hosts already set.
+   * wake instead of dropping it.
    */
-  const mainGuardianDisabled = () =>
-    process.env.COWORK_DISABLE_MAIN_GUARDIAN === "1" || process.env.COWORK_DISABLE_WATCH_SUPERVISOR === "1";
+  const mainGuardianDisabled = () => process.env.COWORK_DISABLE_MAIN_GUARDIAN === "1";
   const mainGuardianIntervalMs = () =>
-    Math.max(
-      1000,
-      Number(process.env.COWORK_MAIN_GUARDIAN_INTERVAL_MS ?? process.env.COWORK_SUPERVISOR_INTERVAL_MS) ||
-        60_000
-    );
+    Math.max(1000, Number(process.env.COWORK_MAIN_GUARDIAN_INTERVAL_MS) || 60_000);
   let mainGuardianTimer: ReturnType<typeof setTimeout> | undefined;
   let mainGuardianPending: Promise<void> | undefined;
   let mainGuardianStopped = false;
@@ -1376,17 +1358,6 @@ export function createDashboardRunService({
             );
         });
         await attempt(() => clearSleep(location.workspaceRoot, taskId));
-        await attempt(async () => {
-          const watches = new WatchProgramStore(location.workspaceRoot);
-          for (const program of await watches.listPrograms(taskId)) {
-            for (const monitor of await watches.listVirtualAgents(taskId, program.programId)) {
-              if (monitor.status === "active")
-                await watches.updateVirtualAgent(taskId, program.programId, monitor.monitorId, {
-                  status: "paused"
-                });
-            }
-          }
-        });
         await attempt(async () => {
           if (location.task.activeRunId) {
             const coordination = await coordinator.waitForSubagents({

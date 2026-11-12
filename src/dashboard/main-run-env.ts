@@ -64,7 +64,6 @@ export function mainRunEnv(input: MainRunEnvInput): Record<string, string> {
     // error worth failing a turn over.
     COWORK_DASHBOARD_URL: input.dashboardUrl,
     COWORK_INITIAL_PROMPT: "1",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
     PI_CODING_AGENT_DIR: input.piAgentDir ?? atriaDataPaths().piAgentDir
   };
 }

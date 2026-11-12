@@ -115,7 +115,6 @@ App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，
     ├── sessions/main/pi/              Main 原生 Pi 会话
     ├── runs/<runId>/                  Run 事件、队列、Inbox、checkpoint、结果、main-input.json
     ├── experiments/                   运行时实验记录
-    ├── watch/ / virtual-agents/        持久监控控制面
     └── .runtime/                      Task 锁与产物索引等
 ```
 
@@ -148,10 +147,6 @@ Task 初始化会创建 `agents/main/work/`，在 Main 首次模型请求前即�
 `runs/<runId>/main-input.json` 以版本 1 保存 Main 启动前接受的完整输入及 `submittedAt`（毫秒时间戳），新记录另保存主动来源 `source`、`messageId`/Task/Run 身份、原始 composer `body` 和附件引用，权限为 600。无新消息的续执行沿用这条记录；启动失败后仅补回 Pi 历史中尚未保存的原始输入。旧 Run 没有这个文件时仍可从已有 Pi 会话恢复。该记录包含原始请求和附件引用/内容，应与会话工作区一起备份。
 
 `sessions/main/user-inputs/<messageId>.json` 另外持久保存主动提交的原始 body、附件与稳定消息身份，避免同一 Run 的后续内部输入覆盖可编辑来源。启动未接受的输入会标记为拒绝，不作为最新可编辑消息。
-
-`runs/<runId>/goal-delegation-request.json` 以版本 1 保存已交给模型的当前用户请求身份和旧归属的兼容边界，权限 600。身份取自持久 Pi 用户消息或已交付的用户 Inbox 消息，不使用每次 HTTP 调用都会变化的模型 `requestId`。新的用户消息可以推进边界；模型轮次、压缩、后台事件及无新消息的续执行不能解除原请求的交接限制。
-
-`runs/<runId>/goal-delegations/<programId>.<requestHash>.json` 原子保存交给其他 Main 的目标归属（`taskId`、`programId`、可选用户 `requestId`，权限 600），不同用户请求保留各自收据。同一请求不能省略目标身份另建替代采集器；暂停目标的交接尝试也保留归属。旧 `<programId>.json` 及无用户身份的收据仍读取，并关联升级前请求。它不是 Inbox 接收/工作完成收据，不含提示词、密钥或另一个目标的正文；旧 Run 没有此目录时无需迁移，后续创建/交接会登记。
 
 `sessions/main/versions.json` 使用版本 1 记录 Task、当前会话版本 ID、明确选定的 Pi session 文件、旧 Run 排除集合、此前前缀活动、历史消息/活动快照，以及修改重发的幂等身份。新 Pi 分支只包含被修改输入之前的 entry；旧 session 文件和 Run 记录保留，后续运行不靠最近修改文件猜测当前版本。`request-before-edit-<versionId>.json` 私有副本保留被替换轮次的原模型请求快照，权限为 600，不能作为新编辑输入的活动重试槽。备份应包含版本索引、所有 session 与这些私有恢复副本，不能仅复制当前消息列表。
 
@@ -296,11 +291,7 @@ node scripts/migrate-artifacts.mjs --workspace /path/to/workspace --task <task-i
 
 Main 的 `read_attachment` 工具按格式读取，支持文字分页、PDF 页面和图片输入；模型不支持图片输入时返回明确提示。PDF/Office 解析使用本机 Python 3 与 pypdf/PyMuPDF/python-docx/python-pptx/openpyxl；缺失依赖时原文件与下载仍可用，不会将二进制文件误当作文字发送。图片预览无需这些依赖。PDF 页面按需渲染，Office 预览为提取文字，并非完整排版预览。
 
-## Watch 分析与通知恢复
-
-Watch 的分析队列在 `payload.activateRun` 保存 `false`，Coordinator 恢复时沿用该值，只创建分析 Run 的目录，不认领 Task 的活动 Run 或改写完成标记。普通委派及没有该字段的旧队列保留原有行为。该约定防止新的监测分析覆盖 Main 归属，不自动修复旧版本已经改写的 Task 元数据。真实 Coordinator/Pi 与本地假模型回归见 [监测 Run 归属](../test/watch-coordinator-routing.test.js)。
-
-Virtual Agent 的 `monitor-state.json` 可包含兼容性可选字段 `pendingWake: { runId, message, controlMessageIds? }`。`lastEventId` 表示分析结果已保存，`lastWakeAt` 表示通知已写入 Main Inbox；两者不可互相替代。投递前先保存完整通知，重启只补投该结果，使用相同 messageId 保留已消费回执；控制消息在通知交付后确认。暂停 Program 保留 outbox，恢复后继续投递。旧记录没有此字段时仍可读取；无法重建旧版本已丢失且未保存的通知。行为回归见 [独立进程恢复](../test/watch-supervisor-recovery.test.js)。
+## 修改重发事务
 
 修改重发使用 `sessions/main/edit-transaction.json` 私有版本 1 journal，在改写版本索引之前保存原 Task、版本索引、Main context、原 exact-retry 槽和 cleared 标记。
 

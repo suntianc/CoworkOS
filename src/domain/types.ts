@@ -159,8 +159,6 @@ export interface TaskRecord {
    * needs a second code path, but it is not one and must not be listed as one.
    */
   kind?: "conversation" | "workspace";
-  monitoring?: { scope: "background"; sourceTaskId?: string };
-  watchRecovery?: { day: string; retries: number };
   /** 3 separates final artifacts from runtime metadata and agent candidates. */
   layoutVersion?: number;
   status: TaskStatus;

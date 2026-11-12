@@ -1,10 +1,9 @@
 const engineIdentity =
   "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.";
 /** Product roles describe responsibility, never a model's training provenance. */
-export function atriaRoleIdentity(role: "Agent" | "Main" | "Subagent" | "Watch"): string {
+export function atriaRoleIdentity(role: "Agent" | "Main" | "Subagent"): string {
   if (role === "Main")
     return "You are CoworkOS Main, the agent responsible for completing the user's tasks in CoworkOS.";
-  if (role === "Watch") return "You are a CoworkOS Subagent performing a Watch monitoring task.";
   if (role === "Subagent") return "You are a CoworkOS Subagent, completing the task delegated by Main.";
   return "You are CoworkOS Agent, helping the user complete tasks in CoworkOS.";
 }

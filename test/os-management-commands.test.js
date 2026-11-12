@@ -11,7 +11,7 @@ import { test } from "node:test";
  * Authorized local clients driving management commands against a real backend.
  *
  * Every case starts the standalone backend from its entry, gets a local session
- * from the running process and changes real projects, tasks and goals through
+ * from the running process and changes real projects and tasks through
  * the same HTTP API the desktop and Web clients use. The point is the protocol
  * seam: who may act, what a repeated command returns, and what survives a lost
  * response and a real restart.
@@ -202,8 +202,7 @@ test(
       "session.authorize",
       "session.revoke",
       "operations.query",
-      "commands.idempotent",
-      "commands.expectedRevision"
+      "commands.idempotent"
     ])
       assert.ok(info.body.protocol.capabilities.includes(capability), capability);
 
@@ -471,53 +470,6 @@ test(
     assert.equal(generatedRetry.headers["x-cowork-replayed"], "1");
     assert.equal(generatedRetry.body.taskId, generated.body.taskId);
     assert.deepEqual(generatedRetry.body, generated.body);
-
-    // A goal carries its own revision: the expected revision guards the change
-    // and the saved command result outlives it.
-    const goal = await api(
-      root,
-      "POST",
-      "/api/goals",
-      {
-        brief: { title: "受管目标", objective: "验证旧修订不能覆盖新状态" },
-        scope: "background",
-        requestId: "managed-goal-1"
-      },
-      client.token
-    );
-    assert.equal(goal.status, 201, JSON.stringify(goal.body));
-    const goalTaskId = goal.body.taskId;
-    const programId = goal.body.programId;
-    assert.equal(goal.body.goal.revision, 1);
-    const control = (body) =>
-      api(root, "POST", `/api/tasks/${goalTaskId}/goals/${programId}/control`, body, client.token);
-
-    const pause = await control({ action: "pause", revision: 1, operationId: "op-goal-pause" });
-    assert.equal(pause.status, 200, JSON.stringify(pause.body));
-    assert.equal(pause.body.status, "paused");
-    assert.equal(pause.body.goal.revision, 2);
-    const pauseReplay = await control({ action: "pause", revision: 1, operationId: "op-goal-pause" });
-    assert.equal(pauseReplay.status, 200, "the saved result stands even though the revision moved");
-    assert.equal(pauseReplay.headers["x-cowork-replayed"], "1");
-    assert.deepEqual(pauseReplay.body, pause.body);
-
-    const stale = await control({ action: "resume", revision: 1, operationId: "op-goal-resume-stale" });
-    assert.equal(stale.status, 409, JSON.stringify(stale.body));
-    assert.equal(stale.body.code, "revision_conflict");
-    const unchanged = await api(
-      root,
-      "GET",
-      `/api/tasks/${goalTaskId}/goals/${programId}`,
-      undefined,
-      client.token
-    );
-    assert.equal(unchanged.body.status, "paused", "a stale revision did not resume the goal");
-    assert.equal(unchanged.body.goal.revision, 2);
-
-    const resumed = await control({ action: "resume", revision: 2, operationId: "op-goal-resume" });
-    assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
-    assert.equal(resumed.body.goal.revision, 3);
-    assert.equal(resumed.body.status, "monitoring");
   }
 );
 

@@ -155,10 +155,6 @@ export class MainRequestRetry {
     private readonly execution?: {
       beginTurn(): void;
       protectReplayScope(scope: MainRequestExecutionScope): void;
-      goalDelegation?: {
-        read(): Promise<string | undefined>;
-        restore(requestId: string | undefined, messages: readonly unknown[]): Promise<void>;
-      };
       memoryReserveTokens?(model: Pick<Model<Api>, "id" | "provider">): number;
     }
   ) {}
@@ -219,10 +215,6 @@ export class MainRequestRetry {
       this.loaded = true;
     }
     if (this.replay) {
-      await this.execution?.goalDelegation?.restore(
-        this.replay.goalDelegationRequestId,
-        this.replay.context.messages
-      );
       if (!this.replay.executionScope || !this.replay.endpoint)
         throw new MainRequestSnapshotError(
           "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
@@ -247,15 +239,7 @@ export class MainRequestRetry {
   async capture(
     input: Omit<
       MainRequestSnapshot,
-      | "version"
-      | "taskId"
-      | "state"
-      | "bodySha256"
-      | "checksum"
-      | "environment"
-      | "runId"
-      | "executionScope"
-      | "goalDelegationRequestId"
+      "version" | "taskId" | "state" | "bodySha256" | "checksum" | "environment" | "runId" | "executionScope"
     >
   ) {
     const { executionScope, ...environment } = await this.environment();
@@ -276,10 +260,7 @@ export class MainRequestRetry {
         ...input,
         runId: this.runId,
         environment,
-        executionScope,
-        goalDelegationRequestId: this.replay
-          ? this.replay.goalDelegationRequestId
-          : await this.execution?.goalDelegation?.read()
+        executionScope
       },
       this.replay ? this.slot : undefined
     );

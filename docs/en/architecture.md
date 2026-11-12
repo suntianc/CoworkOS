@@ -49,7 +49,7 @@ Desktop and Web read and save model and search settings through the selected exe
 
 Pi `before_agent_start` discovers bound applications/tools before the first request; `context` refreshes changes between later requests. Tests must cover real Pi hook order and subprocess termination.
 
-Main/Watch supervisors, durable inbox, goal management and explicit Virtual Agent activation exist. In-app activity/digests and desktop task notifications are implemented; broader real sources and sustained-run evaluation remain planned.
+A durable inbox, timed parks and Main recovery exist: the Dashboard Run service checks periodically and starts a Main again for a Task with callbacks or a due wake when no Main is alive. External events reach Main through the durable inbox, and Main decides whether to continue.
 
 Visual observations share the Task image archive. Dashboard/desktop owns native ComputerUse policy, exclusive sessions and current action credentials; Main/Pi owns its ephemeral Chromium context.
 
@@ -86,13 +86,3 @@ Desktop ports change between launches, so origin localStorage alone cannot resto
 - The App targets Apple Silicon Mac. Windows/Linux GUI drivers, remote workers, multiple users and unattended updates are not shipped.
 
 Update producers, consumers, compatibility/recovery docs and behavior tests together. Review roles are in [module ownership](../module-ownership.md) (Chinese); PR requirements are in [CONTRIBUTING](../../CONTRIBUTING.en.md). Public gates are in [contribution requirements](../../CONTRIBUTING.en.md#pr-review-and-release) and the [Mac release guide](../mac-release.md) (Chinese).
-
-## Durable goals, monitoring and pause
-
-`WatchProgram.goal` owns the durable brief, plan, facts, waiting conditions and reporting preferences; multiple sources share one goal. `GoalStore` owns locks/revisions; `GoalManagement` is shared by Pi and HTTP; `GoalSupervisor` repairs persisted side effects and queues instructions/reviews without planning for Main. Goal context is bounded, and full activity is not automatically injected. In-app activity, unread state and digests are implemented; system push and sustained real-source evaluation remain roadmap work. See the [goal reference](../long-term-goals-architecture.md) (Chinese).
-
-`WatchManagement` shares source activation/controls. `ScriptWatcher` uses terminable child processes and an atomic state/outbox checkpoint; `WatcherRuntime` acknowledges only after durable Inbox acceptance. `WatchSupervisor` separates sampling, analysis, retries and wake delivery. Dashboard owns scheduling over registered workspaces and launches Main through its existing Run service; CLI supervisors coordinate through Task cycle locks. An independent background goal has its own Task/Main, while session goals use the current Main.
-
-Exiting the host or machine sleep stops checks; startup resumes durable state. A macOS source checkout may explicitly install a user-level launchd service; ordinary startup does not install an OS service. See [runtime](runtime-reference.md#long-term-goal-interfaces-and-scheduling).
-
-Pause is durable control intent, including legacy records whose remaining sources are paused. Fully paused background work holds saved clocks, callbacks, answers and retries without launching Main or creating replacements. Only user-authorized resume releases them; session pause does not stop unrelated work. Activation and control share a short lock and recheck intent after probing. See the [pause contract](../monitoring-pause-contract.md).

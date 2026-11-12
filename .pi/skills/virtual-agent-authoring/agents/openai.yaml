@@ -1,4 +1,0 @@
-interface:
-  display_name: "Virtual Agent Authoring"
-  short_description: "Design and validate custom Virtual Agents"
-  default_prompt: "Use $virtual-agent-authoring to design and validate a custom Virtual Agent."

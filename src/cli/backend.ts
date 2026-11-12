@@ -35,9 +35,7 @@ import {
  * `start` returns once the detached process has published its instance record,
  * so the caller's lifetime is not the backend's lifetime. `stop` asks the
  * recorded process to finish its managed work and exit. Neither command, and
- * importing this module, registers a system service: the only OS-level service
- * entry in this repository stays scripts/monitor-service.mjs, which a person
- * runs explicitly.
+ * importing this module, registers a system service.
  *
  * Every way into the server obeys one ownership rule for a data root. A
  * startup claim names the startup responsible for the boot; a spawned child

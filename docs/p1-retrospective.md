@@ -33,7 +33,7 @@ P1 已确认的验收保持原样；本条用于后续票据设计，不回溯�
 
 **发生了什么：** 主机凭据迁移最初漏了监控启动器读取有效配置、以及会话导出时收集主机密钥进行脱敏。前端下载改造新增全局拦截器后，又误拦了本地生成的 Markdown `blob:` 链接，导致导出请求后端并返回 404。
 
-**修复与证据：** 凭据相关消费者已改用有效主机配置，相关回归覆盖在 [设置测试](../test/os-backend-settings.test.js) 和 [监控启动测试](../test/watch-supervisor-launcher.test.js)。下载拦截器只接管根相对 `/api/` 路径，保留 `blob:`、`data:` 的浏览器行为；[页面启动测试](../test/app-boot.test.js)、[会话菜单浏览器测试](../e2e/conversation-menu.spec.js) 与 [产物链接测试](../e2e/markdown-links.spec.js) 验证了修复。
+**修复与证据：** 凭据相关消费者已改用有效主机配置，相关回归覆盖在 [设置测试](../test/os-backend-settings.test.js)。下载拦截器只接管根相对 `/api/` 路径，保留 `blob:`、`data:` 的浏览器行为；[页面启动测试](../test/app-boot.test.js)、[会话菜单浏览器测试](../e2e/conversation-menu.spec.js) 与 [产物链接测试](../e2e/markdown-links.spec.js) 验证了修复。
 
 **采用的做法：** 修改配置来源、鉴权、公共网络层或下载路径前，沿 [代码地图](code-map.md) 列出生产者和消费者，检查 CLI、后台进程、Web 与桌面入口。网络产物和页面本地生成文件分别验证，避免只覆盖新增的正常路径。
 

@@ -63,7 +63,7 @@ Finder 安装入口复制已签名的缓存包，不改内容或再次签名，�
 
 ### 独立后端
 
-独立后端可以脱离启动它的客户端继续运行。开发包支持 macOS 14+ Apple Silicon；App 首次连接会启动或复用同一数据根的后端，桌面退出不会停止它。独立运行 CLI 需要 Node.js ≥22.19.0，所用 CLI 与 App 应来自同一候选版本。完成 `npm run build:cli` 后，`node dist/src/cli/backend.js start`（或 `coworkos backend start`）在同一数据根启动分离进程，`status` 查看实例，`stop` 让后端完成受管进程收尾后退出；端口、会话 token 与实例身份记录在 `ATRIA_HOME/runtime/backend-instance.json`（权限 0600），后端身份在 `backend-identity.json` 中跨重启保持。直接执行 `serve` 遵守同一实例归属：已有可核验实例时只输出其身份并退出，另有启动中的后端或身份无法确认时明确报错，不覆盖实例记录。`stop` 只在后端完成收尾并删除实例记录后返回 `stopped`；超时被强制结束或收尾未完成时返回 `incomplete` 并以非零状态退出，同时保留实例记录供下次 `start` 沿用同一后端身份恢复。这些命令不安装 launchd/systemd 常驻服务；系统级常驻仍只能由 [持续监控服务](../scripts/monitor-service.mjs) 显式安装。
+独立后端可以脱离启动它的客户端继续运行。开发包支持 macOS 14+ Apple Silicon；App 首次连接会启动或复用同一数据根的后端，桌面退出不会停止它。独立运行 CLI 需要 Node.js ≥22.19.0，所用 CLI 与 App 应来自同一候选版本。完成 `npm run build:cli` 后，`node dist/src/cli/backend.js start`（或 `coworkos backend start`）在同一数据根启动分离进程，`status` 查看实例，`stop` 让后端完成受管进程收尾后退出；端口、会话 token 与实例身份记录在 `ATRIA_HOME/runtime/backend-instance.json`（权限 0600），后端身份在 `backend-identity.json` 中跨重启保持。直接执行 `serve` 遵守同一实例归属：已有可核验实例时只输出其身份并退出，另有启动中的后端或身份无法确认时明确报错，不覆盖实例记录。`stop` 只在后端完成收尾并删除实例记录后返回 `stopped`；超时被强制结束或收尾未完成时返回 `incomplete` 并以非零状态退出，同时保留实例记录供下次 `start` 沿用同一后端身份恢复。这些命令不安装 launchd/systemd 常驻服务。
 
 Web 入口默认只监听本机。模型请求、任务执行和文件操作仍由本地后端负责，单独托管静态前端不能运行完整工作台。若把后端部署到远程服务器，命令和文件操作也会在该服务器执行。
 
@@ -154,7 +154,7 @@ npm run verify
 
 - 菜单使用 [menu.js](../web/assets/ui/menu.js)，支持方向键、Home/End、Esc、外部关闭和焦点归还；弹窗使用 [modal.js](../web/assets/ui/modal.js)，限制 Tab 并恢复发起控件焦点。
 - 单选下拉框保留原生 `<select>` 作为取值和读屏控件，点开时由 [select-menu.js](../web/assets/ui/select-menu.js) 弹出应用自绘的选项菜单；需要系统菜单的控件可在祖先上加 `data-native-select`。
-- 重命名、项目编辑、另存等短表单统一使用 [dialogs.css](../web/assets/dialogs.css) 的 `.app-dialog`、字段、说明、错误和操作栏；输入框须有明确标签，动作区分主次，覆盖提交中、失败、禁用与键盘焦点状态，不依赖浏览器默认控件外观。工作台扩展样式归 [workbench/dialogs.css](../web/assets/workbench/dialogs.css)，附件预览归 [attachment-preview.css](../web/assets/styles/attachment-preview.css)。设置、目标与监控保留各自布局并共用主题变量。
+- 重命名、项目编辑、另存等短表单统一使用 [dialogs.css](../web/assets/dialogs.css) 的 `.app-dialog`、字段、说明、错误和操作栏；输入框须有明确标签，动作区分主次，覆盖提交中、失败、禁用与键盘焦点状态，不依赖浏览器默认控件外观。工作台扩展样式归 [workbench/dialogs.css](../web/assets/workbench/dialogs.css)，附件预览归 [attachment-preview.css](../web/assets/styles/attachment-preview.css)。设置保留各自布局并共用主题变量。
 - 会话标题和项目归属统一放在顶栏。顶栏与侧栏复用 [会话菜单](../web/assets/controllers/conversation-menu.js)，按整理、复制/导出/打开和归档分组；运行或等待中的会话额外显示停止任务。复制子菜单支持标题、ID、本机链接和对话正文，导出保留用户/助手的 Markdown 正文，不包含思考和原始工具日志。未读标记保存在本机浏览器，显式打开会话后清除；链接使用 `?task=<id>` 定位原会话。子菜单支持左右方向键与逐层 Esc，刷新时保留目标与焦点，窄屏切换为内嵌菜单。新任务页显示菜单但禁用会话操作，独立编辑器隐藏该菜单。右侧任务面板在打开或刷新页面时默认收起，右上角开关在有工作区时收起或恢复当前会话的编辑视图，否则展开任务面板，全局设置位于左下角侧栏，不再重复显示会话标题栏。宽度 1280 及以上任务面板是一列，只用这个开关收起，面板内不再放关闭按钮；更窄时面板浮在顶栏之上，保留面板内的收起按钮。
 - 应用命名用 [document-name-dialog.js](../web/assets/workbench/adapters/document-name-dialog.js)，提交中保留表单、错误与输入；保存失败/冲突用文字说明并保留草稿。
 - 对话输入在正常布局流内，以圆角、独立底色和柔和阴影形成悬浮卡片，聚焦时保留阴影；外侧留白与画布同色。滚动区占剩余高度，附件条独立限高。流式更新保留 DOM 身份、展开、焦点和用户阅读位置；异步交互始终捕获原 Task/导航 token。

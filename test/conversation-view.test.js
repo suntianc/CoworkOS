@@ -242,16 +242,15 @@ test("waiting between reasoning, returned tools and the next model response keep
   assert.equal(document.querySelectorAll("[data-thinking-key]").length, 0);
 });
 
-test("a parked monitoring run remains waiting for a wake after its terminal waiting event", () => {
+test("a waiting run stays waiting after its terminal waiting event", () => {
   const { document, state, render } = fixture("parked-monitor", "本轮变化已核实。");
   state.detail.runtimeEvents.push(update("thinking_end", 0, { content: "本轮变化已核实。" }), {
     type: "main.run_waiting"
   });
   state.detail.runtime.active = false;
   state.detail.task.status = "waiting";
-  state.detail.monitoring = { sleep: { reason: "等待新变化" } };
   render();
-  assert.match(document.querySelector(".workflow-heading").textContent, /等待唤醒/);
+  assert.match(document.querySelector(".workflow-heading").textContent, /等待继续/);
   assert.match(document.querySelector(".live-caption").textContent, /本轮已处理/);
   assert.equal(document.querySelectorAll(".workflow-progress-spinner").length, 0);
   assert.match(document.querySelector(".reasoning-copy").textContent, /本轮变化已核实/);
@@ -259,7 +258,7 @@ test("a parked monitoring run remains waiting for a wake after its terminal wait
   state.detail.task.status = "running";
   state.detail.runtimeEvents.push({ type: "turn_start" });
   render();
-  assert.doesNotMatch(document.querySelector(".workflow-heading").textContent, /等待唤醒/);
+  assert.doesNotMatch(document.querySelector(".workflow-heading").textContent, /等待继续/);
   assert.equal(document.querySelectorAll(".workflow-progress-spinner").length, 1);
 });
 

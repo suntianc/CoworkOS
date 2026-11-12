@@ -26,11 +26,8 @@ import {
   configuredModelApi,
   configuredReasoningEffort,
   configuredSupportsReasoningEffort,
-  configuredSupportsPromptCacheKey,
-  configuredSupportsImages,
   configuredThinkingFormat
 } from "../runtime/runtime-settings.js";
-import { configuredWebTools } from "../runtime/web-search-config.js";
 import {
   availableModels as catalogModels,
   cachedAvailableModels as cachedCatalog
@@ -54,8 +51,6 @@ import { InputStore } from "../workspace/input-store.js";
 import { listTaskArtifacts } from "../workspace/artifact-store.js";
 
 import { readJsonFile, readJsonLines } from "./event-stream.js";
-import { createGoalService } from "./goal-service.js";
-import { createWatchService } from "./watch-service.js";
 import { mainIsAlive, readHeartbeat } from "../runtime/main-heartbeat.js";
 import { createModelSettings } from "./model-settings.js";
 import { resolveModelRole } from "../runtime/role-models.js";
@@ -423,8 +418,8 @@ export function createDashboardApplication(
     mainCapacity,
     mainGuardian: {
       workspaceRoots: knownWorkspaceRoots,
-      // Same gate the watch cycle used: a host with no Main connection has
-      // nothing to launch, and a connection added later is seen next cycle.
+      // A host with no Main connection has nothing to launch, and a connection
+      // added later is seen on the next cycle.
       modelConfigured: () => Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
     },
     withTaskProjectLock: workspaces.withTaskProjectLock,
@@ -477,29 +472,6 @@ export function createDashboardApplication(
     });
   });
 
-  const watchers = createWatchService({
-    harnessRoot: projectRoot,
-    workspaceRoot: () => workspaceRoot,
-    knownWorkspaceRoots,
-    locateTask,
-    runtimeValue,
-    cancelTask: runs.cancelTask,
-    runtimeOptions: () => {
-      const env = runtimeSettingsEnv(runtimeConfig);
-      return {
-        runtimeEnv: env,
-        commandEnv: { COWORK_API_TOKEN: access.runCredential(), COWORK_DASHBOARD_URL: dashboardUrl },
-        api: configuredModelApi(env),
-        thinkingFormat: configuredThinkingFormat(env),
-        contextWindow: configuredContextWindow(env),
-        thinkingLevel: configuredReasoningEffort(env),
-        supportsReasoningEffort: configuredSupportsReasoningEffort(env),
-        supportsPromptCacheKey: configuredSupportsPromptCacheKey(env),
-        supportsImages: configuredSupportsImages(env),
-        web: configuredWebTools(runtimeConfig)
-      };
-    }
-  });
   const uiRoot = process.env.COWORK_UI_DIR ?? join(projectRoot, "web");
 
   function runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined {
@@ -769,7 +741,6 @@ export function createDashboardApplication(
       : [];
     const active =
       activeAtStart || activeRuns.has(taskId) || mainIsAlive(await readHeartbeat(taskWorkspace, taskId));
-    const monitoring = await watchers.list(taskId);
     let damagedRetry = false;
     const requestStore = new MainRequestStore(mainRequestPath(taskWorkspace, taskId), taskId);
     const retry =
@@ -877,7 +848,6 @@ export function createDashboardApplication(
         logPath
       })),
       humanResumePending,
-      monitoring,
       ...(applications ? { applications } : {}),
       runtime: {
         active,
@@ -1024,15 +994,6 @@ export function createDashboardApplication(
       startedAt: backendIdentity.startedAt
     }),
     ...(PROJECT_EXPERIENCE_ENABLED ? { projectExperienceStore } : {}),
-    watchers,
-    goals: createGoalService({
-      harnessRoot: projectRoot,
-      workspaceRoot: () => workspaceRoot,
-      knownWorkspaceRoots,
-      locateTask,
-      resumeHumanAnswers,
-      cancelTask: runs.cancelTask
-    }),
     uploads,
     computer,
     computerHostRequest,
@@ -1093,7 +1054,6 @@ export function createDashboardApplication(
   };
   const server = createServer(createDashboardHandler(routes));
   server.once("listening", () => void mainCapacity.start());
-  server.once("listening", () => watchers.start());
   server.once("listening", () => runs.startMainGuardian());
   server.once("listening", () => memoryLearning.start());
   if (PROJECT_EXPERIENCE_ENABLED) server.once("listening", () => projectLearning.start());
@@ -1114,7 +1074,6 @@ export function createDashboardApplication(
       await memoryLearning.stop();
       await projectLearning.stop();
       computer.close();
-      await watchers.stop();
       // A recovery cycle must not start a Main into a service that is going
       // away, and it must finish before capacity stops admitting.
       await runs.stopMainGuardian();

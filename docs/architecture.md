@@ -53,17 +53,7 @@ Pi 的 `before_agent_start` 在首轮请求前发现绑定应用与工具，`con
 
 QuickJS 保存当前 Pi 会话的脚本 state，经受限 dispatcher 逐次调用已启用的原生/浏览器工具，原工具继续负责权限、参数及 Task 归属。切会话/shutdown 清空 VM 并关闭浏览器，图片和已接受下载留在 Task；持久工具选择只恢复可用组。应用专属操作继续由既有 Adapter 提供。接口和边界见 [视觉观察](visual-observation.md)、[Browser Use](browser-use.md) 与 [CUA 脚本](cua-scripting.md)。
 
-Main/Watch Supervisor、持久 Inbox、长期目标和显式 Virtual Agent 激活已存在。目标保存计划、事实、等待条件和汇报偏好，一个目标可关联多个 Watcher；普通回复结束不等于目标完成。应用内动态、未读和定期汇总已接入，更多真实来源、系统通知和连续运行评测仍待独立验收。
-
-## 长期目标、监控与暂停
-
-`WatchProgram.goal` 是目标的持久归属，不另建第二份任务注册表。`GoalStore` 管理版本与锁；`GoalManagement` 供 Pi 工具与 HTTP 共用；`GoalSupervisor` 修复持久化副作用、投递用户指令与到期复盘，不代替 Main 制定计划。目标状态、来源采样、模型运行和通知分别保存；目标上下文有界，完整动态不自动进入模型上下文。详见 [目标架构](long-term-goals-architecture.md)。
-
-`WatchManagement` 共用来源登记和控制。`ScriptWatcher` 在可终止子进程中执行探针，原子提交 state/outbox checkpoint；`WatcherRuntime` 确认持久 Inbox 接受事件后清理 outbox。`WatchSupervisor` 分开调度采样、分析、重试与唤醒，慢分析不持有采样锁。Dashboard 的 `watch-service` 覆盖已登记工作区，经现有 Run 服务启动 Main；独立 CLI 保留监督入口，Task 周期锁协调多个启动者。
-
-后台目标有自己的 Task/Main；会话内目标使用当前 Main。目标、来源与调度服务健康分别展示，不能仅凭 active 推断正在检查。退出宿主或机器休眠时停止采样；再次启动从持久状态恢复。macOS 源码入口可显式安装用户级 launchd 服务，不自动安装 OS 服务，详见 [运行时参考](runtime-reference.md#长期目标接口与调度)。
-
-暂停是持久控制意图。后台目标完全暂停时，保存的时钟、旧回调、回答和重试仍保留，但不能自动启动 Main 或创建替代来源；恢复必须来自用户。会话内暂停只限制相关目标，不阻断无关工作。来源验收与暂停共用短锁，并在探针结束后复查意图；旧记录中所有来源已暂停的情况同样生效。详见 [暂停契约](monitoring-pause-contract.md)。
+持久 Inbox、定时停泊和 Main 恢复已存在：有回调或定时唤醒时，Dashboard 运行服务按期检查并重新拉起没有存活 Main 的 Task。外部事件经持久 Inbox 交付给 Main，是否继续由 Main 决定。
 
 ## 资源与界面的一致性
 

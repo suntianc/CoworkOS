@@ -1,7 +1,7 @@
 import { resetMainSupervisorBackoff, SUPERVISOR_WAKE_TURN } from "../../dist/src/runtime/main-supervisor.js";
 import { configuredWebTools } from "../../dist/src/runtime/web-search-config.js";
 import { readQueuedUserTurn } from "../../dist/src/runtime/queued-user-turn.js";
-import type { ExtensionAPI, ExtensionContext, SessionEntry, Skill } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Skill } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -29,12 +29,6 @@ import {
   registerMainContinuation
 } from "../../dist/src/runtime/main-continuation.js";
 import { readSleep } from "../../dist/src/runtime/main-sleep.js";
-import {
-  readGoalDelegationRequest,
-  restoreGoalDelegationRequest,
-  syncGoalDelegationRequest
-} from "../../dist/src/runtime/goal-delegation-request.js";
-import { parkBackgroundWatchGoal } from "../../dist/src/runtime/watch-main-lifecycle.js";
 import type { PiThinkingLevel } from "../../dist/src/runtime/runtime-settings.js";
 import {
   configuredMainMaxTokens,
@@ -71,9 +65,6 @@ import { projectAtriaSystemMessage } from "../../dist/src/domain/agent-identity.
 import { InboxStore } from "../../dist/src/runtime/scheduler.js";
 import { SubagentQuestionStore } from "../../dist/src/runtime/subagent-questions.js";
 import { assessTaskCompletion, isFinalAssistantMessage } from "../../dist/src/runtime/task-completion.js";
-import { VirtualAgentStore } from "../../dist/src/runtime/virtual-agent-store.js";
-import { WatchProgramStore } from "../../dist/src/runtime/watch-program-store.js";
-import { monitoringPrograms, backgroundMonitoringPaused } from "../../dist/src/runtime/monitoring-control.js";
 import { JsonlEventStore } from "../../dist/src/storage/event-store.js";
 import { listJobs } from "../../dist/src/tools/jobs.js";
 import {
@@ -96,11 +87,8 @@ import type { RuntimeToolResult } from "./helpers.ts";
 import { errorMessage, loadConfig, textFromMessage } from "./helpers.ts";
 import { registerCoordinationTools } from "./tools/coordination.ts";
 import { registerJobsTools } from "./tools/jobs.ts";
-import { registerMonitorsTools } from "./tools/monitors.ts";
-import { registerGoalTools } from "./tools/goals.ts";
 import { registerProjectLedgerTool } from "./tools/project-ledger.ts";
 import { registerProjectDevelopmentTool } from "./tools/project-development.ts";
-import { goalContext } from "../../dist/src/runtime/goal-context.js";
 import { registerWorkspaceTools } from "./tools/workspace.ts";
 import { registerUserMemoryTool } from "./tools/user-memory.ts";
 import { UserMemoryStore, userMemoryContext } from "../../dist/src/runtime/user-memory-store.js";
@@ -219,7 +207,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     agentStartedAt = Date.now();
   });
   let requestRetry: MainRequestRetry | undefined;
-  let goalDelegationBranch: readonly SessionEntry[] = [];
   let freshRetryContext = false;
   let awaitingInitialPrompt = process.env.COWORK_INITIAL_PROMPT === "1";
   // Dashboard's --print invocation already has a user prompt to start the
@@ -234,9 +221,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
           { includeFollowUps }
         );
   const coordinator = new CoordinatorRuntime();
-  const watchStore = new WatchProgramStore(workspaceRoot);
   const experimentStore = new ExperimentProgramStore(workspaceRoot);
-  const virtualAgentStore = new VirtualAgentStore(workspaceRoot);
   const humanStore = new HumanRequestStore(workspaceRoot);
   const questionStore = new SubagentQuestionStore(workspaceRoot);
   const mainMaxTurns = configuredMainMaxTurns(runtimeEnv);
@@ -636,11 +621,10 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       `长期记忆文件：${join(taskWorkspace, "agents", "main", "context", "memory.md")}`,
       "对任务文件优先使用上面的绝对路径，避免 read/bash 与 browse_workspace 的相对路径混淆。"
     ].join("\n");
-    const goals = await goalContext(workspaceRoot, taskId);
     // Keep SDK-owned tools and rules dynamic. Returning a forced prompt here
     // freezes snippets when enable_tools changes the active loadout mid-turn.
     return {
-      current_workspace: `<current_workspace>\n${workspace}\n</current_workspace>${goals ? `\n\n${goals}` : ""}`,
+      current_workspace: `<current_workspace>\n${workspace}\n</current_workspace>`,
       application_context: application
     };
   };
@@ -826,13 +810,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         ("customType" in message ? message.customType : undefined) !== "cowork-completion-check"
     );
     recentContext = messages.slice(-8);
-    goalDelegationBranch = ctx.sessionManager.getBranch();
-    if (!requestRetry?.isReplaying)
-      await syncGoalDelegationRequest(workspaceRoot, taskId, mainRunId, {
-        sessionId: ctx.sessionManager.getSessionId(),
-        branch: ctx.sessionManager.getBranch(),
-        messages
-      });
     const firstUser = messages.find((message) => message.role === "user");
     const goal = firstUser ? textFromMessage(firstUser).trim() : "";
     if (goal) {
@@ -966,8 +943,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
             parkedForWake: Boolean(await readSleep(workspaceRoot, taskId).catch(() => undefined)),
             hasFinalAnswer: isFinalAssistantMessage(lastMainMessage) && !pendingContextClear
           });
-          if (assessment.ready && (await parkBackgroundWatchGoal(workspaceRoot, taskId, mainRunId)))
-            assessment = { ready: false, reason: "parked_for_wake" };
           if (!assessment.ready) {
             await taskStore.transitionTask(taskId, "waiting", {
               runId: mainRunId,
@@ -1215,14 +1190,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       {
         beginTurn: () => applicationBridge.beginModelTurn(),
         protectReplayScope: (scope) => applicationBridge.protectReplayScope(scope),
-        goalDelegation: {
-          read: async () => (await readGoalDelegationRequest(workspaceRoot, taskId, mainRunId))?.requestId,
-          restore: (requestId, messages) =>
-            restoreGoalDelegationRequest(workspaceRoot, taskId, mainRunId, requestId, {
-              branch: goalDelegationBranch,
-              messages
-            })
-        },
         memoryReserveTokens: (model) => memoryContextSettings?.getCompactionReserveTokens(model) ?? 16_384
       }
     );
@@ -1370,12 +1337,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     get updateRuntime() {
       return updateRuntime;
     },
-    get virtualAgentStore() {
-      return virtualAgentStore;
-    },
-    get watchStore() {
-      return watchStore;
-    },
     get web() {
       return web;
     },
@@ -1385,8 +1346,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   };
   registerCoordinationTools(pi, toolContext);
   registerJobsTools(pi, toolContext);
-  registerMonitorsTools(pi, toolContext);
-  registerGoalTools(pi, toolContext);
   registerProjectLedgerTool(pi, toolContext);
   registerProjectDevelopmentTool(pi, toolContext);
   registerWorkspaceTools(pi, toolContext);
@@ -1468,13 +1427,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         await taskStore.updateTask(taskId, { projectDirectory });
       }
       await taskStore.createRun(taskId, mainRunId);
-      goalDelegationBranch = ctx.sessionManager.getBranch();
-      if (!requestRetry?.isReplaying)
-        await syncGoalDelegationRequest(workspaceRoot, taskId, mainRunId, {
-          sessionId: ctx.sessionManager.getSessionId(),
-          branch: ctx.sessionManager.getBranch(),
-          initializeOnly: true
-        });
       if (process.env.COWORK_CLI_SESSION === "1") {
         const binding = await recordCliSessionBinding({
           sessionManager: ctx.sessionManager,
@@ -1503,24 +1455,15 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         if (inboxDeliveryActive) return;
         inboxDeliveryActive = true;
         try {
-          const programs = await monitoringPrograms(workspaceRoot, taskId);
-          if (
-            backgroundMonitoringPaused(programs) &&
-            (await new LocalWorkspaceStore(workspaceRoot).readTask(taskId)).monitoring?.scope === "background"
-          ) {
-            if (!ctx.isIdle()) ctx.abort();
-            return;
-          }
           await deliverCallbacks();
         } finally {
           inboxDeliveryActive = false;
         }
       };
       await pollMainInbox();
-      // Watch Supervisor runs independently of Pi and writes durable messages
-      // to Main's Inbox. Polling keeps an already-running Main responsive to
-      // important watch results; if Main is offline, the same messages remain
-      // durable and are delivered by the startup call above.
+      // External events and callbacks are written to Main's Inbox by other
+      // services. Polling keeps an already-running Main responsive; if Main is
+      // offline, the same messages remain durable for the next startup.
       if (inboxPoller) clearInterval(inboxPoller);
       const pollMs = Math.max(1_000, Number(process.env.COWORK_INBOX_POLL_MS ?? 3_000));
       inboxPoller = setInterval(
@@ -1548,24 +1491,19 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         Math.max(1_000, Math.floor(HEARTBEAT_STALE_MS / 3))
       );
       heartbeatTimer.unref();
-      const supervisor =
-        process.env.COWORK_SUPERVISOR_AUTOSTART === "1"
-          ? "Watch Supervisor auto-started"
-          : "Watch Supervisor is external (run watch-supervisor for background monitoring)";
       if (
         !cliPresentation.startup(ctx, {
           workspaceRoot,
           taskId,
           mainRunId,
           modelId,
-          supervisor,
           tools: pi.getActiveTools(),
           guessedProtection: guessedProtection(),
           protectedPaths: DEFAULT_PROTECTED_PATHS
         })
       ) {
         ctx.ui.notify(
-          `CoworkOS loaded · workspace ${workspaceRoot} · task ${taskId} · ${supervisor} · tools ${requiredTools.join(", ")}`,
+          `CoworkOS loaded · workspace ${workspaceRoot} · task ${taskId} · tools ${requiredTools.join(", ")}`,
           "info"
         );
         if (guessedProtection())
