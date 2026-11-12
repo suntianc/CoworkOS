@@ -202,6 +202,8 @@ Task/Watch/Worker 命令在执行前验证选项。以 `-` 开头的任务或回
 
 `npm start` 默认扫描整个工作区，Task 锁避免重复调度。`COWORK_DISABLE_WATCH_SUPERVISOR=1` 禁用调度；`COWORK_SUPERVISOR_INTERVAL_MS` 默认为 60000。采样不直接周期调用模型，无变化不分析。分析与 Main 唤醒额度分别计算，耗尽保留证据；模型预算沿用正常 Main 配置。
 
+Main 守护由 Dashboard 运行服务自己周期检查，不经过监控调度：有未消费回调、没有存活 Main、且没有等待人回答的 Task 会被重新拉起。`COWORK_DISABLE_MAIN_GUARDIAN=1` 关闭它，旧名 `COWORK_DISABLE_WATCH_SUPERVISOR=1` 仍然生效；`COWORK_MAIN_GUARDIAN_INTERVAL_MS` 默认为 60000，旧名 `COWORK_SUPERVISOR_INTERVAL_MS` 仍然生效。
+
 成功分析先持久保存，再投递 Inbox；重启或投递失败只补投已有结果。失败、超时和取消保留源事件供重试。Watch 分析使用独立 Run，不替换 Task 的活动 Main Run。字段与状态见 [Product API](product-api.md#persistent-monitors)，暂停见[暂停契约](monitoring-pause-contract.md)。
 
 ### macOS 源码监控服务

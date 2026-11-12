@@ -44,7 +44,12 @@ import { HumanRequestStore } from "../runtime/human.js";
 import { WatchProgramStore } from "../runtime/watch-program-store.js";
 import { recoverWatchMain } from "../runtime/watch-recovery.js";
 import { parkBackgroundWatchGoal } from "../runtime/watch-main-lifecycle.js";
-import { resetMainSupervisorBackoff, SUPERVISOR_WAKE_TURN } from "../runtime/main-supervisor.js";
+import {
+  MainSupervisor,
+  resetMainSupervisorBackoff,
+  SUPERVISOR_WAKE_TURN,
+  type MainSupervisorCycleResult
+} from "../runtime/main-supervisor.js";
 import { readSleep, clearSleep } from "../runtime/main-sleep.js";
 import { ProcessHost } from "../runtime/process-host.js";
 import { InboxStore } from "../runtime/scheduler.js";
@@ -148,6 +153,22 @@ export interface RunServicePorts {
     /** A cancelled Task gives up its waiting demand, if it has one. */
     cancelTask(taskId: string): Promise<void>;
   };
+  /**
+   * Every workspace root whose Tasks the Main guardian inspects.
+   *
+   * The guardian belongs to this service, not to monitoring: a parked Task
+   * with an unconsumed callback is resumed whether or not a watch cycle runs.
+   */
+  mainGuardian?: {
+    workspaceRoots(): Promise<string[]>;
+    /**
+     * Whether this host has a Main model connection.
+     *
+     * Read every cycle, not at startup: a connection completed later applies
+     * on the next tick, while a host without one takes no launch decision.
+     */
+    modelConfigured(): boolean;
+  };
   normalizeModel(value: unknown): string | undefined;
   appendRunEvent(
     workspace: string,
@@ -175,6 +196,7 @@ export function createDashboardRunService({
   withTaskProjectLock = (_taskId, action) => action(),
   mainSessions,
   mainCapacity,
+  mainGuardian,
   normalizeModel,
   appendRunEvent,
   readJsonFile,
@@ -890,6 +912,84 @@ export function createDashboardRunService({
     return withTaskProjectLock(args[0], () => serialize(args[0], () => launchMainRun(...args)));
   }
 
+  /**
+   * Main recovery owned by this service, not by a monitoring cycle.
+   *
+   * A Task whose Main died while callbacks remained addressed to it is started
+   * again through the ordinary Main entry, so a full external budget queues the
+   * wake instead of dropping it. Two switches keep the former off switch: the
+   * guardian's own name, and the watcher name existing hosts already set.
+   */
+  const mainGuardianDisabled = () =>
+    process.env.COWORK_DISABLE_MAIN_GUARDIAN === "1" || process.env.COWORK_DISABLE_WATCH_SUPERVISOR === "1";
+  const mainGuardianIntervalMs = () =>
+    Math.max(
+      1000,
+      Number(process.env.COWORK_MAIN_GUARDIAN_INTERVAL_MS ?? process.env.COWORK_SUPERVISOR_INTERVAL_MS) ||
+        60_000
+    );
+  let mainGuardianTimer: ReturnType<typeof setTimeout> | undefined;
+  let mainGuardianPending: Promise<void> | undefined;
+  let mainGuardianStopped = false;
+
+  async function runMainGuardianCycle(): Promise<MainSupervisorCycleResult[]> {
+    if (
+      stopping ||
+      mainGuardianStopped ||
+      mainGuardianDisabled() ||
+      !mainGuardian ||
+      !mainGuardian.modelConfigured()
+    )
+      return [];
+    const results: MainSupervisorCycleResult[] = [];
+    for (const workspaceRoot of await mainGuardian.workspaceRoots()) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stop() 可在读取工作区期间置位，此时不能再启动新周期
+      if (stopping || mainGuardianStopped) break;
+      const supervisor = new MainSupervisor({
+        workspaceRoot,
+        // A Run this host owns is alive even before its heartbeat is written.
+        isRunning: (taskId) => activeRuns.has(taskId),
+        launch: async ({ taskId, runId }) => {
+          await startMainRun(taskId, SUPERVISOR_WAKE_TURN, runId, true, undefined, undefined, {
+            origin: "internal",
+            queueWhenFull: true
+          });
+        }
+      });
+      results.push(await supervisor.runCycle());
+    }
+    return results;
+  }
+
+  function tickMainGuardian() {
+    if (stopping || mainGuardianStopped || mainGuardianPending) return;
+    mainGuardianPending = runMainGuardianCycle()
+      .then(() => undefined)
+      .catch((error) => {
+        console.error(
+          `[cowork] main guardian cycle failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      })
+      .finally(() => {
+        mainGuardianPending = undefined;
+        if (!stopping && !mainGuardianStopped)
+          mainGuardianTimer = setTimeout(tickMainGuardian, mainGuardianIntervalMs());
+      });
+  }
+
+  function startMainGuardian() {
+    if (mainGuardianTimer || stopping || mainGuardianStopped || mainGuardianDisabled() || !mainGuardian)
+      return;
+    tickMainGuardian();
+  }
+
+  async function stopMainGuardian() {
+    mainGuardianStopped = true;
+    clearTimeout(mainGuardianTimer);
+    mainGuardianTimer = undefined;
+    await mainGuardianPending;
+  }
+
   function editMainMessage(
     taskId: string,
     request: MessageEditRequest,
@@ -1409,8 +1509,14 @@ export function createDashboardRunService({
     cancellations,
     pendingHumanAnswers,
     resumeHumanAnswers,
+    runMainGuardianCycle,
+    startMainGuardian,
+    stopMainGuardian,
     async stop() {
       stopping = true;
+      // Stop taking decisions first: a guardian that is already launching is
+      // drained with the other task operations before its process is reaped.
+      await stopMainGuardian();
       // A startup may be between durable writes and spawn. Drain accepted task
       // operations before disabling ProcessHost so they can settle without a child.
       await Promise.allSettled([...taskOperations.values()]);

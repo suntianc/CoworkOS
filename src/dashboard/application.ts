@@ -421,6 +421,12 @@ export function createDashboardApplication(
       resolve: (location, input) => mainSessions.resolve(location, input)
     },
     mainCapacity,
+    mainGuardian: {
+      workspaceRoots: knownWorkspaceRoots,
+      // Same gate the watch cycle used: a host with no Main connection has
+      // nothing to launch, and a connection added later is seen next cycle.
+      modelConfigured: () => Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
+    },
     withTaskProjectLock: workspaces.withTaskProjectLock,
     resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
     endpointLimits: async (selection) =>
@@ -477,7 +483,6 @@ export function createDashboardApplication(
     knownWorkspaceRoots,
     locateTask,
     runtimeValue,
-    startMainRun,
     cancelTask: runs.cancelTask,
     runtimeOptions: () => {
       const env = runtimeSettingsEnv(runtimeConfig);
@@ -1089,6 +1094,7 @@ export function createDashboardApplication(
   const server = createServer(createDashboardHandler(routes));
   server.once("listening", () => void mainCapacity.start());
   server.once("listening", () => watchers.start());
+  server.once("listening", () => runs.startMainGuardian());
   server.once("listening", () => memoryLearning.start());
   if (PROJECT_EXPERIENCE_ENABLED) server.once("listening", () => projectLearning.start());
 
@@ -1109,6 +1115,9 @@ export function createDashboardApplication(
       await projectLearning.stop();
       computer.close();
       await watchers.stop();
+      // A recovery cycle must not start a Main into a service that is going
+      // away, and it must finish before capacity stops admitting.
+      await runs.stopMainGuardian();
       server.closeAllConnections();
       await projectClones.stop();
       // Stop admitting before the processes exit, so no shutdown release
