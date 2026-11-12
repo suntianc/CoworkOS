@@ -196,12 +196,18 @@ test("quick verify prepares real web assets from a clean checkout", async () => 
     const actual = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
     const noop = 'node -e "process.exit(0)"';
     const scripts = Object.fromEntries(
-      ["build:cli", "lint", "check:extensions", "format:check", "check:docs", "check:source"].map((name) => [
-        name,
-        noop
-      ])
+      [
+        "build:cli",
+        "lint",
+        "check:extensions",
+        "format:check",
+        "check:docs",
+        "check:source",
+        "test:release:runner"
+      ].map((name) => [name, noop])
     );
     if (actual.scripts["build:web-assets"]) scripts["build:web-assets"] = actual.scripts["build:web-assets"];
+    assert.deepEqual(Object.keys(scripts).sort(), [...verificationScripts].sort());
     await put("package.json", JSON.stringify({ type: "module", scripts }));
     await assert.rejects(access(join(root, "web/assets/math/generated/katex.js")), { code: "ENOENT" });
     const realRoot = await realpath(root);
@@ -232,7 +238,7 @@ test("quick verify prepares real web assets from a clean checkout", async () => 
   });
 });
 
-test("verify defaults to CLI and web asset builds with static checks, without the full regression", async () => {
+test("verify defaults to builds, static checks and the release-runner gate without the full regression", async () => {
   const calls = [];
   assert.equal(
     await verify([], async (_command, args) => {
@@ -248,7 +254,8 @@ test("verify defaults to CLI and web asset builds with static checks, without th
   assert.equal(calls.filter((args) => args[1] === "build:cli").length, 1);
   assert.equal(calls.filter((args) => args[1] === "build:web-assets").length, 1);
   assert.ok(calls.every((args) => args[0] === "run"));
-  assert.ok(!calls.some((args) => args[1] === "build:full" || args[1] === "test:release:runner"));
+  assert.ok(!calls.some((args) => args[1] === "build:full"));
+  assert.equal(calls.filter((args) => args[1] === "test:release:runner").length, 1);
 });
 
 test("verify --full builds all assets once and retains runner and Node regression checks", async () => {
