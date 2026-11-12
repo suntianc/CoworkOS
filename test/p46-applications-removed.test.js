@@ -128,7 +128,7 @@ function mainEnvironment(root, overrides) {
     COWORK_RUN_ID: "run",
     COWORK_MODEL: "protocol-fixture",
     COWORK_MODEL_API: "openai-completions",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     COWORK_REASONING_EFFORT: "off",
     COWORK_SUPPORTS_REASONING_EFFORT: "0",
     PI_CODING_AGENT_DIR: join(root, "pi"),

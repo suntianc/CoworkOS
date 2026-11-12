@@ -78,7 +78,7 @@ test("artifact open displays authorized bytes for each isolated backend", async 
         COWORK_HARNESS_ROOT: repository,
         COWORK_WORKSPACE: join(base, "workspace"),
         COWORK_CONFIG: config,
-        COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+        COWORK_DISABLE_MAIN_GUARDIAN: "1",
         PI_CODING_AGENT_DIR: join(base, "pi"),
         PI_OFFLINE: "1",
         PI_TELEMETRY: "0",

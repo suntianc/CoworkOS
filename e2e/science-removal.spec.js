@@ -72,7 +72,7 @@ test("Electron removes science controls and opens and downloads deliveries", asy
     COWORK_DESKTOP_DATA: root,
     ATRIA_HOME: join(root, "home"),
     COWORK_SCIENCE_TOOLS: "1",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_CODING_AGENT_DIR: join(root, "pi"),
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0"

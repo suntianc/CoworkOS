@@ -22,7 +22,7 @@ test("native App after normal model setup performs anonymous search and source f
     ATRIA_HOME: join(root, "home"),
     PI_CODING_AGENT_DIR: join(root, "pi"),
     COWORK_EXA_MCP_ENDPOINT: exa.endpoint,
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0"
   });

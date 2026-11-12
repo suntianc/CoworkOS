@@ -260,7 +260,7 @@ async function runMain(t, { supportsImages, reply }) {
         COWORK_MODEL: "p46-fixture",
         COWORK_MODEL_API: "openai-completions",
         COWORK_DASHBOARD_URL: "",
-        COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+        COWORK_DISABLE_MAIN_GUARDIAN: "1",
         COWORK_REASONING_EFFORT: "off",
         COWORK_SUPPORTS_REASONING_EFFORT: "0",
         COWORK_SUPPORTS_IMAGES: supportsImages ? "1" : "0",

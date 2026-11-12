@@ -234,7 +234,7 @@ test(
           COWORK_TASK_ID: "proxy-task",
           COWORK_RUN_ID: "proxy-run",
           PI_CODING_AGENT_DIR: join(root, "pi"),
-          COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+          COWORK_DISABLE_MAIN_GUARDIAN: "1",
           PI_OFFLINE: "1",
           PI_TELEMETRY: "0"
         }

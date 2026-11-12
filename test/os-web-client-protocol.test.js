@@ -50,7 +50,7 @@ async function createRoot(prefix, overrides = {}) {
     COWORK_WORKSPACE: workspace,
     COWORK_GLOBAL_INDEX: join(home, "runtime", "workspaces.json"),
     COWORK_CONFIG: configPath,
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     ...overrides
   });
   return { base, home, workspace, project, env };

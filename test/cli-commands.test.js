@@ -27,7 +27,7 @@ async function fixture(t) {
     COWORK_CONFIG: config,
     COWORK_WORKSPACE: workspace,
     PI_CODING_AGENT_DIR: join(root, "pi"),
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
   t.after(() => rm(root, { recursive: true, force: true }));

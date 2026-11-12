@@ -149,7 +149,7 @@ test(
           COWORK_RUN_ID: "browser-run",
           COWORK_BROWSER_EXECUTABLE: chromium.executablePath(),
           PI_CODING_AGENT_DIR: join(root, "pi"),
-          COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+          COWORK_DISABLE_MAIN_GUARDIAN: "1",
           PI_OFFLINE: "1"
         }
       }

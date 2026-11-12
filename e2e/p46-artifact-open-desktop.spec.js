@@ -18,7 +18,7 @@ test("桌面版用系统默认应用打开产物，并且只接受后端解析�
     COWORK_DESKTOP_DATA: root,
     ATRIA_HOME: join(root, "home"),
     PI_CODING_AGENT_DIR: join(root, "pi"),
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
   let native;

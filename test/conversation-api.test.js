@@ -84,7 +84,7 @@ test(
           COWORK_REASONING_EFFORT: "high",
           COWORK_SUPPORTS_REASONING_EFFORT: "true",
           PI_CODING_AGENT_DIR: join(root, "pi-agent"),
-          COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+          COWORK_DISABLE_MAIN_GUARDIAN: "1",
           COWORK_SERPER_API_KEY: "",
           SERPER_API_KEY: "",
           COWORK_WEB_TOOLS: "0"

@@ -38,7 +38,7 @@ async function dashboardFixture(t, options = {}, envOverrides = {}) {
     COWORK_WORKSPACE: join(root, "workspace"),
     COWORK_CONFIG: join(root, "config.json"),
     COWORK_API_TOKEN: hostToken,
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1",
     ...envOverrides
   });
@@ -679,7 +679,7 @@ test(
       COWORK_WORKSPACE: join(base, "workspace"),
       COWORK_GLOBAL_INDEX: join(home, "runtime/workspaces.json"),
       COWORK_CONFIG: config,
-      COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+      COWORK_DISABLE_MAIN_GUARDIAN: "1",
       COWORK_COMPUTER_USE_EXECUTABLE: executable,
       COWORK_API_BASE: model.baseUrl,
       COWORK_API_KEY: "local-fixture",
