@@ -2,12 +2,13 @@
 
 中文 | [English](en/builtin-capabilities.md)
 
-这个分支保留 CoworkOS 的完整编排链路：Main、Coordinator Runtime、Subagent、Jobs、长期目标、监控、人工问答、工作区、记忆、检查点和会话恢复。通用文件与附件工具、图像读取、搜索、Computer Use、通用 MCP 接口继续提供。
+这个分支保留 CoworkOS 的完整编排链路：Main、Coordinator Runtime、Subagent、Jobs、长期目标、监控、人工问答、工作区、检查点和会话恢复。通用文件与附件工具、图像读取、搜索、Computer Use、通用 MCP 接口继续提供。
 
 长期目标与监控按[阶段规划](development-phases.md)在 P4.5 移除界面入口，只保留后端能力与接口；产品中的使用方式日后单独规划。
 
 已移除的产品能力包括：
 
+- 用户记忆（含手动记忆）、自动学习与项目经验：存储、HTTP 接口、Pi 工具、界面入口与专门测试一并移除，项目上下文改由需求台账提供。
 - 文本与 Markdown 编辑器、专用 MCP 服务、编辑工具、草稿会话组件及界面入口。
 - Blender 工作台、引擎、安装器、Blender Harness，以及对应工具与技能。
 - CAD 工作台、JSCAD/CadQuery 内核、CAD/FreeCAD Harness、原生查看器，以及对应工具与技能。

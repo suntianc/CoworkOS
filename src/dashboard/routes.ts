@@ -7,11 +7,7 @@ import { taskApplicationProject } from "../applications/project-context.js";
 import { taskApplicationWorkspace } from "../applications/task-service.js";
 import { McpSupervisor } from "../applications/mcp-supervisor.js";
 import { handleApplicationRequest } from "./application-routes.js";
-import { handleProjectExperienceRequest } from "./project-experience-routes.js";
-import type { ProjectExperienceStore } from "../runtime/project-experience-store.js";
 import type { ModelLevels } from "../runtime/model-levels.js";
-import { handleUserMemoryRequest } from "./user-memory-routes.js";
-import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { serveArtifact } from "./artifact-response.js";
 import {
   applyTrustedClientCors,
@@ -70,7 +66,6 @@ import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
 type WorkspaceDirectory = ReturnType<typeof createWorkspaceDirectory>;
 type RunService = ReturnType<typeof createDashboardRunService>;
 export interface DashboardRoutePorts {
-  userMemory?: UserMemoryStore;
   backendInfo(): { backendId: string; pid: number; startedAt: string };
   /** Local session authorization; absent only in partial handlers that serve one router. */
   access?: LocalAccess;
@@ -78,7 +73,6 @@ export interface DashboardRoutePorts {
   commands?: CommandRunner;
   /** Snapshot and resumable catalog events; absent in partial handlers. */
   events?: CatalogEvents;
-  projectExperienceStore?: (projectId: string) => Promise<ProjectExperienceStore | undefined>;
   /** Shared project ledger; absent only in partial handlers that serve one router. */
   projectData?: ProjectDataRuntime;
   /** Persistent project Main sessions; absent only in partial handlers that serve one router. */
@@ -427,13 +421,6 @@ export function createDashboardHandler(
       )
         return;
       if (ports.mainCapacity && (await handleMainCapacityRequest(request, response, url, ports.mainCapacity)))
-        return;
-      if (
-        ports.projectExperienceStore &&
-        (await handleProjectExperienceRequest(request, response, url, ports.projectExperienceStore))
-      )
-        return;
-      if (ports.userMemory && (await handleUserMemoryRequest(request, response, url, ports.userMemory)))
         return;
       if (ports.uploads && (await handleUploadRequest(request, response, url, ports.uploads))) return;
       if (request.method === "GET" && url.pathname === "/") {

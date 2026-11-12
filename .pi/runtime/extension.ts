@@ -1,8 +1,8 @@
-import { resetMainSupervisorBackoff, SUPERVISOR_WAKE_TURN } from "../../dist/src/runtime/main-supervisor.js";
+import { resetMainSupervisorBackoff } from "../../dist/src/runtime/main-supervisor.js";
 import { configuredWebTools } from "../../dist/src/runtime/web-search-config.js";
 import { readQueuedUserTurn } from "../../dist/src/runtime/queued-user-turn.js";
+import { withoutRetiredSections } from "../../dist/src/runtime/retired-system-sections.js";
 import type { ExtensionAPI, ExtensionContext, SessionEntry, Skill } from "@earendil-works/pi-coding-agent";
-import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -22,9 +22,6 @@ import { HEARTBEAT_STALE_MS, writeHeartbeat } from "../../dist/src/runtime/main-
 import { MainInboxDelivery } from "../../dist/src/runtime/main-inbox-delivery.js";
 import {
   MAIN_CONTINUATION_TYPE,
-  MAIN_CONTINUATION_COMMAND,
-  mainInputPath,
-  readMainInput,
   isMainContinuationMessage,
   registerMainContinuation
 } from "../../dist/src/runtime/main-continuation.js";
@@ -102,26 +99,6 @@ import { registerProjectLedgerTool } from "./tools/project-ledger.ts";
 import { registerProjectDevelopmentTool } from "./tools/project-development.ts";
 import { goalContext } from "../../dist/src/runtime/goal-context.js";
 import { registerWorkspaceTools } from "./tools/workspace.ts";
-import { registerUserMemoryTool } from "./tools/user-memory.ts";
-import { UserMemoryStore, userMemoryContext } from "../../dist/src/runtime/user-memory-store.js";
-import {
-  userMemoryWithinContextBudget,
-  optionalContextSectionWithinBudget
-} from "../../dist/src/runtime/user-memory-context.js";
-import {
-  ProjectExperienceStore,
-  projectExperienceIdentity
-} from "../../dist/src/runtime/project-experience-store.js";
-import { createProjectExperienceEvidenceRecorder } from "../../dist/src/runtime/project-experience-evidence.js";
-import {
-  projectExperienceContext,
-  projectExperienceSkillCatalog
-} from "../../dist/src/runtime/project-experience-context.js";
-import {
-  createProjectExperienceLearningService,
-  enqueueProjectExperienceRun
-} from "../../dist/src/runtime/project-experience-learning.js";
-import { createUserMemoryLearningService } from "../../dist/src/runtime/user-memory-learning.js";
 import { registerComputerTools } from "./tools/computer-use.ts";
 import { businessCommandEnvironment } from "../../dist/src/runtime/command-environment.js";
 import { registerBrowserTools } from "./tools/browser-use.ts";
@@ -183,35 +160,8 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
    * affecting Main's prompt.
    */
   let sdkSkills: Skill[] | undefined;
-  let learnedSkillPaths: string[] = [];
-  const seenLearnedPaths = new Set<string>();
-  const projectStoreNow = async () => {
-    const task = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId);
-    const identity = projectExperienceIdentity(task, projectDirectory);
-    return identity ? new ProjectExperienceStore(identity) : undefined;
-  };
-  let projectEvidenceRecorder: ReturnType<typeof createProjectExperienceEvidenceRecorder> | undefined;
-  let projectRecordedUserText = "";
-  const refreshLearnedSkills = async () => {
-    learnedSkillPaths = [];
-    try {
-      const store = await projectStoreNow();
-      if (store) learnedSkillPaths = (await store.readProfile()).skills.map((skill) => skill.path);
-      for (const path of learnedSkillPaths) seenLearnedPaths.add(path);
-      // eslint-disable-next-line no-restricted-syntax -- 项目经验库是可选上下文，读取失败时保持 learnedSkillPaths 为空并继续用基础 skill
-    } catch {
-      /* Optional project knowledge fails closed. */
-    }
-  };
-  const skillScopeNow = () => {
-    const scope = mainApplicationSkillScope(
-      baseSkillRoots,
-      applicationBridge.boundApplication,
-      harnessRoot,
-      sdkSkills?.filter((skill) => !seenLearnedPaths.has(skill.filePath))
-    );
-    return { ...scope, skillRoots: [...scope.skillRoots, ...learnedSkillPaths] };
-  };
+  const skillScopeNow = () =>
+    mainApplicationSkillScope(baseSkillRoots, applicationBridge.boundApplication, harnessRoot, sdkSkills);
   let currentSkillsSection: string | undefined;
   const inboxDelivery = new MainInboxDelivery(workspaceRoot, taskId, mainRunId);
   let agentStartedAt = 0;
@@ -244,57 +194,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   let mainTurns = 0;
   let active = 0;
   let recentContext: unknown[] = [];
-  let userMemoryRequest = "";
-  let userMemoryLearningRequest = "";
-  const userMemoryStore = new UserMemoryStore();
-  let memoryTurnActive = false;
-  const memoryLearning =
-    !process.env.COWORK_DASHBOARD_URL && baseUrl && apiKey
-      ? createUserMemoryLearningService({
-          store: userMemoryStore,
-          connection: () => ({
-            baseUrl,
-            apiKey,
-            model: modelId,
-            api: configuredModelApi(runtimeEnv),
-            thinkingFormat: configuredThinkingFormat(runtimeEnv),
-            thinkingLevel: currentThinkingLevel(),
-            supportsReasoningEffort,
-            maxTokens: configuredMainMaxTokens(runtimeEnv),
-            contextWindow: configuredContextWindow(runtimeEnv)
-          }),
-          isTaskActive: (id) => id === taskId && memoryTurnActive,
-          isForegroundActive: () => memoryTurnActive
-        })
-      : undefined;
-  const projectLearning =
-    !process.env.COWORK_DASHBOARD_URL && baseUrl && apiKey
-      ? createProjectExperienceLearningService({
-          stores: async () => {
-            const store = await projectStoreNow();
-            return store ? [store] : [];
-          },
-          userMemoryStore,
-          connection: () => ({
-            baseUrl,
-            apiKey,
-            model: modelId,
-            api: configuredModelApi(runtimeEnv),
-            thinkingFormat: configuredThinkingFormat(runtimeEnv),
-            supportsReasoningEffort,
-            maxTokens: configuredMainMaxTokens(runtimeEnv),
-            contextWindow: configuredContextWindow(runtimeEnv)
-          }),
-          isTaskActive: (id) => id === taskId && memoryTurnActive,
-          isForegroundActive: () => memoryTurnActive
-        })
-      : undefined;
-  pi.on("session_shutdown", async () => {
-    await memoryLearning?.stop();
-    await projectLearning?.stop();
-    // eslint-disable-next-line no-restricted-syntax -- 关闭会话时进程即将退出，前台标记写入失败不影响退出，下次启动会重新登记
-    await userMemoryStore.taskForegroundIdle(taskId, mainRunId).catch(() => {});
-  });
   let mainContext: ReturnType<typeof mainContextPaths> | undefined;
   const compactionRetry = new MainCompactionRetry();
   let pendingContextClear: { reason: string } | undefined;
@@ -646,48 +545,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   };
 
   pi.on("before_agent_start", async (event) => {
-    // Yield the connection before any setup awaits; older Tasks must not compete
-    // with the user's new foreground turn for a model request.
-    memoryTurnActive = true;
-    memoryLearning?.pause();
-    projectLearning?.pause();
-    // eslint-disable-next-line no-restricted-syntax -- 前台标记供记忆学习让路使用，写入失败不应阻塞本轮模型请求
-    await userMemoryStore.taskForegroundActive(taskId, mainRunId).catch(() => {});
-    userMemoryRequest = readQueuedUserTurn(event.prompt)?.text ?? event.prompt;
-    userMemoryLearningRequest = userMemoryRequest;
-    try {
-      const input = await readMainInput(mainInputPath(workspaceRoot, taskId, mainRunId));
-      if (input && (readQueuedUserTurn(input.prompt)?.text ?? input.prompt) === userMemoryRequest) {
-        userMemoryRequest =
-          typeof input.body === "string"
-            ? input.body
-            : input.textAttachments?.length || input.attachmentIds?.length
-              ? ""
-              : userMemoryRequest;
-        userMemoryLearningRequest = userMemoryRequest;
-      }
-      // eslint-disable-next-line no-restricted-syntax -- 宿主输入文件不可读时无法确认用户文本，记忆学习请求按空文本继续
-    } catch {
-      // An unreadable host input cannot establish which text came from the user.
-      userMemoryRequest = "";
-      userMemoryLearningRequest = "";
-    }
-    if ([MAIN_CONTINUATION_COMMAND, SUPERVISOR_WAKE_TURN].includes(userMemoryRequest)) {
-      userMemoryRequest = "";
-      userMemoryLearningRequest = "";
-    }
-    await userMemoryStore
-      .enqueueForegroundLearning({
-        taskId,
-        runId: mainRunId,
-        text: userMemoryLearningRequest,
-        projectDirectory
-      })
-      // eslint-disable-next-line no-restricted-syntax -- 记忆学习队列是旁路任务，入队失败不能影响本轮对话
-      .catch(() => {});
-    memoryLearning?.start();
-    projectLearning?.start();
-    await refreshLearnedSkills();
     const sections = await prepareMainTurnSections();
     const options = event.systemPromptOptions;
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- systemPromptOptions 在旧版 Pi 调用方可能缺失，缺省时按项目默认身份处理
@@ -695,9 +552,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 Pi 调用方可能只提供 event.systemPrompt，缺少该系统选项时走下面的回退分支
     if (options) {
       sdkSkills = options.skills;
-      options.skills = (await mainApplicationSkills(skillScopeNow(), options.skills)).filter(
-        (skill) => !seenLearnedPaths.has(skill.filePath)
-      );
+      options.skills = await mainApplicationSkills(skillScopeNow(), options.skills);
       currentSkillsSection = mainApplicationSkillsSection(options.skills);
       Object.assign(options.sections, sections);
       return;
@@ -712,19 +567,15 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   if (process.env.COWORK_MAIN_CONTINUATION) {
     registerMainContinuation(pi, async (ctx) => {
       continuationSections = await prepareMainTurnSections();
-      await refreshLearnedSkills();
       await requestRetry?.restore();
       const options = ctx.getSystemPromptOptions();
       sdkSkills = options.skills ?? [];
       currentSkillsSection = mainApplicationSkillsSection(
-        (await mainApplicationSkills(skillScopeNow(), sdkSkills)).filter(
-          (skill) => !seenLearnedPaths.has(skill.filePath)
-        )
+        await mainApplicationSkills(skillScopeNow(), sdkSkills)
       );
       projectDefaultIdentity = !options.customPrompt && options.forceSystemPrompt === undefined;
     });
   }
-  let memoryContextSettings: SettingsManager | undefined;
   pi.on("context_with_system", async (event, ctx) => {
     const sections = continuationSections;
     let messages = sections
@@ -753,66 +604,19 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         ctx.ui.notify(`Main current context refresh failed: ${errorMessage(error)}`, "warning");
       }
     }
-    // Refresh every request, including after a memory tool edit. Do not cache
-    // user memory in the session: disabling/deleting must affect the next request.
-    let memory = "";
-    try {
-      memory = await userMemoryContext(userMemoryStore, projectDirectory);
-      // eslint-disable-next-line no-restricted-syntax -- 用户记忆损坏不能让普通对话失败，记忆工具会单独报告该错误
-    } catch {
-      /* A corrupt profile must not prevent ordinary chat; the tool reports the error. */
-    }
-    let experience = "",
-      projectSkills = "";
-    try {
-      const store = await projectStoreNow();
-      if (store) {
-        experience = await projectExperienceContext(store);
-        projectSkills = await projectExperienceSkillCatalog(store);
-      }
-      // eslint-disable-next-line no-restricted-syntax -- 项目经验与 skill 目录都是可选上下文，读取失败时本轮不带这两段
-    } catch {
-      /* Optional context must not stop Main. */
-    }
-    const refreshed = messages.map((message) =>
-      message.role === "system"
-        ? {
-            ...message,
-            sections: { ...message.sections, user_memory: "", project_experience: "", project_skills: "" }
-          }
-        : message
-    );
+    // Sessions started before the memory/experience removal keep the retired
+    // sections in their persisted system message; strip them from every request
+    // so resuming such a session never sends that text to a model again.
     const skillSection = currentSkillsSection;
-    const scoped = skillSection
-      ? refreshed.map((message) =>
-          message.role === "system"
-            ? { ...message, sections: { ...message.sections, skills: skillSection } }
-            : message
-        )
-      : refreshed;
-    const projected = projectDefaultIdentity ? scoped.map(projectAtriaSystemMessage) : scoped;
-    if ((!memory && !experience && !projectSkills) || !ctx.model) return { messages: projected };
-    // Pi's threshold check precedes context_with_system. Resolve the same SDK
-    // settings (including model overrides and project trust), but never cause
-    // an extra compaction solely to fit optional personal memory.
-    memoryContextSettings ??= SettingsManager.create(ctx.cwd, undefined, {
-      projectTrusted: ctx.isProjectTrusted()
+    const scoped = messages.map((message) => {
+      const stripped = withoutRetiredSections(message);
+      if (stripped.role !== "system") return stripped;
+      const withSkills = skillSection
+        ? { ...stripped, sections: { ...stripped.sections, skills: skillSection } }
+        : stripped;
+      return projectDefaultIdentity ? projectAtriaSystemMessage(withSkills) : withSkills;
     });
-    memoryContextSettings.setProjectTrusted(ctx.isProjectTrusted());
-    const budget = {
-      contextWindow: ctx.model.contextWindow,
-      reserveTokens: memoryContextSettings.getCompactionReserveTokens(ctx.model),
-      maxTokens: ctx.model.maxTokens
-    };
-    const withExperience = optionalContextSectionWithinBudget(
-      userMemoryWithinContextBudget(projected, memory, budget),
-      "project_experience",
-      experience,
-      budget
-    );
-    return {
-      messages: optionalContextSectionWithinBudget(withExperience, "project_skills", projectSkills, budget)
-    };
+    return { messages: scoped };
   });
 
   // Keep a bounded copy of the user-facing Main transcript. It is passed to
@@ -854,12 +658,10 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       await updateRuntime({ runtimePendingDelegations: active + inboxDelivery.queuedCount });
       // Refresh between model requests, including changes made during a turn.
       await applicationBridge.prepareApplicationContext();
-      await refreshLearnedSkills();
       await capabilityTools.refresh();
-      const skills = (await mainApplicationSkills(skillScopeNow(), sdkSkills ?? [])).filter(
-        (skill) => !seenLearnedPaths.has(skill.filePath)
+      currentSkillsSection = mainApplicationSkillsSection(
+        await mainApplicationSkills(skillScopeNow(), sdkSkills ?? [])
       );
-      currentSkillsSection = mainApplicationSkillsSection(skills);
     } catch (error) {
       ctx.ui.notify(`Main context snapshot failed: ${errorMessage(error)}`, "warning");
     }
@@ -990,24 +792,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
                 verifiedAt: new Date().toISOString()
               }
             });
-            try {
-              const store = await projectStoreNow();
-              if (store) {
-                const profile = await store.readProfile();
-                if (profile.enabled && profile.learningEnabled)
-                  await projectEvidenceRecorder?.finish("completed");
-                await enqueueProjectExperienceRun({
-                  store,
-                  identity: store.identity,
-                  workspaceRoot,
-                  taskId,
-                  runId: mainRunId
-                });
-              }
-              // eslint-disable-next-line no-restricted-syntax -- 后台经验入库失败只影响学习，不改变已经写定的任务完成状态
-            } catch {
-              /* Background intake never changes task completion. */
-            }
             await updateRuntime({
               runtimePhase: "completed",
               runtimePendingDelegations: 0,
@@ -1040,12 +824,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   });
 
   pi.on("agent_start", async (_event, ctx) => {
-    // Internal continuation and Inbox turns can bypass before_agent_start.
-    memoryTurnActive = true;
-    memoryLearning?.pause();
-    projectLearning?.pause();
-    // eslint-disable-next-line no-restricted-syntax -- 前台标记只用于跨进程让记忆学习让路，写入失败最多多派一次学习，不阻塞本轮启动
-    await userMemoryStore.taskForegroundActive(taskId, mainRunId).catch(() => {});
     awaitingInitialPrompt = false;
     lastMainMessage = undefined;
     if (mainTimeoutTimer) clearTimeout(mainTimeoutTimer);
@@ -1126,36 +904,11 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         return;
       }
     } finally {
-      memoryTurnActive = false;
-      // eslint-disable-next-line no-restricted-syntax -- 本轮结束标记写入失败时，下一个前台 Turn 会重新写入活动/空闲状态，不阻塞收尾
-      await userMemoryStore.taskForegroundIdle(taskId, mainRunId).catch(() => {});
       if (mainTimeoutTimer) clearTimeout(mainTimeoutTimer);
       mainTimeoutTimer = undefined;
     }
   });
   pi.on("turn_end", async (event, ctx) => {
-    if (!process.env.COWORK_DASHBOARD_URL) {
-      try {
-        const store = await projectStoreNow();
-        const profile = await store?.readProfile();
-        if (store && profile?.enabled && profile.learningEnabled) {
-          projectEvidenceRecorder ??= createProjectExperienceEvidenceRecorder({
-            identity: store.identity,
-            workspaceRoot,
-            taskId,
-            runId: mainRunId
-          });
-          if (userMemoryLearningRequest && userMemoryLearningRequest !== projectRecordedUserText) {
-            projectEvidenceRecorder.record([{ role: "user", content: userMemoryLearningRequest }]);
-            projectRecordedUserText = userMemoryLearningRequest;
-          }
-          projectEvidenceRecorder.record([event.message, ...event.toolResults]);
-        } else projectEvidenceRecorder = undefined;
-        // eslint-disable-next-line no-restricted-syntax -- 项目证据只是学习输入，记录失败时丢弃 recorder，任务结论仍由任务记录表达
-      } catch {
-        projectEvidenceRecorder = undefined;
-      }
-    }
     // A user pause is read from the Task record at the boundary between two
     // steps: the current tool call and model reply have settled, so aborting
     // here starts no new tool call or model request. The Run's close path
@@ -1222,8 +975,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
               branch: goalDelegationBranch,
               messages
             })
-        },
-        memoryReserveTokens: (model) => memoryContextSettings?.getCompactionReserveTokens(model) ?? 16_384
+        }
       }
     );
     pi.registerProvider(model.provider, {
@@ -1390,20 +1142,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   registerProjectLedgerTool(pi, toolContext);
   registerProjectDevelopmentTool(pi, toolContext);
   registerWorkspaceTools(pi, toolContext);
-  registerUserMemoryTool(pi, {
-    store: userMemoryStore,
-    taskId,
-    runId: mainRunId,
-    projectDirectory,
-    userText: async () => {
-      // Human answers arrive as tool results, not a new before_agent_start input.
-      // Read only durable answers owned by this Task/Run; never trust arbitrary tool text.
-      const answers = (await humanStore.list(taskId, "answered"))
-        .filter((request) => request.runId === mainRunId)
-        .map((request) => request.answer ?? "");
-      return [userMemoryRequest, ...answers].join("\n");
-    }
-  });
   const cuaBridge = createCuaDispatcher(pi);
   registerImageTools(cuaBridge.capturePi, toolContext);
   registerSearchTools(pi, projectDirectory);
@@ -1493,7 +1231,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
           return;
         }
       }
-      await refreshLearnedSkills();
       await capabilityTools.refresh();
       mainContext = mainContextPaths(workspaceRoot, taskId);
       await ensureMainContext(mainContext);

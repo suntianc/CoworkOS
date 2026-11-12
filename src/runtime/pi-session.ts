@@ -40,7 +40,6 @@ import { recordModelRequests } from "./model-request-recording.js";
 import { withCompactionSummaryPolicy } from "./compaction-summary-policy.js";
 import { DEFAULT_TOOL_RESPONSE_CHARS, limitToolContent } from "./tool-output.js";
 import { commandOutputFeedback } from "./command-output-feedback.js";
-import { userMemoryWithinContextBudget, optionalContextSectionWithinBudget } from "./user-memory-context.js";
 export type { PiThinkingLevel } from "./runtime-settings.js";
 
 export interface PiSessionOptions {
@@ -60,9 +59,6 @@ export interface PiSessionOptions {
   /** Stable across tool turns and restored formal runs. */
   sessionId?: string;
   systemPrompt?: string;
-  /** Host-owned, refreshed on every request; never stored in the conversation checkpoint. */
-  prepareUserMemory?: () => Promise<string>;
-  prepareProjectExperience?: () => Promise<string>;
   tools: ReadonlyMap<string, RuntimeTool>;
   /** Additional model-visible tools, e.g. orchestration/delegation tools. */
   agentTools?: AgentTool[];
@@ -262,25 +258,7 @@ export class PiSession {
         ),
         messages: options.initialMessages ?? []
       },
-      transformContext: async (messages, signal) => {
-        const compacted = await compaction.transform(messages, signal);
-        const budget = {
-          contextWindow: model.contextWindow,
-          reserveTokens: options.compaction?.reserveTokens ?? DEFAULT_CONTEXT_COMPACTION.reserveTokens,
-          maxTokens: model.maxTokens
-        };
-        const personal = options.prepareUserMemory
-          ? userMemoryWithinContextBudget(compacted, await options.prepareUserMemory(), budget)
-          : compacted;
-        return options.prepareProjectExperience
-          ? optionalContextSectionWithinBudget(
-              personal,
-              "project_experience",
-              await options.prepareProjectExperience(),
-              budget
-            )
-          : personal;
-      },
+      transformContext: (messages, signal) => compaction.transform(messages, signal),
       streamFn: (model, context, streamOptions) =>
         models.streamSimple(model, context, {
           ...streamOptions,

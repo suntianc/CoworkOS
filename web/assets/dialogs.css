@@ -213,10 +213,6 @@ html[data-theme] :is(.modal-backdrop, .search-overlay) {
   outline: 2px solid var(--ui-accent);
   outline-offset: -4px;
 }
-.project-dialog .dialog-actions #project-experience-open {
-  margin-right: auto;
-  padding-inline: 0;
-}
 .app-dialog .dialog-list {
   display: grid;
   gap: 4px;

@@ -3,7 +3,6 @@ import {
   finishMessageEditTransaction
 } from "../runtime/main-message-edit-transaction.js";
 import { applyEndpointLimits, type EndpointLimits } from "../runtime/model-limits.js";
-import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { randomUUID } from "node:crypto";
 import {
   latestEditableMessage,
@@ -31,6 +30,7 @@ import { listJobs } from "../tools/jobs.js";
 import { join, resolve } from "node:path";
 import { mainRunEnv } from "./main-run-env.js";
 import { MainRequestConflictError, mainRequestEnvironment } from "../runtime/main-request-retry.js";
+import { retiredSectionReplayRefusal, retiredSectionsWithText } from "../runtime/retired-system-sections.js";
 import {
   MainRequestStore,
   MainRequestSnapshotError,
@@ -107,7 +107,6 @@ export interface MainLaunchAdmission {
 }
 
 export interface RunServicePorts {
-  userMemory?: UserMemoryStore;
   uploads?: InputStore;
   projectRoot: string;
   tabStorePath: string;
@@ -125,7 +124,6 @@ export interface RunServicePorts {
   resolveMainModel(request: ModelRoleRequest): ResolvedModelRole;
   /** The chosen model's own limits from its connection's `/models` entry, when listed (#27). */
   endpointLimits?: (selection: ResolvedModelRole) => Promise<EndpointLimits | undefined>;
-  onRunStarting?: () => void;
   onRunExit?: (taskId: string) => void;
   onRunFinalized?: (location: TaskLocation, runId: string) => Promise<void>;
   withTaskProjectLock?<T>(taskId: string, action: () => Promise<T>): Promise<T>;
@@ -190,7 +188,6 @@ export function createDashboardRunService({
   locateTask,
   resolveMainModel,
   endpointLimits = async () => undefined,
-  onRunStarting = () => {},
   onRunExit = () => {},
   onRunFinalized = async () => {},
   withTaskProjectLock = (_taskId, action) => action(),
@@ -199,8 +196,7 @@ export function createDashboardRunService({
   mainGuardian,
   normalizeModel,
   appendRunEvent,
-  readJsonFile,
-  userMemory
+  readJsonFile
 }: RunServicePorts) {
   const processes = new ProcessHost();
   const activeRuns = processes.processes;
@@ -251,8 +247,7 @@ export function createDashboardRunService({
     return current;
   }
 
-  async function launchMainRunWithActivity(
-    memoryActivityId: string,
+  async function launchMainRunWithAdmission(
     taskId: string,
     prompt: string,
     requestedRunId?: string,
@@ -275,9 +270,6 @@ export function createDashboardRunService({
     if (submission?.admittedRequestId) admission.requestId = submission.admittedRequestId;
     const existing = activeRuns.get(taskId);
     if (existing && !existing.killed) throw new Error("Task already has an active Main run");
-    // Cancel only the background request. Task state still changes after the
-    // normal validation below, and isBusy covers this asynchronous startup.
-    onRunStarting();
     const location = await locateTask(taskId);
     const task = location.task;
     const taskWorkspace = location.workspaceRoot;
@@ -318,6 +310,10 @@ export function createDashboardRunService({
             throw new MainRequestSnapshotError(
               "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
             );
+          // Refuse before spawning: an archive written before user memory and
+          // project experience were removed would resend their text verbatim.
+          const retired = retiredSectionsWithText(snapshot.context.messages);
+          if (retired.length) throw new MainRequestConflictError(retiredSectionReplayRefusal(retired));
           if (
             (await realpath(resolve(task.projectDirectory ?? taskWorkspace))) !==
             snapshot.environment.projectDirectory
@@ -513,19 +509,6 @@ export function createDashboardRunService({
     if (input) await saveMainInput(inputPath, input);
     if (input && !continuation) {
       await saveAcceptedMainMessage(taskWorkspace, taskId, input);
-      await userMemory
-        ?.enqueueForegroundLearning({
-          taskId,
-          runId,
-          text:
-            input.body ??
-            (input.attachmentIds?.length || input.textAttachments?.length
-              ? ""
-              : (readQueuedUserTurn(prompt)?.text ?? prompt)),
-          projectDirectory: task.projectDirectory
-        })
-        // eslint-disable-next-line no-restricted-syntax -- 前台学习是已接受运行的附带记忆信号，写入失败不应让这次启动失败
-        .catch(() => {});
       submission?.onAcceptedInput?.(input.messageId!);
     }
     if (!continuation) await requestStore.clear();
@@ -826,8 +809,6 @@ export function createDashboardRunService({
           )
         )
         .finally(async () => {
-          // eslint-disable-next-line no-restricted-syntax -- 进程已退出，记忆占用释放失败不能让 finalization 记录残留
-          await userMemory?.taskForegroundIdle(taskId, memoryActivityId).catch(() => {});
           // Keep the request active until its durable completion state is saved.
           finalizations.delete(finalization);
           if (taskFinalizations.get(taskId) === finalization) taskFinalizations.delete(taskId);
@@ -877,13 +858,9 @@ export function createDashboardRunService({
       submission?: MainLaunchSubmission
     ]
   ) {
-    const activityId = randomUUID();
     const admission: MainLaunchAdmission = { spawned: false };
-    // eslint-disable-next-line no-restricted-syntax -- 前台活动标记只是记忆提示，写入失败不应拒绝这次启动
-    await userMemory?.taskForegroundActive(args[0], activityId).catch(() => {});
     try {
-      return await launchMainRunWithActivity(
-        activityId,
+      return await launchMainRunWithAdmission(
         args[0],
         args[1],
         args[2],
@@ -902,8 +879,6 @@ export function createDashboardRunService({
         // eslint-disable-next-line no-restricted-syntax -- 启动失败要原样抛给调用方，释放容量失败不能替换这个错误
         else await mainCapacity.release(admission.requestId).catch(() => {});
       }
-      // eslint-disable-next-line no-restricted-syntax -- 错误路径必须抛出原始启动失败，记忆占用释放失败不能替换它
-      await userMemory?.taskForegroundIdle(args[0], activityId).catch(() => {});
       throw error;
     }
   }

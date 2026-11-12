@@ -22,7 +22,6 @@ import {
   runtimeSettingsEnv,
   normalizeReasoningEffort,
   configuredContextWindow,
-  configuredMainMaxTokens,
   configuredModelApi,
   configuredReasoningEffort,
   configuredSupportsReasoningEffort,
@@ -60,17 +59,6 @@ import { mainIsAlive, readHeartbeat } from "../runtime/main-heartbeat.js";
 import { createModelSettings } from "./model-settings.js";
 import { resolveModelRole } from "../runtime/role-models.js";
 import { createDashboardHandler, type DashboardRoutePorts } from "./routes.js";
-import { UserMemoryStore } from "../runtime/user-memory-store.js";
-import {
-  ProjectExperienceStore,
-  listProjectExperienceIdentities
-} from "../runtime/project-experience-store.js";
-import {
-  createProjectExperienceLearningService,
-  enqueueProjectExperienceRun
-} from "../runtime/project-experience-learning.js";
-import { PROJECT_EXPERIENCE_ENABLED } from "../domain/project-experience.js";
-import { createUserMemoryLearningService } from "../runtime/user-memory-learning.js";
 import { createDashboardRunService } from "./run-service.js";
 import { LocalAccess } from "./local-access.js";
 import { FileCommandRunner } from "./management-commands.js";
@@ -366,28 +354,10 @@ export function createDashboardApplication(
     locateTask
   );
   const uploads = new InputStore(join(dirname(globalIndexPath), "uploads"));
-  const userMemory = new UserMemoryStore();
-  const projectExperienceStore = async (projectId: string) => {
-    const project = await workspaces.applicationProjectForId(projectId);
-    return project
-      ? new ProjectExperienceStore({
-          projectId: project.projectId,
-          projectDirectory: project.projectDirectory,
-          ...(project.projectCatalogPath ? { projectCatalogPath: project.projectCatalogPath } : {})
-        })
-      : undefined;
-  };
   const runs = createDashboardRunService({
-    userMemory,
-    onRunStarting: () => {
-      memoryLearning.pause();
-      projectLearning.pause();
-    },
     onRunFinalized: async (location, runId) => {
       if (!location.projectId) return;
-      // A Run keeps the session that owned it after it settles. The shared write
-      // is best-effort here: the local experience record below is an independent
-      // finalization step, and an unreachable authority must not suppress it.
+      // A Run keeps the session that owned it after it settles.
       try {
         await mainSessions.settle(
           location.projectId,
@@ -400,15 +370,6 @@ export function createDashboardApplication(
           `[cowork] session run settlement failed: ${error instanceof Error ? error.message : String(error)}`
         );
       }
-      const store = PROJECT_EXPERIENCE_ENABLED ? await projectExperienceStore(location.projectId) : undefined;
-      if (store)
-        await enqueueProjectExperienceRun({
-          store,
-          identity: store.identity,
-          workspaceRoot: location.workspaceRoot,
-          taskId: location.task.taskId,
-          runId
-        });
     },
     uploads,
     projectRoot,
@@ -890,63 +851,6 @@ export function createDashboardApplication(
     };
   }
 
-  const projectLearning = createProjectExperienceLearningService({
-    stores: async () => {
-      const identities = await listProjectExperienceIdentities();
-      const stores: ProjectExperienceStore[] = [];
-      for (const identity of identities) {
-        // Do not revive another catalog or a deleted project from stale private state.
-        if (identity.projectCatalogPath !== workspaces.projectCatalog.filePath) continue;
-        const store = await projectExperienceStore(identity.projectId);
-        if (store) stores.push(store);
-      }
-      return stores;
-    },
-    userMemoryStore: userMemory,
-    connection: () => {
-      const baseUrl = runtimeValue("COWORK_API_BASE"),
-        apiKey = runtimeValue("COWORK_API_KEY");
-      const env = runtimeSettingsEnv(runtimeConfig);
-      return baseUrl && apiKey
-        ? {
-            baseUrl,
-            apiKey,
-            model: runtimeValue("COWORK_MODEL"),
-            api: configuredModelApi(env),
-            thinkingFormat: configuredThinkingFormat(env),
-            thinkingLevel: configuredReasoningEffort(env),
-            supportsReasoningEffort: configuredSupportsReasoningEffort(env),
-            maxTokens: configuredMainMaxTokens(env),
-            contextWindow: configuredContextWindow(env)
-          }
-        : undefined;
-    },
-    isTaskActive: (taskId) => activeRuns.has(taskId),
-    isForegroundActive: () => runs.isBusy()
-  });
-  const memoryLearning = createUserMemoryLearningService({
-    store: userMemory,
-    connection: () => {
-      const baseUrl = runtimeValue("COWORK_API_BASE"),
-        apiKey = runtimeValue("COWORK_API_KEY");
-      const env = runtimeSettingsEnv(runtimeConfig);
-      return baseUrl && apiKey
-        ? {
-            baseUrl,
-            apiKey,
-            model: runtimeValue("COWORK_MODEL"),
-            api: configuredModelApi(env),
-            thinkingFormat: configuredThinkingFormat(env),
-            thinkingLevel: configuredReasoningEffort(env),
-            supportsReasoningEffort: configuredSupportsReasoningEffort(env),
-            maxTokens: configuredMainMaxTokens(env),
-            contextWindow: configuredContextWindow(env)
-          }
-        : undefined;
-    },
-    isTaskActive: (taskId) => activeRuns.has(taskId),
-    isForegroundActive: () => runs.isBusy()
-  });
   async function computerHostRequest(value: unknown) {
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new HttpError(400, "无效 Computer Use 请求");
@@ -1008,7 +912,6 @@ export function createDashboardApplication(
     return computer.authorize(input.taskId, input.pid, input.windowId, input.mode);
   }
   const routes: DashboardRoutePorts = {
-    userMemory,
     projectData,
     mainSessions,
     developments,
@@ -1023,7 +926,6 @@ export function createDashboardApplication(
       pid: process.pid,
       startedAt: backendIdentity.startedAt
     }),
-    ...(PROJECT_EXPERIENCE_ENABLED ? { projectExperienceStore } : {}),
     watchers,
     goals: createGoalService({
       harnessRoot: projectRoot,
@@ -1095,8 +997,6 @@ export function createDashboardApplication(
   server.once("listening", () => void mainCapacity.start());
   server.once("listening", () => watchers.start());
   server.once("listening", () => runs.startMainGuardian());
-  server.once("listening", () => memoryLearning.start());
-  if (PROJECT_EXPERIENCE_ENABLED) server.once("listening", () => projectLearning.start());
 
   return {
     server,
@@ -1111,8 +1011,6 @@ export function createDashboardApplication(
       await developments.stopDeliveryRecovery();
       await computerApproval.close();
       await catalogEvents.close();
-      await memoryLearning.stop();
-      await projectLearning.stop();
       computer.close();
       await watchers.stop();
       // A recovery cycle must not start a Main into a service that is going

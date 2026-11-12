@@ -396,13 +396,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
 .settings-rows > .computer-setting > .computer-setting-content {
   padding: 0 16px 14px;
 }
-.settings-rows > .user-memory-settings {
-  display: block;
-}
-.settings-rows > .user-memory-settings > .profile-setting {
-  border: 0;
-  background: transparent;
-}
 .settings-row-label,
 .settings-row-name {
   color: var(--color-text);
@@ -752,63 +745,13 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   flex: 0 0 84px;
 }
 
-/* Tool rows are created by three controllers installed in boot order; the
-   design reads search, memory, then window access. */
+/* Tool rows are created by the search and window-access controllers; the
+   design reads search first, then window access. */
 #profile-settings-tools > .profile-setting {
   order: 1;
 }
-#profile-settings-tools > .user-memory-settings {
-  order: 2;
-}
 #profile-settings-tools > .computer-setting {
-  order: 3;
-}
-.settings-rows .user-memory-setting {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-}
-.settings-rows .user-memory-actions {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-.settings-rows .user-memory-switch {
-  padding: 0;
-}
-.settings-rows .user-memory-learning-options {
-  border-top: 1px solid var(--color-line);
-}
-.settings-rows .user-memory-learning-options > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 13px 16px;
-  color: var(--color-text-2);
-  font: 400 13px/1.4 var(--ui-font);
-  cursor: pointer;
-  list-style: none;
-}
-.settings-rows .user-memory-learning-options > summary::-webkit-details-marker {
-  display: none;
-}
-.settings-rows .user-memory-learning-options > summary small {
-  margin: 0;
-  color: var(--color-text-3);
-}
-.settings-rows .user-memory-learning-options > summary .ui-icon {
-  width: 14px;
-  height: 14px;
-  margin-left: auto;
-}
-.settings-rows .user-memory-learning-content {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 0 16px 14px;
+  order: 2;
 }
 .settings-rows .computer-setting > summary .settings-row-action {
   display: inline-flex;
@@ -1349,144 +1292,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   color: var(--ui-secondary);
   font-size: 12px;
   line-height: 1.7;
-}
-
-.user-memory-editor textarea {
-  width: 100%;
-  box-sizing: border-box;
-  resize: vertical;
-  padding: 10px;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--ui-border);
-  border-radius: 8px;
-  font: inherit;
-}
-.user-memory-editor button {
-  margin: 0 8px 10px 0;
-}
-
-.settings-card .user-memory-setting {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 16px;
-}
-.settings-card .user-memory-setting .settings-row-copy strong {
-  margin: 0;
-  line-height: 1.35;
-}
-.settings-card .user-memory-setting .settings-row-copy small {
-  margin-top: 1px;
-  line-height: 1.4;
-}
-.settings-card .user-memory-switch {
-  justify-self: end;
-  padding: 6px 0 6px 12px;
-}
-.user-memory-switch input:focus-visible {
-  outline: 2px solid var(--ui-accent);
-  outline-offset: 3px;
-}
-.user-memory-switch input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.user-memory-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.user-memory-learning-options {
-  margin: 0 0 2px 32px;
-  padding: 0;
-}
-.user-memory-learning-options > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 0;
-  list-style: none;
-  cursor: pointer;
-  color: var(--ui-secondary);
-  font-size: 12px;
-}
-.user-memory-learning-options > summary::-webkit-details-marker {
-  display: none;
-}
-.user-memory-learning-options > summary > small {
-  margin-left: auto;
-  color: var(--ui-muted);
-}
-.user-memory-learning-options > summary > .ui-icon {
-  width: 14px;
-  height: 14px;
-  color: var(--ui-faint);
-}
-.user-memory-learning-options[open] > summary > .ui-icon {
-  transform: rotate(90deg);
-}
-.user-memory-learning-options > summary:focus-visible {
-  outline: 2px solid var(--ui-accent);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
-.user-memory-learning-content {
-  padding-bottom: 14px;
-}
-.user-memory-learning-options form {
-  display: grid;
-  gap: 12px;
-  margin-top: 8px;
-}
-.user-memory-learning-options button {
-  justify-self: start;
-}
-.user-memory-learning-options [data-memory-options-result]:empty {
-  display: none;
-}
-@media (max-width: 480px) {
-  :is(.settings-card, .settings-rows) .user-memory-setting {
-    gap: 6px 10px;
-  }
-  .user-memory-actions {
-    gap: 8px;
-  }
-  .settings-rows .user-memory-setting {
-    flex-wrap: wrap;
-  }
-  .settings-rows .user-memory-setting .settings-row-copy {
-    flex-basis: calc(100% - 32px);
-  }
-  .settings-rows .user-memory-actions {
-    margin-left: 32px;
-    margin-top: -6px;
-  }
-}
-.user-memory-compose {
-  margin: 0;
-}
-.user-memory-compose-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 4px;
-}
-.user-memory-compose-actions button {
-  flex-shrink: 0;
-  margin: 0;
-}
-
-.user-memory-compose-actions .settings-help {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-}
-
-.user-memory-compose [data-memory-compose-result]:empty,
-.settings-scroll > [data-memory-view-status]:empty {
-  display: none;
 }
 
 /* Node connections: the row's retry, its action menu and the add/rename form.
