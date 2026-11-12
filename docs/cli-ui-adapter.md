@@ -2,7 +2,7 @@
 
 中文 | [English](en/cli-ui-adapter.md)
 
-CoworkOS 使用 `@earendil-works/pi-coding-agent@0.87.1`，保留原始依赖、许可和恢复格式。产品名称不代表模型训练来源。原始请求归档、JSONL、checkpoint、SDK RPC 和用户指定的提示词继续记录实际内容；产品会话导出仅在副本中投影已知默认身份。
+CoworkOS 使用 `@earendil-works/pi-coding-agent@1.5.2`，保留原始依赖、许可和恢复格式。产品名称不代表模型训练来源。原始请求归档、JSONL、checkpoint、SDK RPC 和用户指定的提示词继续记录实际内容；产品会话导出仅在副本中投影已知默认身份。
 
 公开 `coworkos --version/-v`、`coworkos start --version/-v` 和 `npm start -- --version` 返回 CoworkOS 产品版本，无需配置、SDK、已编译 runtime 或可写用户目录。根版本查询不接受额外参数；start 同时含 help/version 时显示 help，其他执行参数与独立 version 混用会报错。选项值及 `--` 后正文不被当成查询。普通运行的扩展参数仍交 SDK 验证。
 
@@ -31,11 +31,13 @@ SDK 没有覆盖这些固定提示的公开 UI hook。CoworkOS 保留 SDK bundle
 
 ## 命令执行身份与完整输出
 
-CLI 的交互、print、JSON 和 RPC 使用独立的 [命令策略](../scripts/cli-shell-policy.json)，仅处理 SDK 0.87.1 中的三个唯一位置：启动时设置 `AI_AGENT=coworkos`；模型原生 bash 工具和手动 `!`/RPC bash 的长输出文件使用 `atria-bash-*.log`。这是实际创建的文件名，工具正文及流式/最终 `fullOutputPath` 都引用同一个可读文件。`PI_CODING_AGENT=true` 保留为真实引擎的兼容标记；历史日志、正文及已保存路径不重命名。
+CLI 的交互、print、JSON 和 RPC 使用独立的 [命令策略](../scripts/cli-shell-policy.json)，仅处理 SDK 1.5.2 中的三个唯一位置：启动时设置 `AI_AGENT=coworkos`；模型原生 bash 工具和手动 `!`/RPC bash 的长输出文件使用 `atria-bash-*.log`。这是实际创建的文件名，工具正文及流式/最终 `fullOutputPath` 都引用同一个可读文件。`PI_CODING_AGENT=true` 保留为真实引擎的兼容标记；历史日志、正文及已保存路径不重命名。
 
 [只读校验](../scripts/cli-shell-compatibility.mjs) 固定两个原始 bundle 文件 hash，要求每个原文唯一命中。父进程在准备用户状态前校验，子进程在导入 SDK 前重验，加载时再次核对原始 source。交互 boot 将三处差异与六处 UI span 合并，对同一原文排序并拒绝重叠；print/JSON/RPC 经 [普通 boot 入口](../scripts/cli-shell-boot.mjs) 加载原来的 SDK executable，不添加可继承的预加载参数或 stdout 标题。这些差异不依赖默认扩展，显式替换 `--extension` 仍生效；协议字段、命令退出码和取消行为保持原义。构建校验替换后的 JavaScript，许可与依赖文件原样保留。
 
 ## 升级与验收
+
+启动器保持升级前的 terminal 默认与能力边界：交互 TUI 默认使用 regular 滚动区（用户可用 `--tui-mode fullscreen` 选择全屏），并关闭 Pi 1.x 内置的 MCP 客户端，工具表不因用户 `mcp.json` 增加 `mcp__*` 工具。
 
 SDK 升级不得自动刷新支持 hash。维护者须审阅实际源码、六处 UI 和三处命令差异，更新策略，再验证唯一命中、拒绝、最低 Node/当前 Node、regular/fullscreen、自定义 editor、慢启动、reload、trust/tmux/错误/crash、命令长输出/失败/取消、停止/恢复和候选真实安装；适用的 Electron 路径也要验证。保留第三方许可原文，关联 [许可证说明](../THIRD_PARTY_NOTICES.md)。
 

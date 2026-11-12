@@ -173,6 +173,7 @@ export async function grepFiles(parameters, cwd = process.cwd()) {
     throw new Error(`Search path must be a file or directory: ${root}`);
   const candidates = info.isDirectory() ? files(root, await ancestorRules(root)) : [root];
   const output = [];
+  const outputLines = [];
   const matchedLines = [];
   const skippedFiles = [];
   let matchCount = 0;
@@ -218,6 +219,12 @@ export async function grepFiles(parameters, cwd = process.cwd()) {
         break;
       }
       output.push(text);
+      outputLines.push({
+        path,
+        lineNumber: line + 1,
+        line: lines[line].slice(0, 1000),
+        isMatch: matchedIndexes.has(line)
+      });
       outputBytes += size;
     }
     if (limitReached || outputLimitReached) break;
@@ -229,7 +236,9 @@ export async function grepFiles(parameters, cwd = process.cwd()) {
     outputLimitReached,
     linesTruncated,
     skippedFiles,
-    matches: matchedLines
+    matches: matchedLines,
+    // Adapter JSON needs match and context rows in file order, not only matches.
+    lines: outputLines
   };
 }
 

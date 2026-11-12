@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { serializeConversation as serializeMain } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/compaction/utils.js";
-import { serializeConversation as serializeSubagent } from "../node_modules/@earendil-works/pi-agent-core/dist/harness/compaction/utils.js";
+// Pi 1.5 compacts Main and Subagent summaries with the coding agent's serializer.
+import { serializeConversation } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/compaction/utils.js";
 import {
   COMPACTION_TOOL_RESULT_MAX_CHARS,
   projectCompactionMessages
@@ -41,7 +41,7 @@ const text = (message) =>
     .map((part) => part.text)
     .join("\n");
 
-test("both real SDK serializers retain tool heads, tails and error receipts within the native limit", () => {
+test("the real SDK serializer retains tool heads, tails and error receipts within the native limit", () => {
   const messages = [
     assistant([call("verify-1", "bash", { command: "pytest -q", cwd: "/fixture/project" })]),
     result(
@@ -57,20 +57,18 @@ test("both real SDK serializers retain tool heads, tails and error receipts with
   const original = structuredClone(messages);
   const projected = projectCompactionMessages(messages);
   assert.ok(text(projected[1]).length <= COMPACTION_TOOL_RESULT_MAX_CHARS);
-  for (const serialize of [serializeMain, serializeSubagent]) {
-    const serialized = serialize(projected);
-    for (const marker of [
-      "OUTPUT_HEAD_ANCHOR",
-      "4 failed, 1413 passed",
-      "Command exited with code 1",
-      "verify-1",
-      "isError=true",
-      "exitCode=1",
-      "/fixture/project"
-    ])
-      assert.ok(serialized.includes(marker), `summary input must retain ${marker}`);
-    assert.doesNotMatch(serialized, /more characters truncated/);
-  }
+  const serialized = serializeConversation(projected);
+  for (const marker of [
+    "OUTPUT_HEAD_ANCHOR",
+    "4 failed, 1413 passed",
+    "Command exited with code 1",
+    "verify-1",
+    "isError=true",
+    "exitCode=1",
+    "/fixture/project"
+  ])
+    assert.ok(serialized.includes(marker), `summary input must retain ${marker}`);
+  assert.doesNotMatch(serialized, /more characters truncated/);
   assert.deepEqual(messages, original);
   assert.equal(projected[0], messages[0], "non-tool source messages need no rewrite");
   assert.equal(projected[1].details, messages[1].details, "structured receipt metadata remains intact");
@@ -179,7 +177,7 @@ test("recorded command arguments and resolved cwd survive long structured tool o
   assert.ok(text(projected).length <= COMPACTION_TOOL_RESULT_MAX_CHARS);
 });
 
-test("both SDK serializers retain unmatched call identities without claiming current execution", () => {
+test("the SDK serializer retains unmatched call identities without claiming current execution", () => {
   const messages = [
     assistant([call("pending-call-anchor", "run_command", { command: "pytest -q" })]),
     assistant([call("completed-call-anchor", "read_file", { path: "parser.js" })]),
@@ -187,17 +185,15 @@ test("both SDK serializers retain unmatched call identities without claiming cur
   ];
   const original = structuredClone(messages);
   const projected = projectCompactionMessages(messages);
-  for (const serialize of [serializeMain, serializeSubagent]) {
-    const serialized = serialize(projected);
-    assert.match(serialized, /pending-call-anchor/);
-    assert.match(serialized, /name="run_command"/);
-    assert.match(serialized, /message=1/);
-    assert.match(serialized, /content block=1/);
-    assert.match(serialized, /only within this summary interval/);
-    assert.match(serialized, /Later retained messages or current harness state may settle/);
-    assert.match(serialized, /does not establish that they are currently running/);
-    assert.equal((serialized.match(/Tool call without result:/g) ?? []).length, 1);
-  }
+  const serialized = serializeConversation(projected);
+  assert.match(serialized, /pending-call-anchor/);
+  assert.match(serialized, /name="run_command"/);
+  assert.match(serialized, /message=1/);
+  assert.match(serialized, /content block=1/);
+  assert.match(serialized, /only within this summary interval/);
+  assert.match(serialized, /Later retained messages or current harness state may settle/);
+  assert.match(serialized, /does not establish that they are currently running/);
+  assert.equal((serialized.match(/Tool call without result:/g) ?? []).length, 1);
   assert.equal(projected[1], messages[1], "matched calls need no pending-call annotation");
   assert.equal(projected[0].content[0], messages[0].content[0], "call arguments remain untouched");
   assert.deepEqual(messages, original);
@@ -222,11 +218,9 @@ test("unmatched duplicate calls preserve occurrence positions and orphan results
   assert.doesNotMatch(pending, /content block=2/);
   assert.match(text(projected[0]), /matching earlier call unavailable/);
   assert.match(text(projected[2]), /FIRST_MATCH/);
-  for (const serialize of [serializeMain, serializeSubagent]) {
-    const serialized = serialize(projected);
-    assert.match(serialized, /future-only-id/);
-    assert.equal((serialized.match(/Tool call without result:/g) ?? []).length, 3);
-  }
+  const serialized = serializeConversation(projected);
+  assert.match(serialized, /future-only-id/);
+  assert.equal((serialized.match(/Tool call without result:/g) ?? []).length, 3);
   assert.deepEqual(messages, original);
 });
 

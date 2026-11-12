@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { basename, join, resolve } from "node:path";
 import { readInputDocument } from "../../../dist/src/workspace/input-reader.js";

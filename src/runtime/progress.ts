@@ -1,6 +1,6 @@
 import { lstat, open, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { listTaskArtifacts } from "../workspace/artifact-store.js";
 import { agentDisplayName } from "./agent-identity.js";

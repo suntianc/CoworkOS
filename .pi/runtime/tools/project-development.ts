@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createProjectDevelopmentTool } from "../../../dist/src/runtime/project-development-tool.js";
 import type { CoworkToolContext } from "../extension.ts";
