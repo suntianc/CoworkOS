@@ -2,12 +2,13 @@
 
 [中文](../builtin-capabilities.md) | English
 
-This branch retains the complete CoworkOS orchestration chain: Main, Coordinator Runtime, Subagents, Jobs, long-term goals, monitoring, human questions, workspaces, memory, checkpoints and session recovery. Generic files and attachments, image inspection, search, Computer Use and generic MCP interfaces remain available.
+This branch retains the complete CoworkOS orchestration chain: Main, Coordinator Runtime, Subagents, Jobs, long-term goals, monitoring, human questions, workspaces, checkpoints and session recovery. Generic files and attachments, image inspection, search, Computer Use and generic MCP interfaces remain available.
 
 Under the [phase plan](../development-phases.md) (Chinese), P4.5 removes the UI entry for long-term goals and monitoring and keeps only their backend capability and interfaces; how the product uses them will be planned separately.
 
 Removed capabilities:
 
+- User memory (including manual memory), automatic learning and project experience: storage, HTTP routes, Pi tools, UI entries and dedicated tests are gone, and the requirement ledger now supplies project context.
 - Blender workbench, engine, installer, Blender Harness, domain tools and skills.
 - CAD workbench, JSCAD/CadQuery kernels, CAD/FreeCAD Harness, native viewers, domain tools and skills.
 - PPTist, OfficeHarness, PPTX/HTML deck authoring skills, `review_slides`, editor assets and their build dependencies.

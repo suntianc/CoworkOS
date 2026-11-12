@@ -66,14 +66,6 @@ App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，
 
 外部 Main 的运行名额与排队是执行主机的本机事实，保存在数据根的 `main-capacity/state.json`（默认 `~/.atria/runtime/main-capacity/state.json`，权限 0600）：本机 external 会话的 Task 索引、正在占用名额的 Run 与进程、以及等待中的需求（含已接受输入、尝试次数、退避时间、最近失败原因与本机进程号）。它不进入共享项目数据，也不在项目数据库备份快照内；进程结束后由程序释放名额并推进队列，重启时只核对本机自有进程。运行记录与 Main 会话归属仍以共享会话和 Task 为准。
 
-## 项目经验数据
-
-独立项目经验位于 `ATRIA_HOME/project-experience/<sha256(catalog-path, projectId)>/`，正式经验不写入项目源码、Task 目录或个人记忆文件；独立 Pi CLI 的当前轮有界证据另存为所属 Task 的 `runs/<runId>/experience-evidence.json`，供后台读取。目录含权威 `experience.json`（经验、候选、版本、来源、引用队列、额度和去重）、轻量 `profile.json`（只含正式经验及技能目录）与重启发现用 `identity.json`。
-
-启用技能单独发布到私有 `skills/<uuid>/SKILL.md`，停用、删除或关闭使用会撤回可加载文件；不覆盖项目手工 `.pi/skills/`。
-
-稳定项目身份在工作目录调整后保留已沉淀知识；catalog 不同的同名 ID 隔离，缺少稳定 ID 时使用目录哈希。临时工作区和内部 holding Task 不参与项目沉淀。存储采用私有权限、短超时可恢复锁、版本检查和原子替换，损坏文件保留并停止加载。备份整个目录，其中包含本地明文来源引用；恢复时与所属项目 catalog 一并保护。具体容量、开关和验证限制见[项目经验与技能](project-experience.md)。
-
 ## 应用资源与 Task
 
 ```text

@@ -3,7 +3,6 @@ import {
   finishMessageEditTransaction
 } from "../runtime/main-message-edit-transaction.js";
 import { applyEndpointLimits, type EndpointLimits } from "../runtime/model-limits.js";
-import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { randomUUID } from "node:crypto";
 import {
   latestEditableMessage,
@@ -102,7 +101,6 @@ export interface MainLaunchAdmission {
 }
 
 export interface RunServicePorts {
-  userMemory?: UserMemoryStore;
   uploads?: InputStore;
   projectRoot: string;
   tabStorePath: string;
@@ -177,8 +175,7 @@ export function createDashboardRunService({
   mainCapacity,
   normalizeModel,
   appendRunEvent,
-  readJsonFile,
-  userMemory
+  readJsonFile
 }: RunServicePorts) {
   const processes = new ProcessHost();
   const activeRuns = processes.processes;
@@ -230,7 +227,6 @@ export function createDashboardRunService({
   }
 
   async function launchMainRunWithActivity(
-    memoryActivityId: string,
     taskId: string,
     prompt: string,
     requestedRunId?: string,
@@ -491,19 +487,6 @@ export function createDashboardRunService({
     if (input) await saveMainInput(inputPath, input);
     if (input && !continuation) {
       await saveAcceptedMainMessage(taskWorkspace, taskId, input);
-      await userMemory
-        ?.enqueueForegroundLearning({
-          taskId,
-          runId,
-          text:
-            input.body ??
-            (input.attachmentIds?.length || input.textAttachments?.length
-              ? ""
-              : (readQueuedUserTurn(prompt)?.text ?? prompt)),
-          projectDirectory: task.projectDirectory
-        })
-        // eslint-disable-next-line no-restricted-syntax -- 前台学习是已接受运行的附带记忆信号，写入失败不应让这次启动失败
-        .catch(() => {});
       submission?.onAcceptedInput?.(input.messageId!);
     }
     if (!continuation) await requestStore.clear();
@@ -804,8 +787,6 @@ export function createDashboardRunService({
           )
         )
         .finally(async () => {
-          // eslint-disable-next-line no-restricted-syntax -- 进程已退出，记忆占用释放失败不能让 finalization 记录残留
-          await userMemory?.taskForegroundIdle(taskId, memoryActivityId).catch(() => {});
           // Keep the request active until its durable completion state is saved.
           finalizations.delete(finalization);
           if (taskFinalizations.get(taskId) === finalization) taskFinalizations.delete(taskId);
@@ -855,13 +836,9 @@ export function createDashboardRunService({
       submission?: MainLaunchSubmission
     ]
   ) {
-    const activityId = randomUUID();
     const admission: MainLaunchAdmission = { spawned: false };
-    // eslint-disable-next-line no-restricted-syntax -- 前台活动标记只是记忆提示，写入失败不应拒绝这次启动
-    await userMemory?.taskForegroundActive(args[0], activityId).catch(() => {});
     try {
       return await launchMainRunWithActivity(
-        activityId,
         args[0],
         args[1],
         args[2],
@@ -880,8 +857,6 @@ export function createDashboardRunService({
         // eslint-disable-next-line no-restricted-syntax -- 启动失败要原样抛给调用方，释放容量失败不能替换这个错误
         else await mainCapacity.release(admission.requestId).catch(() => {});
       }
-      // eslint-disable-next-line no-restricted-syntax -- 错误路径必须抛出原始启动失败，记忆占用释放失败不能替换它
-      await userMemory?.taskForegroundIdle(args[0], activityId).catch(() => {});
       throw error;
     }
   }

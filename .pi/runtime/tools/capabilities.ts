@@ -7,7 +7,6 @@ import { LocalWorkspaceStore } from "../../../dist/src/workspace/workspace-store
 import { resolveCapabilities } from "../../../dist/src/runtime/task-capabilities.js";
 
 export const CORE_TOOLS = [
-  "manage_user_memory",
   "load_skill",
   "read_image",
   "read_images",

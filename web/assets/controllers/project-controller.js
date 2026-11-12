@@ -361,7 +361,7 @@ export function createProjectController({
   }
   /**
    * The project row's ⋯ menu (#33): rename, and remove from the list. Folder
-   * changes and project experience have no entry here any more.
+   * changes have no entry here any more.
    */
   let projectMenu, menuPanel, menuProjectId;
   function openProjectMenu(trigger, id) {
