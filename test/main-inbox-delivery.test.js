@@ -697,7 +697,7 @@ test("a callback-triggered turn can create a new standing wake without delivery 
     await writeSleep(root, "task", park);
     await store.transitionTask("task", "waiting", { runId: "run", completion: { signal: "interrupted" } });
   });
-  assert.deepEqual(await readSleep(root, "task"), { ...park, wakeFiredAt: undefined });
+  assert.deepEqual(await readSleep(root, "task"), park);
   assert.equal((await store.readTask("task")).status, "waiting");
 });
 
