@@ -4,7 +4,7 @@ import { id, now, type Event, type InboxMessage } from "../domain/types.js";
 import { JsonlEventStore } from "../storage/event-store.js";
 import { InboxStore } from "./scheduler.js";
 
-/** A normalized event emitted by a timer, file/log watcher, webhook, or plugin. */
+/** A normalized event emitted by a webhook, plugin or other external source. */
 export interface WatcherEvent {
   watcherId: string;
   source: string;
@@ -26,8 +26,6 @@ export interface WatcherRuntimeInput {
   workspaceRoot: string;
   taskId: string;
   runId: string;
-  /** Optional product-level Watch Program projection to mirror accepted events into. */
-  programId?: string;
   recipientAgentId?: string;
 }
 
@@ -48,9 +46,9 @@ export interface WatcherPollResult {
 /**
  * Durable boundary between external events and the Main inbox.
  *
- * Watchers never call the model directly. They normalize an observation,
- * append one event to the run log, and enqueue an idempotent Inbox message.
- * A future supervisor can consume that message and wake/resume Main.
+ * An observation never calls the model directly. It is normalized, appended to
+ * the run log, and enqueued as one idempotent Inbox message; a running Main
+ * consumes that message through its ordinary delivery path.
  */
 export class WatcherRuntime {
   private readonly recipientAgentId: string;
@@ -99,26 +97,6 @@ export class WatcherRuntime {
     await new JsonlEventStore(
       join(this.input.workspaceRoot, this.input.taskId, "runs", this.input.runId, "run_events.jsonl")
     ).append(event);
-    if (this.input.programId) {
-      await new JsonlEventStore(
-        join(
-          this.input.workspaceRoot,
-          this.input.taskId,
-          "watch",
-          "programs",
-          this.input.programId,
-          "events",
-          "events.jsonl"
-        )
-      ).append({
-        ...event,
-        type: "watch.program_event_received",
-        payload: {
-          monitorId: observation.watcherId,
-          ...(event.payload && typeof event.payload === "object" ? event.payload : { value: event.payload })
-        }
-      });
-    }
     const message: InboxMessage = {
       messageId,
       recipientAgentId: this.recipientAgentId,

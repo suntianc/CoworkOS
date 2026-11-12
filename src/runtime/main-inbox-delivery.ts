@@ -8,10 +8,6 @@ import { withFileLock } from "../storage/file-lock.js";
 import { experimentDigest } from "./experiment-digest.js";
 import { clearSleep } from "./main-sleep.js";
 import type { InboxMessage } from "../domain/types.js";
-import { WatchProgramStore } from "./watch-program-store.js";
-import { routeGoalMessage, discardGoalMessage } from "./goal-routing.js";
-import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
-import { monitoringPrograms } from "./monitoring-control.js";
 
 interface DeliveredMessage {
   customType: string;
@@ -98,34 +94,7 @@ export class MainInboxDelivery {
               (message.state === "leased" && Date.parse(message.lease?.expiresAt ?? "") <= Date.now()))
         )
         .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt));
-      const programs = await monitoringPrograms(this.workspaceRoot, this.taskId);
-      const background =
-        (await new LocalWorkspaceStore(this.workspaceRoot).readTask(this.taskId)).monitoring?.scope ===
-        "background";
       for (const candidate of candidates) {
-        const route = routeGoalMessage(programs, background, candidate);
-        if (route === "hold") continue;
-        if (route === "discard") {
-          await discardGoalMessage(this.inbox, candidate);
-          continue;
-        }
-        const watch = candidate.payload as
-          { type?: string; programId?: string; monitorId?: string } | undefined;
-        if (watch?.type?.startsWith("watch.") && watch.programId) {
-          const store = new WatchProgramStore(this.workspaceRoot);
-          const program = programs.find((entry) => entry.programId === watch.programId);
-          if (program?.status === "paused") continue;
-          if (program?.status === "completed" && watch.type.startsWith("watch.goal_")) {
-            await discardGoalMessage(this.inbox, candidate);
-            continue;
-          }
-          if (
-            program &&
-            watch.monitorId &&
-            (await store.readVirtualAgent(this.taskId, watch.programId, watch.monitorId)).status === "paused"
-          )
-            continue;
-        }
         const candidatePayload = candidate.payload as { type?: string; delivery?: string } | undefined;
         if (
           !includeFollowUps &&
@@ -150,10 +119,10 @@ export class MainInboxDelivery {
               : { payload: message.payload };
           // A finished job rides the external_event channel, since it is the
           // same shape of news: something outside this turn changed. It is
-          // labelled separately so Main is not told its own training run was a
-          // watch event.
+          // labelled separately so Main is not told its own training run was an
+          // external observation.
           const isJobFinished = message.kind === "external_event" && payload.type === "job.finished";
-          const isWatchEvent = message.kind === "external_event" && !isJobFinished;
+          const isExternalEvent = message.kind === "external_event" && !isJobFinished;
           const isHumanAnswer = message.kind === "human_command" && payload.type === "human.answer";
           const isUserMessage = message.kind === "human_command" && payload.type === "human.message";
           const followUp = isUserMessage && payload.delivery === "followUp";
@@ -163,7 +132,7 @@ export class MainInboxDelivery {
           // sender must not leave a stopped Task permanently running.
           // Any delivered message means Main is awake, so the standing wake
           // condition it parked on has been met. One clear covers callbacks,
-          // human answers, watch events and scheduled wakes alike. A park left
+          // human answers, external events and scheduled wakes alike. A park left
           // behind by a failed clear only delays automatic completion, which
           // finish_task overrides, so it must not fail the delivery itself.
           await clearSleep(this.workspaceRoot, this.taskId).catch(async (error) => {
@@ -197,8 +166,8 @@ export class MainInboxDelivery {
                 ? "cowork-user-message"
                 : isJobFinished
                   ? "cowork-job-finished"
-                  : isWatchEvent
-                    ? "cowork-watch-event"
+                  : isExternalEvent
+                    ? "cowork-external-event"
                     : isHumanAnswer
                       ? "cowork-human-answer"
                       : isSubagentQuestion
@@ -211,7 +180,7 @@ export class MainInboxDelivery {
                 ? followUp
                   ? `用户排队的下一条请求（当前工作结束后处理）：\n${String(payload.message ?? "")}`
                   : `用户在你工作期间补充了一句话：\n${String(payload.message ?? "")}\n\n如果它改变了当前该做的事，就据此调整；如果只是补充信息，记下来继续。不要重新开始已经完成的部分。`
-                : `Cowork ${isJobFinished ? "job finished" : isWatchEvent ? "watch event" : isHumanAnswer ? "human answer" : isSubagentQuestion ? "subagent question" : "callback"} received from Inbox:\n${JSON.stringify(message.payload)}${digest ? `\n\n${digest}` : ""}`,
+                : `Cowork ${isJobFinished ? "job finished" : isExternalEvent ? "external event" : isHumanAnswer ? "human answer" : isSubagentQuestion ? "subagent question" : "callback"} received from Inbox:\n${JSON.stringify(message.payload)}${digest ? `\n\n${digest}` : ""}`,
               display: true,
               details: {
                 ...payload,
@@ -350,7 +319,7 @@ export class MainInboxDelivery {
           : isJobFinished
             ? "job_finished"
             : message.kind === "external_event"
-              ? "watch_event_received"
+              ? "external_event_received"
               : message.kind === "subagent_question"
                 ? "subagent_question_received"
                 : "subagent_callback_received",

@@ -1,5 +1,5 @@
 import { createHash, type Hash } from "node:crypto";
-import { open, readFile, stat, readdir, type FileHandle } from "node:fs/promises";
+import { open, readFile, stat, type FileHandle } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -206,8 +206,6 @@ export function streamRunEvents(
   let closed = false;
   let emitting = false;
   let ledgerReadAt = -Infinity;
-  let watchReadAt = -Infinity;
-  const watchCursors = new Map<string, JsonlReadCursor>();
   const emit = async (): Promise<void> => {
     if (closed || emitting) return;
     emitting = true;
@@ -238,38 +236,6 @@ export function streamRunEvents(
           for (const key of sentEventKeys) {
             if (sentEventKeys.size <= 6_000) break;
             sentEventKeys.delete(key);
-          }
-        }
-      }
-      if (now - watchReadAt >= 1000) {
-        watchReadAt = now;
-        const directory = join(taskWorkspace, taskId, "watch", "programs");
-        // eslint-disable-next-line no-restricted-syntax -- watch/programs 只在有监视程序时存在，缺失就是没有程序
-        const programs = await readdir(directory).catch(() => []);
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，readdir 返回后连接可能已断开
-        if (closed) return;
-        for (const programId of programs) {
-          if (!/^[a-zA-Z0-9_-]+$/.test(programId)) continue;
-          const path = join(directory, programId, "events", "events.jsonl");
-          let cursor = watchCursors.get(programId);
-          if (!cursor) {
-            const size = await stat(path)
-              .then((info) => info.size)
-              // eslint-disable-next-line no-restricted-syntax -- 程序事件文件要到第一条事件才创建，缺失时从文件开头跟随
-              .catch(() => 0);
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，stat 期间连接可能已断开
-            if (closed) return;
-            cursor = { offset: Math.max(0, size - 65_536), pending: "", decoder: new StringDecoder("utf8") };
-            watchCursors.set(programId, cursor);
-          }
-          const events = await readRuntimeEventsSince(path, cursor, { isClosed: () => closed });
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，读文件期间连接可能已断开
-          if (closed) return;
-          for (const event of events) {
-            const eventId = `watch-ui-${createHash("sha256").update(JSON.stringify(event)).digest("hex").slice(0, 32)}`;
-            response.write(
-              `id: ${eventId}\ndata: ${JSON.stringify({ eventId, type: "watch.changed", taskId, runId, occurredAt: event.occurredAt, payload: { programId, event } })}\n\n`
-            );
           }
         }
       }

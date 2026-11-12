@@ -2,19 +2,11 @@ import assert from "node:assert/strict";
 import { getEventListeners } from "node:events";
 import { test } from "node:test";
 import { CoordinatorWorker } from "../dist/src/runtime/worker.js";
-import { WatcherLoop } from "../dist/src/runtime/watcher-loop.js";
 
 const loops = {
   worker: () => {
     const loop = new CoordinatorWorker({ recoverRun: async () => [] });
     return { loop, run: (options) => loop.run({ pollMs: 250, ...options }) };
-  },
-  watcher: () => {
-    const loop = new WatcherLoop();
-    return {
-      loop,
-      run: (options) => loop.run({ poll: async () => ({}) }, {}, { intervalMs: 250, ...options })
-    };
   }
 };
 

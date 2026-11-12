@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CheckpointStore, DurableScheduler, InboxStore } from "../src/runtime/scheduler.js";
@@ -13,17 +13,10 @@ import {
 } from "../src/runtime/main-context.js";
 import { CoordinatorRuntime } from "../src/runtime/coordinator-runtime.js";
 import { WatcherRuntime } from "../src/runtime/watcher.js";
-import { FilePollingWatcher } from "../src/runtime/file-watcher.js";
-import { WatcherLoop } from "../src/runtime/watcher-loop.js";
 import { LocalWorkspaceStore } from "../src/workspace/workspace-store.js";
-import { WatchProgramStore } from "../src/runtime/watch-program-store.js";
-import { ResearchPollingWatcher } from "../src/runtime/research-watcher.js";
-import { WatchSupervisor } from "../src/runtime/watch-supervisor.js";
-import { ScriptWatcher } from "../src/runtime/script-watcher.js";
 import { HumanRequestStore } from "../src/runtime/human.js";
 import { SubagentQuestionStore } from "../src/runtime/subagent-questions.js";
 import { ExperimentProgramStore } from "../src/runtime/experiment-program-store.js";
-import { VirtualAgentStore } from "../src/runtime/virtual-agent-store.js";
 
 async function main(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "cowork-p2-"));
@@ -181,36 +174,6 @@ async function main(): Promise<void> {
     assert.equal(finishedExperimentRun.status, "partial");
     assert.equal((await experiments.readProgram("train-task", experiment.experimentId)).status, "waiting");
     assert.equal((await experiments.listPrograms("train-task")).length, 1);
-
-    const virtualAgents = new VirtualAgentStore(experimentRoot);
-    const virtualProgram = await virtualAgents.createProgram({
-      taskId: "train-task",
-      kind: "experiment",
-      objective: "持续观察实验结果",
-      sourceId: experiment.experimentId
-    });
-    await virtualAgents.registerAgent("train-task", virtualProgram.programId, "subagent_1");
-    const firstEvent = await virtualAgents.appendEvent("train-task", virtualProgram.programId, {
-      agentId: "subagent_1",
-      type: "run.completed",
-      dedupeKey: "run:1",
-      priority: 1,
-      summary: "first"
-    });
-    const duplicateEvent = await virtualAgents.appendEvent("train-task", virtualProgram.programId, {
-      agentId: "subagent_1",
-      type: "run.completed",
-      dedupeKey: "run:1",
-      priority: 1,
-      summary: "duplicate"
-    });
-    assert.equal(firstEvent.accepted, true);
-    assert.equal(duplicateEvent.accepted, false);
-    assert.equal(
-      (await virtualAgents.readProgram("train-task", virtualProgram.programId)).agentIds[0],
-      "subagent_1"
-    );
-    assert.equal((await virtualAgents.listEvents("train-task", virtualProgram.programId)).length, 3);
 
     const coordinatorRoot = join(root, "coordinator");
     const coordinator = new CoordinatorRuntime();
@@ -376,220 +339,7 @@ async function main(): Promise<void> {
     });
     assert.equal(failedPoll.failed, "source unavailable");
 
-    const watchedRoot = join(root, "watched-project");
-    await mkdir(watchedRoot, { recursive: true });
-    await writeFile(join(watchedRoot, "status.txt"), "one\n", "utf8");
-    const fileWatcher = new FilePollingWatcher({
-      watcherId: "status-watch",
-      rootDirectory: watchedRoot,
-      relativePath: "status.txt"
-    });
-    assert.deepEqual(await fileWatcher.poll(), []);
-    await writeFile(join(watchedRoot, "status.txt"), "two\n", "utf8");
-    assert.equal((await fileWatcher.poll())[0]?.type, "file.changed");
-    const loop = new WatcherLoop();
-    const loopResults: number[] = [];
-    await loop.run(
-      watcher,
-      {
-        watcherId: "one-shot",
-        poll: async () => [{ ...observation, watcherId: "one-shot", dedupeKey: "loop-1" }]
-      },
-      {
-        once: true,
-        onCycle: async (result) => {
-          loopResults.push(result.accepted);
-        }
-      }
-    );
-    assert.deepEqual(loopResults, [1]);
-
-    // Watch Program is the durable product layer above raw Watcher events.
-    // Profiles are reusable; instances and their state are task-scoped.
-    const watchRoot = join(root, "watch-program");
-    const watchWorkspace = new LocalWorkspaceStore(watchRoot);
-    await watchWorkspace.createTask("company-task", { goal: "follow Example Corp" });
-    const watchStore = new WatchProgramStore(watchRoot);
-    const program = await watchStore.createProgram({
-      taskId: "company-task",
-      programId: "company-follow",
-      subject: "Example Corp",
-      objective: "发现重大业务和组织变化"
-    });
-    assert.equal(program.status, "discovering");
-    const monitor = await watchStore.createVirtualAgent({
-      programId: program.programId,
-      task: "关注官方公告和财报",
-      profileId: "rss-news",
-      cadenceSeconds: 21_600,
-      wake: "important",
-      activate: true
-    });
-    assert.equal(monitor.status, "active");
-    const persistedProgram = await watchStore.readProgram("company-task", program.programId);
-    assert.deepEqual(persistedProgram.monitorIds, [monitor.monitorId]);
-    assert.equal((await watchStore.listVirtualAgents("company-task", program.programId)).length, 1);
-    assert.equal(
-      (await watchStore.readVirtualAgentState("company-task", program.programId, monitor.monitorId)).status,
-      "active"
-    );
-    const customMonitor = await watchStore.createVirtualAgent({
-      programId: program.programId,
-      task: "自定义规则",
-      profileId: "custom",
-      activate: true
-    });
-    const customDir = join(
-      watchRoot,
-      "company-task",
-      "agents",
-      "subagents",
-      customMonitor.monitorId,
-      "watcher"
-    );
-    await writeFile(
-      join(customDir, "rule.mjs"),
-      "export default async function check(context) { const state = await context.readState(); const n = (state.n ?? 0) + 1; await context.writeState({ n }); return { events: n === 1 ? [{ source: 'fixture', type: 'custom.changed', dedupeKey: 'custom-1', payload: { n } }] : [], state: { n } }; }\n",
-      "utf8"
-    );
-    const scriptWatcher = new ScriptWatcher({
-      watcherId: customMonitor.monitorId,
-      monitor: customMonitor,
-      workDirectory: join(watchRoot, "company-task", "agents", "subagents", customMonitor.monitorId)
-    });
-    const scriptEvents = await scriptWatcher.poll();
-    assert.equal(scriptEvents[0]?.type, "custom.changed");
-    await scriptWatcher.acknowledge(scriptEvents);
-    assert.deepEqual(await scriptWatcher.poll(), []);
-    const control = await watchStore.enqueueControl("company-task", monitor.monitorId, "降低新闻噪声阈值");
-    assert.equal(
-      (await watchStore.listControls("company-task", program.programId, monitor.monitorId))[0]?.messageId,
-      control.messageId
-    );
-    await watchStore.consumeControls("company-task", program.programId, monitor.monitorId, [
-      control.messageId
-    ]);
-    assert.deepEqual(await watchStore.listControls("company-task", program.programId, monitor.monitorId), []);
-    await watchStore.updateVirtualAgentState("company-task", program.programId, monitor.monitorId, {
-      lastSummary: "no material change",
-      lastCheckedAt: new Date().toISOString()
-    });
-    assert.equal(
-      (await watchStore.readVirtualAgentState("company-task", program.programId, monitor.monitorId))
-        .lastSummary,
-      "no material change"
-    );
-    assert.equal(watchStore.profile("rss-news")?.reusable, true);
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        results: [
-          {
-            id: "https://openalex.org/W1",
-            title: "Recursive self-improvement in language models",
-            publication_date: "2026-09-01",
-            doi: "https://doi.org/10.test/rsi",
-            primary_location: { landing_page_url: "https://example.org/rsi" },
-            authorships: [{ author: { display_name: "A Researcher" } }],
-            cited_by_count: 2
-          }
-        ]
-      })
-    })) as unknown as typeof fetch;
-    try {
-      const researchWatcher = new ResearchPollingWatcher({
-        watcherId: "rsi-monitor",
-        query: "recursive self-improvement",
-        endpoint: "https://example.test/works"
-      });
-      const researchEvents = await researchWatcher.poll();
-      assert.equal(researchEvents[0]?.type, "research.work_discovered");
-      assert.equal(
-        (researchEvents[0]?.payload as { title?: string }).title,
-        "Recursive self-improvement in language models"
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-
-    const supervisorRoot = join(root, "supervisor");
-    const supervisorWorkspace = new LocalWorkspaceStore(supervisorRoot);
-    await supervisorWorkspace.createTask("supervisor-task", { goal: "watch a durable topic" });
-    const supervisorStore = new WatchProgramStore(supervisorRoot);
-    const supervisorProgram = await supervisorStore.createProgram({
-      taskId: "supervisor-task",
-      programId: "topic-watch",
-      subject: "Topic",
-      objective: "find important changes"
-    });
-    const supervisorMonitor = await supervisorStore.createVirtualAgent({
-      programId: supervisorProgram.programId,
-      task: "classify topic changes",
-      cadenceSeconds: 60,
-      wake: "important",
-      activate: true
-    });
-    let pollCount = 0;
-    const supervisor = new WatchSupervisor({
-      workspaceRoot: supervisorRoot,
-      baseUrl: "http://model.test",
-      apiKey: "test-key",
-      pollerFactory: () => ({
-        watcherId: supervisorMonitor.monitorId,
-        poll: async () => {
-          pollCount += 1;
-          return [
-            {
-              watcherId: supervisorMonitor.monitorId,
-              source: "fixture",
-              type: "fixture.changed",
-              dedupeKey: "fixture-1",
-              payload: { title: "Important change" }
-            }
-          ];
-        }
-      }),
-      executor: async (input) => ({
-        status: "succeeded",
-        response: "classification: relevant_change\nEvidence: fixture event",
-        artifacts: [`${input.monitorRunId}.json`]
-      })
-    });
-    const supervisorCycle = await supervisor.runCycle({ taskId: "supervisor-task" });
-    assert.equal(supervisorCycle.accepted, 1);
-    assert.equal(supervisorCycle.processed, 1);
-    assert.equal(supervisorCycle.wakeRequests, 1);
-    assert.equal(pollCount, 1);
-    const supervisorState = await supervisorStore.readVirtualAgentState(
-      "supervisor-task",
-      supervisorProgram.programId,
-      supervisorMonitor.monitorId
-    );
-    assert.equal(supervisorState.lastClassification, "relevant_change");
-    // The wake must land in the Run Main reads, not the watcher's own Run.
-    const wakeInbox = new InboxStore(
-      join(
-        supervisorRoot,
-        "supervisor-task",
-        "runs",
-        "main-supervisor-task",
-        "agents",
-        "main",
-        "inbox-store.json"
-      )
-    );
-    assert.equal((await wakeInbox.list("main")).length, 1);
-    // A watcher Run files events; it must not become the Task's active Run.
-    assert.notEqual(
-      (await supervisorWorkspace.readTask("supervisor-task")).activeRunId,
-      `watch-${supervisorProgram.programId}`
-    );
-    const secondCycle = await supervisor.runCycle({ taskId: "supervisor-task" });
-    assert.equal(secondCycle.processed, 0);
-    assert.equal(pollCount, 1); // cadence prevents an immediate duplicate poll
-    const human = new HumanRequestStore(watchRoot);
+    const human = new HumanRequestStore(join(root, "human"));
     const request = await human.create({
       taskId: "company-task",
       runId: "watch-run",
@@ -601,7 +351,7 @@ async function main(): Promise<void> {
     assert.equal(answered.status, "answered");
 
     // Subagent -> Main questions: the upward counterpart to askhuman.
-    const questions = new SubagentQuestionStore(watchRoot);
+    const questions = new SubagentQuestionStore(join(root, "questions"));
     const questionInput = {
       taskId: "question-task",
       runId: "question-run",

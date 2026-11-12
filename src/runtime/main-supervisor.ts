@@ -8,6 +8,7 @@ import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import { JsonlEventStore } from "../storage/event-store.js";
 import { id, now } from "../domain/types.js";
 import { mainIsAlive, readHeartbeat } from "./main-heartbeat.js";
+import { markWakeFired, readSleep } from "./main-sleep.js";
 
 /**
  * Restarts a Main that stopped while work was still addressed to it.
@@ -25,8 +26,8 @@ import { mainIsAlive, readHeartbeat } from "./main-heartbeat.js";
  * parked, or the supervisor would answer for the user by restarting past them.
  *
  * The Dashboard's Run service owns this cycle. It reads only the Task, its
- * Inbox and its human questions, so monitoring and long-term-goal state can
- * neither schedule a relaunch nor hold one back.
+ * Inbox and its human questions, so no other scheduler can schedule a relaunch
+ * or hold one back.
  */
 
 export interface MainSupervisorOptions {
@@ -52,6 +53,7 @@ export interface MainSupervisorDecision {
   reason?:
     | "main_alive"
     | "no_pending_work"
+    | "parked"
     | "awaiting_human"
     | "task_closed"
     | "no_run"
@@ -67,6 +69,8 @@ export interface MainSupervisorDecision {
 export interface MainSupervisorCycleResult {
   inspected: number;
   resumed: number;
+  /** Timed parks whose wake message this cycle queued. */
+  parkWakes: number;
   decisions: MainSupervisorDecision[];
 }
 
@@ -91,16 +95,18 @@ export class MainSupervisor {
   constructor(private readonly options: MainSupervisorOptions) {}
 
   async runCycle(filter: { taskId?: string } = {}): Promise<MainSupervisorCycleResult> {
-    const result: MainSupervisorCycleResult = { inspected: 0, resumed: 0, decisions: [] };
+    const result: MainSupervisorCycleResult = { inspected: 0, resumed: 0, parkWakes: 0, decisions: [] };
     const taskIds = filter.taskId ? [filter.taskId] : await this.listTasks();
     for (const taskId of taskIds) {
       result.inspected += 1;
-      const decision = await this.inspect(taskId).catch((error): MainSupervisorDecision => ({
+      const wake = { count: 0 };
+      const decision = await this.inspect(taskId, wake).catch((error): MainSupervisorDecision => ({
         taskId,
         action: "skipped",
         reason: "launch_failed",
         error: error instanceof Error ? error.message : String(error)
       }));
+      result.parkWakes += wake.count;
       if (decision.action === "resumed") result.resumed += 1;
       result.decisions.push(decision);
       await this.options.onDecision?.(decision);
@@ -108,7 +114,7 @@ export class MainSupervisor {
     return result;
   }
 
-  private async inspect(taskId: string): Promise<MainSupervisorDecision> {
+  private async inspect(taskId: string, wake: { count: number }): Promise<MainSupervisorDecision> {
     const store = new LocalWorkspaceStore(this.options.workspaceRoot);
     const task = await store.readTask(taskId);
     // A finished Task is finished. Only the user reopens one.
@@ -125,13 +131,45 @@ export class MainSupervisor {
       return { taskId, action: "skipped", reason: "awaiting_human" };
     }
 
+    // Runtime owns the park clock. A due park becomes one durable wake message;
+    // the record is marked after enqueueing, so a crash cannot wake it twice.
+    // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏的含义就是没有可用的停泊，按普通 Task 继续检查
+    const parked = await readSleep(this.options.workspaceRoot, taskId).catch(() => undefined);
+    const nowMs = this.options.nowMs?.() ?? Date.now();
+    if (parked && !parked.wakeFiredAt && Date.parse(parked.wakeAt) <= nowMs) {
+      await new InboxStore(
+        join(this.options.workspaceRoot, taskId, "runs", parked.runId, "agents", "main", "inbox-store.json")
+      ).enqueue({
+        messageId: `park-wake-${parked.parkedAt}`,
+        recipientAgentId: "main",
+        kind: "external_event",
+        eventId: `park-wake-${parked.parkedAt}-event`,
+        priority: 5,
+        state: "ready",
+        createdAt: now(),
+        payload: {
+          type: "main.scheduled_wake",
+          reason: parked.reason,
+          parkedAt: parked.parkedAt,
+          wakeAt: parked.wakeAt
+        }
+      });
+      await markWakeFired(this.options.workspaceRoot, taskId);
+      wake.count += 1;
+    }
+
     const inbox = new InboxStore(
       join(this.options.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
     );
     // A leased message was never consumed either: a Main that died mid-delivery
-    // leaves it that way, and it still needs someone to read it.
+    // leaves it that way, and it still needs someone to read it. Inbox work is
+    // checked before the park: a callback or external event that arrives while
+    // a Task sleeps means the condition it parked on has been met.
     const pending = (await inbox.list("main")).filter((entry) => entry.state !== "consumed");
-    if (pending.length === 0) return { taskId, action: "skipped", reason: "no_pending_work" };
+    if (pending.length === 0) {
+      if (parked) return { taskId, action: "skipped", reason: "parked" };
+      return { taskId, action: "skipped", reason: "no_pending_work" };
+    }
 
     const running = this.options.isRunning?.(taskId) ?? false;
     if (

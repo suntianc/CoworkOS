@@ -42,8 +42,7 @@ const setEnv = (t, values) => {
 };
 
 /** The guardian must decide from a clean switch state unless a test sets one. */
-const enabledGuardian = (t) =>
-  setEnv(t, { COWORK_DISABLE_MAIN_GUARDIAN: undefined, COWORK_DISABLE_WATCH_SUPERVISOR: undefined });
+const enabledGuardian = (t) => setEnv(t, { COWORK_DISABLE_MAIN_GUARDIAN: undefined });
 
 async function fixture(
   t,
@@ -212,9 +211,9 @@ test("a full budget queues the wake and starts it when a slot frees", async (t) 
   assert.equal(f.spawned("queued").length, 1, "releasing a slot starts exactly that waiting demand");
 });
 
-for (const name of ["COWORK_DISABLE_MAIN_GUARDIAN", "COWORK_DISABLE_WATCH_SUPERVISOR"])
+for (const name of ["COWORK_DISABLE_MAIN_GUARDIAN"])
   test(`${name}=1 keeps the guardian idle`, async (t) => {
-    setEnv(t, { COWORK_DISABLE_MAIN_GUARDIAN: undefined, COWORK_DISABLE_WATCH_SUPERVISOR: undefined });
+    setEnv(t, { COWORK_DISABLE_MAIN_GUARDIAN: undefined });
     setEnv(t, { [name]: "1" });
     const f = await fixture(t, { tasks: [{ taskId: "would-resume" }] });
     f.service.startMainGuardian();
@@ -237,7 +236,7 @@ test("shutdown stops the guardian and leaves no launch in progress", async (t) =
   assert.equal(f.spawned("guarded").length, 1, "no cycle runs after shutdown");
 });
 
-test("the guardian implementation does not import monitoring or goal routing", async () => {
+test("the guardian implementation imports no retired monitoring modules", async () => {
   const forbidden = [
     "watch-service.js",
     "watch-program-store.js",
@@ -266,13 +265,6 @@ test("the guardian implementation does not import monitoring or goal routing", a
   assert.match(application, /modelConfigured: \(\) =>/, "the host supplies the model gate");
   assert.match(application, /runtimeValue\("COWORK_API_BASE"\)/);
   assert.match(application, /runtimeValue\("COWORK_API_KEY"\)/);
-
-  const watchService = await readFile(resolve("src/dashboard/watch-service.ts"), "utf8");
-  assert.doesNotMatch(
-    watchService,
-    /MainSupervisor|main-supervisor\.js/,
-    "watch scheduling no longer moves Main"
-  );
 });
 
 /**

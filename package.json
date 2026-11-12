@@ -48,8 +48,6 @@
     "desktop:prepare": "node scripts/ensure-electron.mjs && npm run build:base",
     "release:publish:public": "node scripts/public-release-publish.mjs",
     "release:local": "node scripts/release-local.mjs",
-    "test:watcher-templates": "node --test test/watcher-templates.test.js",
-    "monitor-service": "node scripts/monitor-service.mjs",
     "npm:pack": "npm run build:cli && node scripts/package-cli.mjs --npm"
   },
   "devDependencies": {

@@ -2,7 +2,7 @@
 
 简体中文 | [English](en/runtime-reference.md)
 
-本页维护工具、委派、恢复与监控的运行契约。模型和预算见[配置参考](configuration-reference.md)，持久文件见[数据布局](task-workspace-layout.md)，HTTP 字段见 [Product API](product-api.md)。
+本页维护工具、委派、恢复与停泊唤醒的运行契约。模型和预算见[配置参考](configuration-reference.md)，持久文件见[数据布局](task-workspace-layout.md)，HTTP 字段见 [Product API](product-api.md)。
 
 ## 会话与消息
 
@@ -168,10 +168,15 @@ npm run main-worker -- --workspace /tmp/atria-dev --task <task-id> --once true
 # 默认只报告；--spawn true 才启动模型进程。
 npm run cli -- main-supervisor --workspace /tmp/atria-dev
 npm run cli -- main-supervisor --workspace /tmp/atria-dev --spawn true
-npm run cli -- watch-supervisor --workspace /tmp/atria-dev --task <task-id> --program <program-id>
 ```
 
-Task/Watch/Worker 命令在执行前验证选项。以 `-` 开头的任务或回答文本放在 `--` 后。帮助和版本查询不启动后台进程。
+Task/Worker 命令在执行前验证选项。以 `-` 开头的任务或回答文本放在 `--` 后。帮助和版本查询不启动后台进程。
+
+## 停泊与定时唤醒
+
+`sleep_until(reason, wakeInSeconds)` 把当前 Task 记为等待：Task 跨进程重启保持打开，到期后由 Main 守护写入一条持久 Inbox 唤醒消息，Main 读取后清除停泊记录。`wakeInSeconds` 最小 60 秒；没有到期时间的停泊会被拒绝，因为已经没有别的调度器能唤醒它。结束一轮不等于停泊：没有停泊记录且没有未了结工作的 Task 按完成处理。
+
+`COWORK_DISABLE_MAIN_GUARDIAN=1` 关闭守护；`COWORK_MAIN_GUARDIAN_INTERVAL_MS` 默认为 60000。守护只读取 Task、Inbox、人工问题和停泊记录；有未消费回调、没有存活 Main、且没有等待人回答的 Task 会被重新拉起。
 
 ## 程序化运行
 
@@ -191,30 +196,3 @@ Task/Watch/Worker 命令在执行前验证选项。以 `-` 开头的任务或回
 工具文本预算覆盖普通运行时工具与额外 `AgentTools` 的返回内容，不重写已恢复的历史。命令回执先保留退出与中断状态、日志引用和字节信息，再为 stdout/stderr 分配头尾预览；实际写入少于已观察字节时标明日志不完整。较小显式预算优先保留退出与中断状态，可能省略其他元数据，完整结构仍保存在 `details`。`load_skill` 默认保留完整指令，避免丢掉中间的必需规则；宿主仍可显式选择更大或更小的文本预算。
 
 程序化 `createWebTools` / builtin `web` 保留原合同。未指定 `provider: "exa"` 时，`visit` 直接读取源文本；可选 Jina Reader 和提取回调仍受总超时与取消限制。产品 Main 的搜索配置见[联网搜索](configuration.md#联网搜索)。模型 smoke 与评测入口见[本地测试](testing-local-run.md)。
-
-## 长期目标接口与调度
-
-`manage_goal` 登记目标，默认 `scope=background` 使用独立 Task/Main，`scope=session` 依附当前会话。修改或交接前读取当前版本；`action=steer` 持久排队要求，不表示已完成、不修改简报，也不恢复暂停目标。`record_goal_progress` 保存计划、事实与等待条件，`publish_goal_update` 按主题汇报；版本冲突时重新读取。
-
-目标复盘使用 `record_goal_progress(nextReviewAt)`，会话目标休眠使用 `sleep_until(programId=...)`。持续等待需要活动来源或明确复盘时间。普通回复不会结束持续目标；原请求完成交接后，后续模型轮次和自动重试不能另建替代采集器。
-
-`create_watcher(programId=...)` 关联来源。自定义包须按[作者技能](../.pi/skills/virtual-agent-authoring/SKILL.md)准备并通过 `activate_virtual_agent` 探针；只有 `activated=true` 且具有 `monitorId` 才会轮询，失败保留 draft。版本化 handler 加载、原子升级和回滚尚未实现。
-
-`npm start` 默认扫描整个工作区，Task 锁避免重复调度。`COWORK_DISABLE_WATCH_SUPERVISOR=1` 禁用调度；`COWORK_SUPERVISOR_INTERVAL_MS` 默认为 60000。采样不直接周期调用模型，无变化不分析。分析与 Main 唤醒额度分别计算，耗尽保留证据；模型预算沿用正常 Main 配置。
-
-Main 守护由 Dashboard 运行服务自己周期检查，不经过监控调度：有未消费回调、没有存活 Main、且没有等待人回答的 Task 会被重新拉起。`COWORK_DISABLE_MAIN_GUARDIAN=1` 关闭它，旧名 `COWORK_DISABLE_WATCH_SUPERVISOR=1` 仍然生效；`COWORK_MAIN_GUARDIAN_INTERVAL_MS` 默认为 60000，旧名 `COWORK_SUPERVISOR_INTERVAL_MS` 仍然生效。
-
-成功分析先持久保存，再投递 Inbox；重启或投递失败只补投已有结果。失败、超时和取消保留源事件供重试。Watch 分析使用独立 Run，不替换 Task 的活动 Main Run。字段与状态见 [Product API](product-api.md#persistent-monitors)，暂停见[暂停契约](monitoring-pause-contract.md)。
-
-### macOS 源码监控服务
-
-构建源码后，可以显式安装用户级 launchd 服务；普通启动不会安装：
-
-```sh
-npm run monitor-service -- install --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json --port 3884
-npm run monitor-service -- status --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json
-npm run monitor-service -- stop --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json
-npm run monitor-service -- uninstall --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json
-```
-
-安装只保存配置路径，不复制模型密钥。服务监听 `127.0.0.1`，日志在工作区 `.service/`，登录后加载。`stop` 停止本次加载，`uninstall` 同时移除登录启动配置。`--global-index`、`--tabs-index` 可指定已有索引。关机或休眠期间不检查，来源保留窗口可能限制停机后的补齐。

@@ -553,7 +553,7 @@ test(
   }
 );
 
-test("jobs close normally and long-term goals survive an explicit stop", { timeout: 150_000 }, async (t) => {
+test("jobs close normally and survive an explicit backend stop", { timeout: 150_000 }, async (t) => {
   const root = await createRoot("atria-daemon-jobs-");
   let model;
   t.after(async () => {
@@ -628,20 +628,6 @@ test("jobs close normally and long-term goals survive an explicit stop", { timeo
   assert.ok(job, JSON.stringify(completed.jobs));
   assert.equal(job.state, "exited", "the job was closed while the backend was live");
 
-  const goal = await api(root, "POST", "/api/goals", {
-    brief: { title: "保持监控", objective: "验证长期目标在重启后可恢复。" },
-    scope: "background",
-    requestId: "goal-recover-1"
-  });
-  assert.equal(goal.status, 201, JSON.stringify(goal.body));
-  const programId = goal.body.programId;
-  const paused = await api(root, "POST", `/api/tasks/${goal.body.taskId}/goals/${programId}/control`, {
-    action: "pause",
-    revision: goal.body.goal.revision
-  });
-  assert.equal(paused.status, 200, JSON.stringify(paused.body));
-  assert.equal(paused.body.status, "paused");
-
   const stopped = await stopBackend(root.env);
   assert.equal(stopped.state, "stopped");
   assert.equal(alive(started.pid), false);
@@ -653,18 +639,6 @@ test("jobs close normally and long-term goals survive an explicit stop", { timeo
   assert.ok(recoveredJob, JSON.stringify(afterRestart.body.jobs));
   assert.equal(recoveredJob.state, "exited");
   assert.equal(recoveredJob.logPath, job.logPath);
-
-  const goals = await api(root, "GET", "/api/goals");
-  const recoveredGoal = goals.body.goals.find((entry) => entry.programId === programId);
-  assert.ok(recoveredGoal, JSON.stringify(goals.body.goals));
-  assert.equal(recoveredGoal.status, "paused");
-  assert.equal(recoveredGoal.goal.revision, paused.body.goal.revision);
-  const resumed = await api(root, "POST", `/api/tasks/${goal.body.taskId}/goals/${programId}/control`, {
-    action: "resume",
-    revision: recoveredGoal.goal.revision
-  });
-  assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
-  assert.notEqual(resumed.body.status, "paused");
 });
 
 function exitWithin(child, timeoutMs) {

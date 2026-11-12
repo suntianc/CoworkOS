@@ -2,7 +2,7 @@
 
 Route implementations: [Dashboard](../src/dashboard/routes.ts), [applications](../src/dashboard/application-routes.ts), and [HTTP boundary](../src/dashboard/http.ts). This document covers the local HTTP API; software v2 remains a host interface.
 
-Computer Use discovers/selects windows using an enabled desktop global policy or consumes a legacy Task grant for observation/actions through [task-scoped HTTP routes](computer-use.md#产品和宿主边界). GET /api/computer/access reports policy/ownership metadata; GET /api/computer/status reports the execution host's native capabilities and permission state. Task status includes access, and POST discover/select/release consumes or releases existing global authority. The internal host endpoints require a matching backend identity and an explicit token, and reject browser Origin, fetch metadata and cookies. Permission requests, local confirmation and enabling or resuming access require the host credential; session credentials can still read, pause or revoke access. The backend supplies Main and Watch commands with an in-memory business credential that expires on restart. Coordinator command environments stay in memory, and standalone CLI or Main delegation forwards a credential only after the backend identifies it as a business session.
+Computer Use discovers/selects windows using an enabled desktop global policy or consumes a legacy Task grant for observation/actions through [task-scoped HTTP routes](computer-use.md#产品和宿主边界). GET /api/computer/access reports policy/ownership metadata; GET /api/computer/status reports the execution host's native capabilities and permission state. Task status includes access, and POST discover/select/release consumes or releases existing global authority. The internal host endpoints require a matching backend identity and an explicit token, and reject browser Origin, fetch metadata and cookies. Permission requests, local confirmation and enabling or resuming access require the host credential; session credentials can still read, pause or revoke access. The backend supplies Main and delegated commands with an in-memory business credential that expires on restart. Coordinator command environments stay in memory, and standalone CLI or Main delegation forwards a credential only after the backend identifies it as a business session.
 
 Actions accept optional `observeAfter: true` for atomic post-action feedback; `dispatched` acknowledges delivery, while `effectVerified: false` requires the caller to inspect the returned observation.
 
@@ -85,14 +85,14 @@ A host credential authorizes once and names this client as a session. Every late
 
 `protocolVersion` is `major.minor`. The major number is compatibility; a client minor newer than this backend is refused, an older one is accepted. A missing version returns HTTP 400 `protocol_required`; an incompatible one returns HTTP 409 `protocol_incompatible` naming both versions, so both sides can show an actionable upgrade message. Capabilities describe the protocol this backend serves; clients branch on capability names instead of route probing. `events.snapshot` and `events.stream` name the catalog reconciliation below: a client that requires them and does not find them reports the missing names instead of probing routes or half-loading a screen.
 
-Change commands accept an optional `operationId`: `POST /api/projects`, `PATCH /api/projects/:projectId`, `POST /api/tasks` and `POST /api/tasks/:taskId/goals/:programId/control`. Management clients send one on every change; omitting it keeps the legacy single-shot behavior the current Web UI uses.
+Change commands accept an optional `operationId`: `POST /api/projects`, `PATCH /api/projects/:projectId` and `POST /api/tasks`. Management clients send one on every change; omitting it keeps the legacy single-shot behavior the current Web UI uses.
 
 - The same identity, `operationId` and command content returns the saved status and body, marked with the `x-cowork-replayed: 1` response header, instead of applying the change again. Two in-flight duplicates still produce one result.
 - The same `operationId` with different content returns HTTP 409 `operation_conflict` and changes nothing.
 - Receipts are per identity: one client never reads another client's command result. A receipt exists only for a command that succeeded; a failed command can be retried.
 - A lost response is reconciled by reading the receipt, then retrying with the same identity, `operationId` and content. The receipt is written before the response, so a restart between them replays the saved result.
 
-Object changes carry the expected revision their service checks under its own lock: goal lifecycle controls send `revision`, and a stale value returns HTTP 409 `revision_conflict` without changing state. An operation id is the command's identity, not a substitute for the revision check: a replay returns the saved result, while a new command with a stale revision is refused.
+Object changes carry the expected revision their service checks under its own lock; a stale value returns HTTP 409 `revision_conflict` without changing state. An operation id is the command's identity, not a substitute for the revision check: a replay returns the saved result, while a new command with a stale revision is refused.
 
 Stable error codes: `unauthorized`, `session_revoked`, `session_unknown`, `host_credential_required`, `protocol_required`, `protocol_incompatible`, `operation_id_invalid`, `operation_conflict`, `operation_unknown`, `operation_receipt_invalid`, `revision_conflict`, `cursor_required`, `cursor_expired`, `cursor_unknown`. Messages stay in the server's user-facing language; clients branch on the code. A damaged receipt is never treated as "no command": it returns 500 `operation_receipt_invalid` and leaves the file in place, because re-running the command could apply it twice.
 
@@ -365,7 +365,7 @@ POST /api/tasks/:taskId/run   → 202 { status: "running" } | { status: "queued"
 
 `POST /api/tasks/:taskId/run` admits an external session through this budget before recording anything. When no slot is free the response is `202` with `status:"queued"` and a position; no Run row is written, no process starts and the Task keeps its previous status. A demand for a Task or requirement that already owns a slot or a waiting position returns `status:"duplicate"` with the existing identity instead of running twice. `cancel` on a queued Task drops its waiting demand. The Main worker and the interactive CLI reserve from the same file and lock before starting a Main; when the budget is full the worker reports `main_capacity_queued` and leaves the demand to the program's queue, and an interactive launch refuses with the reason.
 
-A submitted human answer or a watch wake is a durable demand too: when the budget is full it joins the same queue (`origin:"internal"`) instead of being lost, and the program resumes it when a slot frees. `POST /api/tasks/:taskId/human/resume` reports `status:"queued"` in that case.
+A submitted human answer or a timed wake is a durable demand too: when the budget is full it joins the same queue (`origin:"internal"`) instead of being lost, and the program resumes it when a slot frees. `POST /api/tasks/:taskId/human/resume` reports `status:"queued"` in that case.
 
 A dispatch that fails for a recoverable reason (shared service unreachable or authentication unavailable at the session call) releases its unused slot but keeps the accepted demand: it stays `queued` with a `lastError` and is retried by the capacity loop with exponential backoff. A permanent refusal (an explicit connection gone, the session or Task removed, a shared 404/409 before the Run exists) does not delete the input either: it releases the unused slot and marks the demand `failed` immediately with its `lastError`, without spending retry attempts. Either way the input and its choices stay durable and visible in `queued`; `POST /api/main-capacity { action: "retry", requestId }` puts a failed demand back in line. A restart mid-dispatch checks the local Task: a recorded Run is never started twice, a demand whose Run never existed is re-queued.
 
@@ -496,9 +496,12 @@ These checks enforce execution and delivery state. Main remains responsible for 
   "statistics": null,
   "humanRequests": [],
   "humanResumePending": false,
+  "parked": { "wakeAt": "2026-01-01T00:10:00.000Z", "reason": "refresh the report" },
   "runtime": { "active": false }
 }
 ```
+
+`parked` is present only while a durable sleep record waits for a timed wake; it carries `wakeAt` and `reason` from `agents/main/sleep.json` and is absent otherwise. Readers use it to tell a genuinely parked Task from an unfinished stop.
 
 `coordination.calls` is the structured Agent Office state. A UI should use its `status`, `agentId`, `task`, `response`, and `error` fields to drive the agent card; it should not infer state from animation timers.
 
@@ -653,7 +656,7 @@ Main streaming activity uses `type: "runtime_event"`, with the Pi event in `payl
 
 The durable ledger initially replays its latest 500 complete records, then reads appended byte ranges; an appended burst is not capped at 500. Idle streams check metadata without rereading history. Truncation or file replacement resets the read cursor, with recent event identities suppressing duplicates. Detail tail reads are bounded by the requested record count. Incomplete streaming UTF-8/JSON lines remain buffered until completed.
 
-## External / Virtual Agent events
+## External events
 
 ```text
 POST /api/tasks/:taskId/events
@@ -841,7 +844,7 @@ Application tools return operations for the platform to commit through revision 
 - Work logs present named participants, actions, relevant files/results, and local times. Fold tool start/end updates into one entry, skip queue/lease bookkeeping, and allow users to expand a result or jump to the participant's trajectory. Preserve expanded entries during refreshes; filter activity to the current run.
 - Treat `queued`, `running`, `waiting`, `succeeded`, `partial`, `failed`, `timed_out`, and `cancelled` as distinct states.
 - Display the current request's final answer only when `runtime.active` is false, `task.status` is `completed`, and both `coordination.pending` and `coordination.callbackPending` are empty. Natural completion is sufficient; legacy explicit-policy metadata must not hide a completed answer. The last assistant message must contain a final response rather than a tool call, truncated output, or error. Until then, keep assistant text in the execution history; show an incomplete/waiting state if Main has stopped. Preserve completed replies and activity from earlier user requests during follow-ups.
-- One-shot callbacks must be processed before final completion. Later external/watch events may start a continuation; preserve the earlier conversation when they arrive.
+- One-shot callbacks must be processed before final completion. Later external events may start a continuation; preserve the earlier conversation when they arrive.
 - If progress marks a legacy large trace with `traceSampled: true`, label its turn/message counts as sampled rather than totals.
 - Use fixture data with the same shapes for offline UI development on macOS.
 
@@ -877,53 +880,3 @@ Uploads stay local until an agent reads them during the user's model run. Readin
 `GET /api/web-search-settings` returns `{ enabled, provider, authenticated, managedByEnvironment }` and any secret-unavailable status without credentials. `POST` accepts `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }` and returns updated status. A blank key retains the existing value; explicit clearing restores anonymous use. Active runs and search environment management reject writes. Existing local authentication, Host/Origin, JSON-size and error boundaries apply.
 
 Desktop and Web use the same interface, and the search key belongs to the selected execution host. Desktop client session credentials are host-managed. Saving does not restart the backend; new or resumed runs use the updated configuration. See [web search](en/configuration.md#web-search).
-
-## Long-term goals
-
-Goal HTTP routes and Pi tools share `GoalManagement`; routes are [goal-routes](../src/dashboard/goal-routes.ts) and [goal-service](../src/dashboard/goal-service.ts). `WatchProgram.goal` is optional, retaining older monitor records. Goal lists project effective legacy pause/completion state rather than treating a stale stored monitoring flag as active intent.
-
-| Endpoint                                                                      | Behavior                                                                                                   |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `GET /api/goals`                                                              | Return `{goals,scheduler}` across registered workspaces.                                                   |
-| `POST /api/goals`                                                             | Create a goal, return its detail with HTTP 201; planning is queued, not completed.                         |
-| `GET /api/goals/activity?offset=N&unread=1&taskId=...`                        | Return up to 30 notifications with total/unread count; optional Task filter. Offset is an integer 0–10000. |
-| `GET /api/tasks/:taskId/goals`                                                | Return that Task's goals and scheduler metadata.                                                           |
-| `GET /api/tasks/:taskId/goals/:programId`                                     | Return goal, plan, sources, decision state and recent activity.                                            |
-| `POST /api/tasks/:taskId/goals/:programId/control`                            | Apply edit, pause, resume, complete or respond through shared management.                                  |
-| `GET /api/tasks/:taskId/goals/:programId/activity?offset=N`                   | Return up to 50 activity entries from a nonnegative integer offset.                                        |
-| `POST /api/tasks/:taskId/goals/:programId/notifications/:notificationId/read` | Persist read acknowledgement and return `{ok:true}`.                                                       |
-
-Creation accepts `{sourceTaskId?,requestId,scope?,brief}`. `requestId` (1–200 characters) provides stable creation identity; retries with the same identity reuse the goal, while a conflicting brief returns HTTP 409. `scope` defaults to `background`; `session` requires an active source Task. `brief` contains required `title` and `objective`, optional `completionCriteria`/`preferences`, and `notificationPolicy: "important_only" | "digest" | "all"`. Digest policy requires `{dayOfWeek,hour,minute,timeZone}`; day 0 is Sunday and the timezone must be recognized by `Intl.DateTimeFormat`.
-
-Controls use `action: "edit" | "pause" | "resume" | "complete" | "respond"`. Edit supplies the current `revision` and `brief`; lifecycle actions supply the current `revision`. Revision conflicts return HTTP 409 `revision_conflict` and require rereading. A control may also carry `operationId`: a repeat returns the saved result, which is how a client retries after a lost response even though the revision has moved. Respond supplies a nonempty answer up to 10000 characters and follows the durable HumanRequest → Inbox path. Completing the last independent background goal also stops its Task work; a session goal does not stop unrelated conversation work.
-
-Goal state, reports and notifications are distinct. Repeated concrete results reuse `topicKey`; normal same-priority repeats do not create a second notification, while promotion may. Digests assemble accepted routine records without another model request. Unread state is durable. Goal context is bounded; historical report bodies do not enter every model request.
-
-Cross-conversation model steering uses `manage_goal(action=steer)` with a current revision and queues an instruction without modifying the brief; queue acceptance does not mean completed work and never resumes paused work. See [goal architecture](long-term-goals-architecture.md) and [pause contract](monitoring-pause-contract.md).
-
-## Persistent monitors
-
-The frontend and Pi tools share `WatchManagement`; existing monitor interfaces remain available alongside goals. Task detail includes `monitoring: {monitors,sleep?,scheduler}`. Scheduler health, accepted source status and last probe result are separate facts. Background Tasks remain addressable but are omitted from the ordinary conversation list unless selected or pinned; the goal/monitor page exposes their controls without changing lifecycle state through presentation filters.
-
-| Endpoint                                              | Behavior                                                                                          |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `GET /api/monitors`                                   | List sources, owner Tasks, reference templates and scheduler health across registered workspaces. |
-| `POST /api/monitors`                                  | Create an independent background monitor.                                                         |
-| `GET /api/tasks/:taskId/monitors`                     | Return persisted sources, park record and scheduler health.                                       |
-| `POST /api/tasks/:taskId/monitors`                    | Configure/activate a reference template; optional `programId` attaches it to an existing goal.    |
-| `GET /api/tasks/:taskId/monitors/:monitorId/events`   | Return up to 30 events from a bounded log tail.                                                   |
-| `POST /api/tasks/:taskId/monitors/:monitorId/control` | Apply `pause`, `resume`, `retire` or `configure` controls.                                        |
-
-Creation accepts `task`, `template`, `source`, `config`, `cadenceSeconds`, optional `programId`, `scope`, `eventMode`, daily limits and `expiresAt`. Templates are job-lifecycle, metric-threshold, resource-version, feed-keyword, entity-state and timer; timer may omit its source. Cadence is an integer from 60 seconds to 30 days. Each daily analysis/wake count is an integer 1–1000 and resets on UTC dates. Public HTTP sources cannot contain URL credentials; expiration is a future ISO timestamp. Exact source formats and configuration are in the [template contracts](../.pi/skills/virtual-agent-authoring/templates/README.md).
-
-Creation returns HTTP 201 with `activated=true`, `taskId`, `programId` and `monitorId`; package/probe failure returns 422 with `activated=false`. Failed probes remain draft and never poll. An identical active configuration reuses the accepted instance. Draft/retired sources cannot resume; repair and activate explicitly. A source in a paused managed goal requires explicit goal resume first. Closed Tasks must be reopened before resuming their sources.
-
-Feed-keyword supports `items`, `github-releases`, `github-atom` and `hn-search`. Activation establishes a baseline without reporting old items as new. Responses are bounded to 256 KiB; source windows and outages can limit catch-up. Classification uses captured evidence, one model turn and no business tools. Main performs follow-up actions. Analysis inherits normal Main model/reasoning/turn/token/timeout configuration, with no separate monitoring model budget; daily analysis and wake counts remain independent scheduling limits.
-
-Dashboard owns scheduling over registered workspaces and uses the existing Run service for Main. Analysis keeps separate traces without replacing the active Main Run. Polling, analysis and delivery maintain separate retry state; slow analysis does not block source checks, direct delivery or timed wakes.
-
-The probe atomically saves state/outbox; durable Inbox acceptance precedes outbox acknowledgement. Successful analysis is cached before delivery. Wake reservations avoid charging the same delivery twice. Ordinary background replies park a standing responsibility rather than completing it.
-
-Pause is durable control intent: fully paused background work retains clocks, callbacks, answers and retries without automatic Main startup, source replacement or self-resume. Session goals retain unrelated work. Source acceptance rechecks pause after probing. Explicit resume releases retained work; retirement of a one-shot source is distinct and can still deliver its final event.
-
-Host shutdown/sleep stops checking, and startup resumes accepted state; a macOS source checkout can explicitly install the user-level service described in the [runtime reference](runtime-reference.md#macos-源码监控服务). No OS service is installed by ordinary startup.

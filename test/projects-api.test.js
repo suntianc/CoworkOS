@@ -157,8 +157,8 @@ test("project folder edits reject running, parked and detached-command tasks whi
     JSON.stringify({
       runId: "parked",
       parkedAt: new Date().toISOString(),
-      reason: "Wait for a monitor",
-      monitorIds: []
+      wakeAt: new Date(Date.now() + 60_000).toISOString(),
+      reason: "Wait for a retry"
     })
   );
   assert.equal((await f.request(endpoint, { projectDirectory: b }, "PATCH")).status, 409);

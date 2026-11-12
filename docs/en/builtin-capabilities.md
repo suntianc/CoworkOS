@@ -2,9 +2,7 @@
 
 [中文](../builtin-capabilities.md) | English
 
-This branch retains the complete CoworkOS orchestration chain: Main, Coordinator Runtime, Subagents, Jobs, long-term goals, monitoring, human questions, workspaces, checkpoints and session recovery. Generic files and attachments, image inspection, search, Computer Use and generic MCP interfaces remain available.
-
-Under the [phase plan](../development-phases.md) (Chinese), P4.5 removes the UI entry for long-term goals and monitoring and keeps only their backend capability and interfaces; how the product uses them will be planned separately.
+This branch retains the complete CoworkOS orchestration chain: Main, Coordinator Runtime, Subagents, Jobs, human questions, workspaces, checkpoints and session recovery. Generic files and attachments, image inspection, search, Computer Use and generic MCP interfaces remain available.
 
 Removed capabilities:
 

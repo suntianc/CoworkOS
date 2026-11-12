@@ -10,7 +10,6 @@ import { ExperimentProgramStore } from "../dist/src/runtime/experiment-program-s
 import { MainInboxDelivery } from "../dist/src/runtime/main-inbox-delivery.js";
 import { PiSession } from "../dist/src/runtime/pi-session.js";
 import { DurableScheduler, InboxStore } from "../dist/src/runtime/scheduler.js";
-import { VirtualAgentStore } from "../dist/src/runtime/virtual-agent-store.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 
@@ -44,8 +43,7 @@ async function fixture(t) {
       coordinator,
       inboxDelivery: bridge,
       deliverCallbacks: () => bridge.deliver((message) => delivered.push(message)),
-      experimentStore: new ExperimentProgramStore(root),
-      virtualAgentStore: new VirtualAgentStore(root)
+      experimentStore: new ExperimentProgramStore(root)
     }
   );
   return { root, workspace, inbox, scheduler, coordinator, bridge, tools, delivered };

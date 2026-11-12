@@ -130,7 +130,7 @@ export async function startPi({ uiCompatibility } = {}) {
     let launchConfig;
     try {
       // The host store holds the effective keys; without it `coworkos start`
-      // would lose the model env and supervisor autostart.
+      // would lose the model env.
       launchConfig = readHostCoworkConfig(process.cwd());
     } catch (error) {
       console.error(error.message);
@@ -459,48 +459,6 @@ export async function startPi({ uiCompatibility } = {}) {
       // means no application-specific tools.
       ...(process.env.COWORK_DASHBOARD_URL ? { COWORK_DASHBOARD_URL: process.env.COWORK_DASHBOARD_URL } : {})
     };
-    let supervisor;
-    let onSdkReady;
-    const supervisorEntry = resolve(harnessRoot, "dist", "src", "cli", "cowork.js");
-    if (
-      process.env.COWORK_DISABLE_WATCH_SUPERVISOR !== "1" &&
-      (process.env.COWORK_API_KEY || launchConfig.apiKey) &&
-      (process.env.COWORK_API_BASE || launchConfig.baseUrl || launchConfig.apiBase) &&
-      (await canAccess(supervisorEntry))
-    ) {
-      const interval = process.env.COWORK_SUPERVISOR_INTERVAL_MS ?? "60000";
-      childEnv.COWORK_SUPERVISOR_AUTOSTART = "1";
-      // The loop holds a workspace-wide lock, so its winner must supervise every
-      // Task, including Tasks created by later CLI sessions in this workspace.
-      const startSupervisor = () => {
-        if (supervisor) return;
-        supervisor = spawn(
-          process.execPath,
-          [
-            supervisorEntry,
-            "watch-supervisor",
-            "--workspace",
-            workspaceRoot,
-            "--interval",
-            interval,
-            "--supervise-main",
-            "true"
-          ],
-          {
-            stdio: "ignore",
-            detached: true,
-            cwd: process.cwd(),
-            env: childEnv
-          }
-        );
-        supervisor.unref();
-        supervisor.on("error", () =>
-          console.error("CoworkOS 后台监测进程启动失败，请运行 coworkos doctor。")
-        );
-      };
-      if (publicTui) onSdkReady = startSupervisor;
-      else startSupervisor();
-    }
     process.exitCode = await runCliProcess({
       bootstrap: uiCompatibility
         ? undefined
@@ -509,9 +467,7 @@ export async function startPi({ uiCompatibility } = {}) {
       args,
       env: childEnv,
       projectDirectory,
-      uiCompatibility: Boolean(uiCompatibility),
-      onSdkReady,
-      onStop: () => supervisor?.kill("SIGTERM")
+      uiCompatibility: Boolean(uiCompatibility)
     });
   } finally {
     clearInterval(projectExecutionTimer);
@@ -520,15 +476,5 @@ export async function startPi({ uiCompatibility } = {}) {
     if (capacityExecution)
       // eslint-disable-next-line no-restricted-syntax -- finally 释放名额失败时进程正在退出，租约由执行主机超时回收
       await capacityExecution.capacity.release(capacityExecution.requestId).catch(() => {});
-  }
-}
-
-async function canAccess(path) {
-  try {
-    await access(path);
-    return true;
-    // eslint-disable-next-line no-restricted-syntax -- access 失败就是“不可访问”，这个存在性判断正是要返回 false
-  } catch {
-    return false;
   }
 }

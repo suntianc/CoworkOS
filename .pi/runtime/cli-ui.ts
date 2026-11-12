@@ -14,7 +14,6 @@ export interface CliDiagnostics {
   taskId: string;
   mainRunId: string;
   modelId: string;
-  supervisor: string;
   tools: string[];
   guessedProtection: boolean;
   protectedPaths: readonly string[];
@@ -48,7 +47,6 @@ export function createCliPresentation(
         "CoworkOS diagnostics",
         `workspace=${diagnostics.workspaceRoot}`,
         `task=${diagnostics.taskId}; run=${diagnostics.mainRunId}; model=${diagnostics.modelId}`,
-        diagnostics.supervisor,
         `active tools: ${diagnostics.tools.join(", ")}`,
         ...(diagnostics.guessedProtection
           ? [

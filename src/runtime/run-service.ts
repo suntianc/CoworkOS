@@ -18,7 +18,6 @@ import type { ContextCompactionSettings } from "./context-compaction.js";
 import { PiSession, type PiSessionResult, type PiThinkingLevel } from "./pi-session.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { CheckpointStore } from "./scheduler.js";
-import { parkBackgroundWatchGoal } from "./watch-main-lifecycle.js";
 import { emptyCompaction, readAgentCheckpoint, type PersistedAgentState } from "./agent-checkpoint.js";
 import { createSubagentStatusTool } from "./progress.js";
 import { ensureMainContext, mainContextPaths, persistMainContext, readMainMemory } from "./main-context.js";
@@ -268,17 +267,11 @@ export class RunService {
       }
       const task = await this.workspace.readTask(input.taskId);
       const completion = task.completion ?? { policy: input.completionPolicy ?? "natural", signal: "none" };
-      const monitoring =
-        agentId === "main" && (await parkBackgroundWatchGoal(this.workspaceRoot, input.taskId, input.runId));
       const completedTask =
         agentId === "main"
-          ? await this.workspace.transitionTask(input.taskId, monitoring ? "waiting" : "completed", {
+          ? await this.workspace.transitionTask(input.taskId, "completed", {
               runId: input.runId,
-              reason: monitoring
-                ? "parked_for_wake"
-                : completion.signal === "finish_task"
-                  ? "finish_task"
-                  : "main_run_completed",
+              reason: completion.signal === "finish_task" ? "finish_task" : "main_run_completed",
               completion: {
                 signal: completion.signal === "finish_task" ? "finish_task" : "natural_stop",
                 verifiedAt:

@@ -21,14 +21,14 @@
   <a href="README.zh-CN.md">简体中文</a> | <b>English</b>
 </p>
 
-> This branch retains Main, Coordinator, Subagents, long-running tasks and recovery. Bundled text/Markdown, Blender, CAD and presentation editors, their tools, skills, prompts and component installers have been removed, together with user memory, automatic learning and project experience. Existing project files are preserved and remain accessible to generic file tools. See [capabilities and migration](docs/en/builtin-capabilities.md).
+> This branch retains Main, Coordinator, Subagents, durable tasks and recovery. Bundled text/Markdown, Blender, CAD and presentation editors, their tools, skills, prompts and component installers have been removed, together with user memory, automatic learning and project experience. Existing project files are preserved and remain accessible to generic file tools. See [capabilities and migration](docs/en/builtin-capabilities.md).
 
 **CoworkOS is an open-source cowork harness for long-horizon, human-in-the-loop work.** It helps people and AI agents carry complex projects from planning to verified artifacts across code, research, documents and data analysis. People and agents can inspect and revise the same evolving work, while configurable model services, workspaces and execution records keep the project on your machine.
 
-- **Complex delivery and continued monitoring.** CoworkOS is designed for difficult productivity tasks that require reasoning, tools and verification, as well as work that unfolds across sessions or days and needs monitoring, decision-making and recovery. Long-running Jobs retain status and logs so work can continue after waiting or interruption.
+- **Complex delivery and sustained work.** CoworkOS is designed for difficult productivity tasks that require reasoning, tools and verification, as well as work that unfolds across sessions or days and needs durable state, decision-making and recovery. Long-running Jobs retain status and logs so work can continue after waiting or interruption.
 - **A three-layer runtime for delegated work.** The Main Agent sets the plan, delegates work and evaluates results; the Coordinator Runtime dispatches subtasks and tracks their lifecycles; optional Subagents execute scoped assignments. The model chooses the task strategy while the runtime maintains coordination, feedback and continuity.
 - **Automation and evolving artifacts.** Agents work through CLI, search, files and MCP, with layered workspaces, the requirement ledger and reviewable candidate changes.
-- **A foundation for agent-driven research.** The same mechanisms support monitoring-heavy loops such as RSI-native model post-training: analyze failures, improve data, run training, validate results and iterate while retaining state and evidence. In the accompanying study, five rounds raised Qwen3.6-35B-A3B's average score from 33.19 to 42.95 across eight benchmarks.
+- **A foundation for agent-driven research.** The same mechanisms support iterative research loops such as RSI-native model post-training: analyze failures, improve data, run training, validate results and iterate while retaining state and evidence. In the accompanying study, five rounds raised Qwen3.6-35B-A3B's average score from 33.19 to 42.95 across eight benchmarks.
 
 ## Run from source
 
