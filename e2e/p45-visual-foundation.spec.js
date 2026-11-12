@@ -98,7 +98,7 @@ test("Web keeps one token set for both themes and floats glass panels over its s
     expect(surface.backdrop.image).toBe("none");
     expect(surface.backdrop.color).toBe("rgb(11, 11, 12)");
     // Layers (#30): the conversation is nearly solid, the task panel clearer.
-    expect(surface.conversation.color).toBe("rgba(22, 22, 25, 0.92)");
+    expect(surface.conversation.color).toBe("rgba(22, 22, 25, 0.82)");
     expect(surface.conversation.blur).toBe("blur(24px)");
     expect(surface.taskPanel.color).toBe("rgba(20, 20, 23, 0.8)");
     expect(surface.taskPanel.blur).toBe("blur(32px)");

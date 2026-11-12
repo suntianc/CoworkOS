@@ -24,6 +24,12 @@
       grid-template-columns var(--motion-layout) var(--ease-standard),
       padding var(--motion-layout) var(--ease-standard);
   }
+  /* The title row takes over the 10 px window edge the layout gives up when
+     the panel closes (and hands it back when it opens). Easing both on the
+     same curve keeps their sum, and so the panel toggle, still. */
+  html[data-theme] body[data-layout-animating] .app-titlebar {
+    transition: padding var(--motion-layout) var(--ease-standard);
+  }
   html[data-theme] body[data-layout-animating="sidebar"] .conversation-sidebar {
     visibility: visible;
     width: auto;

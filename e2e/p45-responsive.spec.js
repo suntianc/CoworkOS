@@ -135,11 +135,24 @@ test("the work surface keeps three columns at 1440 and turns the requirement pan
     expect(await toggleEdge()).toBe(10);
 
     // At 1440 the panel is a column: opening it narrows the conversation instead of covering it.
+    // The toggle holds still through the opening animation, like the sidebar's.
+    await page.evaluate(() => {
+      const toggle = document.querySelector("#output-pane-toggle");
+      window.toggleXs = new Set();
+      let frames = 0;
+      const tick = () => {
+        window.toggleXs.add(Math.round(toggle.getBoundingClientRect().x));
+        if ((frames += 1) < 40) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
     await page.locator("#output-pane-toggle").click();
     await expect(page.locator("[data-requirement-panel] .rp-title")).toHaveText("评分汇总验收");
     const wideOpen = await layout(page);
     expect(wideOpen.panel.width).toBe(364);
     expect(await toggleEdge()).toBe(10);
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => window.toggleXs.size)).toBe(1);
     expect(wideOpen.panel.position).toBe("relative");
     expect(wideOpen.panel.x).toBe(wideOpen.main.x + wideOpen.main.width + 6);
     expect(wideOpen.main.width).toBeLessThan(wide.main.width);

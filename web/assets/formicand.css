@@ -32,9 +32,9 @@
   --color-glass-edge: #ffffff1c;
 
   /* Layers (#30), most solid where people read and type: the sidebar shows
-     the window beneath, the side panel is half clear, the main panel nearly
-     solid, the composer and every overlay solid. */
-  --panel-fill: #161619eb;
+     the window beneath, the side panel is half clear, the main panel is
+     mostly opaque glass, the composer and every overlay solid. */
+  --panel-fill: #161619d1;
   --panel-sheen: linear-gradient(-160deg, #ffffff0a 0%, #ffffff00 42%);
   --panel-edge: #ffffff1c;
   --panel-shadow: 0 10px 40px #00000066;
