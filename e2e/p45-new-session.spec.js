@@ -130,10 +130,10 @@ test("switching conversations never flashes a welcome page while the next one lo
       ["switch-b", "会话乙"]
     ])
       await createTask(page, dashboard, { taskId, goal, projectId: project.projectId });
-    await page.goto(`${dashboard.base}/?task=switch-a`);
-    await expect(page.locator("#topbar-task")).toHaveText("会话甲");
     // A slow detail read stretches the moment between the two conversations,
-    // and each has a message, so any welcome page on the way is a flash.
+    // and each has a message, so any welcome page on the way is a flash. It is
+    // installed before the first navigation: a conversation read without the
+    // message would legitimately show the empty-conversation welcome.
     await page.route(/\/api\/tasks\/switch-[ab]$/, async (route) => {
       await new Promise((done) => setTimeout(done, 300));
       const response = await route.fetch();
@@ -141,6 +141,8 @@ test("switching conversations never flashes a welcome page while the next one lo
       detail.messages = [{ role: "user", content: detail.task.goal, timestamp: Date.now() }];
       await route.fulfill({ response, json: detail });
     });
+    await page.goto(`${dashboard.base}/?task=switch-a`);
+    await expect(page.locator("#topbar-task")).toHaveText("会话甲");
     await page.evaluate(() => {
       window.welcomeFrames = 0;
       const tick = () => {

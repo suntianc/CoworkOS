@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,6 +14,12 @@ import { RETIRED_GUARDIAN_SWITCH as RETIRED_SWITCH } from "./retired-guardian-sw
 const SCOPES = ["test", "e2e", "scripts"];
 const GUARDIAN_SWITCH = "COWORK_DISABLE_MAIN_GUARDIAN";
 const SOURCE_FILE = /\.(?:js|mjs|cjs|ts|tsx|json|md)$/;
+// The commit that pinned the retired switch names the files this check follows.
+const PINNED_SWITCH_COMMIT = "2166837";
+
+function historicCommitAvailable(commit) {
+  return spawnSync("git", ["cat-file", "-e", `${commit}^{commit}`], { stdio: "ignore" }).status === 0;
+}
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -34,25 +40,38 @@ test("test, e2e and script sources no longer name the retired supervisor switch"
   assert.deepEqual(offenders, []);
 });
 
-test("every file that pinned the retired switch on main disables the Main guardian", async () => {
-  const listing = execFileSync("git", ["grep", "-l", "-F", RETIRED_SWITCH, "2166837", "--", ...SCOPES], {
-    encoding: "utf8"
-  })
+test("every file that pinned the retired switch on main disables the Main guardian", async (t) => {
+  // A shallow clone has no history commit to grep; the check cannot run there.
+  if (!historicCommitAvailable(PINNED_SWITCH_COMMIT))
+    return t.skip(
+      `commit ${PINNED_SWITCH_COMMIT} is unavailable in this shallow clone; it lists the files that pinned the retired switch`
+    );
+  const listing = execFileSync(
+    "git",
+    ["grep", "-l", "-F", RETIRED_SWITCH, PINNED_SWITCH_COMMIT, "--", ...SCOPES],
+    { encoding: "utf8" }
+  )
     .trim()
     .split("\n")
     .filter(Boolean)
     .map((line) => line.slice(line.indexOf(":") + 1));
-  assert.ok(listing.length > 0, "main 2166837 lists the files that pinned the retired switch");
+  assert.ok(
+    listing.length > 0,
+    `main ${PINNED_SWITCH_COMMIT} lists the files that pinned the retired switch`
+  );
 
   const enabledOnMain = new RegExp(`${RETIRED_SWITCH}\\s*[:=][^\\n]*["']1["']`);
   const checked = [];
   for (const path of listing) {
-    const original = execFileSync("git", ["show", `2166837:${path}`], { encoding: "utf8" });
+    const original = execFileSync("git", ["show", `${PINNED_SWITCH_COMMIT}:${path}`], { encoding: "utf8" });
     if (!enabledOnMain.test(original)) continue;
     try {
       await stat(path);
-    } catch {
-      continue;
+    } catch (error) {
+      // Only a file that no longer exists is out of scope; a probe that fails
+      // for any other reason must fail the check instead of dropping the file.
+      if (error.code === "ENOENT") continue;
+      throw error;
     }
     checked.push(path);
     const current = await readFile(path, "utf8");
