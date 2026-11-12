@@ -97,6 +97,8 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 ### 项目经验与个人记忆
 
+项目经验已整套停用（#33），由 `PROJECT_EXPERIENCE_ENABLED` 关闭，下文模块保留到 P9 清理；停用状态由 [secondary-surfaces](../e2e/secondary-surfaces.spec.js) 与 [run-service 停用用例](../test/project-experience-run-service.test.js) 验证。
+
 项目经验的[领域格式](../src/domain/project-experience.ts)、[独立存储与技能发布](../src/runtime/project-experience-store.ts)、[持久执行证据](../src/runtime/project-experience-evidence.ts)、[后台提炼与独立复核](../src/runtime/project-experience-learning.ts)和[有界前台投影](../src/runtime/project-experience-context.ts)与个人记忆分离。项目稳定身份、候选晋升、固定/回滚和损坏恢复见[存储回归](../test/project-experience-store.test.js)，假模型与证据归属见[学习回归](../test/project-experience-learning.test.js)，真实宿主隔离见[Pi 回归](../test/project-experience-pi.test.js)。
 
 项目编辑弹窗经[独立控制器](../web/assets/controllers/project-experience.js)和[HTTP](../src/dashboard/project-experience-routes.ts)管理，验证[界面回归](../test/project-experience-ui.test.js)和[浏览器](../e2e/project-experience.spec.js)，使用与边界见[项目经验指南](project-experience.md)。

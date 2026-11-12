@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+/**
+ * Project experience is switched off as a whole (#33, 2026-11-11): nothing is
+ * learned after a Run, nothing reaches Main's context or the skill tool, and
+ * its routes and screens are gone. The code and any stored data stay until the
+ * P9 cleanup removes them.
+ */
+export const PROJECT_EXPERIENCE_ENABLED = false as boolean;
 export const PROJECT_EXPERIENCE_MAX_ITEMS = 40;
 export const PROJECT_SKILL_MAX_ITEMS = 20;
 export const PROJECT_EXPERIENCE_CANDIDATE_TTL_MS = 30 * 86_400_000;

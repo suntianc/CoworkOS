@@ -21,6 +21,7 @@ import { UserMemoryStore, userMemoryContext } from "./user-memory-store.js";
 import { ProjectExperienceStore, projectExperienceIdentity } from "./project-experience-store.js";
 import { projectExperienceContext } from "./project-experience-context.js";
 import { enqueueProjectExperienceRun } from "./project-experience-learning.js";
+import { PROJECT_EXPERIENCE_ENABLED } from "../domain/project-experience.js";
 import { createLoadSkillTool, discoverSkills } from "./skill-registry.js";
 import { createUserMemoryLearningService } from "./user-memory-learning.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -136,7 +137,7 @@ export class RunService {
       await this.workspace.updateTask(input.taskId, { completion: { policy: input.completionPolicy } });
     }
     const projectIdentity =
-      agentId === "main"
+      agentId === "main" && PROJECT_EXPERIENCE_ENABLED
         ? projectExperienceIdentity(await this.workspace.readTask(input.taskId), input.projectDirectory)
         : undefined;
     const projectExperience = projectIdentity ? new ProjectExperienceStore(projectIdentity) : undefined;

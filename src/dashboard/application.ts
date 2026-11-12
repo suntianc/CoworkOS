@@ -67,6 +67,7 @@ import {
   createProjectExperienceLearningService,
   enqueueProjectExperienceRun
 } from "../runtime/project-experience-learning.js";
+import { PROJECT_EXPERIENCE_ENABLED } from "../domain/project-experience.js";
 import { createUserMemoryLearningService } from "../runtime/user-memory-learning.js";
 import { createDashboardRunService } from "./run-service.js";
 import { LocalAccess } from "./local-access.js";
@@ -397,7 +398,7 @@ export function createDashboardApplication(
           `[cowork] session run settlement failed: ${error instanceof Error ? error.message : String(error)}`
         );
       }
-      const store = await projectExperienceStore(location.projectId);
+      const store = PROJECT_EXPERIENCE_ENABLED ? await projectExperienceStore(location.projectId) : undefined;
       if (store)
         await enqueueProjectExperienceRun({
           store,
@@ -1007,7 +1008,7 @@ export function createDashboardApplication(
       pid: process.pid,
       startedAt: backendIdentity.startedAt
     }),
-    projectExperienceStore,
+    ...(PROJECT_EXPERIENCE_ENABLED ? { projectExperienceStore } : {}),
     watchers,
     goals: createGoalService({
       harnessRoot: projectRoot,
@@ -1046,6 +1047,10 @@ export function createDashboardApplication(
     createProject: workspaces.createProject,
     updateProject: (projectId, input) =>
       workspaces.updateProject(projectId, input, runs.withIdleProjectTasks),
+    removeProject: (projectId) =>
+      workspaces.removeProject(projectId, (taskIds, action) =>
+        runs.withIdleProjectTasks(taskIds, action, "移除项目")
+      ),
     createProjectTask: workspaces.createProjectTask,
     createTemporaryTask: workspaces.createTemporaryTask,
     createTemporaryWorkspace: workspaces.createTemporaryWorkspace,
@@ -1075,7 +1080,7 @@ export function createDashboardApplication(
   server.once("listening", () => void mainCapacity.start());
   server.once("listening", () => watchers.start());
   server.once("listening", () => memoryLearning.start());
-  server.once("listening", () => projectLearning.start());
+  if (PROJECT_EXPERIENCE_ENABLED) server.once("listening", () => projectLearning.start());
 
   return {
     server,

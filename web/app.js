@@ -40,7 +40,6 @@ import { createConnectionController } from "./assets/controllers/connection-cont
 import { createManagementClient } from "./assets/controllers/management-client.js";
 import { createTaskNotifications } from "./assets/controllers/task-notifications.js";
 import { createBackendConnection } from "./assets/controllers/backend-connection.js";
-import { createProjectExperienceController } from "./assets/controllers/project-experience.js";
 import { createProjectController } from "./assets/controllers/project-controller.js";
 import { createConversationMenu } from "./assets/controllers/conversation-menu.js";
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
@@ -563,9 +562,7 @@ const workspaceDisplayName = (value) => {
   const parts = normalized.split(/[\\/]/).filter(Boolean);
   return parts.at(-1) || normalized;
 };
-const projectExperienceController = createProjectExperienceController({ api, showToast });
 const projectController = createProjectController({
-  openProjectExperience: (project) => projectExperienceController.open(project),
   openAddProject: () => addProjectController.open(),
   state,
   $,

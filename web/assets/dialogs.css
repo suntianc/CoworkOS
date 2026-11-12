@@ -142,6 +142,15 @@ html[data-theme] :is(.modal-backdrop, .search-overlay) {
   color: var(--ui-on-accent);
   background: color-mix(in srgb, var(--ui-accent), var(--ui-panel) 12%);
 }
+/* A destructive confirmation (移除项目) is the dialog's main action, in the danger colour. */
+.app-dialog .dialog-actions .is-danger {
+  color: #fff;
+  background: var(--ui-danger);
+}
+.app-dialog .dialog-actions .is-danger:hover:not(:disabled) {
+  color: #fff;
+  background: color-mix(in srgb, var(--ui-danger), #000 12%);
+}
 .app-dialog .dialog-actions button:disabled {
   opacity: 0.45;
   cursor: default;

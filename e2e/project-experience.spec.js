@@ -2,6 +2,12 @@ import { test, expect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { PROJECT_EXPERIENCE_ENABLED } from "../dist/src/domain/project-experience.js";
+
+// Project experience is switched off as a whole (#33): its screens are gone and
+// its routes do not answer. The disabled state is checked in secondary-surfaces;
+// these return with the switch or are deleted in the P9 cleanup.
+test.skip(!PROJECT_EXPERIENCE_ENABLED, "项目经验已整套停用（#33），P9 清理时随代码删除");
 
 async function createProject(page, dashboard, name) {
   const projectDirectory = join(dashboard.root, name);

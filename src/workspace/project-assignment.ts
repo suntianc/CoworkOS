@@ -8,6 +8,11 @@ export interface ProjectRecord {
   createdAt: string;
   updatedAt: string;
   legacy?: boolean;
+  /**
+   * Set when the person removed the project from the list. The record stays so
+   * its conversations keep their owner; adding the same folder again restores it.
+   */
+  removedAt?: string;
 }
 
 /** Read only the committed assignment; a pending transaction retains its old record. */

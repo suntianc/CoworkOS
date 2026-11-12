@@ -73,7 +73,8 @@ function validRecord(value: unknown): value is ProjectRecord {
     typeof record.projectDirectory === "string" &&
     isAbsolute(record.projectDirectory) &&
     typeof record.createdAt === "string" &&
-    typeof record.updatedAt === "string"
+    typeof record.updatedAt === "string" &&
+    (record.removedAt === undefined || typeof record.removedAt === "string")
   );
 }
 
@@ -115,6 +116,21 @@ export class GlobalProjectCatalog {
       if (sharedProjectId && document.projects.some((project) => project.projectId === sharedProjectId))
         throw new ProjectCatalogError("该共享项目已在此后端映射，请刷新项目列表", 409);
       const existing = document.projects.find((project) => project.projectDirectory === directory);
+      // A removed project comes back with its identity, so its conversations return with it.
+      if (existing?.removedAt && (!sharedProjectId || sharedProjectId === existing.projectId)) {
+        const restored: ProjectRecord = {
+          ...existing,
+          ...(existing.legacy ? { legacy: false } : {}),
+          projectName: name,
+          updatedAt: now()
+        };
+        delete restored.removedAt;
+        document.projects = document.projects.map((project) =>
+          project.projectId === existing.projectId ? restored : project
+        );
+        await this.writeDocument(document);
+        return restored;
+      }
       if (existing?.legacy && adoptLegacy) {
         const adopted = { ...existing, projectName: name, legacy: false, updatedAt: now() };
         document.projects = document.projects.map((project) =>
@@ -198,6 +214,7 @@ export class GlobalProjectCatalog {
     const directory =
       input.projectDirectory === undefined ? undefined : await projectDirectory(input.projectDirectory);
     return this.withProjectLock(projectId, async (previous) => {
+      if (previous.removedAt) throw new ProjectCatalogError("找不到项目，请刷新项目列表", 404);
       const document = await this.readDocument();
       const next: ProjectRecord = {
         ...previous,
@@ -222,6 +239,29 @@ export class GlobalProjectCatalog {
         await this.writeDocument(document);
         await this.finishPending(document);
         return next;
+      });
+    });
+  }
+
+  /**
+   * Take a project off the list. Nothing on disk is deleted: the record keeps
+   * its id and folder, and `prepare` checks the project is idle before `commit`.
+   */
+  async remove(
+    projectId: string,
+    prepare: (project: ProjectRecord, commit: () => Promise<ProjectRecord>) => Promise<ProjectRecord>
+  ): Promise<ProjectRecord> {
+    return this.withProjectLock(projectId, async (project) => {
+      if (project.removedAt) throw new ProjectCatalogError("找不到项目，请刷新项目列表", 404);
+      return prepare(project, async () => {
+        const document = await this.readDocument();
+        const timestamp = now();
+        const removed = { ...project, removedAt: timestamp, updatedAt: timestamp };
+        document.projects = document.projects.map((entry) =>
+          entry.projectId === projectId ? removed : entry
+        );
+        await this.writeDocument(document);
+        return removed;
       });
     });
   }

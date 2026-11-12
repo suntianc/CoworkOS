@@ -122,6 +122,7 @@ export interface DashboardRoutePorts {
     projectId: string,
     input: { projectName?: unknown; projectDirectory?: unknown }
   ): Promise<unknown>;
+  removeProject(projectId: string): Promise<{ projectId: string; removedAt: string; taskIds: string[] }>;
   createProjectTask: WorkspaceDirectory["createProjectTask"];
   createTemporaryTask: WorkspaceDirectory["createTemporaryTask"];
   createTemporaryWorkspace: WorkspaceDirectory["createTemporaryWorkspace"];
@@ -549,18 +550,20 @@ export function createDashboardHandler(
             operationId: body.operationId,
             command: "projects.create",
             content: commandContent(body),
-            apply: async () => ({
-              status: 201,
-              body: {
-                project: await publishProject(
-                  await ports.createProject({
-                    projectName: body.projectName,
-                    projectDirectory: body.projectDirectory,
-                    ...(body.projectId === undefined ? {} : { projectId: body.projectId })
-                  })
-                )
-              }
-            })
+            apply: async () => {
+              const project = await publishProject(
+                await ports.createProject({
+                  projectName: body.projectName,
+                  projectDirectory: body.projectDirectory,
+                  ...(body.projectId === undefined ? {} : { projectId: body.projectId })
+                })
+              );
+              // A restored project's conversations were published as deleted; publish
+              // them again so subscribers see them return (reconciling alone would
+              // not revive them, since their own revisions did not change).
+              for (const task of project.tasks) await publishTask(task);
+              return { status: 201, body: { project } };
+            }
           })
         );
         return;
@@ -591,6 +594,15 @@ export function createDashboardHandler(
             })
           })
         );
+        return;
+      }
+      // Removing only takes the project off the list; its folder and conversations stay.
+      if (request.method === "DELETE" && projectMatch) {
+        const removed = await ports.removeProject(decodeURIComponent(projectMatch[1]));
+        // The conversations leave the catalog with it; the project's own removal
+        // reaches subscribers through the next reconciliation.
+        for (const taskId of removed.taskIds) await ports.events?.taskDeleted(taskId);
+        sendJson(response, 200, { projectId: removed.projectId, removed: true });
         return;
       }
       // Register an application destination without switching or moving any conversation.

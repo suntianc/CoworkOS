@@ -76,7 +76,13 @@ test("project rows keep disclosure, titles and actions aligned across widths and
     await expect(page.locator(".project-group.is-selected")).toHaveCount(1);
     await headings.first().hover();
     await headings.first().locator(".project-settings").click();
-    await expect(page.getByRole("dialog", { name: "项目设置", exact: true })).toBeVisible();
+    // The ⋯ menu holds only renaming and removing (#33).
+    const menu = page.getByRole("menu", { name: /^项目操作：/ });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem")).toHaveText(["重命名项目", "移除项目"]);
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(headings.first().locator(".project-settings")).toBeFocused();
   } finally {
     await dashboard.stop();
   }

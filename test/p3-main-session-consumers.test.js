@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
+import { PROJECT_EXPERIENCE_ENABLED } from "../dist/src/domain/project-experience.js";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
@@ -649,7 +650,8 @@ test("a legitimate retry re-enters running and completes its Run", { timeout: 12
 
 test(
   "an unreachable authority does not suppress the local experience write",
-  { timeout: 120_000 },
+  // Project experience is switched off (#33); this returns with the switch or goes in P9.
+  { timeout: 120_000, skip: !PROJECT_EXPERIENCE_ENABLED && "项目经验已整套停用（#33）" },
   async (t) => {
     let holding = false;
     const gate = createGate();

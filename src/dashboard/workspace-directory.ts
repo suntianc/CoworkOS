@@ -34,6 +34,7 @@ export interface ProjectListItem {
   createdAt: string;
   updatedAt: string;
   legacy?: boolean;
+  removedAt?: string;
   hasApplications?: boolean;
   tasks: TaskListItem[];
 }
@@ -170,7 +171,9 @@ export function createWorkspaceDirectory(
         ...project,
         ...(project.legacy ? { hasApplications: evidence.has(project.projectId) } : {})
       }))
-      .filter((project) => !project.legacy || project.tasks.length > 0 || project.hasApplications);
+      .filter((project) => !project.legacy || project.tasks.length > 0 || project.hasApplications)
+      // A removed project and its conversations leave the list; nothing on disk is deleted.
+      .filter((project) => !project.removedAt);
     for (const project of projects) project.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     projects.sort((a, b) => {
       const aUpdated = a.tasks[0]?.updatedAt ?? a.updatedAt;
@@ -432,7 +435,32 @@ export function createWorkspaceDirectory(
           ...(input.projectId === undefined ? {} : { projectId: input.projectId })
         }
       );
-      return { ...project, workspaceRoot: project.projectDirectory, tasks: [] };
+      // A restored project brings back the conversations it had when it was removed.
+      const tasks =
+        (await listGlobalProjects()).projects.find((entry) => entry.projectId === project.projectId)?.tasks ??
+        [];
+      return { ...project, workspaceRoot: project.projectDirectory, tasks };
+    },
+    /** Take an idle project off the list; its folder and conversations stay on disk. */
+    async removeProject(
+      projectId: string,
+      guard: <T>(taskIds: string[], action: () => Promise<T>) => Promise<T>
+    ) {
+      await catalogReady;
+      await projectRecords(await storedTasks());
+      let taskIds: string[] = [];
+      const project = await projectCatalog.remove(projectId, async (previous, commit) => {
+        const records = await projectCatalog.list();
+        taskIds = (await storedTasks())
+          .filter(
+            ({ task, workspaceRoot: root }) =>
+              !task.temporaryWorkspaceRoot &&
+              resolveProject(task, root, records).projectId === previous.projectId
+          )
+          .map(({ task }) => task.taskId);
+        return guard(taskIds, commit);
+      });
+      return { projectId: project.projectId, removedAt: project.removedAt!, taskIds };
     },
     async createProjectTask(taskId: string, projectId: string, metadata: TaskMetadata) {
       await catalogReady;

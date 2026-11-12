@@ -2813,6 +2813,9 @@ body {
 .conversation-context-menu :is([data-session-action="stop"], [data-session-action="delete"]) {
   color: var(--ui-danger);
 }
+.project-menu .is-danger {
+  color: var(--ui-danger);
+}
 .conversation-context-menu [hidden] {
   display: none;
 }
