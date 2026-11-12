@@ -88,6 +88,12 @@ test("the title row names the project, the requirement and walks back and forwar
     await page.keyboard.press("Escape");
     await page.locator("#sidebar-toggle").click();
     await expect(titleSearch).toBeHidden();
+    // Observation is read-only: its title row carries neither entry.
+    await page.locator("#entry-observe").click();
+    await expect(page.locator("#app-layout")).toHaveAttribute("data-entry", "observe");
+    await expect(titleSearch).toBeHidden();
+    await expect(titleNew).toBeHidden();
+    await page.locator("#entry-work").click();
   } finally {
     await dashboard.stop();
   }

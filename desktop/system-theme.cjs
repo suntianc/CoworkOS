@@ -1,6 +1,6 @@
 // Appearance owns Electron's selected theme; keep the window's first paint in sync.
 const DARK_BACKGROUND = "#0b0b0c";
-const LIGHT_BACKGROUND = "#e9e9ec";
+const LIGHT_BACKGROUND = "#f2f2f4";
 
 function windowBackground(nativeTheme, platform = process.platform) {
   // macOS renders the window material itself, so the window canvas stays clear.

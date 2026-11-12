@@ -146,7 +146,7 @@ test("two nodes' requirements aggregate with phase counts and scope filters", as
     // Scoping by node keeps only that node's requirements and projects.
     await page.locator(`button[data-observe-node="${remote.base}"]`).click();
     await expect(page.locator(`button[data-observe-node="${remote.base}"]`)).toHaveAttribute(
-      "aria-pressed",
+      "aria-current",
       "true"
     );
     await expect(rows).toHaveCount(2);
@@ -163,9 +163,8 @@ test("two nodes' requirements aggregate with phase counts and scope filters", as
     await expect(rows).toHaveCount(2);
     await expect(page.locator("#observe-title")).toHaveText("需求 · 远程项目");
 
-    // Clearing the project scope brings the node's rows back.
-    await page.locator(`button[data-observe-project="${remoteProject.projectId}"]`).click();
-    await page.locator(`button[data-observe-node="${remote.base}"]`).click();
+    // 全部 clears the scope and brings every row back.
+    await page.locator("[data-observe-all]").click();
     await expect(rows).toHaveCount(5);
     await expect(page.locator("#observe-title")).toHaveText("需求");
 

@@ -344,7 +344,7 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await expect(cloudCard.locator('[data-runs-slot="continuation"]')).toContainText("2/2");
     await expect(cloudCard.locator("[data-runs-empty]")).toHaveCount(1);
     await expect(cloudCard.locator("[data-runs-empty]")).toContainText("常驻 3");
-    await page.locator(`button[data-observe-project="${projectB2.projectId}"]`).click();
+    await page.locator("[data-observe-all]").click();
     await expect(cloudCard.locator(`[data-runs-lane="${resident1.taskId}"]`)).toHaveCount(1);
 
     // The header controls belong to this view only.

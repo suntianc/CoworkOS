@@ -153,6 +153,7 @@ npm run verify
 `ui.css` 装配共享组件后，[system-theme.css](../web/assets/system-theme.css) 加载中性浅深色表面与文字颜色；[settings.css](../web/assets/settings.css) 在其后统一设置总览、模型连接和联网搜索的表面、表单与固定操作栏，始终使用实色表面。图标来自 [icons.js](../web/assets/ui/icons.js) 与 SVG sprite；图标按钮须有 `aria-label`，优先使用 32px 点击区域。
 
 - 菜单使用 [menu.js](../web/assets/ui/menu.js)，支持方向键、Home/End、Esc、外部关闭和焦点归还；弹窗使用 [modal.js](../web/assets/ui/modal.js)，限制 Tab 并恢复发起控件焦点。
+- 单选下拉框保留原生 `<select>` 作为取值和读屏控件，点开时由 [select-menu.js](../web/assets/ui/select-menu.js) 弹出应用自绘的选项菜单；需要系统菜单的控件可在祖先上加 `data-native-select`。
 - 重命名、项目编辑、另存等短表单统一使用 [dialogs.css](../web/assets/dialogs.css) 的 `.app-dialog`、字段、说明、错误和操作栏；输入框须有明确标签，动作区分主次，覆盖提交中、失败、禁用与键盘焦点状态，不依赖浏览器默认控件外观。工作台扩展样式归 [workbench/dialogs.css](../web/assets/workbench/dialogs.css)，附件预览归 [attachment-preview.css](../web/assets/styles/attachment-preview.css)。设置、目标与监控保留各自布局并共用主题变量。
 - 会话标题和项目归属统一放在顶栏。顶栏与侧栏复用 [会话菜单](../web/assets/controllers/conversation-menu.js)，按整理、复制/导出/打开和归档分组；运行或等待中的会话额外显示停止任务。复制子菜单支持标题、ID、本机链接和对话正文，导出保留用户/助手的 Markdown 正文，不包含思考和原始工具日志。未读标记保存在本机浏览器，显式打开会话后清除；链接使用 `?task=<id>` 定位原会话。子菜单支持左右方向键与逐层 Esc，刷新时保留目标与焦点，窄屏切换为内嵌菜单。新任务页显示菜单但禁用会话操作，独立编辑器隐藏该菜单。右侧任务面板在打开或刷新页面时默认收起，右上角开关在有工作区时收起或恢复当前会话的编辑视图，否则展开任务面板，全局设置位于左下角侧栏，不再重复显示会话标题栏。宽度 1280 及以上任务面板是一列，只用这个开关收起，面板内不再放关闭按钮；更窄时面板浮在顶栏之上，保留面板内的收起按钮。
 - 应用命名用 [document-name-dialog.js](../web/assets/workbench/adapters/document-name-dialog.js)，提交中保留表单、错误与输入；保存失败/冲突用文字说明并保留草稿。

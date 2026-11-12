@@ -53,7 +53,7 @@ test("Web paints one solid backdrop per theme with no gradients and keeps the gl
     const dark = await surfaces(page);
     expectSolidBackdrop(dark, "rgb(11, 11, 12)");
     // Layers (#30): the conversation nearly solid, the task panel clearer.
-    expect(dark.conversation.color).toBe("rgba(22, 22, 25, 0.92)");
+    expect(dark.conversation.color).toBe("rgba(22, 22, 25, 0.82)");
     expect(dark.conversation.blur).toBe("blur(24px)");
     expect(dark.taskPanel.color).toBe("rgba(20, 20, 23, 0.8)");
     expect(dark.taskPanel.blur).toBe("blur(32px)");
@@ -69,8 +69,8 @@ test("Web paints one solid backdrop per theme with no gradients and keeps the gl
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
     const light = await surfaces(page);
-    expectSolidBackdrop(light, "rgb(233, 233, 236)");
-    expect(light.conversation.color).toBe("rgba(255, 255, 255, 0.95)");
+    expectSolidBackdrop(light, "rgb(242, 242, 244)");
+    expect(light.conversation.color).toBe("rgba(255, 255, 255, 0.82)");
     expect(light.conversation.blur).toBe("blur(24px)");
     expect(light.taskPanel.color).toBe("rgba(250, 250, 251, 0.78)");
     expect(light.taskPanel.blur).toBe("blur(32px)");

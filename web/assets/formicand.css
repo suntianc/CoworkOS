@@ -32,9 +32,9 @@
   --color-glass-edge: #ffffff1c;
 
   /* Layers (#30), most solid where people read and type: the sidebar shows
-     the window beneath, the side panel is half clear, the main panel nearly
-     solid, the composer and every overlay solid. */
-  --panel-fill: #161619eb;
+     the window beneath, the side panel is half clear, the main panel is
+     mostly opaque glass, the composer and every overlay solid. */
+  --panel-fill: #161619d1;
   --panel-sheen: linear-gradient(-160deg, #ffffff0a 0%, #ffffff00 42%);
   --panel-edge: #ffffff1c;
   --panel-shadow: 0 10px 40px #00000066;
@@ -61,6 +61,12 @@
   --segmented-fill: #00000052;
   --segmented-active: #ffffff1a;
   --focus-ring: #ffffffa6;
+  --scope-current: #ffffff0f;
+  /* Fields (text, select): a clicked field shows a soft edge and halo, not the
+     keyboard ring; the select arrow sits 12 px from the right edge. */
+  --field-focus-edge: #ffffff47;
+  --field-focus-ring: #ffffff14;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a1a1a8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
 
   /* Code (#26). */
   --code-bg: #0f0f11;
@@ -84,7 +90,7 @@
 
 html[data-theme="light"] {
   color-scheme: light;
-  --color-bg: #e9e9ec;
+  --color-bg: #f2f2f4;
   --color-surface: #ffffff8c;
   --color-surface-2: #0000000a;
   --color-surface-3: #00000012;
@@ -108,7 +114,8 @@ html[data-theme="light"] {
   --color-glass: #ffffff99;
   --color-glass-edge: #ffffffd9;
 
-  --panel-fill: #fffffff2;
+  /* Glass, mostly opaque: the backdrop shows through a little. */
+  --panel-fill: #ffffffd1;
   --panel-sheen: linear-gradient(-160deg, #ffffffcc 0%, #ffffff00 42%);
   --panel-edge: #0000000f;
   --panel-shadow: 0 10px 40px #0000001a;
@@ -130,6 +137,10 @@ html[data-theme="light"] {
   --segmented-fill: #0000000a;
   --segmented-active: #ffffff;
   --focus-ring: #18181ba6;
+  --scope-current: #00000012;
+  --field-focus-edge: #0000003d;
+  --field-focus-ring: #0000000f;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2352525b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
 
   --code-bg: #f6f6f7;
   --code-keyword: #c2410c;
@@ -194,6 +205,11 @@ html[data-window-material]:not([data-window-material="none"]),
 html[data-window-material]:not([data-window-material="none"]) body {
   background-color: transparent;
   background-image: none;
+}
+/* The system's light material reads grey; a white wash lifts it toward the
+   painted light backdrop. */
+html[data-theme="light"][data-window-material]:not([data-window-material="none"]) body {
+  background-color: #ffffff66;
 }
 
 /* The page paints the backdrop; the shell only forwards it while chrome and the
@@ -656,6 +672,14 @@ html[data-theme] .app-layout[data-entry="observe"] {
 html[data-theme] .app-layout[data-entry="observe"] .agent-pane {
   display: none;
 }
+/* The title row spans the empty panel track as well, so it keeps the 10 px
+   window edge itself; the panel toggle then stays put when the panel closes. */
+@media (min-width: 1280px) {
+  html[data-theme] body.output-collapsed .app-titlebar,
+  html[data-theme] .app-layout[data-entry="observe"] .app-titlebar {
+    padding-right: 10px;
+  }
+}
 /* Two cards side by side read as one pair: the main and requirement panels sit
    6 px apart, while the window edges and the sidebar side keep 10 px (#23). */
 @media (min-width: 1280px) {
@@ -956,7 +980,7 @@ html[data-theme] .observe-nav {
   gap: 2px;
   min-width: 0;
 }
-.observe-group[data-observe-projects-group] {
+.observe-group[data-observe-scope-group] {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -966,7 +990,7 @@ html[data-theme] .observe-nav {
   gap: 2px;
   min-width: 0;
 }
-.observe-group[data-observe-projects-group] .observe-list {
+.observe-group[data-observe-scope-group] .observe-list {
   min-height: 0;
   overflow: auto;
 }
@@ -1028,12 +1052,16 @@ html[data-theme] .observe-nav {
 .observe-item:hover {
   background: var(--color-surface-2);
 }
-.observe-item[aria-pressed="true"] {
+/* The scope's current row is a quiet wash, not the raised card the view
+   navigation above uses: the view and the scope are two separate choices. */
+.observe-item[aria-current="true"] {
   color: var(--color-text);
-  background: var(--selected-fill);
-  box-shadow:
-    inset 0 0 0 1px var(--selected-edge),
-    var(--selected-shadow);
+  background: var(--scope-current);
+  font-weight: 500;
+}
+/* A node's projects sit one step in, under the node they belong to. */
+.observe-item.is-nested {
+  padding-left: 26px;
 }
 .observe-item .ui-icon {
   flex: 0 0 auto;
@@ -1813,4 +1841,99 @@ html[data-reduced-motion="reduce"] :is(.effort-fill, .effort-knob) {
   margin: 0;
   color: var(--color-text);
   font-size: 13px;
+}
+
+/* One select for every form: no native control chrome, the theme's chevron
+   12 px from the right edge, and room for it in the padding. */
+html[data-theme] select:not([multiple], [size]) {
+  appearance: none;
+  padding-right: 34px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px 14px;
+  cursor: pointer;
+}
+html[data-theme] select:disabled {
+  cursor: default;
+}
+/* A select's list is the application's own menu (select-menu.js): the popover
+   surface every other menu uses, a check on the current option, a hover fill. */
+html[data-theme] .ui-menu.select-menu {
+  position: fixed;
+  top: 0;
+  right: auto;
+  z-index: 2000;
+  display: block;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+html[data-theme] .select-menu .select-menu-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 12px 5px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+html[data-theme] .select-menu .select-menu-option:is(:hover, :focus-visible, :focus) {
+  outline: none;
+  background: var(--color-surface-3);
+}
+html[data-theme] .select-menu .select-menu-option[aria-disabled="true"] {
+  color: var(--color-text-3, var(--color-text-2));
+  background: transparent;
+  cursor: default;
+}
+.select-menu .select-menu-check {
+  display: inline-grid;
+  flex: 0 0 16px;
+  place-items: center;
+  color: var(--color-text);
+}
+.select-menu .select-menu-check .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+.select-menu .select-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.select-menu .select-menu-group {
+  padding: 8px 10px 4px 28px;
+  color: var(--color-text-2);
+  font-size: 12px;
+}
+/* Text fields and selects match :focus-visible on a click too, so they take a
+   quiet edge and halo instead of the 2 px keyboard ring buttons use. */
+html[data-theme]
+  :is(.settings-entry, .settings-card, .app-dialog)
+  :is(input:not([type="checkbox"], [type="radio"]), select, textarea):focus-visible {
+  border-color: var(--field-focus-edge);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--field-focus-ring);
+}
+html[data-theme] .app-dialog .project-directory-field:has(input:focus-visible) {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--field-focus-ring);
+}
+html[data-theme]
+  :is(.settings-entry, .settings-card, .app-dialog)
+  :is(input, select, textarea)[aria-invalid="true"]:focus-visible {
+  border-color: var(--ui-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-danger) 18%, transparent);
 }

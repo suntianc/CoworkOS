@@ -73,11 +73,11 @@ test("Web keeps the solid per-theme backdrop without a starfield canvas or motio
 
     const light = await backdrop(page);
     for (const layer of [light.html, light.body]) {
-      expect(layer.color).toBe("rgb(233, 233, 236)");
+      expect(layer.color).toBe("rgb(242, 242, 244)");
       expect(layer.image).toBe("none");
     }
     expect(light.shell).toEqual({ color: "rgba(0, 0, 0, 0)", image: "none" });
-    expect(await corner(page)).toEqual(["233,233,236"]);
+    expect(await corner(page)).toEqual(["242,242,244"]);
 
     const reopened = await openSettings(page);
     await reopened.locator('[data-appearance-value="dark"]').click();
@@ -91,7 +91,7 @@ test("Web keeps the solid per-theme backdrop without a starfield canvas or motio
   }
 });
 
-test("desktop page carries no starfield canvas and stays transparent for the window material", async () => {
+test("desktop page carries no starfield canvas and stays clear over the window material, with a light wash in the light theme", async () => {
   test.skip(process.platform !== "darwin", "Native window material acceptance requires macOS");
   test.setTimeout(180_000);
   const root = await mkdtemp(join(tmpdir(), "atria-p45-no-starfield-"));
@@ -129,7 +129,9 @@ test("desktop page carries no starfield canvas and stays transparent for the win
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       const value = await backdrop(page);
       for (const layer of [value.html, value.body, value.shell]) {
-        expect(layer.color).toBe("rgba(0, 0, 0, 0)");
+        // The light theme lays a translucent white wash over the material.
+        const wash = theme === "light" && layer === value.body;
+        expect(layer.color).toBe(wash ? "rgba(255, 255, 255, 0.4)" : "rgba(0, 0, 0, 0)");
         expect(layer.image).toBe("none");
       }
       await expectNoSky(page);

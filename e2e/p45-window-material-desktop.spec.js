@@ -71,11 +71,13 @@ test("desktop window uses the native material and shows Formicand while package 
       material: "under-window"
     });
     const renderer = await page.evaluate(() => ({
+      theme: document.documentElement.dataset.theme,
       body: getComputedStyle(document.body).backgroundColor,
       wash: getComputedStyle(document.querySelector(".app-shell")).backgroundImage,
       title: document.title
     }));
-    expect(renderer.body).toBe("rgba(0, 0, 0, 0)");
+    // Light mode lays a faint white wash on the body; dark leaves it clear.
+    expect(renderer.body).toBe(renderer.theme === "light" ? "rgba(255, 255, 255, 0.4)" : "rgba(0, 0, 0, 0)");
     expect(renderer.wash).toBe("none");
     expect(renderer.title).toBe("Formicand");
 

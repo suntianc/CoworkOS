@@ -383,7 +383,7 @@ test("manual appearance persists, ignores OS overrides and can return to system 
     ])
       await expect(page.locator(`[data-appearance-value="${value}"]`)).toContainText(label);
     await chooseAppearance(page, "light");
-    expect(await surface()).toEqual({ color: "rgb(233, 233, 236)", image: "none" });
+    expect(await surface()).toEqual({ color: "rgb(242, 242, 244)", image: "none" });
     await chooseAppearance(page, "dark");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await page.emulateMedia({ colorScheme: "light" });

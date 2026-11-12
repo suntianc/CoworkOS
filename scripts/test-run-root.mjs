@@ -33,6 +33,14 @@ const alive = (pid) => {
     return error.code === "EPERM";
   }
 };
+/** Signals a process that may already have exited since it was listed. */
+const signal = (pid, name) => {
+  try {
+    process.kill(pid, name);
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+  }
+};
 // /var and /private/var name the same macOS directory; match either spelling.
 const spellings = (path) => {
   // Once removed, the given spelling is the only one left to match.
@@ -57,9 +65,9 @@ export async function backendsUnder(root) {
 /** Stops every backend under `root` and returns the ones that were still running. */
 export async function stopBackendsUnder(root) {
   const leaked = await backendsUnder(root);
-  for (const { pid } of leaked) process.kill(pid, "SIGTERM");
+  for (const { pid } of leaked) signal(pid, "SIGTERM");
   for (let waited = 0; waited < 5000 && leaked.some(({ pid }) => alive(pid)); waited += 100) await sleep(100);
-  for (const { pid } of leaked) if (alive(pid)) process.kill(pid, "SIGKILL");
+  for (const { pid } of leaked) if (alive(pid)) signal(pid, "SIGKILL");
   return leaked;
 }
 

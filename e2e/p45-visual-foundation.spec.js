@@ -25,7 +25,7 @@ const dark = {
 };
 
 const light = {
-  "--color-bg": "#e9e9ec",
+  "--color-bg": "#f2f2f4",
   "--color-surface": "#ffffff8c",
   "--color-surface-2": "#0000000a",
   "--color-surface-3": "#00000012",
@@ -98,7 +98,7 @@ test("Web keeps one token set for both themes and floats glass panels over its s
     expect(surface.backdrop.image).toBe("none");
     expect(surface.backdrop.color).toBe("rgb(11, 11, 12)");
     // Layers (#30): the conversation is nearly solid, the task panel clearer.
-    expect(surface.conversation.color).toBe("rgba(22, 22, 25, 0.92)");
+    expect(surface.conversation.color).toBe("rgba(22, 22, 25, 0.82)");
     expect(surface.conversation.blur).toBe("blur(24px)");
     expect(surface.taskPanel.color).toBe("rgba(20, 20, 23, 0.8)");
     expect(surface.taskPanel.blur).toBe("blur(32px)");
@@ -123,8 +123,8 @@ test("Web keeps one token set for both themes and floats glass panels over its s
       };
     });
     expect(lightBackdrop.image).toBe("none");
-    expect(lightBackdrop.color).toBe("rgb(233, 233, 236)");
-    expect(lightBackdrop.panel).toBe("rgba(255, 255, 255, 0.95)");
+    expect(lightBackdrop.color).toBe("rgb(242, 242, 244)");
+    expect(lightBackdrop.panel).toBe("rgba(255, 255, 255, 0.82)");
     expect(lightBackdrop.text).toBe("rgb(24, 24, 27)");
     await settings.locator('[data-appearance-value="dark"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
