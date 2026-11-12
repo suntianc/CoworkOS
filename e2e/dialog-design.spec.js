@@ -60,9 +60,11 @@ test("rename uses the shared dialog controls in light and dark at desktop and na
         await expect(input).toHaveCSS("font-size", "14px");
         await expect(input).toHaveCSS("border-top-style", "solid");
         await expect(input).toHaveCSS("border-top-width", "1px");
-        await expect(input).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
         await expect(input).toHaveCSS("border-radius", "12px");
-        await expect(input).toHaveCSS("outline-width", "2px");
+        // A focused field shows a quiet edge and halo, not the keyboard ring.
+        await expect(input).toHaveCSS("outline-style", "none");
+        await expect(input).toHaveCSS("box-shadow", /3px/);
+        await expect(input).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
         await expect(dialog).toHaveCSS("border-top-width", "1px");
         await expect(dialog).toHaveCSS("border-radius", "16px");
         await expect(cancel).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
@@ -132,9 +134,17 @@ test("rename retains its field and focus while saving fails, and recent conversa
     await expect(dialog.getByRole("alert")).toHaveText("请输入会话名称");
     await expect(input).toHaveAttribute("aria-invalid", "true");
     await expect(input).toBeFocused();
-    expect(await input.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(
-      await input.evaluate((node) => getComputedStyle(node).outlineColor)
-    );
+    // The invalid field keeps its danger edge and a danger halo while focused.
+    await expect.poll(() => input.evaluate((node) => getComputedStyle(node).boxShadow)).toMatch(/3px/);
+    const [edge, danger] = await input.evaluate((node) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--ui-danger)";
+      node.parentElement.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return [getComputedStyle(node).borderTopColor, color];
+    });
+    expect(edge).toBe(danger);
     expect(received).toBe(false);
     await input.fill("保存失败后保留的新名称");
     await save.click();

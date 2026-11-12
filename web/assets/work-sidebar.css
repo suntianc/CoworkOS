@@ -1186,8 +1186,9 @@ html[data-theme="light"] .add-project-state {
 }
 
 /* One set of entry points (#32): while the work sidebar shows 新会话 and 搜索,
-   the title row leaves them out; collapsed, in a drawer or while observing,
-   the title row carries them. */
+   the title row leaves them out; collapsed or in a drawer, the title row
+   carries them. Observation is read-only, so its title row never does; ⌘K and
+   ⌘P still work there. */
 @media (min-width: 640px) {
   html[data-theme]
     body:not(.sidebar-collapsed)
@@ -1195,4 +1196,7 @@ html[data-theme="light"] .add-project-state {
     :is(#titlebar-search, #titlebar-new-session) {
     display: none;
   }
+}
+html[data-theme] .app-layout[data-entry="observe"] :is(#titlebar-search, #titlebar-new-session) {
+  display: none;
 }

@@ -61,6 +61,11 @@
   --segmented-fill: #00000052;
   --segmented-active: #ffffff1a;
   --focus-ring: #ffffffa6;
+  /* Fields (text, select): a clicked field shows a soft edge and halo, not the
+     keyboard ring; the select arrow sits 12 px from the right edge. */
+  --field-focus-edge: #ffffff47;
+  --field-focus-ring: #ffffff14;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a1a1a8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
 
   /* Code (#26). */
   --code-bg: #0f0f11;
@@ -131,6 +136,9 @@ html[data-theme="light"] {
   --segmented-fill: #0000000a;
   --segmented-active: #ffffff;
   --focus-ring: #18181ba6;
+  --field-focus-edge: #0000003d;
+  --field-focus-ring: #0000000f;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2352525b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
 
   --code-bg: #f6f6f7;
   --code-keyword: #c2410c;
@@ -1827,4 +1835,38 @@ html[data-reduced-motion="reduce"] :is(.effort-fill, .effort-knob) {
   margin: 0;
   color: var(--color-text);
   font-size: 13px;
+}
+
+/* One select for every form: no native control chrome, the theme's chevron
+   12 px from the right edge, and room for it in the padding. */
+html[data-theme] select:not([multiple], [size]) {
+  appearance: none;
+  padding-right: 34px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px 14px;
+  cursor: pointer;
+}
+html[data-theme] select:disabled {
+  cursor: default;
+}
+/* Text fields and selects match :focus-visible on a click too, so they take a
+   quiet edge and halo instead of the 2 px keyboard ring buttons use. */
+html[data-theme]
+  :is(.settings-entry, .settings-card, .app-dialog)
+  :is(input:not([type="checkbox"], [type="radio"]), select, textarea):focus-visible {
+  border-color: var(--field-focus-edge);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--field-focus-ring);
+}
+html[data-theme] .app-dialog .project-directory-field:has(input:focus-visible) {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--field-focus-ring);
+}
+html[data-theme]
+  :is(.settings-entry, .settings-card, .app-dialog)
+  :is(input, select, textarea)[aria-invalid="true"]:focus-visible {
+  border-color: var(--ui-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-danger) 18%, transparent);
 }
