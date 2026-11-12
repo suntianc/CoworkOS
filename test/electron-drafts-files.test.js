@@ -1865,7 +1865,7 @@ test("cancelled upload cannot block or add files to a different draft", async ()
   });
   const first = uploader.add([new File(["first"], "first.txt")]);
   context = "second";
-  uploader.navigate();
+  assert.equal(uploader.navigate(), true);
   await uploader.add([new File(["second"], "second.txt")]);
   release({ name: "first.txt", sha256: "first", uploadId: "upload-first" });
   await first;
@@ -1874,6 +1874,32 @@ test("cancelled upload cannot block or add files to a different draft", async ()
     ["second.txt"]
   );
   assert.equal(busy.at(-1), false);
+});
+
+test("a late activation of the uploaded draft keeps the upload running and the page busy", async () => {
+  let release;
+  let context = "first";
+  let files = [];
+  const busy = [];
+  const uploader = createFileUpload({
+    getContext: () => context,
+    getFiles: () => files,
+    setFiles: (value) => (files = value),
+    onStatus() {},
+    onBusy: (value) => busy.push(value),
+    onError: (message) => assert.fail(message),
+    upload: () => new Promise((resolve) => (release = resolve))
+  });
+  const first = uploader.add([new File(["first"], "first.txt")]);
+  assert.equal(uploader.navigate(), false);
+  assert.deepEqual(busy, [true]);
+  release({ name: "first.txt", sha256: "first", uploadId: "upload-first" });
+  await first;
+  assert.deepEqual(
+    files.map((file) => file.name),
+    ["first.txt"]
+  );
+  assert.deepEqual(busy, [true, false]);
 });
 
 test("an evicted pending preview cannot replace a newer read of the same path", async () => {

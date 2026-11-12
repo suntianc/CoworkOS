@@ -215,3 +215,56 @@ test("an attachment still being read keeps the window open until its complete te
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("a kept upload still blocks closing after its draft is activated again", async ({ page }) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-kept-upload-close-"));
+  const dashboard = await startDashboard();
+  const store = createComposerDraftStore(root);
+  await store.load();
+  let releaseCatalog;
+  const catalogGate = new Promise((resolve) => (releaseCatalog = resolve));
+  let releaseUpload;
+  const uploadGate = new Promise((resolve) => (releaseUpload = resolve));
+  let uploading = false;
+  try {
+    await installNativeBridge(page, store, (entries, origin) => store.save(entries, origin));
+    // Hold the catalog so the first project selects the visible draft after the
+    // upload has already started.
+    await page.route("**/api/tasks", async (route) => {
+      await catalogGate;
+      await route.continue();
+    });
+    await page.route("**/api/events/snapshot", async (route) => {
+      await catalogGate;
+      await route.continue();
+    });
+    await page.route("**/api/uploads?name=kept.txt", async (route) => {
+      uploading = true;
+      await uploadGate;
+      await route.continue();
+    });
+    await page.goto(dashboard.base);
+    await expect(page.locator("#composer-input")).toBeEditable();
+    await expect(page.locator("#composer-project")).toBeHidden();
+    await page.locator("#file-input").setInputFiles({
+      name: "kept.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("kept through a late activation")
+    });
+    await expect.poll(() => uploading).toBe(true);
+    releaseCatalog();
+    await expect(page.locator("#composer-project")).toBeVisible();
+    await page.evaluate(() => window.__sendNative("bookman:prepare-close", "kept-upload"));
+    await expect.poll(() => page.evaluate(() => window.__lastDraftAck)).toBe(false);
+    await expect(page.locator("#toast")).toContainText("附件仍在读取");
+    releaseUpload();
+    await expect(page.locator("#attachment-strip")).toContainText("kept.txt");
+    await page.evaluate(() => window.__sendNative("bookman:prepare-close", "kept-upload-done"));
+    await expect.poll(() => page.evaluate(() => window.__lastDraftAck)).toBe(true);
+  } finally {
+    releaseCatalog();
+    releaseUpload();
+    await dashboard.stop();
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

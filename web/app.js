@@ -280,11 +280,12 @@ const composerSession = createComposerSession({
   storage: draftStorage,
   getAttachments: () => state.attachments,
   setAttachments: (files) => {
-    fileUpload?.navigate();
+    // A kept upload still owns the busy state: sending and closing stay blocked
+    // until it ends, so only a navigation that retires it releases them here.
+    if (fileUpload?.navigate()) readingAttachments = false;
     attachmentPreview?.close({ restoreFocus: false });
     // Navigation retires a read belonging to the previous draft immediately.
     attachmentReadVersion += 1;
-    readingAttachments = false;
     state.attachments = files;
     renderAttachments();
   },
@@ -1683,7 +1684,7 @@ $("#sidebar-search").addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
   upload: (file, options) => management.upload(file, options),
-  getContext: () => composerSession.currentToken,
+  getContext: () => composerSession.currentDraftIdentity,
   getFiles: () => state.attachments,
   setFiles: (files) => {
     state.attachments = files;
