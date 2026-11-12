@@ -18,11 +18,10 @@
 | `src/cli/`、`scripts/atria.mjs`                 | 用户命令、启动器与 smoke 入口             | [代码地图](docs/code-map.md)              |
 | `src/dashboard/`                                | 本地 HTTP/SSE、服务装配和 Run 编排        | [服务指引](src/dashboard/AGENTS.md)       |
 | `src/runtime/`                                  | Task/Run、调度、恢复、模型与 Pi 会话      | [运行时指引](src/runtime/AGENTS.md)       |
-| `src/applications/`                             | 应用注册、资源、修订、窗口、MCP、Adapter  | [应用指引](src/applications/AGENTS.md)    |
-| `src/software/`、`src/gui/`、`src/security/`    | 软件驱动、原生交互、权限                  | [软件接入](docs/software-integration.md)  |
+| `src/gui/`、`src/security/`                     | 原生交互、窗口授权与执行权限              | [Computer Use](docs/computer-use.md)      |
 | `src/domain/`、`src/storage/`、`src/workspace/` | 领域类型、事件、工作区与产出物            | [数据布局](docs/task-workspace-layout.md) |
 | `.pi/`                                          | 产品运行时的 Pi 装配、领域工具和技能      | [Pi 指引](.pi/AGENTS.md)                  |
-| `web/`                                          | Web 与桌面共用的界面、控制器、编辑器      | [前端指引](web/AGENTS.md)                 |
+| `web/`                                          | Web 与桌面共用的界面与控制器              | [前端指引](web/AGENTS.md)                 |
 | `desktop/`                                      | Electron 窗口、可信 IPC、本地后端生命周期 | [桌面指引](desktop/AGENTS.md)             |
 | `test/`、`e2e/`                                 | Node 回归与浏览器/原生验收                | [测试指引](test/AGENTS.md)                |
 | `docs/`                                         | 用户指南、开发约定和接口参考              | [文档指引](docs/AGENTS.md)                |
@@ -31,12 +30,12 @@
 
 ## 代码规则
 
-- CLI 与桌面宿主使用同一套服务。共享业务模块不能导入 CLI 入口；运行时和应用层不能反向导入 Dashboard。ESLint 检查这些方向。
+- CLI 与桌面宿主使用同一套服务。共享业务模块不能导入 CLI 入口；运行时层不能反向导入 Dashboard。ESLint 检查这些方向。
 - 路由只校验、调用服务、映射响应；进程由 Run/ProcessHost 管理。导入服务模块不能启动端口、安装信号或发出模型请求。
-- 按功能职责扩展现有服务、Adapter、控制器或 `.pi/runtime/tools/`。保持入口负责装配，避免把新能力集中到 `web/app.js`、Coordinator 或 Pi 扩展入口。
+- 按功能职责扩展现有服务、控制器或 `.pi/runtime/tools/`。保持入口负责装配，避免把新能力集中到 `web/app.js`、Coordinator 或 Pi 扩展入口。
 - TypeScript 使用 strict 和 ESM，本地 TS 导入保留 `.js` 后缀；桌面宿主保留 `.cjs`。外部 JSON、文件、工具参数、HTTP/IPC 在入口验证，错误必须可定位且不泄露密钥。
 - 错误要处理或向上传递，类型已保证的值直接使用。ESLint 检查丢弃错误、多余条件和类型断言；存量记录在 `eslint-suppressions.json`，新代码保持零新增。确有依据的例外逐处写 `// eslint-disable-next-line <rule> -- <依据>`。构建前置、规则范围与基线收紧见 [Lint 基线](docs/development.md#lint-存量基线)。
-- 持久格式、事件、HTTP、Adapter、IPC 变更同时检查生产者和消费者。破坏兼容时写迁移和恢复策略；不原地改变旧格式字段含义。
+- 持久格式、事件、HTTP、IPC 变更同时检查生产者和消费者。破坏兼容时写迁移和恢复策略；不原地改变旧格式字段含义。
 - 不修改 Pi 的 `node_modules` 或生成文件来修产品问题；第三方改动要记录来源、版本和差异。
 - 根目录保留公共入口、许可、示例配置与工具配置。维护中的技术文档放 `docs/`，构建与启动脚本放 `scripts/`；生成产物和本机绑定配置不作为源码提交。
 - 只格式化本次修改。不要顺带重排旧文件、升级依赖或移动无关模块。

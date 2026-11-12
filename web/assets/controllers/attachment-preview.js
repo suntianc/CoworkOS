@@ -1,6 +1,6 @@
 import { createModal } from "../ui/modal.js";
 import { icon } from "../ui/icons.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 
 /** Local previews share the shell's keyboard and focus behavior. */
 export function installAttachmentPreview({ api, mediaUrl } = {}) {

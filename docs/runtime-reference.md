@@ -22,9 +22,9 @@ Web/App 支持行内 `\(...\)`、`$...$` 与独立公式 `\[...\]`、`$$...$$`�
 
 ## 通用能力与按需工具
 
-终端和 App 的 Main 共用 Cowork 扩展与能力规则。低层 `single` 使用显式单智能体工具工厂，不自动获得 Main 的委派或应用工具。Coordinator 可接收外部 `capabilityProvider`。
+终端和 App 的 Main 共用 Cowork 扩展与能力规则。低层 `single` 使用显式单智能体工具工厂，不自动获得 Main 的委派工具。Coordinator 可接收外部 `capabilityProvider`。
 
-`enable_tools({})` 查询可用工具组，`enable_tools({groups:["applications"]})` 加载应用工具。显式加载随 Main Run 恢复；附件、引用资源和已授权任务也可按上下文启用工具。加载不代表授权，jobs 仍需 `longRunning`，电脑操作仍逐次核对有效授权。
+`enable_tools({})` 查询可用工具组，`enable_tools({groups:["attachments"]})` 加载附件读取工具，`delivery` 组提供产出物发布。显式加载随 Main Run 恢复；附件和已授权任务也可按上下文启用工具。加载不代表授权，jobs 仍需 `longRunning`，电脑操作仍逐次核对有效授权。
 
 Browser/CUA 对象属于当前 Pi 会话，退出或切换时清理。恢复工具组不会恢复浏览器页面或脚本对象，普通子智能体也不自动继承它们。操作与权限见 [Browser Use](browser-use.md)、[Computer Use](computer-use.md) 和 [CUA 脚本](cua-scripting.md)。
 
@@ -40,24 +40,19 @@ Browser/CUA 对象属于当前 Pi 会话，退出或切换时清理。恢复工�
 
 `createBuiltinTools` 的 `commandMaxLogBytes`、`commandPreviewBytes` 可分别调整每流硬上限和预览字节预算。未指定 `commandMaxLogBytes` 时，显式 `maxOutputBytes` 仍覆盖原有命令硬上限；文件读取默认 128,000 字节的行为不随命令默认值改变。这套预览和日志机制不改变 Main 原生 `bash` 的 SDK 行为。
 
-## 显式委派资源与候选验收
+## 显式委派附件
 
-普通 `call_subagent({task,mode})` 保持有效。应用绑定、附件和桌面权限不会全部自动继承，需要显式共享范围：
+普通 `call_subagent({task,mode})` 保持有效。附件和桌面权限不会全部自动继承，需要显式共享范围：
 
 ```javascript
 call_subagent({
   task: "核验此装配的部件与运动参数，返回证据",
   mode: "async",
-  resources: [{ resourceId: "已引用的资源ID", access: "read" }],
   attachments: ["明确共享的upload ID"]
 });
 ```
 
-`read` 提供适配器声明的只读工具；`candidate` 允许编辑私有副本。内置适配器提供这些能力，第三方窗口 MCP 工具不自动委派。附件读取只接受已共享的 ID。只有一个资源支持工具时可省略资源 ID，多资源同名工具须明确指定。
-
-候选编辑返回 `saved:false` 和 `candidatePath`，连续操作在同一副本累计。Main 检查候选与证据后调用 `accept_resource_candidate({candidatePath})`。验收核对持久授权和基准版本，以一次原子修订提交完整操作序列。冲突返回 `revision_conflict` 并保留双方内容；重新读取和委派，不能修改基准版本强制覆盖。
-
-队列恢复沿用原授权，不依赖 Main 当前绑定。资源授权不扩大 Task 文件或命令权限；缺少能力提供器时明确失败。子智能体运行成功或总结不能替代候选验收。
+附件读取只接受已共享的 ID；未共享的附件不因 Main 可读而出现在子智能体中。委派成功或总结不能替代 Main 对结果的核对。
 
 ### 执行角色、工作项依赖与需求现场
 
@@ -100,7 +95,7 @@ Main 与子智能体默认最多自动重试 5 次，不含首次请求。Main �
 
 App/Web 的“重试”重发失败请求保存的序列化正文，包括系统消息、模型、工具定义、附件和生成参数，不追加“继续”指令。成功的工具结果沿用。重放期间的新回调先排队，成功后再处理；未进入原正文的输入和文档变更不会被视为已经读取。
 
-私有快照在请求发送前保存，校验 Task 存储根、工作目录、应用资源来源及工具归属。设置或来源变化、快照损坏、旧快照缺少归属时，拒绝精确重放并保留记录；升级前归档的请求若仍含已移除的用户记忆或项目经验段落，同样拒绝重放，改由发送新消息重建上下文。没有快照的旧会话只能按已存上下文继续。取消优先于恢复，旧重试操作不能复活已取消运行。格式与备份边界见[数据布局](task-workspace-layout.md)。
+私有快照在请求发送前保存，校验 Task 存储根与工作目录。设置或来源变化、快照损坏、旧快照缺少归属时，拒绝精确重放并保留记录；升级前归档的请求若仍含已移除的用户记忆或项目经验段落，同样拒绝重放，改由发送新消息重建上下文。没有快照的旧会话只能按已存上下文继续。取消优先于恢复，旧重试操作不能复活已取消运行。格式与备份边界见[数据布局](task-workspace-layout.md)。
 
 Headless Run 恢复 checkpoint 时，若最后已是完整结束文本且没有未完成工具调用，只完成落盘，不重新请求模型。已成功的 Run ID 不能复用；新增工作使用新 Run。生命周期命令本身不等于启动模型执行。
 

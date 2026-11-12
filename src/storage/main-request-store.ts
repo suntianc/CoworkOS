@@ -16,7 +16,6 @@ export class MainRequestSnapshotError extends Error {
 }
 export interface MainRequestEnvironment {
   projectDirectory: string;
-  binding: string;
 }
 export interface MainRequestSnapshot {
   version: 1;
@@ -86,8 +85,6 @@ export class MainRequestStore {
       !Array.isArray(snapshot.context?.messages) ||
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版快照可能没有 environment 字段，缺失时须按损坏快照报错而不是抛 TypeError
       typeof snapshot.environment?.projectDirectory !== "string" ||
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，environment 可能整段缺失；缺 binding 时按损坏快照报错
-      typeof snapshot.environment?.binding !== "string" ||
       (snapshot.executionScope !== undefined && !validMainRequestExecutionScope(snapshot.executionScope)) ||
       (snapshot.endpoint !== undefined && typeof snapshot.endpoint !== "string") ||
       typeof snapshot.body !== "string" ||

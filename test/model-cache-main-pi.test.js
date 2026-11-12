@@ -90,7 +90,6 @@ for (const api of ["openai-completions", "openai-responses"]) {
           COWORK_TASK_ID: "cache-task",
           COWORK_RUN_ID: "cache-run",
           COWORK_GLOBAL_INDEX: join(root, "global.json"),
-          COWORK_TABS_INDEX: join(root, "tabs.json"),
           COWORK_API_BASE: `http://127.0.0.1:${server.address().port}/v1`,
           COWORK_API_KEY: "local-test-key",
           COWORK_MODEL: "protocol-fixture",

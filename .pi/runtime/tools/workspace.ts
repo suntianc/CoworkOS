@@ -86,7 +86,7 @@ export function registerWorkspaceTools(pi: ExtensionAPI, context: CoworkToolCont
     name: "load_skill",
     label: "Load Skill",
     description:
-      "Load a matching bundled/project/application skill by its catalog name. Returns its full instructions, actual absolute directory and existing bundled script paths.",
+      "Load a matching bundled/project skill by its catalog name. Returns its full instructions, actual absolute directory and existing bundled script paths.",
     promptSnippet: "Load specialized instructions and resolve their bundled script paths",
     promptGuidelines: [
       "Prefer load_skill for the harness's bundled skills. Use the returned directory and scripts paths verbatim; do not infer a skill location from a home directory, another machine or an old conversation.",
@@ -97,9 +97,7 @@ export function registerWorkspaceTools(pi: ExtensionAPI, context: CoworkToolCont
     }),
     async execute(_toolCallId, params): Promise<RuntimeToolResult> {
       const scope = context.skillScopeNow();
-      const tool = createLoadSkillTool(
-        await discoverSkills(scope.skillRoots, { applications: scope.skillApplications })
-      );
+      const tool = createLoadSkillTool(await discoverSkills(scope.skillRoots));
       const result = await tool.execute(params);
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     }

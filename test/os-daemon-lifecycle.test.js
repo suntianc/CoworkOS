@@ -59,7 +59,6 @@ async function createRoot(prefix, extra = {}) {
     COWORK_HARNESS_ROOT: repositoryRoot,
     COWORK_WORKSPACE: workspace,
     COWORK_GLOBAL_INDEX: join(home, "runtime", "workspaces.json"),
-    COWORK_TABS_INDEX: join(home, "runtime", "tabs.json"),
     COWORK_CONFIG: configPath,
     COWORK_DISABLE_WATCH_SUPERVISOR: "1",
     COWORK_SUPERVISOR_INTERVAL_MS: "1000",
@@ -492,7 +491,7 @@ test(
 );
 
 test(
-  "starting or importing the backend installs no system service, and an application MCP server stops and restarts with it",
+  "starting or importing the backend installs no system service and a restart reclaims its identity",
   { timeout: 150_000 },
   async (t) => {
     const root = await createRoot("atria-daemon-service-");
@@ -500,7 +499,6 @@ test(
       await stopQuietly(root);
       await rm(root.base, { recursive: true, force: true });
     });
-    root.env = { ...root.env, COWORK_APPLICATION_DUMMY: "1" };
 
     // Importing the entry must not serve, record an instance or touch an
     // OS-level service manager.
@@ -518,38 +516,15 @@ test(
     const started = await startBackend(root.env);
     assert.deepEqual(await serviceArtifacts(root), [], "starting the backend must not register a service");
     await createTask(root);
-    const opened = await api(root, "POST", "/api/tasks/daemon-task/app-instances/open", {
-      appType: "dummy-counter"
-    });
-    assert.equal(opened.status, 201, JSON.stringify(opened.body));
-    assert.equal(opened.body.mcp?.state, "running", JSON.stringify(opened.body.mcp));
-    const appInstanceId = opened.body.appInstance.appInstanceId;
-    const servers = await api(root, "GET", "/api/workbench/mcp/status");
-    const first = servers.body.servers.find((server) => server.key.endsWith(appInstanceId));
-    assert.ok(first, JSON.stringify(servers.body.servers));
-    assert.ok(alive(first.pid), "the MCP server is a real child process");
 
     const stopped = await stopBackend(root.env);
     assert.equal(stopped.state, "stopped");
     assert.equal(alive(started.pid), false);
-    await waitFor("the MCP server to stop with the backend", async () => !alive(first.pid), 10_000);
     assert.deepEqual(await serviceArtifacts(root), []);
 
     const restarted = await startBackend(root.env);
     assert.equal(restarted.backendId, started.backendId);
     assert.notEqual(restarted.pid, started.pid);
-    const reopened = await api(root, "POST", "/api/tasks/daemon-task/app-instances/open", {
-      appType: "dummy-counter"
-    });
-    assert.equal(reopened.status, 201, JSON.stringify(reopened.body));
-    assert.equal(reopened.body.mcp?.state, "running", JSON.stringify(reopened.body.mcp));
-    const afterRestart = await api(root, "GET", "/api/workbench/mcp/status");
-    const second = afterRestart.body.servers.find((server) =>
-      server.key.endsWith(reopened.body.appInstance.appInstanceId)
-    );
-    assert.ok(second, JSON.stringify(afterRestart.body.servers));
-    assert.ok(alive(second.pid), "the MCP server restarted with the backend");
-    assert.notEqual(second.pid, first.pid);
   }
 );
 
@@ -765,106 +740,3 @@ function childProcessPid(parentPid, marker) {
   }
   return undefined;
 }
-
-test(
-  "a slow in-flight MCP startup is awaited instead of cutting the backend at five seconds",
-  { timeout: 180_000 },
-  async (t) => {
-    const preload = `--import=${pathToFileURL(join(repositoryRoot, "test/application-fixture.mjs")).href}`;
-    const root = await createRoot("atria-daemon-slow-stop-", {
-      COWORK_APPLICATION_SLOW_SHUTDOWN: "1",
-      NODE_OPTIONS: preload
-    });
-    let mcpPid;
-    let started;
-    t.after(async () => {
-      await stopQuietly(root);
-      try {
-        if (mcpPid) process.kill(mcpPid, "SIGKILL");
-      } catch {
-        /* already gone */
-      }
-      await rm(root.base, { recursive: true, force: true });
-    });
-    started = await startBackend(root.env);
-    await createTask(root);
-    // The application server takes six seconds to finish its handshake, so the
-    // supervisor's teardown has an in-flight startup to wait for.
-    void api(root, "POST", "/api/tasks/daemon-task/app-instances/open", { appType: "slow-shutdown" }).catch(
-      () => undefined
-    );
-    mcpPid = await waitFor(
-      "the slow MCP server to spawn",
-      async () => childProcessPid(started.pid, "mcp-slow-shutdown-server.mjs"),
-      15_000
-    );
-    assert.ok(alive(mcpPid), "the MCP server is a real managed child process");
-
-    const begin = Date.now();
-    const stopped = await stopBackend(root.env);
-    const elapsed = Date.now() - begin;
-    assert.equal(stopped.state, "stopped", JSON.stringify(stopped));
-    assert.ok(elapsed > 5_000, `a slow teardown must not be cut at the old five-second timer (${elapsed}ms)`);
-    await waitFor("the MCP server to be reaped", async () => !alive(mcpPid), 8_000);
-    await assert.rejects(readFile(instancePath(root), "utf8"), /ENOENT/);
-
-    const restarted = await startBackend(root.env);
-    assert.equal(restarted.backendId, started.backendId, "the identity survives the slow stop");
-    assert.notEqual(restarted.pid, started.pid);
-    const stoppedAgain = await stopBackend(root.env);
-    assert.equal(stoppedAgain.state, "stopped");
-    assert.equal(alive(restarted.pid), false);
-  }
-);
-
-test(
-  "a teardown that cannot finish reports incomplete and keeps the instance for the next start",
-  { timeout: 180_000 },
-  async (t) => {
-    const preload = `--import=${pathToFileURL(join(repositoryRoot, "test/application-fixture.mjs")).href}`;
-    const root = await createRoot("atria-daemon-incomplete-", {
-      COWORK_APPLICATION_SLOW_SHUTDOWN: "1",
-      COWORK_FIXTURE_MCP_HANG: "1",
-      NODE_OPTIONS: preload
-    });
-    let mcpPid;
-    let started;
-    t.after(async () => {
-      await stopQuietly(root);
-      try {
-        if (mcpPid) process.kill(mcpPid, "SIGKILL");
-      } catch {
-        /* already gone */
-      }
-      await rm(root.base, { recursive: true, force: true });
-    });
-    started = await startBackend(root.env);
-    await createTask(root);
-    void api(root, "POST", "/api/tasks/daemon-task/app-instances/open", { appType: "slow-shutdown" }).catch(
-      () => undefined
-    );
-    mcpPid = await waitFor(
-      "the hung MCP server to spawn",
-      async () => childProcessPid(started.pid, "mcp-slow-shutdown-server.mjs"),
-      15_000
-    );
-
-    const attempt = await runBackend(["stop"], root.env);
-    assert.equal(attempt.code, 1, "an incomplete stop must fail loudly");
-    const stopped = JSON.parse(attempt.out);
-    assert.equal(stopped.state, "incomplete", JSON.stringify(stopped));
-    assert.match(stopped.reason, /实例记录已保留|收尾/);
-    assert.equal(alive(started.pid), false, "the backend was force-stopped");
-    const kept = JSON.parse(await readFile(instancePath(root), "utf8"));
-    assert.equal(kept.pid, started.pid, "the record is kept as the recovery marker");
-    assert.equal(kept.backendId, started.backendId);
-
-    // The next start reclaims the same identity instead of inventing a new one.
-    const restarted = await startBackend(root.env);
-    assert.equal(restarted.backendId, started.backendId);
-    assert.notEqual(restarted.pid, started.pid);
-    const stoppedAgain = await stopBackend(root.env);
-    assert.equal(stoppedAgain.state, "stopped");
-    assert.equal(alive(restarted.pid), false);
-  }
-);

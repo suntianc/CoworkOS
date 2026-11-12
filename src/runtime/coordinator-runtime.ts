@@ -97,8 +97,6 @@ export interface SubagentDispatchInput extends DelegatedModelSettings {
   web?: WebToolOptions;
   /** Project skill roots. Only skill metadata is put in the prompt; content is loaded on demand. */
   skillRoots?: string[];
-  /** Application skill scope captured when Main dispatches this call. */
-  skillApplications?: string[];
   /** Resume a running/failed Subagent checkpoint when explicitly requested. */
   resume?: boolean;
   /**
@@ -268,7 +266,6 @@ export interface CoordinatorRecoveryInput extends DelegatedModelSettings {
   capabilityProvider?: CapabilityProvider;
   web?: WebToolOptions;
   skillRoots?: string[];
-  skillApplications?: string[];
   questionTimeoutMs?: number;
   maxQuestions?: number;
   /** Runtime-only command environment supplied by the recovering host. */
@@ -673,9 +670,6 @@ export class CoordinatorRuntime {
             web: input.web,
             skillRoots:
               (item.payload as { skillRoots?: string[] } | undefined)?.skillRoots ?? input.skillRoots,
-            skillApplications:
-              (item.payload as { skillApplications?: string[] } | undefined)?.skillApplications ??
-              input.skillApplications,
             resume: true
           };
           try {
@@ -878,8 +872,7 @@ export class CoordinatorRuntime {
           dependsOn: dependsOn.length > 0 ? dependsOn : undefined,
           experimentRef: input.experimentRef,
           capabilityGrants: input.capabilityGrants ?? [],
-          skillRoots: input.skillRoots,
-          skillApplications: input.skillApplications
+          skillRoots: input.skillRoots
         },
         // A Task expecting expensive jobs grants one attempt, so a diverged
         // training run surfaces as evidence instead of being repeated silently.
@@ -961,10 +954,10 @@ export class CoordinatorRuntime {
             supportsImages: execution.supportsImages
           })
         : undefined;
-      const skills = await discoverSkills(
-        [...(provided?.skillRoots ?? []), ...(input.skillRoots ?? [join(process.cwd(), ".pi", "skills")])],
-        { applications: [...(input.skillApplications ?? []), ...(provided?.skillApplications ?? [])] }
-      );
+      const skills = await discoverSkills([
+        ...(provided?.skillRoots ?? []),
+        ...(input.skillRoots ?? [join(process.cwd(), ".pi", "skills")])
+      ]);
       // Capabilities are granted on the Task, so a Subagent inherits exactly
       // what this Task was granted rather than whatever the process was told.
       const capabilities = resolveCapabilities(

@@ -140,7 +140,6 @@ test(
       COWORK_PROJECT_DIR: project,
       COWORK_TASK_ID: "search-task",
       COWORK_RUN_ID: "search-run",
-      COWORK_TABS_INDEX: join(root, "tabs.json"),
       COWORK_API_BASE: provider.baseUrl,
       COWORK_API_KEY: "local-fixture",
       COWORK_MODEL: "protocol-fixture",

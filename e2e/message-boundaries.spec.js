@@ -1,4 +1,3 @@
-import { confirmApplicationWorkspace } from "./application-workspace-helper.js";
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 
@@ -391,64 +390,3 @@ test("sending during delayed conversation loading uses the selected task's model
     await dashboard.stop();
   }
 });
-
-for (const destination of ["new", "task-b"])
-  test(`a delayed tab activation PATCH cannot replace later navigation to ${destination}`, async ({
-    page
-  }) => {
-    const dashboard = await startDashboard();
-    const gate = deferred();
-    let started = false;
-    try {
-      await seedConversations(page, dashboard);
-      await page.goto(dashboard.base);
-      await expect(page.locator('.conversation-item[data-task="task-b"]')).toBeVisible();
-      await page.route("**/api/workbench/tabs", async (route) => {
-        if (
-          route.request().method() !== "PATCH" ||
-          route.request().postDataJSON().tabId !== "conversation:task-a"
-        )
-          return route.continue();
-        started = true;
-        await gate.promise;
-        await route.fulfill({ response: await route.fetch() });
-      });
-      await select(page, "task-a");
-      await expect.poll(() => started).toBe(true);
-      if (destination === "new") await page.locator("#new-conversation").click();
-      else await select(page, destination);
-      await page.locator("#composer-input").fill("后来选择的位置必须保留");
-      const expectedActive = destination === "new" ? undefined : "conversation:task-b";
-      const persistedActive = async () =>
-        (await (await page.request.get(`${dashboard.base}/api/workbench/tabs`)).json()).activeTabId;
-      await expect.poll(persistedActive).toBe(expectedActive);
-      const response = page.waitForResponse(
-        (result) =>
-          result.request().method() === "PATCH" &&
-          result.request().postDataJSON()?.tabId === "conversation:task-a"
-      );
-      gate.resolve();
-      await finishNavigationResponse(page, await response);
-      await expect.poll(persistedActive).toBe(expectedActive);
-      await expect(page.locator("#composer-input")).toHaveValue("后来选择的位置必须保留");
-      if (destination === "new") await expect(page.locator(".conversation-item.active")).toHaveCount(0);
-      else await expect(page.locator('.conversation-item[data-task="task-b"]')).toHaveClass(/active/);
-      // Pin the obsolete server selection through the next explicit refresh as
-      // well; a poll must not undo a local conversation or draft choice.
-      await page.route("**/api/workbench/tabs", async (route) => {
-        if (route.request().method() !== "GET") return route.fallback();
-        const result = await (await route.fetch()).json();
-        await route.fulfill({ json: { ...result, activeTabId: "conversation:task-a" } });
-      });
-      const refresh = page.waitForResponse(
-        (result) => result.url().endsWith("/api/workbench/tabs") && result.request().method() === "GET"
-      );
-      await finishNavigationResponse(page, await refresh);
-      await expect(page.locator("#composer-input")).toHaveValue("后来选择的位置必须保留");
-      if (destination === "new") await expect(page.locator(".conversation-item.active")).toHaveCount(0);
-      else await expect(page.locator('.conversation-item[data-task="task-b"]')).toHaveClass(/active/);
-    } finally {
-      gate.resolve();
-      await dashboard.stop();
-    }
-  });

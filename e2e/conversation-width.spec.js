@@ -1,6 +1,4 @@
 import { test, expect } from "@playwright/test";
-import { loadCurrentApplication } from "./application-context-helper.js";
-import { confirmApplicationWorkspace } from "./application-workspace-helper.js";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 
 async function seed(page, dashboard, { failed = false } = {}) {

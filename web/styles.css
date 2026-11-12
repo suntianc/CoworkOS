@@ -4538,9 +4538,9 @@ body {
   margin-right: 8px;
 }
 
-/* Keep the three-column workbench inside the viewport. Each panel owns its
-   scroll area so the sidebar and output column remain anchored while the
-   conversation grows. */
+/* Keep the two-column shell inside the viewport. Each panel owns its scroll
+   area so the sidebar and output column stay anchored while the conversation
+   grows. */
 html,
 body {
   height: 100%;

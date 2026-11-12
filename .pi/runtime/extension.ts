@@ -2,7 +2,12 @@ import { resetMainSupervisorBackoff } from "../../dist/src/runtime/main-supervis
 import { configuredWebTools } from "../../dist/src/runtime/web-search-config.js";
 import { readQueuedUserTurn } from "../../dist/src/runtime/queued-user-turn.js";
 import { withoutRetiredSections } from "../../dist/src/runtime/retired-system-sections.js";
-import type { ExtensionAPI, ExtensionContext, Skill } from "@earendil-works/pi-coding-agent";
+import {
+  formatSkillsForPrompt,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type Skill
+} from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -71,15 +76,15 @@ import {
   guessedProtection
 } from "../../dist/src/tools/protected-paths.js";
 import { LocalWorkspaceStore } from "../../dist/src/workspace/workspace-store.js";
-import { createApplicationBridge } from "./application-bridge.ts";
+import { capabilityProvider } from "../../dist/src/runtime/capability-provider.js";
+import { discoverSkills } from "../../dist/src/runtime/skill-registry.js";
+import {
+  attachmentCapabilityProvider,
+  attachmentGrants
+} from "../../dist/src/workspace/attachment-capabilities.js";
 import { mainCompactionPreviousSummary, withMainCompactionContext } from "./main-compaction.ts";
 import { MainCompactionRetry } from "./main-compaction-retry.ts";
 import { projectCompactionMessages } from "../../dist/src/runtime/compaction-input.js";
-import {
-  mainApplicationSkillScope,
-  mainApplicationSkills,
-  mainApplicationSkillsSection
-} from "./application-skills.ts";
 import type { RuntimeToolResult } from "./helpers.ts";
 import { errorMessage, loadConfig, textFromMessage } from "./helpers.ts";
 import { registerCoordinationTools } from "./tools/coordination.ts";
@@ -141,16 +146,36 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     ...new Set([join(harnessRoot, ".pi", "skills"), join(projectDirectory, ".pi", "skills")])
   ];
   /**
-   * Skill roots for this turn, including the bound application's own.
+   * Skill roots for this turn.
    *
-   * A Subagent asked to work on a CAD drawing needs the same domain knowledge
-   * Main has, so the binding widens what gets discovered rather than only
-   * affecting Main's prompt.
+   * A Subagent does the same kind of work Main does, so it discovers the same
+   * project and bundled skills rather than a narrower set.
    */
   let sdkSkills: Skill[] | undefined;
-  const skillScopeNow = () =>
-    mainApplicationSkillScope(baseSkillRoots, applicationBridge.boundApplication, harnessRoot, sdkSkills);
+  const skillScopeNow = () => ({ skillRoots: baseSkillRoots });
   let currentSkillsSection: string | undefined;
+  /**
+   * Pi owns skill discovery once structured options are available; its selection
+   * is authoritative even when empty. Older callers without options fall back to
+   * discovering the project and bundled roots here.
+   */
+  const mainSkills = async (sdkSkillList: readonly Skill[] | undefined): Promise<Skill[]> => {
+    if (sdkSkillList) return sdkSkillList.filter((skill) => !skill.disableModelInvocation);
+    const discovered = await discoverSkills(baseSkillRoots);
+    return discovered.map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      filePath: skill.path,
+      baseDir: skill.directory,
+      sourceInfo: { path: skill.path, source: "atria", scope: "project", origin: "top-level" },
+      disableModelInvocation: false
+    }));
+  };
+  const skillsSection = (skills: Skill[]): string =>
+    `<skills>\n${formatSkillsForPrompt(skills, "read").trim()}\n</skills>`;
+  const capabilityProviders = capabilityProvider(
+    new Map([["attachments", attachmentCapabilityProvider(harnessRoot)]])
+  );
   const inboxDelivery = new MainInboxDelivery(workspaceRoot, taskId, mainRunId);
   let agentStartedAt = 0;
   pi.on("agent_start", () => {
@@ -271,8 +296,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         questionTimeoutMs: configuredSubagentQuestionTimeout(runtimeEnv),
         maxQuestions: configuredSubagentMaxQuestions(runtimeEnv),
         skillRoots: baseSkillRoots,
-        skillApplications: [],
-        capabilityProvider: applicationBridge.capabilityProvider
+        capabilityProvider: capabilityProviders
       });
       if (results.length) {
         try {
@@ -358,16 +382,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     join(taskWorkspace, "runs", mainRunId, "agents", "main", "inbox-store.json")
   );
 
-  /**
-   * Shared application resources.
-   *
-   * An application's documents are always reachable; what changes is whether
-   * the conversation is *bound* to one. Unbound, nothing here contributes to a
-   * turn: no context section, no application tools. Bound, the resource's
-   * summary and that application's own tools appear, and unbinding takes both
-   * away again. That is the only state this feature has.
-   */
-  const applicationBridge = createApplicationBridge({ pi, workspaceRoot, taskId, mainRunId, harnessRoot });
   /** Count running jobs and queue a wake for any that finished since the last check. */
   const pollJobs = async (): Promise<number> => {
     // eslint-disable-next-line no-restricted-syntax -- 作业目录首次运行时还不存在，读取失败等价于当前没有作业
@@ -443,77 +457,12 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   });
 
   const prepareMainTurnSections = async () => {
-    // Real Pi assembles this hook before the per-request context hook.
-    // Discover bound tools here so they exist on the first model request.
-    await applicationBridge.prepareApplicationContext();
+    // Real Pi assembles this hook before the per-request context hook, so tool
+    // discovery must finish here to exist on the first model request.
     await capabilityTools.refresh();
-    // The active application is appended as its own system section rather than
-    // spliced into the user's message, so the transcript keeps showing what the
-    // person actually typed. The application section is prepared before prompt assembly,
-    // independently of the later per-request context hook.
-    //
-    // WHAT BELONGS IN `<bound_application>`, and what does not.
-    //
-    // Only what is true *this turn and unknowable when this code was written*:
-    // which document, what it is called on disk, which tools exist right now.
-    // Two questions decide it:
-    //
-    //   - Would this sentence read the same for every document? Then it is a
-    //     durable principle and belongs in `.pi/prompts/cowork-main.md`.
-    //   - Is it about how one tool is called, or how it fails? Then it belongs
-    //     in that tool's `description` / `promptGuidelines`, which only reach
-    //     the prompt while the tool is active.
-    //
-    // This is not a new rule — `cowork-main.md` already states it for tool
-    // schemas. It is written here because the block stopped obeying it: it grew
-    // from 8 lines to 14 in one session, one incident at a time, until ~3,270
-    // characters across four files were all answering "where does output go and
-    // which tool writes it". The size guard in the tests is what keeps the next
-    // incident-driven fix honest: past the cap, something has to be displaced
-    // rather than appended, which forces the "which layer owns this?" question
-    // at the moment it is easiest to skip.
-    const bound = applicationBridge.boundApplication;
-    const application = applicationBridge.pendingApplicationContext
-      ? [
-          "",
-          "",
-          applicationBridge.pendingApplicationContext,
-          ...(bound
-            ? [
-                "",
-                "<bound_application>",
-                // The title leads, because that is what the user calls it. The path
-                // follows only when it differs, and then it says so outright: a
-                // document titled 「算法.md」 stored as `算法 2.md` read as two
-                // different files, and one run spent four `bash` calls on the disk
-                // working out which was meant.
-                ...applicationBridge.describeBoundResource(bound),
-                ...(bound.systemPrompt ? [bound.systemPrompt] : []),
-                "绑定只为与当前文档相关的请求提供编辑上下文；无关的问答、调研或项目开发继续使用通用工具，不把其他任务写进这份文档。专用 skill 只用于匹配的任务。",
-                // The tool list precedes every rule that refers to it.
-                ...(bound.tools.length || applicationBridge.boundMcpTools.length
-                  ? [
-                      `这个应用的专用工具：${[...bound.tools.map((tool) => tool.name), ...applicationBridge.boundMcpTools.map((tool) => tool.name)].join(", ")}。它们只在绑定期间可用，是读写这份文档的唯一正确方式。`
-                    ]
-                  : []),
-                ...(bound.skillRoots.length
-                  ? ["这个应用带有专用 skill，需要时用 load_skill 按名称加载。"]
-                  : []),
-                // Name the bound document explicitly for references and requests
-                // that omit a destination, instead of applying general file rules.
-                `用户这一轮说的“这个文件”“这份文档”“这一段”“改一下”，默认就是指《${bound.resourceTitle}》，除非他点名了别的东西。`,
-                `当本轮目标是编辑这份文档时，他让你写、整理、补充、扩写而没说放哪儿时，默认写进《${bound.resourceTitle}》，再在回复里说一句写好了，而不是把内容只贴在对话里。除非他说了只想看看或先讨论。`,
-                // Keep editing rules beside the bound application's concrete tools.
-                "改它只用上面这些专用工具。用 write/edit 直接覆盖资源文件会绕过版本协议，被记成来源不明的外部修改，可能冲掉用户正在编辑的内容，而且历史里只剩“被改过”。",
-                `绑定已经确定了是哪一份，不需要用 bash/find/ls 去磁盘上找它或核对是哪一个——用 这个应用的读取工具 读到的就是它。磁盘上有名字相近的其他文件是正常的。`,
-                "</bound_application>"
-              ]
-            : [])
-        ].join("\n")
-      : "";
     const workspace = [
       `用户选择的项目目录：${projectDirectory}。read/edit/write/bash 的相对路径从这里开始；用户说“这个项目”“工作文件夹”指的是这里。以它为准，不要因为运行了 CoworkOS 就改去它的安装目录。`,
-      "会话可能切换过项目目录，历史消息中的旧路径不会自动改写；当前操作以本段目录为准，继续操作旧路径前先核对用户意图。已绑定的应用文档仍是原文档。",
+      "会话可能切换过项目目录，历史消息中的旧路径不会自动改写；当前操作以本段目录为准，继续操作旧路径前先核对用户意图。",
       `本次任务工作区：${taskWorkspace}。browse_workspace 和 Subagent 的 outputFiles 的相对路径都从这里开始。`,
       `你的 work 目录：${join(taskWorkspace, "agents", "main", "work")}`,
       `任务的 artifacts 目录：${join(taskWorkspace, "artifacts")}`,
@@ -523,8 +472,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     // Keep SDK-owned tools and rules dynamic. Returning a forced prompt here
     // freezes snippets when enable_tools changes the active loadout mid-turn.
     return {
-      current_workspace: `<current_workspace>\n${workspace}\n</current_workspace>`,
-      application_context: application
+      current_workspace: `<current_workspace>\n${workspace}\n</current_workspace>`
     };
   };
 
@@ -536,15 +484,13 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 Pi 调用方可能只提供 event.systemPrompt，缺少该系统选项时走下面的回退分支
     if (options) {
       sdkSkills = options.skills;
-      options.skills = await mainApplicationSkills(skillScopeNow(), options.skills);
-      currentSkillsSection = mainApplicationSkillsSection(options.skills);
+      options.skills = await mainSkills(options.skills);
+      currentSkillsSection = skillsSection(options.skills);
       Object.assign(options.sections, sections);
       return;
     }
     // Compatibility with older extension callers lacking structured options.
-    return {
-      systemPrompt: `${event.systemPrompt}\n${sections.current_workspace}${sections.application_context}`
-    };
+    return { systemPrompt: `${event.systemPrompt}\n${sections.current_workspace}` };
   });
 
   let continuationSections: Awaited<ReturnType<typeof prepareMainTurnSections>> | undefined;
@@ -554,9 +500,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       await requestRetry?.restore();
       const options = ctx.getSystemPromptOptions();
       sdkSkills = options.skills ?? [];
-      currentSkillsSection = mainApplicationSkillsSection(
-        await mainApplicationSkills(skillScopeNow(), sdkSkills)
-      );
+      currentSkillsSection = skillsSection(await mainSkills(sdkSkills));
       projectDefaultIdentity = !options.customPrompt && options.forceSystemPrompt === undefined;
     });
   }
@@ -634,11 +578,8 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       }
       await updateRuntime({ runtimePendingDelegations: active + inboxDelivery.queuedCount });
       // Refresh between model requests, including changes made during a turn.
-      await applicationBridge.prepareApplicationContext();
       await capabilityTools.refresh();
-      currentSkillsSection = mainApplicationSkillsSection(
-        await mainApplicationSkills(skillScopeNow(), sdkSkills ?? [])
-      );
+      currentSkillsSection = skillsSection(await mainSkills(sdkSkills ?? []));
     } catch (error) {
       ctx.ui.notify(`Main context snapshot failed: ${errorMessage(error)}`, "warning");
     }
@@ -704,18 +645,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       if (mainContext) await persistMainContext(mainContext, ctx.sessionManager.getBranch());
       const replayOnly = Boolean(process.env.COWORK_MAIN_RETRY_REQUEST_ID) && !freshRetryContext;
       await inboxDelivery.settle(replayOnly ? [] : ctx.sessionManager.getEntries());
-      // The turn carrying the application context has completed, so what was
-      // injected can now be treated as seen. A crash before this point leaves
-      // the same changes queued for the next turn.
-      if (applicationBridge.injectedResources.length && !replayOnly) {
-        for (const entry of applicationBridge.injectedResources) {
-          await applicationBridge.workbench.context
-            .recordAcknowledged(taskId, "main", entry.resourceId, entry.revision)
-            // eslint-disable-next-line no-restricted-syntax -- 确认写入失败只会让同一份注入在下一轮再出现一次，不阻塞本轮结束
-            .catch(() => {});
-        }
-        applicationBridge.injectedResources = [];
-      }
       try {
         const taskStore = new LocalWorkspaceStore(workspaceRoot);
         const task = await taskStore.readTask(taskId);
@@ -922,10 +851,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     requestRetry = new MainRequestRetry(
       new MainRequestStore(mainRequestPath(workspaceRoot, taskId), taskId),
       mainRunId,
-      async () => ({
-        ...(await mainRequestEnvironment(workspaceRoot, taskId, projectDirectory)),
-        executionScope: await applicationBridge.executionScope(projectDirectory)
-      }),
+      () => mainRequestEnvironment(workspaceRoot, taskId, projectDirectory),
       process.env.COWORK_MAIN_RETRY_REQUEST_ID || undefined,
       (names) => capabilityTools.restoreSelection(names),
       async (deferredContext) => {
@@ -939,10 +865,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         } catch (error) {
           console.error(`[CoworkOS] Deferred callback delivery: ${errorMessage(error)}`);
         }
-      },
-      {
-        beginTurn: () => applicationBridge.beginModelTurn(),
-        protectReplayScope: (scope) => applicationBridge.protectReplayScope(scope),
       }
     );
     pi.registerProvider(model.provider, {
@@ -967,22 +889,10 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     });
   }
 
-  /**
-   * The generic resource tools.
-   *
-   * They are deliberately not text tools: the schema of `payload` comes from
-   * whichever Adapter owns the resource, so these same tools will drive a CAD
-   * or spreadsheet Adapter later without another registration here.
-   *
-   * Reading content is not among them. That belongs to the application, which
-   * is the only thing that knows what a useful view of its own resource is.
-   */
-  applicationBridge.registerGenericTools();
-
   const toolContext = {
     baseSkillRoots,
-    capabilityProvider: applicationBridge.capabilityProvider,
-    delegationGrants: applicationBridge.delegationGrants,
+    capabilityProvider: capabilityProviders,
+    delegationGrants: (attachments?: unknown) => attachmentGrants(join(workspaceRoot, taskId), attachments),
     refreshCapabilities: () => capabilityTools.refresh(),
     get active() {
       return active;
@@ -1116,7 +1026,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     workspaceRoot,
     taskId,
     mainRunId,
-    hasResources: async () => (await applicationBridge.workbench.listResources(taskId)).length > 0,
     supportsImages
   });
   pi.registerCommand("cowork-status", {

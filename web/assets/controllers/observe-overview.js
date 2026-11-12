@@ -3,7 +3,7 @@ import { icon } from "../ui/icons.js";
 import { ui } from "../ui/language.js";
 import { formatStamp } from "../ui/time-format.js";
 import { createVisiblePoll } from "../ui/visible-poll.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 import { formatSpan } from "./observe-runs.js";
 
 /**

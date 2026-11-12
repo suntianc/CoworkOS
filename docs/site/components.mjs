@@ -8,8 +8,6 @@ const paths = {
   mac: '<rect x="3" y="4" width="26" height="18" rx="3"/><path d="M12 28h8m-4-6v6"/>',
   terminal: '<rect x="3" y="5" width="26" height="22" rx="4"/><path d="m9 12 4 4-4 4m8 0h6"/>',
   model: '<path d="m16 3 12 7v12l-12 7-12-7V10Z"/><path d="m4 10 12 7 12-7m-12 7v12M10 6.5l12 7"/>',
-  applications:
-    '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M11 24v3m-5 0h10m7-15h3a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H15a3 3 0 0 1-3-3v-3"/>',
   text: '<path d="M19 3H8a3 3 0 0 0-3 3v20a3 3 0 0 0 3 3h16a3 3 0 0 0 3-3V11Z"/><path d="M19 3v8h8M11 17h10m-10 5h10"/>',
   presentation:
     '<rect x="3" y="4" width="26" height="20" rx="3"/><path d="M16 24v5m-5 0h10M9 17l4-5 4 3 6-7"/>',
@@ -102,53 +100,6 @@ function downloads(html) {
   });
 }
 
-function applications(html, en) {
-  const groups = sections(html, 2);
-  return (
-    groups.prefix +
-    groups.items
-      .map((group) => {
-        const cards = sections(group.body, 3);
-        return (
-          group.heading +
-          cards.prefix +
-          `<div class="application-grid">${cards.items
-            .map((item) => {
-              const paragraph = /^\s*<p>([\s\S]*?)<\/p>/.exec(item.body);
-              const reference = /<p>(<a\b[^>]*>[\s\S]*?<\/a>)<\/p>\s*$/.exec(item.body);
-              if (!paragraph || !reference)
-                throw new Error(`Expected a summary and reference for ${item.id}`);
-              let summary = paragraph[1];
-              const requirement = en
-                ? /(?:^|\. )((?:Requires|[^.]* requires)[^.]*\.)$/.exec(summary)?.[1]
-                : /(?:^|。)([^。]*需要[^。]*。?)$/.exec(summary)?.[1];
-              if (requirement) summary = summary.replace(requirement, "").trim();
-              const content = item.body.slice(paragraph.index + paragraph[0].length, reference.index);
-              const attributes = /^<a\b([^>]*)>/.exec(reference[1])[1];
-              const name = item.title.toLowerCase();
-              const kind = /text|文本/.test(name)
-                ? "text"
-                : /^ppt$/.test(name)
-                  ? "presentation"
-                  : /blender/.test(name)
-                    ? "blender"
-                    : /freecad/.test(name)
-                      ? "freecad"
-                      : /office/.test(name)
-                        ? "presentation"
-                        : "model";
-              const info = requirement
-                ? `<button class="application-info" type="button" aria-label="${en ? "Requirements" : "使用条件"}" aria-expanded="false" aria-controls="${item.id}-requirements" aria-describedby="${item.id}-requirements"><span aria-hidden="true">i</span><span class="application-tooltip" role="tooltip" id="${item.id}-requirements">${requirement}</span></button>`
-                : "";
-              return `<section class="application-card"><div class="application-card-header"><span class="application-symbol">${icon(kind)}</span><h3 id="${item.id}"><a ${attributes}>${item.title}<span aria-hidden="true">↗</span></a></h3>${info}</div><p class="application-summary">${summary}</p>${content}</section>`;
-            })
-            .join("")}</div>`
-        );
-      })
-      .join("")
-  );
-}
-
 function configuration(html, en) {
   const { prefix, items } = sections(html, 2);
   const selected = items.filter((item) => /^(?:cli-|app-)/.test(item.id));
@@ -181,7 +132,6 @@ function configuration(html, en) {
 export function decorateArticle(page, html) {
   const file = page.file.replace(/^docs\/en\//, "docs/");
   if (file === "docs/README.md") return home(html, page.english);
-  if (file === "docs/applications.md") return applications(html, page.english);
   if (file === "docs/configuration.md") return configuration(html, page.english);
   if (["docs/getting-started.md", "docs/cli-quickstart.md"].includes(file)) return steps(downloads(html));
   return html;

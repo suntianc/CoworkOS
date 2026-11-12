@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -45,9 +44,9 @@ for (const [api, compact] of [
       const taskId = "recording-task";
       const runId = "recording-run";
       const credential = "isolated-main-recording-credential";
-      const prompt = "先启用应用工具，然后列出可用应用并完成核对。";
-      const finalText = "已启用应用工具并核对应用目录。";
-      const memory = "已完成应用工具启用和目录核对。继续只读确认，保留此前工具结果。";
+      const prompt = "先启用交付工具，然后发布一份产物并完成核对。";
+      const finalText = "已启用交付工具并核对产物。";
+      const memory = "已完成交付工具启用和产物核对。继续只读确认，保留此前工具结果。";
       const continuation = "根据已有记忆继续核对，不要重复工具调用。";
       const recordingPath = join(workspace, taskId, "sessions", "main", `${runId}-requests.jsonl`);
       const received = [];
@@ -112,18 +111,17 @@ for (const [api, compact] of [
             );
             if (mainReceived.length === 1)
               assert.ok(
-                !saved.payload.systemPrompt.includes("Create a resource the user can edit alongside you")
+                !saved.payload.systemPrompt.includes(
+                  "Publish only finished deliverables requested by the user"
+                )
               );
-            else {
+            else
               assert.ok(
-                saved.payload.systemPrompt.includes("Create a resource the user can edit alongside you"),
-                "new tool snippets must stay dynamic"
-              );
-              assert.ok(
-                saved.payload.systemPrompt.includes("read and edit the bound resource in place"),
+                saved.payload.systemPrompt.includes(
+                  "Publish only finished deliverables requested by the user"
+                ),
                 "new tool guidelines must stay dynamic"
               );
-            }
             assert.ok(saved.payload.systemPrompt.length > 2_000, "archive the expanded Main policy");
             assert.ok(saved.payload.systemPrompt.includes(project), "include the actual project context");
             assert.ok(
@@ -163,33 +161,29 @@ for (const [api, compact] of [
             const names = saved.payload.tools.map((tool) => tool.name);
             if (mainReceived.length === 1) {
               assert.ok(names.includes("enable_tools"));
-              assert.ok(!names.includes("list_applications"));
-              assert.ok(!names.includes("create_resource"));
-              reply = { name: "enable_tools", arguments: { groups: ["applications"] } };
+              assert.ok(!names.includes("publish_artifact"));
+              assert.ok(!names.includes("read_attachment"));
+              reply = { name: "enable_tools", arguments: { groups: ["delivery"] } };
             } else {
               assert.ok(
-                names.includes("list_applications"),
+                names.includes("publish_artifact"),
                 "the next request must include newly enabled tools"
               );
-              assert.ok(names.includes("create_resource"));
-              assert.ok(names.includes("apply_resource_operation"));
               assert.notEqual(saved.payload.toolsSha256, requests[0].payload.toolsSha256);
-              assert.ok(JSON.stringify(body).includes("applications"));
+              assert.ok(JSON.stringify(body).includes("delivery"));
               if (mainReceived.length === 2) {
                 assert.ok(
                   JSON.stringify(body).includes("call_main_1"),
                   "retain the previous tool call and receipt"
                 );
-                reply = { name: "list_applications", arguments: {} };
+                reply = { name: "publish_artifact", arguments: { sourcePath: "report.md" } };
               } else {
                 assert.ok(mainReceived.length === 3 || (compact && mainReceived.length === 4));
-                if (mainReceived.length === 3) {
-                  assert.ok(JSON.stringify(body).includes("call_main_2"));
+                if (mainReceived.length === 3)
                   assert.ok(
-                    JSON.stringify(body).includes("text/markdown"),
-                    "retain the real application directory result"
+                    JSON.stringify(body).includes("report.md"),
+                    "retain the real published artifact result"
                   );
-                }
                 reply = { text: finalText };
               }
             }
@@ -245,6 +239,7 @@ for (const [api, compact] of [
         await rm(root, { recursive: true, force: true });
       });
       await mkdir(project);
+      await writeFile(join(project, "report.md"), "已完成核对。\n");
       await writeFile(join(root, "config.json"), JSON.stringify({ contextWindow: 64000 }));
       const store = new LocalWorkspaceStore(workspace);
       await store.createTask(taskId, { goal: prompt });
@@ -279,7 +274,6 @@ for (const [api, compact] of [
         COWORK_TASK_ID: taskId,
         COWORK_RUN_ID: runId,
         COWORK_GLOBAL_INDEX: join(root, "workspaces.json"),
-        COWORK_TABS_INDEX: join(root, "tabs.json"),
         COWORK_API_BASE: `http://127.0.0.1:${server.address().port}/v1`,
         COWORK_API_KEY: credential,
         COWORK_MODEL: "protocol-fixture",
@@ -374,7 +368,7 @@ for (const [api, compact] of [
           .map((event) => [event.toolName, event.isError]),
         [
           ["enable_tools", false],
-          ["list_applications", false]
+          ["publish_artifact", false]
         ]
       );
       const finalEvent = events.findLast(

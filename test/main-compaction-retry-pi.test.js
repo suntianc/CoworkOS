@@ -185,7 +185,6 @@ for (const mode of ["cooldown", "manual", "clear-context"])
         COWORK_PROJECT_DIR: project,
         COWORK_TASK_ID: taskId,
         COWORK_RUN_ID: runId,
-        COWORK_TABS_INDEX: join(root, "tabs.json"),
         COWORK_GLOBAL_INDEX: join(root, "workspaces.json"),
         COWORK_API_BASE: baseUrl,
         COWORK_API_KEY: "isolated-retry-fixture",

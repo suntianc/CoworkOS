@@ -62,7 +62,6 @@ export async function startDashboard({
       PI_TELEMETRY: "0",
       COWORK_WORKSPACE: workspaceRoot,
       COWORK_GLOBAL_INDEX: join(root, "global.json"),
-      COWORK_TABS_INDEX: join(root, "tabs.json"),
       COWORK_CONFIG: join(root, "config.json"),
       COWORK_UI_PORT: String(port),
       ...(blenderExecutable ? { COWORK_BLENDER_EXECUTABLE: blenderExecutable } : {}),

@@ -1,7 +1,7 @@
 /**
  * Recover a detached native textarea layout without replacing its DOM node.
  * Electron has been observed reporting display:block and a visible composer,
- * but no client rects for the textarea after workbench navigation. Changing
+ * but no client rects for the textarea after a conversation switch. Changing
  * field-sizing alone did not repair that state; rebuilding its layout did.
  */
 export function recoverComposerLayout(input) {

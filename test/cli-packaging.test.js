@@ -299,9 +299,7 @@ test("the actual CLI packer excludes retained Mac helpers and tolerates optional
       );
     assert.ok(
       !files.some((file) =>
-        /(?:text-editor|text-runtime-adapter|text-outline|text-document-session|application-fixture|application-contract)/.test(
-          file
-        )
+        /(?:text-editor|text-runtime-adapter|text-outline|text-document-session)/.test(file)
       ),
       "CLI archive excludes editor implementations and contract fixtures"
     );

@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRequire } from "node:module";
@@ -68,7 +67,7 @@ test(
   }
 );
 
-test("native backend owns readiness, authenticates its API, reaches MCP and shuts down", async () => {
+test("native backend owns readiness, authenticates its API and shuts down", async () => {
   const root = await mkdtemp(join(tmpdir(), "atria-backend-"));
   const paths = desktopPaths(resolve("."), root, {});
   let backend;
@@ -85,27 +84,9 @@ test("native backend owns readiness, authenticates its API, reaches MCP and shut
     };
     assert.equal(backend.url, `http://127.0.0.1:${backend.port}`);
     assert.equal((await fetch(`${backend.url}/api/tasks`)).status, 401);
-    await request("/api/tasks", { taskId: "native-mcp", goal: "native MCP auth" });
-    const created = await request("/api/tasks/native-mcp/resources", {
-      kind: "text/markdown",
-      title: "native.md",
-      initialContent: "# Heading\nbody\n"
-    });
-    await request("/api/workbench/tabs", {
-      kind: "application",
-      taskId: "native-mcp",
-      appInstanceId: created.appInstance.appInstanceId
-    });
-    const resourceId = created.resource.resourceId;
-    const discovery = await request(`/api/workbench/mcp/tools?resourceId=${resourceId}`);
-    assert.ok(discovery.tools.some((tool) => tool.name === "replace_section"));
-    const result = await request("/api/workbench/mcp/call", {
-      taskId: "native-mcp",
-      resourceId,
-      name: "replace_section",
-      params: { heading: "Heading", body: "updated" }
-    });
-    assert.ok(JSON.stringify(result).includes("updated"));
+    await request("/api/tasks", { taskId: "native-task", goal: "native backend auth" });
+    const created = await request("/api/tasks/native-task");
+    assert.equal(created.task.taskId, "native-task");
     const origin = backend.url;
     assert.equal((await backend.stop()).state, "stopped");
     backend = undefined;

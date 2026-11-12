@@ -23,7 +23,6 @@ export const navigation = [
       ["docs/code-map.md", "代码地图", "Code map"],
       ["docs/architecture.md", "架构", "Architecture"],
       ["docs/product-api.md", "HTTP / SSE API", "HTTP / SSE API"],
-      ["docs/software-integration.md", "接入应用与工具", "Software integration"],
       ["docs/task-workspace-layout.md", "文件与数据", "Files & storage"],
       ["docs/testing-local-run.md", "测试", "Testing"],
       ["CONTRIBUTING.md", "参与贡献", "Contributing"],

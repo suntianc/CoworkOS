@@ -414,21 +414,3 @@ test("explicit layout 2 still upgrades an empty framework manifest and retains M
     "[]"
   );
 });
-
-test("export provenance survives indexing and retains its original hash after an external edit", async (t) => {
-  const location = await fixture(t);
-  const published = await publishTaskArtifact({
-    ...location,
-    runId: "run_1",
-    producerAgentId: "main",
-    relativePath: "export.txt",
-    content: "exported bytes",
-    sourceResourceId: "res_original"
-  });
-  assert.deepEqual(published.sourceResource, { resourceId: "res_original", sha256: published.sha256 });
-  assert.deepEqual((await listTaskArtifacts(location))[0].sourceResource, published.sourceResource);
-  await writeFile(join(location.task, "artifacts", "export.txt"), "externally changed bytes");
-  const changed = (await listTaskArtifacts(location))[0];
-  assert.deepEqual(changed.sourceResource, published.sourceResource);
-  assert.notEqual(changed.sha256, changed.sourceResource.sha256);
-});

@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";

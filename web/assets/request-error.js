@@ -71,8 +71,8 @@ export function requestErrorMessage(error) {
 /** Known local replay rejections remain actionable without exposing request data. */
 export function retryScopeErrorMessage(error) {
   const raw = typeof error === "string" ? error : error?.message || "";
-  if (raw.includes("原请求的工作目录或应用资源归属已改变"))
-    return "工作目录或应用绑定已改变，请恢复原目录和绑定后重试。原请求、历史和草稿已保留。";
+  if (raw.includes("原请求的工作目录已改变"))
+    return "工作目录已改变，请恢复原目录后重试。原请求、历史和草稿已保留。";
   if (raw.includes("原请求缺少执行归属记录"))
-    return "原请求缺少资源归属信息，无法安全重试。历史和草稿已保留，请主动发送新消息。";
+    return "原请求缺少执行归属记录，无法安全重试。历史和草稿已保留，请主动发送新消息。";
 }

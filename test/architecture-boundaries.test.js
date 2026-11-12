@@ -9,18 +9,13 @@ async function imports(filePath, source) {
 }
 
 test("shared modules cannot import a CLI entrypoint or dashboard orchestration", async () => {
-  for (const file of ["src/runtime/worker.ts", "src/applications/registry.ts"]) {
+  for (const file of ["src/runtime/worker.ts", "src/runtime/skill-registry.ts"]) {
     for (const target of ["../cli/cowork.js", "../dashboard/application.js"]) {
       assert.equal((await imports(file, `import { example } from "${target}";`)).length, 1);
     }
   }
   assert.equal(
-    (
-      await imports(
-        "src/applications/mcp/local-api-client.ts",
-        'import { example } from "../../cli/cowork.js";'
-      )
-    ).length,
+    (await imports("src/storage/atomic-file.ts", 'import { example } from "../cli/cowork.js";')).length,
     1
   );
   assert.equal(
@@ -36,7 +31,6 @@ test("shared modules cannot import a CLI entrypoint or dashboard orchestration",
 test("HTTP routers cannot launch processes and run orchestration cannot write HTTP responses", async () => {
   for (const file of [
     "src/dashboard/routes.ts",
-    "src/dashboard/application-routes.ts",
     "src/dashboard/computer-routes.ts",
     "src/dashboard/upload-routes.ts"
   ]) {
@@ -59,11 +53,7 @@ test("HTTP routers cannot launch processes and run orchestration cannot write HT
 });
 
 test("GUI drivers remain independent of application persistence and CLI hosts", async () => {
-  for (const target of [
-    "../applications/application-service.js",
-    "../dashboard/routes.js",
-    "../cli/cowork.js"
-  ]) {
+  for (const target of ["../dashboard/routes.js", "../cli/cowork.js"]) {
     assert.equal(
       (await imports("src/gui/macos-driver.ts", `import { example } from "${target}";`)).length,
       1

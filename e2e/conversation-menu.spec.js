@@ -180,11 +180,6 @@ test("following a conversation link selects that conversation", async ({ page })
   let releaseTaskList;
   try {
     await seed(page, dashboard);
-    const active = await page.request.post(`${dashboard.base}/api/workbench/tabs`, {
-      data: { kind: "conversation", taskId: "menu-a" }
-    });
-    expect(active.ok()).toBe(true);
-    expect((await active.json()).activeTabId).toBe("conversation:menu-a");
     const taskListGate = new Promise((resolve) => {
       releaseTaskList = resolve;
     });
@@ -194,13 +189,7 @@ test("following a conversation link selects that conversation", async ({ page })
       await route.fulfill({ response });
     };
     await page.route("**/api/tasks", delayedTaskList);
-    const tabsFirst = page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname === "/api/workbench/tabs" && response.request().method() === "GET"
-    );
     await page.goto(`${dashboard.base}/?task=menu-b`);
-    expect((await (await tabsFirst).json()).activeTabId).toBe("conversation:menu-a");
-    await expect(page.locator('[data-tab="conversation:menu-a"]')).toBeAttached();
     releaseTaskList();
     await expect(page.locator("#topbar-task")).toHaveText(titles["menu-b"]);
     await page.unroute("**/api/tasks", delayedTaskList);

@@ -80,7 +80,6 @@ export interface WorkspaceStore {
   publishArtifact(
     input: Omit<Artifact, "artifactId" | "sha256" | "size" | "createdAt"> & {
       content: string | Uint8Array;
-      sourceResourceId?: string;
     }
   ): Promise<Artifact>;
   publishArtifactFile(
@@ -411,7 +410,6 @@ export class LocalWorkspaceStore implements WorkspaceStore {
   async publishArtifact(
     input: Omit<Artifact, "artifactId" | "sha256" | "size" | "createdAt"> & {
       content: string | Uint8Array;
-      sourceResourceId?: string;
     }
   ): Promise<Artifact> {
     return publishTaskArtifact({ ...input, workspaceRoot: this.root });

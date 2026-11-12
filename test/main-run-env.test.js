@@ -19,17 +19,12 @@ const base = {
   taskWorkspace: "/tmp/ws",
   taskId: "task",
   runId: "main-1",
-  tabStorePath: "/tmp/tabs.json",
   dashboardUrl: "http://127.0.0.1:4321",
   projectRoot: "/tmp/project"
 };
 
 test("a Main run is told where the Dashboard is", () => {
-  // Defect C: the extension reads COWORK_DASHBOARD_URL to find the MCP servers
-  // belonging to the application windows it is bound to, and nothing set it.
-  // `discoverMcpTools` returned early on every turn, so an application's own
-  // server tools never once reached a model in production — silently, because
-  // an unreachable server is the ordinary case there rather than an error.
+  // Host-dependent tools read COWORK_DASHBOARD_URL to reach their Dashboard.
   assert.equal(mainRunEnv(base).COWORK_DASHBOARD_URL, "http://127.0.0.1:4321");
   // It must follow the port the Dashboard actually listens on, not a default:
   // assuming 3880 breaks every instance that is not on it, tests included.
@@ -37,13 +32,6 @@ test("a Main run is told where the Dashboard is", () => {
     mainRunEnv({ ...base, dashboardUrl: "http://127.0.0.1:9999" }).COWORK_DASHBOARD_URL,
     "http://127.0.0.1:9999"
   );
-});
-
-test("a Main run is told where the tab strip is", () => {
-  // The other location the Agent cannot guess: a document it creates has to
-  // land in the same strip the browser reads, or it is telling the user about
-  // a tab that does not exist.
-  assert.equal(mainRunEnv(base).COWORK_TABS_INDEX, "/tmp/tabs.json");
 });
 
 test("the run's identity and workspace travel with it", () => {

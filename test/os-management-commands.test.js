@@ -56,7 +56,6 @@ async function createRoot(prefix) {
     COWORK_HARNESS_ROOT: repositoryRoot,
     COWORK_WORKSPACE: workspace,
     COWORK_GLOBAL_INDEX: join(home, "runtime", "workspaces.json"),
-    COWORK_TABS_INDEX: join(home, "runtime", "tabs.json"),
     COWORK_CONFIG: configPath,
     COWORK_DISABLE_WATCH_SUPERVISOR: "1",
     COWORK_SUPERVISOR_INTERVAL_MS: "1000"

@@ -11,8 +11,7 @@
 | 更新、备份与安装排错         | installation-reference                                           |
 | 模型设置                     | configuration                                                    |
 | 配置字段、运行契约、组件命令 | configuration-reference、runtime-reference、components-reference |
-| 应用与文件编辑               | applications、external-applications                              |
-| 演示文稿使用与工具参数       | presentation-workflow、presentation-reference                    |
+| 附件、产出物与预览           | task-workspace-layout、product-api                               |
 | 开发约束和功能定位           | 根/目录 AGENTS、code-map                                         |
 | 依赖方向、状态与进程生命周期 | architecture                                                     |
 | 环境、构建、启动和 UI 约定   | development                                                      |
@@ -20,8 +19,8 @@
 | 委派、返修与验证证据交接     | development-handoffs                                             |
 | 复盘落实状态与仍可触发的陷阱 | retrospectives、pitfalls/README                                  |
 | HTTP/SSE、字段、错误和消费者 | product-api                                                      |
-| 路径、revision、备份和恢复   | task-workspace-layout                                            |
-| 应用/软件/GUI 接口           | software-integration 及领域指南                                  |
+| 路径、备份和恢复             | task-workspace-layout                                            |
+| GUI 与桌面控制接口           | computer-use、browser-use                                        |
 | PR 和审阅职责                | CONTRIBUTING、module-ownership                                   |
 | 待开发工作与验收标准         | development-phases                                               |
 | 打包、升级、签名和发布       | mac-release                                                      |

@@ -42,7 +42,7 @@ test("every Dashboard surface rejects cross-origin access and no longer exposes 
   assert.match(page.headers.get("content-security-policy"), /script-src 'self'/);
   assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
   assert.equal(page.headers.get("x-content-type-options"), "nosniff");
-  for (const endpoint of ["/api/tasks", "/api/applications", "/api/workbench/tabs"]) {
+  for (const endpoint of ["/api/tasks", "/api/models"]) {
     const blocked = await fetch(`${server.base}${endpoint}`, {
       headers: { origin: "https://attacker.invalid" }
     });
@@ -61,16 +61,11 @@ test("every Dashboard surface rejects cross-origin access and no longer exposes 
   assert.deepEqual(await (await fetch(`${server.base}/api/tasks`)).json(), before);
 });
 
-test("both general and Application routes validate request shape and size", async (t) => {
+test("routes validate request shape and size", async (t) => {
   const server = await startDashboard();
   t.after(server.stop);
   const post = (body) => ({ method: "POST", headers: { "content-type": "application/json" }, body });
-  for (const endpoint of ["/api/tasks", "/api/workbench/tabs"]) {
-    assert.equal(
-      (await fetch(`${server.base}${endpoint}`, post("null"))).status,
-      endpoint === "/api/tasks" ? 400 : 422
-    );
-  }
+  assert.equal((await fetch(`${server.base}/api/tasks`, post("null"))).status, 400);
   const malformed = await fetch(`${server.base}/api/tasks`, post("[]"));
   assert.equal(malformed.status, 400);
   const tooLarge = await fetch(

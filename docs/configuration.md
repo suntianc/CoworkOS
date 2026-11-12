@@ -89,7 +89,7 @@ coworkos doctor --test-connection
 
 - [图像、推理、上下文与输出上限](configuration-reference.md#模型参数) · [图片输入](configuration-reference.md#图片输入)
 - [CLI 文件优先级与自动化初始化](configuration-reference.md#cli-配置文件) · [连接存储与兼容](configuration-reference.md#连接存储与兼容)
-- <a id="app-与-web-项目文件夹"></a>[项目目录与内部数据](task-workspace-layout.md#项目应用资源与任务路径)
+- <a id="app-与-web-项目文件夹"></a>[项目目录与内部数据](task-workspace-layout.md#项目与任务路径)
 - [界面语言](configuration-reference.md#界面语言)
 - <a id="外观"></a>[外观](configuration-reference.md#外观存储)
 - <a id="联网搜索"></a>[联网搜索](configuration-reference.md#联网搜索)

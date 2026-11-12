@@ -196,15 +196,10 @@ test("quick verify prepares real web assets from a clean checkout", async () => 
     const actual = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
     const noop = 'node -e "process.exit(0)"';
     const scripts = Object.fromEntries(
-      [
-        "build:cli",
-        "lint",
-        "check:workbench",
-        "check:extensions",
-        "format:check",
-        "check:docs",
-        "check:source"
-      ].map((name) => [name, noop])
+      ["build:cli", "lint", "check:extensions", "format:check", "check:docs", "check:source"].map((name) => [
+        name,
+        noop
+      ])
     );
     if (actual.scripts["build:web-assets"]) scripts["build:web-assets"] = actual.scripts["build:web-assets"];
     await put("package.json", JSON.stringify({ type: "module", scripts }));

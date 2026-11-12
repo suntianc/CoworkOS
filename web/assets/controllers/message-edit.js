@@ -1,5 +1,5 @@
 import { ui } from "../ui/language.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 import { icon } from "../ui/icons.js";
 
 /** Owns the inline editor and request identity; Composer Session keeps its draft and backup. */

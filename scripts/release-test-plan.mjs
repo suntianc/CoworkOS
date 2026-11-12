@@ -150,7 +150,7 @@ export async function loadPlan(root, options, platform = process.platform) {
   if (!options.skipBuild)
     steps.push({ id: "build", stage: "setup", kind: "command", command: npm, args: ["run", "build:full"] });
   if (options.stages.includes("basic")) {
-    for (const script of ["lint", "check:workbench", "check:extensions", "format:check", "check:docs"])
+    for (const script of ["lint", "check:extensions", "format:check", "check:docs"])
       steps.push({
         id: script.replace(":", "-"),
         stage: "basic",

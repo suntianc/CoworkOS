@@ -35,7 +35,6 @@ export interface ProjectListItem {
   updatedAt: string;
   legacy?: boolean;
   removedAt?: string;
-  hasApplications?: boolean;
   tasks: TaskListItem[];
 }
 
@@ -48,10 +47,8 @@ export interface TaskLocation {
   projectDirectory: string;
 }
 
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { TemporaryWorkspaceStore } from "../workspace/temporary-workspaces.js";
-import { ResourceMappingStore } from "../applications/mapping-store.js";
 import { GlobalWorkspaceCatalog } from "../workspace/global-catalog.js";
 import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import {
@@ -62,7 +59,7 @@ import {
 } from "../workspace/project-catalog.js";
 import type { TaskMetadata } from "../workspace/workspace-store.js";
 import { readProjectAssignment } from "../workspace/project-assignment.js";
-import { inferLegacyProjectDirectory, applicationProjectEvidence } from "../workspace/project-history.js";
+import { inferLegacyProjectDirectory } from "../workspace/project-history.js";
 
 /** Owns the workspace catalog and cross-workspace lookup, independently of HTTP/Run state. */
 export function createWorkspaceDirectory(
@@ -84,43 +81,6 @@ export function createWorkspaceDirectory(
       roots.push(workspaceRoot);
     }
     return [...new Set(roots)];
-  }
-
-  // Resource discovery includes current project homes and persisted older roots.
-  // It does not promote those homes into Task storage or create directory projects.
-  async function applicationWorkspaceRoots(): Promise<string[]> {
-    const roots = await knownWorkspaceRoots();
-    const locations = [];
-    for (const root of roots)
-      for (const task of await new LocalWorkspaceStore(root).listTasks(true))
-        locations.push({ workspaceRoot: root, task });
-    return applicationRoots(roots, locations, await projectCatalog.list());
-  }
-
-  async function applicationRoots(
-    roots: string[],
-    locations: Array<{ workspaceRoot: string; task: TaskLocation["task"] }>,
-    projects: ProjectRecord[]
-  ): Promise<string[]> {
-    const applications = new Set(
-      [...roots, ...(await temporaryWorkspaces.roots())].map((root) => resolve(root))
-    );
-    for (const project of projects) applications.add(resolve(project.projectDirectory));
-    for (const { workspaceRoot: root, task } of locations) {
-      for (const reference of await new ResourceMappingStore(root).list(task.taskId))
-        if (reference.workspaceRoot) applications.add(resolve(reference.workspaceRoot));
-      const manifest = await readFile(join(root, task.taskId, "applications", "manifest.json"), "utf8")
-        .then((body) => JSON.parse(body) as { workspaceRoot?: unknown })
-        // eslint-disable-next-line no-restricted-syntax -- manifest 只是资源发现线索，损坏或不可读时跳过该提示，其它根目录照常发现
-        .catch(() => {
-          // A discovery hint may be damaged or unreadable. Keep the original
-          // bytes and discover other roots through catalogs, mappings and valid Tasks.
-          return undefined;
-        });
-      if (typeof manifest?.workspaceRoot === "string" && isAbsolute(manifest.workspaceRoot))
-        applications.add(resolve(manifest.workspaceRoot));
-    }
-    return [...applications];
   }
 
   async function listGlobalProjects(): Promise<{ tasks: TaskListItem[]; projects: ProjectListItem[] }> {
@@ -163,15 +123,8 @@ export function createWorkspaceDirectory(
         })
     );
     for (const { project, task } of assigned) grouped.get(project.projectId)!.tasks.push(task);
-    const evidence = records.some((project) => project.legacy)
-      ? await applicationProjectEvidence(await applicationRoots(roots, stored, records), records, initialRoot)
-      : new Set<string>();
     const projects = [...grouped.values()]
-      .map((project) => ({
-        ...project,
-        ...(project.legacy ? { hasApplications: evidence.has(project.projectId) } : {})
-      }))
-      .filter((project) => !project.legacy || project.tasks.length > 0 || project.hasApplications)
+      .filter((project) => !project.legacy || project.tasks.length > 0)
       // A removed project and its conversations leave the list; nothing on disk is deleted.
       .filter((project) => !project.removedAt);
     for (const project of projects) project.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -351,7 +304,6 @@ export function createWorkspaceDirectory(
 
   return {
     knownWorkspaceRoots,
-    applicationWorkspaceRoots,
     createTemporaryWorkspace: () => temporaryWorkspaces.create(workspaceRoot),
     async createTemporaryTask(taskId: string, metadata: TaskMetadata, existingRoot?: unknown) {
       await catalogReady;
@@ -377,7 +329,7 @@ export function createWorkspaceDirectory(
         return taskListItem(await locateTask(taskId));
       });
     },
-    async applicationProjectForRoot(root: string) {
+    async projectForRoot(root: string) {
       await catalogReady;
       // Hidden migration remnants cannot be resurrected by opening another
       // unassigned editor in the same internal/test directory.
@@ -393,7 +345,7 @@ export function createWorkspaceDirectory(
           }
         : null;
     },
-    async applicationProjectForId(projectId: string) {
+    async projectForId(projectId: string) {
       await catalogReady;
       const project = (await projectCatalog.list()).find((entry) => entry.projectId === projectId);
       return project ? { ...project, projectCatalogPath: projectCatalog.filePath } : null;
@@ -409,14 +361,6 @@ export function createWorkspaceDirectory(
       return project?.tasks ?? [];
     },
     projectCatalog,
-    async withApplicationProjectLock<T>(
-      projectId: string,
-      action: (project: import("../applications/types.js").ApplicationProject) => Promise<T>
-    ) {
-      return projectCatalog.withProjectLock(projectId, (project) =>
-        action({ ...project, projectCatalogPath: projectCatalog.filePath })
-      );
-    },
     async createProject(input: { projectName: unknown; projectDirectory: unknown; projectId?: unknown }) {
       await catalogReady;
       await projectRecords(await storedTasks());

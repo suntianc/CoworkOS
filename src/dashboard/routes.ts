@@ -2,13 +2,9 @@ import { MainMessageEditConflict } from "../runtime/main-message-edit.js";
 import { readFile } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { type ApplicationEvent } from "../applications/application-service.js";
-import { taskApplicationProject } from "../applications/project-context.js";
-import { taskApplicationWorkspace } from "../applications/task-service.js";
-import { McpSupervisor } from "../applications/mcp-supervisor.js";
-import { handleApplicationRequest } from "./application-routes.js";
 import type { ModelLevels } from "../runtime/model-levels.js";
 import { serveArtifact } from "./artifact-response.js";
+import { resolveTaskArtifact } from "../workspace/artifact-store.js";
 import {
   applyTrustedClientCors,
   dashboardContentPolicy,
@@ -86,20 +82,13 @@ export interface DashboardRoutePorts {
   uiRoot: string;
   webSearchSettings: ReturnType<typeof createWebSearchSettings>;
   modelSettings: ReturnType<typeof createModelSettings>;
-  tabStorePath: string;
   workspaceRoot(): string;
   globalTaskPayload: WorkspaceDirectory["globalTaskPayload"];
   locateTask: WorkspaceDirectory["locateTask"];
   taskListItem: WorkspaceDirectory["taskListItem"];
   projectTasks: WorkspaceDirectory["projectTasks"];
-  knownWorkspaceRoots: WorkspaceDirectory["knownWorkspaceRoots"];
-  applicationWorkspaceRoots: WorkspaceDirectory["applicationWorkspaceRoots"];
-  applicationProjectForRoot: WorkspaceDirectory["applicationProjectForRoot"];
-  applicationProjectForId: WorkspaceDirectory["applicationProjectForId"];
-  locateResource(resourceId: string): Promise<{ workspaceRoot: string }>;
-  publishApplicationEvent(taskId: string, event: ApplicationEvent): Promise<void>;
-  publishToReferencers(resourceId: string, event: ApplicationEvent): Promise<void>;
-  mcpSupervisor: McpSupervisor;
+  projectForRoot: WorkspaceDirectory["projectForRoot"];
+  projectForId: WorkspaceDirectory["projectForId"];
   availableModels(): Promise<Array<{ id: string } & ModelLevels>>;
   chooseLocalDirectory(): Promise<string | undefined>;
   resolveWorkspacePath(value: unknown): Promise<string>;
@@ -114,7 +103,6 @@ export interface DashboardRoutePorts {
   createProjectTask: WorkspaceDirectory["createProjectTask"];
   createTemporaryTask: WorkspaceDirectory["createTemporaryTask"];
   createTemporaryWorkspace: WorkspaceDirectory["createTemporaryWorkspace"];
-  withApplicationProjectLock: WorkspaceDirectory["withApplicationProjectLock"];
   normalizeModel(value: unknown): string | undefined;
   runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
   startMainRun: RunService["startMainRun"];
@@ -146,12 +134,6 @@ export function createDashboardHandler(
     uiRoot,
     globalTaskPayload,
     locateTask,
-    locateResource,
-    knownWorkspaceRoots,
-    publishApplicationEvent,
-    publishToReferencers,
-    tabStorePath,
-    mcpSupervisor,
     availableModels,
     chooseLocalDirectory,
     resolveWorkspacePath,
@@ -346,7 +328,7 @@ export function createDashboardHandler(
           backendId: ports.backendInfo().backendId,
           principal,
           project: async (projectId) => {
-            const project = await ports.applicationProjectForId(projectId);
+            const project = await ports.projectForId(projectId);
             return project
               ? {
                   projectId: project.projectId,
@@ -358,7 +340,7 @@ export function createDashboardHandler(
           taskProject: async (taskId) => {
             const location = await ports.locateTask(taskId);
             if (!location.projectId) return undefined;
-            const project = await ports.applicationProjectForId(location.projectId);
+            const project = await ports.projectForId(location.projectId);
             return project
               ? {
                   projectId: project.projectId,
@@ -378,7 +360,7 @@ export function createDashboardHandler(
           taskProject: async (taskId) => {
             const location = await ports.locateTask(taskId);
             if (!location.projectId) return undefined;
-            const project = await ports.applicationProjectForId(location.projectId);
+            const project = await ports.projectForId(location.projectId);
             return project
               ? {
                   projectId: project.projectId,
@@ -397,7 +379,7 @@ export function createDashboardHandler(
           runtime: ports.projectData,
           backendId: ports.backendInfo().backendId,
           project: async (projectId) => {
-            const project = await ports.applicationProjectForId(projectId);
+            const project = await ports.projectForId(projectId);
             return project
               ? {
                   projectId: project.projectId,
@@ -539,71 +521,6 @@ export function createDashboardHandler(
         sendJson(response, 200, { projectId: removed.projectId, removed: true });
         return;
       }
-      // Register an application destination without switching or moving any conversation.
-      if (url.pathname === "/api/workbench/workspaces" && request.method === "GET") {
-        sendJson(response, 200, {
-          workspaces: await ports.applicationWorkspaceRoots()
-        });
-        return;
-      }
-      if (url.pathname === "/api/workbench/workspaces" && request.method === "POST") {
-        const body = await readJsonBody(request);
-        const root =
-          body.workspaceRoot === undefined
-            ? await chooseLocalDirectory()
-            : await resolveWorkspacePath(body.workspaceRoot);
-        if (root) await ports.registerWorkspace(root);
-        sendJson(response, 200, {
-          cancelled: !root,
-          workspaceRoot: root,
-          workspaces: await knownWorkspaceRoots()
-        });
-        return;
-      }
-      // Mounted before the Task routes so a resource path is never mistaken for one.
-      if (
-        await handleApplicationRequest(request, response, url, {
-          locate: async (taskId) => {
-            const location = await locateTask(taskId);
-            return {
-              workspaceRoot: await taskApplicationWorkspace(location.workspaceRoot, taskId),
-              taskStorageRoot: location.workspaceRoot,
-              projectDirectory: location.projectDirectory,
-              project: await taskApplicationProject(location.workspaceRoot, taskId),
-              activeRunId: location.task.activeRunId
-            };
-          },
-          locateResource,
-          workspaceRoots: ports.applicationWorkspaceRoots,
-          projectForWorkspace: ports.applicationProjectForRoot,
-          createTemporaryWorkspace: ports.createTemporaryWorkspace,
-          resolveSaveDirectory: ports.resolveWorkspacePath,
-          withProjectLock: ports.withApplicationProjectLock,
-          projectForId: ports.applicationProjectForId,
-          resolveWorkspace: async (value) => {
-            const root = await resolveWorkspacePath(value);
-            await ports.registerWorkspace(root);
-            return root;
-          },
-          referencingTasks: async () => {
-            const found = new Set<string>();
-            for (const root of await knownWorkspaceRoots()) {
-              // eslint-disable-next-line no-restricted-syntax -- 已注销或不可读的工作区目录跳过即可，其余根的任务仍要收集出引用者
-              for (const task of await new LocalWorkspaceStore(root).listTasks().catch(() => []))
-                found.add(task.taskId);
-            }
-            return [...found];
-          },
-          publish: publishApplicationEvent,
-          publishToReferencers,
-          // Global, beside the workspace catalog: the strip spans every task, so it
-          // cannot live inside any one of them.
-          tabStorePath,
-          defaultWorkspaceRoot: ports.workspaceRoot(),
-          mcp: mcpSupervisor
-        })
-      )
-        return;
       if (url.pathname === "/api/web-search-settings") {
         if (request.method === "GET") sendJson(response, 200, ports.webSearchSettings.status());
         else if (request.method === "POST")
@@ -628,8 +545,7 @@ export function createDashboardHandler(
         if (body.projectId !== undefined) {
           if (typeof body.projectId !== "string" || !body.projectId.trim())
             throw new HttpError(400, "项目 ID 不合法");
-          if (!(await ports.applicationProjectForId(body.projectId.trim())))
-            throw new HttpError(404, "项目不存在");
+          if (!(await ports.projectForId(body.projectId.trim()))) throw new HttpError(404, "项目不存在");
         }
         sendJson(response, 200, await ports.modelSettings.saveRole(body));
         return;
@@ -1056,6 +972,18 @@ export function createDashboardHandler(
             ? join(taskWorkspace, taskId, "runs", runId, "runtime-output.log")
             : join(taskWorkspace, taskId, "sessions", agentId, `${runId}.jsonl`);
         sendJson(response, 200, await readAgentTrajectory(tracePath));
+        return;
+      }
+      const artifactPathMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/artifact-path$/);
+      if (request.method === "GET" && artifactPathMatch) {
+        const taskId = decodeURIComponent(artifactPathMatch[1]);
+        const location = await locateTask(taskId);
+        const { absolutePath } = await resolveTaskArtifact({
+          workspaceRoot: location.workspaceRoot,
+          taskId,
+          relativePath: url.searchParams.get("path") ?? ""
+        });
+        sendJson(response, 200, { absolutePath });
         return;
       }
       const artifactMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/artifact$/);

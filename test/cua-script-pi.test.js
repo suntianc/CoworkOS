@@ -101,7 +101,6 @@ test(
         COWORK_CONFIG: join(root, "config.json"),
         COWORK_WORKSPACE: join(root, "workspace"),
         COWORK_GLOBAL_INDEX: join(root, "global.json"),
-        COWORK_TABS_INDEX: join(root, "tabs.json"),
         COWORK_API_BASE: `http://127.0.0.1:${model.address().port}/v1`,
         COWORK_API_KEY: "local-fixture",
         COWORK_MODEL: "cua-script-fixture",

@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
@@ -38,15 +37,14 @@ test("empty storage roots are omitted; legacy projects adopt history and project
   assert.equal((await directory.globalTaskPayload()).projects[0].workspaceRoot, a);
 });
 
-test("stale directory indexes are hidden without deleting records, while legacy documents and explicit empty projects remain", async (t) => {
+test("stale directory indexes are hidden without deleting records, while explicit empty projects remain", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-project-evidence-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { mkdir } = await import("node:fs/promises");
-  const { ApplicationService } = await import("../dist/src/applications/application-service.js");
   const storage = join(root, "workspace"),
-    documentRoot = join(root, "retained-documents"),
+    staleRoot = join(root, "retained-documents"),
     emptyRoot = join(root, "empty");
-  await Promise.all([mkdir(documentRoot), mkdir(emptyRoot)]);
+  await Promise.all([mkdir(staleRoot), mkdir(emptyRoot)]);
   const directory = createWorkspaceDirectory(storage, join(root, "global.json"), () => "fixture");
   await new LocalWorkspaceStore(storage).createTask("workspace", { kind: "workspace" });
   await directory.locateTask("workspace");
@@ -59,40 +57,16 @@ test("stale directory indexes are hidden without deleting records, while legacy 
     projectName: "Explicit empty",
     projectDirectory: emptyRoot
   });
-  const resource = (
-    await new ApplicationService(documentRoot).resources.createResource({
-      appType: "text-editor",
-      kind: "text/plain",
-      title: "old.txt",
-      initialContent: "Retain document\n",
-      actor: { type: "user", id: "fixture" }
-    })
-  ).resource;
-  const path = join(
-    documentRoot,
-    "applications",
-    "text-editor",
-    "resources",
-    resource.resourceId,
-    "metadata.json"
-  );
-  const metadata = JSON.parse(await readFile(path, "utf8"));
-  delete metadata.project;
-  await writeFile(path, JSON.stringify(metadata));
   const temporary = join(root, "atria-reasoning-launcher-old");
-  await directory.projectCatalog.ensureLegacy([storage, temporary, documentRoot]);
+  await directory.projectCatalog.ensureLegacy([storage, temporary, staleRoot]);
   const indexBefore = await readFile(directory.projectCatalog.filePath, "utf8");
-  const metadataBefore = await readFile(path, "utf8");
   const payload = await directory.globalTaskPayload();
+  // A legacy directory with no conversations is not a project the sidebar shows.
   assert.deepEqual(
-    payload.projects.map((project) => project.projectId).sort(),
-    [explicit.projectId, documentRoot].sort()
+    payload.projects.map((project) => project.projectId),
+    [explicit.projectId]
   );
-  assert.equal(payload.projects.find((project) => project.projectId === documentRoot).hasApplications, true);
+  // Reading the list neither rewrites nor prunes the catalog records.
   assert.equal(await readFile(directory.projectCatalog.filePath, "utf8"), indexBefore);
-  assert.equal(await readFile(path, "utf8"), metadataBefore);
-  assert.equal(
-    await readFile(join(documentRoot, "applications", "text-editor", "files", resource.path), "utf8"),
-    "Retain document\n"
-  );
+  assert.equal((await directory.projectCatalog.list()).filter((entry) => entry.legacy).length, 3);
 });

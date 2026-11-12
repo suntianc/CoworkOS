@@ -678,7 +678,6 @@ test(
       COWORK_HARNESS_ROOT: repositoryRoot,
       COWORK_WORKSPACE: join(base, "workspace"),
       COWORK_GLOBAL_INDEX: join(home, "runtime/workspaces.json"),
-      COWORK_TABS_INDEX: join(home, "runtime/tabs.json"),
       COWORK_CONFIG: config,
       COWORK_DISABLE_WATCH_SUPERVISOR: "1",
       COWORK_COMPUTER_USE_EXECUTABLE: executable,

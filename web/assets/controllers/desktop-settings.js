@@ -3,7 +3,7 @@ import { installWebSearchSettings } from "./web-search-settings.js";
 import { createSettingsModal } from "./settings-modal.js";
 import { createSettingsBackend } from "./settings-backend.js";
 import { icon } from "../ui/icons.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 import { LEVEL_LABELS as LEVEL_NAMES } from "./model-picker.js";
 
 /** The levels a connection can narrow to (#27); `minimal` stays only on old settings. */

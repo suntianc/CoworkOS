@@ -13,11 +13,7 @@ export function createSidebarLayout(layout, sidebar, divider, { outputPane, outp
   } catch {
     /* Storage may be unavailable in a restricted browser. */
   }
-  const tasksOnLeft = () =>
-    outputPane &&
-    document.body.classList.contains("application-task-layout") &&
-    !document.body.classList.contains("output-collapsed");
-  const currentSidebar = () => (tasksOnLeft() ? outputPane : sidebar);
+  const currentSidebar = () => sidebar;
   const limits = () => ({ min: 180, max: Math.max(180, Math.min(420, layout.clientWidth - 480)) });
   const measure = () => {
     const pane = currentSidebar();
@@ -32,12 +28,11 @@ export function createSidebarLayout(layout, sidebar, divider, { outputPane, outp
     divider.setAttribute("aria-valuemax", String(max));
     divider.setAttribute("aria-valuenow", String(Math.round(rect.width)));
     divider.setAttribute("aria-valuetext", ui`${Math.round(rect.width)} 像素`);
-    const label = tasksOnLeft() ? ui("任务面板") : ui("会话侧栏");
+    const label = ui("会话侧栏");
     divider.setAttribute("aria-label", ui`调整${label}宽度`);
     divider.setAttribute("aria-controls", pane.id);
     divider.title = ui`拖动调整${label}宽度，双击恢复默认`;
-    if (outputToggle?.getAttribute("aria-controls") !== "workbench")
-      outputToggle?.setAttribute("aria-expanded", String(outputPane?.getBoundingClientRect().width > 0));
+    outputToggle?.setAttribute("aria-expanded", String(outputPane?.getBoundingClientRect().width > 0));
   };
   const apply = () => {
     if (share && layout.clientWidth > 900) {

@@ -22,7 +22,7 @@ npm run test:desktop
 
 `desktop:pack` writes `.tmp/release/mac-arm64/CoworkOS.app`. `desktop:dist` creates and verifies `release/CoworkOS-<version>-mac-arm64.dmg` and SHA-256. Local builds never upload or publish. The hidden build directory avoids duplicate Spotlight/Launchpad installations.
 
-`npm run test:desktop` checks the host, TXT creation/edit/save, Pi with a local model, drafts, quit/recovery and relocated upgrades. Domain editors and component installation are excluded.
+`npm run test:desktop` checks the host, conversations and artifact previews, Pi with a local model, drafts, quit/recovery and relocated upgrades. Component installation and the removed editors are no longer packaged.
 
 ## App tags and draft Releases
 

@@ -373,7 +373,6 @@ html[data-theme]
     .modal-card,
     .session-menu,
     .model-menu,
-    .app-bind-menu,
     .search-dialog,
     .artifact-drawer,
     .ui-menu,
@@ -636,7 +635,6 @@ html[data-theme] .toast {
       .modal-card,
       .session-menu,
       .model-menu,
-      .app-bind-menu,
       .search-dialog,
       .artifact-drawer
     ) {

@@ -5,14 +5,6 @@ import { toolLifecycle } from "./tool-lifecycle.js";
 import { toolExecutionFailed } from "./tool-result.js";
 
 const titles = {
-  list_applications: ui("查看可用应用"),
-  list_resources: ui("查看应用文档"),
-  list_resource_changes: ui("查看文档变化"),
-  create_resource: ui("创建文档"),
-  accept_resource_candidate: ui("采用文档版本"),
-  open_resource: ui("打开文档"),
-  export_resource: ui("导出文档"),
-  apply_resource_operation: ui("修改应用文档"),
   computer_status: ui("查看电脑操作状态"),
   computer_observe: ui("观察授权窗口"),
   computer_act: ui("操作授权窗口"),

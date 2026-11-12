@@ -233,6 +233,7 @@ contextBridge.exposeInMainWorld("bookmanDesktop", {
   version: process.env.npm_package_version || "0.1.0",
   pathForFile: (file) => webUtils.getPathForFile(file),
   chooseProject: () => ipcRenderer.invoke("bookman:choose-project"),
-  openPath: (path) => ipcRenderer.invoke("bookman:open-path", path),
+  // The artifact is named by task and relative path; the host resolves its file.
+  openArtifact: (taskId, relativePath) => ipcRenderer.invoke("bookman:open-artifact", taskId, relativePath),
   notify: (notice) => ipcRenderer.invoke("bookman:notify", notice)
 });

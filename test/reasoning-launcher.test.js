@@ -28,7 +28,6 @@ console.log(JSON.stringify({
   args: process.argv.slice(2),
   dataHome: process.env.ATRIA_HOME,
   globalIndex: process.env.COWORK_GLOBAL_INDEX,
-  tabsIndex: process.env.COWORK_TABS_INDEX,
   thinkingLevel: process.env.COWORK_REASONING_EFFORT,
   thinkingFormat: process.env.COWORK_THINKING_FORMAT,
   supportsReasoningEffort: process.env.COWORK_SUPPORTS_REASONING_EFFORT
@@ -47,7 +46,6 @@ console.log(JSON.stringify({
         ATRIA_HOME: join(root, "home"),
         PI_CODING_AGENT_DIR: join(root, "pi"),
         COWORK_GLOBAL_INDEX: join(root, "global.json"),
-        COWORK_TABS_INDEX: join(root, "tabs.json"),
         COWORK_CONFIG: configPath,
         COWORK_DISABLE_WATCH_SUPERVISOR: "1",
         ...env
@@ -70,7 +68,6 @@ test("Pi launcher explicitly applies high when starting or continuing an old ses
     assert.equal(result.thinkingLevel, "high");
     assert.equal(result.supportsReasoningEffort, "1");
     assert.equal(result.globalIndex, join(result.dataHome, "..", "global.json"));
-    assert.equal(result.tabsIndex, join(result.dataHome, "..", "tabs.json"));
   }
 });
 
@@ -179,7 +176,6 @@ test("Cowork provider, recovered calls and new delegations use the active Main e
     "ATRIA_HOME",
     "PI_CODING_AGENT_DIR",
     "COWORK_GLOBAL_INDEX",
-    "COWORK_TABS_INDEX",
     "COWORK_CONFIG",
     "COWORK_API_BASE",
     "COWORK_API_KEY",
@@ -218,7 +214,6 @@ test("Cowork provider, recovered calls and new delegations use the active Main e
       ATRIA_HOME: join(root, "home"),
       PI_CODING_AGENT_DIR: join(root, "pi"),
       COWORK_GLOBAL_INDEX: join(root, "global.json"),
-      COWORK_TABS_INDEX: join(root, "tabs.json"),
       COWORK_CONFIG: join(root, "config.json"),
       COWORK_API_BASE: "https://example.test",
       COWORK_API_KEY: "test-key",

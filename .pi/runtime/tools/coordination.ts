@@ -235,7 +235,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     name: "call_subagent",
     label: "Call Subagent",
     description:
-      "Delegate one concrete work item to a Subagent. sync waits for the result; async returns a callId and delivers the result by callback. Both modes execute the task once. role names the job (executor implements, reviewer examines an independent session); dependsOn holds the item until earlier callIds finish; developmentId runs it in that requirement's isolated checkout; continueCallId reworks a finding as the next turn of a finished Executor's own session and checkout. Optional resources explicitly grant application read access or private candidate editing; no bound application is inherited automatically. Task wording never registers a persistent program.",
+      "Delegate one concrete work item to a Subagent. sync waits for the result; async returns a callId and delivers the result by callback. Both modes execute the task once. role names the job (executor implements, reviewer examines an independent session); dependsOn holds the item until earlier callIds finish; developmentId runs it in that requirement's isolated checkout; continueCallId reworks a finding as the next turn of a finished Executor's own session and checkout. Task wording never registers a persistent program.",
     promptSnippet: "Delegate a concrete task",
     promptGuidelines: [
       "Use call_subagent when an independent analysis, implementation or validation task is likely to improve the result.",
@@ -261,22 +261,6 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
             uniqueItems: true,
             description: "Explicit upload IDs this delegate may inspect with read_attachment."
           })
-        ),
-        resources: Type.Optional(
-          Type.Array(
-            Type.Object(
-              {
-                resourceId: Type.String(),
-                access: Type.Union([Type.Literal("read"), Type.Literal("candidate")])
-              },
-              { additionalProperties: false }
-            ),
-            {
-              maxItems: 16,
-              description:
-                "Only these referenced resources are shared. read exposes read-only domain tools; candidate creates private changes for Main to review and accept_resource_candidate. Omit for ordinary independent tasks."
-            }
-          )
         ),
         mode: Type.Union([Type.Literal("sync"), Type.Literal("async")], {
           description:
@@ -430,7 +414,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         !continued && requestedDevelopment
           ? await developmentWorkspaceDirectory(context, requestedDevelopment)
           : undefined;
-      const capabilityGrants = await context.delegationGrants(params.resources, params.attachments);
+      const capabilityGrants = await context.delegationGrants(params.attachments);
       const commandEnv = await businessCommandEnvironment(context.runtimeEnv, signal);
       const { agentId, name } = continued
         ? { agentId: continued.agentId, name: agentDisplayName(continued.agentId) }

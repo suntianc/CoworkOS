@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -290,27 +289,25 @@ for (const protocol of ["openai-completions", "openai-responses"]) {
 }
 
 test(
-  "optional and bound tools are restored for the failed request and subsequent tool calls run once",
+  "optional tools are restored for the failed request and subsequent tool calls run once",
   { timeout: 60000 },
   async (t) => {
     const local = await provider(t, (_item, count, response) => {
-      if (count === 1) return { name: "enable_tools", arguments: { groups: ["applications"] } };
+      if (count === 1) return { name: "enable_tools", arguments: { groups: ["delivery"] } };
       if (count === 2)
-        return {
-          name: "create_resource",
-          arguments: { kind: "text/plain", title: "只创建一次", initialContent: "已有结果" }
-        };
+        return { name: "publish_artifact", arguments: { sourcePath: "report.md", name: "report.md" } };
       if (count === 3) {
         reject(response);
         return;
       }
-      if (count === 4) return { name: "read_document", arguments: {} };
-      return { text: "已核对保留的文档。" };
+      if (count === 4) return { name: "read", arguments: { path: "report.md" } };
+      return { text: "已核对保留的产物。" };
     });
     const dashboard = await startDashboard({ modelEndpoint: local.base, model: "fixture-model" });
     t.after(() => dashboard.stop());
-    await api(dashboard, "/api/tasks", { taskId: "tools", goal: "Create and verify one document" });
-    await api(dashboard, "/api/tasks/tools/run", { prompt: "创建一次文档并核对。" });
+    await writeFile(join(dashboard.workspaceRoot, "report.md"), "已有结果");
+    await api(dashboard, "/api/tasks", { taskId: "tools", goal: "Publish and verify one artifact" });
+    await api(dashboard, "/api/tasks/tools/run", { prompt: "发布一次产物并核对。" });
     await settle(dashboard, "tools", "failed");
     assert.equal(local.requests.length, 3);
     await dashboard.restart();
@@ -320,12 +317,11 @@ test(
     assert.equal(local.requests[3].raw, local.requests[2].raw);
     assert.notEqual(local.requests[4].raw, local.requests[3].raw);
     assert.ok(JSON.stringify(local.requests[4].body).includes("已有结果"));
-    const created = completed.runtimeEvents.filter(
-      (event) => event.payload.type === "tool_execution_end" && event.payload.toolName === "create_resource"
+    const published = completed.runtimeEvents.filter(
+      (event) => event.payload.type === "tool_execution_end" && event.payload.toolName === "publish_artifact"
     );
-    assert.equal(created.length, 1);
-    const resources = await api(dashboard, "/api/tasks/tools/resources");
-    assert.equal(resources.resources.length, 1);
+    assert.equal(published.length, 1);
+    assert.ok(completed.artifacts.some((artifact) => artifact.relativePath === "report.md"));
     assert.deepEqual(local.failures, []);
   }
 );
@@ -489,17 +485,6 @@ test(
     await attempt(409, "main_retry_context_changed", /项目目录已变化/);
     assert.equal(await readFile(store.filePath, "utf8"), saved);
     await patchProject(original.projectDirectory);
-    const { ApplicationService } = await import("../dist/src/applications/application-service.js");
-    const service = new ApplicationService(original.projectDirectory, undefined, dashboard.workspaceRoot);
-    const doc = await service.createResource({
-      taskId: "guard",
-      kind: "text/plain",
-      title: "新绑定",
-      actor: { type: "user", id: "fixture" }
-    });
-    await service.loadInstance("guard", doc.appInstance.appInstanceId);
-    await attempt(409, "main_retry_context_changed", /应用绑定已变化/);
-    await service.loadInstance("guard", undefined);
     const damaged = JSON.stringify({ ...JSON.parse(saved), body: "{}" });
     await writeFile(store.filePath, damaged);
     await attempt(400, "main_retry_snapshot_invalid", /快照损坏/);
@@ -601,60 +586,6 @@ test(
     assert.equal(
       completed.messages.filter((message) => message.role === "user").length,
       failed.messages.filter((message) => message.role === "user").length
-    );
-    assert.deepEqual(local.failures, []);
-  }
-);
-
-test(
-  "human document changes absent from the replay body stay unread until a fresh request",
-  { timeout: 60000 },
-  async (t) => {
-    const local = await provider(t, (item, count, response) => {
-      if (count === 1) return { name: "enable_tools", arguments: { groups: ["applications"] } };
-      if (count === 2)
-        return {
-          name: "create_resource",
-          arguments: { kind: "text/plain", title: "保留人工变更", initialContent: "旧内容" }
-        };
-      if (count === 3) {
-        reject(response);
-        return;
-      }
-      if (count === 5) assert.ok(JSON.stringify(item.body).includes("人工修改后的内容"));
-      return { text: "本次请求完成。" };
-    });
-    const dashboard = await startDashboard({ modelEndpoint: local.base, model: "fixture-model" });
-    t.after(() => dashboard.stop());
-    await api(dashboard, "/api/tasks", { taskId: "human-edit", goal: "Keep unseen application changes" });
-    await api(dashboard, "/api/tasks/human-edit/run", { prompt: "创建文档并回答。" });
-    await settle(dashboard, "human-edit", "failed");
-    const { resources } = await api(dashboard, "/api/tasks/human-edit/resources");
-    const resource = resources[0];
-    assert.ok(resource);
-    await api(dashboard, `/api/tasks/human-edit/resources/${resource.resourceId}/operations`, {
-      operationId: "human-change",
-      appType: resource.appType,
-      operationType: "text.rewrite",
-      baseRevision: resource.revision,
-      payload: { content: "人工修改后的内容" }
-    });
-    await api(dashboard, "/api/tasks/human-edit/run", { resume: true });
-    await settle(dashboard, "human-edit", "completed");
-    assert.equal(local.requests[3].raw, local.requests[2].raw);
-    const { applicationServiceForTask } = await import("../dist/src/applications/task-service.js");
-    const service = await applicationServiceForTask(dashboard.workspaceRoot, "human-edit");
-    assert.equal(
-      (await service.taskSummary("human-edit")).unread.find((row) => row.resourceId === resource.resourceId)
-        .unread,
-      1
-    );
-    await api(dashboard, "/api/tasks/human-edit/run", { prompt: "现在查看最新内容。" });
-    await settle(dashboard, "human-edit", "completed");
-    assert.equal(
-      (await service.taskSummary("human-edit")).unread.find((row) => row.resourceId === resource.resourceId)
-        .unread,
-      0
     );
     assert.deepEqual(local.failures, []);
   }

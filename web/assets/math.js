@@ -1,5 +1,5 @@
 import katex from "./math/generated/katex.js";
-import { escapeHtml as esc } from "./workbench/html.js";
+import { escapeHtml as esc } from "./ui/html.js";
 
 function escaped(source, index) {
   let slashes = 0;

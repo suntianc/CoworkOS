@@ -14,13 +14,6 @@ const { createJiti } = await import(requirePi.resolve("jiti"));
 const path = resolve(".pi/runtime/tools/capabilities.ts");
 const { registerCapabilityTools, CORE_TOOLS } = await createJiti(pathToFileURL(path).href).import(path);
 const optional = [
-  "list_applications",
-  "list_resources",
-  "list_resource_changes",
-  "create_resource",
-  "export_resource",
-  "apply_resource_operation",
-  "accept_resource_candidate",
   "read_attachment",
   "publish_artifact",
   "start_job",
@@ -53,7 +46,6 @@ async function fixture(t) {
     }
     await rm(root, { recursive: true, force: true });
   });
-  let resources = false;
   const start = () => {
     const tools = new Map();
     let active = ["read", "write", "edit", "bash", ...CORE_TOOLS, ...optional];
@@ -68,22 +60,11 @@ async function fixture(t) {
       workspaceRoot: root,
       taskId: "task",
       mainRunId: "run",
-      hasResources: async () => {
-        if (resources instanceof Error) throw resources;
-        return resources;
-      },
       supportsImages: true
     });
     return { controller, pi, enable: (groups) => tools.get("enable_tools").execute("load", { groups }) };
   };
-  return {
-    root,
-    store,
-    start,
-    setResources: (value) => {
-      resources = value;
-    }
-  };
+  return { root, store, start };
 }
 
 test("an unbound ordinary task exposes only core tools in CLI and App without a desktop grant", async (t) => {
@@ -102,10 +83,9 @@ test("optional groups are discoverable, explicitly loadable, and durable across 
   const f = await fixture(t),
     main = f.start();
   const discovery = await main.enable();
-  assert.equal(discovery.details.groups.applications.enabled, false);
-  await main.enable(["applications", "delivery"]);
-  assert.ok(main.pi.getActiveTools().includes("create_resource"));
-  assert.ok(main.pi.getActiveTools().includes("accept_resource_candidate"));
+  assert.equal(discovery.details.groups.delivery.enabled, false);
+  assert.equal(discovery.details.groups.attachments.enabled, false);
+  await main.enable(["delivery"]);
   assert.ok(main.pi.getActiveTools().includes("publish_artifact"));
   assert.equal(main.pi.getActiveTools().includes("read_attachment"), false);
   const restarted = f.start();
@@ -113,18 +93,14 @@ test("optional groups are discoverable, explicitly loadable, and durable across 
   assert.deepEqual(restarted.pi.getActiveTools().sort(), main.pi.getActiveTools().sort());
 });
 
-test("context adds resources and uploads without a keyword classifier", async (t) => {
+test("context adds uploads without a keyword classifier", async (t) => {
   const f = await fixture(t),
     main = f.start();
-  f.setResources(true);
   await mkdir(join(f.root, "task", "inputs", "upload-fixture"), { recursive: true });
   await main.controller.refresh();
-  assert.ok(main.pi.getActiveTools().includes("create_resource"));
   assert.ok(main.pi.getActiveTools().includes("read_attachment"));
-  f.setResources(false);
   await rm(join(f.root, "task", "inputs"), { recursive: true });
   await main.controller.refresh();
-  assert.equal(main.pi.getActiveTools().includes("create_resource"), false);
   assert.equal(main.pi.getActiveTools().includes("read_attachment"), false);
 });
 
@@ -194,14 +170,4 @@ test("desktop tool schemas follow active human observation/control grants and ex
   assert.equal(main.pi.getActiveTools().includes("computer_observe"), false);
   assert.equal(main.pi.getActiveTools().includes("computer_wait"), false);
   assert.equal(main.pi.getActiveTools().includes("computer_act"), false);
-});
-
-test("damaged optional application references cannot block ordinary Main work", async (t) => {
-  const f = await fixture(t),
-    main = f.start();
-  f.setResources(new Error("damaged application metadata"));
-  await main.controller.refresh();
-  assert.ok(main.pi.getActiveTools().includes("call_subagent"));
-  assert.ok(main.pi.getActiveTools().includes("bash"));
-  assert.equal(main.pi.getActiveTools().includes("create_resource"), false);
 });

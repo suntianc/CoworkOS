@@ -22,7 +22,7 @@
   --shell-toolbar-height: 64px;
   --shell-section-height: 72px;
   --conversation-width: 232px;
-  --workbench-width: clamp(320px, 25vw, 392px);
+  --panel-width: clamp(320px, 25vw, 392px);
   --ui-bg: #0d0d0d;
   --ui-panel: #191919;
   --ui-raised: #272727;
@@ -273,7 +273,6 @@ body {
     .conversation-sidebar,
     .composer,
     .chat-actions,
-    .workbench,
     .modal-card,
     .session-menu,
     .model-menu,
@@ -282,11 +281,6 @@ body {
   :is(button, a, [role="button"], [role="tab"], summary):focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 2px;
-}
-.workbench input:focus-visible,
-.workbench select:focus-visible {
-  outline: 2px solid var(--ui-accent);
-  outline-offset: 1px;
 }
 .app-topbar {
   gap: 8px;
@@ -841,153 +835,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
     animation: none;
   }
 }
-/* Navigation and application discovery stay quiet until selected. */
-.workbench-tabs {
-  gap: 4px;
-  padding: 6px 12px;
-  min-height: 44px;
-  background: light-dark(var(--ui-raised), #151619);
-  border-bottom: 0;
-}
-.workbench-tab {
-  min-height: 30px;
-  max-width: 270px;
-  gap: 7px;
-  padding: 0 9px;
-  border-radius: 7px;
-  font-size: var(--ui-type-control);
-  color: var(--ui-muted);
-}
-.workbench-tab.active {
-  background: var(--ui-raised);
-  border-color: transparent;
-  color: var(--ui-text);
-}
-.workbench-tab.active .tab-icon {
-  color: var(--ui-accent);
-}
-.workbench-tab .tab-title {
-  font-weight: var(--ui-weight-regular);
-}
-.tab-close {
-  width: 19px;
-  height: 19px;
-  border-radius: 5px;
-  opacity: 0;
-}
-.tab-close .ui-icon {
-  width: var(--ui-icon-small);
-  height: var(--ui-icon-small);
-}
-.workbench-tab:hover .tab-close,
-.workbench-tab:focus-within .tab-close,
-.workbench-tab.active .tab-close {
-  opacity: 1;
-}
-.tab-unread,
-.app-tile-count {
-  color: var(--ui-accent);
-  background: var(--ui-accent-soft);
-  font-family: var(--ui-mono);
-}
-.workbench-tab.active .tab-task {
-  color: var(--ui-muted);
-  background: light-dark(var(--ui-raised), #36373e);
-}
-.workbench-tab .tab-task {
-  max-width: 88px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--ui-faint);
-  background: light-dark(var(--ui-raised), #25262b);
-  font-size: var(--ui-type-caption);
-}
-.workbench-tab.is-empty-window .tab-title,
-.workbench-tab.is-draft .tab-title {
-  font-style: normal;
-}
-.apps-panel {
-  padding: 4px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-}
-.apps-group-label {
-  color: var(--ui-faint);
-  font-size: var(--ui-type-caption);
-  font-weight: 500;
-}
-.app-tile {
-  gap: 10px;
-  min-height: 44px;
-  padding: 8px;
-  border-radius: 8px;
-}
-.app-tile:hover,
-.app-resource:hover {
-  background: var(--ui-hover);
-}
-.app-tile-icon {
-  width: 24px;
-  height: 24px;
-  flex-basis: 24px;
-  border: 0;
-  background: transparent;
-  color: var(--ui-muted);
-}
-.app-tile-copy strong {
-  font-size: var(--ui-type-control);
-  font-weight: 500;
-}
-.app-tile-copy small {
-  margin-top: 2px;
-  font-size: var(--ui-type-caption);
-  color: var(--ui-faint);
-}
-.app-resource {
-  gap: 8px;
-  padding: 9px 8px;
-  color: var(--ui-secondary);
-}
-.app-resource > .ui-icon {
-  color: var(--ui-faint);
-  flex-shrink: 0;
-}
-.app-resource.is-open {
-  color: var(--ui-text);
-}
-.app-resource.is-open > .ui-icon {
-  color: var(--ui-accent);
-}
-:is(.app-tile, .app-resource)[aria-busy="true"] {
-  color: var(--ui-text);
-  background: var(--ui-hover);
-  cursor: progress;
-}
-:is(.app-tile, .app-resource)[aria-busy="true"]::after {
-  content: "";
-  width: 12px;
-  height: 12px;
-  flex: 0 0 12px;
-  margin-left: auto;
-  border: 1.5px solid var(--ui-border-hover);
-  border-top-color: var(--ui-secondary);
-  border-radius: 50%;
-  animation: ui-spin 0.9s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  :is(.app-tile, .app-resource)[aria-busy="true"]::after {
-    animation: none;
-  }
-}
-.apps-group-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--ui-border);
-}
+
 .apps-file-count {
   padding-right: 8px;
   color: var(--ui-muted);
@@ -1084,11 +932,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 .app-file-empty {
   padding: 20px 8px;
 }
-.app-bind-select.is-bound {
-  color: var(--ui-accent);
-  border-color: light-dark(var(--ui-border), #5a526e);
-  background: light-dark(var(--ui-raised), #2c2838);
-}
+
 .model-option-check .ui-icon {
   width: var(--ui-icon-size);
   height: var(--ui-icon-size);
@@ -1106,30 +950,13 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   background: var(--ui-accent-soft);
   border-color: light-dark(var(--ui-border), #554e66);
 }
-@media (hover: none) {
-  .tab-close {
-    opacity: 1;
-  }
-}
-.tab-kind-label {
-  flex: 0 0 auto;
-  color: var(--ui-muted);
-  font-size: var(--ui-type-caption);
-  padding: 1px 5px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-}
+
 .activity-status.failed,
 .tool-step.is-failed .tool-marker {
   color: var(--ui-danger);
 }
 /* Conversation and document share one workspace, with independent focus. */
-.workbench-view-actions {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  margin-left: auto;
-}
+
 .workspace-divider {
   position: relative;
   width: 6px;
@@ -1197,12 +1024,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
     grid-column: 2;
     grid-row: 1;
   }
-  .is-collaborating .workbench {
-    grid-column: 3;
-    grid-row: 1;
-    min-width: 0;
-    overflow: hidden;
-  }
+
   .is-collaborating .chat-header {
     padding: 18px 20px 12px;
   }
@@ -1216,9 +1038,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
     flex-wrap: wrap;
     gap: 8px;
   }
-  .is-collaborating .workbench-tabs {
-    padding-left: 8px;
-  }
 }
 
 @media (min-width: 1100px) {
@@ -1227,10 +1046,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
     min-width: 0;
     gap: 6px;
   }
-  .is-collaborating .app-bind-select {
-    max-width: 125px;
-    min-width: 0;
-  }
+
   .is-collaborating .model-select {
     max-width: 130px;
     min-width: 0;
@@ -1294,29 +1110,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 .composer-right .send-button {
   flex-shrink: 0;
 }
-.composer .app-bind-icon,
-.composer .model-logo,
-.composer .model-chevron {
-  flex-shrink: 0;
-}
-.composer .app-bind-name,
-.composer .model-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.composer .app-bind-select,
-.is-collaborating .app-bind-select {
-  flex: 0 1 140px;
-  min-width: 32px;
-  max-width: 140px;
-  padding: 4px 7px;
-  font-size: var(--ui-type-control);
-}
-.composer .app-bind-select.is-empty {
-  display: none;
-}
+
 .composer .model-select,
 .composer .reasoning-select,
 .is-collaborating .model-select {
@@ -1373,11 +1167,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   right: auto;
   max-width: min(320px, 100%);
 }
-.composer .app-bind-menu {
-  left: 0;
-  right: auto;
-  max-width: min(248px, 100%);
-}
+
 @container (max-width: 520px) {
   .composer-bar,
   .is-collaborating .composer-bar {
@@ -1390,18 +1180,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   }
 }
 @container (max-width: 380px) {
-  .composer .app-bind-select {
-    flex: 0 0 28px;
-    min-width: 28px;
-    justify-content: center;
-    border-color: transparent;
-    padding: 4px;
-  }
-  .composer .app-bind-name,
-  .composer .app-bind-select .model-chevron,
-  .composer .model-logo {
-    display: none;
-  }
   .composer .model-select {
     flex: 1 1 100px;
   }
@@ -1453,12 +1231,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
   .composer:has(#stop-button:not([hidden])) .composer-left,
   .composer:has(#stop-button:not([hidden])) .composer-right {
     gap: 3px;
-  }
-  .composer:has(#stop-button:not([hidden])) .attach-button,
-  .composer:has(#stop-button:not([hidden])) .app-bind-select {
-    width: 24px;
-    min-width: 24px;
-    flex: 0 0 24px;
   }
 }
 #connection-state {
@@ -1980,9 +1752,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .app-
 }
 
 @media (max-width: 900px) {
-  .workbench:has(.workbench-tabs-empty) {
-    display: none;
-  }
   .chat-pane .chat-scroll:has(.welcome-empty) {
     padding-top: 28px;
   }
@@ -2069,26 +1838,7 @@ textarea {
   letter-spacing: normal;
   line-height: 1.5;
 }
-:is(
-  .topbar-button,
-  .session-menu button,
-  .model-option,
-  .modal-card label,
-  .modal-card button,
-  .output-copy strong,
-  .output-file strong,
-  .app-tile-copy strong,
-  .apps-group-label
-) {
-  font-weight: var(--ui-weight-regular);
-  letter-spacing: normal;
-  line-height: var(--ui-line-control);
-}
-.profile-setting strong,
-.output-section-title,
-.apps-panel .apps-group-label {
-  font-weight: var(--ui-weight-medium);
-}
+
 .chat-pane .markdown-body {
   font-weight: var(--ui-weight-regular);
   letter-spacing: normal;
@@ -2129,22 +1879,7 @@ textarea {
 :is(.markdown-body pre, .markdown-body code, .tool-call-body pre, .tool-result pre, .activity-preview.mono) {
   font-family: var(--ui-mono);
 }
-:is(
-    .topbar-button,
-    .window-nav,
-    .nav-icon,
-    .sidebar-icon,
-    .icon-action,
-    .project-icon,
-    .output-file-icon,
-    .prompt-icon,
-    .app-tile-icon,
-    .attach-button
-  )
-  .ui-icon {
-  width: var(--ui-icon-size);
-  height: var(--ui-icon-size);
-}
+
 .composer .send-button .ui-icon {
   width: var(--ui-icon-large);
   height: var(--ui-icon-large);
@@ -2156,11 +1891,7 @@ textarea {
   background: var(--ui-bg);
   border-color: var(--ui-glass-border);
 }
-:is(.ui-menu, .model-menu, .session-menu, .app-bind-menu, .search-dialog, .modal-card, .artifact-drawer) {
-  background: var(--ui-panel);
-  border-color: var(--ui-border);
-  box-shadow: var(--ui-popup-shadow);
-}
+
 .composer {
   background: var(--ui-panel);
   border-color: transparent;
@@ -2178,7 +1909,7 @@ textarea {
   letter-spacing: -0.025em;
 }
 .agent-pane {
-  font-size: var(--workbench-type-body);
+  font-size: var(--panel-type-body);
 }
 .agent-pane .panel-view {
   padding-right: 24px;
@@ -2213,7 +1944,7 @@ textarea {
 .workspace-start strong {
   display: block;
   color: var(--ui-text);
-  font-size: var(--workbench-type-body);
+  font-size: var(--panel-type-body);
   font-weight: var(--ui-weight-medium);
 }
 .workspace-start p {
@@ -2426,9 +2157,7 @@ body {
 .inline-edit-attachment button:hover {
   background: var(--ui-hover);
 }
-.workbench-tabs {
-  background: var(--ui-bg);
-}
+
 /* The input occupies its own row instead of covering conversation content. */
 .composer-wrap,
 .is-collaborating .composer-wrap {
@@ -2443,17 +2172,7 @@ body {
   scroll-padding-bottom: 26px;
 }
 /* Composer controls share an open surface instead of individual boxes. */
-.composer :is(.model-select, .reasoning-select, .app-bind-select, .attach-button, .attachment-chip),
-.composer #model-setup-button {
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.composer :is(.model-select, .reasoning-select, .app-bind-select, .attach-button):hover:not(:disabled),
-.composer #model-setup-button:hover:not(:disabled),
-.composer :is(.model-select, .reasoning-select, .app-bind-select)[aria-expanded="true"] {
-  background: light-dark(#24242c0a, #ffffff0a);
-}
+
 .composer :is(.send-button, .stop-button, .attachment-chip button) {
   border: 0;
   box-shadow: none;
@@ -2515,14 +2234,7 @@ body {
 .profile-card .profile-setting small {
   color: var(--ui-muted);
 }
-.composer :is(.model-select, .reasoning-select, .app-bind-select) {
-  color: var(--ui-secondary);
-  font-weight: 400;
-}
-.composer :is(.model-select, .reasoning-select, .app-bind-select) .ui-icon {
-  width: var(--ui-icon-size);
-  height: var(--ui-icon-size);
-}
+
 :is(.app-topbar, .conversation-sidebar, .composer) .ui-icon {
   stroke-width: 1.6;
 }
@@ -2707,14 +2419,7 @@ body {
 }
 /* This menu sits inside the composer's blurred surface. A solid surface keeps
    transcript text from bleeding through nested backdrop filters. */
-.composer .app-bind-menu {
-  background: var(--ui-raised);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.app-bind-select:disabled {
-  cursor: progress;
-}
+
 .request-retry {
   border: 1px solid var(--ui-border);
   border-radius: 10px;
@@ -2880,9 +2585,7 @@ body {
 .app-runtime-tile {
   min-width: 0;
 }
-.app-runtime-tile .app-tile {
-  width: 100%;
-}
+
 .queued-messages {
   margin: 0 0 10px;
   padding: 0 0 10px;

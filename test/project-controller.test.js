@@ -27,8 +27,7 @@ function fixture(t, request = async () => ({}), isTaskVisible) {
     selected: null
   };
   const began = [],
-    calls = [],
-    applicationWorkspaces = [];
+    calls = [];
   let navigation = 0;
   const controller = createProjectController({
     state,
@@ -51,7 +50,6 @@ function fixture(t, request = async () => ({}), isTaskVisible) {
     openTaskMenu() {},
     showToast() {},
     getNavigationIdentity: () => navigation,
-    getApplicationWorkspaces: () => applicationWorkspaces,
     isTaskVisible: isTaskVisible && ((task) => isTaskVisible(task, state))
   });
   t.after(() => {
@@ -70,7 +68,6 @@ function fixture(t, request = async () => ({}), isTaskVisible) {
     began,
     calls,
     submit,
-    applicationWorkspaces,
     navigate: () => navigation++
   };
 }
@@ -101,24 +98,14 @@ test("explicit collaboration can establish a project without changing navigation
   assert.equal(f.calls.length, 1, "reuse an existing project instead of creating duplicates");
 });
 
-test("legacy projects with only archived tasks disappear while document-only and explicit projects remain", (t) => {
+test("legacy projects with only archived or no tasks disappear while explicit projects remain", (t) => {
   const f = fixture(t);
   f.state.projects.push({ ...project("old"), legacy: true, tasks: [{ taskId: "old", archived: true }] });
-  f.state.projects.push({ ...project("documents"), legacy: true, hasApplications: true, tasks: [] });
   f.state.projects.push({ ...project("orphan"), legacy: true, tasks: [] });
   f.controller.render();
   assert.equal(f.$('[data-project="old"]'), null);
   assert.ok(f.$('[data-project="a"]'));
-  assert.ok(f.$('[data-project="documents"]'));
   assert.equal(f.$('[data-project="orphan"]'), null);
-  f.$('[data-project-create="documents"]').click();
-  assert.deepEqual(f.began, ["documents"]);
-  f.applicationWorkspaces.push("/tmp/old");
-  f.controller.render();
-  assert.ok(
-    f.$('[data-project="old"]'),
-    "an open document keeps its project accessible after conversation archival"
-  );
 });
 
 test("cancelling project creation preserves the conversation and never submits a task", (t) => {
@@ -491,14 +478,12 @@ test("an existing project draft prevents legacy source cleanup even after a fail
   assert.equal(records.get("atria.composer.v1:backend-a:new"), source);
 });
 
-test("legacy empty migration groups require document evidence while named empty projects survive", (t) => {
+test("legacy migration groups without conversations stay hidden while named empty projects survive", (t) => {
   const f = fixture(t);
   f.state.projects.push({ ...project("workspace"), legacy: true, tasks: [] });
   f.state.projects.push({ ...project("test"), legacy: true, tasks: [] });
-  f.state.projects.push({ ...project("kept"), legacy: true, hasApplications: true, tasks: [] });
   f.controller.render();
   assert.equal(f.$('[data-project="workspace"]'), null);
   assert.equal(f.$('[data-project="test"]'), null);
-  assert.ok(f.$('[data-project="kept"]'));
   assert.ok(f.$('[data-project="a"]'));
 });
