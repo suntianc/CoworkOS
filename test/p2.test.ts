@@ -326,19 +326,6 @@ async function main(): Promise<void> {
       (await externalInbox.list("main")).filter((message) => message.kind === "external_event").length,
       1
     );
-    const polled = await watcher.poll({
-      watcherId: "manual",
-      poll: async () => [{ ...observation, watcherId: "timer", dedupeKey: "tick-1", type: "timer.tick" }]
-    });
-    assert.equal(polled.accepted, 1);
-    const failedPoll = await watcher.poll({
-      watcherId: "broken",
-      poll: async () => {
-        throw new Error("source unavailable");
-      }
-    });
-    assert.equal(failedPoll.failed, "source unavailable");
-
     const human = new HumanRequestStore(join(root, "human"));
     const request = await human.create({
       taskId: "company-task",

@@ -85,7 +85,7 @@
 - **Trigger：** 页面打开后立即向 `#composer-input` 填入文字或选择附件，此时 `web/app.js` 中的 `await composerSession.ready` 还没完成。
 - **What happens：** 草稿恢复和 `#file-input` 监听在就绪之后才执行：已输入的文字会被恢复的空草稿覆盖，选择的附件会被忽略。在全量运行时偶发失败，例如 `e2e/markdown-links.spec.js:6` 读到的输入框值为空。
 - **Confirm：** 失败时输入框值为空或附件条缺失，单独重复运行通过。
-- **Avoid：** 测试先等应用加载完成（会话行或回复已渲染），再填写内容。上传附件时重复选择文件，直到附件条出现（见 `e2e/model-profile-vision.spec.js` 的 `attachImage`）。产品层面的修复在 [P4.5 打磨清单](../p4.5-polish-backlog.md) 第 19 条。
+- **Avoid：** 测试先等应用加载完成（会话行或回复已渲染），再填写内容。上传附件时重复选择文件，直到附件条出现（见 `e2e/model-profile-images.spec.js` 的 `attachImage`）。产品层面的修复在 [P4.5 打磨清单](../p4.5-polish-backlog.md) 第 19 条。
 - **Sources：** 2026-11-11 P4.5 finish 失败记录；#16 中的同类附件竞态。
 
 ## 遗留的无头测试浏览器推高负载

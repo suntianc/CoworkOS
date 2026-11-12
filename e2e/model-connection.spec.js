@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 
-test("model setup tests credentials before saving and retains vision settings and the task draft", async ({
+test("model setup tests credentials before saving and retains image support settings and the task draft", async ({
   page
 }) => {
   let failure = true;

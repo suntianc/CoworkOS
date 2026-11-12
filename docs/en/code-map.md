@@ -244,7 +244,7 @@ Static rules live in the [ESLint configuration](../../eslint.config.mjs) and [ex
 
 Runtime tests independently cover [zero turn caps and delegated recovery](../../test/jobbench-runtime.test.js) and [command exit](../../test/command-timeout.test.js).
 
-Recursive Node discovery belongs to `discoverNodeTests` in the [daily runner](../../scripts/test.mjs), shared by [release planning](../../scripts/release-test-plan.mjs) for `.test.js`, `.test.mjs` and `.test.ts`; release-runner self-tests execute separately. Start discovery, compiled-path and failure-propagation changes with [runner regressions](../../test/release/runner.test.mjs). Usage and reporting boundaries are in the [local testing guide](testing-local-run.md).
+Recursive Node discovery belongs to `discoverNodeTests` in the [daily runner](../../scripts/test.mjs), shared by [release planning](../../scripts/release-test-plan.mjs) for `.test.js`, `.test.mjs` and `.test.ts`; release-runner self-tests stay outside daily discovery and run in `npm run verify`. Start discovery, compiled-path and failure-propagation changes with [runner regressions](../../test/release/runner.test.mjs). Usage and reporting boundaries are in the [local testing guide](testing-local-run.md).
 
 ## Three common change recipes
 

@@ -185,7 +185,7 @@ export function createImageTools(options: ImageReaderOptions) {
     if (!options.supportsImages)
       throw new Error("当前模型不支持图片输入；图片未发送。请切换到支持图片输入的模型连接，或改用文字说明。");
     if (review.review && images.length > 1)
-      throw new Error("Visual QA must review one page at a time; compare images without review=true");
+      throw new Error("review=true accepts a single image; compare images without review=true");
     for (const image of images) await remember(image, signal);
     const records = images.map(evidence);
     const details =
@@ -222,11 +222,23 @@ export function createImageTools(options: ImageReaderOptions) {
       details: { ...details, mode: "direct" as const }
     };
   }
-  const reviewProperties = { goal: { type: "string", maxLength: 4000 }, review: { type: "boolean" } };
+  // Kept from the removed analysis connection: callers with saved prompts
+  // still pass these, and the arguments no longer run a second model.
+  const reviewProperties = {
+    goal: {
+      type: "string",
+      maxLength: 4000,
+      description: "Accepted for compatibility and unused; the images are returned to the current model."
+    },
+    review: {
+      type: "boolean",
+      description: "Accepted for compatibility; true still requires a single image."
+    }
+  };
   return {
     read_image: {
       executionMode: "parallel" as const,
-      description: `Inspect local PNG, JPEG, GIF or WebP files, or reread a historical Task imageRef. Prefer paths:["image.png"] for one image or an ordered comparison of 1–4 images (20 MiB total). path is a single-image alias; matching path and paths:[path] read it once. Specify exactly one non-empty path/paths selection or imageRef; omit unused sources or set path/imageRef to null/"". ${direct} Use review=true for one-page structured visual QA. Paths are relative to scope=${workScope} or the shared Task (scope=task); absolute paths inside the selected root are also accepted. Historical pixels do not authorize Computer Use actions.`,
+      description: `Inspect local PNG, JPEG, GIF or WebP files, or reread a historical Task imageRef. Prefer paths:["image.png"] for one image or an ordered comparison of 1–4 images (20 MiB total). path is a single-image alias; matching path and paths:[path] read it once. Specify exactly one non-empty path/paths selection or imageRef; omit unused sources or set path/imageRef to null/"". ${direct} The legacy goal and review arguments are accepted; review=true still requires a single image. Paths are relative to scope=${workScope} or the shared Task (scope=task); absolute paths inside the selected root are also accepted. Historical pixels do not authorize Computer Use actions.`,
       parameters: {
         ...sourceSchema,
         properties: {
@@ -266,7 +278,7 @@ export function createImageTools(options: ImageReaderOptions) {
         const paths = path ? [path] : selectedPaths;
         if (!paths) return result([await load(value, signal)], review, "single", signal);
         if (review.review && paths.length > 1)
-          throw new Error("Visual QA must review one page at a time; compare images without review=true");
+          throw new Error("review=true accepts a single image; compare images without review=true");
         const images: LoadedImage[] = [];
         let total = 0;
         for (const selected of paths) {
@@ -280,7 +292,7 @@ export function createImageTools(options: ImageReaderOptions) {
       }
     },
     read_images: {
-      description: `Inspect 1–4 local images or historical Task imageRefs together, in order, for comparison. Each image must specify exactly one non-empty path or imageRef; omit the unused source or set it to null/"". ${direct} Total pixels payload is bounded to ${batchLimit} bytes. Use review=true for one image only.`,
+      description: `Inspect 1–4 local images or historical Task imageRefs together, in order, for comparison. Each image must specify exactly one non-empty path or imageRef; omit the unused source or set it to null/"". ${direct} Total pixels payload is bounded to ${batchLimit} bytes. The legacy review argument is accepted; review=true still requires a single image.`,
       parameters: {
         type: "object",
         properties: {
@@ -296,7 +308,7 @@ export function createImageTools(options: ImageReaderOptions) {
         if (!Array.isArray(value.images) || value.images.length < 1 || value.images.length > 4)
           throw new Error("read_images requires 1–4 images");
         if (review.review && value.images.length > 1)
-          throw new Error("Visual QA must review one page at a time; compare images without review=true");
+          throw new Error("review=true accepts a single image; compare images without review=true");
         const loaded: LoadedImage[] = [];
         let total = 0;
         for (const item of value.images) {
