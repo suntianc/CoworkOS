@@ -20,7 +20,7 @@ test("desktop restores drafts saved before the first backend binding", async () 
     COWORK_DESKTOP_DATA: profile,
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1"
+    COWORK_DISABLE_MAIN_GUARDIAN: "1"
   };
   await mkdir(env.HOME, { recursive: true });
   const { stopBackend } = await import("../dist/src/cli/backend.js");

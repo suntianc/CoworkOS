@@ -17,7 +17,7 @@ export function desktopSmokeEnvironment({ data, source = process.env }) {
     ATRIA_HOME: data,
     COWORK_DESKTOP_DATA: data,
     PI_CODING_AGENT_DIR: join(data, "pi"),
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0"
   };

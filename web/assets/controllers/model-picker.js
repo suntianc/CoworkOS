@@ -1,4 +1,4 @@
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 import { icon } from "../ui/icons.js";
 import { language, ui } from "../ui/language.js";
 

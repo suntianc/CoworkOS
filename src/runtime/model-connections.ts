@@ -16,8 +16,6 @@ export interface ModelConnection extends ConnectionProfile {
 export interface ModelConnections {
   version: 1;
   activeId?: string;
-  /** Existing profile used only to analyse images for text-only agents. */
-  visionId?: string;
   profiles: ModelConnection[];
 }
 
@@ -39,13 +37,15 @@ export function modelConnections(config: CoworkConfig): ModelConnections {
           (p.supportsPromptCacheKey !== undefined && typeof p.supportsPromptCacheKey !== "boolean")
       ) ||
       new Set(value.profiles.map((p) => p.id)).size !== value.profiles.length ||
-      (value.activeId && !value.profiles.some((p) => p.id === value.activeId)) ||
-      (value.visionId !== undefined &&
-        (typeof value.visionId !== "string" ||
-          !value.profiles.some((p) => p.id === value.visionId && p.supportsImages === true)))
+      (value.activeId && !value.profiles.some((p) => p.id === value.activeId))
     )
       throw new Error("模型配置列表无法读取");
-    const registry = structuredClone(value);
+    // Rebuild from the current fields so a removed role from an older file is ignored.
+    const registry: ModelConnections = {
+      version: 1,
+      ...(value.activeId ? { activeId: value.activeId } : {}),
+      profiles: structuredClone(value.profiles)
+    };
     for (const profile of registry.profiles)
       profile.contextWindow = normalizeContextWindow(profile.contextWindow);
     return registry;
@@ -82,7 +82,6 @@ export function publicConnections(config: CoworkConfig) {
   const registry = modelConnections(config);
   return {
     activeProfileId: registry.activeId || "",
-    visionProfileId: registry.visionId || "",
     profiles: registry.profiles.map((p) => ({
       ...parseConnectionProfile(p as unknown as Record<string, unknown>, connectionProfile(p)),
       id: p.id,
@@ -91,8 +90,7 @@ export function publicConnections(config: CoworkConfig) {
       model: p.model,
       supportsImages: p.supportsImages,
       configured: Boolean(p.apiKey),
-      active: p.id === registry.activeId,
-      vision: p.id === registry.visionId
+      active: p.id === registry.activeId
     }))
   };
 }
@@ -118,8 +116,6 @@ export function saveConnection(config: CoworkConfig, input: Record<string, unkno
     throw new Error("启用状态须为布尔值");
   if (input.supportsImages !== undefined && typeof input.supportsImages !== "boolean")
     throw new Error("图像能力设置必须为布尔值");
-  if (input.vision !== undefined && typeof input.vision !== "boolean")
-    throw new Error("图片分析用途须为布尔值");
   const apiKey =
     typeof input.apiKey === "string" && input.apiKey.trim() ? input.apiKey.trim() : previous?.apiKey;
   if (!apiKey || apiKey.length > 4096 || /[\r\n\0]/.test(apiKey)) throw new Error("请填写有效的 API Key");
@@ -134,12 +130,6 @@ export function saveConnection(config: CoworkConfig, input: Record<string, unkno
     supportsImages: input.supportsImages ?? previous?.supportsImages ?? false
   };
   registry.profiles = [...registry.profiles.filter((p) => p.id !== profile.id), profile];
-  if (input.vision === true) {
-    if (!profile.supportsImages) throw new Error("图片分析连接必须启用图像输入");
-    registry.visionId = profile.id;
-  } else if (input.vision === false && registry.visionId === profile.id) delete registry.visionId;
-  if (registry.visionId === profile.id && !profile.supportsImages)
-    throw new Error("请先取消图片分析用途，再关闭图像输入");
   if (!registry.activeId || input.activate === true || input.profileId === undefined)
     registry.activeId = profile.id;
   const active = registry.profiles.find((p) => p.id === registry.activeId)!;

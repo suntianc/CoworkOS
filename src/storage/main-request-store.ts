@@ -16,7 +16,6 @@ export class MainRequestSnapshotError extends Error {
 }
 export interface MainRequestEnvironment {
   projectDirectory: string;
-  binding: string;
 }
 export interface MainRequestSnapshot {
   version: 1;
@@ -24,8 +23,6 @@ export interface MainRequestSnapshot {
   runId: string;
   requestId: string;
   retryOf?: string;
-  /** Stable user-input ownership; unlike requestId, this survives model requests and retries. */
-  goalDelegationRequestId?: string;
   state: "pending" | "failed" | "completed";
   model: MainRequestModel;
   context: Context;
@@ -82,18 +79,12 @@ export class MainRequestStore {
       snapshot.taskId !== this.taskId ||
       typeof snapshot.runId !== "string" ||
       typeof snapshot.requestId !== "string" ||
-      (snapshot.goalDelegationRequestId !== undefined &&
-        (typeof snapshot.goalDelegationRequestId !== "string" ||
-          !snapshot.goalDelegationRequestId.length ||
-          snapshot.goalDelegationRequestId.length > 512)) ||
       !["pending", "failed", "completed"].includes(snapshot.state) ||
       !validModel(snapshot.model) ||
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版快照可能没有 context 字段，缺失时须按损坏快照报错而不是抛 TypeError
       !Array.isArray(snapshot.context?.messages) ||
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版快照可能没有 environment 字段，缺失时须按损坏快照报错而不是抛 TypeError
       typeof snapshot.environment?.projectDirectory !== "string" ||
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 同上，environment 可能整段缺失；缺 binding 时按损坏快照报错
-      typeof snapshot.environment?.binding !== "string" ||
       (snapshot.executionScope !== undefined && !validMainRequestExecutionScope(snapshot.executionScope)) ||
       (snapshot.endpoint !== undefined && typeof snapshot.endpoint !== "string") ||
       typeof snapshot.body !== "string" ||

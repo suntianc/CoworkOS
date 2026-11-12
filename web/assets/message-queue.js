@@ -1,5 +1,5 @@
 import { ui } from "./ui/language.js";
-import { escapeHtml as esc } from "./workbench/html.js";
+import { escapeHtml as esc } from "./ui/html.js";
 import { reconcileMarkup } from "./ui/reconcile.js";
 import { splitUploadedFiles } from "./uploaded-files.js";
 

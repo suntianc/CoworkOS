@@ -20,7 +20,7 @@ async function bootDesktop() {
     COWORK_DESKTOP_DATA: root,
     ATRIA_HOME: join(root, "home"),
     PI_CODING_AGENT_DIR: join(root, "pi"),
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
   const executablePath = await developmentExecutable();

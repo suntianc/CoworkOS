@@ -1,22 +1,14 @@
 import { configuredWebTools } from "../runtime/web-search-config.js";
 import { applyProxyEnvironment } from "../runtime/http-transport.js";
-import { atriaRoleIdentity } from "../domain/agent-identity.js";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { id } from "../domain/types.js";
 import { createBuiltinTools } from "../tools/builtin.js";
 import { RunService } from "../runtime/run-service.js";
 import { CoordinatorWorker } from "../runtime/worker.js";
-import { FilePollingWatcher } from "../runtime/file-watcher.js";
-import { WatcherLoop } from "../runtime/watcher-loop.js";
-import { WatcherRuntime } from "../runtime/watcher.js";
 import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
-import { WatchProgramStore } from "../runtime/watch-program-store.js";
-import { ResearchPollingWatcher } from "../runtime/research-watcher.js";
-import { CoordinatorRuntime } from "../runtime/coordinator-runtime.js";
 import { businessCommandEnvironment } from "../runtime/command-environment.js";
 import { InboxStore } from "../runtime/scheduler.js";
-import { WatchSupervisor, WatchSupervisorLoop } from "../runtime/watch-supervisor.js";
 import { MainSupervisor, MainSupervisorLoop, spawnMainProcess } from "../runtime/main-supervisor.js";
 import { atriaInstallRoot } from "../tools/protected-paths.js";
 import { HumanRequestStore } from "../runtime/human.js";
@@ -39,9 +31,7 @@ import {
   runtimeSettingsEnv
 } from "../runtime/runtime-settings.js";
 import { readHostCoworkConfig } from "../runtime/config.js";
-import { visionModelConfig } from "../runtime/vision-config.js";
 import { cliHelp, parseCliCommand } from "./commands.js";
-import { runWatchEvent } from "./watch-run.js";
 
 let errorApiKey: string | undefined;
 async function main() {
@@ -64,7 +54,6 @@ async function main() {
   const model = process.env.COWORK_MODEL ?? config.model ?? "glm-5.3";
   const web = configuredWebTools(config);
   const runtimeEnv = runtimeSettingsEnv(config);
-  const visionModel = visionModelConfig(config);
   const reasoningOptions = () => ({
     contextWindow: configuredContextWindow(runtimeEnv),
     supportsImages: configuredSupportsImages(runtimeEnv),
@@ -181,311 +170,6 @@ async function main() {
     fail(`未知 human 操作: ${action ?? ""}`);
   }
 
-  if (command === "watch-file") {
-    const taskId = parsed.options.task;
-    const filePath = parsed.options.path;
-    if (!taskId || !filePath) fail("watch-file 需要 --task <id> 和 --path <relative-file>");
-    const store = new LocalWorkspaceStore(workspaceRoot);
-    let task;
-    try {
-      task = await store.readTask(taskId);
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.startsWith("unknown task:")) throw error;
-      await store.createTask(taskId, { goal: `Monitor ${filePath}` });
-      task = await store.readTask(taskId);
-    }
-    const runId = parsed.options.run ?? task.activeRunId ?? `watch-${Date.now()}`;
-    if (!task.activeRunId || task.activeRunId !== runId) await store.createRun(taskId, runId);
-    const runtime = new WatcherRuntime({ workspaceRoot, taskId, runId });
-    const watcher = new FilePollingWatcher({
-      watcherId: parsed.options.watcher ?? `file-${filePath}`,
-      rootDirectory: parsed.options.root ?? process.cwd(),
-      relativePath: filePath,
-      emitInitial: parsed.options["emit-initial"] === "true"
-    });
-    const controller = new AbortController();
-    const loop = new WatcherLoop();
-    const stop = () => {
-      loop.stop();
-      controller.abort();
-    };
-    process.once("SIGINT", stop);
-    process.once("SIGTERM", stop);
-    await loop.run(runtime, watcher, {
-      intervalMs: numberOption(parsed.options.interval, 5_000),
-      once: parsed.options.once === "true",
-      signal: controller.signal,
-      onCycle: async (result) => console.log(JSON.stringify({ watcherId: watcher.watcherId, ...result }))
-    });
-    process.exit(0);
-  }
-
-  if (command === "watch") {
-    const action = parsed.positionals.shift();
-    if (action === "profiles") {
-      printResult(new WatchProgramStore(workspaceRoot).listProfiles());
-      process.exit(0);
-    }
-    const taskId = parsed.options.task;
-    if (!taskId) fail("watch 需要 --task <id>");
-    const taskStore = new LocalWorkspaceStore(workspaceRoot);
-    try {
-      await taskStore.readTask(taskId);
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.startsWith("unknown task:")) throw error;
-      await taskStore.createTask(taskId);
-    }
-    const watchStore = new WatchProgramStore(workspaceRoot);
-    if (action === "create") {
-      const subject = parsed.options.subject ?? parsed.positionals.shift();
-      const objective = parsed.options.objective ?? parsed.positionals.join(" ");
-      if (!subject || !objective) fail("watch create 需要 --subject 和 --objective");
-      printResult(
-        await watchStore.createProgram({
-          taskId,
-          programId: parsed.options.program,
-          subject,
-          objective,
-          notificationPolicy: parsed.options.policy as import("../domain/watch.js").NotificationPolicy,
-          watchRunId: parsed.options.run
-        })
-      );
-      process.exit(0);
-    }
-    if (action === "add") {
-      const programId = parsed.options.program;
-      const task = parsed.options.monitor ?? parsed.positionals.join(" ");
-      if (!programId || !task) fail("watch add 需要 --program <id> 和 --monitor <task>");
-      printResult(
-        await watchStore.createVirtualAgent({
-          programId,
-          task,
-          profileId: parsed.options.profile,
-          cadenceSeconds: parsed.options.cadence ? numberOption(parsed.options.cadence, 0) : undefined,
-          wake: parsed.options.wake as import("../domain/watch.js").WakePolicy,
-          activate: parsed.options.activate === "true"
-        })
-      );
-      process.exit(0);
-    }
-    if (action === "status") {
-      const programId = parsed.options.program;
-      if (!programId) fail("watch status 需要 --program <id>");
-      const program = await watchStore.readProgram(taskId, programId);
-      const monitors = await watchStore.listVirtualAgents(taskId, programId);
-      printResult({
-        program,
-        monitors: await Promise.all(
-          monitors.map(async (monitor) => ({
-            ...monitor,
-            state: await watchStore.readVirtualAgentState(taskId, programId, monitor.monitorId)
-          }))
-        )
-      });
-      process.exit(0);
-    }
-    fail(`未知 watch 操作: ${action ?? ""}`);
-  }
-
-  if (command === "watch-research") {
-    const taskId = parsed.options.task ?? "rsi-research-watch";
-    const query = parsed.options.query ?? "recursive self-improvement large language models";
-    const store = new LocalWorkspaceStore(workspaceRoot);
-    try {
-      await store.readTask(taskId);
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.startsWith("unknown task:")) throw error;
-      await store.createTask(taskId, { goal: `持续关注 AI 领域的 RSI 研究：${query}` });
-    }
-    const task = await store.readTask(taskId);
-    const runId = parsed.options.run ?? task.activeRunId ?? id("watch");
-    if (task.activeRunId !== runId) await store.createRun(taskId, runId);
-    const watchStore = new WatchProgramStore(workspaceRoot);
-    const program = await watchStore.createProgram({
-      taskId,
-      programId: parsed.options.program ?? "ai-rsi-watch",
-      watchRunId: runId,
-      subject: parsed.options.subject ?? "AI 领域的 Recursive Self-Improvement（RSI）研究",
-      objective:
-        parsed.options.objective ??
-        "持续发现最新 RSI 论文，判断是否与大模型自我改进、自动研究或递归优化直接相关"
-    });
-    const monitor = await watchStore.createVirtualAgent({
-      programId: program.programId,
-      task: "发现并筛选最新 RSI 研究工作，说明与目标主题的关系并给出来源证据",
-      profileId: "research-papers",
-      sourcesHint: [query],
-      cadenceSeconds: numberOption(parsed.options.cadence, 21_600),
-      wake: "important",
-      activate: true
-    });
-    const runtime = new WatcherRuntime({
-      workspaceRoot,
-      taskId,
-      runId,
-      programId: program.programId,
-      recipientAgentId: monitor.monitorId
-    });
-    const watcher = new ResearchPollingWatcher({
-      watcherId: monitor.monitorId,
-      query,
-      perPage: numberOption(parsed.options.limit, 10)
-    });
-    const result = await runtime.poll(watcher);
-    await watchStore.updateVirtualAgentState(taskId, program.programId, monitor.monitorId, {
-      status: "active",
-      lastCheckedAt: new Date().toISOString()
-    });
-    printResult({
-      taskId,
-      runId,
-      programId: program.programId,
-      monitorId: monitor.monitorId,
-      query,
-      ...result
-    });
-    process.exit(result.failed ? 1 : 0);
-  }
-
-  if (command === "watch-run") {
-    if (!apiKey || !baseUrl) fail("watch-run 需要 COWORK_API_BASE 和 COWORK_API_KEY");
-    const taskId = parsed.options.task;
-    const runId = parsed.options.run;
-    const programId = parsed.options.program;
-    const monitorId = parsed.options.monitor;
-    if (!taskId || !runId || !programId || !monitorId)
-      fail("watch-run 需要 --task、--run、--program 和 --monitor");
-    const watchStore = new WatchProgramStore(workspaceRoot);
-    const program = await watchStore.readProgram(taskId, programId);
-    const monitor = (await watchStore.listVirtualAgents(taskId, programId)).find(
-      (item) => item.monitorId === monitorId
-    );
-    if (!monitor) fail(`unknown monitor: ${monitorId}`);
-    const inbox = new InboxStore(
-      join(workspaceRoot, taskId, "runs", runId, "agents", monitorId, "inbox-store.json")
-    );
-    const message = await inbox.lease(monitorId, 60_000, `watch-run-${process.pid}`);
-    if (!message) {
-      printResult({ processed: false, reason: "no_pending_event", programId, monitorId });
-      process.exit(0);
-    }
-    const monitorRunId = `${runId}-${monitorId}-${Date.now()}`;
-    const eventPayload = message.payload;
-    const task = [
-      `${atriaRoleIdentity("Watch")} 当前作为 Watch Program 的 Virtual Agent，负责：${monitor.task}`,
-      `Watch Program 目标：${program.objective}`,
-      "请读取并分析下面的外部事件。输出完整结论，不要返回过程叙述。必须明确给出 classification（no_change/relevant_change/uncertain）、理由、来源证据和建议动作。",
-      `外部事件：${JSON.stringify(eventPayload)}`
-    ].join("\n");
-    const coordinator = new CoordinatorRuntime();
-    const commandEnv = await businessCommandEnvironment(process.env);
-    const result = await runWatchEvent({
-      taskId,
-      programId,
-      monitorId,
-      monitorRunId,
-      messageId: message.messageId,
-      eventId: message.eventId,
-      watchStore,
-      inbox,
-      dispatch: () =>
-        coordinator.dispatch({
-          taskId,
-          runId: monitorRunId,
-          activateRun: false,
-          callId: `monitor-call-${message.eventId}`,
-          agentId: monitorId,
-          task,
-          mode: "sync",
-          workspaceRoot,
-          commandEnv,
-          baseUrl,
-          apiKey,
-          model,
-          visionModel,
-          ...reasoningOptions(),
-          maxTurns: numberOption(parsed.options["max-turns"], configuredSubagentMaxTurns(runtimeEnv)),
-          maxTokens: numberOption(parsed.options["max-tokens"], configuredSubagentMaxTokens(runtimeEnv)),
-          timeoutMs: nonNegativeNumberOption(parsed.options.timeout, configuredSubagentTimeout(runtimeEnv)),
-          web
-        })
-    });
-    printResult({
-      processed: true,
-      monitorRunId,
-      eventId: message.eventId,
-      status: result.status,
-      response: result.response,
-      artifacts: result.artifacts.map((artifact) => artifact.relativePath),
-      outputFiles: result.outputFiles,
-      diagnostics: result.diagnostics
-    });
-    process.exit(result.status === "succeeded" ? 0 : 1);
-  }
-
-  if (command === "watch-supervisor") {
-    if (!apiKey || !baseUrl) fail("watch-supervisor 需要 COWORK_API_BASE 和 COWORK_API_KEY");
-    const commandEnv = await businessCommandEnvironment(process.env);
-    const controller = new AbortController();
-    const supervisor = new WatchSupervisor({
-      workspaceRoot,
-      signal: controller.signal,
-      baseUrl,
-      apiKey,
-      model,
-      visionModel,
-      ...reasoningOptions(),
-      runtimeEnv,
-      commandEnv,
-      supportsPromptCacheKey: configuredSupportsPromptCacheKey(runtimeEnv),
-      maxTurns: numberOption(parsed.options["max-turns"], configuredMainMaxTurns(runtimeEnv)),
-      maxTokens: numberOption(parsed.options["max-tokens"], configuredMainMaxTokens(runtimeEnv)),
-      timeoutMs: nonNegativeNumberOption(parsed.options.timeout, configuredMainTimeout(runtimeEnv)),
-      maxEventsPerMonitor: numberOption(parsed.options["max-events"], 4),
-      web
-    });
-    const loop = new WatchSupervisorLoop();
-    const stop = () => {
-      loop.stop();
-      controller.abort();
-    };
-    process.once("SIGINT", stop);
-    process.once("SIGTERM", stop);
-    // A parked Main is woken by an Inbox message, but something has to be alive
-    // to notice and start one. Both supervisors take their own file locks, so
-    // running the Main cycle here costs a process rather than needing one.
-    const superviseMain =
-      parsed.options["supervise-main"] === "true"
-        ? new MainSupervisor({
-            workspaceRoot,
-            launch: ({ taskId: resumeTask, runId: resumeRun }) =>
-              spawnMainProcess({
-                taskId: resumeTask,
-                runId: resumeRun,
-                harnessRoot: process.env.COWORK_HARNESS_ROOT ?? atriaInstallRoot(),
-                workspaceRoot,
-                env: commandEnv
-              })
-          })
-        : undefined;
-    await loop.run(supervisor, {
-      intervalMs: numberOption(parsed.options.interval, 60_000),
-      once: parsed.options.once === "true",
-      taskId: parsed.options.task,
-      programId: parsed.options.program,
-      signal: controller.signal,
-      onCycle: async (result) => {
-        const resumed = superviseMain
-          ? await superviseMain
-              .runCycle({ taskId: parsed.options.task })
-              .catch((error) => ({ resumed: 0, error: String(error) }))
-          : undefined;
-        console.log(JSON.stringify(resumed ? { ...result, mainSupervisor: resumed } : result));
-      }
-    });
-    process.exit(0);
-  }
-
   if (command === "main-supervisor") {
     const controller = new AbortController();
     const harnessRoot = process.env.COWORK_HARNESS_ROOT ?? atriaInstallRoot();
@@ -554,8 +238,7 @@ async function main() {
           artifactDirectory,
           commandEnv,
           web,
-          supportsImages: configuredSupportsImages(runtimeEnv),
-          visionModel
+          supportsImages: configuredSupportsImages(runtimeEnv)
         })
     });
     printResult({
@@ -593,7 +276,6 @@ async function main() {
       baseUrl,
       apiKey,
       model,
-      visionModel,
       ...reasoningOptions(),
       maxTurns: numberOption(parsed.options["max-turns"], configuredSubagentMaxTurns(runtimeEnv)),
       maxTokens: numberOption(parsed.options["max-tokens"], configuredSubagentMaxTokens(runtimeEnv)),

@@ -1,92 +1,18 @@
-import { createRevisionSchedule } from "./revision-schedule.js";
 import { streamRecordKey } from "../conversation.js";
-import { createVisiblePoll } from "../ui/visible-poll.js";
 
-/** Owns the selected conversation's SSE and shared application revision refresh. */
-export function createConnectionController({
-  state,
-  renderConversation,
-  loadDetail,
-  getWorkbench,
-  readApplicationRevisions,
-  refreshWorkbench,
-  openStream
-}) {
-  const revisionSchedule = createRevisionSchedule();
+/** Owns the selected conversation's SSE. */
+export function createConnectionController({ state, renderConversation, loadDetail, openStream }) {
   let streamOpened = false;
   let eventStream, eventStreamTaskId, eventStreamRunId, detailRefreshTimer;
   let streamAbort, streamTaskId, streamRunId;
   let eventStreamKeys = new Set();
   let renderFrame;
-  const applicationVersions = new Map();
-  let applicationRead,
-    disposed = false;
-  // Run SSE remains the immediate path. Revision checks also cover standalone
-  // editors, idle chats and edits made by another conversation or MCP process.
-  async function refreshApplications({ poll = false } = {}) {
-    if (disposed || applicationRead || !readApplicationRevisions) return;
-    const tabs = getWorkbench()?.openTabs?.filter((tab) => tab.kind === "application") ?? [];
-    if (!tabs.length) {
-      applicationVersions.clear();
-      revisionSchedule.due([], undefined);
-      return;
-    }
-    const host = getWorkbench();
-    const foreground = host?.applicationVisible ? host.applicationTab?.appInstanceId : undefined;
-    const due = revisionSchedule.due(tabs, foreground, !poll);
-    if (!due.length) return;
-    const controller = (applicationRead = new AbortController());
-    try {
-      const { instances = [] } = await readApplicationRevisions(controller.signal, due);
-      if (disposed) return;
-      const host = getWorkbench();
-      const current = host?.openTabs?.filter((tab) => tab.kind === "application") ?? [];
-      const openInstances = new Set(current.map((tab) => tab.appInstanceId));
-      for (const id of applicationVersions.keys()) if (!openInstances.has(id)) applicationVersions.delete(id);
-      let changedTabs = false;
-      await Promise.all(
-        instances.map(async (instance) => {
-          const tab = current.find((entry) => entry.appInstanceId === instance.appInstanceId);
-          if (!tab) return;
-          if (tab.resourceId !== instance.resourceId || tab.title !== instance.title) changedTabs = true;
-          const version = JSON.stringify([
-            instance.resourceId,
-            instance.revision,
-            instance.contentVersion,
-            instance.title
-          ]);
-          if (applicationVersions.get(instance.appInstanceId) === version) {
-            revisionSchedule.observe(instance.appInstanceId, version);
-            return;
-          }
-          if (
-            instance.resourceId &&
-            Number.isInteger(instance.revision) &&
-            (await host.handleEvent({ type: "resource.operation_applied", ...instance })) === false
-          )
-            return;
-          applicationVersions.set(instance.appInstanceId, version);
-          revisionSchedule.observe(instance.appInstanceId, version);
-        })
-      );
-      if (changedTabs) await refreshWorkbench?.();
-      // eslint-disable-next-line no-restricted-syntax -- the 500ms application-revision poll retries on the next tick and the mounted editor keeps its drafts meanwhile
-    } catch {
-      // Keep the mounted editor and its drafts; the next check retries.
-    } finally {
-      if (applicationRead === controller) applicationRead = undefined;
-    }
-  }
-  const applicationPoll = readApplicationRevisions
-    ? createVisiblePoll({ run: ({ resume }) => refreshApplications({ poll: !resume }), intervalMs: 500 })
-    : undefined;
+  let disposed = false;
   const resume = () => {
     if (state.selected) connectEventStream(state.selected);
   };
   const dispose = () => {
     disposed = true;
-    applicationPoll?.dispose();
-    applicationRead?.abort();
     close();
     window.removeEventListener("pagehide", close);
     window.removeEventListener("pageshow", resume);
@@ -149,17 +75,6 @@ export function createConnectionController({
         state.detail.task.activeRunId !== runId
       )
         return;
-      // A resource event belongs to one adapter. Routing it there refreshes that
-      // tab alone; repainting the whole conversation for a keystroke elsewhere
-      // would throw away scroll position and streamed output for no reason.
-      if (typeof record.type === "string" && record.type.startsWith("resource.")) {
-        const key = streamRecordKey(record);
-        if (key && seenKeys.has(key)) return;
-        if (key) seenKeys.add(key);
-        const event = { ...record, ...(record.payload || {}) };
-        revisionSchedule.invalidate(event.appInstanceId);
-        getWorkbench()?.handleEvent(event);
-      }
       const key = streamRecordKey(record);
       if (state.detail && key && !seenKeys.has(key)) {
         seenKeys.add(key);
@@ -257,7 +172,6 @@ export function createConnectionController({
     renderFrame = undefined;
   }
   return {
-    refreshApplications,
     isStreaming(taskId) {
       return streamOpened && (eventStreamTaskId === taskId || streamTaskId === taskId);
     },

@@ -124,7 +124,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
             maxBuffer: 4000000,
             env: {
               ...cleanEnv,
-              // Keep user memory and background work inside this disposable fixture.
+              // Keep every host-owned path inside this disposable fixture.
               ATRIA_HOME: join(root, "home"),
               COWORK_CONFIG: configPath,
               COWORK_PROJECT_DIR: project,
@@ -132,7 +132,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
               COWORK_TASK_ID: "parity-task",
               COWORK_RUN_ID: "parity-run",
               PI_CODING_AGENT_DIR: join(root, "pi"),
-              COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+              COWORK_DISABLE_MAIN_GUARDIAN: "1",
               PI_OFFLINE: "1"
             }
           }

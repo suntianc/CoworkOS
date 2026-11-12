@@ -14,12 +14,10 @@ import { withFileLock } from "../storage/file-lock.js";
 export interface MainSleep {
   /** The Main Run that parked. A wake must reach this Run's Inbox. */
   runId: string;
-  /** Why Main or its standing background objective is waiting for a wake. */
+  /** Why this Task is waiting for a wake. */
   reason: string;
-  /** Absent means only a registered monitor's event can wake this Task. */
-  wakeAt?: string;
-  /** Monitors Main said it was relying on, recorded at park time. */
-  monitorIds: string[];
+  /** When the wake is due. */
+  wakeAt: string;
   /** Set once the timed wake is queued, so the next cycle does not re-fire it. */
   wakeFiredAt?: string;
   parkedAt: string;
@@ -32,14 +30,19 @@ export function sleepPath(workspaceRoot: string, taskId: string): string {
 export async function readSleep(workspaceRoot: string, taskId: string): Promise<MainSleep | undefined> {
   try {
     const value = JSON.parse(await readFile(sleepPath(workspaceRoot, taskId), "utf8")) as Partial<MainSleep>;
-    if (typeof value.runId !== "string" || typeof value.parkedAt !== "string") return undefined;
+    // A park without a due time could never be woken after the monitor
+    // scheduler was removed; treat it as old state rather than a live park.
+    if (
+      typeof value.runId !== "string" ||
+      typeof value.parkedAt !== "string" ||
+      typeof value.wakeAt !== "string" ||
+      !Number.isFinite(Date.parse(value.wakeAt))
+    )
+      return undefined;
     return {
       runId: value.runId,
       reason: typeof value.reason === "string" ? value.reason : "",
-      wakeAt: typeof value.wakeAt === "string" ? value.wakeAt : undefined,
-      monitorIds: Array.isArray(value.monitorIds)
-        ? value.monitorIds.filter((id): id is string => typeof id === "string")
-        : [],
+      wakeAt: value.wakeAt,
       wakeFiredAt: typeof value.wakeFiredAt === "string" ? value.wakeFiredAt : undefined,
       parkedAt: value.parkedAt
     };

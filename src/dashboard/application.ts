@@ -12,26 +12,9 @@ import { existsSync } from "node:fs";
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { ApplicationService, type ApplicationEvent } from "../applications/application-service.js";
-import { applicationServiceForTask } from "../applications/task-service.js";
-import { ResourceMappingStore } from "../applications/mapping-store.js";
-import { McpSupervisor } from "../applications/mcp-supervisor.js";
 import { id, now } from "../domain/types.js";
 import { coworkConfigPath, readCoworkConfig, readHostCoworkConfig } from "../runtime/config.js";
-import {
-  runtimeSettingsEnv,
-  normalizeReasoningEffort,
-  configuredContextWindow,
-  configuredMainMaxTokens,
-  configuredModelApi,
-  configuredReasoningEffort,
-  configuredSupportsReasoningEffort,
-  configuredSupportsPromptCacheKey,
-  configuredSupportsImages,
-  configuredThinkingFormat
-} from "../runtime/runtime-settings.js";
-import { configuredWebTools } from "../runtime/web-search-config.js";
-import { visionModelConfig } from "../runtime/vision-config.js";
+import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
 import {
   availableModels as catalogModels,
   cachedAvailableModels as cachedCatalog
@@ -55,23 +38,11 @@ import { InputStore } from "../workspace/input-store.js";
 import { listTaskArtifacts } from "../workspace/artifact-store.js";
 
 import { readJsonFile, readJsonLines } from "./event-stream.js";
-import { createGoalService } from "./goal-service.js";
-import { createWatchService } from "./watch-service.js";
 import { mainIsAlive, readHeartbeat } from "../runtime/main-heartbeat.js";
+import { readSleep } from "../runtime/main-sleep.js";
 import { createModelSettings } from "./model-settings.js";
 import { resolveModelRole } from "../runtime/role-models.js";
 import { createDashboardHandler, type DashboardRoutePorts } from "./routes.js";
-import { UserMemoryStore } from "../runtime/user-memory-store.js";
-import {
-  ProjectExperienceStore,
-  listProjectExperienceIdentities
-} from "../runtime/project-experience-store.js";
-import {
-  createProjectExperienceLearningService,
-  enqueueProjectExperienceRun
-} from "../runtime/project-experience-learning.js";
-import { PROJECT_EXPERIENCE_ENABLED } from "../domain/project-experience.js";
-import { createUserMemoryLearningService } from "../runtime/user-memory-learning.js";
 import { createDashboardRunService } from "./run-service.js";
 import { LocalAccess } from "./local-access.js";
 import { FileCommandRunner } from "./management-commands.js";
@@ -116,21 +87,12 @@ export function createDashboardApplication(
   /**
    * Where this Dashboard answers.
    *
-   * One constant, because two different things need it and they have to agree:
-   * an application's MCP server reads its resource back over HTTP, and the Agent
-   * reaches that server's tools through this same Dashboard. Deriving it twice
-   * is how they drift; assuming the default port breaks every instance that is
-   * not on it, including every test.
+   * One constant, because the Agent's host-dependent tools reach this Dashboard
+   * over HTTP and the browser reaches the same origin. Deriving it twice is how
+   * they drift; assuming the default port breaks every instance that is not on
+   * it, including every test.
    */
   const dashboardUrl = `http://127.0.0.1:${port}`;
-  /**
-   * MCP servers for open application windows.
-   *
-   * Held here because a window outlives any single Agent run: an Agent process
-   * is rebuilt each run, so a server it owned would die while the window was
-   * still open.
-   */
-  const mcpSupervisor = new McpSupervisor(projectRoot, dashboardUrl);
   // The host-owned credential store is overlaid here, so child processes and routes share it.
   const runtimeConfig = readHostCoworkConfig(projectRoot);
   const data = atriaDataPaths(process.env, runtimeConfig, projectRoot);
@@ -139,14 +101,6 @@ export function createDashboardApplication(
   const computerDriver = new MacComputerDriver();
   let folderPickerOpen = false;
   const globalIndexPath = data.globalIndex;
-  /**
-   * Where the global tab strip lives.
-   *
-   * Resolved once here rather than at the request that needs it, because the
-   * Agent process needs the same path: a document it creates has to appear in the
-   * strip the browser reads, and it cannot guess this location.
-   */
-  const tabStorePath = data.tabsIndex;
   /**
    * Local session authorization for this data root.
    *
@@ -188,7 +142,7 @@ export function createDashboardApplication(
     runtime: projectData,
     backendId: backendIdentity.backendId,
     project: async (projectId) => {
-      const project = await workspaces.applicationProjectForId(projectId);
+      const project = await workspaces.projectForId(projectId);
       return project
         ? {
             projectId: project.projectId,
@@ -285,7 +239,7 @@ export function createDashboardApplication(
       return findSubagentCall({ workspaceRoot: location.workspaceRoot, taskId, callId });
     },
     project: async (projectId) => {
-      const project = await workspaces.applicationProjectForId(projectId);
+      const project = await workspaces.projectForId(projectId);
       return project
         ? {
             projectId: project.projectId,
@@ -298,7 +252,7 @@ export function createDashboardApplication(
       // eslint-disable-next-line no-restricted-syntax -- 项目归属查询对已删除的任务返回 undefined，调用方按无项目处理
       const location = await workspaces.locateTask(taskId).catch(() => undefined);
       if (!location?.projectId) return undefined;
-      const project = await workspaces.applicationProjectForId(location.projectId);
+      const project = await workspaces.projectForId(location.projectId);
       return project
         ? {
             projectId: project.projectId,
@@ -351,7 +305,7 @@ export function createDashboardApplication(
       return project;
     },
     projectForDirectory: async (directory) => {
-      const project = await workspaces.applicationProjectForRoot(directory);
+      const project = await workspaces.projectForRoot(directory);
       return project
         ? {
             projectId: project.projectId,
@@ -367,28 +321,10 @@ export function createDashboardApplication(
     locateTask
   );
   const uploads = new InputStore(join(dirname(globalIndexPath), "uploads"));
-  const userMemory = new UserMemoryStore();
-  const projectExperienceStore = async (projectId: string) => {
-    const project = await workspaces.applicationProjectForId(projectId);
-    return project
-      ? new ProjectExperienceStore({
-          projectId: project.projectId,
-          projectDirectory: project.projectDirectory,
-          ...(project.projectCatalogPath ? { projectCatalogPath: project.projectCatalogPath } : {})
-        })
-      : undefined;
-  };
   const runs = createDashboardRunService({
-    userMemory,
-    onRunStarting: () => {
-      memoryLearning.pause();
-      projectLearning.pause();
-    },
     onRunFinalized: async (location, runId) => {
       if (!location.projectId) return;
-      // A Run keeps the session that owned it after it settles. The shared write
-      // is best-effort here: the local experience record below is an independent
-      // finalization step, and an unreachable authority must not suppress it.
+      // A Run keeps the session that owned it after it settles.
       try {
         await mainSessions.settle(
           location.projectId,
@@ -401,19 +337,9 @@ export function createDashboardApplication(
           `[cowork] session run settlement failed: ${error instanceof Error ? error.message : String(error)}`
         );
       }
-      const store = PROJECT_EXPERIENCE_ENABLED ? await projectExperienceStore(location.projectId) : undefined;
-      if (store)
-        await enqueueProjectExperienceRun({
-          store,
-          identity: store.identity,
-          workspaceRoot: location.workspaceRoot,
-          taskId: location.task.taskId,
-          runId
-        });
     },
     uploads,
     projectRoot,
-    tabStorePath,
     dashboardUrl,
     runCredential: access.runCredential(),
     coordinator,
@@ -422,6 +348,12 @@ export function createDashboardApplication(
       resolve: (location, input) => mainSessions.resolve(location, input)
     },
     mainCapacity,
+    mainGuardian: {
+      workspaceRoots: knownWorkspaceRoots,
+      // A host with no Main connection has nothing to launch, and a connection
+      // added later is seen on the next cycle.
+      modelConfigured: () => Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
+    },
     withTaskProjectLock: workspaces.withTaskProjectLock,
     resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
     endpointLimits: async (selection) =>
@@ -472,31 +404,6 @@ export function createDashboardApplication(
     });
   });
 
-  const watchers = createWatchService({
-    harnessRoot: projectRoot,
-    workspaceRoot: () => workspaceRoot,
-    knownWorkspaceRoots,
-    locateTask,
-    runtimeValue,
-    startMainRun,
-    cancelTask: runs.cancelTask,
-    runtimeOptions: () => {
-      const env = runtimeSettingsEnv(runtimeConfig);
-      return {
-        runtimeEnv: env,
-        commandEnv: { COWORK_API_TOKEN: access.runCredential(), COWORK_DASHBOARD_URL: dashboardUrl },
-        api: configuredModelApi(env),
-        thinkingFormat: configuredThinkingFormat(env),
-        contextWindow: configuredContextWindow(env),
-        thinkingLevel: configuredReasoningEffort(env),
-        supportsReasoningEffort: configuredSupportsReasoningEffort(env),
-        supportsPromptCacheKey: configuredSupportsPromptCacheKey(env),
-        supportsImages: configuredSupportsImages(env),
-        visionModel: visionModelConfig(runtimeConfig),
-        web: configuredWebTools(runtimeConfig)
-      };
-    }
-  });
   const uiRoot = process.env.COWORK_UI_DIR ?? join(projectRoot, "web");
 
   function runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined {
@@ -557,79 +464,6 @@ export function createDashboardApplication(
       occurredAt: now(),
       payload
     });
-  }
-
-  /**
-   * Carry a resource event on the Task's existing SSE stream.
-   *
-   * ADR-06: no second transport. Application events are ordinary run events, so
-   * a Tab learns that a resource changed through the same connection the
-   * conversation already holds open. The envelope stays generic — the stream
-   * never learns what an operation means, only which resource and revision it
-   * touched — so a future Adapter needs no change here.
-   *
-   * A Task with no run yet has no stream to write to; the UI's existing poll is
-   * what refreshes it until the first run starts.
-   */
-  async function publishApplicationEvent(taskId: string, event: ApplicationEvent): Promise<void> {
-    try {
-      const location = await locateTask(taskId);
-      const runId = location.task.activeRunId;
-      if (!runId) return;
-      await appendRunEvent(location.workspaceRoot, taskId, runId, event.type, {
-        appType: event.appType,
-        resourceId: event.resourceId,
-        appInstanceId: event.appInstanceId,
-        revision: event.revision,
-        ...event.payload
-      });
-    } catch (error) {
-      // A missing stream must never fail the write that already succeeded.
-      console.error(
-        `[cowork] application event publish failed: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
-
-  /**
-   * Which workspace root holds a resource.
-   *
-   * A document tab names only its resource — a resource belongs to no
-   * conversation — so the strip cannot reach a task to ask. Scanned the same way
-   * a task is located, and the store caches the owning application per id, so the
-   * repeat cost is a map lookup.
-   */
-  async function locateResource(resourceId: string): Promise<{ workspaceRoot: string }> {
-    for (const root of await workspaces.applicationWorkspaceRoots()) {
-      try {
-        await new ApplicationService(root).resources.appTypeOf(resourceId);
-        return { workspaceRoot: root };
-        // eslint-disable-next-line no-restricted-syntax -- 逐个工作区探测，资源不在这个根时抛出的错误正是继续下一个根的依据
-      } catch {
-        /* the resource belongs to another registered workspace */
-      }
-    }
-    throw new Error(`unknown resource: ${resourceId}`);
-  }
-
-  /**
-   * Notify every conversation that references a resource.
-   *
-   * One document has one tab, shared by however many conversations reference it,
-   * so an edit has to reach all of their SSE streams. Publishing only to the
-   * acting conversation left the other side waiting on the poll — visible as an
-   * editor that did not update while the other window was being typed into.
-   */
-  async function publishToReferencers(resourceId: string, event: ApplicationEvent): Promise<void> {
-    const notified = new Set<string>();
-    for (const root of await knownWorkspaceRoots()) {
-      // eslint-disable-next-line no-restricted-syntax -- 一个根的映射读不出来时仍要通知其它根的引用者，不能因此整轮放弃
-      for (const taskId of await new ResourceMappingStore(root).tasksFor(resourceId).catch(() => [])) {
-        if (notified.has(taskId)) continue;
-        notified.add(taskId);
-        await publishApplicationEvent(taskId, event);
-      }
-    }
   }
 
   async function resolveWorkspacePath(value: unknown): Promise<string> {
@@ -766,7 +600,6 @@ export function createDashboardApplication(
       : [];
     const active =
       activeAtStart || activeRuns.has(taskId) || mainIsAlive(await readHeartbeat(taskWorkspace, taskId));
-    const monitoring = await watchers.list(taskId);
     let damagedRetry = false;
     const requestStore = new MainRequestStore(mainRequestPath(taskWorkspace, taskId), taskId);
     const retry =
@@ -807,36 +640,13 @@ export function createDashboardApplication(
         lastFailure?.failure?.kind === "model_request");
     const statistics = await readRunStatistics({ workspaceRoot: taskWorkspace, task, active });
     const humanRequests = await new HumanRequestStore(taskWorkspace).list(taskId);
+    // eslint-disable-next-line no-restricted-syntax -- 停泊记录缺失或损坏按未停泊展示，任务详情仍要返回其余字段
+    const parked = await readSleep(taskWorkspace, taskId).catch(() => undefined);
     const humanResumePending =
       !active &&
       task.status !== "cancelled" &&
       !humanRequests.some((request) => request.status === "pending") &&
       (await pendingHumanAnswers(taskWorkspace, taskId, runId)).length > 0;
-    // An index only: titles, revisions and unread counts, never resource content.
-    // Task detail is polled every few seconds and must not grow with a document.
-    // It stays optional because reading it can fail on a damaged workspace, and
-    // detail must still return when it does.
-    const applications = await (async () => {
-      const service = await applicationServiceForTask(taskWorkspace, taskId);
-      // eslint-disable-next-line no-restricted-syntax -- 工作区损坏时 taskSummary 会抛错，详情仍要返回其余字段
-      const summary = await service.taskSummary(taskId).catch(() => undefined);
-      if (!summary) return undefined;
-      // The outputs panel is a view over two kinds of thing: published files
-      // and live resources. Resources keep their own home on disk so one can
-      // appear in more than one Task, so the list is assembled rather than
-      // read off a single directory.
-      // Hand over the resources `taskSummary` already listed: listing reads
-      // and hashes every document, and this ran three times per poll.
-      const deliverables = await service
-        .deliverables(taskId, artifacts, summary.resources)
-        // eslint-disable-next-line no-restricted-syntax -- 产出物清单读不出来时省略该字段，不阻塞任务详情返回
-        .catch(() => undefined);
-      return {
-        ...summary,
-        workspaceRoot: service.resourceWorkspaceRoot,
-        ...(deliverables ? { deliverables } : {})
-      };
-    })();
     let editableMessage;
     let editableMessageError;
     try {
@@ -874,8 +684,7 @@ export function createDashboardApplication(
         logPath
       })),
       humanResumePending,
-      monitoring,
-      ...(applications ? { applications } : {}),
+      ...(parked ? { parked: { wakeAt: parked.wakeAt, reason: parked.reason } } : {}),
       runtime: {
         active,
         stopping: runs.cancellations.has(taskId),
@@ -887,63 +696,6 @@ export function createDashboardApplication(
     };
   }
 
-  const projectLearning = createProjectExperienceLearningService({
-    stores: async () => {
-      const identities = await listProjectExperienceIdentities();
-      const stores: ProjectExperienceStore[] = [];
-      for (const identity of identities) {
-        // Do not revive another catalog or a deleted project from stale private state.
-        if (identity.projectCatalogPath !== workspaces.projectCatalog.filePath) continue;
-        const store = await projectExperienceStore(identity.projectId);
-        if (store) stores.push(store);
-      }
-      return stores;
-    },
-    userMemoryStore: userMemory,
-    connection: () => {
-      const baseUrl = runtimeValue("COWORK_API_BASE"),
-        apiKey = runtimeValue("COWORK_API_KEY");
-      const env = runtimeSettingsEnv(runtimeConfig);
-      return baseUrl && apiKey
-        ? {
-            baseUrl,
-            apiKey,
-            model: runtimeValue("COWORK_MODEL"),
-            api: configuredModelApi(env),
-            thinkingFormat: configuredThinkingFormat(env),
-            thinkingLevel: configuredReasoningEffort(env),
-            supportsReasoningEffort: configuredSupportsReasoningEffort(env),
-            maxTokens: configuredMainMaxTokens(env),
-            contextWindow: configuredContextWindow(env)
-          }
-        : undefined;
-    },
-    isTaskActive: (taskId) => activeRuns.has(taskId),
-    isForegroundActive: () => runs.isBusy()
-  });
-  const memoryLearning = createUserMemoryLearningService({
-    store: userMemory,
-    connection: () => {
-      const baseUrl = runtimeValue("COWORK_API_BASE"),
-        apiKey = runtimeValue("COWORK_API_KEY");
-      const env = runtimeSettingsEnv(runtimeConfig);
-      return baseUrl && apiKey
-        ? {
-            baseUrl,
-            apiKey,
-            model: runtimeValue("COWORK_MODEL"),
-            api: configuredModelApi(env),
-            thinkingFormat: configuredThinkingFormat(env),
-            thinkingLevel: configuredReasoningEffort(env),
-            supportsReasoningEffort: configuredSupportsReasoningEffort(env),
-            maxTokens: configuredMainMaxTokens(env),
-            contextWindow: configuredContextWindow(env)
-          }
-        : undefined;
-    },
-    isTaskActive: (taskId) => activeRuns.has(taskId),
-    isForegroundActive: () => runs.isBusy()
-  });
   async function computerHostRequest(value: unknown) {
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new HttpError(400, "无效 Computer Use 请求");
@@ -1005,7 +757,6 @@ export function createDashboardApplication(
     return computer.authorize(input.taskId, input.pid, input.windowId, input.mode);
   }
   const routes: DashboardRoutePorts = {
-    userMemory,
     projectData,
     mainSessions,
     developments,
@@ -1020,16 +771,6 @@ export function createDashboardApplication(
       pid: process.pid,
       startedAt: backendIdentity.startedAt
     }),
-    ...(PROJECT_EXPERIENCE_ENABLED ? { projectExperienceStore } : {}),
-    watchers,
-    goals: createGoalService({
-      harnessRoot: projectRoot,
-      workspaceRoot: () => workspaceRoot,
-      knownWorkspaceRoots,
-      locateTask,
-      resumeHumanAnswers,
-      cancelTask: runs.cancelTask
-    }),
     uploads,
     computer,
     computerHostRequest,
@@ -1041,16 +782,9 @@ export function createDashboardApplication(
     globalTaskPayload,
     locateTask,
     projectTasks: workspaces.projectTasks,
-    locateResource,
-    knownWorkspaceRoots,
-    applicationWorkspaceRoots: workspaces.applicationWorkspaceRoots,
-    applicationProjectForRoot: workspaces.applicationProjectForRoot,
-    applicationProjectForId: workspaces.applicationProjectForId,
-    publishApplicationEvent,
-    publishToReferencers,
-    tabStorePath,
+    projectForRoot: workspaces.projectForRoot,
+    projectForId: workspaces.projectForId,
     workspaceRoot: () => workspaceRoot,
-    mcpSupervisor,
     availableModels,
     chooseLocalDirectory,
     resolveWorkspacePath,
@@ -1066,7 +800,6 @@ export function createDashboardApplication(
     createProjectTask: workspaces.createProjectTask,
     createTemporaryTask: workspaces.createTemporaryTask,
     createTemporaryWorkspace: workspaces.createTemporaryWorkspace,
-    withApplicationProjectLock: workspaces.withApplicationProjectLock,
     normalizeModel,
     runtimeValue,
     startMainRun,
@@ -1090,14 +823,11 @@ export function createDashboardApplication(
   };
   const server = createServer(createDashboardHandler(routes));
   server.once("listening", () => void mainCapacity.start());
-  server.once("listening", () => watchers.start());
-  server.once("listening", () => memoryLearning.start());
-  if (PROJECT_EXPERIENCE_ENABLED) server.once("listening", () => projectLearning.start());
+  server.once("listening", () => runs.startMainGuardian());
 
   return {
     server,
     runs,
-    mcpSupervisor,
     dashboardUrl,
     routePorts: routes,
     computerHostRequest,
@@ -1107,17 +837,16 @@ export function createDashboardApplication(
       await developments.stopDeliveryRecovery();
       await computerApproval.close();
       await catalogEvents.close();
-      await memoryLearning.stop();
-      await projectLearning.stop();
       computer.close();
-      await watchers.stop();
+      // A recovery cycle must not start a Main into a service that is going
+      // away, and it must finish before capacity stops admitting.
+      await runs.stopMainGuardian();
       server.closeAllConnections();
       await projectClones.stop();
       // Stop admitting before the processes exit, so no shutdown release
       // starts the next demand while the service is going away.
       await mainCapacity.stop();
       await runs.stop();
-      await mcpSupervisor.stopAll();
       await new Promise<void>((done) => server.close(() => done()));
       // After the listener is closed, so no in-flight ledger request loses its database.
       await projectData.close();

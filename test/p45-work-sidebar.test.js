@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -49,8 +48,7 @@ function fixture(t, records = new Map()) {
     taskMenuOpen: () => false,
     openTaskMenu() {},
     showToast() {},
-    getNavigationIdentity: () => "",
-    openProjectExperience() {}
+    getNavigationIdentity: () => ""
   });
   t.after(() => {
     for (const [key, value] of Object.entries(previous)) {

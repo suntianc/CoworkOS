@@ -2,7 +2,7 @@ import { ui } from "../ui/language.js";
 import { icon } from "../ui/icons.js";
 import { createModal } from "../ui/modal.js";
 import { createMenu } from "../ui/menu.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 
 /** Project navigation, directory settings and creation do not mutate conversation drafts. */
 export function createProjectController({
@@ -19,7 +19,6 @@ export function createProjectController({
   onRendered = () => {},
   getNavigationIdentity,
   onSelectionChanged = () => {},
-  getApplicationWorkspaces = () => [],
   isTaskVisible = () => true,
   isUnread = () => false,
   openAddProject,
@@ -89,19 +88,7 @@ export function createProjectController({
   // can restore it; it leaves the list once another conversation is selected.
   const visibleTask = (task) => (!task.archived || task.taskId === state.selected) && isTaskVisible(task);
   const visibleProjects = () =>
-    projects().filter(
-      (project) =>
-        !project.legacy ||
-        project.hasApplications ||
-        project.tasks?.some(visibleTask) ||
-        getApplicationWorkspaces().some(
-          (root) =>
-            root &&
-            (root === project.projectDirectory ||
-              root === project.workspaceRoot ||
-              project.tasks?.some((task) => task.storageRoot === root))
-        )
-    );
+    projects().filter((project) => !project.legacy || project.tasks?.some(visibleTask));
   const find = (id) => projects().find((project) => project.projectId === id);
   const projectForTask = (task) =>
     find(task?.projectId) ||
@@ -361,7 +348,7 @@ export function createProjectController({
   }
   /**
    * The project row's ⋯ menu (#33): rename, and remove from the list. Folder
-   * changes and project experience have no entry here any more.
+   * changes have no entry here any more.
    */
   let projectMenu, menuPanel, menuProjectId;
   function openProjectMenu(trigger, id) {

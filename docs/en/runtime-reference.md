@@ -2,7 +2,7 @@
 
 [简体中文](../runtime-reference.md) | English
 
-This page maintains runtime contracts for tools, delegation, recovery and monitoring. See [configuration reference](configuration-reference.md) for models and budgets, [data layout](../task-workspace-layout.md) for stored files, and [Product API](../product-api.md) for HTTP fields.
+This page maintains runtime contracts for tools, delegation, recovery and parking. See [configuration reference](configuration-reference.md) for models and budgets, [data layout](../task-workspace-layout.md) for stored files, and [Product API](../product-api.md) for HTTP fields.
 
 ## Conversations and messages
 
@@ -22,9 +22,9 @@ Web/App support inline `\(...\)` and `$...$`, and display math with `\[...\]` an
 
 ## General and optional tools
 
-Terminal and App Main share the Cowork extension and capability rules. The lower-level `single` command uses an explicit single-agent tool factory and does not automatically receive Main's delegation or application tools. Coordinator accepts an external `capabilityProvider`.
+Terminal and App Main share the Cowork extension and capability rules. The lower-level `single` command uses an explicit single-agent tool factory and does not automatically receive Main's delegation tools. Coordinator accepts an external `capabilityProvider`.
 
-`enable_tools({})` discovers groups; `enable_tools({groups:["applications"]})` loads application tools. Explicit loading survives Main Run recovery. Attachments, referenced resources and granted jobs can also enable tools through context. Loading does not grant permission: jobs still require `longRunning`, and computer actions check authorization on every call.
+`enable_tools({})` discovers groups; `enable_tools({groups:["attachments"]})` loads attachment readers and `delivery` publishes artifacts. Explicit loading survives Main Run recovery. Attachments and granted jobs can also enable tools through context. Loading does not grant permission: jobs still require `longRunning`, and computer actions check authorization on every call.
 
 Browser/CUA objects belong to the current Pi session and are cleared on exit or session change. Restoring groups does not restore pages or script objects. Ordinary subagents do not inherit them automatically. See [Browser Use](../browser-use.md), [Computer Use](../computer-use.md) and [CUA scripting](../cua-scripting.md).
 
@@ -40,24 +40,19 @@ Command receipts retain exit status, `stdoutBytes` / `stderrBytes` (bytes observ
 
 `createBuiltinTools` accepts `commandMaxLogBytes` and `commandPreviewBytes` to configure each stream's hard limit and preview byte budget independently. If `commandMaxLogBytes` is absent, explicit `maxOutputBytes` still overrides the legacy command hard limit. File reads retain their default 128,000-byte behavior. This preview and log mechanism does not change the SDK behavior of Main's native `bash`.
 
-## Delegated resources and candidate acceptance
+## Delegated attachments
 
-Ordinary `call_subagent({task,mode})` remains supported. Application bindings, attachments and desktop authorization are not all inherited. Share the required scope explicitly:
+Ordinary `call_subagent({task,mode})` remains supported. Attachments and desktop authorization are not all inherited. Share the required scope explicitly:
 
 ```javascript
 call_subagent({
   task: "Check assembly parts and motion parameters; return evidence",
   mode: "async",
-  resources: [{ resourceId: "referenced-resource-id", access: "read" }],
   attachments: ["explicitly-shared-upload-id"]
 });
 ```
 
-`read` exposes adapter-declared read-only tools; `candidate` permits editing a private copy. Built-in adapters supply these grants; third-party window MCP tools are not delegated automatically. Attachment readers accept only shared IDs. A resource ID can be omitted when only one resource supports the tool; specify it when several do.
-
-Candidate edits return `saved:false` and `candidatePath`, accumulating consecutive operations in one copy. Main checks the candidate and evidence before calling `accept_resource_candidate({candidatePath})`. Acceptance checks durable grants and the base revision, then commits the complete operation sequence as one atomic revision. `revision_conflict` preserves both sides; reread and redelegate rather than changing the base revision to force an overwrite.
-
-Recovered queues retain their original grants independently of Main's current binding. Resource grants do not expand Task file or command permissions. Missing capability providers fail explicitly. A successful subagent or its summary does not replace candidate acceptance.
+Attachment readers accept only shared IDs; an attachment Main can read does not automatically reach a subagent. A successful subagent or its summary does not replace Main's own verification.
 
 ### Execution roles, work-item dependencies and the requirement checkout
 
@@ -100,7 +95,7 @@ Main and subagents default to at most five automatic retries after the first req
 
 App/Web Retry resends the failed request's saved serialized body, including system messages, model, tool definitions, attachments and generation parameters, without adding a recovery instruction. Completed tool results are retained. New callbacks queue during replay and enter afterward; inputs and document changes absent from that body are not treated as already read.
 
-A private snapshot is saved before transmission and checks the Task storage root, working folder, application resource origins and tool ownership. Changed settings or sources, damaged snapshots and older snapshots without ownership records prevent exact replay while preserving the data. Older conversations without snapshots can continue only from saved context. Cancellation takes precedence; stale retry actions cannot revive a cancelled run. See [data layout](../task-workspace-layout.md) for formats and backup boundaries.
+A private snapshot is saved before transmission and checks the Task storage root and working folder. Changed settings or sources, damaged snapshots and older snapshots without ownership records prevent exact replay while preserving the data; so does an archive still holding the removed user-memory or project-experience sections, which is replaced by a new message that rebuilds the context. Older conversations without snapshots can continue only from saved context. Cancellation takes precedence; stale retry actions cannot revive a cancelled run. See [data layout](../task-workspace-layout.md) for formats and backup boundaries.
 
 When a headless Run checkpoint already ends with complete final text and has no unfinished tool call, recovery finishes persistence without another model request. A successful Run ID cannot be reused; new work needs a new Run. Lifecycle commands alone do not start model execution.
 
@@ -168,10 +163,15 @@ npm run main-worker -- --workspace /tmp/atria-dev --task <task-id> --once true
 # Report by default; --spawn true starts model processes.
 npm run cli -- main-supervisor --workspace /tmp/atria-dev
 npm run cli -- main-supervisor --workspace /tmp/atria-dev --spawn true
-npm run cli -- watch-supervisor --workspace /tmp/atria-dev --task <task-id> --program <program-id>
 ```
 
-Task/Watch/Worker commands validate options before execution. Place task or answer text beginning with `-` after `--`. Help and version queries do not start supervisors.
+Task/Worker commands validate options before execution. Place task or answer text beginning with `-` after `--`. Help and version queries do not start supervisors.
+
+## Parking and timed wakes
+
+`sleep_until(reason, wakeInSeconds)` records that the current Task is waiting. The Task stays open across process restarts; when the time arrives the Main guardian writes one durable Inbox wake, and reading it clears the park. `wakeInSeconds` has a 60-second floor. A park without a due time is refused because no other scheduler could wake it. Ending a turn is not parking: without a park record and with no outstanding work, a Task is completed.
+
+`COWORK_DISABLE_MAIN_GUARDIAN=1` turns the guardian off; `COWORK_MAIN_GUARDIAN_INTERVAL_MS` defaults to 60000. It reads only the Task, its Inbox, human questions and the park record, and starts a Main again for a Task with an unconsumed callback and no live Main.
 
 ## Programmatic runs
 
@@ -191,28 +191,3 @@ Task/Watch/Worker commands validate options before execution. Place task or answ
 The tool text budget covers returned content from ordinary runtime tools and additional `AgentTools`; restored history is not rewritten. Command feedback reserves exit and interruption status, log references and byte counts before allocating head/tail previews to stdout/stderr. It marks logs incomplete when fewer bytes were logged than observed. A small explicit budget prioritizes exit and interruption status and may omit other metadata; the full structure remains in `details`. `load_skill` retains complete instructions by default so required middle rules are not lost. Hosts can still explicitly choose a larger or smaller text budget.
 
 Programmatic `createWebTools` / builtin `web` retains its existing contract. Without `provider: "exa"`, `visit` reads source text directly. Optional Jina Reader and extraction callbacks remain subject to total timeout and cancellation. Product Main search settings are in [web search](configuration.md#web-search). Model smoke and evaluation entry points are in [local testing](testing-local-run.md).
-
-## Long-term goal interfaces and scheduling
-
-`manage_goal` registers goals. Default `scope=background` uses an independent Task/Main; `scope=session` attaches to the current conversation. Read the current revision before editing or handing off. `action=steer` durably queues instructions without implying completion, changing the brief or resuming paused work. `record_goal_progress` saves plans, facts and wait conditions; `publish_goal_update` reports by topic. Reread after revision conflicts.
-
-Use `record_goal_progress(nextReviewAt)` for reviews and `sleep_until(programId=...)` for session-goal sleep. Continued waiting needs an active source or explicit review time. Ordinary replies do not finish standing goals. After handoff, further model turns and automatic retries of the original request cannot create replacement collectors.
-
-`create_watcher(programId=...)` attaches sources. Custom packages follow the [authoring skill](../../.pi/skills/virtual-agent-authoring/SKILL.md) and pass an explicit `activate_virtual_agent` probe. Only `activated=true` with a `monitorId` enables polling; failed probes remain drafts. Versioned handler loading, atomic upgrades and rollback are not implemented.
-
-`npm start` scans the whole workspace by default; Task locks prevent duplicate scheduling. `COWORK_DISABLE_WATCH_SUPERVISOR=1` disables scheduling. `COWORK_SUPERVISOR_INTERVAL_MS` defaults to 60000. Sampling does not periodically invoke the model; no-change checks run no analysis. Analysis and Main-wake quotas are separate and retain evidence when exhausted. Model budgets use normal Main settings.
-
-Successful analysis is saved before Inbox delivery; restart or delivery failure retries the saved result. Failure, timeout and cancellation retain source events for retry. Watch analysis uses a separate Run without replacing the Task's active Main Run. Fields and states are in [Product API](../product-api.md#persistent-monitors); pause behavior is in the [pause contract](../monitoring-pause-contract.md).
-
-### macOS source monitoring service
-
-After building a source checkout, explicitly install a user-level launchd service if needed. Ordinary startup does not install it:
-
-```sh
-npm run monitor-service -- install --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json --port 3884
-npm run monitor-service -- status --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json
-npm run monitor-service -- stop --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json
-npm run monitor-service -- uninstall --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json
-```
-
-Installation saves the configuration path without copying model keys. The service binds to `127.0.0.1`, writes logs under workspace `.service/` and loads after login. `stop` unloads this instance; `uninstall` also removes login startup. `--global-index` and `--tabs-index` select existing indexes. Shutdown or sleep prevents checks, and source retention windows may limit catch-up.

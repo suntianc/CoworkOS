@@ -64,17 +64,11 @@ async function readInstance(paths) {
 async function backendEnvironment(paths, settings) {
   let legacySettings = {};
   if (settings) {
-    const { visionModelEnv } = await import("../dist/src/runtime/vision-config.js");
     legacySettings = {
       COWORK_API_BASE: settings.baseUrl || "",
       COWORK_API_KEY: settings.apiKey || "",
       ...(settings.webSearch?.exaApiKey ? { COWORK_EXA_API_KEY: settings.webSearch.exaApiKey } : {}),
-      COWORK_MODEL: settings.model || "glm-5.3",
-      COWORK_VISION_API_BASE: "",
-      COWORK_VISION_API_KEY: "",
-      COWORK_VISION_MODEL: "",
-      COWORK_VISION_MODEL_API: "",
-      ...visionModelEnv(settings, {})
+      COWORK_MODEL: settings.model || "glm-5.3"
     };
   }
   return {
@@ -84,7 +78,6 @@ async function backendEnvironment(paths, settings) {
     COWORK_HARNESS_ROOT: paths.appRoot,
     COWORK_WORKSPACE: paths.workspaceRoot,
     COWORK_GLOBAL_INDEX: paths.globalIndex,
-    COWORK_TABS_INDEX: paths.tabsIndex,
     PI_CODING_AGENT_DIR: paths.piAgentDir,
     COWORK_CONFIG: paths.configPath,
     COWORK_UI_DIR: path.join(paths.appRoot, "web"),

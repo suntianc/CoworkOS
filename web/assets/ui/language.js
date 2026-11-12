@@ -60,8 +60,3 @@ export function localizeShell(root) {
   };
   visit(root);
 }
-
-const builtinApplicationNames = {};
-export function applicationLabel(type, fallback) {
-  return language === "en" && builtinApplicationNames[type] ? ui(builtinApplicationNames[type]) : fallback;
-}

@@ -2,7 +2,7 @@
 
 简体中文 | [English](en/runtime-reference.md)
 
-本页维护工具、委派、恢复与监控的运行契约。模型和预算见[配置参考](configuration-reference.md)，持久文件见[数据布局](task-workspace-layout.md)，HTTP 字段见 [Product API](product-api.md)。
+本页维护工具、委派、恢复与停泊唤醒的运行契约。模型和预算见[配置参考](configuration-reference.md)，持久文件见[数据布局](task-workspace-layout.md)，HTTP 字段见 [Product API](product-api.md)。
 
 ## 会话与消息
 
@@ -22,9 +22,9 @@ Web/App 支持行内 `\(...\)`、`$...$` 与独立公式 `\[...\]`、`$$...$$`�
 
 ## 通用能力与按需工具
 
-终端和 App 的 Main 共用 Cowork 扩展与能力规则。低层 `single` 使用显式单智能体工具工厂，不自动获得 Main 的委派或应用工具。Coordinator 可接收外部 `capabilityProvider`。
+终端和 App 的 Main 共用 Cowork 扩展与能力规则。低层 `single` 使用显式单智能体工具工厂，不自动获得 Main 的委派工具。Coordinator 可接收外部 `capabilityProvider`。
 
-`enable_tools({})` 查询可用工具组，`enable_tools({groups:["applications"]})` 加载应用工具。显式加载随 Main Run 恢复；附件、引用资源和已授权任务也可按上下文启用工具。加载不代表授权，jobs 仍需 `longRunning`，电脑操作仍逐次核对有效授权。
+`enable_tools({})` 查询可用工具组，`enable_tools({groups:["attachments"]})` 加载附件读取工具，`delivery` 组提供产出物发布。显式加载随 Main Run 恢复；附件和已授权任务也可按上下文启用工具。加载不代表授权，jobs 仍需 `longRunning`，电脑操作仍逐次核对有效授权。
 
 Browser/CUA 对象属于当前 Pi 会话，退出或切换时清理。恢复工具组不会恢复浏览器页面或脚本对象，普通子智能体也不自动继承它们。操作与权限见 [Browser Use](browser-use.md)、[Computer Use](computer-use.md) 和 [CUA 脚本](cua-scripting.md)。
 
@@ -40,24 +40,19 @@ Browser/CUA 对象属于当前 Pi 会话，退出或切换时清理。恢复工�
 
 `createBuiltinTools` 的 `commandMaxLogBytes`、`commandPreviewBytes` 可分别调整每流硬上限和预览字节预算。未指定 `commandMaxLogBytes` 时，显式 `maxOutputBytes` 仍覆盖原有命令硬上限；文件读取默认 128,000 字节的行为不随命令默认值改变。这套预览和日志机制不改变 Main 原生 `bash` 的 SDK 行为。
 
-## 显式委派资源与候选验收
+## 显式委派附件
 
-普通 `call_subagent({task,mode})` 保持有效。应用绑定、附件和桌面权限不会全部自动继承，需要显式共享范围：
+普通 `call_subagent({task,mode})` 保持有效。附件和桌面权限不会全部自动继承，需要显式共享范围：
 
 ```javascript
 call_subagent({
   task: "核验此装配的部件与运动参数，返回证据",
   mode: "async",
-  resources: [{ resourceId: "已引用的资源ID", access: "read" }],
   attachments: ["明确共享的upload ID"]
 });
 ```
 
-`read` 提供适配器声明的只读工具；`candidate` 允许编辑私有副本。内置适配器提供这些能力，第三方窗口 MCP 工具不自动委派。附件读取只接受已共享的 ID。只有一个资源支持工具时可省略资源 ID，多资源同名工具须明确指定。
-
-候选编辑返回 `saved:false` 和 `candidatePath`，连续操作在同一副本累计。Main 检查候选与证据后调用 `accept_resource_candidate({candidatePath})`。验收核对持久授权和基准版本，以一次原子修订提交完整操作序列。冲突返回 `revision_conflict` 并保留双方内容；重新读取和委派，不能修改基准版本强制覆盖。
-
-队列恢复沿用原授权，不依赖 Main 当前绑定。资源授权不扩大 Task 文件或命令权限；缺少能力提供器时明确失败。子智能体运行成功或总结不能替代候选验收。
+附件读取只接受已共享的 ID；未共享的附件不因 Main 可读而出现在子智能体中。委派成功或总结不能替代 Main 对结果的核对。
 
 ### 执行角色、工作项依赖与需求现场
 
@@ -100,7 +95,7 @@ Main 与子智能体默认最多自动重试 5 次，不含首次请求。Main �
 
 App/Web 的“重试”重发失败请求保存的序列化正文，包括系统消息、模型、工具定义、附件和生成参数，不追加“继续”指令。成功的工具结果沿用。重放期间的新回调先排队，成功后再处理；未进入原正文的输入和文档变更不会被视为已经读取。
 
-私有快照在请求发送前保存，校验 Task 存储根、工作目录、应用资源来源及工具归属。设置或来源变化、快照损坏、旧快照缺少归属时，拒绝精确重放并保留记录。没有快照的旧会话只能按已存上下文继续。取消优先于恢复，旧重试操作不能复活已取消运行。格式与备份边界见[数据布局](task-workspace-layout.md)。
+私有快照在请求发送前保存，校验 Task 存储根与工作目录。设置或来源变化、快照损坏、旧快照缺少归属时，拒绝精确重放并保留记录；升级前归档的请求若仍含已移除的用户记忆或项目经验段落，同样拒绝重放，改由发送新消息重建上下文。没有快照的旧会话只能按已存上下文继续。取消优先于恢复，旧重试操作不能复活已取消运行。格式与备份边界见[数据布局](task-workspace-layout.md)。
 
 Headless Run 恢复 checkpoint 时，若最后已是完整结束文本且没有未完成工具调用，只完成落盘，不重新请求模型。已成功的 Run ID 不能复用；新增工作使用新 Run。生命周期命令本身不等于启动模型执行。
 
@@ -168,10 +163,15 @@ npm run main-worker -- --workspace /tmp/atria-dev --task <task-id> --once true
 # 默认只报告；--spawn true 才启动模型进程。
 npm run cli -- main-supervisor --workspace /tmp/atria-dev
 npm run cli -- main-supervisor --workspace /tmp/atria-dev --spawn true
-npm run cli -- watch-supervisor --workspace /tmp/atria-dev --task <task-id> --program <program-id>
 ```
 
-Task/Watch/Worker 命令在执行前验证选项。以 `-` 开头的任务或回答文本放在 `--` 后。帮助和版本查询不启动后台进程。
+Task/Worker 命令在执行前验证选项。以 `-` 开头的任务或回答文本放在 `--` 后。帮助和版本查询不启动后台进程。
+
+## 停泊与定时唤醒
+
+`sleep_until(reason, wakeInSeconds)` 把当前 Task 记为等待：Task 跨进程重启保持打开，到期后由 Main 守护写入一条持久 Inbox 唤醒消息，Main 读取后清除停泊记录。`wakeInSeconds` 最小 60 秒；没有到期时间的停泊会被拒绝，因为已经没有别的调度器能唤醒它。结束一轮不等于停泊：没有停泊记录且没有未了结工作的 Task 按完成处理。
+
+`COWORK_DISABLE_MAIN_GUARDIAN=1` 关闭守护；`COWORK_MAIN_GUARDIAN_INTERVAL_MS` 默认为 60000。守护只读取 Task、Inbox、人工问题和停泊记录；有未消费回调、没有存活 Main、且没有等待人回答的 Task 会被重新拉起。
 
 ## 程序化运行
 
@@ -191,28 +191,3 @@ Task/Watch/Worker 命令在执行前验证选项。以 `-` 开头的任务或回
 工具文本预算覆盖普通运行时工具与额外 `AgentTools` 的返回内容，不重写已恢复的历史。命令回执先保留退出与中断状态、日志引用和字节信息，再为 stdout/stderr 分配头尾预览；实际写入少于已观察字节时标明日志不完整。较小显式预算优先保留退出与中断状态，可能省略其他元数据，完整结构仍保存在 `details`。`load_skill` 默认保留完整指令，避免丢掉中间的必需规则；宿主仍可显式选择更大或更小的文本预算。
 
 程序化 `createWebTools` / builtin `web` 保留原合同。未指定 `provider: "exa"` 时，`visit` 直接读取源文本；可选 Jina Reader 和提取回调仍受总超时与取消限制。产品 Main 的搜索配置见[联网搜索](configuration.md#联网搜索)。模型 smoke 与评测入口见[本地测试](testing-local-run.md)。
-
-## 长期目标接口与调度
-
-`manage_goal` 登记目标，默认 `scope=background` 使用独立 Task/Main，`scope=session` 依附当前会话。修改或交接前读取当前版本；`action=steer` 持久排队要求，不表示已完成、不修改简报，也不恢复暂停目标。`record_goal_progress` 保存计划、事实与等待条件，`publish_goal_update` 按主题汇报；版本冲突时重新读取。
-
-目标复盘使用 `record_goal_progress(nextReviewAt)`，会话目标休眠使用 `sleep_until(programId=...)`。持续等待需要活动来源或明确复盘时间。普通回复不会结束持续目标；原请求完成交接后，后续模型轮次和自动重试不能另建替代采集器。
-
-`create_watcher(programId=...)` 关联来源。自定义包须按[作者技能](../.pi/skills/virtual-agent-authoring/SKILL.md)准备并通过 `activate_virtual_agent` 探针；只有 `activated=true` 且具有 `monitorId` 才会轮询，失败保留 draft。版本化 handler 加载、原子升级和回滚尚未实现。
-
-`npm start` 默认扫描整个工作区，Task 锁避免重复调度。`COWORK_DISABLE_WATCH_SUPERVISOR=1` 禁用调度；`COWORK_SUPERVISOR_INTERVAL_MS` 默认为 60000。采样不直接周期调用模型，无变化不分析。分析与 Main 唤醒额度分别计算，耗尽保留证据；模型预算沿用正常 Main 配置。
-
-成功分析先持久保存，再投递 Inbox；重启或投递失败只补投已有结果。失败、超时和取消保留源事件供重试。Watch 分析使用独立 Run，不替换 Task 的活动 Main Run。字段与状态见 [Product API](product-api.md#persistent-monitors)，暂停见[暂停契约](monitoring-pause-contract.md)。
-
-### macOS 源码监控服务
-
-构建源码后，可以显式安装用户级 launchd 服务；普通启动不会安装：
-
-```sh
-npm run monitor-service -- install --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json --port 3884
-npm run monitor-service -- status --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json
-npm run monitor-service -- stop --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json
-npm run monitor-service -- uninstall --workspace /absolute/path/to/workspace --config /absolute/path/to/config.json
-```
-
-安装只保存配置路径，不复制模型密钥。服务监听 `127.0.0.1`，日志在工作区 `.service/`，登录后加载。`stop` 停止本次加载，`uninstall` 同时移除登录启动配置。`--global-index`、`--tabs-index` 可指定已有索引。关机或休眠期间不检查，来源保留窗口可能限制停机后的补齐。

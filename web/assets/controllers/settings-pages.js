@@ -1,6 +1,6 @@
 import { icon } from "../ui/icons.js";
 import { ui } from "../ui/language.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 import { createModal } from "../ui/modal.js";
 import { formatStamp } from "../ui/time-format.js";
 

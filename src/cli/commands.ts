@@ -73,44 +73,6 @@ const commands: Record<string, Command> = {
       }
     }
   },
-  watch: {
-    usage: "coworkos watch profiles|create|add|status [options]",
-    options: {},
-    actions: {
-      profiles: { usage: "coworkos watch profiles [--workspace PATH]", options: workspace },
-      create: {
-        usage:
-          "coworkos watch create --task ID --subject TEXT --objective TEXT [--program ID] [--run ID] [--policy important_only|digest|all]",
-        options: {
-          ...workspace,
-          task: identifier,
-          subject: text,
-          objective: text,
-          program: identifier,
-          run: identifier,
-          policy: { kind: "text", choices: ["important_only", "digest", "all"] }
-        }
-      },
-      add: {
-        usage:
-          "coworkos watch add --task ID --program ID --monitor TEXT [--profile ID] [--cadence SECONDS] [--wake never|important|always] [--activate]",
-        options: {
-          ...workspace,
-          task: identifier,
-          program: identifier,
-          monitor: text,
-          profile: text,
-          cadence: positive,
-          wake: { kind: "text", choices: ["never", "important", "always"] },
-          activate: boolean
-        }
-      },
-      status: {
-        usage: "coworkos watch status --task ID --program ID",
-        options: { ...workspace, task: identifier, program: identifier }
-      }
-    }
-  },
   single: {
     usage: "coworkos single PROMPT [--task ID] [--run ID] [--resume] [--workspace PATH]",
     options: { ...workspace, ...model, task: identifier, run: identifier, resume: boolean }
@@ -126,61 +88,6 @@ const commands: Record<string, Command> = {
       "max-attempts": positive,
       "lease-ms": milliseconds,
       "poll-ms": milliseconds
-    }
-  },
-  "watch-file": {
-    usage:
-      "coworkos watch-file --task ID --path RELATIVE_PATH [--root PATH] [--run ID] [--watcher ID] [--interval MS] [--once] [--emit-initial]",
-    options: {
-      ...workspace,
-      task: identifier,
-      path: text,
-      root: text,
-      run: identifier,
-      watcher: text,
-      interval: milliseconds,
-      once: boolean,
-      "emit-initial": boolean
-    }
-  },
-  "watch-research": {
-    usage:
-      "coworkos watch-research [--task ID] [--query TEXT] [--program ID] [--run ID] [--subject TEXT] [--objective TEXT] [--cadence SECONDS] [--limit N]",
-    options: {
-      ...workspace,
-      task: identifier,
-      query: text,
-      program: identifier,
-      run: identifier,
-      subject: text,
-      objective: text,
-      cadence: positive,
-      limit: positive
-    }
-  },
-  "watch-run": {
-    usage: "coworkos watch-run --task ID --run ID --program ID --monitor ID [--timeout MS]",
-    options: {
-      ...workspace,
-      ...model,
-      task: identifier,
-      run: identifier,
-      program: identifier,
-      monitor: identifier
-    }
-  },
-  "watch-supervisor": {
-    usage:
-      "coworkos watch-supervisor [--task ID] [--program ID] [--interval MS] [--once] [--supervise-main] [--max-events N]\nMonitoring defaults to Main's mainMaxTurns/mainMaxTokens/mainTimeoutMs and COWORK_MAIN_* settings; explicit model options override them.",
-    options: {
-      ...workspace,
-      ...model,
-      task: identifier,
-      program: identifier,
-      interval: milliseconds,
-      once: boolean,
-      "supervise-main": boolean,
-      "max-events": positive
     }
   },
   "main-supervisor": {
@@ -311,7 +218,7 @@ function validateOperands(
         `Unexpected argument for ${command}${action ? ` ${action}` : ""}. Run coworkos ${command} --help.`
       );
   };
-  if (["task", "human", "watch"].includes(command) && !action)
+  if (["task", "human"].includes(command) && !action)
     throw new Error(`Choose a ${command} action. Run coworkos ${command} --help.`);
   if (command === "task") {
     if (action === "list") return noExtra();
@@ -328,31 +235,10 @@ function validateOperands(
     if (action === "cancel" || options.answer) noExtra(options.request ? 0 : 1);
     if (action !== "cancel" && !options.answer && operands.length < (options.request ? 1 : 2))
       throw new Error("human reply requires an answer.");
-  } else if (command === "watch") {
-    if (action === "profiles") return noExtra();
-    requireOptions("task");
-    if (action === "status") {
-      requireOptions("program");
-      noExtra();
-    } else if (action === "create") {
-      if (
-        !(options.subject || operands[0]) ||
-        !(options.objective || operands.slice(options.subject ? 0 : 1).join(" "))
-      )
-        throw new Error("watch create requires --subject and --objective, or subject and objective text.");
-      if (options.objective) noExtra(options.subject ? 0 : 1);
-    } else if (action === "add") {
-      requireOptions("program");
-      if (!(options.monitor || operands.join(" ")))
-        throw new Error("watch add requires --monitor or monitor task text.");
-      if (options.monitor) noExtra();
-    }
   } else if (command === "single") {
     if (!operands.length) throw new Error("single requires a prompt.");
   } else {
     noExtra();
     if (command === "worker") requireOptions("task", "run");
-    if (command === "watch-file") requireOptions("task", "path");
-    if (command === "watch-run") requireOptions("task", "run", "program", "monitor");
   }
 }

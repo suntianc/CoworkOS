@@ -4,7 +4,7 @@ Computer Use 在同一个 CoworkOS 桌面宿主内提供全局授权策略，以
 
 窗口访问的期望设置按后端保存。切页、刷新、窗口关闭和渲染进程退出只释放操作会话，取消在途选择并使旧截图凭据失效，不自动暂停正在运行的后端策略；人工接管仍可显式暂停。系统权限被撤销或锁屏时原生操作仍被阻止，但不会清除已保存的期望设置。
 
-原生回归使用隔离测试窗口覆盖控件、Unicode 输入和保存后读取；实际视觉模型及商业应用任务需要单独验收。
+原生回归使用隔离测试窗口覆盖控件、Unicode 输入和保存后读取；实际支持图片输入的模型及商业应用任务需要单独验收。
 
 ## 使用方式
 
@@ -68,7 +68,7 @@ Pi 的观察、等待及动作后截图会进入 Task 的 `visual/images/`，返
 
 纯文本模型只收到 accessibility 信息及图像未投递原因，工具拒绝坐标点击；在已有反馈基础上可激活/输入/按键，或操作结构化控件。截图及辅助功能文本是外部数据，不得改变授权范围。会话管理器的最新帧只在内存中保存，Pi 图片归档与标准对话/trace 可能包含用户内容、工具参数和结果，随 Task 备份保护。会话活动记录不包含输入正文，不能据此宣称所有轨迹都已脱敏。
 
-模型连接的 `supportsImages` 同时作用于 Main、委派及恢复后的 PiSession。运行时保留工具的原生 text/image 内容块，图片以 OpenAI-compatible 图片输入发送，不把 base64 塞进工具文字。未启用视觉时移除图片块并明确告知原因；结构化工具失败保留 isError，取消信号传给工具执行。
+模型连接的 `supportsImages` 同时作用于 Main、委派及恢复后的 PiSession。运行时保留工具的原生 text/image 内容块，图片以 OpenAI-compatible 图片输入发送，不把 base64 塞进工具文字。连接不支持图片输入时移除图片块并明确告知原因；结构化工具失败保留 isError，取消信号传给工具执行。
 
 ## 产品和宿主边界
 
@@ -92,7 +92,7 @@ POST /api/tasks/:taskId/computer/end      {}
 
 状态查询返回可用性、系统权限、controlAvailable、secureInput、postEventAccess 和原因及可见普通应用窗口；会话查询返回 `{ session, access }`，session 含 source、taskId、previewCapturedAt。GET access 只返回策略和所有权元数据，不截图或续建会话；select 只消费已开启策略，不修改持久授权。预览返回 `{ preview }`（最近 PNG、capturedAt、目标和 sessionId，无 observationId），无当前活跃授权则为 null；GET 查询不调用驱动；POST 预览刷新消费已有窗口会话，在串行队列中抓屏，但不发放或替换 observationId。两者均不影响 Agent 动作凭据。观察响应包含 base64 PNG，HTTP 图片用于 UI，模型工具把它转成原生图片块并从文字/details 中移除。缺少授权为 403，旧观察/窗口变化为 409，非法输入为 400，驱动尺寸或 PNG 内容无效为 502；Agent 重新观察失败后旧 observationId 也失效，不能继续按旧图操作。普通驱动调用最长 15 秒，HTTP 断连会取消；旧 Task 授权的有效期可以进一步缩短操作时间。可信宿主可等待系统授权申请至多 5 分钟，供用户处理系统提示；等待期间仍可关闭或暂停。
 
-业务会话 HTTP 和 Agent 不提供 authorize/resume 接口。系统权限申请、本机确认及开启或恢复控制要求宿主凭据和匹配的后端身份；内部宿主接口拒绝带浏览器 Origin 的请求。业务会话仍可读取状态及执行暂停、释放或关闭等安全操作；详情见 [产品 API](product-api.md)。后端为 Main 和后台 Watch 命令提供只驻留当前后端内存的业务凭据，不向这些模型命令传递宿主凭据；后端重启后该凭据失效。Coordinator 将运行上下文传给前台命令、测试命令和后台 job，不将凭据写入持久队列。独立 CLI 和 Main 委派先通过后端会话接口核验已有凭据：只有业务会话会传给模型命令，无法核验时普通命令仍可运行，后端调用需重新取得有效会话。
+业务会话 HTTP 和 Agent 不提供 authorize/resume 接口。系统权限申请、本机确认及开启或恢复控制要求宿主凭据和匹配的后端身份；内部宿主接口拒绝带浏览器 Origin 的请求。业务会话仍可读取状态及执行暂停、释放或关闭等安全操作；详情见 [产品 API](product-api.md)。后端为 Main 和委派命令提供只驻留当前后端内存的业务凭据，不向这些模型命令传递宿主凭据；后端重启后该凭据失效。Coordinator 将运行上下文传给前台命令、测试命令和后台 job，不将凭据写入持久队列。独立 CLI 和 Main 委派先通过后端会话接口核验已有凭据：只有业务会话会传给模型命令，无法核验时普通命令仍可运行，后端调用需重新取得有效会话。
 
 主窗口主 frame 通过 preload `bookmanDesktop.computerUse` 发可信 IPC；宿主在所选后端数据根的私有 computer-policy.json（version=1，0600）中原子保存 enabled/mode，再经实例身份绑定的内部宿主接口请求 policy/status/resume/permissions/authorize/pause/end/release-sessions。切换后端前释放旧会话，新目标只恢复自身策略；操作在途时切换被拒绝。损坏、未知版本或不可读设置默认关闭并展示恢复提示，原文件保留；设置写入失败不会扩大服务权限。authorize 显式传 taskId、pid、windowId、mode，服务再次验证 Task 和当前系统窗口。系统权限请求必须指定 permission=screenRecording 或 accessibility，驱动和宿主均验证该值，不提供申请全部权限的操作。宿主在请求后重新查询实际状态；未获准时只打开该项系统设置。开启或恢复策略只读取最新系统状态，两项权限及必要输入事件未齐全则拒绝，不能通过可信 IPC 绕过界面禁用状态；该操作不会申请系统权限。暂停/退出的意图优先于尚未完成的授权，延迟回包不会重新赋权。
 
@@ -102,13 +102,13 @@ POST /api/tasks/:taskId/computer/end      {}
 
 `test/computer-policy-races.test.js` 使用真实 Dashboard HTTP 和隔离驱动，覆盖重复关闭时取消旧单窗口在途/排队输入、迟到授权拒绝、关闭策略下的显式单窗口恢复，以及首次选择校验延迟时持有任务继续选窗、其他任务按 FIFO 接续。
 
-`test/os-native-host-capabilities.test.js` 覆盖业务凭据拒绝申请与扩权、Dashboard Watch 的真实 Coordinator 和命令子进程、CLI Watch 与 Main 委派、并发环境隔离与队列恢复、宿主权限失败后恢复、暂停和实例变化后的旧凭据拒绝、网页主机状态归属，以及注入无图形驱动时独立后端在客户端退出后完成真实 Pi 代码任务和重启。真实 macOS 系统权限与前台窗口另行验收。
+`test/os-native-host-capabilities.test.js` 覆盖业务凭据拒绝申请与扩权、真实 Coordinator 和命令子进程、Main 委派、并发环境隔离与队列恢复、宿主权限失败后恢复、暂停和实例变化后的旧凭据拒绝、网页主机状态归属，以及注入无图形驱动时独立后端在客户端退出后完成真实 Pi 代码任务和重启。真实 macOS 系统权限与前台窗口另行验收。
 
 - [持久策略](../desktop/computer-policy.cjs)、[可信宿主](../desktop/main.cjs)：默认关闭、私有原子存储、IPC 和迟到意图保护。
 - [会话与队列](../src/gui/computer-use.ts)：任务独占、全局续期、暂停/取消、单次观察及活动记录。
 - [辅助功能合同与等待条件](../src/gui/accessibility.ts)：有界树、观察绑定控件、匹配条件及不完整观察的缺失判定。
 - [Mac 驱动](../src/gui/macos-driver.ts)、[原生 helper](../src/gui/macos-helper.swift)：独立受信进程、ScreenCaptureKit 单窗口 PNG、窗口限定 AX 文本、窗口编号明确的 AppKit 鼠标事件转 CGEvent 定向投递、Unicode 小段投递与焦点复核；没有 shell 拼接。
-- [HTTP](../src/dashboard/computer-routes.ts)、[工具](../.pi/runtime/tools/computer-use.ts)、[界面](../web/assets/controllers/computer-use.js)：接口消费者；通用工作台文档协议保持兼容。
+- [HTTP](../src/dashboard/computer-routes.ts)、[工具](../.pi/runtime/tools/computer-use.ts)、[界面](../web/assets/controllers/computer-use.js)：接口消费者。
 
 `npm run build` 在 Mac 用 Xcode Command Line Tools 编译 helper，Linux 跳过；`npm run build:computer-use` 可单独编译。二进制随 `dist/src/gui/` 进入安装包。`COWORK_COMPUTER_USE_EXECUTABLE` 仅供受信宿主配置替代驱动，不能由模型参数指定。macOS 13 可查询 helper 状态，但截图明确要求 14+。
 
@@ -126,4 +126,4 @@ POST /api/tasks/:taskId/computer/end      {}
 
 `test/computer-accessibility.test.js` 验证控件 ID 作用域、安全文本遮蔽、只观察/禁用/不支持动作拒绝、文字与控件条件、超时/取消/接管、不完整观察不能证明不存在、驱动树边界与不确定投递不能重发。HTTP 回归增加投递后连接丢失的 unknown；真实 Pi 回归消费 wait 新观察并执行 press/set_value。原生隔离窗口回归新增 AXSetValue/AXPress 后保存文件复核，及同路径同名同值控件被替换后拒绝旧身份；依赖已有系统权限，未实际执行时不能宣称这些原生行为已验收。
 
-锁屏跳过不等于真实输入验收通过。公开发布仍需要解锁桌面上的完整输入回归、干净机器权限流程、安装包签名/公证及真实视觉模型验收。
+锁屏跳过不等于真实输入验收通过。公开发布仍需要解锁桌面上的完整输入回归、干净机器权限流程、安装包签名/公证及真实支持图片输入的模型验收。

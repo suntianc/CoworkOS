@@ -6,7 +6,6 @@ export const verificationScripts = [
   "build:cli",
   "build:web-assets",
   "lint",
-  "check:workbench",
   "check:extensions",
   "format:check",
   "check:docs",

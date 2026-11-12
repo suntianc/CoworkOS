@@ -36,9 +36,8 @@ export async function startDashboard({
   webSearchEndpoint,
   model = "browser-fixture",
   supportsImages = false,
-  monitoring = false,
   workspace: existingWorkspace,
-  supervisorIntervalMs = 1000,
+  mainGuardian = false,
   config = {},
   env = {},
   port: requestedPort,
@@ -64,13 +63,10 @@ export async function startDashboard({
       PI_TELEMETRY: "0",
       COWORK_WORKSPACE: workspaceRoot,
       COWORK_GLOBAL_INDEX: join(root, "global.json"),
-      COWORK_TABS_INDEX: join(root, "tabs.json"),
       COWORK_CONFIG: join(root, "config.json"),
       COWORK_UI_PORT: String(port),
-      // A connection configured through the Web UI needs the same isolation
-      // as one supplied at launch. Only explicit monitoring fixtures start watchers.
-      COWORK_DISABLE_WATCH_SUPERVISOR: monitoring ? "0" : "1",
-      COWORK_SUPERVISOR_INTERVAL_MS: String(supervisorIntervalMs),
+      // Recovery is guardian-driven: only a fixture that tests it may relaunch a parked Task.
+      COWORK_DISABLE_MAIN_GUARDIAN: mainGuardian ? "0" : "1",
       ...(blenderExecutable ? { COWORK_BLENDER_EXECUTABLE: blenderExecutable } : {}),
       ...(webSearchEndpoint ? { COWORK_EXA_MCP_ENDPOINT: webSearchEndpoint } : {}),
       COWORK_API_BASE: modelEndpoint ?? "",

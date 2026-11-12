@@ -98,7 +98,7 @@ export default [
     }
   },
   {
-    files: ["src/runtime/**/*.ts", "src/applications/**/*.ts"],
+    files: ["src/runtime/**/*.ts"],
     rules: {
       "no-restricted-imports": ["error", { patterns: ["**/cli/**", "**/dashboard/**"] }]
     }
@@ -110,13 +110,12 @@ export default [
   {
     files: ["src/gui/**/*.ts"],
     rules: {
-      "no-restricted-imports": ["error", { patterns: ["**/applications/**", "**/dashboard/**", "**/cli/**"] }]
+      "no-restricted-imports": ["error", { patterns: ["**/dashboard/**", "**/cli/**"] }]
     }
   },
   {
     files: [
       "src/dashboard/**/*.ts",
-      "src/software/**/*.ts",
       "src/gui/**/*.ts",
       "src/security/**/*.ts",
       ".pi/runtime/**/*.ts",

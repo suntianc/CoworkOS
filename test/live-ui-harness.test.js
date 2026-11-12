@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
 import { test } from "node:test";
 import { createLiveBrowser } from "./live-ui-harness.mjs";
-import { createBindingControl } from "../web/assets/workbench/binding.js";
 
 function deferred() {
   let resolve;
@@ -36,81 +35,6 @@ test("live DOM navigation uses the Dashboard URL and restores browser globals", 
   }
   assert.equal(globalThis.location, previousLocation);
   assert.equal(globalThis.history, previousHistory);
-});
-
-test("DOM teardown waits for a binding response body and its complete async click callback", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const originalFetch = globalThis.fetch;
-  const body = deferred();
-  const readingBody = deferred();
-  const callback = deferred();
-  const continuingCallback = deferred();
-  globalThis.fetch = async () => ({
-    json() {
-      readingBody.resolve();
-      return body.promise;
-    }
-  });
-  const view = createLiveBrowser("http://fixture.invalid");
-  const button = view.$("#app-bind-select");
-  let callbackCompleted = false;
-  try {
-    const control = createBindingControl({
-      button,
-      menu: view.$("#app-bind-menu"),
-      label: button.querySelector(".app-bind-name"),
-      api: {},
-      getTaskId: () => "fixture-task",
-      async onSelect() {
-        await (await fetch("/fixture-binding")).json();
-        continuingCallback.resolve();
-        await callback.promise;
-        callbackCompleted = true;
-      },
-      onPendingChange(pending) {
-        if (!pending) document.querySelector("#send-button");
-      }
-    });
-    control.update({
-      instances: [
-        {
-          appInstanceId: "fixture-instance",
-          resourceId: "fixture-resource",
-          appType: "text-editor",
-          title: "Fixture document",
-          status: "open"
-        }
-      ]
-    });
-    control.render();
-    view
-      .$("#app-bind-menu [data-bind-instance='fixture-instance']")
-      .dispatchEvent(new view.window.Event("click", { bubbles: true }));
-    await readingBody.promise;
-    let drained = false;
-    const quiescence = view.quiesce().then(() => (drained = true));
-    t.mock.timers.tick(1000);
-    await setImmediate();
-    assert.equal(drained, false, "response headers cannot complete DOM teardown");
-    assert.equal(button.disabled, true);
-    body.resolve({});
-    await continuingCallback.promise;
-    t.mock.timers.tick(1000);
-    await setImmediate();
-    assert.equal(drained, false, "finishing the body does not finish the event callback");
-    callback.resolve();
-    await quiescence;
-    assert.equal(callbackCompleted, true);
-    assert.equal(button.disabled, false);
-    assert.equal(button.getAttribute("aria-busy"), "false");
-  } finally {
-    body.resolve({});
-    callback.resolve();
-    await setImmediate();
-    view.restore();
-    globalThis.fetch = originalFetch;
-    t.mock.timers.reset();
-  }
 });
 
 test("teardown drains an editor debounce and its delayed body before removing the DOM", async (t) => {
@@ -190,7 +114,7 @@ test("an async DOM callback rejection remains a cleanup failure", async () => {
   const view = createLiveBrowser("http://fixture.invalid");
   const gate = deferred();
   try {
-    const button = view.$("#app-bind-select");
+    const button = view.$("#send-button");
     button.addEventListener("click", async () => {
       await gate.promise;
       throw new Error("fixture callback rejected");
@@ -215,7 +139,7 @@ test("an async DOM callback rejection remains a cleanup failure", async () => {
 test("event instrumentation preserves duplicate registration and listener removal", async () => {
   const view = createLiveBrowser("http://fixture.invalid");
   try {
-    const button = view.$("#app-bind-select");
+    const button = view.$("#send-button");
     let called = 0;
     const removed = async () => assert.fail("removed listener must not run");
     const retained = async () => {
@@ -243,12 +167,12 @@ test("a body failure handled by the UI is not misreported as an uncaught callbac
   });
   const view = createLiveBrowser("http://fixture.invalid");
   try {
-    const button = view.$("#app-bind-select");
+    const button = view.$("#send-button");
     button.addEventListener("click", async () => {
       try {
         await (await fetch("/fixture-body-error")).json();
       } catch (error) {
-        document.querySelector("#app-bind-select").dataset.error = error.message;
+        document.querySelector("#send-button").dataset.error = error.message;
       }
     });
     button.dispatchEvent(new view.window.Event("click"));

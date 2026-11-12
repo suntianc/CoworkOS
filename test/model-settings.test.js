@@ -224,8 +224,8 @@ test("native image settings reject cleared connection fields without corrupting 
     await rm(root, { recursive: true, force: true });
   });
   const config = {
-    baseUrl: "https://vision.example/v1",
-    model: "vision-fixture",
+    baseUrl: "https://image.example/v1",
+    model: "image-fixture",
     apiKey: "local-settings-secret",
     supportsImages: true
   };
@@ -234,28 +234,24 @@ test("native image settings reject cleared connection fields without corrupting 
   const saved = await settings.save({
     baseUrl: config.baseUrl,
     model: config.model,
-    supportsImages: true,
-    vision: true
+    supportsImages: true
   });
-  const profileId = saved.visionProfileId;
+  const profileId = saved.activeProfileId;
   const before = await readFile(path, "utf8");
   await assert.rejects(
-    settings.save({ profileId, baseUrl: "", model: "", apiKey: "", supportsImages: true, vision: false }),
+    settings.save({ profileId, baseUrl: "", model: "", apiKey: "", supportsImages: true }),
     /HTTP/
   );
   assert.equal(await readFile(path, "utf8"), before);
-  assert.equal(readCoworkConfig(root).modelConnections.visionId, profileId);
   await settings.save({
     profileId,
     baseUrl: config.baseUrl,
     model: config.model,
     apiKey: "",
-    supportsImages: true,
-    vision: false
+    supportsImages: true
   });
   const restarted = readCoworkConfig(root);
   assert.equal(restarted.supportsImages, true);
-  assert.equal(restarted.modelConnections.visionId, undefined);
   const { HostCredentialStore } = await import("../dist/src/security/host-credentials.js");
   const stored = new HostCredentialStore(join(root, "credentials.json"));
   assert.equal(stored.value.modelConnections[profileId], "local-settings-secret");

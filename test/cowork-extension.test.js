@@ -11,9 +11,7 @@ import { pathToFileURL } from "node:url";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
 import { DurableScheduler, InboxStore } from "../dist/src/runtime/scheduler.js";
-import { WatchProgramStore } from "../dist/src/runtime/watch-program-store.js";
 import { ExperimentProgramStore } from "../dist/src/runtime/experiment-program-store.js";
-import { VirtualAgentStore } from "../dist/src/runtime/virtual-agent-store.js";
 import { mainContextPaths, readMainContextState } from "../dist/src/runtime/main-context.js";
 import { SubagentQuestionStore } from "../dist/src/runtime/subagent-questions.js";
 
@@ -77,6 +75,9 @@ test("restored selections retain core discovery without exposing ungranted compu
     COWORK_WORKSPACE: root,
     COWORK_TASK_ID: "selection-task",
     COWORK_RUN_ID: "main-selection",
+    // Desktop, browser and CUA tools are offered only to a Main connection
+    // that accepts image input.
+    COWORK_SUPPORTS_IMAGES: "1",
     COWORK_DASHBOARD_URL: "http://127.0.0.1:1"
   });
   await writeFile(process.env.COWORK_CONFIG, "{}");
@@ -114,7 +115,7 @@ test("restored selections retain core discovery without exposing ungranted compu
   assert.ok(selected.includes("read"));
 });
 
-test("call_subagent keeps task/mode required, scopes resources optionally, and tasks stay one-shot", async () => {
+test("call_subagent keeps task/mode required and tasks stay one-shot", async () => {
   const root = await mkdtemp(join(tmpdir(), "atria-extension-"));
   const previous = {
     COWORK_API_BASE: process.env.COWORK_API_BASE,
@@ -200,7 +201,6 @@ test("call_subagent keeps task/mode required, scopes resources optionally, and t
     assert.deepEqual(Object.keys(tool.parameters.properties), [
       "task",
       "attachments",
-      "resources",
       "mode",
       "role",
       "dependsOn",
@@ -312,13 +312,10 @@ test("call_subagent keeps task/mode required, scopes resources optionally, and t
       dispatches.map((call) => call.task),
       [keywordTask, syncTask]
     );
-    assert.deepEqual(await new WatchProgramStore(root).listPrograms(taskId), []);
-    assert.deepEqual(await new VirtualAgentStore(root).listPrograms(taskId), []);
-    // Task wording must not create a persistent program or a monitor — the two
-    // assertions above. The experiment ledger is not one of those: it is
-    // Runtime bookkeeping that every Task gets, with no lifecycle for Main to
-    // operate and no effect on delegation semantics. What it must not do is
-    // change how a call was routed.
+    // Task wording must not create a persistent program. The experiment ledger
+    // is not one of those: it is Runtime bookkeeping that every Task gets, with
+    // no lifecycle for Main to operate and no effect on delegation semantics.
+    // What it must not do is change how a call was routed.
     const ledgers = await new ExperimentProgramStore(root).listPrograms(taskId);
     assert.equal(ledgers.length, 1, "bookkeeping is one ledger per Task, not one per keyword");
     assert.equal(ledgers[0].decisionOwner, "main");

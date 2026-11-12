@@ -2,12 +2,11 @@ import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { atomicWrite } from "../../../dist/src/applications/fs-utils.js";
+import { atomicWrite } from "../../../dist/src/storage/atomic-file.js";
 import { LocalWorkspaceStore } from "../../../dist/src/workspace/workspace-store.js";
 import { resolveCapabilities } from "../../../dist/src/runtime/task-capabilities.js";
 
 export const CORE_TOOLS = [
-  "manage_user_memory",
   "load_skill",
   "read_image",
   "read_images",
@@ -23,23 +22,11 @@ export const CORE_TOOLS = [
   "finish_task",
   "askhuman",
   "clear_context",
+  "sleep_until",
   "grant_capabilities",
   "enable_tools"
 ];
 const GROUPS = {
-  applications: {
-    description:
-      "Discover/create referenced editable resources; domain tools follow the current binding. Accept reviewed Subagent candidates.",
-    tools: [
-      "list_applications",
-      "list_resources",
-      "list_resource_changes",
-      "create_resource",
-      "export_resource",
-      "apply_resource_operation",
-      "accept_resource_candidate"
-    ]
-  },
   attachments: {
     description: "Read Task uploads as text or actual page/image pixels.",
     tools: ["read_attachment"]
@@ -51,18 +38,6 @@ const GROUPS = {
   jobs: {
     description: "Supervised background jobs. Requires a recorded longRunning grant.",
     tools: ["start_job", "check_job", "kill_job"]
-  },
-  monitors: {
-    description:
-      "Manage a long-term goal, record progress, publish meaningful updates, register a standard watcher or an accepted observer package, and park a continuing Task until an event/time.",
-    tools: [
-      "activate_virtual_agent",
-      "sleep_until",
-      "create_watcher",
-      "manage_goal",
-      "record_goal_progress",
-      "publish_goal_update"
-    ]
   },
   browser: {
     description:
@@ -98,7 +73,8 @@ export function registerCapabilityTools(
     workspaceRoot: string;
     taskId: string;
     mainRunId: string;
-    hasResources: () => Promise<boolean>;
+    /** Desktop, browser and CUA tools deliver screenshots, so a text-only Main never sees them. */
+    supportsImages: boolean;
     additionalGroups?: Record<string, { description: string; tools: readonly string[] }>;
   }
 ) {
@@ -137,9 +113,6 @@ export function registerCapabilityTools(
       withFileTypes: true
       // eslint-disable-next-line no-restricted-syntax -- 任务首次运行还没有 inputs 目录，读目录失败等价于没有上传
     }).catch(() => []);
-    // A damaged optional application reference must not disable generic task work.
-    // eslint-disable-next-line no-restricted-syntax -- 应用资源目录损坏时按无资源处理，否则通用任务工具会全部失效
-    const resources = await input.hasResources().catch(() => false);
     let desktop: DesktopSession | null = null;
     let policy: { enabled?: boolean; mode?: string } | undefined;
     let policyPaused = false;
@@ -170,14 +143,14 @@ export function registerCapabilityTools(
     const desired: string[] = [];
     available = {};
     for (const [name, group] of Object.entries(groups)) {
+      const imageOnly = name === "computer" || name === "browser" || name === "cua";
       const wanted =
         requested.has(name) ||
         (name === "attachments" &&
           uploads.some((entry) => entry.isDirectory() && entry.name.startsWith("upload-"))) ||
-        (name === "applications" && resources) ||
         (name === "jobs" && capabilities.longRunning) ||
         (name === "computer" && (activeDesktop || globalDesktop));
-      const permitted = name !== "jobs" || capabilities.longRunning;
+      const permitted = (name !== "jobs" || capabilities.longRunning) && (!imageOnly || input.supportsImages);
       const hosted = name !== "computer" || Boolean(base);
       const names =
         name === "computer"
@@ -197,7 +170,12 @@ export function registerCapabilityTools(
         enabled,
         tools: names,
         ...(!permitted
-          ? { reason: "Requires a recorded longRunning grant" }
+          ? {
+              reason:
+                name === "jobs"
+                  ? "Requires a recorded longRunning grant"
+                  : "Requires a model connection that accepts image input"
+            }
           : !hosted
             ? { reason: "No desktop host is available" }
             : {})
@@ -212,7 +190,7 @@ export function registerCapabilityTools(
     name: "enable_tools",
     label: "Load Task Tools",
     description:
-      "Discover and enable optional tool groups for the current task. Omit groups to list availability. Applications, attachments, delivery, jobs, monitors, computer, browser and cua are loaded only when needed. Enabling is not authorization: job grants and desktop grants remain enforced. Scripts need their underlying browser/computer tools enabled. CLI and App share all non-host-specific groups.",
+      "Discover and enable optional tool groups for the current task. Omit groups to list availability. Attachments, delivery, jobs, computer, browser and cua are loaded only when needed; desktop, browser and CUA tools require a model connection that accepts image input. Enabling is not authorization: job grants and desktop grants remain enforced. Scripts need their underlying browser/computer tools enabled. CLI and App share all non-host-specific groups.",
     parameters: Type.Object({
       groups: Type.Optional(
         Type.Array(Type.Union(Object.keys(groups).map((name) => Type.Literal(name))), { uniqueItems: true })

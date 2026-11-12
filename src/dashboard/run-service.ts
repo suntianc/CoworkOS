@@ -3,7 +3,6 @@ import {
   finishMessageEditTransaction
 } from "../runtime/main-message-edit-transaction.js";
 import { applyEndpointLimits, type EndpointLimits } from "../runtime/model-limits.js";
-import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { randomUUID } from "node:crypto";
 import {
   latestEditableMessage,
@@ -31,6 +30,7 @@ import { listJobs } from "../tools/jobs.js";
 import { join, resolve } from "node:path";
 import { mainRunEnv } from "./main-run-env.js";
 import { MainRequestConflictError, mainRequestEnvironment } from "../runtime/main-request-retry.js";
+import { retiredSectionReplayRefusal, retiredSectionsWithText } from "../runtime/retired-system-sections.js";
 import {
   MainRequestStore,
   MainRequestSnapshotError,
@@ -39,12 +39,13 @@ import {
 import { assertMainRequestExecutionScope } from "../runtime/main-request-execution-scope.js";
 import { CoordinatorRuntime } from "../runtime/coordinator-runtime.js";
 import { humanAnswerTurn } from "../runtime/human-answer-turn.js";
-import { blockingHumanRequests } from "../runtime/goal-decisions.js";
 import { HumanRequestStore } from "../runtime/human.js";
-import { WatchProgramStore } from "../runtime/watch-program-store.js";
-import { recoverWatchMain } from "../runtime/watch-recovery.js";
-import { parkBackgroundWatchGoal } from "../runtime/watch-main-lifecycle.js";
-import { resetMainSupervisorBackoff, SUPERVISOR_WAKE_TURN } from "../runtime/main-supervisor.js";
+import {
+  MainSupervisor,
+  resetMainSupervisorBackoff,
+  SUPERVISOR_WAKE_TURN,
+  type MainSupervisorCycleResult
+} from "../runtime/main-supervisor.js";
 import { readSleep, clearSleep } from "../runtime/main-sleep.js";
 import { ProcessHost } from "../runtime/process-host.js";
 import { InboxStore } from "../runtime/scheduler.js";
@@ -102,10 +103,8 @@ export interface MainLaunchAdmission {
 }
 
 export interface RunServicePorts {
-  userMemory?: UserMemoryStore;
   uploads?: InputStore;
   projectRoot: string;
-  tabStorePath: string;
   dashboardUrl: string;
   runCredential: string;
   coordinator: CoordinatorRuntime;
@@ -120,7 +119,6 @@ export interface RunServicePorts {
   resolveMainModel(request: ModelRoleRequest): ResolvedModelRole;
   /** The chosen model's own limits from its connection's `/models` entry, when listed (#27). */
   endpointLimits?: (selection: ResolvedModelRole) => Promise<EndpointLimits | undefined>;
-  onRunStarting?: () => void;
   onRunExit?: (taskId: string) => void;
   onRunFinalized?: (location: TaskLocation, runId: string) => Promise<void>;
   withTaskProjectLock?<T>(taskId: string, action: () => Promise<T>): Promise<T>;
@@ -148,6 +146,22 @@ export interface RunServicePorts {
     /** A cancelled Task gives up its waiting demand, if it has one. */
     cancelTask(taskId: string): Promise<void>;
   };
+  /**
+   * Every workspace root whose Tasks the Main guardian inspects.
+   *
+   * The guardian belongs to this service: a parked Task with an unconsumed
+   * callback is resumed without any other scheduler running.
+   */
+  mainGuardian?: {
+    workspaceRoots(): Promise<string[]>;
+    /**
+     * Whether this host has a Main model connection.
+     *
+     * Read every cycle, not at startup: a connection completed later applies
+     * on the next tick, while a host without one takes no launch decision.
+     */
+    modelConfigured(): boolean;
+  };
   normalizeModel(value: unknown): string | undefined;
   appendRunEvent(
     workspace: string,
@@ -162,23 +176,21 @@ export interface RunServicePorts {
 export function createDashboardRunService({
   projectRoot,
   uploads,
-  tabStorePath,
   dashboardUrl,
   runCredential,
   coordinator,
   locateTask,
   resolveMainModel,
   endpointLimits = async () => undefined,
-  onRunStarting = () => {},
   onRunExit = () => {},
   onRunFinalized = async () => {},
   withTaskProjectLock = (_taskId, action) => action(),
   mainSessions,
   mainCapacity,
+  mainGuardian,
   normalizeModel,
   appendRunEvent,
-  readJsonFile,
-  userMemory
+  readJsonFile
 }: RunServicePorts) {
   const processes = new ProcessHost();
   const activeRuns = processes.processes;
@@ -229,8 +241,7 @@ export function createDashboardRunService({
     return current;
   }
 
-  async function launchMainRunWithActivity(
-    memoryActivityId: string,
+  async function launchMainRunWithAdmission(
     taskId: string,
     prompt: string,
     requestedRunId?: string,
@@ -253,9 +264,6 @@ export function createDashboardRunService({
     if (submission?.admittedRequestId) admission.requestId = submission.admittedRequestId;
     const existing = activeRuns.get(taskId);
     if (existing && !existing.killed) throw new Error("Task already has an active Main run");
-    // Cancel only the background request. Task state still changes after the
-    // normal validation below, and isBusy covers this asynchronous startup.
-    onRunStarting();
     const location = await locateTask(taskId);
     const task = location.task;
     const taskWorkspace = location.workspaceRoot;
@@ -296,6 +304,10 @@ export function createDashboardRunService({
             throw new MainRequestSnapshotError(
               "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
             );
+          // Refuse before spawning: an archive written before user memory and
+          // project experience were removed would resend their text verbatim.
+          const retired = retiredSectionsWithText(snapshot.context.messages);
+          if (retired.length) throw new MainRequestConflictError(retiredSectionReplayRefusal(retired));
           if (
             (await realpath(resolve(task.projectDirectory ?? taskWorkspace))) !==
             snapshot.environment.projectDirectory
@@ -308,14 +320,8 @@ export function createDashboardRunService({
             taskId,
             snapshot.environment.projectDirectory
           );
-          if (current.binding !== snapshot.environment.binding)
-            throw new MainRequestConflictError(
-              "原请求的应用绑定已变化，已有内容仍保留。请恢复原绑定后重试，或发送新消息。"
-            );
           try {
-            assertMainRequestExecutionScope(snapshot.executionScope, current.executionScope!, {
-              checkMcpTools: false
-            });
+            assertMainRequestExecutionScope(snapshot.executionScope, current.executionScope!);
           } catch (error) {
             throw new MainRequestConflictError(error instanceof Error ? error.message : String(error));
           }
@@ -378,7 +384,7 @@ export function createDashboardRunService({
     if (edit?.rollback) submission?.onPrepared?.(edit.rollback);
     // Preparing an edit retires only questions from the replaced message's tail.
     // Ordinary continuation and unrelated pending decisions retain the same gate.
-    if ((await blockingHumanRequests(taskWorkspace, taskId)).length)
+    if ((await new HumanRequestStore(taskWorkspace).list(taskId, "pending")).length)
       throw new Error("请先回答任务中待确认的问题，再继续运行。");
     const savedVersions = await readMessageVersions(taskWorkspace, taskId);
     const versions = savedVersions
@@ -491,19 +497,6 @@ export function createDashboardRunService({
     if (input) await saveMainInput(inputPath, input);
     if (input && !continuation) {
       await saveAcceptedMainMessage(taskWorkspace, taskId, input);
-      await userMemory
-        ?.enqueueForegroundLearning({
-          taskId,
-          runId,
-          text:
-            input.body ??
-            (input.attachmentIds?.length || input.textAttachments?.length
-              ? ""
-              : (readQueuedUserTurn(prompt)?.text ?? prompt)),
-          projectDirectory: task.projectDirectory
-        })
-        // eslint-disable-next-line no-restricted-syntax -- 前台学习是已接受运行的附带记忆信号，写入失败不应让这次启动失败
-        .catch(() => {});
       submission?.onAcceptedInput?.(input.messageId!);
     }
     if (!continuation) await requestStore.clear();
@@ -569,7 +562,6 @@ export function createDashboardRunService({
             projectDirectory: task.projectDirectory,
             taskId,
             runId,
-            tabStorePath,
             dashboardUrl,
             piAgentDir: process.env.PI_CODING_AGENT_DIR,
             projectRoot,
@@ -722,8 +714,6 @@ export function createDashboardRunService({
             parkedForWake: Boolean(await readSleep(taskWorkspace, taskId).catch(() => undefined)),
             hasFinalAnswer: isFinalAssistantMessage(last)
           });
-          if (assessment.ready && (await parkBackgroundWatchGoal(taskWorkspace, taskId, runId)))
-            assessment = { ready: false, reason: "parked_for_wake" };
           // A user pause owns this boundary only when the step did not finish
           // the Task. Completed work stays completed rather than becoming a
           // pause a person would have to resume.
@@ -768,12 +758,6 @@ export function createDashboardRunService({
           }
         } else {
           if (!(await prepareRunTransition(location, runId, "failed"))) return;
-          const recover = await recoverWatchMain(
-            taskWorkspace,
-            taskId,
-            runId,
-            prompt === SUPERVISOR_WAKE_TURN
-          );
           const { error, failure } = mainRunFailure(last, code, signal, spawnError);
           await appendRunEvent(taskWorkspace, taskId, runId, "main.run_failed", {
             error,
@@ -782,10 +766,10 @@ export function createDashboardRunService({
             failure
           });
           try {
-            await location.store.transitionTask(taskId, recover ? "waiting" : "failed", {
+            await location.store.transitionTask(taskId, "failed", {
               runId,
               error,
-              reason: recover ? "watch_main_retry" : "dashboard_main_exit"
+              reason: "dashboard_main_exit"
             });
             // eslint-disable-next-line no-restricted-syntax -- 失败事件的原始错误已落盘，状态转换失败不能覆盖或中断收尾
           } catch {
@@ -804,8 +788,6 @@ export function createDashboardRunService({
           )
         )
         .finally(async () => {
-          // eslint-disable-next-line no-restricted-syntax -- 进程已退出，记忆占用释放失败不能让 finalization 记录残留
-          await userMemory?.taskForegroundIdle(taskId, memoryActivityId).catch(() => {});
           // Keep the request active until its durable completion state is saved.
           finalizations.delete(finalization);
           if (taskFinalizations.get(taskId) === finalization) taskFinalizations.delete(taskId);
@@ -855,13 +837,9 @@ export function createDashboardRunService({
       submission?: MainLaunchSubmission
     ]
   ) {
-    const activityId = randomUUID();
     const admission: MainLaunchAdmission = { spawned: false };
-    // eslint-disable-next-line no-restricted-syntax -- 前台活动标记只是记忆提示，写入失败不应拒绝这次启动
-    await userMemory?.taskForegroundActive(args[0], activityId).catch(() => {});
     try {
-      return await launchMainRunWithActivity(
-        activityId,
+      return await launchMainRunWithAdmission(
         args[0],
         args[1],
         args[2],
@@ -880,14 +858,84 @@ export function createDashboardRunService({
         // eslint-disable-next-line no-restricted-syntax -- 启动失败要原样抛给调用方，释放容量失败不能替换这个错误
         else await mainCapacity.release(admission.requestId).catch(() => {});
       }
-      // eslint-disable-next-line no-restricted-syntax -- 错误路径必须抛出原始启动失败，记忆占用释放失败不能替换它
-      await userMemory?.taskForegroundIdle(args[0], activityId).catch(() => {});
       throw error;
     }
   }
 
   function startMainRun(...args: Parameters<typeof launchMainRun>) {
     return withTaskProjectLock(args[0], () => serialize(args[0], () => launchMainRun(...args)));
+  }
+
+  /**
+   * Main recovery owned by this service.
+   *
+   * A Task whose Main died while callbacks remained addressed to it is started
+   * again through the ordinary Main entry, so a full external budget queues the
+   * wake instead of dropping it.
+   */
+  const mainGuardianDisabled = () => process.env.COWORK_DISABLE_MAIN_GUARDIAN === "1";
+  const mainGuardianIntervalMs = () =>
+    Math.max(1000, Number(process.env.COWORK_MAIN_GUARDIAN_INTERVAL_MS) || 60_000);
+  let mainGuardianTimer: ReturnType<typeof setTimeout> | undefined;
+  let mainGuardianPending: Promise<void> | undefined;
+  let mainGuardianStopped = false;
+
+  async function runMainGuardianCycle(): Promise<MainSupervisorCycleResult[]> {
+    if (
+      stopping ||
+      mainGuardianStopped ||
+      mainGuardianDisabled() ||
+      !mainGuardian ||
+      !mainGuardian.modelConfigured()
+    )
+      return [];
+    const results: MainSupervisorCycleResult[] = [];
+    for (const workspaceRoot of await mainGuardian.workspaceRoots()) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stop() 可在读取工作区期间置位，此时不能再启动新周期
+      if (stopping || mainGuardianStopped) break;
+      const supervisor = new MainSupervisor({
+        workspaceRoot,
+        // A Run this host owns is alive even before its heartbeat is written.
+        isRunning: (taskId) => activeRuns.has(taskId),
+        launch: async ({ taskId, runId }) => {
+          await startMainRun(taskId, SUPERVISOR_WAKE_TURN, runId, true, undefined, undefined, {
+            origin: "internal",
+            queueWhenFull: true
+          });
+        }
+      });
+      results.push(await supervisor.runCycle());
+    }
+    return results;
+  }
+
+  function tickMainGuardian() {
+    if (stopping || mainGuardianStopped || mainGuardianPending) return;
+    mainGuardianPending = runMainGuardianCycle()
+      .then(() => undefined)
+      .catch((error) => {
+        console.error(
+          `[cowork] main guardian cycle failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      })
+      .finally(() => {
+        mainGuardianPending = undefined;
+        if (!stopping && !mainGuardianStopped)
+          mainGuardianTimer = setTimeout(tickMainGuardian, mainGuardianIntervalMs());
+      });
+  }
+
+  function startMainGuardian() {
+    if (mainGuardianTimer || stopping || mainGuardianStopped || mainGuardianDisabled() || !mainGuardian)
+      return;
+    tickMainGuardian();
+  }
+
+  async function stopMainGuardian() {
+    mainGuardianStopped = true;
+    clearTimeout(mainGuardianTimer);
+    mainGuardianTimer = undefined;
+    await mainGuardianPending;
   }
 
   function editMainMessage(
@@ -1277,17 +1325,6 @@ export function createDashboardRunService({
         });
         await attempt(() => clearSleep(location.workspaceRoot, taskId));
         await attempt(async () => {
-          const watches = new WatchProgramStore(location.workspaceRoot);
-          for (const program of await watches.listPrograms(taskId)) {
-            for (const monitor of await watches.listVirtualAgents(taskId, program.programId)) {
-              if (monitor.status === "active")
-                await watches.updateVirtualAgent(taskId, program.programId, monitor.monitorId, {
-                  status: "paused"
-                });
-            }
-          }
-        });
-        await attempt(async () => {
           if (location.task.activeRunId) {
             const coordination = await coordinator.waitForSubagents({
               taskId,
@@ -1409,8 +1446,14 @@ export function createDashboardRunService({
     cancellations,
     pendingHumanAnswers,
     resumeHumanAnswers,
+    runMainGuardianCycle,
+    startMainGuardian,
+    stopMainGuardian,
     async stop() {
       stopping = true;
+      // Stop taking decisions first: a guardian that is already launching is
+      // drained with the other task operations before its process is reaped.
+      await stopMainGuardian();
       // A startup may be between durable writes and spawn. Drain accepted task
       // operations before disabling ProcessHost so they can settle without a child.
       await Promise.allSettled([...taskOperations.values()]);

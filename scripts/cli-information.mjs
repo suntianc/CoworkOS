@@ -121,7 +121,7 @@ export function printAtriaHelp() {
 Usage:
   coworkos init                 Configure a model (API Key input is hidden)
   coworkos doctor               Check Node, dependencies and configuration
-  coworkos doctor --test-connection  Test streaming, tools and optional vision (uses model quota)
+  coworkos doctor --test-connection  Test streaming, tools and optional image input (uses model quota)
   coworkos desktop install [--directory PATH]  Install the published Mac App
   coworkos update [--check]     Update this source checkout or installed CLI package
   coworkos update --channel preview  Use preview releases for an installed CLI package
@@ -133,8 +133,6 @@ Usage:
                             Export locally, without model calls or uploads
   coworkos task list|create|status|cancel|resume|complete ...
   coworkos human list|reply|answer|cancel ...
-  coworkos watch profiles|create|add|status ...
-  coworkos watch-file|watch-research|watch-run|watch-supervisor ...
   coworkos main-supervisor ...   Inspect recovery; --spawn permits launching Main
   coworkos single PROMPT ...    Run the lower-level single-agent interface
   coworkos worker ...           Process delegated work

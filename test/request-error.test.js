@@ -30,14 +30,8 @@ test("model errors expose known categories, status and policy code without leaki
 });
 
 test("replay ownership rejection explains recovery without exposing paths or provider bodies", () => {
-  assert.match(
-    retryScopeErrorMessage(new Error("原请求的工作目录或应用资源归属已改变 private-path")),
-    /恢复原目录和绑定/
-  );
+  assert.match(retryScopeErrorMessage(new Error("原请求的工作目录已改变 private-path")), /恢复原目录后重试/);
   assert.match(retryScopeErrorMessage("原请求缺少执行归属记录 private-data"), /主动发送新消息/);
   assert.equal(retryScopeErrorMessage("provider rejected private-data"), undefined);
-  assert.equal(
-    retryScopeErrorMessage("原请求的工作目录或应用资源归属已改变 private-path").includes("private-path"),
-    false
-  );
+  assert.equal(retryScopeErrorMessage("原请求的工作目录已改变 private-path").includes("private-path"), false);
 });

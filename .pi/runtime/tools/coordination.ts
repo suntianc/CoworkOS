@@ -21,12 +21,10 @@ import {
 import { assessTaskCompletion } from "../../../dist/src/runtime/task-completion.js";
 import { LocalWorkspaceStore } from "../../../dist/src/workspace/workspace-store.js";
 import { businessCommandEnvironment } from "../../../dist/src/runtime/command-environment.js";
-import { WatchManagement } from "../../../dist/src/runtime/watch-management.js";
 import type { DelegatedModelRequest } from "../../../dist/src/runtime/role-models.js";
 import { createProjectDevelopmentClient } from "../../../dist/src/runtime/project-development-client.js";
 import { DurableScheduler } from "../../../dist/src/runtime/scheduler.js";
 import { dirname, join } from "node:path";
-import { goalOwnsTaskClock } from "../../../dist/src/runtime/goal-routing.js";
 import type { CoworkToolContext } from "../extension.ts";
 import type { RuntimeToolResult } from "../helpers.ts";
 
@@ -175,100 +173,33 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     name: "sleep_until",
     label: "Park Until Wake",
     description:
-      "Record that this Task's work is done for now and that you expect to be woken later — by a registered Virtual Agent's event, or after a stated interval. The Task stays open across process restarts and the wake arrives through the normal Inbox. Ending a turn is not sleeping: without this record a Task with no outstanding work is treated as finished.",
-    promptSnippet: "Park this Task until an event or a stated interval wakes it",
+      "Record that this Task's work is done for now and that you expect to be woken later, after a stated interval. The Task stays open across process restarts and the wake arrives through the normal Inbox. Ending a turn is not sleeping: without this record a Task with no outstanding work is treated as finished.",
+    promptSnippet: "Park this Task until a stated interval wakes it",
     promptGuidelines: [
-      "Use this when the objective is ongoing but nothing can advance it right now: the monitors are registered, this round's result is written, and the next useful action waits on the world changing or on time passing.",
+      "Use this when the objective is ongoing but nothing can advance it right now: this round's result is written, and the next useful action waits on time passing or on external news that will arrive through the Inbox.",
       "Update agents/main/context/memory.md before parking. After a wake the model context may be new; what is not in memory is not carried over.",
-      "Set wakeInSeconds when the next action is periodic, such as refreshing a report or reviewing monitor quality. Omit it when only a real external change should be worth a model run.",
-      "When parking for a managed long-term goal, pass its programId. Schedule its reviews with record_goal_progress(nextReviewAt); watcher cadence never schedules a Main model poll. Omit programId for independent work in a shared session.",
-      "A park with neither wakeInSeconds nor an active monitor is refused: nothing could wake it."
+      "Set wakeInSeconds when the next action is periodic, such as refreshing a report or checking a long-running job again.",
+      "A park with no wakeInSeconds is refused: nothing could wake it."
     ],
     parameters: Type.Object({
       reason: Type.String({
         description: "Why this Task is parked and what you will do next, in your own terms."
       }),
-      programId: Type.Optional(
-        Type.String({
-          description:
-            "Managed goal this wait belongs to. Its events or nextReviewAt wake Main; wakeInSeconds is ignored. Omit for independent Task timers."
-        })
-      ),
-      wakeInSeconds: Type.Optional(
-        Type.Number({
-          description:
-            "Wake after this many seconds even with no event. Minimum 60. Omit for event-only wake."
-        })
-      ),
-      monitorIds: Type.Optional(
-        Type.Array(Type.String(), {
-          description:
-            "Monitors you are relying on, from get_subagent_status. Omit for a timer alone; event-only waits default to active monitors on the specified goal or this Task."
-        })
-      )
+      wakeInSeconds: Type.Optional(Type.Number({ description: "Wake after this many seconds. Minimum 60." }))
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx): Promise<RuntimeToolResult> {
-      const active: string[] = [];
-      let scheduledGoal = false;
-      const programs = await context.watchStore.listPrograms(context.taskId);
-      const programId = typeof params.programId === "string" ? params.programId.trim() : undefined;
-      const goal = programs.find((program) => program.programId === programId && program.goal);
-      if (params.programId !== undefined && !goal) {
-        const result = {
-          parked: false,
-          reason: "invalid_goal",
-          note: "programId must name a managed goal on this Task. Omit it for independent work."
-        };
-        return { content: [{ type: "text", text: JSON.stringify(result) }], details: result, isError: true };
-      }
-      if (goal && ["paused", "completed"].includes(goal.status)) {
-        const result = {
-          parked: false,
-          reason: "inactive_goal",
-          note: "Park only active goals. Paused goals need an explicit resume; completed goals cannot be parked."
-        };
-        return { content: [{ type: "text", text: JSON.stringify(result) }], details: result, isError: true };
-      }
-      for (const program of goal ? [goal] : programs) {
-        if (program.status === "paused" || program.status === "completed") continue;
-        if (program.goal?.nextReviewAt || program.goal?.disposition === "needs_input") scheduledGoal = true;
-        for (const monitor of await context.watchStore.listVirtualAgents(context.taskId, program.programId)) {
-          if (monitor.status === "active") active.push(monitor.monitorId);
-        }
-      }
-      // The 60s floor matches the watcher cadence floor: below it the supervisor
-      // would not observe the deadline any sooner anyway.
-      const requestedWakeInSeconds =
+      // The 60s floor leaves time for this turn to settle before the wake is
+      // due, so a very small value still means "later", not "again now".
+      const wakeInSeconds =
         typeof params.wakeInSeconds === "number" && Number.isFinite(params.wakeInSeconds)
           ? Math.max(60, Math.floor(params.wakeInSeconds))
           : undefined;
-      const requested = Array.isArray(params.monitorIds)
-        ? params.monitorIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
-        : [];
-      if (requested.some((monitorId) => !active.includes(monitorId))) {
-        const result = {
-          parked: false,
-          reason: "inactive_monitor",
-          note: goal
-            ? "monitorIds must name active monitors belonging to the specified goal."
-            : "monitorIds must name active monitors on this Task. Read get_subagent_status before parking."
-        };
-        return { content: [{ type: "text", text: JSON.stringify(result) }], details: result, isError: true };
-      }
-      const task = await new LocalWorkspaceStore(context.workspaceRoot).readTask(context.taskId);
-      const taskClockIgnored =
-        Boolean(requestedWakeInSeconds) &&
-        goalOwnsTaskClock(programs, task.monitoring?.scope === "background", programId);
-      const wakeInSeconds = taskClockIgnored ? undefined : requestedWakeInSeconds;
       // Whether a wake condition exists is countable, so refusing is mechanical.
-      // What it would take to create one is Main's decision, not this tool's.
-      if (!wakeInSeconds && active.length === 0 && !scheduledGoal) {
+      if (!wakeInSeconds) {
         const refusal = {
           parked: false,
           reason: "no_wake_condition",
-          note: taskClockIgnored
-            ? "Managed goals need an active source or an explicit record_goal_progress(nextReviewAt); watcher cadence must not wake Main."
-            : "Nothing could wake this Task: no active Virtual Agent is registered and no interval was given. Register a monitor with activate_virtual_agent, pass wakeInSeconds, or finish the Task instead."
+          note: "Nothing could wake this Task: no interval was given. Pass wakeInSeconds or finish the Task instead."
         };
         return {
           content: [{ type: "text", text: JSON.stringify(refusal) }],
@@ -280,8 +211,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         runId: context.mainRunId,
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- sleep_until 的 reason 由模型以 JSON 参数传入，运行期可能缺失；空串回退让 MainSleep.reason 始终是字符串
         reason: String(params.reason ?? "").trim(),
-        ...(wakeInSeconds ? { wakeAt: new Date(Date.now() + wakeInSeconds * 1_000).toISOString() } : {}),
-        monitorIds: requested.length > 0 ? requested : wakeInSeconds ? [] : active,
+        wakeAt: new Date(Date.now() + wakeInSeconds * 1_000).toISOString(),
         parkedAt: new Date().toISOString()
       };
       await writeSleep(context.workspaceRoot, context.taskId, sleep);
@@ -291,21 +221,8 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         runtimePhase: "waiting",
         runtimeLastEvent: { type: "main_parked", summary: sleep.reason.slice(0, 240) }
       });
-      ctx.ui.notify(
-        sleep.wakeAt ? `Parked until ${sleep.wakeAt}` : `Parked for ${sleep.monitorIds.length} monitor(s)`,
-        "info"
-      );
-      const payload = {
-        parked: true,
-        ...sleep,
-        activeMonitors: active.length,
-        ...(taskClockIgnored
-          ? {
-              taskClockIgnored: true,
-              note: "No Main polling clock was armed. Goal reviews use record_goal_progress(nextReviewAt); source cadence only runs deterministic probes."
-            }
-          : {})
-      };
+      ctx.ui.notify(`Parked until ${sleep.wakeAt}`, "info");
+      const payload = { parked: true, ...sleep };
       return {
         content: [{ type: "text", text: JSON.stringify(payload) }],
         details: payload,
@@ -318,14 +235,14 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     name: "call_subagent",
     label: "Call Subagent",
     description:
-      "Delegate one concrete work item to a Subagent. sync waits for the result; async returns a callId and delivers the result by callback. Both modes execute the task once. role names the job (executor implements, reviewer examines an independent session); dependsOn holds the item until earlier callIds finish; developmentId runs it in that requirement's isolated checkout; continueCallId reworks a finding as the next turn of a finished Executor's own session and checkout. Optional resources explicitly grant application read access or private candidate editing; no bound application is inherited automatically. Task wording never creates a persistent monitor or experiment program.",
+      "Delegate one concrete work item to a Subagent. sync waits for the result; async returns a callId and delivers the result by callback. Both modes execute the task once. role names the job (executor implements, reviewer examines an independent session); dependsOn holds the item until earlier callIds finish; developmentId runs it in that requirement's isolated checkout; continueCallId reworks a finding as the next turn of a finished Executor's own session and checkout. Task wording never registers a persistent program.",
     promptSnippet: "Delegate a concrete task",
     promptGuidelines: [
       "Use call_subagent when an independent analysis, implementation or validation task is likely to improve the result.",
       "Give each delegate an independently testable objective, relevant inputs, constraints and acceptance evidence. Independent end-to-end attempts are valid when they help compare approaches; avoid a fixed research/production/review pipeline for every task.",
       "Set mode=sync to wait for the result; set mode=async to continue independent work and receive a callback. Wait for any result needed for acceptance before completing the parent task.",
       "The task must state a concrete objective and expected evidence; ask for a deliverables/ file only when the result is a substantial reusable artifact. Main may issue multiple independent calls in one turn.",
-      "A request to research monitoring, design a Virtual Agent or run an experiment is still an ordinary task. This tool does not register or activate persistent programs.",
+      "A request to research a topic or run an experiment is still an ordinary task. This tool does not register or activate persistent programs.",
       "The Subagent returns a concise summary with evidence, candidate outputFiles, diagnostic paths and validation results. Candidate files remain in the Subagent's directory until Main accepts and copies selected files into the Task artifacts directory.",
       "Use role=reviewer for an independent check of a result; it starts its own session, so it must be given the candidate and evidence to examine rather than asked to trust the Executor's summary.",
       "Pass dependsOn only for work that genuinely needs an earlier item's result: a dependent item does not start until those calls finish, and does not run at all when one of them failed or was cancelled. Independent work should be dispatched without dependsOn so it can proceed at once.",
@@ -344,22 +261,6 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
             uniqueItems: true,
             description: "Explicit upload IDs this delegate may inspect with read_attachment."
           })
-        ),
-        resources: Type.Optional(
-          Type.Array(
-            Type.Object(
-              {
-                resourceId: Type.String(),
-                access: Type.Union([Type.Literal("read"), Type.Literal("candidate")])
-              },
-              { additionalProperties: false }
-            ),
-            {
-              maxItems: 16,
-              description:
-                "Only these referenced resources are shared. read exposes read-only domain tools; candidate creates private changes for Main to review and accept_resource_candidate. Omit for ordinary independent tasks."
-            }
-          )
         ),
         mode: Type.Union([Type.Literal("sync"), Type.Literal("async")], {
           description:
@@ -513,7 +414,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         !continued && requestedDevelopment
           ? await developmentWorkspaceDirectory(context, requestedDevelopment)
           : undefined;
-      const capabilityGrants = await context.delegationGrants(params.resources, params.attachments);
+      const capabilityGrants = await context.delegationGrants(params.attachments);
       const commandEnv = await businessCommandEnvironment(context.runtimeEnv, signal);
       const { agentId, name } = continued
         ? { agentId: continued.agentId, name: agentDisplayName(continued.agentId) }
@@ -579,7 +480,6 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         supportsReasoningEffort: context.supportsReasoningEffort,
         supportsPromptCacheKey: configuredSupportsPromptCacheKey(context.runtimeEnv),
         supportsImages: context.supportsImages,
-        visionModel: context.visionModel,
         context: context.recentContext,
         maxTurns: configuredSubagentMaxTurns(context.runtimeEnv),
         maxTokens: configuredSubagentMaxTokens(context.runtimeEnv),
@@ -695,20 +595,16 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     name: "send_subagent_message",
     label: "Send Subagent Message",
     description:
-      "Queue a message from Main to a running Subagent or durable Virtual Agent, or answer a question a Subagent asked. The message is durable and delivered at a safe turn boundary; it does not interrupt an in-flight model request. Pass questionId to answer a pending question — that Subagent is blocked waiting for it. For an existing persistent monitor, pass its monitorId from get_subagent_status.",
+      "Queue a message from Main to a running Subagent, or answer a question a Subagent asked. The message is durable and delivered at a safe turn boundary; it does not interrupt an in-flight model request. Pass questionId to answer a pending question — that Subagent is blocked waiting for it.",
     promptSnippet: "Answer a Subagent's question or send it guidance",
     promptGuidelines: [
-      "Use the callId returned by call_subagent; for an existing persistent monitor, use its monitorId from get_subagent_status to send rule or scope corrections.",
+      "Use the callId returned by call_subagent.",
       "To answer a question a Subagent asked, pass both its callId and the questionId from the question, and put the decision in message. That Subagent is blocked and its wait is bounded, so answer before doing other work; a late answer still arrives as ordinary guidance, but it will already have continued on its stated assumption.",
       "Messages are queued durably and will be injected before the Subagent's next turn; a queued response is not proof that the Subagent has already acted on it.",
-      "Guidance to a paused monitor is retained without resuming it. Only an explicit control-plane resume may restart monitoring; a timeout or a message is not permission to resume.",
       "Keep the message focused: one correction, new constraint, or concrete follow-up requirement."
     ],
     parameters: Type.Object({
-      callId: Type.String({
-        description:
-          "The callId returned by call_subagent, or an existing monitorId from get_subagent_status."
-      }),
+      callId: Type.String({ description: "The callId returned by call_subagent." }),
       message: Type.String({
         description:
           "Concrete guidance for the Subagent to apply at its next turn, or the answer to its question."
@@ -802,30 +698,14 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           return { content: [{ type: "text", text: JSON.stringify(payload) }], details: payload };
         }
       }
-      const persistent = await context.watchStore.findVirtualAgent(context.taskId, callId);
-      const result = persistent
-        ? {
-            messageId: (
-              await context.watchStore.enqueueControl(
-                context.taskId,
-                callId,
-                message,
-                typeof params.priority === "number" ? params.priority : undefined
-              )
-            ).messageId,
-            callId,
-            agentId: callId,
-            status: (await context.watchStore.findVirtualAgent(context.taskId, callId))!.monitor.status,
-            persistent: true
-          }
-        : await context.coordinator.sendMessage({
-            taskId: context.taskId,
-            runId: context.mainRunId,
-            workspaceRoot: context.workspaceRoot,
-            callId,
-            message,
-            priority: typeof params.priority === "number" ? params.priority : undefined
-          });
+      const result = await context.coordinator.sendMessage({
+        taskId: context.taskId,
+        runId: context.mainRunId,
+        workspaceRoot: context.workspaceRoot,
+        callId,
+        message,
+        priority: typeof params.priority === "number" ? params.priority : undefined
+      });
       const payload = questionId
         ? {
             ...result,
@@ -840,31 +720,22 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
   pi.registerTool({
     name: "cancel_subagent",
     label: "Cancel Subagent",
-    description:
-      "Cancel a queued or running Subagent, or pause a durable Virtual Agent. A persistent monitor can later be resumed by changing its status through the control plane.",
+    description: "Cancel a queued or running Subagent.",
     promptSnippet: "Cancel a Subagent",
     parameters: Type.Object({
-      callId: Type.String({
-        description:
-          "The callId returned by call_subagent, or an existing monitorId from get_subagent_status."
-      }),
+      callId: Type.String({ description: "The callId returned by call_subagent." }),
       reason: Type.Optional(Type.String({ description: "Short reason for cancelling the work." }))
     }),
     async execute(_toolCallId, params): Promise<RuntimeToolResult> {
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancel_subagent 的 callId 由模型以 JSON 参数传入，运行期可能缺失；空串会落到找不到 monitor/call 的分支，不能把 undefined 传给存储查询
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancel_subagent 的 callId 由模型以 JSON 参数传入，运行期可能缺失；空串会落到找不到 call 的分支，不能把 undefined 传给存储查询
       const callId = String(params.callId ?? "");
-      const persistent = await context.watchStore.findVirtualAgent(context.taskId, callId);
-      const result = persistent
-        ? await new WatchManagement(context.workspaceRoot, context.harnessRoot)
-            .control(context.taskId, callId, "pause")
-            .then((monitor) => ({ callId, agentId: callId, status: "paused", persistent: true, monitor }))
-        : await context.coordinator.cancelSubagent({
-            taskId: context.taskId,
-            runId: context.mainRunId,
-            workspaceRoot: context.workspaceRoot,
-            callId,
-            reason: typeof params.reason === "string" ? params.reason : undefined
-          });
+      const result = await context.coordinator.cancelSubagent({
+        taskId: context.taskId,
+        runId: context.mainRunId,
+        workspaceRoot: context.workspaceRoot,
+        callId,
+        reason: typeof params.reason === "string" ? params.reason : undefined
+      });
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     }
   });
@@ -873,8 +744,8 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     name: "get_subagent_status",
     label: "Get Subagent Status",
     description:
-      "Return a compact structured snapshot of every Subagent in the current Task, including one-shot calls and dormant/running persistent Subagents: task, mode, status, elapsed time, model turns, message count, last tool, last assistant text, pending Main messages, latest lifecycle event, last trace activity, published artifacts, pending callbacks and persistent monitor state. Use this instead of reading many workspace files when checking progress.",
-    promptSnippet: "Check structured progress for all one-shot and persistent Subagents",
+      "Return a compact structured snapshot of every Subagent in the current Task: task, mode, status, elapsed time, model turns, message count, last tool, last assistant text, pending Main messages, latest lifecycle event, last trace activity, published artifacts and pending callbacks. Use this instead of reading many workspace files when checking progress.",
+    promptSnippet: "Check structured progress for all Subagents",
     promptGuidelines: [
       "Use get_subagent_status to check delegated work before deciding whether to wait, send guidance, cancel, retry or summarize.",
       "Use browse_workspace only when you need the full contents of a specific artifact, event or working file."
@@ -891,28 +762,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         runId: context.mainRunId,
         agentId: params.agentId
       });
-      const persistent = [];
-      for (const program of await context.watchStore.listPrograms(context.taskId)) {
-        for (const monitor of await context.watchStore.listVirtualAgents(context.taskId, program.programId)) {
-          if (params.agentId && params.agentId !== monitor.monitorId) continue;
-          persistent.push({
-            program,
-            monitor,
-            state: await context.watchStore.readVirtualAgentState(
-              context.taskId,
-              program.programId,
-              monitor.monitorId
-            ),
-            pendingControls: await context.watchStore.listControls(
-              context.taskId,
-              program.programId,
-              monitor.monitorId
-            )
-          });
-        }
-      }
-      const virtualPrograms = await context.virtualAgentStore.listPrograms(context.taskId);
-      const result = { ...progress, persistent, virtualPrograms };
+      const result = { ...progress };
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     }
   });
@@ -1013,8 +863,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           };
         })
       );
-      const virtualPrograms = await context.virtualAgentStore.listPrograms(context.taskId);
-      const result = { task, coordination, experiments, virtualPrograms };
+      const result = { task, coordination, experiments };
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     }
   });
@@ -1030,25 +879,12 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       "This tool is optional; do not add another work phase merely to call it.",
       "If it reports pending Subagents, use wait_for_subagents or inspect their status before trying again.",
       "If it reports a pending job, it is still running: read its log with check_job, and kill_job it if its result is no longer needed.",
-      "If it reports a pending Subagent question, answer it with send_subagent_message before completing: that collaborator is blocked on you.",
-      "If the Task was parked for a later wake, completing it ends that monitoring program. Retire or pause the monitors first if they should stop polling."
+      "If it reports a pending Subagent question, answer it with send_subagent_message before completing: that collaborator is blocked on you."
     ],
     parameters: Type.Object({
       summary: Type.Optional(Type.String({ description: "Short human-readable completion summary." }))
     }),
     async execute(_toolCallId, params): Promise<RuntimeToolResult> {
-      const goals = (await context.watchStore.listPrograms(context.taskId)).filter(
-        (program) => program.goal && program.status !== "completed"
-      );
-      if (goals.length) {
-        const value = {
-          completed: false,
-          reason: "active_long_term_goals",
-          goals: goals.map((program) => ({ programId: program.programId, title: program.goal!.brief.title })),
-          note: "Record progress and wait. Complete each goal only after verifying its criteria."
-        };
-        return { content: [{ type: "text", text: JSON.stringify(value) }], details: value, isError: true };
-      }
       const coordination = await context.coordinator.waitForSubagents({
         taskId: context.taskId,
         runId: context.mainRunId,
@@ -1071,7 +907,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       }
       // eslint-disable-next-line no-restricted-syntax -- 停车记录损坏（非 ENOENT 的读取错误）不该阻止完成任务；完成本身取代停车，读不到只是少一个 supersededPark 字段
       const parked = await readSleep(context.workspaceRoot, context.taskId).catch(() => undefined);
-      // eslint-disable-next-line no-restricted-syntax -- 清理停车记录失败时残留文件不会再被安排唤醒：任务紧接着迁移为 completed 并结束监控程序
+      // eslint-disable-next-line no-restricted-syntax -- 清理停车记录失败时残留文件不会再被安排唤醒：任务紧接着迁移为 completed
       if (parked) await clearSleep(context.workspaceRoot, context.taskId).catch(() => {});
       const taskStore = new LocalWorkspaceStore(context.workspaceRoot);
       const summary = String(

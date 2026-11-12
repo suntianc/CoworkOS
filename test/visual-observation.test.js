@@ -11,7 +11,6 @@ import { createImageTools } from "../dist/src/tools/read-image.js";
 import { createImageArchive } from "../dist/src/tools/image-archive.js";
 import { cropPng } from "../dist/src/tools/image-crop.js";
 import { createBuiltinTools } from "../dist/src/tools/builtin.js";
-import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 
 function frame(width = 8, height = 6) {
   const image = new PNG({ width, height });
@@ -189,40 +188,6 @@ test("paths comparisons keep main aliases and yield reusable archived images alo
     }),
     /one page at a time/
   );
-});
-
-test("text-only mixed historical/file comparisons send all ordered pixels in one cached vision request", async (t) => {
-  const { tools, work, task, data } = await fixture(t);
-  const historical = await tools.read_image.execute({ path: "frame.png" });
-  const changed = frame(3, 2);
-  await writeFile(join(work, "frame.png"), changed);
-  const provider = await modelProtocolFixture("openai-completions", () => ({
-    text: "The second image is smaller."
-  }));
-  t.after(() => provider.close());
-  const fallback = createImageTools({
-    rootDirectory: work,
-    taskDirectory: task,
-    visionModel: { baseUrl: provider.baseUrl, apiKey: "local-visual-comparison-fixture", model: "fixture" }
-  });
-  const images = [{ imageRef: historical.details.imageRef }, { path: "frame.png" }];
-  const result = await fallback.read_images.execute({ images });
-  assert.equal(result.details.count, 2);
-  assert.equal(result.details.mode, "fallback");
-  assert.equal(provider.requests.length, 1);
-  const sent = provider.requests[0].body.messages
-    .find((message) => message.role === "user")
-    .content.filter((block) => block.type === "image_url")
-    .map((block) => block.image_url.url);
-  assert.deepEqual(
-    sent,
-    [data, changed].map((bytes) => `data:image/png;base64,${bytes.toString("base64")}`)
-  );
-  assert.equal((await fallback.read_images.execute({ images })).details.cached, true);
-  assert.equal(provider.requests.length, 1);
-  assert.equal((await fallback.read_images.execute({ images: [...images].reverse() })).details.cached, false);
-  assert.equal(provider.requests.length, 2);
-  assert.doesNotMatch(JSON.stringify(result), /local-visual-comparison-fixture|base64|data:image/);
 });
 
 test("unused image sources accept empty/null placeholders without weakening source or path boundaries", async (t) => {

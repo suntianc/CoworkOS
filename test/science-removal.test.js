@@ -8,9 +8,7 @@ import { join, resolve } from "node:path";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { GlobalWorkspaceCatalog } from "../dist/src/workspace/global-catalog.js";
-import { WorkbenchTabStore } from "../dist/src/applications/tab-store.js";
 import { TemporaryWorkspaceStore } from "../dist/src/workspace/temporary-workspaces.js";
-import { McpSupervisor, resourceConsumer } from "../dist/src/applications/mcp-supervisor.js";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 import "./automation-pi.test.js";
 import "./input-files.test.js";
@@ -152,7 +150,7 @@ test(
           COWORK_MODEL: "protocol-fixture",
           COWORK_MODEL_API: "openai-completions",
           COWORK_SCIENCE_TOOLS: "1",
-          COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+          COWORK_DISABLE_MAIN_GUARDIAN: "1",
           COWORK_REASONING_EFFORT: "off",
           COWORK_SUPPORTS_REASONING_EFFORT: "0",
           PI_CODING_AGENT_DIR: join(root, "pi"),
@@ -185,36 +183,7 @@ test(
   }
 );
 
-test("generic MCP starts, executes, and works again after its supervisor restarts", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "cowork-prune-mcp-"));
-  const log = join(root, "calls.jsonl");
-  let supervisor = new McpSupervisor(resolve("."), "http://127.0.0.1:1");
-  t.after(async () => {
-    await supervisor.stopAll();
-    await rm(root, { recursive: true, force: true });
-  });
-  const consumer = resourceConsumer("res_fixture");
-  const spec = { command: process.execPath, args: [resolve("test/fixtures/mcp-delayed-server.mjs"), log] };
-  const exercise = async () => {
-    const started = await supervisor.ensure({ consumer, appType: "fixture", spec });
-    assert.equal(started.state, "running", started.error);
-    assert.ok((await supervisor.listTools(consumer)).some((tool) => tool.name === "delayed_replace"));
-    const result = await supervisor.callTool({
-      consumer,
-      taskId: "task",
-      name: "delayed_replace",
-      params: { delayMs: 0 },
-      resource: { resourceId: "res_fixture", revision: 0 }
-    });
-    assert.equal(result.operations[0].payload.text, "candidate\n");
-  };
-  await exercise();
-  await supervisor.stopAll();
-  supervisor = new McpSupervisor(resolve("."), "http://127.0.0.1:1");
-  await exercise();
-});
-
-test("one-time cleanup previews owned assets, protects active and external data, and removes orphan tabs", async (t) => {
+test("one-time cleanup previews owned assets and protects active and external data", async (t) => {
   const root = await mkdtemp(join(await realpath(tmpdir()), "cowork-prune-contract-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const data = join(root, "home");
@@ -261,19 +230,6 @@ test("one-time cleanup previews owned assets, protects active and external data,
     })
   );
   await new GlobalWorkspaceCatalog(join(runtime, "workspaces.json")).register(workspace);
-  await mkdir(join(workspace, "applications", "instances"), { recursive: true });
-  await writeFile(
-    join(workspace, "applications", "instances", "index.json"),
-    JSON.stringify({
-      version: 1,
-      instances: [],
-      aliases: {}
-    })
-  );
-  const tabs = new WorkbenchTabStore(join(runtime, "workbench-tabs.json"));
-  for (const taskId of ["old-task", "active-task", "job-task", "orphan-task"])
-    await tabs.open({ kind: "conversation", taskId });
-  await tabs.open({ kind: "application", appInstanceId: "app-orphan" });
 
   const run = (...args) =>
     spawnSync(process.execPath, [resolve("scripts/prune-legacy-data.mjs"), "--root", data, ...args], {
@@ -299,11 +255,6 @@ test("one-time cleanup previews owned assets, protects active and external data,
       (item) => item.kind === "science-environment" && item.id === "general" && item.action === "remove"
     )
   );
-  assert.deepEqual(plan.tabsToRemove.sort(), [
-    "conversation:old-task",
-    "conversation:orphan-task",
-    "window:app-orphan"
-  ]);
   await access(join(workspace, "old-task", "task.json"));
   for (const id of ["../external", "linked-task"]) {
     const denied = run("--preview", "--task", id);
@@ -316,8 +267,6 @@ test("one-time cleanup previews owned assets, protects active and external data,
   assert.ok(JSON.parse(busy.stdout).items.every((item) => item.action === "retain"));
   const busyApply = run("--apply");
   assert.equal(busyApply.status, 0, busyApply.stderr);
-  assert.ok((await tabs.read()).tabs.some((tab) => tab.taskId === "orphan-task"));
-  assert.ok((await tabs.read()).tabs.some((tab) => tab.appInstanceId === "app-orphan"));
   await access(join(workspace, "old-task", "task.json"));
   await rm(join(runtime, "backend-instance.json"));
   const applied = run("--apply");
@@ -331,43 +280,6 @@ test("one-time cleanup previews owned assets, protects active and external data,
   await access(join(external, "keep.txt"));
   assert.equal(await readFile(join(data, "config.json"), "utf8"), "fixture configuration");
   assert.equal(await readFile(join(data, "credentials.json"), "utf8"), "fixture credentials");
-  assert.deepEqual(
-    (await tabs.read()).tabs.map((tab) => tab.taskId),
-    ["active-task", "job-task"]
-  );
   const repeated = run("--apply");
   assert.equal(repeated.status, 0, repeated.stderr);
-  assert.deepEqual(
-    (await tabs.read()).tabs.map((tab) => tab.taskId),
-    ["active-task", "job-task"]
-  );
-});
-
-test("cleanup preserves a shared tab when another workspace may own the same task ID", async (t) => {
-  const root = await mkdtemp(join(await realpath(tmpdir()), "cowork-prune-shared-tab-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const data = join(root, "home");
-  const workspace = join(data, "workspace");
-  const runtime = join(data, "runtime");
-  const external = join(root, "other-workspace");
-  await mkdir(runtime, { recursive: true });
-  await new LocalWorkspaceStore(workspace).createTask("shared-task");
-  await new LocalWorkspaceStore(external).createTask("shared-task");
-  const catalog = new GlobalWorkspaceCatalog(join(runtime, "workspaces.json"));
-  await catalog.register(workspace);
-  await catalog.register(external);
-  const tabs = new WorkbenchTabStore(join(runtime, "workbench-tabs.json"));
-  await tabs.open({ kind: "conversation", taskId: "shared-task" });
-  const result = spawnSync(
-    process.execPath,
-    [resolve("scripts/prune-legacy-data.mjs"), "--root", data, "--task", "shared-task", "--apply"],
-    { encoding: "utf8" }
-  );
-  assert.equal(result.status, 0, result.stderr);
-  await assert.rejects(access(join(workspace, "shared-task")));
-  await access(join(external, "shared-task", "task.json"));
-  assert.deepEqual(
-    (await tabs.read()).tabs.map((tab) => tab.taskId),
-    ["shared-task"]
-  );
 });

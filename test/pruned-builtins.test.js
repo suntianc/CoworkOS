@@ -15,15 +15,9 @@ const removed = [
   "office-harness"
 ];
 
-test("the runtime catalogue is empty, rejects retired apps, and has no component installer routes", async (t) => {
+test("the runtime catalogue is gone and has no component installer routes", async (t) => {
   const d = await startDashboard();
   t.after(() => d.stop());
-  const response = await fetch(d.base + "/api/applications");
-  assert.equal(response.status, 200);
-  assert.deepEqual(
-    (await response.json()).applications.map((app) => app.appType),
-    []
-  );
   for (const appType of removed) {
     const result = await fetch(d.base + "/api/workbench/open-application", {
       method: "POST",
@@ -33,22 +27,29 @@ test("the runtime catalogue is empty, rejects retired apps, and has no component
     assert.equal(result.status, 404, appType);
   }
   for (const [method, path] of [
+    ["GET", "/api/applications"],
     ["GET", "/api/components"],
     ["POST", "/api/components/blender/install"],
     ["GET", "/api/applications/blender/runtime"],
-    ["POST", "/api/applications/blender/install"]
+    ["POST", "/api/applications/blender/install"],
+    ["GET", "/api/workbench/tabs"]
   ]) {
     const result = await fetch(d.base + path, { method });
     assert.equal(result.status, 404, path);
   }
-  const state = await (await fetch(d.base + "/api/workbench/tabs")).json();
-  assert.equal(state.tabs.length, 0);
 });
 
-test("retired domain workflows cannot be discovered or loaded even with an application scope", async () => {
-  const skills = await discoverSkills([resolve(".pi/skills")], { applications: removed });
+test("retired domain workflows cannot be discovered or loaded", async () => {
+  const skills = await discoverSkills([resolve(".pi/skills")]);
   const loader = createLoadSkillTool(skills);
-  for (const name of [...removed, "parametric-cad", "presentations", "make-a-deck", "office-documents"])
+  for (const name of [
+    ...removed,
+    "virtual-agent-authoring",
+    "parametric-cad",
+    "presentations",
+    "make-a-deck",
+    "office-documents"
+  ])
     await assert.rejects(loader.execute({ name }), /unknown skill/);
-  assert.ok(skills.some((skill) => skill.name === "virtual-agent-authoring"));
+  assert.ok(skills.some((skill) => skill.name === "iterative-optimization"));
 });

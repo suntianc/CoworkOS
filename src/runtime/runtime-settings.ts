@@ -171,7 +171,7 @@ export function configuredSupportsReasoningEffort(env: NodeJS.ProcessEnv = proce
   throw new Error("COWORK_SUPPORTS_REASONING_EFFORT / supportsReasoningEffort must be true, false, 1 or 0");
 }
 
-/** Vision is explicit: a custom endpoint must not receive images it cannot accept. */
+/** Image input is explicit: a custom endpoint must not receive images it cannot accept. */
 export function configuredSupportsImages(env: NodeJS.ProcessEnv = process.env): boolean {
   const value = env.COWORK_SUPPORTS_IMAGES?.trim();
   if (value === undefined || value === "0" || value === "false") return false;

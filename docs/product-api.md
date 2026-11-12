@@ -1,8 +1,8 @@
 # Cowork Product API
 
-Route implementations: [Dashboard](../src/dashboard/routes.ts), [applications](../src/dashboard/application-routes.ts), and [HTTP boundary](../src/dashboard/http.ts). This document covers the local HTTP API; software v2 remains a host interface.
+Route implementations: [Dashboard](../src/dashboard/routes.ts) and [HTTP boundary](../src/dashboard/http.ts). This document covers the local HTTP API.
 
-Computer Use discovers/selects windows using an enabled desktop global policy or consumes a legacy Task grant for observation/actions through [task-scoped HTTP routes](computer-use.md#产品和宿主边界). GET /api/computer/access reports policy/ownership metadata; GET /api/computer/status reports the execution host's native capabilities and permission state. Task status includes access, and POST discover/select/release consumes or releases existing global authority. The internal host endpoints require a matching backend identity and an explicit token, and reject browser Origin, fetch metadata and cookies. Permission requests, local confirmation and enabling or resuming access require the host credential; session credentials can still read, pause or revoke access. The backend supplies Main and Watch commands with an in-memory business credential that expires on restart. Coordinator command environments stay in memory, and standalone CLI or Main delegation forwards a credential only after the backend identifies it as a business session.
+Computer Use discovers/selects windows using an enabled desktop global policy or consumes a legacy Task grant for observation/actions through [task-scoped HTTP routes](computer-use.md#产品和宿主边界). GET /api/computer/access reports policy/ownership metadata; GET /api/computer/status reports the execution host's native capabilities and permission state. Task status includes access, and POST discover/select/release consumes or releases existing global authority. The internal host endpoints require a matching backend identity and an explicit token, and reject browser Origin, fetch metadata and cookies. Permission requests, local confirmation and enabling or resuming access require the host credential; session credentials can still read, pause or revoke access. The backend supplies Main and delegated commands with an in-memory business credential that expires on restart. Coordinator command environments stay in memory, and standalone CLI or Main delegation forwards a credential only after the backend identifies it as a business session.
 
 Actions accept optional `observeAfter: true` for atomic post-action feedback; `dispatched` acknowledges delivery, while `effectVerified: false` requires the caller to inspect the returned observation.
 
@@ -12,7 +12,7 @@ This is the boundary between the Cowork Runtime and the desktop/Web UI. The UI m
 
 The current implementation is a local single-user service bound to `127.0.0.1`. Host/Origin checks apply to every request.
 
-The serving process publishes a host credential in its instance record. A client exchanges that credential for a named local session, which authorizes business requests; see [Local sessions and management commands](#local-sessions-and-management-commands). Development mode without a token remains local-only. Remote/multi-user deployment is unsupported: the listener stays on `127.0.0.1`, and Host/Origin checks run before any credential check. See [architecture](architecture.md) and [software integration](software-integration.md) for current module and protocol boundaries.
+The serving process publishes a host credential in its instance record. A client exchanges that credential for a named local session, which authorizes business requests; see [Local sessions and management commands](#local-sessions-and-management-commands). Development mode without a token remains local-only. Remote/multi-user deployment is unsupported: the listener stays on `127.0.0.1`, and Host/Origin checks run before any credential check. See [architecture](architecture.md) for current module boundaries.
 
 ## Global APIs
 
@@ -40,8 +40,6 @@ POST /api/projects/choose-directory
 POST /api/project-clones
 GET  /api/project-clones/:cloneId
 POST /api/project-clones/:cloneId/cancel
-GET  /api/projects/:projectId/experience
-POST /api/projects/:projectId/experience
 ```
 
 Models returns `{ current, models, configured, levels }`; `levels` maps each model ID to `{ levels, source }`, the reasoning levels that model accepts and where they came from: `endpoint` (the provider's `/models` entry: `reasoning_levels`, `supported_reasoning_levels[].effort`, or `reasoning: false` for off only), `official` (Pi's built-in table, when the connection address is a provider host Pi knows) or `manual` (the connection's `reasoningLevels`, all six by default). Levels Pi cannot send, such as `ultra`, are dropped. `POST /api/model-settings/levels { profileId?, baseUrl, model, apiKey? }` answers the same question for a connection being edited and returns `{ levels, source, limits, official }`; a blank key uses the saved one of `profileId`. `limits` is what the model's `/models` entry says about `contextWindow` (`context_window`, `context_length`), `maxOutputTokens` (`max_output_tokens`, `max_completion_tokens`) and `images` (`modalities.input` contains `image`). A connection saves `autoLimits` (`contextWindow`, `maxTokens`, `images`): the fields that take each model's own values at the start of a Main Run; a field edited by hand is left out and its saved value wins. A connection saved without `autoLimits` treats a field as following while it still holds the new-connection default (256000, 8192, no images). The output cap taken from the endpoint stays within 65536 and half the context window. `GET /api/tasks` returns the grouped catalog `{ workspaceRoot, currentWorkspaceRoot, model, tasks, projects }`, rather than a bare Task array. Explicit projects remain in `projects` with `tasks: []`; legacy automatic groups retain their directory-based IDs and the sidebar hides them when they have no unarchived conversations. A Task that Main is waiting on a person carries `pendingQuestion: true`; the field is absent once the question is answered or the Task is no longer running or waiting.
@@ -54,7 +52,7 @@ Desktop and Web use the same model and search HTTP routes. Desktop keeps its cli
 
 Model and search credentials belong to the execution host. `GET /api/model-settings` never returns a key: it returns the connection list plus `configured` and `credentialUnavailable`/`credentialError` when a saved key cannot be read here. `POST /api/model-settings` writes the submitted key to the host credential file (`credentials.json`, mode 0600, beside the configuration; `COWORK_CREDENTIALS` overrides the path) and returns the same redacted status. A blank key keeps the stored one. Old Electron ciphertext is reported as unavailable instead of configured, `POST /api/model-settings/test` rejects it with the same message, and submitting a key replaces it. `GET /api/web-search-settings` follows the same rule with `secretUnavailable`; `POST` stores or clears the Exa key in that file. Use `node scripts/migrate-desktop-settings.mjs --config <config path>` while the backend is stopped to convert old ciphertext once; it backs up the original as `<config>.before-host-credentials` and reports `already-migrated` on a rerun. See [connection storage](configuration-reference.md#连接存储与兼容).
 
-Create a project with `POST /api/projects { projectName, projectDirectory, projectId? }`; update its name and/or folder with `PATCH /api/projects/:projectId`. Both return `{ project }`, containing `projectId`, `projectName`, `projectDirectory`, `workspaceRoot` (the project folder), `createdAt`, `updatedAt`, and `tasks`. Newly created IDs are stable `project_<uuid>` values; a secondary backend may pass the shared `projectId` of an existing project to map its own folder onto the same shared identity. Duplicate IDs and duplicate directories are refused, and a directory is never used as the shared identity. Names must be nonempty and at most 120 characters. The directory must be an existing absolute folder; duplicate project directories return 409. Creation persists an empty project without creating a Task or calling the model. `DELETE /api/projects/:projectId` takes an idle project off the list and returns `{ projectId, removed: true }`: the project and its conversations leave `/api/tasks` and the event snapshot, but the folder, the conversation records and the project identity stay on disk. A project with a running, paused or waiting conversation, a background command or pending collaboration is refused with 409. `POST /api/projects` with the same folder restores the removed project with its original `projectId` and returns its conversations in `tasks`; a removed project cannot be renamed or moved until then. Project experience is switched off (#33): `GET`/`POST /api/projects/:projectId/experience` answer 404.
+Create a project with `POST /api/projects { projectName, projectDirectory, projectId? }`; update its name and/or folder with `PATCH /api/projects/:projectId`. Both return `{ project }`, containing `projectId`, `projectName`, `projectDirectory`, `workspaceRoot` (the project folder), `createdAt`, `updatedAt`, and `tasks`. Newly created IDs are stable `project_<uuid>` values; a secondary backend may pass the shared `projectId` of an existing project to map its own folder onto the same shared identity. Duplicate IDs and duplicate directories are refused, and a directory is never used as the shared identity. Names must be nonempty and at most 120 characters. The directory must be an existing absolute folder; duplicate project directories return 409. Creation persists an empty project without creating a Task or calling the model. `DELETE /api/projects/:projectId` takes an idle project off the list and returns `{ projectId, removed: true }`: the project and its conversations leave `/api/tasks` and the event snapshot, but the folder, the conversation records and the project identity stay on disk. A project with a running, paused or waiting conversation, a background command or pending collaboration is refused with 409. `POST /api/projects` with the same folder restores the removed project with its original `projectId` and returns its conversations in `tasks`; a removed project cannot be renamed or moved until then.
 
 Folder changes apply to every associated conversation. Active Main/subagents, waiting work, scheduled wakeups, or command jobs reject directory changes with 409; renaming is allowed. Project changes and run startup are serialized to prevent changing a running conversation's CWD.
 
@@ -62,11 +60,9 @@ Folder changes apply to every associated conversation. Active Main/subagents, wa
 
 `POST /api/project-clones { remoteUrl, destination, branch?, operationId? }` starts a Git clone on the execution host and returns 202 `{ clone: { cloneId, state, progress } }`; `GET /api/project-clones/:cloneId` reports the same shape with `state` `cloning`, `registering`, `completed`, `failed` or `cancelled`, a 0–100 `progress`, a readable `error` for failures, and the registered `project` after completion. The clone uses the host's own Git credentials (SSH agent/key or credential helper). URLs and credentials are never returned or written to the record, and git error text has URLs removed, so a token in a path or query cannot leak. Only `http`, `https`, `ssh`, `git`, `file` and scp-style `user@host:path` addresses (or a local filesystem path) are accepted, and git runs with `GIT_ALLOW_PROTOCOL` restricted to the supported transports so a host or repository configuration cannot re-enable a command transport. Git only registers the project after it exits successfully; a failed or cancelled clone removes the folder it created and registers nothing. `POST .../cancel` stops the Git process and removes the incomplete folder. A destination that already exists is refused with 409. The optional `operationId` is the clone's durable identity: a retry with the same id and content returns the existing clone, and the same id with different content returns 409. A clone still marked `cloning` when a later process starts has no owner, so startup reports it as failed and removes its folder unless the catalog already references it. A record in `registering` is never deleted: startup checks the catalog, finishes a missing registration, or keeps the complete clone and reports why registration failed.
 
-Empty migrated records without valid history or application documents are omitted from `GET /api/tasks`, while their persisted indexes and files remain intact. An otherwise empty legacy project with a real document exposes `hasApplications: true`. Internal editor holding Tasks do not establish projects; empty legacy groups derived only from Task storage are omitted. Explicit creation or editing adopts the project as a user choice, so it remains visible when empty.
+Empty migrated records without valid history are omitted from `GET /api/tasks`, while their persisted indexes and files remain intact. Empty legacy groups derived only from Task storage are omitted. Explicit creation or editing adopts the project as a user choice, so it remains visible when empty.
 
-New documents in an unbound conversation use the project folder; loaded instances and old resource references retain their original roots. New resource metadata and resolved application tabs include an optional, host-resolved `projectId` for stable document ownership; referencing conversations and project folder changes do not rewrite it. Older resources remain compatible without the field. Application workspace discovery includes durable references and loaded instance roots, so old documents remain accessible after a folder change without registering their roots as Task storage.
-
-The legacy global `POST /api/workspace/choose` still accepts `{ workspaceRoot }` (or opens the picker when omitted) and returns `{ cancelled, ...taskList }` for application/data compatibility. Its task-scoped `{ taskId, workspaceRoot }` form returns 410: change the owning project's settings instead. Conversations inherit their project's folder and cannot independently reassign it.
+The legacy global `POST /api/workspace/choose` still accepts `{ workspaceRoot }` (or opens the picker when omitted) and returns `{ cancelled, ...taskList }` for legacy data compatibility. Its task-scoped `{ taskId, workspaceRoot }` form returns 410: change the owning project's settings instead. Conversations inherit their project's folder and cannot independently reassign it.
 
 Model connection testing accepts `{ baseUrl, model, api?, apiKey?, supportsImages? }` without saving. An omitted or blank key uses the existing local secret; environment-managed connections test the effective configuration. `api` accepts `openai-completions` (default for legacy configurations) or `openai-responses`; unknown values are rejected before saving or requesting. Omitted values preserve the saved format. GET settings returns the effective format; `COWORK_MODEL_API` overrides local configuration and makes Web settings environment-managed.
 
@@ -87,14 +83,14 @@ A host credential authorizes once and names this client as a session. Every late
 
 `protocolVersion` is `major.minor`. The major number is compatibility; a client minor newer than this backend is refused, an older one is accepted. A missing version returns HTTP 400 `protocol_required`; an incompatible one returns HTTP 409 `protocol_incompatible` naming both versions, so both sides can show an actionable upgrade message. Capabilities describe the protocol this backend serves; clients branch on capability names instead of route probing. `events.snapshot` and `events.stream` name the catalog reconciliation below: a client that requires them and does not find them reports the missing names instead of probing routes or half-loading a screen.
 
-Change commands accept an optional `operationId`: `POST /api/projects`, `PATCH /api/projects/:projectId`, `POST /api/tasks` and `POST /api/tasks/:taskId/goals/:programId/control`. Management clients send one on every change; omitting it keeps the legacy single-shot behavior the current Web UI uses.
+Change commands accept an optional `operationId`: `POST /api/projects`, `PATCH /api/projects/:projectId` and `POST /api/tasks`. Management clients send one on every change; omitting it keeps the legacy single-shot behavior the current Web UI uses.
 
 - The same identity, `operationId` and command content returns the saved status and body, marked with the `x-cowork-replayed: 1` response header, instead of applying the change again. Two in-flight duplicates still produce one result.
 - The same `operationId` with different content returns HTTP 409 `operation_conflict` and changes nothing.
 - Receipts are per identity: one client never reads another client's command result. A receipt exists only for a command that succeeded; a failed command can be retried.
 - A lost response is reconciled by reading the receipt, then retrying with the same identity, `operationId` and content. The receipt is written before the response, so a restart between them replays the saved result.
 
-Object changes carry the expected revision their service checks under its own lock: goal lifecycle controls send `revision`, and a stale value returns HTTP 409 `revision_conflict` without changing state. An operation id is the command's identity, not a substitute for the revision check: a replay returns the saved result, while a new command with a stale revision is refused.
+Object changes carry the expected revision their service checks under its own lock; a stale value returns HTTP 409 `revision_conflict` without changing state. An operation id is the command's identity, not a substitute for the revision check: a replay returns the saved result, while a new command with a stale revision is refused.
 
 Stable error codes: `unauthorized`, `session_revoked`, `session_unknown`, `host_credential_required`, `protocol_required`, `protocol_incompatible`, `operation_id_invalid`, `operation_conflict`, `operation_unknown`, `operation_receipt_invalid`, `revision_conflict`, `cursor_required`, `cursor_expired`, `cursor_unknown`. Messages stay in the server's user-facing language; clients branch on the code. A damaged receipt is never treated as "no command": it returns 500 `operation_receipt_invalid` and leaves the file in place, because re-running the command could apply it twice.
 
@@ -161,18 +157,6 @@ COWORK_TRUSTED_CLIENT_ORIGINS=http://127.0.0.1:3880,http://localhost:3881
 Only exact loopback `http://` origins are accepted. The value is never wildcarded and never opens the listener to a non-local host; every other origin keeps the single-origin rule and `sec-fetch-site: cross-site` stays refused. For each named origin the backend answers the preflight, adds `Access-Control-Allow-Origin` for that exact origin with credentials, and lists those origins in the page's `connect-src`. The credential policy (host credential or session) still applies to every real request, so naming an origin does not itself grant access.
 
 The local host credential is a host-scoped cookie, so browsers sharing `127.0.0.1` present the same credential to every local backend served there. `POST /api/session` therefore succeeds against another local backend only when the host installed a credential that backend accepts in the same browser context. Cross-machine remote entry remains out of scope (P6).
-
-## Project experience
-
-`GET /api/projects/:projectId/experience` returns `{ revision, settings, items }`, with `Cache-Control: no-store`. Catalog resolution owns the stable project identity and paths; request bodies cannot choose a storage directory. `settings` contains independent `enabled`, `learningEnabled`, `autoActivate` (all default false), optional `model`, `maxTokens` (default 2048, range 256–4096), and `maxRequestsPerHour` (default 6, range 2–24). Items include formal and candidate experience/skill records, state, manual/automatic origin, pin, current version, bounded historical versions and source/validation quotes. Internal queues, quota timestamps and deduplication records are not returned.
-
-POST actions all carry the GET `snapshotRevision`. `configure` accepts `{ action, snapshotRevision, settings }`; settings are a partial update, and `model:""` clears the override. `save` accepts `{ action, snapshotRevision, item:{id?,revision?,kind,title,description?,content} }`; an existing item requires its current revision. A save activates and pins manual content; editing a candidate also accepts it. Configuration and save validate snapshot revision under the store lock.
-
-Other actions require `{ action, snapshotRevision, id, revision }` and validate the targeted item revision: `set_state` adds `state:"active"|"disabled"|"rejected"`, `pin` adds `pinned`, `rollback` adds the historical `version`, and `remove` adds no fields.
-
-All successes return the latest GET shape. Conflicting revisions return 409 without overwriting user drafts; invalid fields or capacity return 400; an unknown project returns 404. Existing local Host/Origin/session authentication applies.
-
-Only active formal items enter the current project's optional context/catalog. Automatic promotion requires opt-in, three distinct verified Task sources and host-side evidence checks; it never overwrites manual/pinned content. See [Project experience](en/project-experience.md) for capacities, provenance, scheduling, model usage and the distinction between reviewing saved checks and executing new validation.
 
 ## Project ledger
 
@@ -379,7 +363,7 @@ POST /api/tasks/:taskId/run   → 202 { status: "running" } | { status: "queued"
 
 `POST /api/tasks/:taskId/run` admits an external session through this budget before recording anything. When no slot is free the response is `202` with `status:"queued"` and a position; no Run row is written, no process starts and the Task keeps its previous status. A demand for a Task or requirement that already owns a slot or a waiting position returns `status:"duplicate"` with the existing identity instead of running twice. `cancel` on a queued Task drops its waiting demand. The Main worker and the interactive CLI reserve from the same file and lock before starting a Main; when the budget is full the worker reports `main_capacity_queued` and leaves the demand to the program's queue, and an interactive launch refuses with the reason.
 
-A submitted human answer or a watch wake is a durable demand too: when the budget is full it joins the same queue (`origin:"internal"`) instead of being lost, and the program resumes it when a slot frees. `POST /api/tasks/:taskId/human/resume` reports `status:"queued"` in that case.
+A submitted human answer or a timed wake is a durable demand too: when the budget is full it joins the same queue (`origin:"internal"`) instead of being lost, and the program resumes it when a slot frees. `POST /api/tasks/:taskId/human/resume` reports `status:"queued"` in that case.
 
 A dispatch that fails for a recoverable reason (shared service unreachable or authentication unavailable at the session call) releases its unused slot but keeps the accepted demand: it stays `queued` with a `lastError` and is retried by the capacity loop with exponential backoff. A permanent refusal (an explicit connection gone, the session or Task removed, a shared 404/409 before the Run exists) does not delete the input either: it releases the unused slot and marks the demand `failed` immediately with its `lastError`, without spending retry attempts. Either way the input and its choices stay durable and visible in `queued`; `POST /api/main-capacity { action: "retry", requestId }` puts a failed demand back in line. A restart mid-dispatch checks the local Task: a recorded Run is never started twice, a demand whose Run never existed is re-queued.
 
@@ -455,13 +439,13 @@ The Runtime owns Task transitions. The UI may request `pause`, `cancel`, `resume
 
 `GET /api/tasks/:taskId` exposes optional `retryRequest: { requestId, model }` only for an idle failed/interrupted Main request. It never exposes the private request body. `retryRequestUnavailable: true` reports missing or damaged recovery data for a model failure; the UI preserves drafts and rejects manual retry rather than silently regenerating the request. `POST /api/tasks/:taskId/run` with `{ "resume": true, "retryRequestId": "<request UUID>" }` resends that original serialized request using its original model and protocol; omit `prompt` and new attachments. The service validates the Task/Run/request identity under the startup lock, rejects stale or concurrent retries and completed/cancelled requests, and requires the original service address. Current authentication is resolved normally and is never stored in the recovery record. A later tool-loop request serializes its new results normally. Startup failures that have no model request retain the accepted-input continuation described above. Legacy histories without a raw recovery record can continue their saved context but cannot reconstruct exact unsaved wire bytes.
 
-Exact retries also require the original canonical working directory, Task storage root and structured application ownership (resource ID, application/instance, source root/path and Adapter/MCP tools). A changed directory, binding or source returns `409` with `code: "main_retry_context_changed"` before launch without replacing the archived request or history; restore the original scope to retry. Missing execution ownership on older readable snapshots reports `retryRequestUnavailable: true` and rejects replay with `400` / `main_retry_snapshot_invalid`. Ownership remains protected through the replay response's tool batch; a later model request can discover a new binding. Application dispatch rejects mismatches as non-retryable `execution_scope_changed` (409) without applying operations.
+Exact retries also require the original canonical working directory and Task storage root. A changed directory or storage root returns `409` with `code: "main_retry_context_changed"` before launch without replacing the archived request or history; restore the original scope to retry. Missing execution ownership on older readable snapshots reports `retryRequestUnavailable: true` and rejects replay with `400` / `main_retry_snapshot_invalid`.
 
 `GET /api/tasks/:taskId` also returns optional `editableMessage: { messageId, versionId, runId, scopeToken, body, attachments }` for the latest accepted composer/Inbox user input present in the active Pi branch. Internal continuation controls, human answers and pending queue notifications are not editable. `editableMessageError` reports an invalid message/attachment reference while retaining readable history. `conversationVersion` identifies the selected branch so renderers discard cached events from a replaced version. `conversationVersions` contains metadata only (`versionId`, source `messageId`, `currentMessageId`, `groupId`, `replacedBy`, `preview`, `createdAt`, `activityCount`), without archived message/event bodies or private session/retry paths. Repeated edits of one user turn retain the same group and point to its newest active message.
 
 `GET /api/tasks/:taskId/message-versions/:versionId` returns `{ messages, runtimeEvents }` for a version belonging to that Task. Version IDs are opaque safe identifiers (legacy Pi Run/session IDs remain supported). Malformed IDs return `400`; unknown or cross-Task IDs return `404`. The conversation UI shows only the current version; this endpoint retains access to archived records.
 
-`POST /api/tasks/:taskId/messages/edit` accepts `{ messageId, versionId, runId, scopeToken, editId, body, attachmentIds, textAttachments?, model? }`. `editId` is a UUID retained for a lost-response retry; `scopeToken` is the SHA-256 scope identity supplied by task detail. The Task/project operation lock validates idle process state, active Run, latest accepted user, version and current canonical project/application ownership. Conflicts return `409 / main_message_edit_conflict`; they never queue the edit into an active run. Empty bodies require at least one attachment. Existing upload IDs are verified against this Task’s original files; new uploads are validated and attached to this Task. Legacy inline text attachments retain the existing 128 KiB / three-file limits.
+`POST /api/tasks/:taskId/messages/edit` accepts `{ messageId, versionId, runId, scopeToken, editId, body, attachmentIds, textAttachments?, model? }`. `editId` is a UUID retained for a lost-response retry; `scopeToken` is the SHA-256 scope identity supplied by task detail. The Task/project operation lock validates idle process state, active Run, latest accepted user, version and current canonical project ownership. Conflicts return `409 / main_message_edit_conflict`; they never queue the edit into an active run. Empty bodies require at least one attachment. Existing upload IDs are verified against this Task’s original files; new uploads are validated and attached to this Task. Legacy inline text attachments retain the existing 128 KiB / three-file limits.
 
 An accepted edit creates a new Run and an explicit Pi session containing only entries preceding the replaced user input; subsequent runs select that same session. Pending and unanswered human questions created after that input in the replaced Run are cancelled with the old branch, so they cannot block the new request or accept late decisions. Questions outside that tail retain their state; ordinary continuation still requires pending questions to be answered. An explicit project-folder change forks the selected branch into the new canonical working directory and atomically updates the session pointer while preserving its version identity and old transcript. The old session, user input, replies, tool activity and private original retry snapshot remain archived. Editing retires the active exact-retry slot and uses current model settings; it does not replay an old failed request body. Repeating an identical `editId` returns the first Run without spawning another process; changing its body or target is rejected. Startup rejection before acquiring a process restores the prior version, retry state and retired questions. Recovery before launch readiness also restores those questions; recovery after readiness retains their cancellation with the accepted branch. File modifications and external actions are not rolled back or reported as newly executed evidence.
 
@@ -473,9 +457,9 @@ A follow-up in an existing Task continues that Task's Pi session, including afte
 
 `POST /api/tasks` accepts `projectId` to inherit the saved project's directory; an unknown project is rejected. The browser's project `+` opens a draft and sends this field when its first message creates the Task. Creating a Task itself does not launch a model run. The legacy optional `workspaceRoot` form remains compatible with directory-grouped history; it does not create an explicit project.
 
-`POST /api/tasks` also accepts `{ taskId?, goal, projectId:null }` or `{ taskId?, goal, temporary:true }` to allocate an isolated durable managed workspace without a project. Its response includes `projectId:null`, `temporaryWorkspaceRoot`, effective `projectDirectory` and the original `storageRoot`. Optional `temporaryWorkspaceRoot` may reuse an already managed root for an explicitly chosen independent editor's collaboration; arbitrary folders are rejected. Conflicting project/directory fields and invalid booleans are rejected. Legacy omitted-project requests retain historical directory adoption. Temporary records are visible in the task list but never synthesized into projects.
+`POST /api/tasks` also accepts `{ taskId?, goal, projectId:null }` or `{ taskId?, goal, temporary:true }` to allocate an isolated durable managed workspace without a project. Its response includes `projectId:null`, `temporaryWorkspaceRoot`, effective `projectDirectory` and the original `storageRoot`. Optional `temporaryWorkspaceRoot` may reuse an already managed temporary root; arbitrary folders are rejected and temporary records are only for temporary conversations. Conflicting project/directory fields and invalid booleans are rejected. Legacy omitted-project requests retain historical directory adoption. Temporary records are visible in the task list but never synthesized into projects.
 
-Main's native file and command tools run in the owning project's directory (`projectDirectory` and `workspaceRoot` in Dashboard responses). The launcher loads its own configuration, extension, prompt, and bundled skills by absolute path so another project does not remove Cowork capabilities. Each Main turn receives explicit absolute paths for the project, Task workspace, private drafts, final deliverables, and memory. `browse_workspace` remains rooted in the Task directory rather than the project directory. Task metadata has optional `projectId` and legacy `projectDirectory`; absence preserves directory-based history. Detail exposes `projectId`, `projectName`, `projectDirectory`, and `storageRoot` for the stable task storage root. Application resource roots are independent of this Task storage root. HTTP application APIs, Run startup and Pi resolve the same real Task storage for state, resource references and instance loading relationships, including when an independent editor lives in the project folder. Project folder updates do not move Task storage, artifacts, or bound documents. Pi history is continued across a CWD change by forking its session header into the new CWD, retaining messages and leaving the original session file intact. Historical absolute paths are not rewritten; the current system context explicitly identifies the current directory.
+Main's native file and command tools run in the owning project's directory (`projectDirectory` and `workspaceRoot` in Dashboard responses). The launcher loads its own configuration, extension, prompt, and bundled skills by absolute path so another project does not remove Cowork capabilities. Each Main turn receives explicit absolute paths for the project, Task workspace, private drafts and final deliverables. `browse_workspace` remains rooted in the Task directory rather than the project directory. Task metadata has optional `projectId` and legacy `projectDirectory`; absence preserves directory-based history. Detail exposes `projectId`, `projectName`, `projectDirectory`, and `storageRoot` for the stable task storage root; HTTP, Run startup and Pi resolve the same real Task storage for state and artifacts. Project folder updates do not move Task storage or artifacts. Pi history is continued across a CWD change by forking its session header into the new CWD, retaining messages and leaving the original session file intact. Historical absolute paths are not rewritten; the current system context explicitly identifies the current directory.
 
 Runtime SSE tails newly appended log bytes every 40 ms; durable Task events retain their 250 ms refresh cadence. The event schema and replay identities are unchanged. The browser batches rendering by animation frame and preserves existing DOM nodes; provider/network pacing still determines when model output becomes available.
 
@@ -510,9 +494,12 @@ These checks enforce execution and delivery state. Main remains responsible for 
   "statistics": null,
   "humanRequests": [],
   "humanResumePending": false,
+  "parked": { "wakeAt": "2026-01-01T00:10:00.000Z", "reason": "refresh the report" },
   "runtime": { "active": false }
 }
 ```
+
+`parked` is present only while a durable sleep record waits for a timed wake; it carries `wakeAt` and `reason` from `agents/main/sleep.json` and is absent otherwise. Readers use it to tell a genuinely parked Task from an unfinished stop.
 
 `coordination.calls` is the structured Agent Office state. A UI should use its `status`, `agentId`, `task`, `response`, and `error` fields to drive the agent card; it should not infer state from animation timers.
 
@@ -609,11 +596,9 @@ Normal run/complete actions reject outstanding questions so an ordinary prompt c
 
 `artifacts` contains only regular files physically present under the selected Task's `artifacts/` directory, discovered automatically and ordered by descending `mtimeMs`. Entries include `relativePath`, `displayName`, `size` (bytes), `mimeType`, `sha256`, and `mtimeMs`.
 
-Application exports additionally carry optional `sourceResource: { resourceId, sha256 }`; the hash identifies the original exported bytes, so external edits invalidate the link. Legacy exports are recognized from their indexed `exports/<resourceId>/<8-hex>-<displayName>` namespace and original indexed hash.
-
 Paths are relative to `artifacts/`, support Unicode and spaces, and retain subdirectories so duplicate basenames remain distinguishable. JSON, logs, and code are valid deliverables when deliberately placed there; the UI must not filter them by extension.
 
-Conversation Markdown resolves absolute local links only against this index under `<storageRoot>/<taskId>/artifacts/`. `workspaceRoot` names the project directory and may differ; it is used only as a compatibility fallback when `storageRoot` is absent. Supported editable files open directly in the declared application; other formats retain the preview/download drawer.
+Conversation Markdown resolves absolute local links only against this index under `<storageRoot>/<taskId>/artifacts/`. `workspaceRoot` names the project directory and may differ; it is used only as a compatibility fallback when `storageRoot` is absent. Text, Markdown, JSON, images and PDF open in the read-only preview drawer with a download action; other types download directly. The desktop build additionally offers "open with the system default app" through a preload IPC that first asks the backend for the artifact's absolute path; the Web build shows no such entry.
 
 The Runtime keeps indexing metadata in Task `.runtime/artifacts.json`; no model-facing registration tool is required. Private Subagent `deliverables/`, Main `work/`, `sessions/`, and `runs/` are not scanned as final outputs. Legacy workspaces require the explicit migration described in [workspace layout](task-workspace-layout.md); ordinary discovery never promotes candidates.
 
@@ -621,7 +606,10 @@ The Runtime keeps indexing metadata in Task `.runtime/artifacts.json`; no model-
 GET /api/tasks/:taskId/artifact?path=<URL-encoded relative path>
 GET /api/tasks/:taskId/artifact?path=<URL-encoded relative path>&raw=1
 GET /api/tasks/:taskId/artifact?path=<URL-encoded relative path>&download=1
+GET /api/tasks/:taskId/artifact-path?path=<URL-encoded relative path>
 ```
+
+`artifact-path` returns `{ absolutePath }` for a file already indexed under this Task's `artifacts/`; it applies the same containment checks as preview and download, so a path outside `artifacts/` is rejected. The desktop preload uses it for "open with the system default app"; the Web build never calls it.
 
 The default response describes the preview:
 
@@ -639,7 +627,7 @@ The default response describes the preview:
 }
 ```
 
-`previewKind` is `text`, `pdf`, `image`, or `download`. Only `text` includes `content`; text preview reads at most 256 KiB, with `truncated: true` when only a prefix is shown. Render PDFs in an iframe and images as images using `rawUrl`. Office documents and other binary files use a download card, never a UTF-8 code editor. Every kind offers open/download actions; copying applies only to text and must identify truncated previews.
+`previewKind` is `text`, `pdf`, `image`, or `download`. Only `text` includes `content`; text preview reads at most 256 KiB, with `truncated: true` when only a prefix is shown. Render PDFs in an iframe and images as images using `rawUrl`. Office documents and other binary files use a download card, never a UTF-8 code editor. Every kind offers a download action; copying applies only to text and must identify truncated previews. The desktop build may additionally offer "用系统默认应用打开", which resolves the file through `artifact-path` and opens it with Electron `shell.openPath`; the Web build has no such action.
 
 `raw=1` serves complete bytes with their MIME type; `download=1` serves the same file as an attachment with a Unicode-compatible filename. Encode the entire path query value, and never resolve it against a different Task or outside `artifacts/`.
 
@@ -667,7 +655,7 @@ Main streaming activity uses `type: "runtime_event"`, with the Pi event in `payl
 
 The durable ledger initially replays its latest 500 complete records, then reads appended byte ranges; an appended burst is not capped at 500. Idle streams check metadata without rereading history. Truncation or file replacement resets the read cursor, with recent event identities suppressing duplicates. Detail tail reads are bounded by the requested record count. Incomplete streaming UTF-8/JSON lines remain buffered until completed.
 
-## External / Virtual Agent events
+## External events
 
 ```text
 POST /api/tasks/:taskId/events
@@ -688,166 +676,6 @@ Example:
 
 The Runtime writes the observation to the Event Log and Main Inbox. `watcherId + dedupeKey` is idempotent; sending the same observation twice does not create a second Inbox message. By default ingestion does not call the model. With `wake: true`, and only when Main is not already running, the local Runtime Host starts a continuation of the existing Main session and asks it to inspect the Inbox. A production Worker/supervisor will own this wake decision when the Dashboard process is not running.
 
-## Application Workbench APIs
-
-A Shared Resource is live collaboration state that both the user and Main edit through one versioned protocol.
-
-Resources live under `<application-resource-root>/applications/<appType>/`; that root can be a project folder or a resource's existing location. Each Task references them through `<task-storage-root>/<taskId>/applications/mapping.json`, with manifests/loading relationships in the same real Task storage; shared window instances are indexed under the application resource root. These roots need not match. Cross-root references record workspaceRoot; a legacy reference without it resolves from the Task storage root. Active manifests likewise preserve the bound instance's original workspaceRoot.
-
-Multiple conversations can share the same resource without moving or copying it. Ordinary final files remain under `<task>/artifacts/`; the product's deliverables view combines both kinds. Resource saves need no additional publish step. Separating the roots does not move or delete existing resources or Task data; backups include both roots and any external originals. See [workspace layout](task-workspace-layout.md).
-
-New resources created through a conversation inherit its project directory and affiliation. Resource metadata and window instances may carry a `project` snapshot with `projectId`, `projectName`, `projectDirectory` and optional `projectCatalogPath`; `null` explicitly means unassigned and missing fields retain legacy compatibility.
-
-Loading or sharing existing resources never changes their affiliation or physical root. Resolved application tabs expose the physical root in `workspaceRoot` and the affiliation in `project`; the display name follows committed project renames.
-
-Independent windows use the selected directory's existing project record, or remain unassigned when no record exists. The selected conversation never supplies a replacement label for an existing window.
-
-`project` is the authoritative affiliation; resource/tab `projectId` is its compatibility alias. Older records containing only `projectId` resolve by stable catalog identity, retaining their physical roots when another project reuses the folder. An explicit `project: null` takes precedence over a legacy ID or root match. Discovery and tab resolution preserve the original metadata bytes.
-
-Legacy directory groups without retained conversations or valid application content are omitted from the project list. Legacy groups can carry `hasApplications` as presentation evidence. Explicit empty projects remain visible. Filtering preserves the persisted catalog rows and all user data; querying an internal holding Task does not register a project.
-
-### Global workbench and MCP
-
-MCP tool calls allow up to 10 minutes. Startup and tool discovery retain their existing SDK deadlines. Stopping an Agent call or disconnecting its HTTP request propagates cancellation to the MCP request; late results cannot apply resource operations. Progress messages do not extend the total tool deadline. A shared MCP server stays available to its other windows after one request is cancelled.
-
-```text
-GET    /api/workbench/temporary-resources
-POST   /api/workbench/open-application
-POST   /api/workbench/bind-resource
-GET    /api/workbench/tabs
-GET    /api/workbench/revisions
-POST   /api/workbench/tabs
-PATCH  /api/workbench/tabs
-DELETE /api/workbench/tabs
-GET    /api/workbench/mcp/status
-GET    /api/workbench/mcp/tools
-POST   /api/workbench/mcp/call
-```
-
-- `temporary-resources`: lists retained managed documents with `accessTaskId` and physical `workspaceRoot`, including those whose tabs are closed. Reopening uses that explicit holding access context; the list does not create projects or delete data.
-- `open-application`: `{ appType, workspaceRoot? }` opens an empty application before a conversation exists; omitting `workspaceRoot` allocates a fresh durable managed temporary root and unique hidden holding Task. Explicit roots retain existing project/shared-workspace behavior; returns the instance, holding Task, MCP status when available and resolved Tab state. A new project-scoped application stores its holding Task in the Dashboard default Task store, independently of its resource root; it creates no new Task/manifest in the project folder. Existing project-local holding Tasks and references remain in place for compatibility.
-- `POST /api/tasks/:taskId/resources/:resourceId/save-copy`: `{ revision, format, directory }` or `{ revision, format, projectId }` exports the exact current revision to an existing selected folder/project. The two destinations are mutually exclusive. Returns `{ resource, path }`; `resource.savedCopies` records destination hashes/revisions and optional project provenance. Revision mismatch and externally modified copies return conflicts. First saves reject every existing destination, even identical bytes. Only persisted savedCopies receipts authorize repeat updates at the same path. An interrupted file commit without a receipt remains intact and is not adopted on retry. Previously unassigned resources gain the explicitly selected project affiliation, but their managed root, history, attachments and all conversation references remain intact. Cancellation is a UI action and sends no save request. Closing a tab never deletes temporary data.
-- `bind-resource`: `{ taskId, fromTaskId, resourceId }` references and binds an existing resource to the target conversation. Empty-window handoff uses `fromAppInstanceId` with no resourceId. Regular conversation sharing preserves previous references; standalone handoff can close holding windows. Binding a project-scoped editor to a conversation updates the conversation's mapping/manifest in the real Task store; HTTP and Run/Pi discover that same binding. Active-resource roots come from the persisted binding, without moving old references to the latest projectDirectory.
-- Tab `GET` reads resolved navigation state and the latest settled MCP status without starting or retrying application servers. A server still starting has no status entry until it settles; polling cannot block on its startup.
-- Tab and revision reads share workspace discovery and instance snapshots only within each request. Later requests read fresh state; committed metadata still uses external-file reconciliation and durable recovery. Repeated reads do not rewrite already-present holding references.
-- Tab `POST`: `{ kind: "conversation", taskId }`, `{ kind: "application", resourceId }`, or `{ kind: "application", taskId, appInstanceId }` for an empty window. Optional `activate: false` preserves focus; `bindTo` explicitly states the conversation to bind. Opening a resource tab does not grant a new Task reference by itself. Application opens await only the selected window's MCP startup, not other tabs' servers.
-- Tab `PATCH`: `{ tabId }` activates a Tab; `{ tabId: null }` clears focus. `DELETE { tabId }` closes it; a document Tab close unbinds all referring conversations without deleting the document/references. Tab responses contain resolved navigation state.
-- Resolved conversation tabs and each application tab's `conversations`, `loadedConversations` and `relatedConversations` entries include `storageRoot`, the actual Task data root. Native previews resolve `<storageRoot>/<taskId>` from the acting conversation; the application tab's `workspaceRoot` continues to identify the resource directory. This read-time field does not change the persisted tab format.
-- `revisions`: optional repeated `appInstanceId` query parameters restrict the snapshot to those open windows; omitting them retains the complete snapshot. Unknown/closed IDs are omitted. Returns `{ instances: [{ appInstanceId, appType, resourceId?, revision?, contentVersion?, title }] }` for open application tabs. It reads committed metadata without loading document bodies, computing previews or waiting for a native operation. Instances with a pending durable resource transaction are omitted until commit completes. Empty instances are included so creating their first document can update the mounted window.
-- MCP `status` returns the latest settled server snapshots without waiting for startups. `tools`: query by `resourceId`, or by `taskId` and `appInstanceId` for a window. `call`: `{ taskId, resourceId, name, params }`; Runtime reads the current resource revision and returns the tool result plus `baseRevision`. Tool discovery and calls revive missing servers on demand and wait for availability, including after a backend restart. A replayed bound call additionally supplies `executionTarget: { resourceId, appType, appInstanceId?, resourceWorkspaceRoot, resourcePath }`; these fields validate the persisted reference's identity and never grant path access. Mismatches return `execution_scope_changed` before the MCP call. Returned operations must still be submitted through the application operation protocol.
-
-These MCP processes belong to the local service/application lifetime, not a single Main Run. They are revived on demand after a backend restart. Native mode supplies its protected API token to owned clients.
-
-### Task resources and instances
-
-```text
-GET   /api/applications
-GET   /api/tasks/:taskId/resources
-POST  /api/tasks/:taskId/resources
-GET   /api/tasks/:taskId/resources/:resourceId
-PATCH /api/tasks/:taskId/resources/:resourceId
-GET   /api/tasks/:taskId/resources/:resourceId/operations
-POST  /api/tasks/:taskId/resources/:resourceId/operations
-POST  /api/tasks/:taskId/resources/:resourceId/undo
-GET   /api/tasks/:taskId/resources/:resourceId/download
-POST  /api/tasks/:taskId/resources/:resourceId/preview
-POST  /api/tasks/:taskId/resources/:resourceId/commands
-GET   /api/tasks/:taskId/resources/:resourceId/attachments/:name
-POST  /api/tasks/:taskId/resources/:resourceId/import-native
-POST  /api/tasks/:taskId/resources/:resourceId/open
-PUT   /api/tasks/:taskId/resources/:resourceId/selection
-GET   /api/tasks/:taskId/app-instances
-POST  /api/tasks/:taskId/app-instances
-POST  /api/tasks/:taskId/app-instances/open
-POST  /api/tasks/:taskId/app-instances/unbind
-POST  /api/tasks/:taskId/app-instances/:instanceId/resources
-PATCH /api/tasks/:taskId/app-instances/:instanceId
-GET   /api/tasks/:taskId/active-app-context
-```
-
-`GET /api/applications` returns `{ applications: ApplicationDefinition[] }` for every registered application, including compatibility adapters, with supported resource kinds and operation schemas. The optional `catalogVisibility` is `"primary"` or `"compatibility"`; absence means `"primary"`. Default application launchers and the Pi `list_applications` tool omit compatibility entries. The built-in catalog is empty in this branch. Generic MCP adapters can extend the registry; the platform routes by the adapter declaration.
-
-Resource creation accepts `{ kind, title, initialContent?, appType? }`; `{ fromArtifact, appType? }` opens the existing source resource for an unchanged application export (returns `reused: true`), or imports an unrelated artifact as an editable resource. The App first makes this request before reading or converting the file; only `unsupported_resource_kind` triggers browser conversion.
-
-Browser-converted formats additionally send `{ appType, kind, title?, initialContent, artifactSha256 }` with `fromArtifact`; the server validates the declared import format and current source hash before creation, returning `source_file_conflict` when the source has changed.
-
-Imported resources persist optional `importedArtifact: { storageRoot, taskId, relativePath, sha256 }`, where `storageRoot` is the canonical Task storage root. Existing `workspaceRoot` origin fields and symlink aliases are read compatibly. Reopening an unchanged source reuses its imported resource even after live edits or a restart; a changed source hash may create a new copy.
-
-Concurrent imports of the same source are serialized using the Task's `applications/artifact-import.lock`. If creation was interrupted after saving the resource but before adding the conversation reference, retry restores the exact source's reference. Legacy resources without provenance are never merged by title.
-
-Imports retain a temporary `creation.json` journal beside resource metadata until the initial content is committed. Recovery restores that same resource identity when interrupted before metadata or content publication. An independently changed destination is preserved and returns `resource_recovery_required` instead of being overwritten.
-
-Task-detail resource deliverables expose optional `files: [{ relativePath, displayName?, mimeType?, size? }]` for editable imported originals and exports with matching provenance. These files share the resource's single panel row and remain downloadable. Read-only exports such as PDF remain independent preview rows. The full `artifacts` index and original bytes stay available; projection never deletes files or resources.
-
-When a current editable artifact matches an imported resource's source hash, earlier imports of that exact source are grouped under its row as optional `previousVersions: [{ resourceId, name, revision, updatedAt }]`, newest update first. Grouping requires the same canonical storage root, Task, relative path, application and resource kind; equal titles never identify a version. The panel count follows the projected rows. Historical resources remain openable with their edits and revisions, and their matching exports remain in the row's downloadable `files`. If the current artifact is missing or has no matching imported version, all resources remain separate.
-
-Task-detail file deliverables expose optional `sourceResourceId` only when the provenance hash matches and the conversation already references that resource. The App opens this source directly, preserving the current native content, revision, selection and instance rather than converting its export back into a duplicate. Titles and content similarity never identify a source; missing sources and modified exports follow the normal import path.
-
-`PATCH` renames with `{ title }`. Download uses `?format=text` or `?format=markdown`, renders the current resource and returns attachment bytes; it does not write to artifacts. The old export route is removed.
-
-`app-instances/open` accepts `{ appType }` and opens an empty application, not a document. `:instanceId/resources` creates a document inside that window and rekeys its global Tab by resourceId. `app-instances/unbind` detaches the Task's active application context. Instance creation/update remain window-state operations; consumers should not use them to bypass resource reference checks.
-
-Submitting an operation:
-
-Native application routes require the Task's resource reference and dispatch through the owning Adapter:
-
-- `commands`: `{ command, params, baseRevision, operationId }`. Runs the Adapter tool outside the lock, then commits its single operation with CAS. A retry of a committed operationId returns the saved state without rerunning native code.
-- `preview`: `{ content, options? }`. Does not create a revision; Adapter validates native pointers and may reject unsaved content.
-- `attachments/:name?revision=N`: current revision required; mismatch returns 409. Adapter owns the filename allowlist, MIME type and hash validation.
-- `import-native?revision=N&operationId=...`: raw file bytes, maximum 64 MiB. A failed candidate or stale revision leaves the previous scene intact.
-- `download?format=...&options=<encoded JSON>`: exports the resource through its registered adapter. HTTP disconnect cancels ongoing operations.
-
-The operation envelope is:
-
-```json
-{
-  "operationId": "op_client_uuid",
-  "appType": "custom-editor",
-  "operationType": "text.replace",
-  "baseRevision": 8,
-  "payload": { "from": 42, "to": 48, "text": "目标用户" }
-}
-```
-
-`baseRevision` is mandatory and enforced: a mismatch returns `409 revision_conflict` carrying `currentRevision`. There is no last-write-wins. Re-sending the same `operationId` returns the original result without creating a second revision, so a retry after a lost response is safe. Operations may also carry a hash of the text they expect to replace; a correct revision with wrong content is refused with `operation_precondition_failed`.
-
-Undo applies the adapter's inverse as a new revision rather than rewriting history.
-
-These routes return a typed error, while existing APIs keep their old `{ "error": "..." }` shape:
-
-```json
-{
-  "error": {
-    "code": "revision_conflict",
-    "message": "资源已被更新，请重新读取后再提交",
-    "retryable": true,
-    "details": { "expectedRevision": 8, "currentRevision": 9 }
-  }
-}
-```
-
-Codes: `application_not_found` and `resource_not_found` and `instance_not_found` (404), `unsupported_resource_kind` and `invalid_operation` (422), `revision_conflict` and `operation_precondition_failed` (409), `resource_too_large` (413), `resource_recovery_required` (503), `unsafe_path` (400).
-
-Task detail gains an `applications` index — resources, open tabs, the active tab, and per-resource counts of changes Main has not yet read. Its `workspaceRoot` identifies the persisted default document home, separately from top-level `storageRoot` (Task data) and `projectDirectory` (the current project folder). The loading menu includes these permitted homes and existing server-resolved references; unrelated project windows remain excluded. Loaded-conversation markers for a document use its exact source-root reference, including legacy mixed-root bindings. It never carries document content, since detail is polled.
-
-Resource changes ride the existing Task SSE stream as ordinary run events, including `resource.created`, `resource.operation_applied`, `resource.selection_changed`, `application.instance_opened` and `application.instance_updated`. Operation/selection changes are published to all referring Tasks. Payload fields such as `appType`, `resourceId`, `appInstanceId` and `revision` identify what changed; their presence depends on event kind.
-
-The browser checks `/api/workbench/revisions` while application tabs are open and the page is visible, waiting 500 ms after each completed check. Automatic Task/tab reads also pause for hidden pages, and hidden application tabs defer their content checks until visible again. Becoming visible triggers an immediate refresh. Explicit loading, saving, autosaving and flushing remain available, and SSE continues while the page is hidden. Changed revisions go only to affected adapters; hidden adapters defer their latest-content read until visible. This covers standalone editors, idle Tasks, and edits from another conversation or MCP process. Creating a document in an empty window refreshes the tab state. Unsaved local drafts remain in the editor and remote changes enter its existing conflict flow.
-
-Each committed operation can appear before the Run finishes; rapid consecutive commits may coalesce into the latest state. Model tokens and native calculations that have not committed are not document revisions. The retained historical `resource.export_completed` type does not imply a current export endpoint.
-
-Main gets five generic tools: `list_applications`, `list_resources`, `list_resource_changes`, `create_resource` and `apply_resource_operation`. They provide the shared protocol for registered applications.
-
-`list_applications` returns `{ applications: ApplicationDefinition[] }` from the default catalog, unlike the complete HTTP catalog above. It omits definitions marked `catalogVisibility: "compatibility"`; it does not filter resources or the tools of a bound compatibility application. `create_resource` still accepts registered compatibility kinds or an explicit `appType` when needed.
-
-Resource content is read through the bound application's domain tools. Generic platform tools manage resource identity, revisions and changes; they do not interpret text offsets, geometry or spreadsheet ranges. Domain tools are registered through `agentTools()` or an MCP server only while the application is bound. Text tools use unambiguous anchors instead of requiring a model to derive character offsets from a summary.
-
-External adapters may provide domain-specific tools. Ordinary workspace files use the generic file tools.
-
-Injected context includes platform metadata (kind, `size_bytes`, revision and title) and one application-provided `<shape>` line describing the resource structure without positions. A count ("3 个标题", "47 个特征") is safe because it is nothing a model can pass as an argument; an address ("第 3 行", "A1:C5", an offset) is not. `<selection>` may name a position, because that is a place the user chose.
-
-Application tools return operations for the platform to commit through revision CAS, the operation log and undo.
-
 ## UI implementation rules
 
 - Never write Task, Event, Inbox, or Artifact files from the Renderer.
@@ -855,21 +683,19 @@ Application tools return operations for the platform to commit through revision 
 - Work logs present named participants, actions, relevant files/results, and local times. Fold tool start/end updates into one entry, skip queue/lease bookkeeping, and allow users to expand a result or jump to the participant's trajectory. Preserve expanded entries during refreshes; filter activity to the current run.
 - Treat `queued`, `running`, `waiting`, `succeeded`, `partial`, `failed`, `timed_out`, and `cancelled` as distinct states.
 - Display the current request's final answer only when `runtime.active` is false, `task.status` is `completed`, and both `coordination.pending` and `coordination.callbackPending` are empty. Natural completion is sufficient; legacy explicit-policy metadata must not hide a completed answer. The last assistant message must contain a final response rather than a tool call, truncated output, or error. Until then, keep assistant text in the execution history; show an incomplete/waiting state if Main has stopped. Preserve completed replies and activity from earlier user requests during follow-ups.
-- One-shot callbacks must be processed before final completion. Later external/watch events may start a continuation; preserve the earlier conversation when they arrive.
+- One-shot callbacks must be processed before final completion. Later external events may start a continuation; preserve the earlier conversation when they arrive.
 - If progress marks a legacy large trace with `traceSampled: true`, label its turn/message counts as sampled rather than totals.
 - Use fixture data with the same shapes for offline UI development on macOS.
 
 ## 交互与恢复契约
 
 - `PATCH /api/tasks/:taskId` 接受 optional `title`（1–100 字符）、`pinned`、`archived`。原有 goal 与 Task 身份保持不变；旧记录缺省为未置顶、未归档。运行中的任务需先停止才能归档；搜索可重新打开已归档会话并恢复。
-- `POST /api/tasks/:taskId/action` 的 pause 在 Task 记录写入持久暂停请求，Main 在当前工具调用或模型回复结束、下一次工具调用或模型请求之前读取并停下；进程退出后状态为 `paused`，`pause.pausedAt` 记录边界时间，已完成文件、候选与需求记录保留。没有运行中的 Main 时返回 409；该边界已完成 Task 时保持 `completed`。`/run` 携带 `{ "resume": true }` 从同一 Run 和 Pi 会话继续，保留已完成的工具结果，不重复已完成步骤。暂停后进程已退出，不占 Main 名额；`cancel` 从暂停状态正常终止。目录与详情提供 optional `pause`（`requestedAt`、`pausedAt`）和 `paused` 状态，继续前 `runtime.active` 为 false。
+- `POST /api/tasks/:taskId/action` 的 pause 在 Task 记录写入持久暂停请求，Main 在当前工具调用或模型回复结束、下一次工具调用或模型请求之前读取并停下；进程退出后状态为 `paused`，`pause.pausedAt` 记录边界时间，已完成文件与需求记录保留。没有运行中的 Main 时返回 409；该边界已完成 Task 时保持 `completed`。`/run` 携带 `{ "resume": true }` 从同一 Run 和 Pi 会话继续，保留已完成的工具结果，不重复已完成步骤。暂停后进程已退出，不占 Main 名额；`cancel` 从暂停状态正常终止。目录与详情提供 optional `pause`（`requestedAt`、`pausedAt`）和 `paused` 状态，继续前 `runtime.active` 为 false。
 - `POST /api/tasks/:taskId/action` 的 cancel 通过 Run 服务终止对应 Pi 进程组、取消未完成委派并等待输出落盘，再返回。其他任务和后续运行不受影响。Detail 的 `runtime.stopping` 为停止中的 optional 标志。
-- Web 和桌面共用 `GET /api/model-settings`：返回当前连接状态以及 `activeProfileId`、`visionProfileId`、`profiles`（`id`、`name`、`active`、`vision`、`configured` 和非密钥参数），不返回明文或加密密钥。POST 接受 `baseUrl`、`model`、`apiKey`、`api`、`supportsImages`、`contextWindow`（上下文容量，默认 256000 token，正的安全整数）、推理/输出参数，以及 `profileId`、`profileName`、`activate` 和 `vision`；`profileId: ""` 新建，非空编辑指定组，省略则兼容原单组调用、修改当前组。`activate: true` 保存并启用；首组自动启用。`vision: true` 将图像配置用于 `read_image` 的纯文本模型兜底，保存为 `modelConnections.visionId`；`vision: false` 只在该组当前承担此用途时取消，不切换聊天连接。空密钥只保留指定组原密钥，新组必须提供密钥。测试接口按 `profileId` 查找该组密钥，不修改当前启用项。环境管理的连接和运行中的任务拒绝保存。配置列表使用 `modelConnections.version: 1`，首次写入前保留 `.before-model-profiles` 备份，配置与备份权限为 0600。模型密钥保存在所选执行主机的凭据文件中，保存设置不重启后端。`GET /api/model-settings?projectId=<项目 ID>` 额外返回 `modelRoles`：Main 的有效来源（项目覆盖、主机默认、当前启用连接或启动环境）、连接名称、模型和推理强度；Executor、Reviewer 已接通委派，有绑定时给出该绑定的有效来源，未绑定时 `effective` 为 `null`（工作项沿用启动 Run 的连接）；Router 仍以 `wired: false` 列出。`POST /api/model-settings/roles` 以 `{ role, profileId, projectId? }` 保存主机默认或项目覆盖，`profileId: ""` 清除；引用的连接不存在时拒绝保存，已保存的失效引用在状态中给出可定位错误并拒绝下一次 Run，不会改用其他账号。项目覆盖按共享项目 ID 保存在执行主机本机配置中，不随项目进入共享数据或远端主机。角色变更对下一次 Run 生效，在途 Run 保持启动时的快照。
+- Web 和桌面共用 `GET /api/model-settings`：返回当前连接状态以及 `activeProfileId`、`profiles`（`id`、`name`、`active`、`configured` 和非密钥参数），不返回明文或加密密钥。POST 接受 `baseUrl`、`model`、`apiKey`、`api`、`supportsImages`、`contextWindow`（上下文容量，默认 256000 token，正的安全整数）、推理/输出参数，以及 `profileId`、`profileName` 和 `activate`；`profileId: ""` 新建，非空编辑指定组，省略则兼容原单组调用、修改当前组。`activate: true` 保存并启用；首组自动启用。旧的图片分析角色字段不再读取、返回或生效：配置里残留的角色按未知字段忽略，请求里的 `vision` 不会改变任何连接。空密钥只保留指定组原密钥，新组必须提供密钥。测试接口按 `profileId` 查找该组密钥，不修改当前启用项。环境管理的连接和运行中的任务拒绝保存。配置列表使用 `modelConnections.version: 1`，首次写入前保留 `.before-model-profiles` 备份，配置与备份权限为 0600。模型密钥保存在所选执行主机的凭据文件中，保存设置不重启后端。`GET /api/model-settings?projectId=<项目 ID>` 额外返回 `modelRoles`：Main 的有效来源（项目覆盖、主机默认、当前启用连接或启动环境）、连接名称、模型和推理强度；Executor、Reviewer 已接通委派，有绑定时给出该绑定的有效来源，未绑定时 `effective` 为 `null`（工作项沿用启动 Run 的连接）；Router 仍以 `wired: false` 列出。`POST /api/model-settings/roles` 以 `{ role, profileId, projectId? }` 保存主机默认或项目覆盖，`profileId: ""` 清除；引用的连接不存在时拒绝保存，已保存的失效引用在状态中给出可定位错误并拒绝下一次 Run，不会改用其他账号。项目覆盖按共享项目 ID 保存在执行主机本机配置中，不随项目进入共享数据或远端主机。角色变更对下一次 Run 生效，在途 Run 保持启动时的快照。
 - `GET /api/models` 新增 `connectionProfileId`，配置切换后前端清除旧服务的会话模型选择；已有会话历史保留，后续请求使用新启用的模型配置。响应还带 `reasoningEffort`：下一次 Main 运行将使用的推理强度，取自 Main 角色解析到的连接（主机默认、项目覆盖或当前启用连接）；该连接尚不可用时省略。Composer 的推理强度选择以它为默认显示；用户未显式选择时不随请求发送 `thinkingLevel`，各角色运行使用其绑定连接保存的强度，显式选择只作用于该次运行。响应的 `levels` 按模型给出可选档位与来源（`endpoint` 服务商 `/models` 条目、`official` Pi 内置的官方地址表、`manual` 连接上勾选的 `reasoningLevels`，默认六档）；Composer 只显示当前模型的档位，切换模型时已选档位不受支持则移到最近一档。连接保存 `reasoningLevels`（至少一项，须包含连接默认强度，`null` 清除）；`POST /api/model-settings/levels` 供连接编辑页识别档位。
 - 本地附件通过下方 [Local input uploads](#local-input-uploads) 的上传、预览与引用接口读取；现有文本草稿附件的限制不代表上传接口的文件能力。Run prompt 通过 stdin 传给 Pi，服务边界仍拒绝 NUL 和超限消息。
 - interject 的 Inbox 投递不变；响应增加 `messageId`，事件保存完整消息用于跨 Run 的对话投影。`steer` 在界面显示为补充指令；`followUp` 排队时显示等待状态，消费后按新请求分组，保留前一请求的最终回复。
-- `GET /api/tasks/:taskId/resources/:resourceId/review` 返回最近已保存操作的 `revision`、`baseRevision`、`eventId`、前后文本及摘要；无可还原历史时 `available=false`。可选 Adapter `reviewContent` 提供领域投影。
-- undo 可额外携带 `baseRevision` 与 `eventId`，只撤销已审阅的对应操作；资源已改变时返回 revision_conflict。旧调用仍兼容。前后对比为整次操作，尚未提供分块接受和行评论。
 
 ## Local input uploads
 
@@ -878,7 +704,7 @@ Application tools return operations for the platform to commit through revision 
 - `GET /api/uploads/:uploadId/preview?page=1` returns image metadata, a bounded text excerpt, or a rendered PNG PDF page and total page count. Local parsing dependencies are required for PDF/Office.
 - `POST /api/tasks/:taskId/run` and `/interject` accept optional `attachmentIds: string[]`, at most 10 IDs / 100 MiB. Original files are validated and copied to Task `inputs/` before the message reaches Main. Prompt metadata references those files; the conversation renderer displays filenames and image thumbnails. Main uses `read_attachment({id,offset?,limit?,page?,render?})` to read them explicitly.
 
-Uploads stay local until an agent reads them during the user's model run. Reading a document sends extracted content to the configured model; image reading sends a vision block only when image input is enabled. Upload IDs are local references under the Dashboard's existing origin and desktop authentication boundary, not a public sharing mechanism.
+Uploads stay local until an agent reads them during the user's model run. Reading a document sends extracted content to the configured model; image reading sends pixels only when the connection accepts image input, and otherwise reports that the current model does not support images. Upload IDs are local references under the Dashboard's existing origin and desktop authentication boundary, not a public sharing mechanism.
 
 ## 联网搜索设置
 
@@ -891,53 +717,3 @@ Uploads stay local until an agent reads them during the user's model run. Readin
 `GET /api/web-search-settings` returns `{ enabled, provider, authenticated, managedByEnvironment }` and any secret-unavailable status without credentials. `POST` accepts `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }` and returns updated status. A blank key retains the existing value; explicit clearing restores anonymous use. Active runs and search environment management reject writes. Existing local authentication, Host/Origin, JSON-size and error boundaries apply.
 
 Desktop and Web use the same interface, and the search key belongs to the selected execution host. Desktop client session credentials are host-managed. Saving does not restart the backend; new or resumed runs use the updated configuration. See [web search](en/configuration.md#web-search).
-
-## Long-term goals
-
-Goal HTTP routes and Pi tools share `GoalManagement`; routes are [goal-routes](../src/dashboard/goal-routes.ts) and [goal-service](../src/dashboard/goal-service.ts). `WatchProgram.goal` is optional, retaining older monitor records. Goal lists project effective legacy pause/completion state rather than treating a stale stored monitoring flag as active intent.
-
-| Endpoint                                                                      | Behavior                                                                                                   |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `GET /api/goals`                                                              | Return `{goals,scheduler}` across registered workspaces.                                                   |
-| `POST /api/goals`                                                             | Create a goal, return its detail with HTTP 201; planning is queued, not completed.                         |
-| `GET /api/goals/activity?offset=N&unread=1&taskId=...`                        | Return up to 30 notifications with total/unread count; optional Task filter. Offset is an integer 0–10000. |
-| `GET /api/tasks/:taskId/goals`                                                | Return that Task's goals and scheduler metadata.                                                           |
-| `GET /api/tasks/:taskId/goals/:programId`                                     | Return goal, plan, sources, decision state and recent activity.                                            |
-| `POST /api/tasks/:taskId/goals/:programId/control`                            | Apply edit, pause, resume, complete or respond through shared management.                                  |
-| `GET /api/tasks/:taskId/goals/:programId/activity?offset=N`                   | Return up to 50 activity entries from a nonnegative integer offset.                                        |
-| `POST /api/tasks/:taskId/goals/:programId/notifications/:notificationId/read` | Persist read acknowledgement and return `{ok:true}`.                                                       |
-
-Creation accepts `{sourceTaskId?,requestId,scope?,brief}`. `requestId` (1–200 characters) provides stable creation identity; retries with the same identity reuse the goal, while a conflicting brief returns HTTP 409. `scope` defaults to `background`; `session` requires an active source Task. `brief` contains required `title` and `objective`, optional `completionCriteria`/`preferences`, and `notificationPolicy: "important_only" | "digest" | "all"`. Digest policy requires `{dayOfWeek,hour,minute,timeZone}`; day 0 is Sunday and the timezone must be recognized by `Intl.DateTimeFormat`.
-
-Controls use `action: "edit" | "pause" | "resume" | "complete" | "respond"`. Edit supplies the current `revision` and `brief`; lifecycle actions supply the current `revision`. Revision conflicts return HTTP 409 `revision_conflict` and require rereading. A control may also carry `operationId`: a repeat returns the saved result, which is how a client retries after a lost response even though the revision has moved. Respond supplies a nonempty answer up to 10000 characters and follows the durable HumanRequest → Inbox path. Completing the last independent background goal also stops its Task work; a session goal does not stop unrelated conversation work.
-
-Goal state, reports and notifications are distinct. Repeated concrete results reuse `topicKey`; normal same-priority repeats do not create a second notification, while promotion may. Digests assemble accepted routine records without another model request. Unread state is durable. Goal context is bounded; historical report bodies do not enter every model request.
-
-Cross-conversation model steering uses `manage_goal(action=steer)` with a current revision and queues an instruction without modifying the brief; queue acceptance does not mean completed work and never resumes paused work. See [goal architecture](long-term-goals-architecture.md) and [pause contract](monitoring-pause-contract.md).
-
-## Persistent monitors
-
-The frontend and Pi tools share `WatchManagement`; existing monitor interfaces remain available alongside goals. Task detail includes `monitoring: {monitors,sleep?,scheduler}`. Scheduler health, accepted source status and last probe result are separate facts. Background Tasks remain addressable but are omitted from the ordinary conversation list unless selected or pinned; the goal/monitor page exposes their controls without changing lifecycle state through presentation filters.
-
-| Endpoint                                              | Behavior                                                                                          |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `GET /api/monitors`                                   | List sources, owner Tasks, reference templates and scheduler health across registered workspaces. |
-| `POST /api/monitors`                                  | Create an independent background monitor.                                                         |
-| `GET /api/tasks/:taskId/monitors`                     | Return persisted sources, park record and scheduler health.                                       |
-| `POST /api/tasks/:taskId/monitors`                    | Configure/activate a reference template; optional `programId` attaches it to an existing goal.    |
-| `GET /api/tasks/:taskId/monitors/:monitorId/events`   | Return up to 30 events from a bounded log tail.                                                   |
-| `POST /api/tasks/:taskId/monitors/:monitorId/control` | Apply `pause`, `resume`, `retire` or `configure` controls.                                        |
-
-Creation accepts `task`, `template`, `source`, `config`, `cadenceSeconds`, optional `programId`, `scope`, `eventMode`, daily limits and `expiresAt`. Templates are job-lifecycle, metric-threshold, resource-version, feed-keyword, entity-state and timer; timer may omit its source. Cadence is an integer from 60 seconds to 30 days. Each daily analysis/wake count is an integer 1–1000 and resets on UTC dates. Public HTTP sources cannot contain URL credentials; expiration is a future ISO timestamp. Exact source formats and configuration are in the [template contracts](../.pi/skills/virtual-agent-authoring/templates/README.md).
-
-Creation returns HTTP 201 with `activated=true`, `taskId`, `programId` and `monitorId`; package/probe failure returns 422 with `activated=false`. Failed probes remain draft and never poll. An identical active configuration reuses the accepted instance. Draft/retired sources cannot resume; repair and activate explicitly. A source in a paused managed goal requires explicit goal resume first. Closed Tasks must be reopened before resuming their sources.
-
-Feed-keyword supports `items`, `github-releases`, `github-atom` and `hn-search`. Activation establishes a baseline without reporting old items as new. Responses are bounded to 256 KiB; source windows and outages can limit catch-up. Classification uses captured evidence, one model turn and no business tools. Main performs follow-up actions. Analysis inherits normal Main model/reasoning/turn/token/timeout configuration, with no separate monitoring model budget; daily analysis and wake counts remain independent scheduling limits.
-
-Dashboard owns scheduling over registered workspaces and uses the existing Run service for Main. Analysis keeps separate traces without replacing the active Main Run. Polling, analysis and delivery maintain separate retry state; slow analysis does not block source checks, direct delivery or timed wakes.
-
-The probe atomically saves state/outbox; durable Inbox acceptance precedes outbox acknowledgement. Successful analysis is cached before delivery. Wake reservations avoid charging the same delivery twice. Ordinary background replies park a standing responsibility rather than completing it.
-
-Pause is durable control intent: fully paused background work retains clocks, callbacks, answers and retries without automatic Main startup, source replacement or self-resume. Session goals retain unrelated work. Source acceptance rechecks pause after probing. Explicit resume releases retained work; retirement of a one-shot source is distinct and can still deliver its final event.
-
-Host shutdown/sleep stops checking, and startup resumes accepted state; a macOS source checkout can explicitly install the user-level service described in the [runtime reference](runtime-reference.md#macos-源码监控服务). No OS service is installed by ordinary startup.

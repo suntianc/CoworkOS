@@ -3,7 +3,7 @@ import { installWebSearchSettings } from "./web-search-settings.js";
 import { createSettingsModal } from "./settings-modal.js";
 import { createSettingsBackend } from "./settings-backend.js";
 import { icon } from "../ui/icons.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 import { LEVEL_LABELS as LEVEL_NAMES } from "./model-picker.js";
 
 /** The levels a connection can narrow to (#27); `minimal` stays only on old settings. */
@@ -85,7 +85,6 @@ export function installDesktopSettings({
       </div>
       <div class="settings-capabilities">
         <label class="settings-toggle"><span><strong>此模型支持图像输入<small class="settings-auto-tag" data-limit-tag="images" hidden>按模型识别</small></strong><small>未启用时，历史图片不会发送给模型；原图仍保留。</small></span><input name="supportsImages" type="checkbox" aria-label="此模型支持图像输入"></label>
-        <label class="settings-toggle"><span><strong>用此连接分析图片，供纯文本模型使用</strong><small>所选图片将发送到此服务；仅保存用途，不切换聊天模型。</small></span><input name="vision" type="checkbox" aria-label="用此连接分析图片，供纯文本模型使用"></label>
       </div>
       <details class="settings-advanced"><summary>高级连接参数${icon("chevron-down")}</summary><div class="settings-advanced-content">
         <label class="settings-field">思考模式格式<select name="thinkingFormat"><option value="auto">自动识别</option><option value="openai">标准格式</option><option value="zai">GLM 格式</option></select></label>
@@ -501,7 +500,6 @@ export function installDesktopSettings({
     form.elements.model.value = value.model || "";
     form.elements.api.value = value.api || "openai-responses";
     form.elements.supportsImages.checked = value.supportsImages === true;
-    form.elements.vision.checked = value.vision === true;
     form.elements.supportsPromptCacheKey.checked = value.supportsPromptCacheKey === true;
     form.elements.supportsReasoningEffort.checked = value.supportsReasoningEffort === true;
     const effort = form.elements.reasoningEffort;
@@ -647,7 +645,6 @@ export function installDesktopSettings({
     apiKey: form.elements.apiKey.value,
     profileId: selectedId,
     supportsImages: form.elements.supportsImages.checked,
-    vision: form.elements.vision.checked,
     supportsReasoningEffort: form.elements.supportsReasoningEffort.checked,
     supportsPromptCacheKey: form.elements.supportsPromptCacheKey.checked,
     reasoningEffort: form.elements.reasoningEffort.value,

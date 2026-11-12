@@ -31,8 +31,6 @@ export interface Artifact {
   displayName?: string;
   mimeType?: string;
   mtimeMs?: number;
-  /** Export origin, valid only while the published bytes retain this hash. */
-  sourceResource?: { resourceId: string; sha256: string };
 }
 
 interface TaskLocation {
@@ -56,7 +54,6 @@ interface ArtifactCache {
   entries: CacheEntry[];
 }
 interface ArtifactMetadata {
-  sourceResourceId?: string;
   runId?: string;
   producerAgentId?: string;
   displayName?: string;
@@ -323,14 +320,6 @@ async function indexFile(
   ) {
     throw new Error(`artifact changed while being indexed: ${relativePath}`);
   }
-  const legacyResourceId =
-    previous && /^exports\/(res_[a-zA-Z0-9_-]+)\/[a-f0-9]{8}-[^/]+$/.exec(relativePath)?.[1];
-  const sourceResource = metadata.sourceResourceId
-    ? { resourceId: metadata.sourceResourceId, sha256 }
-    : (previous?.artifact.sourceResource ??
-      (legacyResourceId && previous.artifact.displayName === basename(relativePath).slice(9)
-        ? { resourceId: legacyResourceId, sha256: previous.artifact.sha256 }
-        : undefined));
   const artifact: Artifact = {
     artifactId: `artifact_${createHash("sha256").update(`${input.taskId}\0${relativePath}`).digest("hex").slice(0, 24)}`,
     taskId: input.taskId,
@@ -345,8 +334,7 @@ async function indexFile(
       new Date(file.stat.birthtimeMs || file.stat.mtimeMs).toISOString(),
     displayName: metadata.displayName ?? previous?.artifact.displayName ?? basename(relativePath),
     mimeType: metadata.mimeType ?? previous?.artifact.mimeType ?? mimeType(relativePath),
-    mtimeMs: file.stat.mtimeMs,
-    ...(sourceResource ? { sourceResource } : {})
+    mtimeMs: file.stat.mtimeMs
   };
   return { entry: { artifact, ctimeMs: file.stat.ctimeMs, dev: file.stat.dev, ino: file.stat.ino }, ...file };
 }

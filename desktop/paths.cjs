@@ -11,7 +11,6 @@ function desktopPaths(appRoot, userData, env = process.env) {
     userData,
     workspaceRoot: data.workspaceRoot,
     globalIndex: data.globalIndex,
-    tabsIndex: data.tabsIndex,
     piAgentDir: data.piAgentDir,
     configPath: path.join(userData, "model-config.json"),
     secretPath: path.join(userData, "model-secret.bin"),

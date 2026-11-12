@@ -116,7 +116,7 @@ test("Main context refresh replaces old snapshots across system deltas without c
     {
       role: "system",
       content: "",
-      sections: { application_context: "APPLICATION_CONTEXT_ANCHOR" },
+      sections: { delivery_context: "DELIVERY_CONTEXT_ANCHOR" },
       timestamp: 4
     }
   ];
@@ -130,7 +130,7 @@ test("Main context refresh replaces old snapshots across system deltas without c
   assert.ok(waitingPrompt.includes("NEW_WORKSPACE"));
   assert.ok(!waitingPrompt.includes("OLD_WORKSPACE"));
   assert.ok(waitingPrompt.includes("CUSTOM_CONTEXT_ANCHOR"));
-  assert.ok(waitingPrompt.includes("APPLICATION_CONTEXT_ANCHOR"));
+  assert.ok(waitingPrompt.includes("DELIVERY_CONTEXT_ANCHOR"));
   assert.ok(waitingPrompt.includes("Runtime state: phase=waiting; pending delegations=3."));
   assert.ok(!waitingPrompt.includes("phase=active"));
   assert.ok(!waitingPrompt.includes("phase=failed"));

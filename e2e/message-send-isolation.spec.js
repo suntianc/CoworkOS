@@ -79,62 +79,6 @@ for (const failed of ["task-a", "task-b"])
     }
   });
 
-test("a pending workbench tab refresh cannot block a new conversation's first message", async ({ page }) => {
-  const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });
-  const tabGate = deferred();
-  const runs = [];
-  const errors = [];
-  let createdTask;
-  let holdTabs = false;
-  let blockedTabReads = 0;
-  page.on("pageerror", (error) => errors.push(error.message));
-  try {
-    await seed(page, dashboard);
-    await page.locator("#new-conversation").click();
-    await page.route("**/api/tasks", async (route) => {
-      if (route.request().method() !== "POST") return route.continue();
-      const response = await route.fetch();
-      expect(response.status()).toBe(201);
-      createdTask = await response.json();
-      // Initial page setup remains healthy; only the new task's tab refresh waits.
-      holdTabs = true;
-      await route.fulfill({ response });
-    });
-    await page.route("**/api/workbench/tabs", async (route) => {
-      if (route.request().method() === "GET" && holdTabs) {
-        blockedTabReads += 1;
-        await tabGate.promise;
-      }
-      await route.continue();
-    });
-    await page.route("**/run", async (route) => {
-      runs.push({
-        taskId: new URL(route.request().url()).pathname.split("/")[3],
-        ...route.request().postDataJSON()
-      });
-      await route.fulfill({ status: 202, json: { runId: "send-before-tabs-run" } });
-    });
-    const message = "标签列表仍在读取时也要发送这条消息";
-    const input = page.locator("#composer-input");
-    await input.fill(message);
-    await page.locator("#send-button").click();
-    await expect.poll(() => blockedTabReads).toBeGreaterThan(0);
-    await expect.poll(() => runs.length, { timeout: 3000 }).toBe(1);
-    expect(runs[0]).toMatchObject({ taskId: createdTask.taskId, prompt: message });
-    await expect(page.locator(".chat-message.user").last()).toContainText(message);
-    await expect(input).toHaveValue("");
-    await input.fill("标签尚未返回时的下一条草稿");
-    await expect(page.locator("#send-button")).toBeEnabled();
-    expect(errors).toEqual([]);
-  } finally {
-    // Stop the page before releasing tabs so a failed assertion cannot send late.
-    await page.close();
-    tabGate.resolve();
-    await page.unrouteAll({ behavior: "ignoreErrors" }).catch(() => {});
-    await dashboard.stop();
-  }
-});
-
 test("new drafts keep separate send identities across navigation and task creation", async ({ page }) => {
   const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });
   const creationGates = [deferred(), deferred()];

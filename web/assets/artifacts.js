@@ -135,5 +135,5 @@ export function renderArtifactMedia(preview, { name, typeLabel, rawUrl, download
     return `<div class="drawer-state"><strong>${esc(name)}</strong><p>点击“打开 ↗”查看 PDF。</p></div>`;
   if (preview.previewKind === "image")
     return `<div class="artifact-image"><img src="${esc(rawUrl)}" alt="${esc(name)}" /></div>`;
-  return `<div class="drawer-state artifact-download-card"><span class="artifact-format-badge">${esc(typeLabel)}</span><strong>${esc(name)}</strong><p>此格式可下载后使用相应应用打开。</p><a class="drawer-action is-primary" href="${esc(downloadUrl)}" download="${esc(name)}">下载文件 · ${esc(formatArtifactSize(preview.size))}</a></div>`;
+  return `<div class="drawer-state artifact-download-card"><span class="artifact-format-badge">${esc(typeLabel)}</span><strong>${esc(name)}</strong><p>此格式可下载后用系统应用打开。</p><a class="drawer-action is-primary" href="${esc(downloadUrl)}" download="${esc(name)}">下载文件 · ${esc(formatArtifactSize(preview.size))}</a></div>`;
 }

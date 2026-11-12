@@ -11,8 +11,7 @@
 | 更新、备份与安装排错         | installation-reference                                           |
 | 模型设置                     | configuration                                                    |
 | 配置字段、运行契约、组件命令 | configuration-reference、runtime-reference、components-reference |
-| 应用与文件编辑               | applications、external-applications                              |
-| 演示文稿使用与工具参数       | presentation-workflow、presentation-reference                    |
+| 附件、产出物与预览           | task-workspace-layout、product-api                               |
 | 开发约束和功能定位           | 根/目录 AGENTS、code-map                                         |
 | 依赖方向、状态与进程生命周期 | architecture                                                     |
 | 环境、构建、启动和 UI 约定   | development                                                      |
@@ -20,8 +19,8 @@
 | 委派、返修与验证证据交接     | development-handoffs                                             |
 | 复盘落实状态与仍可触发的陷阱 | retrospectives、pitfalls/README                                  |
 | HTTP/SSE、字段、错误和消费者 | product-api                                                      |
-| 路径、revision、备份和恢复   | task-workspace-layout                                            |
-| 应用/软件/GUI 接口           | software-integration 及领域指南                                  |
+| 路径、备份和恢复             | task-workspace-layout                                            |
+| GUI 与桌面控制接口           | computer-use、browser-use                                        |
 | PR 和审阅职责                | CONTRIBUTING、module-ownership                                   |
 | 待开发工作与验收标准         | development-phases                                               |
 | 打包、升级、签名和发布       | mac-release                                                      |
@@ -29,7 +28,7 @@
 ## 同步规则
 
 - 模块/职责迁移同步代码地图、架构和目录 AGENTS，更新消费者及测试导入。
-- HTTP、事件、工具、IPC、Adapter 变化同步现行接口；说明默认行为、版本兼容和失败恢复。
+- HTTP、事件、工具与 IPC 变化同步现行接口；说明默认行为、版本兼容和失败恢复。
 - 存储/revision/格式变化同步数据布局、备份、迁移和恢复步骤。
 - 脚本、配置、依赖变化同步命令和支持范围；命令必须对应 package/scripts/help。
 - 已交付行为写入使用或接口指南；未交付能力写入路线图，附入口和完成标准。
@@ -51,7 +50,7 @@
 
 [文档首页](README.md)及现有 Markdown 同时用于 GitHub 阅读与独立 Docs 站点，不维护第二份正文。站点提供分类导航、页内目录、本地全文搜索、中英切换、代码复制和 Mermaid 图表；尚未翻译的指南标记为中文。
 
-用户入口保留 App 与 CLI 安装和模型连接。侧栏默认折叠更多功能和开发者文档；搜索默认查找使用指南，勾选“全部文档”后搜索其余文档。
+用户入口保留 App 与 CLI 安装和模型连接。侧栏默认折叠开发者文档；搜索默认查找使用指南，勾选“全部文档”后搜索其余文档。
 
 首页使用安装与模型设置卡片；快速开始使用编号步骤与下载文件组；模型设置使用可键盘操作的切换面板。正文仍在 Markdown 中维护，由 `docs/site/components.mjs` 增强，样式位于 `components.css`，无 JavaScript 时保留完整正文。
 

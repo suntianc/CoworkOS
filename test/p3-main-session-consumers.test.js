@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { once } from "node:events";
@@ -8,13 +7,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
-import { PROJECT_EXPERIENCE_ENABLED } from "../dist/src/domain/project-experience.js";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 import { startProjectDataDashboard } from "./p3-storage-fixture.mjs";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
-import { ProjectExperienceStore } from "../dist/src/runtime/project-experience-store.js";
 
 const run = promisify(execFile);
 
@@ -647,79 +644,3 @@ test("a legitimate retry re-enters running and completes its Run", { timeout: 12
   assert.equal(completed.currentRequirementId, requirementId);
   assert.deepEqual(local.failures, []);
 });
-
-test(
-  "an unreachable authority does not suppress the local experience write",
-  // Project experience is switched off (#33); this returns with the switch or goes in P9.
-  { timeout: 120_000, skip: !PROJECT_EXPERIENCE_ENABLED && "项目经验已整套停用（#33）" },
-  async (t) => {
-    let holding = false;
-    const gate = createGate();
-    // Fail the Run: the Pi runtime only queues experience for a completed run,
-    // so a failed Run isolates the dashboard's own finalization path.
-    const local = await provider(t, {
-      hold: () => holding,
-      wait: () => gate.promise,
-      rejectAfterHold: true
-    });
-    const authority = await startProjectDataDashboard(t, "sqlite", {});
-    const project = await createProject(client(authority), authority, "experience-authority");
-    const backend = await secondaryBackend(t, authority, {
-      modelEndpoint: local.base,
-      model: "fixture-model"
-    });
-    const secondaryProject = await createProject(
-      backend.request,
-      backend,
-      "experience-secondary",
-      project.projectId
-    );
-    // Learning is opt-in; enable it before the Run so finalization has a job.
-    const store = new ProjectExperienceStore(
-      {
-        projectId: secondaryProject.projectId,
-        projectDirectory: secondaryProject.projectDirectory,
-        projectCatalogPath: join(backend.root, "projects.json")
-      },
-      join(backend.root, "home", "project-experience")
-    );
-    await store.configure({ enabled: true, learningEnabled: true });
-
-    const requirement = await backend.request(ledgerPath(secondaryProject.projectId), {
-      action: "create",
-      title: "完成后的本地经验",
-      content: "权威服务离线也不能丢掉本地经验入队。"
-    });
-    const created = await backend.request(sessionsPath(secondaryProject.projectId), {
-      action: "create",
-      title: "经验会话",
-      requirementId: requirement.body.requirement.requirementId
-    });
-    assert.equal(created.status, 201, JSON.stringify(created.body));
-    const session = created.body.session;
-
-    holding = true;
-    const run = await backend.request(`/api/tasks/${encodeURIComponent(session.taskId)}/run`, {
-      prompt: "这一轮会失败并触发收尾。",
-      mainSessionId: session.sessionId,
-      requirementId: requirement.body.requirement.requirementId
-    });
-    assert.equal(run.status, 202, JSON.stringify(run.body));
-    await waitFor(() => local.requests.length === 1, "the Main never reached the model");
-
-    // The authority goes away while the Run is still executing. The failed Run
-    // then settles its shared record (which fails) and the local experience
-    // enqueue must still happen.
-    await authority.stop();
-    holding = false;
-    gate.open();
-    await settle(backend.request, session.taskId, "failed");
-    await waitFor(
-      async () => (await store.read()).pending.some((item) => item.runId === run.body.runId),
-      "the local experience write was skipped when the authority was unreachable"
-    );
-    const pending = (await store.read()).pending.find((item) => item.runId === run.body.runId);
-    assert.equal(pending.taskId, session.taskId);
-    assert.deepEqual(local.failures, []);
-  }
-);

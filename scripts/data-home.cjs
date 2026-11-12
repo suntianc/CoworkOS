@@ -15,7 +15,6 @@ function atriaDataPaths(env = process.env, config = {}, cwd = process.cwd(), hom
     workspaceRoot: resolve(cwd, env.COWORK_WORKSPACE || config.workspaceRoot || join(root, "workspace")),
     piAgentDir: resolve(cwd, env.PI_CODING_AGENT_DIR || join(root, "pi")),
     globalIndex,
-    tabsIndex: resolve(cwd, env.COWORK_TABS_INDEX || join(dirname(globalIndex), "workbench-tabs.json")),
     configPath: join(root, "config.json"),
     logs: join(root, "logs")
   };

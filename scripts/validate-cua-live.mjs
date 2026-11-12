@@ -176,7 +176,7 @@ export async function validateCuaLive(args = process.argv.slice(2)) {
         )
           delete process.env[key];
       process.env.COWORK_BROWSER_EXECUTABLE = chromium.executablePath();
-      process.env.COWORK_DISABLE_WATCH_SUPERVISOR = "1";
+      process.env.COWORK_DISABLE_MAIN_GUARDIAN = "1";
       process.env.PI_OFFLINE = "1";
       backend = await bounded(startBackend(paths, connection, process.execPath));
     } finally {

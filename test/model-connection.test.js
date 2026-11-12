@@ -47,7 +47,7 @@ test("connection test verifies actual tool calling and image transport without r
       baseUrl: "https://gateway.example/v1/",
       supportsImages: true
     },
-    { visionFixture: () => ({ imageUrl: "data:image/png;base64,fixture", code: "2" }) }
+    { imageFixture: () => ({ imageUrl: "data:image/png;base64,fixture", code: "2" }) }
   );
   assert.equal(vision.supportsImages, true);
   assert.equal(calls[1].url, calls[0].url);
@@ -171,7 +171,7 @@ test("guessing the blue background cannot pass the visual code challenge", async
     testModelConnection(
       { ...input, supportsImages: true },
       {
-        visionFixture: () => ({ imageUrl: "data:image/png;base64,fixture", code: "2" })
+        imageFixture: () => ({ imageUrl: "data:image/png;base64,fixture", code: "2" })
       }
     ),
     /测试图片/

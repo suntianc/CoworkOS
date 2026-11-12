@@ -115,7 +115,7 @@ test(
       COWORK_MODEL: "fixture",
       COWORK_REASONING_EFFORT: "off",
       COWORK_SUPPORTS_REASONING_EFFORT: "0",
-      COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+      COWORK_DISABLE_MAIN_GUARDIAN: "1",
       PI_CODING_AGENT_DIR: join(dashboard.root, "cli-pi"),
       PI_OFFLINE: "1"
     });

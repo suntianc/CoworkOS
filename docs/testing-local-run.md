@@ -18,7 +18,7 @@ npm run verify -- --list
 npm run verify:full -- --list
 ```
 
-`verify` 按顺序执行 `build:cli`、`build:web-assets`、`lint`、`check:workbench`、`check:extensions`、`format:check`、`check:docs` 和 `check:source`，不运行行为测试。`build:web-assets` 准备 KaTeX 和 Markdown 依赖；它不构建原生桌面资源。`verify:full`（等价于 `verify -- --full`）改用一次 `build:full`，静态检查后再运行 `test:release:runner` 和全量 Node 测试。两种模式均在第一次失败时停止，并保留原始退出码。轻量检查通过不代表相关行为或全量回归通过。
+`verify` 按顺序执行 `build:cli`、`build:web-assets`、`lint`、`check:extensions`、`format:check`、`check:docs` 和 `check:source`，不运行行为测试。`build:web-assets` 准备 KaTeX 和 Markdown 依赖；它不构建原生桌面资源。`verify:full`（等价于 `verify -- --full`）改用一次 `build:full`，静态检查后再运行 `test:release:runner` 和全量 Node 测试。两种模式均在第一次失败时停止，并保留原始退出码。轻量检查通过不代表相关行为或全量回归通过。
 
 `format:check` 默认检查未提交变更。审查已提交差异时先用 `git rev-parse --verify '<基线>^{commit}'` 确认基线，再执行 `FORMAT_BASE=<基线> npm run format:check`，选择范围为 `<基线>...HEAD`；手动 CI 使用 `HEAD^`。默认命令在 clean 工作树可能输出 `No changed files to format`，见 [空选择陷阱](pitfalls/testing.md#提交后格式检查没有选中文件)。
 
@@ -35,15 +35,15 @@ npm run verify:full -- --list
 node --test test/repository-checks.test.js
 
 # 只列出匹配文件，没有匹配会失败
-npm run test:unit -- --list --match application-
+npm run test:unit -- --list --match artifact
 
 # 自动完整构建后运行精确源文件，可重复 --file
-npm run test:unit -- --file test/application-api.test.js
+npm run test:unit -- --file test/artifact-store.test.js
 npm run test:unit -- --file test/p0.test.ts
 
 # 已完成当前源码构建后，显式复用构建以加快迭代
 npm run test:unit -- --skip-build --match conversation
-npm run test:unit -- --skip-build --file test/application-resource-store.test.js --concurrency 1
+npm run test:unit -- --skip-build --file test/publish-artifact-pi.test.js --concurrency 1
 ```
 
 `--match` 是区分大小写的文件路径子串，`--file` 是仓库相对的精确源测试路径，两者不能混用。拼错文件或匹配为空时，在构建前退出失败。
@@ -82,14 +82,13 @@ npx playwright test e2e/p3-foundation-flow.spec.js --workers=1 --output=.tmp/bro
 先使用隔离数据检查读取次数、并发请求和 DOM 保留，再测耗时，避免把本机模型或原生计算负载误算为前端开销。已有当前构建时运行：
 
 ```sh
-node --test test/workspace-directory-performance.test.js test/application-tab-read-cost.test.js test/resource-mapping-noop.test.js test/event-stream-ledger-performance.test.js test/event-stream-review-regressions.test.js test/visible-poll.test.js test/connection-controller.test.js
-npx playwright test e2e/dashboard-polling.spec.js e2e/editor-visibility-polling.spec.js e2e/binding-menu.spec.js --workers=1 --output=.tmp/browser-performance
+node --test test/workspace-directory-performance.test.js test/refresh-performance.test.js test/event-stream-ledger-performance.test.js test/event-stream-review-regressions.test.js test/visible-poll.test.js test/connection-controller.test.js
+npx playwright test e2e/dashboard-polling.spec.js e2e/composer-visibility.spec.js --workers=1 --output=.tmp/browser-performance
 ```
 
 - 目录夹具含 57 个已归属会话：每次列表只读取各 Task 一次，项目索引按批次共享；下一请求必须看到重命名和新建。
-- 应用夹具含 2 个目录、40 个窗口：每次修订检查只发现目录一次；已有 holding 引用不重复落盘，列表与修订读取均有文件读取预算。并发创建首个资源、外部修改、别名与事务恢复分别验证。
 - SSE 空闲时不重复读取账本正文；首次连接只读取历史末尾，连接后一次追加 600 条必须全部交付（包括初始空/缺失账本），文件替换后继续同步。详情读取最近 30 条时，普通短记录只需一个 64 KiB 范围，覆盖短读、中文、emoji 和无末尾换行；连接关闭后不能继续写响应或读取其他日志正文。
-- 浏览器检查慢请求不重叠、不丢草稿，无变化详情保留 DOM，折叠栏展开补画；多页面和编辑器隐藏时停止自动读取，恢复可见立即同步，SSE、主动加载、保存和自动保存仍保持正确。
+- 浏览器检查慢请求不重叠、不丢草稿，无变化详情保留 DOM，折叠栏展开补画；多页面隐藏时停止自动读取，恢复可见立即同步，SSE、主动加载、保存和自动保存仍保持正确。
 
 计时对比须保持相同数据、打开窗口数、冷/热状态和运行负载，记录响应状态、大小与耗时，不打印用户正文或配置。测试使用自己的临时工作区和本地服务；原生启动及真实模型延迟需单独测量。
 
@@ -100,10 +99,10 @@ npx playwright install chromium
 npm run test:browser
 
 # 已有当前构建时，直接挑选浏览器文件
-npx playwright test e2e/automation-workspace.spec.js --output .tmp/browser-workbench
+npx playwright test e2e/conversation-menu.spec.js --output .tmp/browser-conversation
 
 # Mac 原生窗口/输入需要已有权限和解锁桌面
-npm run test:release -- --native --stage app,applications
+npm run test:release -- --native --stage app
 ```
 
 浏览器入口会构建并运行 Playwright；原生变体的适用条件以测试和发布清单为准。并行本地浏览器进程使用独立 `--output` 目录。真实模型 smoke 会消耗模型服务资源，按 [模型配置](configuration.md) 显式配置后执行。最终包安装、升级、签名/公证和人工体验按 [发布指南](mac-release.md) 单独记录。
@@ -116,7 +115,7 @@ npm run test:release -- --native --stage app,applications
 
 ## 五环节发布验收入口
 
-发布入口按五个环节运行已有确定性测试，保存日志和报告，不自动调用收费模型，不申请或扩大系统权限。具体场景见 [用例目录](testing-case-catalog.md) 和 [应用操作手册](testing-application-release.md)。
+发布入口按四个环节运行已有确定性测试，保存日志和报告，不自动调用收费模型，不申请或扩大系统权限。具体场景见 [用例目录](testing-case-catalog.md) 和 [桌面与原生验收手册](testing-application-release.md)。
 
 ## 使用
 
@@ -129,12 +128,12 @@ npm run test:release -- --list
 npm run test:release
 ```
 
-查看清单不会构建、启动测试或写报告。默认构建一次，然后依次执行基础、CLI、App、应用和已有用户链路。Node 测试与日常入口共用递归发现规则，包含 `test/` 下的 `.test.js`、`.test.mjs`、`.test.ts`，排除单独执行的 `test/release/`；TypeScript 用例执行对应编译结果，每个文件只执行一次。浏览器测试发现 `e2e/*.spec.js`，基础环节也运行 p0/p1/p2、静态检查和 runner 自测。
+查看清单不会构建、启动测试或写报告。默认构建一次，然后依次执行基础、CLI、App 和已有用户链路。Node 测试与日常入口共用递归发现规则，包含 `test/` 下的 `.test.js`、`.test.mjs`、`.test.ts`，排除单独执行的 `test/release/`；TypeScript 用例执行对应编译结果，每个文件只执行一次。浏览器测试发现 `e2e/*.spec.js`，基础环节也运行 p0/p1/p2、静态检查和 runner 自测。
 
 ```sh
 # 仅运行相关环节；仍默认重新构建
 npm run test:release -- --stage cli
-npm run test:release -- --stage app,applications
+npm run test:release -- --stage app
 
 # Mac 上加入隔离的真实 Electron/窗口操作测试
 npm run test:release -- --native

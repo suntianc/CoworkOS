@@ -1,16 +1,14 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { withFileLock } from "../storage/file-lock.js";
 import { InboxStore } from "./scheduler.js";
 import { HumanRequestStore } from "./human.js";
 import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import { JsonlEventStore } from "../storage/event-store.js";
 import { id, now } from "../domain/types.js";
-import { WatchProgramStore } from "./watch-program-store.js";
-import { routeGoalMessage, discardGoalMessage } from "./goal-routing.js";
 import { mainIsAlive, readHeartbeat } from "./main-heartbeat.js";
-import { monitoringPrograms } from "./monitoring-control.js";
+import { markWakeFired, readSleep } from "./main-sleep.js";
 
 /**
  * Restarts a Main that stopped while work was still addressed to it.
@@ -26,6 +24,10 @@ import { monitoringPrograms } from "./monitoring-control.js";
  * A Task is resumed only when it has an unconsumed callback, no live Main, and
  * nothing it is waiting on a human for — a Task parked on a question must stay
  * parked, or the supervisor would answer for the user by restarting past them.
+ *
+ * The Dashboard's Run service owns this cycle. It reads only the Task, its
+ * Inbox and its human questions, so no other scheduler can schedule a relaunch
+ * or hold one back.
  */
 
 export interface MainSupervisorOptions {
@@ -35,6 +37,13 @@ export interface MainSupervisorOptions {
   /** Report a decision, for logging. */
   onDecision?: (decision: MainSupervisorDecision) => void | Promise<void>;
   nowMs?: () => number;
+  /**
+   * Whether this host already runs a Main for the Task.
+   *
+   * A Run with a live process is alive even before its heartbeat lands, so the
+   * owner of the process supplies that fact instead of racing the disk.
+   */
+  isRunning?: (taskId: string) => boolean;
 }
 
 export interface MainSupervisorDecision {
@@ -44,11 +53,11 @@ export interface MainSupervisorDecision {
   reason?:
     | "main_alive"
     | "no_pending_work"
+    | "parked"
     | "awaiting_human"
     | "task_closed"
     | "no_run"
     | "launch_failed"
-    | "monitoring_paused"
     | "backoff";
   pendingCallbacks?: number;
   /** For "backoff": how long until this Task is eligible again. */
@@ -60,6 +69,8 @@ export interface MainSupervisorDecision {
 export interface MainSupervisorCycleResult {
   inspected: number;
   resumed: number;
+  /** Timed parks whose wake message this cycle queued. */
+  parkWakes: number;
   decisions: MainSupervisorDecision[];
 }
 
@@ -84,16 +95,18 @@ export class MainSupervisor {
   constructor(private readonly options: MainSupervisorOptions) {}
 
   async runCycle(filter: { taskId?: string } = {}): Promise<MainSupervisorCycleResult> {
-    const result: MainSupervisorCycleResult = { inspected: 0, resumed: 0, decisions: [] };
+    const result: MainSupervisorCycleResult = { inspected: 0, resumed: 0, parkWakes: 0, decisions: [] };
     const taskIds = filter.taskId ? [filter.taskId] : await this.listTasks();
     for (const taskId of taskIds) {
       result.inspected += 1;
-      const decision = await this.inspect(taskId).catch((error): MainSupervisorDecision => ({
+      const wake = { count: 0 };
+      const decision = await this.inspect(taskId, wake).catch((error): MainSupervisorDecision => ({
         taskId,
         action: "skipped",
         reason: "launch_failed",
         error: error instanceof Error ? error.message : String(error)
       }));
+      result.parkWakes += wake.count;
       if (decision.action === "resumed") result.resumed += 1;
       result.decisions.push(decision);
       await this.options.onDecision?.(decision);
@@ -101,7 +114,7 @@ export class MainSupervisor {
     return result;
   }
 
-  private async inspect(taskId: string): Promise<MainSupervisorDecision> {
+  private async inspect(taskId: string, wake: { count: number }): Promise<MainSupervisorDecision> {
     const store = new LocalWorkspaceStore(this.options.workspaceRoot);
     const task = await store.readTask(taskId);
     // A finished Task is finished. Only the user reopens one.
@@ -111,76 +124,62 @@ export class MainSupervisor {
     const runId = task.activeRunId;
     if (!runId) return { taskId, action: "skipped", reason: "no_run" };
 
-    const programsForRouting = await monitoringPrograms(this.options.workspaceRoot, taskId);
-    // Goal decisions block only their own events; ordinary askhuman still owns Main.
-    const goalQuestionIds = new Set(
-      programsForRouting.map((program) => program.goal?.decisionRequestId).filter(Boolean)
-    );
     // A Task parked on a question belongs to the user until they answer it.
     // Restarting past that would let the supervisor decide the question by
     // resuming without it.
-    if (
-      (await new HumanRequestStore(this.options.workspaceRoot).list(taskId, "pending")).some(
-        (question) => !goalQuestionIds.has(question.requestId)
-      )
-    ) {
+    if ((await new HumanRequestStore(this.options.workspaceRoot).list(taskId, "pending")).length) {
       return { taskId, action: "skipped", reason: "awaiting_human" };
+    }
+
+    // Runtime owns the park clock. A due park becomes one durable wake message;
+    // the record is marked after enqueueing, so a crash cannot wake it twice.
+    // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏的含义就是没有可用的停泊，按普通 Task 继续检查
+    const parked = await readSleep(this.options.workspaceRoot, taskId).catch(() => undefined);
+    const nowMs = this.options.nowMs?.() ?? Date.now();
+    if (parked && !parked.wakeFiredAt && Date.parse(parked.wakeAt) <= nowMs) {
+      await new InboxStore(
+        join(this.options.workspaceRoot, taskId, "runs", parked.runId, "agents", "main", "inbox-store.json")
+      ).enqueue({
+        messageId: `park-wake-${parked.parkedAt}`,
+        recipientAgentId: "main",
+        kind: "external_event",
+        eventId: `park-wake-${parked.parkedAt}-event`,
+        priority: 5,
+        state: "ready",
+        createdAt: now(),
+        payload: {
+          type: "main.scheduled_wake",
+          reason: parked.reason,
+          parkedAt: parked.parkedAt,
+          wakeAt: parked.wakeAt
+        }
+      });
+      await markWakeFired(this.options.workspaceRoot, taskId);
+      wake.count += 1;
     }
 
     const inbox = new InboxStore(
       join(this.options.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
     );
-    const pending = [];
-    let held = false;
-    for (const message of (await inbox.list("main")).filter((entry) => entry.state !== "consumed")) {
-      const route = routeGoalMessage(programsForRouting, task.monitoring?.scope === "background", message);
-      if (route === "discard") await discardGoalMessage(inbox, message);
-      else if (route === "hold") held = true;
-      else pending.push(message);
-    }
-    if (!pending.length && held) return { taskId, action: "skipped", reason: "monitoring_paused" };
-    if (pending.length === 0) return { taskId, action: "skipped", reason: "no_pending_work" };
-    // Holding monitoring work must not block ordinary user/delegation messages.
-    if (
-      pending.every((message) => {
-        const payload = message.payload as { type?: unknown } | undefined;
-        return (
-          message.kind === "external_event" &&
-          typeof payload?.type === "string" &&
-          payload.type.startsWith("watch.")
-        );
-      })
-    ) {
-      const watches = new WatchProgramStore(this.options.workspaceRoot);
-      const programs = await watches.listPrograms(taskId);
-      if (programs.length) {
-        let active = false;
-        let paused = false;
-        for (const program of programs) {
-          if (program.status === "completed") continue;
-          const monitors = await watches.listVirtualAgents(taskId, program.programId);
-          if (program.status === "paused" || monitors.some((monitor) => monitor.status === "paused"))
-            paused = true;
-          if (program.status === "paused") continue;
-          if (program.goal) active = true;
-          if (
-            monitors.some(
-              (monitor) =>
-                monitor.status === "active" &&
-                (!monitor.expiresAt || Date.parse(monitor.expiresAt) > Date.now())
-            )
-          )
-            active = true;
-        }
-        if (!active && paused)
-          return { taskId, action: "skipped", reason: "monitoring_paused", pendingCallbacks: pending.length };
-      }
+    // A leased message was never consumed either: a Main that died mid-delivery
+    // leaves it that way, and it still needs someone to read it. Inbox work is
+    // checked before the park: a callback or external event that arrives while
+    // a Task sleeps means the condition it parked on has been met.
+    const pending = (await inbox.list("main")).filter((entry) => entry.state !== "consumed");
+    if (pending.length === 0) {
+      if (parked) return { taskId, action: "skipped", reason: "parked" };
+      return { taskId, action: "skipped", reason: "no_pending_work" };
     }
 
-    if (mainIsAlive(await readHeartbeat(this.options.workspaceRoot, taskId), this.options.nowMs?.())) {
+    const running = this.options.isRunning?.(taskId) ?? false;
+    if (
+      running ||
+      mainIsAlive(await readHeartbeat(this.options.workspaceRoot, taskId), this.options.nowMs?.())
+    ) {
       // A Main that got far enough to refresh a heartbeat started successfully,
-      // so the crash-loop count starts over from here.
-      await this.clearRelaunch(taskId);
+      // so the crash-loop count starts over from here. A live process this host
+      // owns is alive even before that heartbeat lands.
+      if (!running) await this.clearRelaunch(taskId);
       return { taskId, action: "skipped", reason: "main_alive", pendingCallbacks: pending.length };
     }
 
@@ -188,7 +187,11 @@ export class MainSupervisor {
     // both observe "no Main" and both start one.
     return withFileLock(join(this.options.workspaceRoot, taskId, ".main-supervisor"), async () => {
       // The winner of the lock may have started a Main while this call waited.
-      if (mainIsAlive(await readHeartbeat(this.options.workspaceRoot, taskId), this.options.nowMs?.())) {
+      // A process this host owns is alive even before its heartbeat lands.
+      if (
+        this.options.isRunning?.(taskId) ||
+        mainIsAlive(await readHeartbeat(this.options.workspaceRoot, taskId), this.options.nowMs?.())
+      ) {
         return { taskId, action: "skipped", reason: "main_alive", pendingCallbacks: pending.length };
       }
       // A Main that keeps dying must not be relaunched every cycle: the loop
@@ -258,15 +261,10 @@ export class MainSupervisor {
   }
 
   private async listTasks(): Promise<string[]> {
-    try {
-      const entries = await readdir(this.options.workspaceRoot, { withFileTypes: true });
-      return entries
-        .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-        .map((entry) => entry.name);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
-    }
+    // Only Task directories: a workspace root can also hold resources or
+    // temporary-space markers, and those never own a Main.
+    const tasks = await new LocalWorkspaceStore(this.options.workspaceRoot).listTasks();
+    return tasks.map((task) => task.taskId);
   }
 
   private async appendEvent(taskId: string, runId: string, type: string, payload: unknown): Promise<void> {

@@ -2,22 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { join } from "node:path";
 import { PiSession } from "../dist/src/runtime/pi-session.js";
 import { RunService } from "../dist/src/runtime/run-service.js";
 import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
-import { WatchSupervisor } from "../dist/src/runtime/watch-supervisor.js";
-import { WatchProgramStore } from "../dist/src/runtime/watch-program-store.js";
-import { WatcherRuntime } from "../dist/src/runtime/watcher.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { TraceRecorder } from "../dist/src/storage/trace-recorder.js";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 
-const exec = promisify(execFile);
 const system = (body) => {
   const messages = body.messages ?? body.input;
   return Array.isArray(messages)
@@ -124,7 +118,7 @@ test(
 );
 
 test(
-  "real Coordinator, WatchSupervisor and public watch-run retain their roles, event data and actual request archives",
+  "the real Coordinator retains its role and archives the actual request payload",
   { timeout: 30000 },
   async (t) => {
     const f = await fixture(t),
@@ -147,94 +141,6 @@ test(
     });
     assert.equal(dispatched.status, "succeeded");
     assert.match(system(f.requests.at(-1)), /You are a CoworkOS Subagent/);
-    const programs = new WatchProgramStore(workspace);
-    const program = await programs.createProgram({
-      taskId: "t",
-      programId: "p",
-      subject: "Pi topic",
-      objective: "Keep user Pi material"
-    });
-    const monitor = await programs.createVirtualAgent({
-      programId: program.programId,
-      task: "Analyze Pi event",
-      profileId: "custom",
-      cadenceSeconds: 60,
-      wake: "important",
-      activate: true
-    });
-    await programs.updateVirtualAgentState("t", "p", monitor.monitorId, {
-      lastCheckedAt: new Date().toISOString()
-    });
-    const watcher = new WatcherRuntime({
-      workspaceRoot: workspace,
-      taskId: "t",
-      runId: "watch-p",
-      programId: "p",
-      recipientAgentId: monitor.monitorId
-    });
-    await watcher.ingest({
-      watcherId: monitor.monitorId,
-      source: "fixture",
-      type: "fixture.changed",
-      dedupeKey: "one",
-      payload: { text: "Pi event preserved" }
-    });
-    const result = await new WatchSupervisor({
-      workspaceRoot: workspace,
-      ...f.options,
-      api: "openai-completions"
-    }).runCycle({ taskId: "t" });
-    assert.equal(result.failures.length, 0, JSON.stringify(result));
-    assert.equal(result.processed, 1);
-    assert.match(system(f.requests.at(-1)), /You are a CoworkOS Subagent/);
-    assert.match(JSON.stringify(f.requests.at(-1)), /performing a Watch monitoring task/);
-    assert.match(JSON.stringify(f.requests.at(-1)), /Pi event preserved/);
-    await watcher.ingest({
-      watcherId: monitor.monitorId,
-      source: "fixture",
-      type: "fixture.changed",
-      dedupeKey: "two",
-      payload: { text: "Pi second event" }
-    });
-    const config = join(f.root, "config.json");
-    await writeFile(config, "{}");
-    await exec(
-      process.execPath,
-      [
-        resolve("scripts/atria.mjs"),
-        "watch-run",
-        "--task",
-        "t",
-        "--run",
-        "watch-p",
-        "--program",
-        "p",
-        "--monitor",
-        monitor.monitorId
-      ],
-      {
-        cwd: f.root,
-        timeout: 15000,
-        env: {
-          ...Object.fromEntries(
-            Object.entries(process.env).filter(([k]) => !/^(COWORK_|PI_|ATRIA_)/.test(k))
-          ),
-          HOME: f.root,
-          ATRIA_HOME: join(f.root, "home"),
-          COWORK_WORKSPACE: workspace,
-          COWORK_HARNESS_ROOT: resolve("."),
-          COWORK_CONFIG: config,
-          COWORK_API_BASE: f.options.baseUrl,
-          COWORK_API_KEY: f.options.apiKey,
-          COWORK_MODEL: "fixture",
-          COWORK_MODEL_API: "openai-completions",
-          COWORK_REASONING_EFFORT: "off",
-          COWORK_SUPPORTS_REASONING_EFFORT: "0"
-        }
-      }
-    );
-    assert.equal(f.requests.length, 3);
-    assert.match(JSON.stringify(f.requests.at(-1)), /performing a Watch monitoring task/);
     for (const body of f.requests) assert.doesNotMatch(JSON.stringify(body), /trained by Pujiang Laboratory/);
     const archived = [];
     async function walk(path) {

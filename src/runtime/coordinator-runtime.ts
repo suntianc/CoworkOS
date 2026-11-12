@@ -38,7 +38,6 @@ import { ExperimentProgramStore } from "./experiment-program-store.js";
 import { SubagentQuestionStore } from "./subagent-questions.js";
 import { readRunMetrics } from "./experiment-metrics.js";
 import type { ExperimentRunStatus } from "../domain/experiment.js";
-import type { VisionModelConfig } from "../tools/vision-model.js";
 import { subagentRecoverySummary } from "./subagent-recovery-summary.js";
 import { subagentCallStatuses, type SubagentCallStatus } from "./subagent-call-status.js";
 import { delegationRoleGuidance, resolveWorkItemModel, type WorkItemModel } from "./delegation-model.js";
@@ -59,7 +58,6 @@ type DelegatedModelSettings = Pick<
 >;
 
 export interface SubagentDispatchInput extends DelegatedModelSettings {
-  visionModel?: VisionModelConfig;
   thinkingLevel?: PiThinkingLevel;
   api?: CoworkModelApi;
   thinkingFormat?: CoworkThinkingFormat;
@@ -99,8 +97,6 @@ export interface SubagentDispatchInput extends DelegatedModelSettings {
   web?: WebToolOptions;
   /** Project skill roots. Only skill metadata is put in the prompt; content is loaded on demand. */
   skillRoots?: string[];
-  /** Application skill scope captured when Main dispatches this call. */
-  skillApplications?: string[];
   /** Resume a running/failed Subagent checkpoint when explicitly requested. */
   resume?: boolean;
   /**
@@ -252,7 +248,6 @@ export interface WaitForSubagentsResult {
 }
 
 export interface CoordinatorRecoveryInput extends DelegatedModelSettings {
-  visionModel?: VisionModelConfig;
   thinkingLevel?: PiThinkingLevel;
   api?: CoworkModelApi;
   thinkingFormat?: CoworkThinkingFormat;
@@ -271,7 +266,6 @@ export interface CoordinatorRecoveryInput extends DelegatedModelSettings {
   capabilityProvider?: CapabilityProvider;
   web?: WebToolOptions;
   skillRoots?: string[];
-  skillApplications?: string[];
   questionTimeoutMs?: number;
   maxQuestions?: number;
   /** Runtime-only command environment supplied by the recovering host. */
@@ -644,7 +638,6 @@ export class CoordinatorRuntime {
             apiKey: input.apiKey,
             model: input.model,
             ...delegatedSettings(input, item.payload),
-            visionModel: input.visionModel,
             thinkingLevel:
               (item.payload as { thinkingLevel?: PiThinkingLevel } | undefined)?.thinkingLevel ??
               input.thinkingLevel,
@@ -677,9 +670,6 @@ export class CoordinatorRuntime {
             web: input.web,
             skillRoots:
               (item.payload as { skillRoots?: string[] } | undefined)?.skillRoots ?? input.skillRoots,
-            skillApplications:
-              (item.payload as { skillApplications?: string[] } | undefined)?.skillApplications ??
-              input.skillApplications,
             resume: true
           };
           try {
@@ -882,8 +872,7 @@ export class CoordinatorRuntime {
           dependsOn: dependsOn.length > 0 ? dependsOn : undefined,
           experimentRef: input.experimentRef,
           capabilityGrants: input.capabilityGrants ?? [],
-          skillRoots: input.skillRoots,
-          skillApplications: input.skillApplications
+          skillRoots: input.skillRoots
         },
         // A Task expecting expensive jobs grants one attempt, so a diverged
         // training run surfaces as evidence instead of being repeated silently.
@@ -965,10 +954,10 @@ export class CoordinatorRuntime {
             supportsImages: execution.supportsImages
           })
         : undefined;
-      const skills = await discoverSkills(
-        [...(provided?.skillRoots ?? []), ...(input.skillRoots ?? [join(process.cwd(), ".pi", "skills")])],
-        { applications: [...(input.skillApplications ?? []), ...(provided?.skillApplications ?? [])] }
-      );
+      const skills = await discoverSkills([
+        ...(provided?.skillRoots ?? []),
+        ...(input.skillRoots ?? [join(process.cwd(), ".pi", "skills")])
+      ]);
       // Capabilities are granted on the Task, so a Subagent inherits exactly
       // what this Task was granted rather than whatever the process was told.
       const capabilities = resolveCapabilities(
@@ -984,7 +973,6 @@ export class CoordinatorRuntime {
             capabilities,
             commandEnv: { COWORK_API_TOKEN: undefined, ...input.commandEnv },
             supportsImages: execution.supportsImages,
-            visionModel: input.visionModel,
             web: input.web
           });
       const tools = new Map(baseTools);

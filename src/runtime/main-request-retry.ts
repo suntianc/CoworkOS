@@ -1,10 +1,6 @@
 import {
-  getCurrentSystemMessage,
   getCurrentTools,
-  getSystemMessageText,
   normalizeContext,
-  renderSystemMessageUpdate,
-  resolveTranscript,
   type Model,
   type Api,
   type TranscriptContext
@@ -15,15 +11,13 @@ import {
   type MainRequestSnapshot,
   type MainRequestEnvironment
 } from "../storage/main-request-store.js";
-import { applicationServiceForTask } from "../applications/task-service.js";
 import { realpath } from "node:fs/promises";
 import {
   assertMainRequestExecutionScope,
-  currentMainRequestExecutionScope,
+  mainRequestExecutionScope,
   type MainRequestExecutionScope
 } from "./main-request-execution-scope.js";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { optionalContextSectionWithinBudget } from "./user-memory-context.js";
+import { retiredSectionReplayRefusal, retiredSectionsWithText } from "./retired-system-sections.js";
 
 export interface MainRequestExecutionEnvironment extends MainRequestEnvironment {
   executionScope?: MainRequestExecutionScope;
@@ -34,107 +28,14 @@ export class MainRequestConflictError extends Error {
   readonly code = "main_retry_context_changed";
 }
 
-/** Keep archived request semantics, refreshing host-owned optional memory sections. */
-function refreshReplayMemory(
-  snapshot: MainRequestSnapshot,
-  current: TranscriptContext,
-  reserveTokens: number
-) {
-  const original = normalizeContext(snapshot.context);
-  const body = JSON.parse(snapshot.body);
-  const output = body.max_output_tokens ?? body.max_completion_tokens ?? body.max_tokens;
-  const sectionNames = ["user_memory", "project_experience", "project_skills"] as const;
-  let projected: AgentMessage[] = original.messages.map((message) =>
-    message.role === "system"
-      ? {
-          ...message,
-          sections: { ...message.sections, user_memory: "", project_experience: "", project_skills: "" }
-        }
-      : message
-  );
-  for (const section of sectionNames) {
-    projected = optionalContextSectionWithinBudget(
-      projected,
-      section,
-      getCurrentSystemMessage(current.messages)?.sections?.[section] ?? "",
-      {
-        contextWindow: snapshot.model.contextWindow,
-        reserveTokens,
-        maxTokens: typeof output === "number" && output > 0 ? output : snapshot.model.maxTokens
-      }
-    );
-  }
-  let changed = false;
-  const refreshed = original.messages.map((message, index) => {
-    const next = projected[index];
-    if (
-      message.role !== "system" ||
-      next.role !== "system" ||
-      sectionNames.every(
-        (section) => (message.sections?.[section] ?? "") === (next.sections?.[section] ?? "")
-      )
-    )
-      return message;
-    changed = true;
-    return next;
-  });
-  const context = normalizeContext({ messages: refreshed });
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- changed 在 map 回调里赋值，TS 在读取处看不到回调内的写入
-  if (!changed) return { context: original, body: snapshot.body };
-  const rendered = (value: TranscriptContext) =>
-    resolveTranscript(value, snapshot.model.compat?.supportsMidConvoSystemMessages).messages.flatMap(
-      (message, index) => {
-        if (message.role !== "system") return [];
-        const text = index === 0 ? getSystemMessageText(message) : renderSystemMessageUpdate(message);
-        return text ? [text] : [];
-      }
-    );
-  const before = rendered(original);
-  const after = rendered(context);
-  const field = snapshot.model.api === "openai-responses" ? "input" : "messages";
-  const messages: { role?: string; content?: unknown }[] | undefined = Array.isArray(body[field])
-    ? body[field]
-    : undefined;
-  const instructions = messages?.filter((message) =>
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 消息数组来自归档请求体 JSON，元素不一定是带 role 的对象
-    ["system", "developer"].includes(message?.role ?? "")
-  );
-  if (
-    !Array.isArray(messages) ||
-    before.length !== after.length ||
-    instructions?.length !== before.length ||
-    instructions.some((message, index) => message.content !== before[index])
-  )
-    // A legacy/custom payload cannot be regenerated safely. Retain the failed
-    // request and refuse transmission rather than resend revoked memory.
-    throw new MainRequestConflictError(
-      "记忆或项目经验已变化，原请求的系统正文无法安全刷新。原请求和历史已保留，请发送新消息。"
-    );
-  instructions.forEach((message, index) => {
-    message.content = after[index];
-  });
-  return { context, body: JSON.stringify(body) };
-}
-
 export async function mainRequestEnvironment(
   storageRoot: string,
   taskId: string,
   projectDirectory: string
 ): Promise<MainRequestExecutionEnvironment> {
-  const service = await applicationServiceForTask(storageRoot, taskId);
-  const manifest = await service.instances.readManifest(taskId);
   return {
     projectDirectory: await realpath(projectDirectory),
-    binding: JSON.stringify({
-      workspaceRoot: await realpath(service.resourceWorkspaceRoot),
-      loadedInstanceId: manifest.loadedInstanceId ?? null,
-      boundResourceId: manifest.boundResourceId ?? null
-    }),
-    executionScope: await currentMainRequestExecutionScope({
-      taskStorageRoot: storageRoot,
-      taskId,
-      projectDirectory
-    })
+    executionScope: await mainRequestExecutionScope({ taskStorageRoot: storageRoot, projectDirectory })
   };
 }
 
@@ -155,11 +56,6 @@ export class MainRequestRetry {
     private readonly execution?: {
       beginTurn(): void;
       protectReplayScope(scope: MainRequestExecutionScope): void;
-      goalDelegation?: {
-        read(): Promise<string | undefined>;
-        restore(requestId: string | undefined, messages: readonly unknown[]): Promise<void>;
-      };
-      memoryReserveTokens?(model: Pick<Model<Api>, "id" | "provider">): number;
     }
   ) {}
 
@@ -192,17 +88,19 @@ export class MainRequestRetry {
           }));
       this.deferredContext ||=
         JSON.stringify(input(context.messages)) !== JSON.stringify(input(this.replay.context.messages));
-      const refreshed = refreshReplayMemory(
-        this.replay,
-        context,
-        this.execution?.memoryReserveTokens?.(this.replay.model) ?? 16_384
-      );
+      const archived = normalizeContext(this.replay.context);
+      // An archive written before user memory and project experience were
+      // removed still holds their rendered text. Refuse the exact replay
+      // instead of resending it; the caller sends a new message, which rebuilds
+      // the context without those sections.
+      const retired = retiredSectionsWithText(archived.messages);
+      if (retired.length) throw new MainRequestConflictError(retiredSectionReplayRefusal(retired));
       return {
         model: this.replay.model,
-        context: refreshed.context,
+        context: archived,
         main,
         replay: this.replay,
-        replayBody: refreshed.body
+        replayBody: this.replay.body
       };
     }
     return { model, context, main };
@@ -219,21 +117,14 @@ export class MainRequestRetry {
       this.loaded = true;
     }
     if (this.replay) {
-      await this.execution?.goalDelegation?.restore(
-        this.replay.goalDelegationRequestId,
-        this.replay.context.messages
-      );
       if (!this.replay.executionScope || !this.replay.endpoint)
         throw new MainRequestSnapshotError(
           "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
         );
       const current = await this.environment();
-      if (
-        current.projectDirectory !== this.replay.environment.projectDirectory ||
-        current.binding !== this.replay.environment.binding
-      )
+      if (current.projectDirectory !== this.replay.environment.projectDirectory)
         throw new MainRequestConflictError(
-          "原请求的项目目录或应用绑定已变化，已有内容仍保留。请恢复原设置后重试，或发送新消息。"
+          "原请求的项目目录已变化，已有内容仍保留。请恢复原设置后重试，或发送新消息。"
         );
       try {
         assertMainRequestExecutionScope(this.replay.executionScope, current.executionScope!);
@@ -247,15 +138,7 @@ export class MainRequestRetry {
   async capture(
     input: Omit<
       MainRequestSnapshot,
-      | "version"
-      | "taskId"
-      | "state"
-      | "bodySha256"
-      | "checksum"
-      | "environment"
-      | "runId"
-      | "executionScope"
-      | "goalDelegationRequestId"
+      "version" | "taskId" | "state" | "bodySha256" | "checksum" | "environment" | "runId" | "executionScope"
     >
   ) {
     const { executionScope, ...environment } = await this.environment();
@@ -276,10 +159,7 @@ export class MainRequestRetry {
         ...input,
         runId: this.runId,
         environment,
-        executionScope,
-        goalDelegationRequestId: this.replay
-          ? this.replay.goalDelegationRequestId
-          : await this.execution?.goalDelegation?.read()
+        executionScope
       },
       this.replay ? this.slot : undefined
     );

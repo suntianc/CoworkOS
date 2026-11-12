@@ -15,7 +15,7 @@ import { finalAnswerIndex, isMachineTurn, exchangeExecutionState } from "../conv
 import { answeredRequestFor } from "../human-questions.js";
 import { renderMarkdown } from "../markdown.js";
 import { resolveArtifactLink } from "../artifacts.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 import { icon } from "../ui/icons.js";
 import { executionElapsedMs, formatExecutionDuration } from "../execution-time.js";
 import { reconcileParts } from "../ui/reconcile.js";
@@ -384,14 +384,9 @@ export function createConversationView({
         historyMarkup.clear();
         return;
       }
-      $("#conversation").innerHTML =
-        task.monitoring?.scope === "background"
-          ? ui(
-              '<div class="welcome-empty monitoring-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>后台监控会话</h2></div>'
-            )
-          : ui(
-              `<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2></div>`
-            );
+      $("#conversation").innerHTML = ui(
+        `<div class="welcome-empty"><div class="welcome-symbol"><svg class="welcome-mark" aria-hidden="true"><use href="#i-formicand-mark" /></svg></div><h2>有什么可以帮忙的？</h2></div>`
+      );
       thinkingStartedAt.clear();
       lastRender = undefined;
       historyMarkup.clear();
@@ -453,11 +448,7 @@ export function createConversationView({
         Boolean(state.detail?.runtime?.active || state.submittingTaskId === task.taskId) && isCurrent;
       const execution = exchangeExecutionState(exchange.events);
       const interrupted = ["cancelled", "failed", "paused", "waiting"].includes(execution.terminal);
-      const parked =
-        isCurrent &&
-        execution.terminal === "waiting" &&
-        task.status === "waiting" &&
-        Boolean(state.detail?.monitoring?.sleep);
+      const waiting = execution.terminal === "waiting" && task.status === "waiting";
       const finalIndex =
         interrupted || exchange.continued ? -1 : finalAnswerIndex(exchange.messages, state.detail, isCurrent);
       const finalText = finalIndex >= 0 ? visibleText(exchange.messages[finalIndex].content).trim() : "";
@@ -470,7 +461,7 @@ export function createConversationView({
         historyOpen,
         historyKey,
         finalIndex < 0,
-        (interrupted && !parked && !paused) || (isCurrent && Boolean(failure)),
+        (interrupted && !waiting && !paused) || (isCurrent && Boolean(failure)),
         isCurrent,
         exchange.continued
       );
@@ -770,8 +761,8 @@ export function createConversationView({
     flush();
     if (failed && !activity.some((item) => item.type === "tool" || item.text?.trim())) return "";
     const collapsible = !working && hasFinalAnswer && persistedAnswerMatches;
-    const parked =
-      isCurrent && pending && !continued && !failed && !working && Boolean(state.detail?.monitoring?.sleep);
+    const waitingForWake =
+      isCurrent && pending && !continued && !failed && !working && Boolean(state.detail?.parked);
     const latest = activity.at(-1);
     const currentTool = latest?.type === "tool" ? presentations.get(latest.call) : undefined;
     const phase = retry
@@ -796,7 +787,7 @@ export function createConversationView({
       ? [callCount ? ui`${returnedCalls}/${callCount} 项调用已返回` : "", ...outstandingLabels]
           .filter(Boolean)
           .join(" · ")
-      : parked
+      : waitingForWake
         ? ui("本轮已处理，持续等待新进展")
         : continued
           ? ui("后续过程见补充指令下方")
@@ -805,7 +796,7 @@ export function createConversationView({
             : ui("整轮任务已完成");
     const heading = collapsible
       ? ""
-      : `<div class="live-workflow-head">${progress}<div class="workflow-heading"><strong>${esc(working ? (active ? phase : ui("仍有工作未结束")) : failed ? ui("执行已停止") : parked ? ui("等待唤醒") : pending && !continued ? ui("等待继续") : ui("执行过程"))}</strong><span>${esc(stepLabel)}</span></div>${caption ? `<span class="live-caption">${esc(caption)}</span>` : ""}</div>`;
+      : `<div class="live-workflow-head">${progress}<div class="workflow-heading"><strong>${esc(working ? (active ? phase : ui("仍有工作未结束")) : failed ? ui("执行已停止") : pending && !continued ? ui("等待继续") : ui("执行过程"))}</strong><span>${esc(stepLabel)}</span></div>${caption ? `<span class="live-caption">${esc(caption)}</span>` : ""}</div>`;
     const content = `<section class="live-workflow ${working ? "is-active" : "is-complete"}"${active ? ' aria-live="polite"' : ""}>
     ${heading}
     <div class="workflow-rail">${compactActivity.map((item) => (item.type === "tools" ? renderToolGroup(item, active, presentations) : item.type === "reasoning" ? renderReasoningStep(item.text, { done: !active || item.done, interrupted: (!active || item.done) && !item.complete }, item.key, item.rawText) : item.type === "answer" ? `<div class="live-answer" data-activity-key="${esc(item.key)}"><div class="markdown-body">${markdown(item.text)}</div></div>` : renderToolStep(item.call, active, item.key, presentations.get(item.call)))).join("")}</div>

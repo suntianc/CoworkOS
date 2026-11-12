@@ -1,6 +1,6 @@
 import { icon } from "../ui/icons.js";
 import { ui } from "../ui/language.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 
 /**
  * The work entry before it can be used: no model connection, no project, or

@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 
-const paths = ["/api/tasks", "/api/workbench/tabs", "/api/workbench/revisions"];
+const paths = ["/api/tasks"];
 const deferred = () => {
   let resolve;
   const promise = new Promise((done) => {

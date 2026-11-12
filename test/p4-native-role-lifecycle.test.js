@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -72,9 +71,8 @@ function spawnMain({ root, project, workspace, taskId, runId, prompt, env = {} }
         COWORK_RUN_ID: runId,
         COWORK_PROJECT_WRITE: "1",
         COWORK_GLOBAL_INDEX: join(root, "index.json"),
-        COWORK_TABS_INDEX: join(root, "tabs.json"),
         COWORK_DASHBOARD_URL: "",
-        COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+        COWORK_DISABLE_MAIN_GUARDIAN: "1",
         COWORK_MODEL_API: "openai-completions",
         COWORK_REASONING_EFFORT: "off",
         COWORK_SUPPORTS_REASONING_EFFORT: "0",
@@ -280,7 +278,7 @@ test(
     const repository = await makeRepository(join(root, "repository"));
     const dashboard = await startDashboard({
       defaultProject: false,
-      env: { COWORK_PROJECT_WRITE: "1", COWORK_DISABLE_WATCH_SUPERVISOR: "1" }
+      env: { COWORK_PROJECT_WRITE: "1", COWORK_DISABLE_MAIN_GUARDIAN: "1" }
     });
     t.after(async () => {
       await dashboard.stop();

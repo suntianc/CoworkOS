@@ -19,7 +19,7 @@
 | `supportsPromptCacheKey`              | 第三方服务默认 `false`，确认支持后开启                                           |
 | `contextWindow`                       | 默认 256000 token，需为正的安全整数                                              |
 | `mainMaxTokens` / `subagentMaxTokens` | 新连接均为 8192；整数 1 至 65536，且不超过服务上限                               |
-| `workspaceRoot`                       | 持久任务及应用资源目录，建议绝对路径                                             |
+| `workspaceRoot`                       | 持久任务目录，建议绝对路径                                                       |
 
 `contextWindow` 用于 Main、子智能体及恢复任务的上下文预算和自动压缩，不作为模型请求参数发送。旧连接缺少该字段时使用 256000。输出上限另行设置。
 
@@ -108,21 +108,9 @@ App 使用 Electron safeStorage 加密客户端会话凭据，保存在桌面数
 - 已保存的角色引用找不到连接时给出包含角色、范围和连接 ID 的错误，并拒绝启动，不会改用其他账号。保存接口拒绝新建失效引用。
 - Main 在每次 Run 准入时读取角色；`executor`、`reviewer` 在每次委派工作项实际启动时读取（包括排队等待前置的工作项），因此修改绑定作用于尚未启动的工作项，已启动的尝试保持不变。两者都没有绑定时工作项沿用 Main 本次 Run 的连接，状态视图不报告固定生效连接。`router` 仍是后续路径的配置键，不由当前运行路径读取。
 
-## 独立视觉连接
+## 图片输入
 
-`modelConnections.visionId` 指向已保存且启用 `supportsImages` 的连接。原生图像模型直接接收像素；只有纯文本模型调用 `read_image` 时使用独立视觉连接。界面操作见 [模型连接](configuration.md#app-与-web-模型连接)。
-
-CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KEY` 和 `COWORK_VISION_MODEL`。完整设置优先于保存的视觉连接，缺项时报错。
-
-| 可选变量                                  | 含义与默认值                                |
-| ----------------------------------------- | ------------------------------------------- |
-| `COWORK_VISION_MODEL_API`                 | 视觉连接的消息格式                          |
-| `COWORK_VISION_THINKING_FORMAT`           | 视觉连接的思考格式                          |
-| `COWORK_VISION_MAX_TOKENS`                | 默认 8192；范围 1 至 65536，审阅时最多 8192 |
-| `COWORK_VISION_REASONING_EFFORT`          | 默认 `off`                                  |
-| `COWORK_VISION_SUPPORTS_REASONING_EFFORT` | 默认 `false`                                |
-
-可信子进程继承所选连接，密钥不进入界面或队列；凭据仍使用原有加密或私有 JSON 存储。
+读图只走 Main 连接本身。连接启用 `supportsImages` 时，读图、截图与 `read_attachment` 把像素作为消息内容随消息发送；连接不支持图片输入时，图片不发送给模型，读图工具返回「当前模型不支持图片」的明确说明。桌面操控、浏览器操控与 CUA 脚本同样只在支持图片输入的连接上提供。界面操作见 [模型连接](configuration.md#app-与-web-模型连接)。
 
 ## 联网搜索
 
@@ -144,7 +132,7 @@ CLI 环境设置需同时提供 `COWORK_VISION_API_BASE`、`COWORK_VISION_API_KE
 
 环境变量优先。代理地址仅接受 HTTP(S) URL，例如 `http://proxy.example:8080`。`localhost`、`127.0.0.1` 和 `::1` 始终加入绕过列表，其余条目保留。
 
-设置适用于 CLI Main、headless CLI、子智能体、模型发现、连接测试和独立视觉请求，支持两种模型协议。会话、视觉分析和测试在结束或取消后释放自己的代理连接。交互 Pi 使用 SDK 环境代理；没有模型或视觉专用代理变量。带认证的代理地址属于私有配置。
+设置适用于 CLI Main、headless CLI、子智能体、模型发现和连接测试，支持两种模型协议。会话和测试在结束或取消后释放自己的代理连接。交互 Pi 使用 SDK 环境代理；没有模型专用代理变量。带认证的代理地址属于私有配置。
 
 ## 项目数据存储
 
@@ -242,7 +230,7 @@ external 服务的外部 Main 配额写在本机配置中；未配置时保持�
 
 在“设置 → 通用 → 语言”选择“简体中文”或“English”，默认简体中文。切换前会保存应用文档、检查冲突并保存会话与人工回复草稿；无法安全保存时保留当前界面。切换后刷新页面生效。
 
-Web 将偏好按站点保存在 `localStorage` 的 `atria.language`；App 将偏好保存在用户数据目录的 `language.json`，不受本地后端随机端口影响。此设置用于共用 App/Web 主界面、设置、会话和工作台操作；不修改已有用户内容、模型回复语言、CLI、系统原生弹窗或第三方嵌入编辑器的独立语言设置。后端和外部工具返回的原始错误保留原文。
+Web 将偏好按站点保存在 `localStorage` 的 `atria.language`；App 将偏好保存在用户数据目录的 `language.json`，不受本地后端随机端口影响。此设置用于共用 App/Web 主界面、设置和会话；不修改已有用户内容、模型回复语言、CLI、系统原生弹窗或第三方工具的独立语言设置。后端和外部工具返回的原始错误保留原文。
 
 ## 外观存储
 

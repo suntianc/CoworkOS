@@ -27,11 +27,9 @@ import { createModal } from "./assets/ui/modal.js";
 import { formatStamp } from "./assets/ui/time-format.js";
 import { createVisiblePoll } from "./assets/ui/visible-poll.js";
 import { installDesktopSettings } from "./assets/controllers/desktop-settings.js";
-import { installUserMemorySettings } from "./assets/controllers/user-memory-settings.js";
 import { installDesktopUpdates } from "./assets/controllers/desktop-updates.js";
 import { presentToolCall } from "./assets/tool-presentation.js";
 import { assistantDisplayContent, normalizeReasoningDisplay } from "./assets/activity.js";
-import { createWorkbenchController } from "./assets/controllers/workbench-controller.js";
 import { createArtifactController } from "./assets/controllers/artifact-controller.js";
 import { createArtifactViewer } from "./assets/controllers/artifact-viewer.js";
 import { createManagedMedia } from "./assets/controllers/managed-media.js";
@@ -186,7 +184,6 @@ $(".entry-switch")?.addEventListener("keydown", (event) => {
 for (const button of document.querySelectorAll("[data-observe-view]"))
   button.addEventListener("click", () => entryController.setObserveView(button.dataset.observeView));
 let initialConversationTaskId = conversationTaskId(location.href);
-let linkedConversationNavigation;
 let lastReadSelection;
 let backendConnection;
 const taskNotifications = createTaskNotifications({ notify: window.bookmanDesktop?.notify });
@@ -299,8 +296,7 @@ const messageEdit = createMessageEditController({
   composerSession,
   input: $("#composer-input"),
   getState: () => state,
-  isBusy: () =>
-    Boolean(currentSubmission() || readingAttachments || workbenchController.connecting || isTaskStopping()),
+  isBusy: () => Boolean(currentSubmission() || readingAttachments || isTaskStopping()),
   api,
   onError: showToast,
   onChange: () => {
@@ -353,41 +349,6 @@ const statusLabel = {
 };
 const stateText = (value) => statusLabel[value] || value || ui("未知");
 
-/**
- * The workbench, created only once a Task reports application state.
- *
- * A Task detail without an `applications` field means the feature is off, so
- * nothing here ever mounts and the conversation behaves exactly as before.
- */
-/** The shared workspace that holds documents belonging to no conversation. */
-
-const workbenchController = createWorkbenchController({
-  state,
-  $,
-  showToast,
-  createTask,
-  beginNewConversation,
-  loadDetail,
-  openResourceInEditor: (...args) => artifacts.openResourceInEditor(...args),
-  renderConversationList,
-  renderEmpty,
-  onViewChanged: paintTopbarContext,
-  onShowTaskPanel: ({ focus = false } = {}) => {
-    document.body.classList.remove("output-collapsed");
-    renderRightPanel();
-    if (focus) $("#panel-heading")?.focus();
-  },
-  refreshProjects: () => readProjectCatalog(),
-  updateSendButton,
-  closeConnection: () => connection.close(),
-  activateDraft: (taskId) => composerSession.activate(taskId, { projectId: state.selectedProjectId }),
-  saveDraft: () => composerSession.save(),
-  getNavigationContext: () => composerSession.currentToken,
-  getRequirementStage: () => runControl?.stage ?? "",
-  connectEventStream: (taskId) => connection.connect(taskId),
-  backendRequest: (path, options) => api(path, options),
-  fetchBytes: (path, signal) => management.blob(path, { signal })
-});
 const computerUse = installComputerUse({
   api,
   showToast,
@@ -395,16 +356,6 @@ const computerUse = installComputerUse({
   getTaskLabel: (taskId) =>
     conversationTitle(state.tasks.find((task) => task.taskId === taskId) || state.detail?.task)
 });
-const {
-  api: applicationApi,
-  refreshTabs,
-  loadEditableKinds,
-  enterConversation,
-  activateConversationTab,
-  ensureWorkbench,
-  ensureBinding,
-  syncBindingFromTabs
-} = workbenchController;
 let requirementPanel;
 let runControl;
 const artifacts = createArtifactController({
@@ -413,15 +364,12 @@ const artifacts = createArtifactController({
   api,
   showToast,
   renderRightPanel,
-  getWorkbench: () => workbenchController,
   mediaUrl: mediaObjectUrl,
   openArtifactViewer: (path) => artifactViewer.open(path),
   getDelivery: () => requirementPanel?.records()
 });
 const {
   openArtifact,
-  appDisplayName,
-  openResourceInEditor,
   closeArtifactDrawer,
   renderArtifactDrawer,
   openPreview,
@@ -434,12 +382,9 @@ requirementPanel = createRequirementPanel({
   api,
   onCollapse: () => void toggleOutputPane(),
   openArtifact,
-  openResource: openResourceInEditor,
   openPreview,
-  iconForDocument: (row) => workbenchController.iconForDocument(row),
   onRendered: (stage) => {
     runControl?.setRequirementStage(stage);
-    workbenchController.paintPanelToggle();
     paintTopbarContext();
   }
 });
@@ -547,9 +492,6 @@ const connection = createConnectionController({
   state,
   renderConversation,
   loadDetail,
-  getWorkbench: () => workbenchController.host,
-  readApplicationRevisions: (signal, ids) => applicationApi.listApplicationRevisions(signal, ids),
-  refreshWorkbench: () => refreshTabs(),
   openStream: (path, options) => management.openStream(path, options)
 });
 const connectEventStream = (taskId) => connection.connect(taskId);
@@ -574,12 +516,7 @@ const projectController = createProjectController({
   onSelectionChanged: (project) => {
     if (!state.selected) composerSession.activate(null, { projectId: project.projectId });
   },
-  getApplicationWorkspaces: () =>
-    (workbenchController.host?.openTabs || [])
-      .filter((tab) => tab.kind === "application")
-      .map((tab) => tab.workspaceRoot),
-  isTaskVisible: (task) =>
-    task.monitoring?.scope !== "background" || task.pinned || task.taskId === state.selected,
+  isTaskVisible: () => true,
   isUnread: (taskId) => conversationReadState.isUnread(taskId),
   selectConversation,
   conversationTitle,
@@ -597,12 +534,7 @@ const projectController = createProjectController({
     else sessionMenu.close();
   },
   getNavigationIdentity: () =>
-    JSON.stringify([
-      state.selected,
-      state.selectedProjectId,
-      composerSession.currentToken,
-      workbenchController.host?.navigationToken
-    ]),
+    JSON.stringify([state.selected, state.selectedProjectId, composerSession.currentToken]),
   onUpdated: () => void refresh()
 });
 const addProjectController = createAddProjectController({
@@ -920,7 +852,7 @@ async function applyCatalog(data, { poll = false } = {}) {
     }
   }
   setOnlineState(true);
-  const defaultTask = state.tasks.find((task) => !task.archived && task.monitoring?.scope !== "background");
+  const defaultTask = state.tasks.find((task) => !task.archived);
   const linkedTaskId = initialConversationTaskId;
   initialConversationTaskId = null;
   if (linkedTaskId && !state.tasks.some((task) => task.taskId === linkedTaskId))
@@ -941,8 +873,6 @@ async function applyCatalog(data, { poll = false } = {}) {
     )
       await loadDetail(state.selected, { poll });
     connectEventStream(state.selected);
-    if (linkedTaskId && state.selected === linkedTaskId && linkedConversationNavigation?.current())
-      await activateConversationTab(linkedTaskId, linkedConversationNavigation);
   } else renderEmpty();
   updateSendButton();
 }
@@ -1237,7 +1167,6 @@ function selectConversation(taskId) {
   connectEventStream(taskId);
   renderConversationList();
   void loadDetail(taskId);
-  void enterConversation(taskId);
 }
 
 function renderAll() {
@@ -1251,7 +1180,6 @@ function renderAll() {
   renderConversation(detail.messages || [], task);
   humanQuestions.update(detail);
   renderRightPanel();
-  syncBindingFromTabs();
   renderedDetailSignature = detailViewSignature(detail);
 }
 
@@ -1288,26 +1216,22 @@ function syncIdleComposer() {
   if (firstUse.blocksSending()) $("#composer-project").hidden = true;
 }
 function paintTopbarContext() {
-  const application = workbenchController.host?.applicationTab;
-  const editing = Boolean(application && $("#conversation-pane").hidden);
   const idleTitle = firstUse.active() ? ui("开始使用") : ui("新会话");
-  const name = editing
-    ? application.title || appDisplayName(application.appType)
-    : state.selected
-      ? conversationTitle(state.detail?.task || state.tasks.find((task) => task.taskId === state.selected))
-      : idleTitle;
+  const name = state.selected
+    ? conversationTitle(state.detail?.task || state.tasks.find((task) => task.taskId === state.selected))
+    : idleTitle;
   $("#topbar-task").textContent = truncate(name, 44);
   $("#topbar-task").title = name;
   // The title row names where the conversation lives and what it is working on.
   const task = state.selected
     ? state.detail?.task || state.tasks.find((entry) => entry.taskId === state.selected)
     : null;
-  const projectId = editing ? null : (task?.projectId ?? (state.selected ? null : state.selectedProjectId));
+  const projectId = task?.projectId ?? (state.selected ? null : state.selectedProjectId);
   const project = projectId ? state.projects.find((entry) => entry.projectId === projectId) : null;
   $("#topbar-project").hidden = !project;
   $("[data-topbar-project-name]").textContent = project?.projectName ?? "";
   $("#topbar-project").title = project?.projectDirectory || project?.workspaceRoot || "";
-  const requirement = !editing && state.selected ? requirementPanel.records()?.requirement : null;
+  const requirement = state.selected ? requirementPanel.records()?.requirement : null;
   const chip = $("#topbar-requirement");
   chip.hidden = !requirement || requirementPanel.records()?.taskId !== state.selected;
   if (!chip.hidden) {
@@ -1328,7 +1252,7 @@ function truncate(value, length) {
   return text.length > length ? `${text.slice(0, length - 1)}…` : text;
 }
 
-function beginNewConversation(projectId, applicationWorkspace) {
+function beginNewConversation(projectId) {
   if (!state.projectsLoaded) return false;
   sessionMenu.close();
   const project =
@@ -1336,7 +1260,7 @@ function beginNewConversation(projectId, applicationWorkspace) {
       ? projectController.select(projectId)
       : projectId === null
         ? undefined
-        : projectController.projectForWorkspace(applicationWorkspace) || projectController.currentProject();
+        : projectController.currentProject();
   if (project) projectController.select(project.projectId);
   else state.selectedProjectId = null;
   composerSession.activate(null, {
@@ -1371,49 +1295,8 @@ function beginNewConversation(projectId, applicationWorkspace) {
   renderConversationList();
   renderEmpty();
   updateSendButton();
-  // A conversation is a tab from the moment it is asked for. Without one the
-  // strip went on highlighting the previous conversation while the composer
-  // was writing a new one, so the row and the pane disagreed about where the
-  // person was — and an application tab covering the area made the click look
-  // like it had done nothing at all.
-  const host = ensureWorkbench();
-  if (host) {
-    host.openDraftConversation();
-    $("#workbench").hidden = false;
-    $("#conversation-pane").hidden = false;
-    document.body.classList.remove("app-fullbleed");
-    $("#composer-input").focus();
-    return true;
-  }
-  void showConversationArea().then(() => $("#composer-input").focus());
+  $("#composer-input").focus();
   return true;
-}
-
-/**
- * Put the conversation back in front of whatever application is showing.
- *
- * The strip is global, so an editor from any task can be the active tab. A
- * request to work in the conversation therefore has to move the strip, not just
- * change which task is selected — the tab is what decides what fills the pane.
- */
-async function showConversationArea() {
-  const active = workbenchController.host?.activeTab;
-  if (!active || active.kind === "conversation") return;
-  // Prefer this task's own conversation tab; with no task selected there is
-  // nothing to activate, so the application is simply set aside.
-  const own =
-    state.selected &&
-    workbenchController.tabs.tabs.find((tab) => tab.kind === "conversation" && tab.taskId === state.selected);
-  if (own) {
-    await workbenchController.host?.activate(own.tabId);
-    return;
-  }
-  const anyConversation = workbenchController.tabs.tabs.find((tab) => tab.kind === "conversation");
-  if (anyConversation && !state.selected) {
-    await workbenchController.host?.activate(anyConversation.tabId);
-    return;
-  }
-  await workbenchController.host?.showConversation();
 }
 
 let taskSearchDialog;
@@ -1450,7 +1333,7 @@ function openTaskSearch() {
         node.addEventListener("click", () => {
           document.body.classList.remove("sidebar-mobile-open");
           taskSearchDialog.close();
-          void activateConversationTab(node.dataset.task);
+          selectConversation(node.dataset.task);
         })
       );
     };
@@ -1572,8 +1455,8 @@ function chooseThinkingLevel(value) {
 }
 
 async function toggleOutputPane() {
-  if (await workbenchController.toggleWorkspace()) return;
   animateLayout(() => document.body.classList.toggle("output-collapsed"), { part: "pane" });
+  requirementPanel.paintToggle();
   if (!document.body.classList.contains("output-collapsed")) renderRightPanel();
 }
 
@@ -1669,10 +1552,6 @@ document.addEventListener("click", (event) => {
   if (!event.composedPath().some((node) => node.id === "model-select" || node.id === "model-menu"))
     closeModelMenu();
 });
-$("#app-bind-select")?.addEventListener("click", () => ensureBinding()?.toggle());
-document.addEventListener("click", (event) => {
-  if (!event.target.closest("#app-bind-select, #app-bind-menu")) workbenchController.binding?.close();
-});
 const sessionAction = createConversationOperations({
   readState: conversationReadState,
   onReadChange: () => renderConversationList(),
@@ -1695,10 +1574,7 @@ const sessionMenu = createConversationMenu({
   onAction: (action, taskId, task) => void sessionAction(action, taskId, task)
 });
 function currentSessionMenuContext() {
-  return JSON.stringify([
-    state.selected,
-    $("#conversation-pane").hidden ? workbenchController.host?.applicationTab?.tabId : null
-  ]);
+  return JSON.stringify([state.selected]);
 }
 window.addEventListener("resize", () => sessionMenu.reposition());
 $("#project-list").addEventListener("scroll", () => sessionMenu.reposition(), true);
@@ -1718,10 +1594,6 @@ createMenu($("#model-select"), $("#model-menu"), {
   onClose: closeModelMenu
 });
 window.addEventListener("resize", () => positionModelMenu());
-createMenu($("#app-bind-select"), $("#app-bind-menu"), {
-  toggleOnClick: false,
-  onClose: () => workbenchController.binding?.close()
-});
 /**
  * The observation entry's read-only port.
  *
@@ -1877,14 +1749,13 @@ $(".composer").addEventListener("drop", (event) => {
 window.addEventListener("drop", (event) => {
   if (event.dataTransfer?.files?.length) {
     event.preventDefault();
-    showToast(ui("请将文件拖入对话输入区或应用编辑区；当前内容已保留。"));
+    showToast(ui("请将文件拖入对话输入区；当前内容已保留。"));
   }
 });
 
 async function createTask(goal, workspaceRoot, submission, projectId) {
   const sourceKey = composerSession.currentKey;
   const sourceToken = composerSession.currentToken;
-  const sourceNavigation = workbenchController.host?.navigationToken ?? 0;
   const sourceDraft = composerSession.snapshot();
   const sourceTask = state.selected;
   const sourceProject = projectId
@@ -1895,7 +1766,7 @@ async function createTask(goal, workspaceRoot, submission, projectId) {
         ? undefined
         : projectController.currentProject();
   if (projectId && !sourceProject) throw new Error(ui("目标项目已不可用，请重新选择项目"));
-  const creationKey = JSON.stringify([sourceProject?.projectId ?? null, sourceToken, sourceNavigation]);
+  const creationKey = JSON.stringify([sourceProject?.projectId ?? null, sourceToken]);
   if (creatingTasks.has(creationKey)) return creatingTasks.get(creationKey);
   composerSession.save();
   const creation = createTaskFromDraft(
@@ -1904,7 +1775,6 @@ async function createTask(goal, workspaceRoot, submission, projectId) {
     sourceKey,
     sourceToken,
     sourceDraft,
-    sourceNavigation,
     sourceProject?.projectId ?? null,
     submission,
     sourceProject ? undefined : workspaceRoot
@@ -1947,7 +1817,6 @@ async function createTaskFromDraft(
   sourceKey,
   sourceToken,
   sourceDraft,
-  sourceNavigation,
   projectId,
   submission,
   temporaryWorkspaceRoot
@@ -1968,8 +1837,7 @@ async function createTaskFromDraft(
   const foreground =
     state.selected === sourceTask &&
     (state.selectedProjectId ?? null) === projectId &&
-    composerSession.currentToken === sourceToken &&
-    (workbenchController.host?.navigationToken ?? 0) === sourceNavigation;
+    composerSession.currentToken === sourceToken;
   composerSession.transfer(task.taskId, sourceKey, sourceToken, sourceDraft, { background: !foreground });
   if (!state.tasks.some((item) => item.taskId === task.taskId)) state.tasks.unshift(task);
   projectController.addTask(task);
@@ -1987,20 +1855,8 @@ async function createTaskFromDraft(
   state.openFiles = [];
   state.artifactCache.clear();
   state.viewerTaskId = task.taskId;
-  // The draft became this conversation, so its placeholder tab gives way to the
-  // real one rather than sitting beside it.
-  workbenchController.host?.dropDraft();
-  // A document from another conversation can still be in front when creation
-  // came from its binding button. Leave that view before refreshing, or its
-  // owner would select the old conversation while opening the new one's tab.
-  void workbenchController.host?.showConversation();
-  void enterConversation(task.taskId);
   state.workspacePath = task.storageRoot || state.workspaceRoot;
   renderConversationList();
-  // Clear the previous conversation's application binding immediately. Reading
-  // the global strip must not hold up this conversation's first message.
-  workbenchController.syncBindingFromTabs();
-  void refreshTabs();
   return task.taskId;
 }
 
@@ -2234,18 +2090,11 @@ function updateSendButton() {
     cancel: (taskId, messageId) => promoteQueuedMessage(taskId, messageId, "cancel"),
     promote: promoteQueuedMessage
   });
-  const connecting = workbenchController.connecting;
   const backendReady = Boolean(backendConnection && backendConnection.ready());
   const awaitingSetup = firstUse.blocksSending();
   $("#send-button").hidden = showStop;
   $("#send-button").disabled =
-    awaitingSetup ||
-    isSending ||
-    readingAttachments ||
-    connecting ||
-    stopping ||
-    !state.online ||
-    !backendReady;
+    awaitingSetup || isSending || readingAttachments || stopping || !state.online || !backendReady;
   $("#stop-button").hidden = !showStop;
   $("#stop-button").disabled = stopping;
   $("#stop-button").setAttribute("aria-busy", String(stopping));
@@ -2256,15 +2105,13 @@ function updateSendButton() {
     ? firstUse.lockReason()
     : !backendReady
       ? ui("后端连接不可用")
-      : connecting
-        ? ui("正在关联文件…")
-        : isSending
-          ? ui("正在发送…")
-          : readingAttachments
-            ? ui("正在读取附件…")
-            : running
-              ? ui("插入下一步（Enter）· 本轮结束后发送（⌥Enter）")
-              : ui("发送（Enter）");
+      : isSending
+        ? ui("正在发送…")
+        : readingAttachments
+          ? ui("正在读取附件…")
+          : running
+            ? ui("插入下一步（Enter）· 本轮结束后发送（⌥Enter）")
+            : ui("发送（Enter）");
   $("#send-button").setAttribute("aria-label", running ? ui("插入下一步") : ui("发送"));
   if (composerSession.editing) {
     $("#send-button").title = ui("请先保存或取消正在编辑的消息");
@@ -2310,7 +2157,6 @@ async function submitMessageEdit() {
     !composerSession.editing ||
     currentSubmission() ||
     readingAttachments ||
-    workbenchController.connecting ||
     !state.online ||
     isTaskStopping()
   )
@@ -2332,7 +2178,7 @@ async function sendMessage({ queue = false } = {}) {
   const input = $("#composer-input");
   const text = input.value.trim() || (state.attachments.length ? ui("请查看这些附件。") : "");
   if (!text) return;
-  if (currentSubmission() || readingAttachments || workbenchController.connecting || !state.online) return;
+  if (currentSubmission() || readingAttachments || !state.online) return;
   if (isTaskStopping()) return;
   if (composerSession.editing) {
     return showToast(ui("请先保存或取消正在编辑的消息，底部草稿会保留。"));
@@ -2420,7 +2266,6 @@ async function retryFailedRequest(taskId) {
     !$("#human-questions").hidden ||
     currentSubmission() ||
     readingAttachments ||
-    workbenchController.connecting ||
     !state.online
   )
     return;
@@ -2472,9 +2317,6 @@ composerSession.activate(state.selected, { projectId: state.selectedProjectId })
 // Text typed from here on, including while the backend connects, is kept.
 $("#composer-input").readOnly = false;
 $("#composer-input").removeAttribute("aria-busy");
-// Opening a conversation link is a navigation choice. Reserve it before the
-// first tab poll can restore a different conversation or independent editor.
-if (initialConversationTaskId) linkedConversationNavigation = workbenchController.captureNavigation();
 /**
  * Authorize this page and load its backend.
  *
@@ -2518,10 +2360,8 @@ createVisiblePoll({
   intervalMs: () =>
     connection.isStreaming(state.selected) ? 30000 : state.detail?.runtime?.active ? 3500 : 15000
 });
-createVisiblePoll({ run: () => refreshTabs({ poll: true }), intervalMs: 3500, immediate: true });
 
 async function prepareInterfaceClose() {
-  const documentsSaved = (await workbenchController.host?.prepareClose()) ?? true;
   if (readingAttachments) {
     showToast(ui("附件仍在读取，请稍候再关闭窗口或更新模型连接"));
     return false;
@@ -2529,7 +2369,7 @@ async function prepareInterfaceClose() {
   const repliesSaved = humanQuestions.flushDrafts();
   if (!repliesSaved) showToast(ui("人工回复草稿暂时无法保存，请保留当前窗口并稍后重试"));
   const composerSaved = composerSession.prepareClose();
-  return documentsSaved && repliesSaved && composerSaved;
+  return repliesSaved && composerSaved;
 }
 observeData.start();
 backendConnection = createBackendConnection({
@@ -2566,4 +2406,3 @@ const modelSettings = installDesktopSettings({
   }
 });
 $("#model-setup-button").addEventListener("click", () => void modelSettings.open());
-installUserMemorySettings({ host: settingsPages.host, showToast, api });

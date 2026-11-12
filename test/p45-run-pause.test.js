@@ -1,4 +1,3 @@
-import "./application-fixture.mjs";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdir, readFile, writeFile } from "node:fs/promises";

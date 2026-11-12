@@ -28,7 +28,6 @@ const files = [
     // A running harness can create task workspaces inside this checkout.
     // Their user content and live supervisor state are not product source.
     !/^task-[^/]+\//.test(file) &&
-    !file.startsWith(".watch-supervisor.lock/") &&
     !file.startsWith("applications/") &&
     !file.startsWith("workspace/") &&
     /\.(?:ts|js|mjs|cjs|json|md|css|html|ya?ml)$/.test(file) &&

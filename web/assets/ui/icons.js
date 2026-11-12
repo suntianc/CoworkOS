@@ -1,4 +1,4 @@
-import { escapeHtml } from "../workbench/html.js";
+import { escapeHtml } from "../ui/html.js";
 
 const menuIcons = {
   pin: '<path d="m15 3 6 6-3 1-3 5-3-3-5 3-1-1 3-5-3-3Z"/><path d="m9 15-6 6"/>',

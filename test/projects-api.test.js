@@ -80,10 +80,6 @@ test("project API persists empty projects and conversation membership across res
     []
   );
   assert.equal(await readFile(memory, "utf8"), "Retained conversation history\n");
-  assert.deepEqual(
-    (await f.request("/api/workbench/workspaces", undefined, "GET")).body.workspaces.sort(),
-    [f.workspaceRoot, b, c].sort()
-  );
   const storageCatalog = JSON.parse(await readFile(join(f.root, "global.json"), "utf8"));
   assert.deepEqual(
     storageCatalog.workspaces.map((entry) => entry.workspaceRoot),
@@ -157,8 +153,8 @@ test("project folder edits reject running, parked and detached-command tasks whi
     JSON.stringify({
       runId: "parked",
       parkedAt: new Date().toISOString(),
-      reason: "Wait for a monitor",
-      monitorIds: []
+      wakeAt: new Date(Date.now() + 60_000).toISOString(),
+      reason: "Wait for a retry"
     })
   );
   assert.equal((await f.request(endpoint, { projectDirectory: b }, "PATCH")).status, 409);

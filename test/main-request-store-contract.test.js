@@ -11,13 +11,6 @@ import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-requ
 import { MainRequestRetry, mainRequestEnvironment } from "../dist/src/runtime/main-request-retry.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { readModelRequestRetry } from "../dist/src/runtime/model-request-retry.js";
-import { GoalManagement } from "../dist/src/runtime/goal-management.js";
-import { requireCollectorOwnership } from "../dist/src/runtime/goal-delegation.js";
-import {
-  readGoalDelegationRequest,
-  restoreGoalDelegationRequest,
-  syncGoalDelegationRequest
-} from "../dist/src/runtime/goal-delegation-request.js";
 
 const storeModule = new URL("../dist/src/storage/main-request-store.js", import.meta.url).href;
 const retryModule = new URL("../dist/src/runtime/main-request-retry.js", import.meta.url).href;
@@ -89,80 +82,6 @@ async function storage(t) {
     store: new MainRequestStore(mainRequestPath(root, "task"), "task")
   };
 }
-
-for (const legacy of [false, true])
-  test(`replay ${legacy ? "without an archived user boundary fails closed" : "restores the archived user boundary"} after newer context was prepared`, async (t) => {
-    const f = await storage(t);
-    const context = (id) => ({
-      sessionId: "session",
-      branch: [{ type: "message", id, message: { role: "user", content: id, timestamp: 1 } }]
-    });
-    await syncGoalDelegationRequest(f.root, "task", "original-run", context("original-user"));
-    const original = (await readGoalDelegationRequest(f.root, "task", "original-run")).requestId;
-    await new GoalManagement(f.root).create(
-      "task",
-      {
-        scope: "background",
-        requestId: "register",
-        brief: { title: "Training", objective: "Follow training" }
-      },
-      "original-run"
-    );
-    await f.store.begin({ ...f.input, ...(legacy ? {} : { goalDelegationRequestId: original }) });
-    await f.store.settle(f.input.requestId, "failed");
-    // CLI can prepare newer user context, then fail before replacing the failed HTTP snapshot.
-    await syncGoalDelegationRequest(f.root, "task", "original-run", context("new-user"));
-    await requireCollectorOwnership(f.root, "task", "original-run");
-    const retry = new MainRequestRetry(
-      f.store,
-      "original-run",
-      async () => f.environment,
-      f.input.requestId,
-      undefined,
-      undefined,
-      {
-        beginTurn() {},
-        protectReplayScope() {},
-        goalDelegation: {
-          read: async () => (await readGoalDelegationRequest(f.root, "task", "original-run"))?.requestId,
-          restore: (requestId) => restoreGoalDelegationRequest(f.root, "task", "original-run", requestId)
-        }
-      }
-    );
-    await retry.prepare(f.model, f.context);
-    const expected = legacy ? undefined : original;
-    assert.equal((await readGoalDelegationRequest(f.root, "task", "original-run")).requestId, expected);
-    await assert.rejects(requireCollectorOwnership(f.root, "task", "original-run"), /交接/);
-    await retry.capture(f.capture);
-    assert.equal((await f.store.read()).goalDelegationRequestId, expected);
-    await retry.settle(f.capture.requestId, true);
-    assert.equal(retry.isReplaying, false);
-    await assert.rejects(requireCollectorOwnership(f.root, "task", "original-run"), /交接/);
-    await syncGoalDelegationRequest(f.root, "task", "original-run", context("new-user"));
-    await requireCollectorOwnership(f.root, "task", "original-run");
-  });
-
-test("successive model HTTP snapshots retain the active user request's ownership", async (t) => {
-  const f = await storage(t);
-  const retry = new MainRequestRetry(
-    f.store,
-    "original-run",
-    async () => f.environment,
-    undefined,
-    undefined,
-    undefined,
-    {
-      beginTurn() {},
-      protectReplayScope() {},
-      goalDelegation: { read: async () => "user:accepted-input", restore: async () => {} }
-    }
-  );
-  await retry.prepare(f.model, f.context);
-  await retry.capture({ ...f.capture, requestId: "model-request-one" });
-  assert.equal((await f.store.read()).goalDelegationRequestId, "user:accepted-input");
-  await retry.capture({ ...f.capture, requestId: "http-retry-two" });
-  assert.equal((await f.store.read()).goalDelegationRequestId, "user:accepted-input");
-});
 
 test("claiming an original request refuses a replaced Run, replaced request, completed or missing slot", async (t) => {
   for (const [name, replace] of [

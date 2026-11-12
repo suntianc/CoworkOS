@@ -1,6 +1,6 @@
 import { icon } from "../ui/icons.js";
 import { ui } from "../ui/language.js";
-import { escapeHtml as esc } from "../workbench/html.js";
+import { escapeHtml as esc } from "../ui/html.js";
 
 const statusLabel = {
   created: "未开始",
@@ -37,13 +37,7 @@ export function createNewSessionView({
     (state.projects || []).find((project) => project.projectId === state.selectedProjectId);
   function recentTasks() {
     return (state.tasks || [])
-      .filter(
-        (task) =>
-          !task.archived &&
-          !task.temporaryWorkspaceRoot &&
-          task.kind !== "workspace" &&
-          task.monitoring?.scope !== "background"
-      )
+      .filter((task) => !task.archived && !task.temporaryWorkspaceRoot && task.kind !== "workspace")
       .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
       .slice(0, 2);
   }

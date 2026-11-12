@@ -12,7 +12,7 @@ export async function readTextAttachments(files) {
       if (!textExtensions.test(file.name))
         throw new Error(ui`“${file.name}”暂不支持作为对话附件，请添加文本文件`);
       if (file.size > MAX_ATTACHMENT_BYTES)
-        throw new Error(ui`“${file.name}”超过 128 KB，未添加；请拆分文件或在应用中打开`);
+        throw new Error(ui`“${file.name}”超过 128 KB，未添加；请拆分后再添加`);
       let text;
       try {
         text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());

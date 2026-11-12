@@ -5,7 +5,6 @@ import { lstat, open, readdir, realpath, rm } from "node:fs/promises";
 import { hostname } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { WorkbenchTabStore } from "../dist/src/applications/tab-store.js";
 import { readTemporaryWorkspace } from "../dist/src/workspace/temporary-workspaces.js";
 
 const safeId = (value) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && value !== "." && value !== "..";
@@ -332,55 +331,6 @@ async function makePlan(root, selectedTask) {
   return { root, workspace, runtime, backendPresent, items: found };
 }
 
-async function pruneTabs(plan, removedTasks, pruneOrphans, dryRun = false) {
-  if (plan.backendPresent) return [];
-  const indexPath = join(plan.runtime, "workspaces.json");
-  const tabPath = join(plan.runtime, "workbench-tabs.json");
-  const catalog = await maybeJson(plan.root, indexPath);
-  const complete =
-    catalog?.version === 1 &&
-    Array.isArray(catalog.workspaces) &&
-    catalog.workspaces.length > 0 &&
-    catalog.workspaces.every(
-      (entry) =>
-        entry && typeof entry.workspaceRoot === "string" && resolve(entry.workspaceRoot) === plan.workspace
-    );
-  await checkedPath(plan.root, tabPath);
-  if (!(await statOrMissing(tabPath))) return [];
-  const tabs = new WorkbenchTabStore(tabPath);
-  const snapshot = await tabs.read();
-  const names = new Set((await entries(plan.root, plan.workspace)).map((entry) => entry.name));
-  const instances =
-    pruneOrphans && complete
-      ? await maybeJson(plan.root, join(plan.workspace, "applications", "instances", "index.json"))
-      : undefined;
-  const validInstances =
-    instances?.version === 1 &&
-    Array.isArray(instances.instances) &&
-    instances.instances.every((entry) => entry && typeof entry.appInstanceId === "string") &&
-    instances.aliases &&
-    typeof instances.aliases === "object" &&
-    !Array.isArray(instances.aliases);
-  const instanceIds = new Set(validInstances ? instances.instances.map((entry) => entry.appInstanceId) : []);
-  if (validInstances)
-    for (const [alias, target] of Object.entries(instances.aliases))
-      if (instanceIds.has(target)) instanceIds.add(alias);
-  const removed = snapshot.tabs.filter(
-    (tab) =>
-      (tab.kind === "conversation" &&
-        tab.taskId &&
-        complete &&
-        (removedTasks.has(tab.taskId) || (pruneOrphans && !names.has(tab.taskId)))) ||
-      (tab.kind === "application" &&
-        tab.appInstanceId &&
-        validInstances &&
-        !instanceIds.has(tab.appInstanceId))
-  );
-  const ids = new Set(removed.map((tab) => tab.tabId));
-  if (!dryRun) await tabs.prune((tab) => !ids.has(tab.tabId), snapshot.tabs);
-  return removed.map((tab) => tab.tabId);
-}
-
 async function main() {
   const args = process.argv.slice(2);
   let root, mode, selectedTask;
@@ -399,22 +349,14 @@ async function main() {
   if ((await realpath(root)) !== root || !(await lstat(root)).isDirectory())
     throw new Error("data root must be an existing non-symlink directory");
   const plan = await makePlan(root, selectedTask);
-  const plannedTasks = new Set(
-    plan.items.filter((entry) => entry.kind === "task" && entry.action === "remove").map((entry) => entry.id)
-  );
-  plan.tabsToRemove = await pruneTabs(plan, plannedTasks, !selectedTask, true);
   if (mode === "--apply") {
-    const removedTasks = new Set();
     for (const entry of plan.items) {
       if (entry.action !== "remove") continue;
       await checkedPath(root, entry.path);
-      if (entry.kind === "task") {
-        await new LocalWorkspaceStore(plan.workspace).deleteTask(entry.id);
-        removedTasks.add(entry.id);
-      } else await rm(entry.path, { recursive: true, force: false });
+      if (entry.kind === "task") await new LocalWorkspaceStore(plan.workspace).deleteTask(entry.id);
+      else await rm(entry.path, { recursive: true, force: false });
       entry.result = "removed";
     }
-    plan.removedTabs = await pruneTabs(plan, removedTasks, !selectedTask);
   }
   console.log(JSON.stringify(plan, null, 2));
 }

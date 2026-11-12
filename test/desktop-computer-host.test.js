@@ -47,7 +47,7 @@ test(
     const env = { ...process.env };
     for (const key of Object.keys(process.env))
       if (/^(COWORK_|PI_|ATRIA_|ELECTRON_)/.test(key)) delete process.env[key];
-    process.env.COWORK_DISABLE_WATCH_SUPERVISOR = "1";
+    process.env.COWORK_DISABLE_MAIN_GUARDIAN = "1";
     process.env.PI_OFFLINE = "1";
     process.env.PI_TELEMETRY = "0";
     const paths = desktopPaths(root, join(base, "home"), {});
@@ -112,7 +112,7 @@ test(
     const env = { ...process.env };
     for (const key of Object.keys(process.env))
       if (/^(COWORK_|PI_|ATRIA_|ELECTRON_)/.test(key)) delete process.env[key];
-    process.env.COWORK_DISABLE_WATCH_SUPERVISOR = "1";
+    process.env.COWORK_DISABLE_MAIN_GUARDIAN = "1";
     process.env.PI_OFFLINE = "1";
     process.env.PI_TELEMETRY = "0";
     const hosts = [];
@@ -214,9 +214,8 @@ test(
         COWORK_CONFIG: paths.configPath,
         COWORK_WORKSPACE: paths.workspaceRoot,
         COWORK_GLOBAL_INDEX: paths.globalIndex,
-        COWORK_TABS_INDEX: paths.tabsIndex,
         PI_CODING_AGENT_DIR: paths.piAgentDir,
-        COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+        COWORK_DISABLE_MAIN_GUARDIAN: "1",
         PI_OFFLINE: "1"
       },
       stdio: ["ignore", "pipe", "pipe"]
@@ -273,7 +272,7 @@ test(
     process.env.ATRIA_HOME = base;
     process.env.COWORK_HARNESS_ROOT = root;
     process.env.COWORK_WORKSPACE = join(base, "workspace");
-    process.env.COWORK_DISABLE_WATCH_SUPERVISOR = "1";
+    process.env.COWORK_DISABLE_MAIN_GUARDIAN = "1";
     process.env.PI_OFFLINE = "1";
     process.env.COWORK_API_TOKEN = "synthetic-host-token";
     const port = await new Promise((done, fail) => {

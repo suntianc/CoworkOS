@@ -368,7 +368,6 @@ function settingsFixture(t) {
     return {
       ...state.profiles[0],
       activeProfileId: "a",
-      visionProfileId: "",
       profiles: state.profiles,
       managedByEnvironment: false,
       modelRoles: {
@@ -514,7 +513,6 @@ test("a role change that fails on the settings page reports on its row and resto
   const status = () => ({
     ...state.profiles[0],
     activeProfileId: "a",
-    visionProfileId: "",
     profiles: state.profiles,
     managedByEnvironment: false,
     modelRoles: {

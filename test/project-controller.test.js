@@ -27,8 +27,7 @@ function fixture(t, request = async () => ({}), isTaskVisible) {
     selected: null
   };
   const began = [],
-    calls = [],
-    applicationWorkspaces = [];
+    calls = [];
   let navigation = 0;
   const controller = createProjectController({
     state,
@@ -51,7 +50,6 @@ function fixture(t, request = async () => ({}), isTaskVisible) {
     openTaskMenu() {},
     showToast() {},
     getNavigationIdentity: () => navigation,
-    getApplicationWorkspaces: () => applicationWorkspaces,
     isTaskVisible: isTaskVisible && ((task) => isTaskVisible(task, state))
   });
   t.after(() => {
@@ -70,7 +68,6 @@ function fixture(t, request = async () => ({}), isTaskVisible) {
     began,
     calls,
     submit,
-    applicationWorkspaces,
     navigate: () => navigation++
   };
 }
@@ -88,54 +85,6 @@ test("empty projects remain visible and project navigation creates only a draft"
   assert.deepEqual(f.began, ["b", "b"]);
 });
 
-test("background goals stay outside project and temporary conversation lists until selected or pinned", (t) => {
-  const f = fixture(
-    t,
-    undefined,
-    (task, state) => task.monitoring?.scope !== "background" || task.pinned || task.taskId === state.selected
-  );
-  const ordinary = { taskId: "daily", projectId: "a", goal: "普通会话", status: "waiting" };
-  const background = {
-    taskId: "goal",
-    projectId: "a",
-    goal: "后台跟进",
-    monitoring: { scope: "background" }
-  };
-  const pinned = { ...background, taskId: "pinned", pinned: true };
-  const temporary = {
-    ...background,
-    taskId: "temporary-goal",
-    projectId: undefined,
-    temporaryWorkspaceRoot: "/tmp/background"
-  };
-  const legacy = { ...background, taskId: "legacy-goal", projectId: "legacy" };
-  const archived = { ...pinned, taskId: "archived-goal", archived: true };
-  f.controller.accept({
-    projects: [project("a"), project("b"), { ...project("legacy"), legacy: true }],
-    tasks: [ordinary, background, pinned, temporary, legacy, archived]
-  });
-  f.$("#composer-input").value = "保持普通会话草稿";
-  f.controller.render();
-  assert.ok(f.$('[data-task="daily"]'));
-  assert.ok(f.$('[data-task="pinned"]'));
-  assert.equal(f.$('[data-task="goal"]'), null);
-  assert.equal(f.$('[data-task="temporary-goal"]'), null);
-  assert.equal(f.$('[data-project="legacy"]'), null);
-  assert.equal(f.$('[data-task="archived-goal"]'), null);
-  assert.ok(f.$('[data-project-create="b"]'), "explicit empty projects retain the new conversation action");
-  assert.equal(f.$("#conversation-count").textContent, "2");
-  f.state.selected = "goal";
-  f.controller.render();
-  assert.ok(f.$('[data-task="goal"]'));
-  assert.ok(f.$('[data-quick-task="goal"]'), "a selected goal keeps the row's quick actions");
-  assert.equal(f.$("#conversation-count").textContent, "3");
-  f.state.selected = "temporary-goal";
-  f.controller.render();
-  assert.equal(f.$('[data-task="goal"]'), null);
-  assert.ok(f.$('[data-task="temporary-goal"]'));
-  assert.equal(f.$("#composer-input").value, "保持普通会话草稿");
-});
-
 test("explicit collaboration can establish a project without changing navigation or drafts", async (t) => {
   const created = { ...project("document"), projectDirectory: "/document-home", projectName: "文档协作" };
   const f = fixture(t, async () => ({ project: created }));
@@ -149,24 +98,14 @@ test("explicit collaboration can establish a project without changing navigation
   assert.equal(f.calls.length, 1, "reuse an existing project instead of creating duplicates");
 });
 
-test("legacy projects with only archived tasks disappear while document-only and explicit projects remain", (t) => {
+test("legacy projects with only archived or no tasks disappear while explicit projects remain", (t) => {
   const f = fixture(t);
   f.state.projects.push({ ...project("old"), legacy: true, tasks: [{ taskId: "old", archived: true }] });
-  f.state.projects.push({ ...project("documents"), legacy: true, hasApplications: true, tasks: [] });
   f.state.projects.push({ ...project("orphan"), legacy: true, tasks: [] });
   f.controller.render();
   assert.equal(f.$('[data-project="old"]'), null);
   assert.ok(f.$('[data-project="a"]'));
-  assert.ok(f.$('[data-project="documents"]'));
   assert.equal(f.$('[data-project="orphan"]'), null);
-  f.$('[data-project-create="documents"]').click();
-  assert.deepEqual(f.began, ["documents"]);
-  f.applicationWorkspaces.push("/tmp/old");
-  f.controller.render();
-  assert.ok(
-    f.$('[data-project="old"]'),
-    "an open document keeps its project accessible after conversation archival"
-  );
 });
 
 test("cancelling project creation preserves the conversation and never submits a task", (t) => {
@@ -539,14 +478,12 @@ test("an existing project draft prevents legacy source cleanup even after a fail
   assert.equal(records.get("atria.composer.v1:backend-a:new"), source);
 });
 
-test("legacy empty migration groups require document evidence while named empty projects survive", (t) => {
+test("legacy migration groups without conversations stay hidden while named empty projects survive", (t) => {
   const f = fixture(t);
   f.state.projects.push({ ...project("workspace"), legacy: true, tasks: [] });
   f.state.projects.push({ ...project("test"), legacy: true, tasks: [] });
-  f.state.projects.push({ ...project("kept"), legacy: true, hasApplications: true, tasks: [] });
   f.controller.render();
   assert.equal(f.$('[data-project="workspace"]'), null);
   assert.equal(f.$('[data-project="test"]'), null);
-  assert.ok(f.$('[data-project="kept"]'));
   assert.ok(f.$('[data-project="a"]'));
 });

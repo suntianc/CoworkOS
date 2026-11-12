@@ -12,7 +12,6 @@ import { proxyEnvironment, createHttpTransport } from "../dist/src/runtime/http-
 import { PiSession } from "../dist/src/runtime/pi-session.js";
 import { testModelConnection } from "../dist/src/runtime/model-connection.js";
 import { availableModelIds } from "../dist/src/runtime/model-catalog.js";
-import { analyzeImageWithVisionModel } from "../dist/src/tools/vision-model.js";
 import { runtimeSettingsEnv } from "../dist/src/runtime/runtime-settings.js";
 import { TraceRecorder } from "../dist/src/storage/trace-recorder.js";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
@@ -99,7 +98,7 @@ test("proxy settings honor either environment spelling, validate config and alwa
 });
 
 for (const api of ["openai-completions", "openai-responses"]) {
-  test(`${api}: session, recorded request, connection check and vision use the same environment proxy`, async (t) => {
+  test(`${api}: session, recorded request and connection check use the same environment proxy`, async (t) => {
     environment(t);
     const provider = await modelProtocolFixture(api, () => ({ text: "Proxy evidence received" }));
     t.after(() => provider.close());
@@ -129,20 +128,8 @@ for (const api of ["openai-completions", "openai-responses"]) {
     assert.ok(proxy.targets.length);
     assert.match(await readFile(recorder.modelRequestPath, "utf8"), /model_request/);
     await testModelConnection(connection);
-    const answer = await analyzeImageWithVisionModel(
-      { ...connection, maxTokens: 512 },
-      {
-        data: Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-          "base64"
-        ),
-        mimeType: "image/png",
-        path: "pixel.png"
-      }
-    );
-    assert.match(answer, /Proxy evidence/);
-    assert.equal(provider.requests.length, 3);
-    assert.ok(proxy.targets.length >= 3, "each request owner closes its proxy tunnel");
+    assert.equal(provider.requests.length, 2);
+    assert.ok(proxy.targets.length >= 2, "each request owner closes its proxy tunnel");
     assert.deepEqual(await availableModelIds({ ...connection, model: "selected-model" }), [
       "selected-model",
       "protocol-fixture"
@@ -247,7 +234,7 @@ test(
           COWORK_TASK_ID: "proxy-task",
           COWORK_RUN_ID: "proxy-run",
           PI_CODING_AGENT_DIR: join(root, "pi"),
-          COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+          COWORK_DISABLE_MAIN_GUARDIAN: "1",
           PI_OFFLINE: "1",
           PI_TELEMETRY: "0"
         }

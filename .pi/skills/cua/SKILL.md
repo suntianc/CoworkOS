@@ -1,13 +1,12 @@
 ---
 name: cua
-description: Operate a web interface or authorized desktop window using CoworkOS's Browser Use, Computer Use and bounded JavaScript CUA SDK. Use for visual UI tasks with observation, interaction and result verification. Application resource edits should use their existing dedicated tools when available.
+description: Operate a web interface or authorized desktop window using CoworkOS's Browser Use, Computer Use and bounded JavaScript CUA SDK. Use for visual UI tasks with observation, interaction and result verification.
 ---
 
 # CUA
 
 Choose the control surface that matches the user's target:
 
-- Use existing application tools for a referenced editable resource when they cover the task.
 - Enable the `browser` group for a new, isolated Chromium session. It has no access to the user's existing browser profile, cookies or tabs. A `pageId` belongs to this runtime; popups are registered with their opener and never switch the target automatically. Cookies are shared only inside this Task-owned context; reset/restart requires login again.
 - Enable the `computer` group for an existing native window. Start with `computer_status`. Reuse an active human grant through its `sessionId`; discover/select require enabled global policy and may be unavailable with a window-only grant. The model cannot enable or resume desktop authorization. A paused or revoked session must stay paused.
 - Enable `cua` as well when JavaScript will simplify several known operations. A script can call only currently active CUA tools, so also enable its underlying browser/computer group.

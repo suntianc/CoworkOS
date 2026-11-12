@@ -318,10 +318,36 @@ ipcMain.handle("bookman:choose-project", async (event) => {
   });
   return result.canceled ? undefined : result.filePaths[0];
 });
-ipcMain.handle("bookman:open-path", async (event, value) => {
+/** Open one already-published artifact in the system's default application. */
+ipcMain.handle("bookman:open-artifact", async (event, taskId, relativePath) => {
   trust(event);
-  if (typeof value !== "string" || !path.isAbsolute(value)) throw new Error("invalid path");
-  return shell.openPath(value);
+  if (
+    typeof taskId !== "string" ||
+    !/^[a-zA-Z0-9._-]{1,160}$/.test(taskId) ||
+    typeof relativePath !== "string" ||
+    !relativePath.trim()
+  )
+    throw new Error("invalid artifact");
+  const selected = selectedBackend;
+  if (!selected) throw new Error("本地服务尚未就绪");
+  const token = backendAuthorization?.requestToken(selected);
+  if (!token) throw new Error("本地服务会话已失效，请重新连接");
+  // The backend resolves the artifact to a local file it already indexes; the
+  // renderer never supplies a host path.
+  const target = new URL(`/api/tasks/${encodeURIComponent(taskId)}/artifact-path`, selected.url);
+  target.searchParams.set("path", relativePath);
+  const response = await fetch(target, {
+    headers: { "x-atria-token": token },
+    redirect: "error",
+    signal: AbortSignal.timeout(15_000)
+  });
+  // eslint-disable-next-line no-restricted-syntax -- an error page without JSON still fails on the status check below
+  const result = await response.json().catch(() => undefined);
+  if (!response.ok || typeof result?.absolutePath !== "string" || !path.isAbsolute(result.absolutePath))
+    throw new Error(result?.error?.message || "无法解析这个产出物的本地文件");
+  const failure = await shell.openPath(result.absolutePath);
+  if (failure) throw new Error(failure);
+  return true;
 });
 ipcMain.handle("bookman:open-artifact-viewer", async (event, value, pdf) => {
   trust(event);

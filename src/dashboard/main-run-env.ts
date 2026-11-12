@@ -20,9 +20,7 @@ export interface MainRunEnvInput {
   projectDirectory?: string;
   taskId: string;
   runId: string;
-  /** The global tab strip the browser reads. */
-  tabStorePath: string;
-  /** Where this Dashboard answers, for the bound application's MCP servers. */
+  /** Where this Dashboard answers, for the host-dependent Agent tools. */
   dashboardUrl: string;
   piAgentDir?: string;
   projectRoot?: string;
@@ -53,18 +51,9 @@ export function mainRunEnv(input: MainRunEnvInput): Record<string, string> {
     COWORK_TASK_ID: input.taskId,
     COWORK_RUN_ID: input.runId,
     COWORK_CLI_SESSION: "0",
-    // The strip the browser reads. A document the Agent creates has to land in
-    // it, and the Agent process cannot derive this path on its own.
-    COWORK_TABS_INDEX: input.tabStorePath,
-    // Where the bound application's MCP servers can be reached. The extension
-    // read this from the day that path was written and nothing ever set it, so
-    // `discoverMcpTools` returned early on every turn and an application's own
-    // server tools never once reached a model in production — silently,
-    // because an unreachable server is the ordinary case there rather than an
-    // error worth failing a turn over.
+    // Where the host-dependent tools reach this Dashboard and its credentials.
     COWORK_DASHBOARD_URL: input.dashboardUrl,
     COWORK_INITIAL_PROMPT: "1",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
     PI_CODING_AGENT_DIR: input.piAgentDir ?? atriaDataPaths().piAgentDir
   };
 }

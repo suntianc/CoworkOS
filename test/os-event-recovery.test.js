@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { createCatalogEvents } from "../dist/src/dashboard/catalog-events.js";
 import { EventLedger } from "../dist/src/dashboard/event-ledger.js";
 import { createManagementEventClient } from "../web/assets/controllers/management-events.js";
+import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 
 /**
  * Recovery across the snapshot/event handoff.
@@ -63,9 +64,8 @@ async function createRoot(prefix, overrides = {}) {
     COWORK_HARNESS_ROOT: repositoryRoot,
     COWORK_WORKSPACE: workspace,
     COWORK_GLOBAL_INDEX: join(home, "runtime", "workspaces.json"),
-    COWORK_TABS_INDEX: join(home, "runtime", "tabs.json"),
     COWORK_CONFIG: configPath,
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     COWORK_SUPERVISOR_INTERVAL_MS: "1000",
     ...overrides
   });
@@ -1009,30 +1009,22 @@ test("changes written outside the management routes become events for a live sub
   );
   assert.equal(renaming.payload.projectName, "后台项目（已重命名）");
 
-  // Creating a goal creates a Task without going through the management
-  // routes. A live subscription still learns about it: the catalog is
-  // reconciled while someone is listening.
-  const goal = await api(
-    root,
-    "POST",
-    "/api/goals",
-    {
-      brief: { title: "后台目标", objective: "验证非管理写入也进入事件" },
-      scope: "background",
-      requestId: "writer-goal-1"
-    },
-    session.token
-  );
-  assert.equal(goal.status, 201, JSON.stringify(goal.body));
-  const goalTaskId = goal.body.taskId;
+  // Writing a Task through its store creates it without going through the
+  // management routes. A live subscription still learns about it: the catalog
+  // is reconciled while someone is listening.
+  const outsideTaskId = "writer-outside-task";
+  await new LocalWorkspaceStore(root.workspace).createTask(outsideTaskId, {
+    goal: "验证非管理写入也进入事件",
+    projectId: project.projectId
+  });
   const created = await waitFor(
-    "the goal's Task to arrive without an explicit publish",
-    () => applied.find((event) => event.objectId === goalTaskId && event.type === "task.changed"),
+    "the store-written Task to arrive without an explicit publish",
+    () => applied.find((event) => event.objectId === outsideTaskId && event.type === "task.changed"),
     15_000
   );
-  assert.equal(created.payload.taskId, goalTaskId);
+  assert.equal(created.payload.taskId, outsideTaskId);
   const listed = await snapshotOf(root, session.token);
-  assert.ok(listed.tasks.some((task) => task.taskId === goalTaskId));
+  assert.ok(listed.tasks.some((task) => task.taskId === outsideTaskId));
 
   // A deleted Task publishes a tombstone, and the client's revision for it
   // moves forward instead of keeping the removed object alive.

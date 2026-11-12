@@ -111,7 +111,7 @@ test("PDF, DOCX, PPTX and XLSX use document extraction; PDF pages and images ret
     if (extension === "pdf") {
       await assert.rejects(
         readInputDocument(join(workspace, "task-a"), file.uploadId, { render: true, supportsImages: false }),
-        /图像/
+        /当前模型不支持图片输入/
       );
       const page = await readInputDocument(join(workspace, "task-a"), file.uploadId, {
         render: true,
@@ -134,7 +134,10 @@ test("PDF, DOCX, PPTX and XLSX use document extraction; PDF pages and images ret
   const bytes = await readFile("web/assets/atria-symbol.png");
   const image = await store.receive("x.png", Readable.from([bytes]));
   await store.attach(workspace, "task-a", [image.uploadId]);
-  await assert.rejects(readInputDocument(join(workspace, "task-a"), image.uploadId), /图像/);
+  await assert.rejects(
+    readInputDocument(join(workspace, "task-a"), image.uploadId),
+    /当前模型不支持图片输入/
+  );
   assert.equal(
     (await readInputDocument(join(workspace, "task-a"), image.uploadId, { supportsImages: true })).image,
     bytes.toString("base64")
