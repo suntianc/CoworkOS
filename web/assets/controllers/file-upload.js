@@ -50,7 +50,7 @@ export function createFileUpload({
   upload = defaultUpload
 }) {
   let controller,
-    context,
+    activeDraft,
     retryFiles = [];
   async function add(files) {
     if (!files.length) return;
@@ -59,13 +59,13 @@ export function createFileUpload({
     if (files.some((file) => file.size > MAX_FILE_BYTES)) throw new Error(ui("单个文件不能超过25 MB"));
     if ([...files, ...getFiles()].reduce((size, file) => size + (file.size || 0), 0) > 100 * 1024 * 1024)
       throw new Error(ui("附件合计不能超过100 MB"));
-    const owner = getContext();
+    const draft = getContext();
     const active = new AbortController();
     controller = active;
-    context = owner;
+    activeDraft = draft;
     retryFiles = [];
     onBusy(true);
-    const current = () => getContext() === owner && !active.signal.aborted;
+    const current = () => getContext() === draft && !active.signal.aborted;
     try {
       for (let index = 0; index < files.length; index++) {
         if (!current()) break;
@@ -95,7 +95,7 @@ export function createFileUpload({
       if (controller === active) {
         controller = undefined;
         onBusy(false);
-        onStatus(retryFiles.length && getContext() === owner ? { failed: retryFiles.length } : null);
+        onStatus(retryFiles.length && getContext() === draft ? { failed: retryFiles.length } : null);
       }
     }
   }
@@ -109,12 +109,15 @@ export function createFileUpload({
   }
   /**
    * The composer showed a draft. Re-activating the draft an upload belongs to
-   * (a repeated or late activation) leaves it running; any other draft retires
-   * it with the draft it came from.
+   * (a repeated or late activation) leaves it running and keeps the page busy;
+   * any other draft retires it with the draft it came from. Returns whether an
+   * in-flight upload was retired, so only that case releases the busy state.
    */
   function navigate() {
-    if (controller && getContext() === context) return;
+    if (controller && activeDraft !== undefined && getContext() === activeDraft) return false;
+    const retired = Boolean(controller);
     cancel();
+    return retired;
   }
   return { add, retry: () => add([...retryFiles]), cancel, navigate };
 }

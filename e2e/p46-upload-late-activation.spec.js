@@ -16,7 +16,13 @@ for (const firstProject of [false, true])
     let releaseUpload;
     const uploadGate = new Promise((resolve) => (releaseUpload = resolve));
     let uploading = false;
+    const sends = [];
     try {
+      page.on("request", (request) => {
+        const url = new URL(request.url());
+        if (request.method() === "POST" && (url.pathname === "/api/tasks" || url.pathname.endsWith("/run")))
+          sends.push(url.pathname);
+      });
       await page.route("**/api/session", async (route) => {
         await sessionGate;
         await route.continue();
@@ -40,10 +46,19 @@ for (const firstProject of [false, true])
       releaseSession();
       await bound;
       if (firstProject) await expect(page.locator("#composer-project")).toBeVisible();
+      // The kept upload still owns the composer: sending stays blocked until it lands.
+      const send = page.locator("#send-button");
+      await expect(send).toBeDisabled();
+      await expect(send).toHaveAttribute("title", "正在读取附件…");
+      await page.locator("#composer-input").fill("附件上传完成前不能发送");
+      await page.locator("#composer-input").press("Enter");
       releaseUpload();
       const strip = page.locator("#attachment-strip");
       await expect(strip).toContainText("late.txt");
       await expect(strip).toContainText("已添加");
+      await expect(send).toBeEnabled();
+      await expect(send).toHaveAttribute("title", "发送（Enter）");
+      expect(sends).toEqual([]);
     } finally {
       releaseSession();
       releaseUpload();
