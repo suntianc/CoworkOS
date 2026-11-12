@@ -148,10 +148,6 @@ test("project rename and removal use shared dialogs without native prompts, and 
     await expect(group).toContainText("回来的项目");
     await expect(page.locator('.conversation-item[data-task="kept-history"]')).toBeVisible();
 
-    // Project experience is switched off: no route answers for it.
-    expect(
-      (await page.request.get(`${dashboard.base}/api/projects/${project.projectId}/experience`)).status()
-    ).toBe(404);
     expect(nativeDialogs).toBe(0);
   } finally {
     await dashboard.stop();

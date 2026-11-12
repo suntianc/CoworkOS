@@ -246,7 +246,6 @@ test("node connections, tools and members show only the information each section
     await navItem(page, "tools").click();
     const tools = page.locator("#profile-settings-tools");
     await expect(tools).toContainText("联网搜索");
-    await expect(tools).toContainText("个人记忆");
     await expect(tools).toContainText("窗口访问");
     await tools.getByRole("button", { name: "管理联网搜索" }).click();
     await expect(page.getByRole("dialog", { name: "联网搜索" })).toBeVisible();

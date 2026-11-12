@@ -6,6 +6,7 @@ This branch retains the complete CoworkOS orchestration chain: Main, Coordinator
 
 Removed capabilities:
 
+- User memory (including manual memory), automatic learning and project experience: storage, HTTP routes, Pi tools, UI entries and dedicated tests are gone, and the requirement ledger now supplies project context.
 - Blender workbench, engine, installer, Blender Harness, domain tools and skills.
 - CAD workbench, JSCAD/CadQuery kernels, CAD/FreeCAD Harness, native viewers, domain tools and skills.
 - PPTist, OfficeHarness, PPTX/HTML deck authoring skills, `review_slides`, editor assets and their build dependencies.

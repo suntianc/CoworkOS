@@ -386,6 +386,63 @@ test("auxiliary summaries do not consume or replace a pending Main request", asy
 });
 
 test(
+  "an archive written before the memory removal is refused and never resent",
+  { timeout: 60000 },
+  async (t) => {
+    const local = await provider(t, (_item, count, response) => {
+      if (count === 1) {
+        reject(response);
+        return;
+      }
+      return { text: "A fresh turn rebuilt the context" };
+    });
+    const dashboard = await startDashboard({ modelEndpoint: local.base, model: "fixture-model" });
+    t.after(() => dashboard.stop());
+    await api(dashboard, "/api/tasks", { taskId: "legacy-archive", goal: "Retry a pre-removal archive" });
+    await api(dashboard, "/api/tasks/legacy-archive/run", { prompt: "原始输入" });
+    await settle(dashboard, "legacy-archive", "failed");
+    const store = new MainRequestStore(
+      mainRequestPath(dashboard.workspaceRoot, "legacy-archive"),
+      "legacy-archive"
+    );
+    const saved = JSON.parse(await readFile(store.filePath, "utf8"));
+    // Rewrite the failure the way a pre-removal Main archived it: the retired
+    // sections are still in the archived context and in the rendered body.
+    const marker = "归档里的记忆正文：只用英文回复。";
+    const legacyContext = {
+      ...saved.context,
+      messages: saved.context.messages.map((message, index) =>
+        index === 0 && message.role === "system"
+          ? { ...message, sections: { ...message.sections, user_memory: marker } }
+          : message
+      )
+    };
+    const legacyBody = JSON.stringify(JSON.parse(saved.body));
+    await store.begin({ ...saved, context: legacyContext, body: legacyBody });
+
+    const refused = await fetch(dashboard.base + "/api/tasks/legacy-archive/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ resume: true, retryRequestId: saved.requestId })
+    });
+    const body = await refused.json();
+    assert.equal(refused.status, 409);
+    assert.equal(body.code, "main_retry_context_changed");
+    assert.match(body.error, /不能原样重放/);
+    assert.equal(local.requests.length, 1, "the archived request was resent");
+    const kept = JSON.parse(await readFile(store.filePath, "utf8"));
+    assert.equal(kept.requestId, saved.requestId, "the failed request must stay recoverable");
+    assert.equal(kept.context.messages[0].sections.user_memory, marker);
+
+    // A new message rebuilds the context instead of replaying the archive.
+    await api(dashboard, "/api/tasks/legacy-archive/run", { prompt: "换一条新消息继续。" });
+    await settle(dashboard, "legacy-archive", "completed");
+    assert.equal(local.requests.length, 2);
+    assert.ok(!local.requests[1].raw.includes(marker), "the rebuilt request still carried the archive");
+  }
+);
+
+test(
   "changed project or binding and damaged snapshots reject retry before spawning or sending",
   { timeout: 60000 },
   async (t) => {

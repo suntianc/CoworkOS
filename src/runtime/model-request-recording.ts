@@ -57,8 +57,7 @@ export function recordModelRequests(
             if (httpAttempt++) requestId = randomUUID();
             captured = false;
             if (replay) {
-              // Preserve archived bytes and parameters, with only an explicit
-              // personal-memory refresh prepared by the retry owner.
+              // Preserve the archived bytes and parameters exactly.
               input = replay.endpoint!;
               init = { ...init, body: replayBody };
             }

@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { createDashboardRunService } from "../dist/src/dashboard/run-service.js";
-import { UserMemoryStore } from "../dist/src/runtime/user-memory-store.js";
 import { readJsonFile } from "../dist/src/dashboard/event-stream.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { readSleep, writeSleep } from "../dist/src/runtime/main-sleep.js";
@@ -63,7 +62,6 @@ async function fixture(
   }
 ) {
   const root = await mkdtemp(join(tmpdir(), "atria-run-outcome-"));
-  const memory = new UserMemoryStore(join(root, "user-memory.json"));
   const workspaceRoot = join(root, "workspace");
   const store = new LocalWorkspaceStore(workspaceRoot);
   await store.createTask("task", { goal: "只验证隔离子进程的状态归属。" });
@@ -84,7 +82,6 @@ async function fixture(
   );
   const records = [];
   const service = createDashboardRunService({
-    userMemory: memory,
     projectRoot: missingCwd ? join(root, "does-not-exist") : root,
     tabStorePath: join(root, "tabs.json"),
     dashboardUrl: "http://127.0.0.1:1",
@@ -113,7 +110,6 @@ async function fixture(
   }
   return {
     service,
-    memory,
     records,
     contextPath,
     settle,
@@ -479,37 +475,4 @@ test("a rejected queued-message restart releases its lease and leaves the messag
   await assert.rejects(f.service.queuedMessageAction("task", "retry", "send"), /shutting down/);
   assert.equal((await inbox.list())[0].state, "ready");
   assert.equal((await f.service.queuedMessageAction("task", "retry", "cancel")).cancelled, true);
-});
-
-test("accepted user input survives dashboard shutdown even when its task never completes", async (t) => {
-  const f = await fixture(t, { running: true });
-  await f.memory.setEnabled(true);
-  await f.memory.setLearningEnabled(true);
-  const text = "我平时喜欢简洁的工作邮件，帮我写一封组会通知。";
-  await f.service.startMainRun("task", text, "unfinished-memory-run", false, undefined, undefined, {
-    body: text
-  });
-  const beforeStore = new UserMemoryStore(f.memory.path);
-  const before = await beforeStore.read();
-  const inbox = (await readdir(`${f.memory.path}.inbox`)).filter((name) => name.endsWith(".json"));
-  assert.equal(inbox.length, 1, "accepted speech is durable before the Main finishes");
-  const intakePath = join(`${f.memory.path}.inbox`, inbox[0]);
-  assert.equal(JSON.parse(await readFile(intakePath, "utf8")).inputs[0].text, text);
-  assert.equal(await beforeStore.isForegroundActive(), true);
-  assert.equal(before.pending.length, 0, "foreground leaves the private learning queue untouched");
-  assert.equal(before.entries.length, 0);
-  await f.service.stop();
-  const restarted = new UserMemoryStore(f.memory.path);
-  assert.equal(await restarted.isForegroundActive(), false);
-  const intake = JSON.parse(await readFile(intakePath, "utf8"));
-  assert.equal(intake.inputs[0].text, text, "shutdown preserves the accepted input");
-  const quiet = JSON.parse(await readFile(`${f.memory.path}.quiet.json`, "utf8"));
-  await restarted.drainForegroundLearning(quiet.availableAt - 1);
-  assert.equal((await restarted.read()).pending.length, 0, "the idle minute still applies after restart");
-  await restarted.drainForegroundLearning(Math.max(quiet.availableAt, intake.availableAt) + 1);
-  const after = await restarted.read();
-  assert.equal(after.pending.length, 1);
-  assert.equal(after.pending[0].text, text);
-  assert.equal(after.pending[0].active, false);
-  assert.notEqual((await f.store.readTask("task")).status, "completed");
 });

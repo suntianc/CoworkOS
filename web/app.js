@@ -27,7 +27,6 @@ import { createModal } from "./assets/ui/modal.js";
 import { formatStamp } from "./assets/ui/time-format.js";
 import { createVisiblePoll } from "./assets/ui/visible-poll.js";
 import { installDesktopSettings } from "./assets/controllers/desktop-settings.js";
-import { installUserMemorySettings } from "./assets/controllers/user-memory-settings.js";
 import { installDesktopUpdates } from "./assets/controllers/desktop-updates.js";
 import { presentToolCall } from "./assets/tool-presentation.js";
 import { assistantDisplayContent, normalizeReasoningDisplay } from "./assets/activity.js";
@@ -2565,4 +2564,3 @@ const modelSettings = installDesktopSettings({
   }
 });
 $("#model-setup-button").addEventListener("click", () => void modelSettings.open());
-installUserMemorySettings({ host: settingsPages.host, showToast, api });

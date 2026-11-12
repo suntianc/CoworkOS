@@ -39,7 +39,6 @@ for (const desktop of [false, true]) {
         }
         await page.screenshot({ path: info.outputPath(`overview-${width}.png`) });
         await page.locator('[data-settings-section="tools"]').click();
-        await expect(settings.locator("#profile-settings-tools")).toContainText("个人记忆");
         await expect(settings.locator("#profile-settings-tools")).toContainText("联网搜索");
         await expect(settings.locator("#profile-settings-tools")).toContainText("窗口访问");
         await page.locator("#settings-back").click();

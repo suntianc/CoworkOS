@@ -16,14 +16,6 @@ import type { RuntimeTool } from "./tool.js";
 import type { ModelSampling } from "./model-profile.js";
 import type { ContextCompactionSettings } from "./context-compaction.js";
 import { PiSession, type PiSessionResult, type PiThinkingLevel } from "./pi-session.js";
-import { createUserMemoryTool } from "./user-memory-tools.js";
-import { UserMemoryStore, userMemoryContext } from "./user-memory-store.js";
-import { ProjectExperienceStore, projectExperienceIdentity } from "./project-experience-store.js";
-import { projectExperienceContext } from "./project-experience-context.js";
-import { enqueueProjectExperienceRun } from "./project-experience-learning.js";
-import { PROJECT_EXPERIENCE_ENABLED } from "../domain/project-experience.js";
-import { createLoadSkillTool, discoverSkills } from "./skill-registry.js";
-import { createUserMemoryLearningService } from "./user-memory-learning.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { CheckpointStore } from "./scheduler.js";
 import { emptyCompaction, readAgentCheckpoint, type PersistedAgentState } from "./agent-checkpoint.js";
@@ -103,21 +95,6 @@ export class RunService {
   }
 
   async runPi(input: PiRunInput): Promise<PiRunResult> {
-    const userMemory = new UserMemoryStore();
-    const isMain = (input.agentId ?? "main") === "main";
-    try {
-      // eslint-disable-next-line no-restricted-syntax -- 前台租约只是用户记忆调度的提示，登记失败不能让本次 Run 无法开始
-      if (isMain) await userMemory.taskForegroundActive(input.taskId, input.runId).catch(() => {});
-      return await this.runPiSession(input, userMemory);
-    } finally {
-      // Initialization and prepare can fail before a Pi session exists. Release
-      // only this Run's foreground lease, leaving any newer Run's lease intact.
-      // eslint-disable-next-line no-restricted-syntax -- 释放租约失败不能覆盖本次 Run 的返回值或异常；租约按 Run 归属，下一次 Run 会重新登记
-      if (isMain) await userMemory.taskForegroundIdle(input.taskId, input.runId).catch(() => {});
-    }
-  }
-
-  private async runPiSession(input: PiRunInput, userMemory: UserMemoryStore): Promise<PiRunResult> {
     const thinkingLevel = normalizeReasoningEffort(input.thinkingLevel ?? configuredReasoningEffort());
     const api = input.api ?? configuredModelApi();
     const thinkingFormat = input.thinkingFormat ?? configuredThinkingFormat();
@@ -135,11 +112,6 @@ export class RunService {
     if (input.completionPolicy) {
       await this.workspace.updateTask(input.taskId, { completion: { policy: input.completionPolicy } });
     }
-    const projectIdentity =
-      agentId === "main" && PROJECT_EXPERIENCE_ENABLED
-        ? projectExperienceIdentity(await this.workspace.readTask(input.taskId), input.projectDirectory)
-        : undefined;
-    const projectExperience = projectIdentity ? new ProjectExperienceStore(projectIdentity) : undefined;
     const runPath = await this.workspace.createRun(input.taskId, input.runId);
     const workingDirectory = await this.workspace.prepareAgentWorkDir(input.taskId, input.runId, agentId);
     const mainContext = agentId === "main" ? mainContextPaths(this.workspaceRoot, input.taskId) : undefined;
@@ -153,17 +125,6 @@ export class RunService {
       throw new Error(`run ${input.runId} is already completed; choose a new run id`);
     }
     const shouldResume = input.resume ?? Boolean(restored && restored.status === "running");
-    if (agentId === "main" && !shouldResume) {
-      await userMemory
-        .enqueueForegroundLearning({
-          taskId: input.taskId,
-          runId: input.runId,
-          text: input.prompt,
-          projectDirectory: input.projectDirectory
-        })
-        // eslint-disable-next-line no-restricted-syntax -- 前台记忆入队是后台整理的可选步骤，失败只影响这一轮记忆学习，Run 的会话与事件已落盘
-        .catch(() => {});
-    }
     let checkpointSequence = previous?.sequence ?? 0;
     const saveCheckpoint = async (state: PersistedAgentState): Promise<void> => {
       checkpointSequence += 1;
@@ -207,77 +168,12 @@ export class RunService {
       agentId === "main" ? resolve(this.workspaceRoot, input.taskId, "artifacts") : undefined;
     let session: PiSession | undefined;
     let recoverableInterruption = false;
-    const memoryLearning =
-      agentId === "main"
-        ? createUserMemoryLearningService({
-            store: userMemory,
-            connection: () => ({
-              baseUrl: input.baseUrl,
-              apiKey: input.apiKey,
-              model: input.model,
-              api,
-              thinkingFormat,
-              thinkingLevel,
-              supportsReasoningEffort,
-              maxTokens: input.maxTokens,
-              contextWindow: input.contextWindow
-            }),
-            isTaskActive: (id) => id === input.taskId,
-            // This service lives only while its Main Run owns the foreground.
-            isForegroundActive: () => true
-          })
-        : undefined;
     try {
-      memoryLearning?.start();
       const agentTools = input.agentTools ?? [];
       const hasStatusTool = agentTools.some((tool) => tool.name === "get_subagent_status");
       const tools = new Map(
         input.tools(workingDirectory, join(this.workspaceRoot, input.taskId), artifactDirectory)
       );
-      if (agentId === "main") {
-        if (tools.has("manage_user_memory") || agentTools.some((tool) => tool.name === "manage_user_memory"))
-          throw new Error("manage_user_memory is reserved for the Main user memory service");
-        tools.set(
-          "manage_user_memory",
-          createUserMemoryTool({
-            taskId: input.taskId,
-            runId: input.runId,
-            projectDirectory: input.projectDirectory,
-            userText: () => (shouldResume ? "" : input.prompt)
-          })
-        );
-      }
-      let projectSkillToolAvailable = tools.has("load_skill");
-      try {
-        projectSkillToolAvailable ||= Boolean((await projectExperience?.readProfile())?.skills.length);
-        // eslint-disable-next-line no-restricted-syntax -- 经验库是可选的，读取失败按没有学到技能处理，load_skill 仍按普通技能可用
-      } catch {
-        /* Optional knowledge never adds a broken tool. */
-      }
-      if (projectExperience && projectSkillToolAvailable) {
-        const originalLoad = tools.get("load_skill");
-        const learned = createLoadSkillTool([]);
-        tools.set("load_skill", {
-          ...(originalLoad ?? learned),
-          async execute(params) {
-            const name =
-              params && typeof params === "object" ? (params as { name?: unknown }).name : undefined;
-            if (typeof name !== "string" || !/^learned-[a-f0-9-]{36}$/.test(name)) {
-              return originalLoad ? originalLoad.execute(params) : learned.execute(params);
-            }
-            try {
-              const profile = await projectExperience.readProfile();
-              const skills = await discoverSkills(profile.skills.map((skill) => skill.path));
-              if (skills.some((skill) => skill.name === name))
-                return await createLoadSkillTool(skills).execute(params);
-              // eslint-disable-next-line no-restricted-syntax -- 可选经验库读取失败时回退到内置技能，随后的 unknown skill 错误仍会把失败告知模型
-            } catch {
-              /* Failed optional knowledge never changes normal skills. */
-            }
-            throw new Error(`unknown skill: ${name}`);
-          }
-        });
-      }
       session = new PiSession({
         baseUrl: input.baseUrl,
         apiKey: input.apiKey,
@@ -293,28 +189,6 @@ export class RunService {
             ? withMainMemoryInstructions(input.systemPrompt, durableMemory, artifactDirectory!)
             : input.systemPrompt,
         tools,
-        ...(agentId === "main"
-          ? {
-              prepareProjectExperience: async () => {
-                try {
-                  return projectExperience
-                    ? await projectExperienceContext(projectExperience, projectSkillToolAvailable)
-                    : "";
-                  // eslint-disable-next-line no-restricted-syntax -- 项目经验是可选上下文，读取失败时该段落留空，模型仍按原有系统提示继续
-                } catch {
-                  return "";
-                }
-              },
-              prepareUserMemory: async () => {
-                try {
-                  return await userMemoryContext(new UserMemoryStore(), input.projectDirectory);
-                  // eslint-disable-next-line no-restricted-syntax -- 用户记忆是可选上下文，读取失败时该段落留空，本次 Run 仍要正常进行
-                } catch {
-                  return "";
-                }
-              }
-            }
-          : {}),
         agentTools: hasStatusTool
           ? agentTools
           : [
@@ -420,16 +294,6 @@ export class RunService {
         diagnostics,
         completionSignal: completedTask.completion?.signal
       });
-      if (projectExperience && completedTask.status === "completed") {
-        await enqueueProjectExperienceRun({
-          store: projectExperience,
-          identity: projectExperience.identity,
-          workspaceRoot: this.workspaceRoot,
-          taskId: input.taskId,
-          runId: input.runId
-          // eslint-disable-next-line no-restricted-syntax -- Run 已提交完成，经验入队是后台整理，失败时只是少一条待学习记录
-        }).catch(() => {});
-      }
       return {
         ...result,
         taskId: input.taskId,
@@ -476,8 +340,6 @@ export class RunService {
         }
       }
       throw error;
-    } finally {
-      await memoryLearning?.stop();
     }
   }
 

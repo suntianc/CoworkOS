@@ -6,6 +6,7 @@
 
 已移除的产品能力包括：
 
+- 用户记忆（含手动记忆）、自动学习与项目经验：存储、HTTP 接口、Pi 工具、界面入口与专门测试一并移除，项目上下文改由需求台账提供。
 - 文本与 Markdown 编辑器、专用 MCP 服务、编辑工具、草稿会话组件及界面入口。
 - Blender 工作台、引擎、安装器、Blender Harness，以及对应工具与技能。
 - CAD 工作台、JSCAD/CadQuery 内核、CAD/FreeCAD Harness、原生查看器，以及对应工具与技能。

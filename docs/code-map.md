@@ -94,27 +94,11 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 表中测试是起点；跨层修改同时验证消费者。`npm run test:unit -- --file test/xxx.test.js` 会准备构建；轻量检查用 `npm run verify`，发布或广泛影响的修改用 `npm run verify:full`。轻量 [验证编排](../scripts/verify.mjs) 构建 CLI 及 [Web 资源](../scripts/build-math.mjs)，仓库检查见 [验证回归](../test/repository-checks.test.js)。浏览器命令与原生验收见 [本地测试说明](testing-local-run.md)。
 
-### 项目经验与个人记忆
+### 项目上下文
 
-项目经验已整套停用（#33），由 `PROJECT_EXPERIENCE_ENABLED` 关闭，下文模块保留到 P9 清理；停用状态由 [secondary-surfaces](../e2e/secondary-surfaces.spec.js) 与 [run-service 停用用例](../test/project-experience-run-service.test.js) 验证。
+Main 的项目上下文只来自需求台账：项目与需求、完成标准和交付记录由 [项目数据服务](../src/workspace/project-data-service.ts) 与 [Main 工具](../.pi/runtime/tools/project-ledger.ts) 提供，工具的装配在 [Pi 扩展](../.pi/runtime/extension.ts)。每个 Task 的 Main 上下文目录（[main-context](../src/runtime/main-context.ts)）只保存这个 Task 自己的 `memory.md` 与运行快照，不是跨 Task 的用户记忆。
 
-项目经验的[领域格式](../src/domain/project-experience.ts)、[独立存储与技能发布](../src/runtime/project-experience-store.ts)、[持久执行证据](../src/runtime/project-experience-evidence.ts)、[后台提炼与独立复核](../src/runtime/project-experience-learning.ts)和[有界前台投影](../src/runtime/project-experience-context.ts)与个人记忆分离。项目稳定身份、候选晋升、固定/回滚和损坏恢复见[存储回归](../test/project-experience-store.test.js)，假模型与证据归属见[学习回归](../test/project-experience-learning.test.js)，真实宿主隔离见[Pi 回归](../test/project-experience-pi.test.js)。
-
-项目编辑弹窗经[独立控制器](../web/assets/controllers/project-experience.js)和[HTTP](../src/dashboard/project-experience-routes.ts)管理，验证[界面回归](../test/project-experience-ui.test.js)和[浏览器](../e2e/project-experience.spec.js)，使用与边界见[项目经验指南](project-experience.md)。
-
-后台自动学习在 [学习服务](../src/runtime/user-memory-learning.ts)：接收消息后持久入队、闲置提取、退出恢复、有限重试、原文校验和版本化合并；由 Dashboard 生命周期启动和停止。[准入](../src/runtime/user-memory-admission.ts) 区分明确稳定自述与待观察偏好，弱候选至少经三个不同 Task 支持才进入正式记忆，候选不上前台上下文；验证[静默准入与持久候选](../test/user-memory-admission.test.js)。
-
-个人记忆与自动学习独立控制，新用户默认关闭；后台前台优先，使用独立模型/输出设置及持久小时额度，锁恢复与调度验证见[调度回归](../test/user-memory-scheduling.test.js)。
-
-“查看记忆”进入[记忆正文编辑器](../web/assets/controllers/user-memory-viewer.js)，支持整份编辑，总预算 2000 字符；内部保留来源与旧项目边界，完整注入段另限 6000 字符；存储保护见[边界回归](../test/user-memory-store-regressions.test.js)，附件授权见[真实 Pi 授权](../test/user-memory-authorization-pi.test.js)；验证 [正文及并发保护](../test/user-memory-profile.test.js)、[学习及并发测试](../test/user-memory-learning.test.js) 和 [浏览器开关](../e2e/user-memory.spec.js)。
-
-跨 Task 用户偏好在 [类型](../src/domain/user-memory.ts)、[存储与请求投影](../src/runtime/user-memory-store.ts)、[管理工具](../src/runtime/user-memory-tools.ts)；Main 宿主由 [.pi 工具](../.pi/runtime/tools/user-memory.ts) 注册，程序化 Main 由 [RunService](../src/runtime/run-service.ts) 装配。设置管理经 [HTTP](../src/dashboard/user-memory-routes.ts) 和 [控制器](../web/assets/controllers/user-memory-settings.js)；验证 [存储和真实 PiSession](../test/user-memory.test.js)、[真实 Pi 宿主](../test/user-memory-pi.test.js)、[HTTP](../test/user-memory-http.test.js)、[设置交互](../test/user-memory-ui.test.js)，边界见 [使用说明](user-memory.md)。
-
-前台隔离由[轻量活动标记与接收队列](../src/runtime/user-memory-foreground.ts)、存储的正式投影及[最终上下文预算](../src/runtime/user-memory-context.ts)承担；后台不在每次在途检查中解析完整学习文件，跨宿主短输入、连接切换和有界接收见[隔离回归](../test/user-memory-isolation.test.js)。
-
-模型侧关闭/项目过滤见[工具隐私回归](../test/user-memory-tools-privacy.test.js)，紧预算与真实 Pi 见[上下文预算回归](../test/user-memory-context-budget.test.js)。
-
-[原请求重放](../src/runtime/main-request-retry.ts)只刷新记忆投影并保留其他归档字段，验证[记忆撤销与重试](../test/user-memory-retry.test.js)。
+用户记忆、自动学习与项目经验已在 P4.6 剔除：源码、HTTP 接口、Pi 工具、界面入口与专门测试均已删除，磁盘上的旧文件不再读取。升级前建立的 Main 会话在每轮请求里剥离这三个系统提示段落（[退役段落](../src/runtime/retired-system-sections.ts)），仍含这些段落的请求归档拒绝精确重放。回归见 [剔除回归](../test/p46-memory-removed.test.js) 与[浏览器](../e2e/p46-memory-removed.spec.js)。
 
 ### 联网搜索
 
@@ -176,11 +160,11 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 设置是带左侧导航的整页：[设置分区页](../web/assets/controllers/settings-pages.js) 持有通用、节点连接、模型与角色、运行名额、成员与通道、工具六个分区，负责分区切换、返回入口与焦点归还；子页按需打开，返回时复用 [共用弹窗](../web/assets/ui/modal.js) 的焦点归还而不关闭分区页。分区样式在 [settings.css](../web/assets/settings.css)；验证 [设置分区页](../e2e/p45-settings-pages.spec.js) 与 [运行名额和成员占位](../e2e/p45-settings-capacity-members.spec.js)。
 
-设置行、模型连接、联网搜索与更新共用 [settings.css](../web/assets/settings.css) 的中性表面、单层细边框、标题、表单与固定操作栏；内容独立滚动，颜色消费共用浅深色 token，表面始终为实色。界面装配保留在 [模型设置与角色](../web/assets/controllers/desktop-settings.js)、[搜索设置](../web/assets/controllers/web-search-settings.js)、[个人记忆](../web/assets/controllers/user-memory-settings.js) 与 [更新设置](../web/assets/controllers/desktop-updates.js)，各自把行渲染进所属分区并用 `onSection` 钩子刷新。已验证 [外观、窄屏、键盘与透明度偏好](../e2e/settings-design.spec.js) 及设置保存/恢复验收。
+设置行、模型连接、联网搜索与更新共用 [settings.css](../web/assets/settings.css) 的中性表面、单层细边框、标题、表单与固定操作栏；内容独立滚动，颜色消费共用浅深色 token，表面始终为实色。界面装配保留在 [模型设置与角色](../web/assets/controllers/desktop-settings.js)、[搜索设置](../web/assets/controllers/web-search-settings.js) 与 [更新设置](../web/assets/controllers/desktop-updates.js)，各自把行渲染进所属分区并用 `onSection` 钩子刷新。已验证 [外观、窄屏、键盘与透明度偏好](../e2e/settings-design.spec.js) 及设置保存/恢复验收。
 
 模型和搜索的未保存设置按后端身份恢复，迟到请求受 [设置后端绑定](../web/assets/controllers/settings-backend.js) 保护。验证 [控制器并发与恢复](../test/desktop-settings-backend-switch.test.js)、[真实浏览器双后端切换](../e2e/settings-backend-switch.spec.js) 和 [打包桌面设置 smoke](../scripts/desktop-smoke.mjs) 的聚焦入口。
 
-短表单与轻量列表共用 [dialogs.css](../web/assets/dialogs.css) 的 `.app-dialog`，覆盖会话命名/最近活动、项目表单和工作台弹窗；工作台专用布局归 [workbench/dialogs.css](../web/assets/workbench/dialogs.css)，附件预览归 [预览控制器](../web/assets/controllers/attachment-preview.js) 与 [专用样式](../web/assets/styles/attachment-preview.css)。验证 [会话弹窗](../e2e/dialog-design.spec.js)、[工作台命名/另存/修订](../e2e/workbench-dialog-design.spec.js)、[项目/经验确认/附件](../e2e/secondary-surfaces.spec.js) 和 [人工回复表单](../e2e/ui-surface-design.spec.js) 的主题、窄屏、忙碌/错误和焦点状态。
+短表单与轻量列表共用 [dialogs.css](../web/assets/dialogs.css) 的 `.app-dialog`，覆盖会话命名/最近活动、项目表单和工作台弹窗；工作台专用布局归 [workbench/dialogs.css](../web/assets/workbench/dialogs.css)，附件预览归 [预览控制器](../web/assets/controllers/attachment-preview.js) 与 [专用样式](../web/assets/styles/attachment-preview.css)。验证 [会话弹窗](../e2e/dialog-design.spec.js)、[工作台命名/另存/修订](../e2e/workbench-dialog-design.spec.js)、[项目/附件](../e2e/secondary-surfaces.spec.js) 和 [人工回复表单](../e2e/ui-surface-design.spec.js) 的主题、窄屏、忙碌/错误和焦点状态。
 
 执行行、失败摘要与折叠详情归 [会话视图](../web/assets/controllers/conversation-view.js)，工具名称和可读结果归 [工具展示](../web/assets/tool-presentation.js)，错误归类与脱敏归 [请求错误](../web/assets/request-error.js)。样式消费 [共用主题](../web/assets/system-theme.css) 的中性表面与状态颜色，成功状态保持低强调，技术细节和长日志默认折叠。验证 [执行展示、展开状态与日志阅读](../e2e/execution-display.spec.js)、[错误恢复与内容保留](../e2e/conversation-integrity.spec.js) 和 [主题与文字对比度](../e2e/system-theme.spec.js)，同步 [UI 约定](development.md#应用-ui-约定)。
 
