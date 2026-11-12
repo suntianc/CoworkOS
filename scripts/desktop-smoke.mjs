@@ -503,14 +503,12 @@ async function runSmoke() {
   expect(modelStatus).toMatchObject({
     ...expectedConnection,
     activeProfileId: expect.any(String),
-    visionProfileId: "",
     profiles: [
       {
         ...expectedConnection,
         id: modelStatus.activeProfileId,
         name: "新配置",
-        active: true,
-        vision: false
+        active: true
       }
     ]
   });

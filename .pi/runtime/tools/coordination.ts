@@ -579,7 +579,6 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         supportsReasoningEffort: context.supportsReasoningEffort,
         supportsPromptCacheKey: configuredSupportsPromptCacheKey(context.runtimeEnv),
         supportsImages: context.supportsImages,
-        visionModel: context.visionModel,
         context: context.recentContext,
         maxTurns: configuredSubagentMaxTurns(context.runtimeEnv),
         maxTokens: configuredSubagentMaxTokens(context.runtimeEnv),

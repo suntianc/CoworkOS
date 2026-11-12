@@ -39,7 +39,6 @@ import {
   runtimeSettingsEnv
 } from "../runtime/runtime-settings.js";
 import { readHostCoworkConfig } from "../runtime/config.js";
-import { visionModelConfig } from "../runtime/vision-config.js";
 import { cliHelp, parseCliCommand } from "./commands.js";
 import { runWatchEvent } from "./watch-run.js";
 
@@ -64,7 +63,6 @@ async function main() {
   const model = process.env.COWORK_MODEL ?? config.model ?? "glm-5.3";
   const web = configuredWebTools(config);
   const runtimeEnv = runtimeSettingsEnv(config);
-  const visionModel = visionModelConfig(config);
   const reasoningOptions = () => ({
     contextWindow: configuredContextWindow(runtimeEnv),
     supportsImages: configuredSupportsImages(runtimeEnv),
@@ -402,7 +400,6 @@ async function main() {
           baseUrl,
           apiKey,
           model,
-          visionModel,
           ...reasoningOptions(),
           maxTurns: numberOption(parsed.options["max-turns"], configuredSubagentMaxTurns(runtimeEnv)),
           maxTokens: numberOption(parsed.options["max-tokens"], configuredSubagentMaxTokens(runtimeEnv)),
@@ -433,7 +430,6 @@ async function main() {
       baseUrl,
       apiKey,
       model,
-      visionModel,
       ...reasoningOptions(),
       runtimeEnv,
       commandEnv,
@@ -554,8 +550,7 @@ async function main() {
           artifactDirectory,
           commandEnv,
           web,
-          supportsImages: configuredSupportsImages(runtimeEnv),
-          visionModel
+          supportsImages: configuredSupportsImages(runtimeEnv)
         })
     });
     printResult({
@@ -593,7 +588,6 @@ async function main() {
       baseUrl,
       apiKey,
       model,
-      visionModel,
       ...reasoningOptions(),
       maxTurns: numberOption(parsed.options["max-turns"], configuredSubagentMaxTurns(runtimeEnv)),
       maxTokens: numberOption(parsed.options["max-tokens"], configuredSubagentMaxTokens(runtimeEnv)),

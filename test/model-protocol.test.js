@@ -149,7 +149,7 @@ test("Responses respects disabled reasoning and off, transmits images, and sanit
   ]) {
     await testModelConnection(
       { ...input, ...profile },
-      { visionFixture: () => ({ imageUrl: "data:image/png;base64,fixture", code: "123456" }) }
+      { imageFixture: () => ({ imageUrl: "data:image/png;base64,fixture", code: "123456" }) }
     );
   }
   for (const body of requests) {

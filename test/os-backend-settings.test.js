@@ -151,7 +151,7 @@ test(
   }
 );
 
-test("host settings keep multi-connection, default model, vision and search semantics across restart", async (t) => {
+test("host settings keep multi-connection, default model, image input and search semantics across restart", async (t) => {
   const model = await hostModelFixture("unused-for-this-test", "ignored");
   t.after(() => model.close());
   const dashboard = await startDashboard();
@@ -171,19 +171,17 @@ test("host settings keep multi-connection, default model, vision and search sema
   const firstId = first.activeProfileId;
   const second = await call("/api/model-settings", {
     profileId: "",
-    profileName: "视觉连接",
+    profileName: "备用连接",
     baseUrl: model.baseUrl,
     model: "b-model",
     api: "openai-completions",
-    apiKey: "vision-connection-key",
+    apiKey: "review-connection-key",
     supportsImages: true,
-    vision: true,
     contextWindow: 128000,
     activate: false
   });
-  const secondId = second.profiles.find((profile) => profile.name === "视觉连接").id;
+  const secondId = second.profiles.find((profile) => profile.name === "备用连接").id;
   assert.equal(second.activeProfileId, firstId, "saving an inactive connection keeps the active one");
-  assert.equal(second.visionProfileId, secondId);
   assert.equal(second.profiles.length, 2);
   assert.equal(second.model, "a-model");
   assert.equal(second.contextWindow, 64000);
@@ -199,14 +197,13 @@ test("host settings keep multi-connection, default model, vision and search sema
   assert.equal(JSON.stringify(config).includes("search-key"), false);
   const stored = new HostCredentialStore(join(dashboard.root, "credentials.json"));
   assert.equal(stored.value.modelConnections[firstId], "main-connection-key");
-  assert.equal(stored.value.modelConnections[secondId], "vision-connection-key");
+  assert.equal(stored.value.modelConnections[secondId], "review-connection-key");
   assert.equal(stored.value.webSearch.exaApiKey, "search-key");
 
   await dashboard.restart();
   const restarted = await call("/api/model-settings");
   assert.equal(restarted.configured, true);
   assert.equal(restarted.activeProfileId, firstId);
-  assert.equal(restarted.visionProfileId, secondId);
   assert.equal(restarted.model, "a-model");
   assert.equal(restarted.contextWindow, 64000);
   assert.equal(restarted.mainMaxTokens, 4096);
@@ -434,12 +431,12 @@ test("desktop migration converts a legacy single connection secret", async (t) =
   );
 });
 
-test("session export redacts host-stored model, vision and search keys", async (t) => {
+test("session export redacts host-stored connection and search keys", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-host-export-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const project = join(root, "project");
   await mkdir(project, { recursive: true });
-  const sentinels = ["export-sentinel-model-key", "export-sentinel-vision-key", "export-sentinel-search-key"];
+  const sentinels = ["export-sentinel-model-key", "export-sentinel-review-key", "export-sentinel-search-key"];
   const configPath = join(root, "config.json");
   await writeFile(
     configPath,
@@ -450,7 +447,6 @@ test("session export redacts host-stored model, vision and search keys", async (
       modelConnections: {
         version: 1,
         activeId: "main",
-        visionId: "vision",
         profiles: [
           {
             id: "main",
@@ -461,10 +457,10 @@ test("session export redacts host-stored model, vision and search keys", async (
             supportsImages: false
           },
           {
-            id: "vision",
-            name: "Vision",
-            baseUrl: "http://vision.test/v1",
-            model: "vision-model",
+            id: "review",
+            name: "Reviewer",
+            baseUrl: "http://review.test/v1",
+            model: "review-model",
             api: "openai-completions",
             supportsImages: true
           }
@@ -476,7 +472,7 @@ test("session export redacts host-stored model, vision and search keys", async (
     join(root, "credentials.json"),
     JSON.stringify({
       version: 1,
-      modelConnections: { main: sentinels[0], vision: sentinels[1] },
+      modelConnections: { main: sentinels[0], review: sentinels[1] },
       webSearch: { exaApiKey: sentinels[2] }
     }),
     { mode: 0o600 }

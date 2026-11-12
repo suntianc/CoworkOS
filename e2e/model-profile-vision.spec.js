@@ -102,7 +102,7 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
         expect(serialized).toContain("model does not support images");
         expect(serialized).toContain("视觉读取完成");
       }
-      expect(JSON.stringify(text.requests.at(-1).body)).toContain("当前模型未启用图像输入");
+      expect(JSON.stringify(text.requests.at(-1).body)).toContain("当前模型不支持图片");
       phase = "restored";
       await save({ ...first, profileId: first.id, activate: true });
       await page.reload();
