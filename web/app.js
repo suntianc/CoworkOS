@@ -1105,7 +1105,9 @@ function loadDetail(taskId, options) {
     if (state.detail?.task?.taskId !== taskId) {
       const task = state.tasks.find((item) => item.taskId === taskId) || { taskId };
       projectController.selectTask(task);
-      state.detail = { task, messages: [] };
+      // A placeholder until the read returns: the pane stays blank rather than
+      // flashing the empty-conversation welcome between two conversations.
+      state.detail = { task, messages: [], loading: true };
       state.model =
         state.modelByTask.get(taskId) ||
         (state.connectionProfileId ? state.defaultModel : task.model) ||

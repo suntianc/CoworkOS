@@ -120,3 +120,42 @@ test("the composer keeps one size from a new session into a conversation, and �
     await dashboard.stop();
   }
 });
+
+test("switching conversations never flashes a welcome page while the next one loads", async ({ page }) => {
+  const dashboard = await startConfiguredDashboard();
+  try {
+    const project = await createProject(page, dashboard, "切换项目", `${dashboard.root}/switch-project`);
+    for (const [taskId, goal] of [
+      ["switch-a", "会话甲"],
+      ["switch-b", "会话乙"]
+    ])
+      await createTask(page, dashboard, { taskId, goal, projectId: project.projectId });
+    await page.goto(`${dashboard.base}/?task=switch-a`);
+    await expect(page.locator("#topbar-task")).toHaveText("会话甲");
+    // A slow detail read stretches the moment between the two conversations,
+    // and each has a message, so any welcome page on the way is a flash.
+    await page.route(/\/api\/tasks\/switch-[ab]$/, async (route) => {
+      await new Promise((done) => setTimeout(done, 300));
+      const response = await route.fetch();
+      const detail = await response.json();
+      detail.messages = [{ role: "user", content: detail.task.goal, timestamp: Date.now() }];
+      await route.fulfill({ response, json: detail });
+    });
+    await page.evaluate(() => {
+      window.welcomeFrames = 0;
+      const tick = () => {
+        if (document.querySelector(".new-session-start, .welcome-empty")) window.welcomeFrames += 1;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    for (const taskId of ["switch-b", "switch-a", "switch-b"]) {
+      await page.locator(`.conversation-item[data-task="${taskId}"]`).click();
+      await page.waitForTimeout(500);
+    }
+    await expect(page.locator("#topbar-task")).toHaveText("会话乙");
+    expect(await page.evaluate(() => window.welcomeFrames)).toBe(0);
+  } finally {
+    await dashboard.stop();
+  }
+});

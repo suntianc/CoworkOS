@@ -378,6 +378,12 @@ export function createConversationView({
     );
     const paused = task.status === "paused" ? task.pause || {} : undefined;
     if (!all.length && !failure && !paused && !messageEdit?.editingMessageId) {
+      if (state.detail?.loading) {
+        $("#conversation").replaceChildren();
+        lastRender = undefined;
+        historyMarkup.clear();
+        return;
+      }
       $("#conversation").innerHTML =
         task.monitoring?.scope === "background"
           ? ui(
