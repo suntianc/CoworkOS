@@ -787,15 +787,14 @@
                         id="model-select"
                         type="button"
                         title="切换模型与推理强度"
-                        aria-haspopup="listbox"
+                        aria-haspopup="dialog"
                         aria-expanded="false"
                       >
                         <span class="model-logo"
                           ><svg class="ui-icon" aria-hidden="true"><use href="#i-sparkles" /></svg
                         ></span>
                         <span class="model-name">Formicand Main</span
-                        ><span class="model-separator" aria-hidden="true">·</span
-                        ><span class="reasoning-label">推理 <span class="reasoning-name">自动</span></span
+                        ><span class="reasoning-label"><span class="reasoning-name">自动</span></span
                         ><span class="model-chevron"
                           ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
                         ></span>
@@ -834,9 +833,9 @@
                       </button>
                     </div>
                     <div
-                      class="model-menu"
+                      class="model-menu model-picker"
                       id="model-menu"
-                      role="listbox"
+                      role="dialog"
                       aria-label="模型与推理强度"
                       hidden
                     ></div>

@@ -16,6 +16,12 @@ import { createResponsiveShell } from "./assets/controllers/responsive-shell.js"
 import { createConversationHistory } from "./assets/controllers/conversation-history.js";
 import { icon } from "./assets/ui/icons.js";
 import { createMenu } from "./assets/ui/menu.js";
+import {
+  createModelPicker,
+  DEFAULT_LEVELS,
+  LEVEL_LABELS,
+  nearestLevel
+} from "./assets/controllers/model-picker.js";
 import { createModal } from "./assets/ui/modal.js";
 import { formatStamp } from "./assets/ui/time-format.js";
 import { createVisiblePoll } from "./assets/ui/visible-poll.js";
@@ -79,6 +85,8 @@ const state = {
    */
   thinkingLevel: null,
   thinkingLevelByTask: new Map(),
+  /** Per model: the reasoning levels it accepts and where they came from (#27). */
+  modelLevels: {},
   /** The Main connection's saved level, reported by the server for the label. */
   mainThinkingLevel: null,
   selected: null,
@@ -442,7 +450,7 @@ const conversationView = createConversationView({
   openArtifact,
   // The recovery card's model action switches the composer's model; the
   // settings surface remains one click away from the composer selector.
-  openSettings: () => setTimeout(() => void toggleModelMenu(), 0),
+  openSettings: () => setTimeout(() => void toggleModelMenu({ page: "models" }), 0),
   retry: (taskId) => void retryFailedRequest(taskId),
   messageEdit,
   edit: (taskId, target) => messageEdit.begin(taskId, target),
@@ -709,19 +717,28 @@ function paintModelButton() {
   button.setAttribute("aria-label", ui`模型：${model}，推理强度：${level}`);
 }
 
-const THINKING_LEVEL_LABELS = {
-  off: ui("关闭"),
-  minimal: ui("最少"),
-  low: ui("低"),
-  medium: ui("中"),
-  high: ui("高"),
-  xhigh: ui("极高"),
-  max: ui("最大")
-};
+const THINKING_LEVEL_LABELS = LEVEL_LABELS;
+/** The reasoning levels the selected model accepts (#27). */
+function modelLevelsFor(model = state.model || state.defaultModel) {
+  return state.modelLevels[model]?.levels || DEFAULT_LEVELS;
+}
+/**
+ * The level used when nothing is picked: the Main connection's saved level,
+ * or the nearest one this model accepts when it does not take that one.
+ */
+function fallbackThinkingLevel() {
+  return nearestLevel(state.mainThinkingLevel || null, modelLevelsFor());
+}
+/** What a run sends: the pick, or the fallback only when it had to move. */
+function sentThinkingLevel() {
+  if (state.thinkingLevel) return state.thinkingLevel;
+  const fallback = fallbackThinkingLevel();
+  return fallback && fallback !== state.mainThinkingLevel ? fallback : undefined;
+}
 function setThinkingLabel(value) {
   // An unpicked level is not a choice: the label names what this Run will
   // actually send, which is the Main connection's saved level.
-  const effective = value || state.mainThinkingLevel || null;
+  const effective = value || fallbackThinkingLevel();
   const label = effective ? THINKING_LEVEL_LABELS[effective] || effective : ui("自动");
   const name = $(".reasoning-name");
   if (name) name.textContent = label;
@@ -761,6 +778,7 @@ async function loadModels() {
     state.models = Array.isArray(data.models)
       ? data.models.filter((model) => typeof model === "string" && model.trim())
       : [];
+    state.modelLevels = data.levels && typeof data.levels === "object" ? data.levels : {};
     const defaultModel =
       typeof data.current === "string" && data.current.trim()
         ? data.current.trim()
@@ -1476,31 +1494,31 @@ function positionModelMenu(button = $("#model-select"), menu = $("#model-menu"))
   menu.style.left = `${Math.min(maximum, Math.max(0, anchor.left - bounds.left))}px`;
 }
 
-function renderModelMenu() {
+let modelNotice = "";
+const modelPicker = createModelPicker({
+  panel: $("#model-menu"),
+  view: () => ({
+    model: state.model || state.defaultModel || "glm-5.3",
+    defaultModel: state.defaultModel,
+    models: state.models.length ? state.models : [state.model || state.defaultModel || "glm-5.3"],
+    levels: modelLevelsFor(),
+    chosen: state.thinkingLevel,
+    fallback: fallbackThinkingLevel(),
+    notice: modelNotice
+  }),
+  chooseModel,
+  chooseLevel: chooseThinkingLevel
+});
+
+function renderModelMenu(page = "effort") {
   const menu = $("#model-menu");
   const button = $("#model-select");
   if (!menu || !button) return;
-  const models = state.models.length ? state.models : [state.model || state.defaultModel || "glm-5.3"];
-  const option = (attribute, value, label, selected) =>
-    `<button type="button" class="model-option ${selected ? "active" : ""}" ${attribute}="${esc(value)}" role="option" aria-selected="${selected}"><span class="model-option-check">${selected ? icon("check") : ""}</span><span class="model-option-name">${esc(label)}</span></button>`;
-  const level = state.thinkingLevel || state.mainThinkingLevel || "auto";
-  menu.innerHTML = ui`<div class="model-menu-title" role="presentation">选择模型</div>${models
-    .map((model) => option("data-model", model, model, model === state.model))
-    .join(
-      ""
-    )}<div class="model-menu-separator" role="presentation"></div><div class="model-menu-title" role="presentation">推理强度</div>${THINKING_LEVEL_OPTIONS.map(
-    ([value, label]) => option("data-thinking-level", value, label, value === level)
-  ).join("")}`;
+  modelNotice = "";
   menu.hidden = false;
+  modelPicker.open(page);
   positionModelMenu();
   button.setAttribute("aria-expanded", "true");
-  menu.querySelector("[data-model].active, button")?.focus();
-  menu
-    .querySelectorAll("[data-model]")
-    .forEach((node) => node.addEventListener("click", () => chooseModel(node.dataset.model)));
-  menu
-    .querySelectorAll("[data-thinking-level]")
-    .forEach((node) => node.addEventListener("click", () => chooseThinkingLevel(node.dataset.thinkingLevel)));
 }
 
 function closeModelMenu() {
@@ -1508,17 +1526,20 @@ function closeModelMenu() {
   const button = $("#model-select");
   if (!menu || !button) return;
   menu.hidden = true;
+  modelNotice = "";
   button.setAttribute("aria-expanded", "false");
 }
 
-async function toggleModelMenu() {
+/** `page: "models"` opens straight on the model list, as the error card's 切换模型 does. */
+async function toggleModelMenu({ page = "effort" } = {}) {
   const menu = $("#model-menu");
   if (!menu) return;
   if (!menu.hidden) return closeModelMenu();
   if (!state.models.length) await loadModels();
-  renderModelMenu();
+  renderModelMenu(page);
 }
 
+/** Picking a model keeps the popover open; a pick it does not accept moves to the nearest level. */
 function chooseModel(model) {
   const selected = String(model || "").trim();
   if (!selected) return;
@@ -1526,28 +1547,28 @@ function chooseModel(model) {
   if (state.selected) state.modelByTask.set(state.selected, selected);
   writePreferredModel(selected);
   setModelLabel(selected);
-  closeModelMenu();
-  showToast(ui`已切换模型：${selected}`);
+  const picked = state.thinkingLevel;
+  const kept = nearestLevel(picked, modelLevelsFor(selected));
+  modelNotice =
+    picked && kept !== picked
+      ? ui`此模型不支持「${THINKING_LEVEL_LABELS[picked] || picked}」，已改为「${THINKING_LEVEL_LABELS[kept] || kept}」。`
+      : "";
+  if (kept !== picked) {
+    state.thinkingLevel = kept;
+    if (state.selected) state.thinkingLevelByTask.set(state.selected, kept);
+  }
+  setThinkingLabel(state.thinkingLevel);
 }
 
-const THINKING_LEVEL_OPTIONS = [
-  ["auto", ui("自动")],
-  ["off", ui("关闭")],
-  ["low", ui("低")],
-  ["medium", ui("中")],
-  ["high", ui("高")],
-  ["xhigh", ui("极高")],
-  ["max", ui("最大")]
-];
-
+/** `null` returns to the connection's default; the popover stays open on the rail. */
 function chooseThinkingLevel(value) {
-  const selected = value === "auto" ? null : String(value || "").trim();
-  if (selected && !Object.hasOwn(THINKING_LEVEL_LABELS, selected)) return;
+  const selected = value ? String(value).trim() : null;
+  if (selected && !modelLevelsFor().includes(selected)) return;
   state.thinkingLevel = selected;
   if (state.selected) state.thinkingLevelByTask.set(state.selected, selected);
+  modelNotice = "";
   setThinkingLabel(selected);
-  closeModelMenu();
-  $("#model-select").focus();
+  if (!$("#model-menu").hidden) modelPicker.render({ focus: true });
 }
 
 async function toggleOutputPane() {
@@ -1644,7 +1665,9 @@ document.addEventListener("keydown", (event) => {
 
 $("#model-select").addEventListener("click", () => void toggleModelMenu());
 document.addEventListener("click", (event) => {
-  if (!event.target.closest("#model-select, #model-menu")) closeModelMenu();
+  // The popover redraws its page on a click, so the target may be detached by now.
+  if (!event.composedPath().some((node) => node.id === "model-select" || node.id === "model-menu"))
+    closeModelMenu();
 });
 $("#app-bind-select")?.addEventListener("click", () => ensureBinding()?.toggle());
 document.addEventListener("click", (event) => {
@@ -1689,7 +1712,11 @@ window.addEventListener("popstate", () => {
   if (!taskId || taskId === state.selected) return;
   if (state.tasks.some((task) => task.taskId === taskId)) selectConversation(taskId);
 });
-createMenu($("#model-select"), $("#model-menu"), { toggleOnClick: false, onClose: closeModelMenu });
+createMenu($("#model-select"), $("#model-menu"), {
+  toggleOnClick: false,
+  closeOnSelect: false,
+  onClose: closeModelMenu
+});
 window.addEventListener("resize", () => positionModelMenu());
 createMenu($("#app-bind-select"), $("#app-bind-menu"), {
   toggleOnClick: false,
@@ -2038,7 +2065,7 @@ async function interject(taskId, text, delivery = "followUp") {
       await launchPrompt(taskId, text, {
         submission,
         model,
-        thinkingLevel: state.thinkingLevel || undefined,
+        thinkingLevel: sentThinkingLevel(),
         resume: false,
         savedUsers,
         attachmentIds: uploadedFileIds(JSON.parse(draft.attachments))
@@ -2330,7 +2357,7 @@ async function sendMessage({ queue = false } = {}) {
     attachmentIds: uploadedFileIds(JSON.parse(draft.attachments)),
     resume: detail?.task?.status === "waiting",
     model: state.model || state.defaultModel || undefined,
-    thinkingLevel: state.thinkingLevel || undefined,
+    thinkingLevel: sentThinkingLevel(),
     savedUsers: (detail?.messages || []).filter((message) => message.role === "user").length
   };
   let prompt;

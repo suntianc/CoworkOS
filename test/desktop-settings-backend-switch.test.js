@@ -148,6 +148,8 @@ function modelFixture(t, intercept) {
     async api(path, options) {
       const target = backend;
       const body = options.body ? JSON.parse(options.body) : undefined;
+      // Level detection only describes the connection being edited; it saves nothing.
+      if (path.endsWith("/levels")) return { levels: ["off", "high"], source: "manual", official: false };
       requests.push({ target, path, method: options.method, body });
       if (body) saved[target] = { ...saved[target], ...body };
       const value = status(saved[target]);

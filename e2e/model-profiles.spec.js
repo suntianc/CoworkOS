@@ -397,7 +397,8 @@ test("composer reasoning level is sent with the selected Main request", async ({
     await expect(page.locator("#model-select .reasoning-name")).toHaveText("关闭");
     await page.locator("#model-select").click();
     await expect(page.locator("#model-menu")).toBeVisible();
-    await expect(page.locator("#model-menu [data-thinking-level]")).toHaveCount(7);
+    // A relay address that names no levels offers the default six.
+    await expect(page.locator("#model-menu [data-thinking-level]")).toHaveCount(6);
     await page.locator('#model-menu [data-thinking-level="high"]').click();
     await expect(page.locator("#model-select .reasoning-name")).toHaveText("高");
     await page.locator("#composer-input").fill("用高推理强度完成这条消息");

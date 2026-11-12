@@ -463,21 +463,14 @@ html[data-theme] .composer .model-select .model-logo .ui-icon {
   width: 15px;
   height: 15px;
 }
-.composer .model-separator {
+/* The model in the secondary colour, the level it runs at in the primary one (#27). */
+html[data-theme] .composer .reasoning-label {
   flex: none;
-  color: var(--color-text-3);
-}
-.composer .reasoning-label {
-  flex: none;
+  margin-left: 2px;
+  color: var(--color-text);
   white-space: nowrap;
 }
-.model-menu-separator {
-  height: 1px;
-  margin: 6px 4px;
-  background: var(--color-line);
-}
 @media (max-width: 520px) {
-  .composer .model-separator,
   .composer .reasoning-label {
     display: none;
   }
