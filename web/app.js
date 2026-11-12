@@ -1683,7 +1683,7 @@ $("#sidebar-search").addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
   upload: (file, options) => management.upload(file, options),
-  getContext: () => composerSession.currentToken,
+  getContext: () => composerSession.currentDraftIdentity,
   getFiles: () => state.attachments,
   setFiles: (files) => {
     state.attachments = files;
