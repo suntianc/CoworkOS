@@ -32,7 +32,10 @@ import {
 } from "../runtime/runtime-settings.js";
 import { configuredWebTools } from "../runtime/web-search-config.js";
 import { visionModelConfig } from "../runtime/vision-config.js";
-import { availableModels as catalogModels } from "../runtime/model-catalog.js";
+import {
+  availableModels as catalogModels,
+  cachedAvailableModels as cachedCatalog
+} from "../runtime/model-catalog.js";
 import { modelLevels, type ModelLevels } from "../runtime/model-levels.js";
 import { atriaDataPaths } from "../../scripts/data-home.cjs";
 import {
@@ -421,6 +424,15 @@ export function createDashboardApplication(
     mainCapacity,
     withTaskProjectLock: workspaces.withTaskProjectLock,
     resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
+    endpointLimits: async (selection) =>
+      (
+        await cachedCatalog({
+          ...runtimeConfig,
+          baseUrl: selection.baseUrl,
+          apiKey: selection.apiKey,
+          model: selection.model
+        })
+      ).find((entry) => entry.id === selection.model)?.limits,
     onRunExit: (taskId) => computer.finishTask(taskId),
     normalizeModel,
     appendRunEvent,

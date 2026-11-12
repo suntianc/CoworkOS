@@ -1759,6 +1759,16 @@ html[data-reduced-motion="reduce"] :is(.effort-fill, .effort-knob) {
   color: var(--color-text-2);
   font-size: 11px;
 }
+.settings-auto-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--selected-fill);
+  color: var(--color-text-2);
+  font-size: 11px;
+  font-weight: 400;
+}
+.settings-auto-tag[hidden],
 .settings-levels-source[hidden],
 .settings-levels-chips[hidden],
 .settings-levels-value[hidden] {

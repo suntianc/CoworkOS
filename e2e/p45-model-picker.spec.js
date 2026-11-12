@@ -146,3 +146,70 @@ test("a connection's supported levels are checked by hand for a relay and read f
     await provider.close();
   }
 });
+
+test("a model's /models limits fill the connection form and reach the run, until a field is edited by hand", async ({
+  page
+}) => {
+  const provider = await modelProtocolFixture("openai-completions", () => ({ text: "按模型识别已生效" }), {
+    models: [
+      {
+        id: "limits-model",
+        context_window: 40000,
+        max_output_tokens: 128000,
+        modalities: { input: ["text", "image"] }
+      }
+    ]
+  });
+  const dashboard = await startDashboard();
+  try {
+    const saved = await page.request.post(`${dashboard.base}/api/model-settings`, {
+      data: {
+        baseUrl: provider.baseUrl,
+        api: "openai-completions",
+        model: "limits-model",
+        apiKey: "synthetic-limits-key"
+      }
+    });
+    expect(saved.ok()).toBe(true);
+    await page.goto(dashboard.base);
+
+    // Untouched defaults follow the model: the run asks for half the 40k window.
+    await page.locator("#composer-input").fill("按模型的上限完成这条消息");
+    await page.locator("#send-button").click();
+    await expect(page.locator("#conversation")).toContainText("按模型识别已生效", { timeout: 30_000 });
+    // Pi trims the cap to what the 40k window has left after the prompt, so the
+    // request lands just under 20000 and well above the 8192 default.
+    const body = provider.requests.at(-1).body;
+    const asked = body.max_completion_tokens ?? body.max_tokens;
+    expect(asked).toBeGreaterThan(8192);
+    expect(asked).toBeLessThanOrEqual(20000);
+
+    const dialog = await openModelConnectionEditor(page);
+    await dialog.getByText("高级连接参数", { exact: true }).click();
+    const context = dialog.locator('[name="contextWindow"]');
+    await expect(context).toHaveValue("40000");
+    await expect(dialog.locator('[data-limit-tag="contextWindow"]')).toBeVisible();
+    await expect(dialog.locator('[name="mainMaxTokens"]')).toHaveValue("20000");
+    await expect(dialog.locator('[name="supportsImages"]')).toBeChecked();
+    await expect(dialog.locator('[data-limit-tag="images"]')).toBeVisible();
+
+    // A value typed by hand wins from then on; the other fields keep following.
+    await context.fill("32000");
+    await expect(dialog.locator('[data-limit-tag="contextWindow"]')).toBeHidden();
+    // Unticking image input by hand also wins (and keeps this text-only fixture's check passing).
+    await dialog.locator('[name="supportsImages"]').uncheck();
+    await expect(dialog.locator('[data-limit-tag="images"]')).toBeHidden();
+    await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
+    await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
+    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
+    const active = status.profiles.find((profile) => profile.active);
+    expect(active.contextWindow).toBe(32000);
+    expect(active.supportsImages).toBe(false);
+    expect(active.autoLimits).toEqual(["maxTokens"]);
+  } finally {
+    await dashboard.stop();
+    await provider.close();
+  }
+});

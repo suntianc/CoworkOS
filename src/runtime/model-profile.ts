@@ -21,6 +21,7 @@ import {
   type PiThinkingLevel
 } from "./runtime-settings.js";
 import { orderedLevels } from "./model-levels.js";
+import { parseAutoLimits, type LimitField } from "./model-limits.js";
 
 /** Only new connections use these defaults; existing deployments retain their runtime settings. */
 export const NEW_CONNECTION_PROFILE = {
@@ -65,6 +66,8 @@ export interface ConnectionProfile {
   mainMaxTokens: number;
   subagentMaxTokens: number;
   contextWindow: number;
+  /** Fields that take each model's `/models` value; absent means untouched defaults do (#27). */
+  autoLimits?: LimitField[];
 }
 
 export function connectionProfile(
@@ -81,7 +84,8 @@ export function connectionProfile(
     mainMaxTokens: configuredMainMaxTokens(env),
     subagentMaxTokens: configuredSubagentMaxTokens(env),
     contextWindow: configuredContextWindow(env),
-    ...(config.reasoningLevels ? { reasoningLevels: parseReasoningLevels(config.reasoningLevels) } : {})
+    ...(config.reasoningLevels ? { reasoningLevels: parseReasoningLevels(config.reasoningLevels) } : {}),
+    ...(config.autoLimits ? { autoLimits: parseAutoLimits(config.autoLimits) } : {})
   };
 }
 
@@ -114,6 +118,9 @@ export function parseConnectionProfile(
   const levelsValue = value.reasoningLevels === undefined ? fallback.reasoningLevels : value.reasoningLevels;
   const reasoningLevels =
     levelsValue === undefined || levelsValue === null ? undefined : parseReasoningLevels(levelsValue);
+  const limitsValue = value.autoLimits === undefined ? fallback.autoLimits : value.autoLimits;
+  const autoLimits =
+    limitsValue === undefined || limitsValue === null ? undefined : parseAutoLimits(limitsValue);
   const reasoningEffort = normalizeReasoningEffort(value.reasoningEffort ?? fallback.reasoningEffort);
   if (reasoningLevels && !reasoningLevels.includes(reasoningEffort))
     throw new Error("连接默认的推理强度须是支持的档位之一");
@@ -130,7 +137,8 @@ export function parseConnectionProfile(
     subagentMaxTokens: tokens("subagentMaxTokens"),
     contextWindow: normalizeContextWindow(
       value.contextWindow === undefined ? fallback.contextWindow : value.contextWindow
-    )
+    ),
+    ...(autoLimits ? { autoLimits } : {})
   };
 }
 

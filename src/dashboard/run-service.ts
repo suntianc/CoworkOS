@@ -2,6 +2,7 @@ import {
   readyMessageEditTransaction,
   finishMessageEditTransaction
 } from "../runtime/main-message-edit-transaction.js";
+import { applyEndpointLimits, type EndpointLimits } from "../runtime/model-limits.js";
 import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -117,6 +118,8 @@ export interface RunServicePorts {
    * fixed for the life of the process.
    */
   resolveMainModel(request: ModelRoleRequest): ResolvedModelRole;
+  /** The chosen model's own limits from its connection's `/models` entry, when listed (#27). */
+  endpointLimits?: (selection: ResolvedModelRole) => Promise<EndpointLimits | undefined>;
   onRunStarting?: () => void;
   onRunExit?: (taskId: string) => void;
   onRunFinalized?: (location: TaskLocation, runId: string) => Promise<void>;
@@ -165,6 +168,7 @@ export function createDashboardRunService({
   coordinator,
   locateTask,
   resolveMainModel,
+  endpointLimits = async () => undefined,
   onRunStarting = () => {},
   onRunExit = () => {},
   onRunFinalized = async () => {},
@@ -454,7 +458,9 @@ export function createDashboardRunService({
     // this demand owns a slot: a host/project default changed while it waited
     // applies now, while an explicit profile/model/thinking choice above stays
     // the user's. The snapshot lives only in this process and on the Run record.
-    const selection = resolveMainModel(roleRequest);
+    // A field the connection leaves to the endpoint takes this model's own value.
+    const resolved = resolveMainModel(roleRequest);
+    const selection = applyEndpointLimits(resolved, await endpointLimits(resolved));
     const model = selection.model;
     const baseUrl = selection.baseUrl;
     const apiKey = selection.apiKey;

@@ -626,6 +626,7 @@ export default {
   "」，已改为「": "”; switched to “",
   "」。": "”.",
   支持的推理档位: "Supported reasoning levels",
+  按模型识别: "Per model",
   "来自 /models 接口": "From the /models endpoint",
   "官方 · 自动": "Official · automatic",
   "这是模型厂商的官方地址，档位按模型自动识别，不能修改。":

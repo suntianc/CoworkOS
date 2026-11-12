@@ -156,6 +156,8 @@ export function createModelSettings(
           endpoint: catalog.find((entry) => entry.id === model)?.levels,
           manual: selected?.reasoningLevels
         })),
+        // The model's own context window, output and image input, for the form's defaults.
+        limits: catalog.find((entry) => entry.id === model)?.limits ?? {},
         official: await isOfficialAddress(baseUrl)
       };
     },

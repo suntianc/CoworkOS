@@ -2,12 +2,12 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 
 /** Strict local provider: wrong paths/formats fail instead of concealing fallback bugs. */
-export async function modelProtocolFixture(api, handle) {
+export async function modelProtocolFixture(api, handle, { models = [{ id: "protocol-fixture" }] } = {}) {
   const requests = [];
   const server = createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/v1/models") {
       res.setHeader("content-type", "application/json");
-      return res.end(JSON.stringify({ data: [{ id: "protocol-fixture" }] }));
+      return res.end(JSON.stringify({ data: models }));
     }
     let raw = "";
     for await (const chunk of req.setEncoding("utf8")) raw += chunk;
