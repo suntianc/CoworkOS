@@ -41,7 +41,7 @@ test("connection test verifies actual tool calling and image transport without r
   assert.equal(calls[0].body.max_completion_tokens, 65536);
   assert.equal(calls[0].body.reasoning_effort, "high");
   assert.ok(calls[0].body.messages.some((message) => message.role === "system"));
-  const vision = await testModelConnection(
+  const imageCapable = await testModelConnection(
     {
       ...input,
       baseUrl: "https://gateway.example/v1/",
@@ -49,21 +49,21 @@ test("connection test verifies actual tool calling and image transport without r
     },
     { imageFixture: () => ({ imageUrl: "data:image/png;base64,fixture", code: "2" }) }
   );
-  assert.equal(vision.supportsImages, true);
+  assert.equal(imageCapable.supportsImages, true);
   assert.equal(calls[1].url, calls[0].url);
   assert.match(
     calls[1].body.messages.find((message) => message.role === "user").content[1].image_url.url,
     /^data:image\/png;base64,/
   );
   assert.equal(calls[1].options.redirect, "error");
-  assert.ok(!JSON.stringify([text, vision]).includes(input.apiKey));
+  assert.ok(!JSON.stringify([text, imageCapable]).includes(input.apiKey));
   assert.ok(
     !calls[1].body.messages.find((message) => message.role === "user").content[0].text.includes("2"),
     "visual answer must not appear in request text"
   );
 });
 
-test("connection test rejects plain text, unsupported vision and malformed provider replies", async (t) => {
+test("connection test rejects plain text, an unreadable image answer and malformed provider replies", async (t) => {
   t.mock.method(
     globalThis,
     "fetch",
@@ -218,7 +218,7 @@ test("upstream service failures are distinguished from invalid connection settin
     );
 });
 
-test("default vision probe shows one large readable digit and checks the actual pixels", async (t) => {
+test("default image probe shows one large readable digit and checks the actual pixels", async (t) => {
   let digit;
   let wrong = false;
   t.mock.method(globalThis, "fetch", async (_url, options) => {

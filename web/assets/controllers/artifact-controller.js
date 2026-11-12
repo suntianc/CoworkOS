@@ -458,7 +458,7 @@ export function createArtifactController({
       : "";
     // Only the desktop host can hand the file to the system's own application.
     const canOpenSystem = !isChange && Boolean(globalThis.window?.bookmanDesktop?.openArtifact);
-    const editAction = canOpenSystem
+    const openSystemAction = canOpenSystem
       ? `<button type="button" class="drawer-action is-icon" data-open-system aria-label="${ui(
           "用系统默认应用打开"
         )}" title="${ui("用系统默认应用打开")}">${icon("pencil")}</button>`
@@ -506,7 +506,7 @@ export function createArtifactController({
       isChange ? "git-commit" : "file"
     )}<div class="artifact-drawer-title"><strong>${esc(title)}</strong><span>${esc(
       meta
-    )}</span></div><span class="rp-spacer"></span><div class="drawer-actions">${editAction}${copyAction}${openAction}${downloadAction}<button type="button" class="drawer-close" data-close-drawer aria-label="${ui(
+    )}</span></div><span class="rp-spacer"></span><div class="drawer-actions">${openSystemAction}${copyAction}${openAction}${downloadAction}<button type="button" class="drawer-close" data-close-drawer aria-label="${ui(
       "关闭预览"
     )}" title="${ui("关闭预览")}">${icon("close")}</button></div></header><nav class="drawer-tabs" role="tablist" aria-label="${ui(
       "预览内容"

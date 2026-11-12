@@ -1,3 +1,5 @@
+import { escapeHtml } from "./ui/html.js";
+
 export function formatArtifactSize(value) {
   if (value === null || value === undefined || value === "") return "—";
   const size = Number(value);
@@ -123,17 +125,12 @@ export function normalizeArtifactPreview(result = {}) {
 }
 
 export function renderArtifactMedia(preview, { name, typeLabel, rawUrl, downloadUrl }) {
-  const esc = (value) =>
-    String(value ?? "").replace(
-      /[&<>"']/g,
-      (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]
-    );
   if (preview.previewKind === "text") return null;
   if ((preview.previewKind === "pdf" || preview.previewKind === "image") && !rawUrl)
     return '<div class="drawer-state"><span class="editor-spinner"></span><strong>正在读取文件…</strong></div>';
   if (preview.previewKind === "pdf")
-    return `<div class="drawer-state"><strong>${esc(name)}</strong><p>点击“打开 ↗”查看 PDF。</p></div>`;
+    return `<div class="drawer-state"><strong>${escapeHtml(name)}</strong><p>点击“打开 ↗”查看 PDF。</p></div>`;
   if (preview.previewKind === "image")
-    return `<div class="artifact-image"><img src="${esc(rawUrl)}" alt="${esc(name)}" /></div>`;
-  return `<div class="drawer-state artifact-download-card"><span class="artifact-format-badge">${esc(typeLabel)}</span><strong>${esc(name)}</strong><p>此格式可下载后用系统应用打开。</p><a class="drawer-action is-primary" href="${esc(downloadUrl)}" download="${esc(name)}">下载文件 · ${esc(formatArtifactSize(preview.size))}</a></div>`;
+    return `<div class="artifact-image"><img src="${escapeHtml(rawUrl)}" alt="${escapeHtml(name)}" /></div>`;
+  return `<div class="drawer-state artifact-download-card"><span class="artifact-format-badge">${escapeHtml(typeLabel)}</span><strong>${escapeHtml(name)}</strong><p>此格式可下载后用系统应用打开。</p><a class="drawer-action is-primary" href="${escapeHtml(downloadUrl)}" download="${escapeHtml(name)}">下载文件 · ${escapeHtml(formatArtifactSize(preview.size))}</a></div>`;
 }

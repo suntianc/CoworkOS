@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
+import { atomicWrite } from "../storage/atomic-file.js";
 
 /**
  * A standing wake condition recorded by a Main that parked itself.
@@ -69,11 +70,4 @@ export async function clearSleep(workspaceRoot: string, taskId: string): Promise
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-}
-
-async function atomicWrite(path: string, content: string): Promise<void> {
-  await mkdir(join(path, ".."), { recursive: true });
-  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporary, content, "utf8");
-  await rename(temporary, path);
 }

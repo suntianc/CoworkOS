@@ -16,22 +16,22 @@ async function attachImage(page, name, buffer) {
   await expect(strip.locator(".attachment-chip").filter({ hasText: name })).toContainText("已添加");
 }
 
-for (const visionApi of ["openai-completions", "openai-responses"]) {
-  test(`${visionApi}: vision to text and back preserves images and tool history without sending pixels to text models`, async ({
+for (const imageApi of ["openai-completions", "openai-responses"]) {
+  test(`${imageApi}: image input to text-only and back preserves images and tool history without sending pixels to text models`, async ({
     page
   }) => {
     test.setTimeout(90_000);
     let uploadId,
       pendingUploadId,
-      phase = "vision",
-      visionCalls = 0,
+      phase = "images",
+      imageCalls = 0,
       textCalls = 0;
-    const vision = await modelProtocolFixture(visionApi, () => {
-      if (phase === "vision" && ++visionCalls === 1)
+    const imageConnection = await modelProtocolFixture(imageApi, () => {
+      if (phase === "images" && ++imageCalls === 1)
         return { name: "read_attachment", arguments: { id: uploadId } };
-      return { text: phase === "vision" ? "视觉读取完成" : "视觉恢复完成" };
+      return { text: phase === "images" ? "视觉读取完成" : "视觉恢复完成" };
     });
-    const textApi = visionApi === "openai-completions" ? "openai-responses" : "openai-completions";
+    const textApi = imageApi === "openai-completions" ? "openai-responses" : "openai-completions";
     const text = await modelProtocolFixture(textApi, () => {
       if (++textCalls === 1) return { name: "read_attachment", arguments: { id: pendingUploadId } };
       return { text: "纯文本继续完成" };
@@ -53,10 +53,10 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
       await save({
         profileId: "",
         profileName: "视觉",
-        baseUrl: vision.baseUrl,
-        api: visionApi,
+        baseUrl: imageConnection.baseUrl,
+        api: imageApi,
         model: "same-model-name",
-        apiKey: "local-vision-key",
+        apiKey: "local-image-key",
         supportsImages: true
       });
       await page.goto(dashboard.base);
@@ -66,15 +66,15 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
       page.on("request", (req) => {
         if (req.method() === "POST" && /\/run$/.test(new URL(req.url()).pathname)) {
           const ids = req.postDataJSON()?.attachmentIds;
-          if (phase === "vision") uploadId = ids?.[0];
+          if (phase === "images") uploadId = ids?.[0];
           else if (phase === "text") pendingUploadId = ids?.[0];
         }
       });
       await page.locator("#composer-input").fill("读取这张图片，并保留历史文字");
       await page.locator("#send-button").click();
       await waitDone("视觉读取完成");
-      expect(vision.requests.at(-1).body.model).toBe("same-model-name");
-      expect(JSON.stringify(vision.requests.at(-1).body)).toContain(pixels);
+      expect(imageConnection.requests.at(-1).body.model).toBe("same-model-name");
+      expect(JSON.stringify(imageConnection.requests.at(-1).body)).toContain(pixels);
       const first = (await status()).profiles[0];
       await attachImage(page, "pending.png", image);
       await page.locator("#composer-input").fill("这是切换前的图片草稿");
@@ -109,13 +109,13 @@ for (const visionApi of ["openai-completions", "openai-responses"]) {
       await page.locator("#composer-input").fill("切回视觉后继续");
       await page.locator("#send-button").click();
       await waitDone("视觉恢复完成");
-      const restored = JSON.stringify(vision.requests.at(-1).body);
+      const restored = JSON.stringify(imageConnection.requests.at(-1).body);
       expect(restored).toContain(pixels);
       expect(restored).toContain("纯文本继续完成");
       expect(restored).toContain("切回视觉后继续");
     } finally {
       await dashboard.stop();
-      await vision.close();
+      await imageConnection.close();
       await text.close();
     }
   });

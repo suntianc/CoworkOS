@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { atomicWrite } from "../storage/atomic-file.js";
 import { withFileLock } from "../storage/file-lock.js";
 
 export interface MainContextState {
@@ -167,10 +168,4 @@ async function ensureFile(path: string, initial: string): Promise<void> {
 
 function defaultMemory(): string {
   return "# Main Agent Memory\n\n## Goal\n<!-- Keep the durable user goal here. -->\n\n## Completed\n- (none yet)\n\n## Next\n- (initialize after understanding the task)\n\n## Important information/constraints\n- (none yet)\n";
-}
-
-async function atomicWrite(path: string, content: string): Promise<void> {
-  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporary, content, "utf8");
-  await rename(temporary, path);
 }

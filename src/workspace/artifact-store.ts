@@ -79,6 +79,9 @@ export interface ArtifactMigrationResult {
 
 class UnsafeArtifactPath extends Error {}
 
+/** The file changed between the two stats that bracket hashing it. */
+class ArtifactChangedDuringIndexing extends Error {}
+
 function safeSegment(value: string): string {
   if (!/^[a-zA-Z0-9._-]+$/.test(value) || value === "." || value === "..")
     throw new UnsafeArtifactPath(`unsafe workspace segment: ${value}`);
@@ -318,7 +321,7 @@ async function indexFile(
     file.stat.ctimeMs !== after.stat.ctimeMs ||
     file.stat.ino !== after.stat.ino
   ) {
-    throw new Error(`artifact changed while being indexed: ${relativePath}`);
+    throw new ArtifactChangedDuringIndexing(`artifact changed while being indexed: ${relativePath}`);
   }
   const artifact: Artifact = {
     artifactId: `artifact_${createHash("sha256").update(`${input.taskId}\0${relativePath}`).digest("hex").slice(0, 24)}`,
@@ -389,7 +392,7 @@ export async function listTaskArtifacts(input: TaskLocation & { runId?: string }
         if (
           !missing(error) &&
           !(error instanceof UnsafeArtifactPath) &&
-          !String(error).includes("artifact changed while being indexed")
+          !(error instanceof ArtifactChangedDuringIndexing)
         )
           throw error;
       }

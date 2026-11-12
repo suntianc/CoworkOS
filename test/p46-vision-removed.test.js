@@ -147,7 +147,6 @@ test("desktop, browser and CUA tools require a Main connection that accepts imag
       workspaceRoot: root,
       taskId: "task",
       mainRunId: "run",
-      hasResources: async () => false,
       supportsImages
     });
     return {
@@ -356,8 +355,9 @@ test("product documentation names no removed vision capability", async () => {
   const docs = (await walk("docs")).filter((path) => path.endsWith(".md"));
   const offenders = [];
   for (const path of docs) {
-    // The phase plan records the removal itself, so it may name what was removed.
-    if (path.endsWith("development-phases.md")) continue;
+    // The phase plan and the removed-capability list record the removal itself,
+    // so they may name what was removed.
+    if (path.endsWith("development-phases.md") || path.endsWith("builtin-capabilities.md")) continue;
     const text = await readFile(path, "utf8");
     for (const term of ["视觉模型", "视觉连接", "视觉分析", "vision model", "vision connection"])
       if (text.includes(term)) offenders.push(`${path}: ${term}`);
