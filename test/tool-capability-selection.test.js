@@ -77,7 +77,8 @@ async function fixture(t) {
       hasResources: async () => {
         if (resources instanceof Error) throw resources;
         return resources;
-      }
+      },
+      supportsImages: true
     });
     return { controller, pi, enable: (groups) => tools.get("enable_tools").execute("load", { groups }) };
   };

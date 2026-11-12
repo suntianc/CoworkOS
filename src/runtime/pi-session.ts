@@ -475,7 +475,7 @@ function toAgentTool(
                   ...content,
                   {
                     type: "text" as const,
-                    text: "当前模型连接未启用图像输入；图像未发送，请使用可用的文字反馈或启用视觉能力。"
+                    text: "当前模型不支持图片输入；图片未发送，请使用文字反馈或切换到支持图片的模型连接。"
                   }
                 ]
               : content

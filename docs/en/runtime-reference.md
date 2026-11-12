@@ -202,6 +202,8 @@ Use `record_goal_progress(nextReviewAt)` for reviews and `sleep_until(programId=
 
 `npm start` scans the whole workspace by default; Task locks prevent duplicate scheduling. `COWORK_DISABLE_WATCH_SUPERVISOR=1` disables scheduling. `COWORK_SUPERVISOR_INTERVAL_MS` defaults to 60000. Sampling does not periodically invoke the model; no-change checks run no analysis. Analysis and Main-wake quotas are separate and retain evidence when exhausted. Model budgets use normal Main settings.
 
+The Dashboard Run service runs Main recovery on its own timer rather than through watch scheduling: a Task with an unconsumed callback, no live Main and no pending human question is started again. `COWORK_DISABLE_MAIN_GUARDIAN=1` turns it off, and the former `COWORK_DISABLE_WATCH_SUPERVISOR=1` still works. `COWORK_MAIN_GUARDIAN_INTERVAL_MS` defaults to 60000; its former `COWORK_SUPERVISOR_INTERVAL_MS` still works.
+
 Successful analysis is saved before Inbox delivery; restart or delivery failure retries the saved result. Failure, timeout and cancellation retain source events for retry. Watch analysis uses a separate Run without replacing the Task's active Main Run. Fields and states are in [Product API](../product-api.md#persistent-monitors); pause behavior is in the [pause contract](../monitoring-pause-contract.md).
 
 ### macOS source monitoring service

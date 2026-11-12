@@ -16,7 +16,6 @@ import {
 import { readWorkspaceText, searchWorkspaceText } from "./workspace-text.js";
 import { containsFilePath, resolveFileTarget } from "./file-path.js";
 import { createImageTools } from "./read-image.js";
-import type { VisionModelConfig } from "./vision-model.js";
 import { executeForegroundCommand } from "./foreground-command.js";
 import {
   commandCaptureEvidence,
@@ -55,7 +54,6 @@ export interface BuiltinToolOptions {
   /** Environment overrides for commands started by this tool set. */
   commandEnv?: NodeJS.ProcessEnv;
   supportsImages?: boolean;
-  visionModel?: VisionModelConfig;
   /** Optional public web tools. Omit for coding/benchmark profiles that should not access the web. */
   web?: WebToolOptions;
 }
@@ -335,7 +333,6 @@ export function createBuiltinTools(options: BuiltinToolOptions): ReadonlyMap<str
     rootDirectory: options.rootDirectory,
     taskDirectory: workspaceDirectory,
     supportsImages: options.supportsImages,
-    visionModel: options.visionModel,
     resolveWorkPath: (path) => fileTarget(safePath(path))
   });
   for (const [name, tool] of Object.entries(imageTools)) tools.set(name, tool);

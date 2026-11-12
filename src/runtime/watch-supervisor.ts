@@ -9,7 +9,6 @@ import type {
   WatchProgram
 } from "../domain/watch.js";
 import type { WebToolOptions } from "../tools/web-tools.js";
-import type { VisionModelConfig } from "../tools/vision-model.js";
 import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import { JsonlEventStore } from "../storage/event-store.js";
 import { withFileLock } from "../storage/file-lock.js";
@@ -35,7 +34,6 @@ import {
 } from "./runtime-settings.js";
 
 export interface WatchSupervisorOptions {
-  visionModel?: VisionModelConfig;
   workspaceRoot: string;
   signal?: AbortSignal;
   baseUrl: string;
@@ -1359,7 +1357,6 @@ export class WatchSupervisor {
         baseUrl: this.options.baseUrl,
         apiKey: this.options.apiKey,
         model: this.options.model,
-        visionModel: this.options.visionModel,
         thinkingLevel: this.options.thinkingLevel,
         api: this.options.api,
         thinkingFormat: this.options.thinkingFormat,

@@ -3,7 +3,6 @@ import { open, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { extname, isAbsolute, relative, resolve } from "node:path";
 import { containsFilePath } from "./file-path.js";
-import { createVisionAnalyzer, type VisionModelConfig } from "./vision-model.js";
 import {
   createImageArchive,
   type ImageMapping,
@@ -24,8 +23,6 @@ export interface ImageReaderOptions {
   taskDirectory?: string;
   workScope?: "work" | "project";
   supportsImages?: boolean;
-  visionModel?: VisionModelConfig;
-  analyze?: ReturnType<typeof createVisionAnalyzer>;
   maxImageBytes?: number;
   maxBatchBytes?: number;
   resolveWorkPath?: (path: string) => Promise<string>;
@@ -57,7 +54,6 @@ const sourceProperties = {
 
 /** One implementation shared by Main extension and programmatic/delegated Pi tools. */
 export function createImageTools(options: ImageReaderOptions) {
-  const analyze = options.analyze ?? createVisionAnalyzer();
   const workScope = options.workScope ?? "work";
   const archive = options.taskDirectory
     ? createImageArchive({ taskDirectory: options.taskDirectory, maxImageBytes: options.maxImageBytes })
@@ -72,7 +68,7 @@ export function createImageTools(options: ImageReaderOptions) {
   };
   const direct = options.supportsImages
     ? "Returns pixels directly."
-    : `Returns evidence from the configured vision connection (${options.visionModel?.model ?? "not configured"}).`;
+    : "Returns a clear notice that the current model connection does not accept image input; pixels are not sent.";
   function object(input: unknown): Record<string, unknown> {
     if (!input || typeof input !== "object" || Array.isArray(input))
       throw new Error("Image tool requires an object");
@@ -186,80 +182,51 @@ export function createImageTools(options: ImageReaderOptions) {
     signal?: AbortSignal
   ) {
     assertImageActive(signal);
+    if (!options.supportsImages)
+      throw new Error("当前模型不支持图片输入；图片未发送。请切换到支持图片输入的模型连接，或改用文字说明。");
     if (review.review && images.length > 1)
       throw new Error("Visual QA must review one page at a time; compare images without review=true");
     for (const image of images) await remember(image, signal);
     const records = images.map(evidence);
-    const mode = options.supportsImages ? "direct" : "fallback";
     const details =
       shape === "single"
         ? records[0]
         : {
-            images: records.map((record) => ({ ...record, mode })),
+            images: records.map((record) => ({ ...record, mode: "direct" as const })),
             ...(shape === "images"
               ? { count: images.length, bytes: images.reduce((sum, image) => sum + image.data.length, 0) }
               : {})
           };
-    if (options.supportsImages)
-      return {
-        content: images.flatMap((image, index) => {
-          const loaded = {
-            type: "image" as const,
-            data: image.data.toString("base64"),
-            mimeType: image.mimeType
-          };
-          const metadata = JSON.stringify(records[index]);
-          if (shape === "paths")
-            return [
-              { type: "text" as const, text: `Image ${index + 1}: ${image.path}` },
-              loaded,
-              { type: "text" as const, text: metadata }
-            ];
-          return [
-            ...(shape === "images"
-              ? [{ type: "text" as const, text: `Image ${index + 1} of ${images.length}` }]
-              : []),
-            { type: "text" as const, text: `Image loaded: ${image.path}\n${metadata}` },
-            loaded
-          ];
-        }),
-        details: { ...details, mode: "direct" as const }
-      };
-    if (!options.visionModel)
-      throw new Error("Current model is text-only; choose an image-analysis connection in model settings");
-    const analysis = await analyze(
-      options.visionModel,
-      {
-        data: images[0].data,
-        mimeType: images[0].mimeType,
-        path: images[0].path,
-        additionalImages: images.slice(1).map(({ data, mimeType, path }) => ({ data, mimeType, path })),
-        ...review
-      },
-      signal
-    );
     return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Vision analysis for ${images.map((image) => image.path).join(", ")}:\n${analysis.report}\n${JSON.stringify(details)}`
-        }
-      ],
-      details: {
-        ...details,
-        mode: "fallback" as const,
-        visionModel: options.visionModel.model,
-        elapsedMs: analysis.elapsedMs,
-        cached: analysis.cached,
-        review: analysis.review
-      }
+      content: images.flatMap((image, index) => {
+        const loaded = {
+          type: "image" as const,
+          data: image.data.toString("base64"),
+          mimeType: image.mimeType
+        };
+        const metadata = JSON.stringify(records[index]);
+        if (shape === "paths")
+          return [
+            { type: "text" as const, text: `Image ${index + 1}: ${image.path}` },
+            loaded,
+            { type: "text" as const, text: metadata }
+          ];
+        return [
+          ...(shape === "images"
+            ? [{ type: "text" as const, text: `Image ${index + 1} of ${images.length}` }]
+            : []),
+          { type: "text" as const, text: `Image loaded: ${image.path}\n${metadata}` },
+          loaded
+        ];
+      }),
+      details: { ...details, mode: "direct" as const }
     };
   }
   const reviewProperties = { goal: { type: "string", maxLength: 4000 }, review: { type: "boolean" } };
   return {
     read_image: {
       executionMode: "parallel" as const,
-      description: `Inspect local PNG, JPEG, GIF or WebP files, or reread a historical Task imageRef. Prefer paths:["image.png"] for one image or an ordered comparison of 1–4 images (20 MiB total). path is a single-image alias; matching path and paths:[path] read it once. Specify exactly one non-empty path/paths selection or imageRef; omit unused sources or set path/imageRef to null/"". ${direct} Text-only models use one ordered comparison request. Use review=true for one-page structured visual QA. Paths are relative to scope=${workScope} or the shared Task (scope=task); absolute paths inside the selected root are also accepted. Historical pixels do not authorize Computer Use actions.`,
+      description: `Inspect local PNG, JPEG, GIF or WebP files, or reread a historical Task imageRef. Prefer paths:["image.png"] for one image or an ordered comparison of 1–4 images (20 MiB total). path is a single-image alias; matching path and paths:[path] read it once. Specify exactly one non-empty path/paths selection or imageRef; omit unused sources or set path/imageRef to null/"". ${direct} Use review=true for one-page structured visual QA. Paths are relative to scope=${workScope} or the shared Task (scope=task); absolute paths inside the selected root are also accepted. Historical pixels do not authorize Computer Use actions.`,
       parameters: {
         ...sourceSchema,
         properties: {
@@ -313,7 +280,7 @@ export function createImageTools(options: ImageReaderOptions) {
       }
     },
     read_images: {
-      description: `Inspect 1–4 local images or historical Task imageRefs together, in order, for comparison. Each image must specify exactly one non-empty path or imageRef; omit the unused source or set it to null/"". ${direct} Total pixels payload is bounded to ${batchLimit} bytes. Text-only models use one ordered comparison request. Use review=true for one image only.`,
+      description: `Inspect 1–4 local images or historical Task imageRefs together, in order, for comparison. Each image must specify exactly one non-empty path or imageRef; omit the unused source or set it to null/"". ${direct} Total pixels payload is bounded to ${batchLimit} bytes. Use review=true for one image only.`,
       parameters: {
         type: "object",
         properties: {

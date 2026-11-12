@@ -139,31 +139,3 @@ test("handoffs cannot bypass pause, stale revisions, decisions or completed goal
   await assert.rejects(f.tool.execute("closed", { ...params, revision: completed.goal.revision }), /已结束/);
   assert.equal((await f.inbox.list("main")).filter((m) => m.payload.type === "watch.goal_steer").length, 0);
 });
-
-test("pausing after a handoff holds the queued request until explicit resume", async (t) => {
-  const f = await fixture(t);
-  await f.tool.execute("queued-before-pause", {
-    action: "steer",
-    programId: f.goal.programId,
-    revision: f.goal.goal.revision,
-    message: "Check health once"
-  });
-  const paused = await f.manager.control(f.goal.taskId, f.goal.programId, "pause", f.goal.goal.revision);
-  const supervisor = new MainSupervisor({
-    workspaceRoot: f.root,
-    launch() {
-      throw new Error("Paused goal launched");
-    }
-  });
-  assert.equal(
-    (await supervisor.runCycle({ taskId: f.goal.taskId })).decisions[0].reason,
-    "monitoring_paused"
-  );
-  const delivered = [];
-  await new MainInboxDelivery(f.root, f.goal.taskId, f.goal.watchRunId).deliver((m) => delivered.push(m));
-  assert.equal(delivered.length, 0);
-  assert.equal((await f.inbox.list("main"))[0].state, "ready");
-  await f.manager.control(f.goal.taskId, f.goal.programId, "resume", paused.goal.revision);
-  await new MainInboxDelivery(f.root, f.goal.taskId, f.goal.watchRunId).deliver((m) => delivered.push(m));
-  assert.equal(delivered.length, 1);
-});

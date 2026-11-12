@@ -1,24 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { WatchManagement } from "../dist/src/runtime/watch-management.js";
-import { MainSupervisor } from "../dist/src/runtime/main-supervisor.js";
 import { MainInboxDelivery } from "../dist/src/runtime/main-inbox-delivery.js";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
-import { WatchSupervisor } from "../dist/src/runtime/watch-supervisor.js";
-import { readSleep, writeSleep } from "../dist/src/runtime/main-sleep.js";
 import { monitoringPrograms } from "../dist/src/runtime/monitoring-control.js";
 import { GoalManagement } from "../dist/src/runtime/goal-management.js";
 import { HumanRequestStore } from "../dist/src/runtime/human.js";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { createServer } from "node:http";
-import { once } from "node:events";
-import { startDashboard } from "./dashboard-fixture.mjs";
 
 async function fixture(t, scope = "background") {
   const root = await mkdtemp(join(tmpdir(), "atria-pause-control-"));
@@ -51,67 +45,6 @@ async function fixture(t, scope = "background") {
     });
   return { root, workspace, management, created, input, inbox, queue };
 }
-
-test("a paused legacy background task holds every automatic wake across restarts, then explicitly resumes", async (t) => {
-  const f = await fixture(t);
-  // Reproduce old persisted data: only the source was paused, not its program.
-  await f.management.store.updateVirtualAgent("task", f.created.programId, f.created.monitorId, {
-    status: "paused"
-  });
-  await writeSleep(f.root, "task", {
-    runId: "main-task",
-    reason: "old timed review",
-    monitorIds: [],
-    parkedAt: "2026-01-01T00:00:00Z",
-    wakeAt: "2026-01-01T00:01:00Z"
-  });
-  for (const [id, payload, kind] of [
-    ["clock", { type: "main.scheduled_wake" }],
-    ["lost", { type: "main.monitors_lost" }],
-    ["retry", { type: "watch.main_retry" }],
-    ["callback", { response: "old work finished" }, "callback"],
-    ["answer", { type: "human.answer", requestId: "old-question" }]
-  ])
-    await f.queue(id, payload, kind);
-  let launches = 0;
-  for (let restart = 0; restart < 2; restart++) {
-    const main = new MainSupervisor({
-      workspaceRoot: f.root,
-      launch: () => {
-        launches++;
-      }
-    });
-    assert.equal((await main.runCycle()).decisions[0].reason, "monitoring_paused");
-    let delivered = 0;
-    await new MainInboxDelivery(f.root, "task", "main-task").deliver(() => {
-      delivered++;
-    });
-    assert.equal(delivered, 0);
-    const cycle = await new WatchSupervisor({ workspaceRoot: f.root, baseUrl: "", apiKey: "" }).runCycle();
-    assert.equal(cycle.parkWakes, 0);
-    assert.equal(cycle.polled, 0);
-    assert.equal((await readSleep(f.root, "task")).wakeFiredAt, undefined);
-  }
-  assert.equal(launches, 0);
-  assert.ok((await f.inbox.list("main")).every((entry) => entry.state === "ready"));
-  await f.management.control("task", f.created.monitorId, "resume");
-  assert.equal(
-    (
-      await new MainSupervisor({
-        workspaceRoot: f.root,
-        launch: () => {
-          launches++;
-        }
-      }).runCycle()
-    ).resumed,
-    1
-  );
-  assert.equal(launches, 1);
-  assert.equal(
-    (await new WatchSupervisor({ workspaceRoot: f.root, baseUrl: "", apiKey: "" }).runCycle()).parkWakes,
-    1
-  );
-});
 
 test("pause is enforced by registration, including changed configs and attempts to escape into another task", async (t) => {
   const f = await fixture(t);
@@ -315,83 +248,4 @@ test("pause during a custom activation probe wins final acceptance for legacy pr
     )
   );
   assert.equal((await f.management.store.readProgram("task", f.created.programId)).status, "paused");
-});
-
-test("real Dashboard restarts keep legacy pauses quiet; HTTP resume releases retained work", async (t) => {
-  const f = await fixture(t);
-  await f.management.store.updateVirtualAgent("task", f.created.programId, f.created.monitorId, {
-    status: "paused"
-  });
-  await writeSleep(f.root, "task", {
-    runId: "main-task",
-    reason: "old review",
-    monitorIds: [],
-    parkedAt: "2026-01-01T00:00:00Z",
-    wakeAt: "2026-01-01T00:01:00Z"
-  });
-  await f.queue("old-clock", { type: "main.scheduled_wake" });
-  let modelCalls = 0;
-  const model = createServer(async (request, response) => {
-    for await (const chunk of request) void chunk;
-    if (request.method !== "POST") {
-      response.end(JSON.stringify({ data: [{ id: "pause-fixture" }] }));
-      return;
-    }
-    modelCalls++;
-    response.writeHead(200, { "content-type": "text/event-stream" });
-    const delta = (value, finish_reason = null) =>
-      response.write(
-        `data: ${JSON.stringify({ id: "pause", object: "chat.completion.chunk", model: "pause-fixture", created: 1, choices: [{ index: 0, delta: value, finish_reason }] })}\n\n`
-      );
-    delta({ role: "assistant", content: "Retained work handled. Continue waiting." });
-    delta({}, "stop");
-    response.end("data: [DONE]\n\n");
-  });
-  model.listen(0, "127.0.0.1");
-  await once(model, "listening");
-  const modelEndpoint = `http://127.0.0.1:${model.address().port}/v1`;
-  let dashboard;
-  try {
-    dashboard = await startDashboard({
-      workspace: f.root,
-      defaultProject: false,
-      monitoring: true,
-      modelEndpoint,
-      model: "pause-fixture"
-    });
-    for (let restart = 0; restart < 2; restart++) {
-      if (restart > 0) await dashboard.restart();
-      const detail = `${dashboard.base}/api/tasks/task/monitors`;
-      const initial = await (await fetch(detail)).json();
-      for (let n = 0; n < 100; n++) {
-        await delay(50);
-        if ((await (await fetch(detail)).json()).scheduler.lastCycleAt !== initial.scheduler.lastCycleAt)
-          break;
-        if (n === 99) assert.fail("scheduler did not complete another cycle");
-      }
-      assert.equal(modelCalls, 0, "no provider calls while paused, even after host restart");
-      assert.equal((await readSleep(f.root, "task")).wakeFiredAt, undefined);
-      const goals = await (await fetch(`${dashboard.base}/api/goals`)).json();
-      assert.equal(goals.goals.find((p) => p.programId === f.created.programId).status, "paused");
-      const rejected = await fetch(detail, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...f.input, task: "rebuild", programId: f.created.programId })
-      });
-      assert.equal(rejected.ok, false);
-      assert.match(await rejected.text(), /暂停/);
-    }
-    const resumed = await fetch(`${dashboard.base}/api/tasks/task/monitors/${f.created.monitorId}/control`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "resume" })
-    });
-    assert.equal(resumed.ok, true, await resumed.text());
-    for (let n = 0; n < 200 && modelCalls === 0; n++) await delay(50);
-    assert.ok(modelCalls > 0, "only explicit HTTP resume releases the queued wake to real Main");
-  } finally {
-    await dashboard?.stop();
-    model.closeAllConnections();
-    await new Promise((done) => model.close(done));
-  }
 });

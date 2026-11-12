@@ -1,6 +1,5 @@
 import { coworkProviderId } from "../dist/src/runtime/model-profile.js";
 import { parseMainRequestModel } from "../dist/src/storage/main-request-store.js";
-import { visionModelEnv } from "../dist/src/runtime/vision-config.js";
 import { access, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -131,7 +130,7 @@ export async function startPi({ uiCompatibility } = {}) {
     let launchConfig;
     try {
       // The host store holds the effective keys; without it `coworkos start`
-      // would lose the model env, vision connection and supervisor autostart.
+      // would lose the model env and supervisor autostart.
       launchConfig = readHostCoworkConfig(process.cwd());
     } catch (error) {
       console.error(error.message);
@@ -430,7 +429,6 @@ export async function startPi({ uiCompatibility } = {}) {
       ...process.env,
       ...runtimeEnv,
       ...roleEnv,
-      ...visionModelEnv(launchConfig),
       ...brandingEnv,
       ...(process.env.COWORK_CONFIG || existsSync(launchConfigPath)
         ? { COWORK_CONFIG: launchConfigPath }

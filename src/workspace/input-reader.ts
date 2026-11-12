@@ -40,7 +40,7 @@ export async function readStoredDocument(
   if (!Number.isFinite(offset) || !Number.isFinite(limit)) throw new Error("读取范围不合法");
   if (file.kind === "image") {
     if (!options.supportsImages)
-      throw new Error("当前模型未启用图像输入；文件已保留，可切换支持图像的模型后读取");
+      throw new Error("当前模型不支持图片输入；文件已保留，可切换支持图片的模型后读取");
     return { file, absolutePath, image: bytes.toString("base64"), mimeType: file.mimeType };
   }
   if (file.kind === "text") {
@@ -53,7 +53,7 @@ export async function readStoredDocument(
       nextOffset: offset + limit < text.length ? offset + limit : null
     };
   }
-  if (options.render && !options.supportsImages) throw new Error("当前模型未启用图像输入；可先读取PDF文字");
+  if (options.render && !options.supportsImages) throw new Error("当前模型不支持图片输入；可先读取PDF文字");
   const page = Math.max(0, Math.floor(options.page || (options.render ? 1 : 0)));
   if (!Number.isFinite(page)) throw new Error("页码不合法");
   try {
