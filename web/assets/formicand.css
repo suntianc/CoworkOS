@@ -656,6 +656,13 @@ html[data-theme] .app-layout[data-entry="observe"] {
 html[data-theme] .app-layout[data-entry="observe"] .agent-pane {
   display: none;
 }
+/* Two cards side by side read as one pair: the main and requirement panels sit
+   6 px apart, while the window edges and the sidebar side keep 10 px (#23). */
+@media (min-width: 1280px) {
+  html[data-theme] .app-layout > .agent-pane {
+    margin-left: -4px;
+  }
+}
 html[data-theme] .conversation-sidebar {
   height: auto;
   min-height: 0;
