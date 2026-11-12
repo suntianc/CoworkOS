@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { chromium } from "playwright-core";
+import { stopBackendsUnder } from "../scripts/test-run-root.mjs";
 import { browserTestOptions } from "./browser-fixture.mjs";
 import { cuaProgressFixture } from "./cua-progress-fixture.mjs";
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
@@ -244,6 +245,9 @@ ${state === "confirmed" ? `- confirmed: ${operation} saved; evidence ${download.
           }
           await childExit;
         }
+        // A SIGKILL reaches only Pi's process group; the browser it launched
+        // lives in its own and outlives the crash, so stop what is left here.
+        await stopBackendsUnder(root);
         provider.closeAllConnections();
         await new Promise((done) => provider.close(done));
         await business.close();

@@ -308,8 +308,14 @@ async function touchResize(page, cdp, divider, ending, otherDivider) {
     touching = true;
     await expect(divider).toHaveClass(/is-dragging/);
     await expect(page.locator("body")).toHaveClass(/workspace-resizing/);
-    await expect.poll(() => divider.evaluate((node) => getComputedStyle(node, "::after").opacity)).toBe("1");
-    expect(await divider.evaluate((node) => getComputedStyle(node, "::after").width)).toBe("2px");
+    // The sidebar edge shows no line while dragging (#20); the workbench divider
+    // deepens to a neutral 2 px line, never the accent, which is for keyboard focus.
+    const sidebarEdge = (await divider.evaluate((node) => node.id)) === "sidebar-divider";
+    await expect
+      .poll(() => divider.evaluate((node) => getComputedStyle(node, "::after").opacity))
+      .toBe(sidebarEdge ? "0" : "1");
+    if (!sidebarEdge)
+      expect(await divider.evaluate((node) => getComputedStyle(node, "::after").width)).toBe("2px");
     if (otherDivider) await expectRestingDivider(otherDivider);
     await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [moved] });
     await expect(divider).not.toHaveAttribute("aria-valuenow", String(original));

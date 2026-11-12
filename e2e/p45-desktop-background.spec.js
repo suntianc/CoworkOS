@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from "@playwright/test";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -47,6 +48,8 @@ test("desktop windows launched by tests stay out of the foreground but still dra
     expect(await page.evaluate(() => document.visibilityState)).toBe("visible");
   } finally {
     await native?.close();
+    // The backend outlives the window by design; stop this test's own (#35).
+    await stopNativeBackend(data);
     await rm(data, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

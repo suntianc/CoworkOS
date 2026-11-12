@@ -298,3 +298,48 @@ test("legacy CLI bindings match canonical storage roots reached through an alias
   assert.equal(task.storageRoot, alias);
   assert.equal((await f.store.readTask("alias-cli")).projectDirectory, canonicalProject);
 });
+
+test("removing a project hides it and its conversations, and adding its folder again restores both (#33)", async (t) => {
+  const f = await fixture(t);
+  const project = await f.directory.createProject({ projectName: "Removable", projectDirectory: f.first });
+  await f.directory.createProjectTask("kept-task", project.projectId, { goal: "kept" });
+  const idle = (_ids, action) => action();
+  let guarded;
+  const removed = await f.directory.removeProject(project.projectId, (ids, action) => {
+    guarded = ids;
+    return action();
+  });
+  assert.deepEqual(guarded, ["kept-task"], "the idle check covers the project's conversations");
+  assert.deepEqual(removed.taskIds, ["kept-task"]);
+  let listed = await f.directory.globalTaskPayload();
+  assert.deepEqual(listed.projects, []);
+  assert.deepEqual(listed.tasks, []);
+  // Nothing on disk is deleted, and the record keeps its owner.
+  assert.equal((await f.store.readTask("kept-task")).projectId, project.projectId);
+  await assert.rejects(f.directory.removeProject(project.projectId, idle), /找不到项目/);
+  await assert.rejects(
+    f.directory.updateProject(project.projectId, { projectName: "x" }, idle),
+    /找不到项目/
+  );
+
+  const restored = await f.directory.createProject({ projectName: "Back", projectDirectory: f.first });
+  assert.equal(restored.projectId, project.projectId);
+  assert.equal(restored.projectName, "Back");
+  assert.equal("removedAt" in restored, false);
+  assert.deepEqual(
+    restored.tasks.map((task) => task.taskId),
+    ["kept-task"]
+  );
+  listed = await f.directory.globalTaskPayload();
+  assert.deepEqual(
+    listed.projects.map((entry) => entry.projectId),
+    [project.projectId]
+  );
+
+  // A busy project is not removed.
+  await assert.rejects(
+    f.directory.removeProject(project.projectId, () => Promise.reject(new Error("busy"))),
+    /busy/
+  );
+  assert.equal((await f.directory.globalTaskPayload()).projects.length, 1);
+});

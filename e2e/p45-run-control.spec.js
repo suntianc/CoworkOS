@@ -369,11 +369,14 @@ test("while Main waits the strip names the Subagents it waits for, and the model
     await expect(page.locator("#reasoning-select")).toHaveCount(0);
     await page.locator("#model-select").click();
     const menu = page.locator("#model-menu");
-    await expect(menu.locator("[data-model]").first()).toBeFocused();
-    await expect(menu.locator("[data-thinking-level]")).toHaveCount(7);
+    await expect(menu.locator(".effort-rail")).toBeFocused();
+    await expect(menu.locator("[data-thinking-level]")).toHaveCount(6);
     await menu.locator('[data-thinking-level="medium"]').click();
-    await expect(menu).toBeHidden();
     await expect(page.locator("#model-select .reasoning-name")).toHaveText("中");
+    // The pick applies at once and the popover stays open until Esc.
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
     await expect(page.locator("#model-select")).toBeFocused();
   } finally {
     await page.unrouteAll({ behavior: "ignoreErrors" }).catch(() => {});

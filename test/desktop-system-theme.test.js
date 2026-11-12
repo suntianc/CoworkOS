@@ -11,13 +11,13 @@ test("painted window background follows initial native appearance and updates un
     setBackgroundColor: (color) => colors.push(color)
   });
   const colors = [];
-  assert.equal(windowBackground(nativeTheme, "linux"), "#f4f4f8");
+  assert.equal(windowBackground(nativeTheme, "linux"), "#e9e9ec");
   followNativeTheme(window, nativeTheme);
   nativeTheme.shouldUseDarkColors = true;
   nativeTheme.emit("updated");
   nativeTheme.shouldUseDarkColors = false;
   nativeTheme.emit("updated");
-  assert.deepEqual(colors, ["#f4f4f8", "#0e0e0f", "#f4f4f8"]);
+  assert.deepEqual(colors, ["#e9e9ec", "#0b0b0c", "#e9e9ec"]);
   window.emit("closed");
   assert.equal(nativeTheme.listenerCount("updated"), 0);
   nativeTheme.emit("updated");

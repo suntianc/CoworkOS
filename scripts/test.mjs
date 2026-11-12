@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { closeTestRun, openTestRun } from "./test-run-root.mjs";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -132,16 +133,21 @@ export async function main(args = process.argv.slice(2)) {
     const code = await runCommand(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build:full"]);
     if (code !== 0) return code;
   } else console.log("Using existing build; ensure it matches the current sources.");
-  for (const command of plan.commands) {
-    const code = await runCommand(
-      process.execPath,
-      ["--import", "./test/isolate-user-data.mjs", ...command],
-      {
-        env: plan.env
-      }
-    );
-    if (code !== 0) return code;
+  // Each run owns its temporary directories; a backend left running fails it (#35).
+  const runRoot = await openTestRun();
+  let code = 0;
+  try {
+    for (const command of plan.commands) {
+      code = await runCommand(process.execPath, ["--import", "./test/isolate-user-data.mjs", ...command], {
+        env: { ...plan.env, TMPDIR: runRoot }
+      });
+      if (code !== 0) break;
+    }
+  } finally {
+    const leaked = await closeTestRun(runRoot);
+    if (leaked.length && code === 0) code = 1;
   }
+  if (code !== 0) return code;
   console.log(
     "Node suite passed. Review TAP skipped/todo counts; native, browser and release evidence are separate."
   );

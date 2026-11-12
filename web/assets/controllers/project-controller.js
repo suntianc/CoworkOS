@@ -1,6 +1,7 @@
 import { ui } from "../ui/language.js";
 import { icon } from "../ui/icons.js";
 import { createModal } from "../ui/modal.js";
+import { createMenu } from "../ui/menu.js";
 import { escapeHtml as esc } from "../workbench/html.js";
 
 /** Project navigation, directory settings and creation do not mutate conversation drafts. */
@@ -21,7 +22,6 @@ export function createProjectController({
   getApplicationWorkspaces = () => [],
   isTaskVisible = () => true,
   isUnread = () => false,
-  openProjectExperience = () => {},
   openAddProject,
   onUpdated = () => {}
 }) {
@@ -159,8 +159,8 @@ export function createProjectController({
             collapsed = state.collapsedProjects.has(id);
           const question = (collapsed || railWindow.matches) && tasks.some((task) => task.pendingQuestion);
           return ui`<section class="project-group ${collapsed ? "collapsed" : ""} ${state.selectedProjectId === id ? "is-selected" : ""}" data-project="${esc(id)}">
-        <div class="project-heading"><button class="project-row" type="button" data-project-id="${esc(id)}" aria-expanded="${!collapsed}" title="${esc(project.projectDirectory || project.workspaceRoot || "")}"><span class="project-disclosure" aria-hidden="true"><span class="project-chevron">${icon("chevron-down")}</span><span class="project-folder">${icon(collapsed ? "folder" : "folder-open")}</span></span><span class="project-name">${esc(project.projectName)}</span>${question ? `<span class="project-question" role="img" aria-label="${esc(ui("有待回答的问题"))}"></span>` : ""}${collapsed && tasks.length ? `<span class="project-count">${tasks.length}</span>` : ""}</button><button class="project-settings" type="button" data-project-settings="${esc(id)}" aria-label="项目设置：${esc(project.projectName)}" title="项目设置">${icon("more")}</button><button class="project-create" type="button" data-project-create="${esc(id)}" aria-label="在 ${esc(project.projectName)} 中新建会话" title="在此项目新建会话">${icon("plus")}</button></div>
-        <div class="conversation-list" aria-label="${esc(project.projectName)}中的对话"><div class="project-rail-head"><span class="project-rail-name">${esc(project.projectName)}</span><button class="project-rail-action" type="button" data-rail-settings="${esc(id)}" aria-label="${esc(ui("项目设置"))}" title="${esc(ui("项目设置"))}">${icon("more")}</button><button class="project-rail-action" type="button" data-rail-create="${esc(id)}" aria-label="${esc(ui("新建会话"))}" title="${esc(ui("在此项目新建会话"))}">${icon("plus")}</button></div>${
+        <div class="project-heading"><button class="project-row" type="button" data-project-id="${esc(id)}" aria-expanded="${!collapsed}" title="${esc(project.projectDirectory || project.workspaceRoot || "")}"><span class="project-disclosure" aria-hidden="true"><span class="project-chevron">${icon("chevron-down")}</span><span class="project-folder">${icon(collapsed ? "folder" : "folder-open")}</span></span><span class="project-name">${esc(project.projectName)}</span>${question ? `<span class="project-question" role="img" aria-label="${esc(ui("有待回答的问题"))}"></span>` : ""}${collapsed && tasks.length ? `<span class="project-count">${tasks.length}</span>` : ""}</button><button class="project-settings" type="button" data-project-settings="${esc(id)}" aria-haspopup="menu" aria-expanded="false" aria-label="项目操作：${esc(project.projectName)}" title="项目操作">${icon("more")}</button><button class="project-create" type="button" data-project-create="${esc(id)}" aria-label="在 ${esc(project.projectName)} 中新建会话" title="在此项目新建会话">${icon("plus")}</button></div>
+        <div class="conversation-list" aria-label="${esc(project.projectName)}中的对话"><div class="project-rail-head"><span class="project-rail-name">${esc(project.projectName)}</span><button class="project-rail-action" type="button" data-rail-settings="${esc(id)}" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(ui("项目操作"))}" title="${esc(ui("项目操作"))}">${icon("more")}</button><button class="project-rail-action" type="button" data-rail-create="${esc(id)}" aria-label="${esc(ui("新建会话"))}" title="${esc(ui("在此项目新建会话"))}">${icon("plus")}</button></div>${
           tasks
             .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
             .map(taskRow)
@@ -213,14 +213,18 @@ export function createProjectController({
       .forEach((node) => node.addEventListener("click", () => beginConversation(node.dataset.projectCreate)));
     root
       .querySelectorAll("[data-project-settings]")
-      .forEach((node) => node.addEventListener("click", () => openSettings(node.dataset.projectSettings)));
+      .forEach((node) =>
+        node.addEventListener("click", () => openProjectMenu(node, node.dataset.projectSettings))
+      );
     // The icon rail repeats the same two project commands inside its hover tree.
     root
       .querySelectorAll("[data-rail-create]")
       .forEach((node) => node.addEventListener("click", () => beginConversation(node.dataset.railCreate)));
     root
       .querySelectorAll("[data-rail-settings]")
-      .forEach((node) => node.addEventListener("click", () => openSettings(node.dataset.railSettings)));
+      .forEach((node) =>
+        node.addEventListener("click", () => openProjectMenu(node, node.dataset.railSettings))
+      );
     root.querySelectorAll("[data-project-id]").forEach((node) =>
       node.addEventListener("click", () => {
         const id = node.dataset.projectId;
@@ -280,7 +284,7 @@ export function createProjectController({
       panel.id = "project-modal";
       panel.className = "modal-backdrop app-dialog-backdrop";
       panel.hidden = true;
-      panel.innerHTML = ui`<section class="modal-card app-dialog project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-dialog-title"><h2 id="project-dialog-title"></h2><form id="project-form"><div class="project-dialog-fields"><label for="project-name">项目名称</label><input id="project-name" required maxlength="120" autocomplete="off"><label for="project-directory">工作文件夹</label><div class="project-directory-field"><input id="project-directory" required placeholder="选择已有文件夹或输入绝对路径" autocomplete="off"><button class="app-button is-secondary" id="project-directory-choose" type="button" aria-label="选择文件夹">${icon("folder")}</button></div></div><p class="dialog-error project-dialog-error" id="project-error" role="alert" hidden></p><div class="modal-actions dialog-actions"><button class="app-button is-secondary" id="project-experience-open" type="button">项目经验</button><button class="app-button is-secondary" id="project-cancel" type="button">取消</button><button class="app-button is-primary" id="project-submit" type="submit"></button></div></form></section>`;
+      panel.innerHTML = ui`<section class="modal-card app-dialog project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-dialog-title"><h2 id="project-dialog-title"></h2><form id="project-form"><div class="project-dialog-fields"><label for="project-name">项目名称</label><input id="project-name" required maxlength="120" autocomplete="off"><label for="project-directory">工作文件夹</label><div class="project-directory-field"><input id="project-directory" required placeholder="选择已有文件夹或输入绝对路径" autocomplete="off"><button class="app-button is-secondary" id="project-directory-choose" type="button" aria-label="选择文件夹">${icon("folder")}</button></div></div><p class="dialog-error project-dialog-error" id="project-error" role="alert" hidden></p><div class="modal-actions dialog-actions"><button class="app-button is-secondary" id="project-cancel" type="button">取消</button><button class="app-button is-primary" id="project-submit" type="submit"></button></div></form></section>`;
       document.body.appendChild(panel);
       dialog = createModal(panel, $("#project-cancel"), {
         onClose: () => {
@@ -291,12 +295,6 @@ export function createProjectController({
     const epoch = ++dialogEpoch,
       identity = getNavigationIdentity();
     for (const node of panel.querySelectorAll("input,button")) node.disabled = false;
-    $("#project-experience-open").hidden = !project;
-    $("#project-experience-open").onclick = () => {
-      if (!project || saving) return;
-      dialog.close();
-      openProjectExperience(project);
-    };
     $("#project-dialog-title").textContent = project ? ui("项目设置") : ui("新建项目");
     $("#project-name").value = project?.projectName || "";
     $("#project-directory").value = project?.projectDirectory || project?.workspaceRoot || "";
@@ -361,6 +359,113 @@ export function createProjectController({
     dialog.open();
     $("#project-name").focus();
   }
+  /**
+   * The project row's ⋯ menu (#33): rename, and remove from the list. Folder
+   * changes and project experience have no entry here any more.
+   */
+  let projectMenu, menuPanel, menuProjectId;
+  function openProjectMenu(trigger, id) {
+    if (!menuPanel) {
+      menuPanel = document.createElement("div");
+      menuPanel.className = "session-menu conversation-context-menu project-menu";
+      menuPanel.setAttribute("role", "menu");
+      menuPanel.hidden = true;
+      menuPanel.innerHTML = ui`<div class="session-menu-main"><button type="button" role="menuitem" data-project-action="rename">${icon("pencil")}<span data-menu-label>重命名项目</span></button><button type="button" role="menuitem" data-project-action="remove" class="is-danger">${icon("trash")}<span data-menu-label>移除项目</span></button></div>`;
+      document.body.append(menuPanel);
+      projectMenu = createMenu(trigger, menuPanel, { toggleOnClick: false });
+      menuPanel.addEventListener("click", (event) => {
+        const action = event.target.closest("[data-project-action]")?.dataset.projectAction;
+        const project = find(menuProjectId);
+        if (!action || !project) return;
+        if (action === "rename") renameProject(project);
+        else confirmRemove(project);
+      });
+    }
+    if (!menuPanel.hidden && menuProjectId === id) return projectMenu.close(true);
+    projectMenu.close();
+    menuProjectId = id;
+    menuPanel.setAttribute("aria-label", ui`项目操作：${find(id)?.projectName || ""}`);
+    projectMenu.setTrigger(trigger);
+    projectMenu.open();
+    const anchor = trigger.getBoundingClientRect(),
+      { width, height } = menuPanel.getBoundingClientRect();
+    menuPanel.style.left = `${Math.max(8, Math.min(anchor.right - width, innerWidth - width - 8))}px`;
+    menuPanel.style.top = `${Math.max(8, Math.min(anchor.bottom + 4, innerHeight - height - 8))}px`;
+  }
+
+  /** A small dialog: title, body, then a cancel and a primary action. */
+  function projectDialog({ title, body, action, danger = false, submit }) {
+    const panel = document.createElement("div");
+    panel.className = "modal-backdrop app-dialog-backdrop";
+    panel.hidden = true;
+    panel.innerHTML = `<section class="modal-card app-dialog" role="dialog" aria-modal="true" aria-labelledby="project-action-title"><h2 id="project-action-title">${esc(title)}</h2><form novalidate>${body}<p class="dialog-error" role="alert" hidden></p><div class="dialog-actions"><button class="app-button is-secondary" type="button" data-close>${esc(ui("取消"))}</button><button class="app-button ${danger ? "is-danger" : "is-primary"}" type="submit">${esc(action)}</button></div></form></section>`;
+    document.body.append(panel);
+    const modal = createModal(panel, panel.querySelector("[data-close]"), { onClose: () => panel.remove() });
+    const error = panel.querySelector("[role=alert]");
+    panel.querySelector("form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = panel.querySelector("[type=submit]");
+      error.hidden = true;
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      try {
+        await submit(panel);
+        modal.close();
+      } catch (failure) {
+        error.textContent = failure.message;
+        error.hidden = false;
+      } finally {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+      }
+    });
+    modal.open();
+    return panel;
+  }
+
+  function renameProject(project) {
+    const panel = projectDialog({
+      title: ui("重命名项目"),
+      body: `<label class="dialog-field">${esc(ui("项目名称"))}<input name="projectName" maxlength="120" required autocomplete="off" value="${esc(project.projectName)}"></label>`,
+      action: ui("保存"),
+      async submit(dialogPanel) {
+        const projectName = dialogPanel.querySelector("input").value.trim();
+        if (!projectName) throw new Error(ui("请填写项目名称"));
+        if (projectName === project.projectName) return;
+        const result = await command(`/api/projects/${encodeURIComponent(project.projectId)}`, {
+          method: "PATCH",
+          body: { projectName }
+        });
+        upsert(result.project);
+        render();
+        onUpdated(result.project);
+      }
+    });
+    panel.querySelector("input").select();
+  }
+
+  function confirmRemove(project) {
+    projectDialog({
+      title: ui("移除项目"),
+      body: `<p class="dialog-description">${esc(ui`将「${project.projectName}」和它的会话从列表移除。工作文件夹里的文件不会被删除，会话记录保留在本机；以后重新添加同一个文件夹，项目和会话会一起回来。`)}</p>`,
+      action: ui("移除项目"),
+      danger: true,
+      async submit() {
+        await command(`/api/projects/${encodeURIComponent(project.projectId)}`, { method: "DELETE" });
+        const removedTasks = new Set((project.tasks || []).map((task) => task.taskId));
+        state.projects = projects().filter((entry) => entry.projectId !== project.projectId);
+        localProjects.delete(project.projectId);
+        state.collapsedProjects.delete(project.projectId);
+        if (state.selectedProjectId === project.projectId) state.selectedProjectId = null;
+        const current = state.selected;
+        render();
+        if (current && removedTasks.has(current)) beginConversation();
+        showToast(ui("项目已从列表移除"));
+        onUpdated();
+      }
+    });
+  }
+
   const openCreateDialog = () => (openAddProject ? openAddProject() : openSettings());
   $("#new-project").addEventListener("click", () => openCreateDialog());
   return {

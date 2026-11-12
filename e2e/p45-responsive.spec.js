@@ -131,12 +131,14 @@ test("the work surface keeps three columns at 1440 and turns the requirement pan
     await page.locator("#output-pane-toggle").click();
     await expect(page.locator("[data-requirement-panel] .rp-title")).toHaveText("评分汇总验收");
     const wideOpen = await layout(page);
-    expect(wideOpen.panel.width).toBe(360);
+    expect(wideOpen.panel.width).toBe(364);
     expect(wideOpen.panel.position).toBe("relative");
-    expect(wideOpen.panel.x).toBe(wideOpen.main.x + wideOpen.main.width + 10);
+    expect(wideOpen.panel.x).toBe(wideOpen.main.x + wideOpen.main.width + 6);
     expect(wideOpen.main.width).toBeLessThan(wide.main.width);
     expect(await documentWidth(page)).toBe(1440);
-    await page.locator("[data-panel-collapse]").click();
+    // As a column it has no close button of its own; the title bar control puts it away (#22).
+    await expect(page.locator("[data-panel-collapse]")).toBeHidden();
+    await page.locator("#output-pane-toggle").click();
     await expect.poll(async () => visible((await layout(page)).panel)).toBe(false);
 
     // 1100 keeps two columns and the panel floats over the conversation.
@@ -557,7 +559,7 @@ test("the light theme keeps every page's text and status colours readable at eac
       await expect.poll(() => documentWidth(page)).toBe(width);
       // The page itself stays the theme's own solid colour.
       const backdrop = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-      expect(backdrop, `backdrop at ${width}`).toBe("rgb(244, 244, 248)");
+      expect(backdrop, `backdrop at ${width}`).toBe("rgb(233, 233, 236)");
       await expectReadable(workPage, width, "work");
 
       await chooseEntry(page, "观测");

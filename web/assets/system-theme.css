@@ -278,14 +278,12 @@ html[data-theme] {
   }
   .app-button.is-primary,
   .modal-card .modal-primary,
-  .send-button,
-  .composer .stop-button {
+  .send-button {
     color: var(--ui-on-accent);
     background: var(--ui-accent);
     border-color: var(--ui-accent);
   }
-  .app-button.is-primary:hover:not(:disabled),
-  .composer .stop-button:hover:not(:disabled) {
+  .app-button.is-primary:hover:not(:disabled) {
     color: var(--ui-on-accent);
     background: color-mix(in srgb, var(--ui-accent), var(--ui-panel) 12%);
     border-color: transparent;

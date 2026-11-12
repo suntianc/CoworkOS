@@ -16,6 +16,13 @@ async function createProject(page, dashboard, projectName, projectDirectory) {
 }
 const groupFor = (page, projectId) => page.locator(`.project-group[data-project="${projectId}"]`);
 const settingsFor = (page, projectId) => page.locator(`[data-project-settings="${projectId}"]`);
+/** The project row's ⋯ menu holds 重命名项目 and 移除项目 (#33). */
+async function projectAction(page, projectId, name) {
+  await settingsFor(page, projectId).locator("..").hover();
+  await settingsFor(page, projectId).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
+  return page.getByRole("dialog", { name, exact: true });
+}
 const newConversationFor = (page, projectId) => page.locator(`[data-project-create="${projectId}"]`);
 const taskDetail = async (page, dashboard, taskId) =>
   (await page.request.get(`${dashboard.base}/api/tasks/${taskId}`)).json();
@@ -65,21 +72,21 @@ test("creating and editing an empty project survives a service restart without c
     expect((await (await page.request.get(`${dashboard.base}/api/tasks`)).json()).tasks).toEqual([]);
     await page.reload();
     await expect(groupFor(page, projectId)).toBeVisible();
-    await settingsFor(page, projectId).locator("..").hover();
-    await settingsFor(page, projectId).click();
-    dialog = page.getByRole("dialog", { name: "项目设置", exact: true });
+    dialog = await projectAction(page, projectId, "重命名项目");
     await dialog.getByRole("textbox", { name: "项目名称" }).fill("重命名的项目");
-    await dialog.getByRole("textbox", { name: "工作文件夹" }).fill(updated);
     await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(dialog).toBeHidden();
+    // The folder has no screen any more; the API still moves an idle project.
+    const moved = await page.request.patch(`${dashboard.base}/api/projects/${projectId}`, {
+      data: { projectDirectory: updated }
+    });
+    expect(moved.ok()).toBe(true);
     await dashboard.restart();
     await page.reload();
     await expect(groupFor(page, projectId)).toContainText("重命名的项目");
-    await settingsFor(page, projectId).locator("..").hover();
-    await settingsFor(page, projectId).click();
-    dialog = page.getByRole("dialog", { name: "项目设置", exact: true });
+    dialog = await projectAction(page, projectId, "重命名项目");
     await expect(dialog.getByRole("textbox", { name: "项目名称" })).toHaveValue("重命名的项目");
-    await expect(dialog.getByRole("textbox", { name: "工作文件夹" })).toHaveValue(updated);
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
     const catalog = await (await page.request.get(`${dashboard.base}/api/tasks`)).json();
     expect(catalog.tasks).toEqual([]);
     expect(catalog.projects).toEqual([
@@ -109,11 +116,8 @@ test("project drafts inherit the selected project and canceling settings preserv
     await page.goto(dashboard.base);
     await page.locator('.conversation-item[data-task="original"]').click();
     await page.locator("#composer-input").fill("原会话草稿");
-    await settingsFor(page, a.projectId).locator("..").hover();
-    await settingsFor(page, a.projectId).click();
-    const dialog = page.getByRole("dialog", { name: "项目设置", exact: true });
+    const dialog = await projectAction(page, a.projectId, "重命名项目");
     await dialog.getByRole("textbox", { name: "项目名称" }).fill("不应保存的名称");
-    await dialog.getByRole("textbox", { name: "工作文件夹" }).fill(b.projectDirectory);
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
     await expect(page.locator(".conversation-item.active")).toHaveAttribute("data-task", "original");
     await expect(page.locator("#composer-input")).toHaveValue("原会话草稿");
@@ -238,20 +242,23 @@ test("two projects use isolated real Pi working directories and reject folder ch
     await expect.poll(async () => (await taskDetail(page, dashboard, ids[0])).runtime.active).toBe(true);
     const replacement = join(dashboard.root, "replacement");
     await mkdir(replacement);
-    await settingsFor(page, a.projectId).locator("..").hover();
-    await settingsFor(page, a.projectId).click();
-    const dialog = page.getByRole("dialog", { name: "项目设置", exact: true });
-    await dialog.getByRole("textbox", { name: "工作文件夹" }).fill(replacement);
+    // A running conversation keeps its project: neither moving nor removing it is allowed.
+    const move = await page.request.patch(`${dashboard.base}/api/projects/${a.projectId}`, {
+      data: { projectDirectory: replacement }
+    });
+    expect(move.status()).toBe(409);
+    expect((await taskDetail(page, dashboard, ids[0])).projectDirectory).toBe(a.projectDirectory);
+    const dialog = await projectAction(page, a.projectId, "移除项目");
     const rejected = page.waitForResponse(
       (response) =>
-        response.request().method() === "PATCH" &&
+        response.request().method() === "DELETE" &&
         new URL(response.url()).pathname === `/api/projects/${a.projectId}`
     );
-    await dialog.getByRole("button", { name: "保存", exact: true }).click();
+    await dialog.getByRole("button", { name: "移除项目", exact: true }).click();
     expect((await rejected).status()).toBe(409);
-    await expect(dialog.getByRole("alert")).toBeVisible();
-    expect((await taskDetail(page, dashboard, ids[0])).projectDirectory).toBe(a.projectDirectory);
+    await expect(dialog.getByRole("alert")).toContainText("再移除项目");
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(groupFor(page, a.projectId)).toBeVisible();
     release();
     await expect(page.locator("#conversation")).toContainText("长运行已结束", { timeout: 30_000 });
     await expect(page.locator("#stop-button")).toBeHidden();
@@ -302,7 +309,7 @@ test("legacy directory groups keep their identities while explicit empty project
     await expect(page.locator('.conversation-item[data-task="legacy"]').locator("..")).toHaveClass(
       /is-archived/
     );
-    await page.locator("#titlebar-new-session").click();
+    await page.locator("#new-conversation").click();
     await expect(groupFor(page, legacy)).toHaveCount(0);
     await expect(groupFor(page, empty.projectId)).toBeVisible();
   } finally {

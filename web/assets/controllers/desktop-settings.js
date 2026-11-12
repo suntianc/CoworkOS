@@ -4,6 +4,11 @@ import { createSettingsModal } from "./settings-modal.js";
 import { createSettingsBackend } from "./settings-backend.js";
 import { icon } from "../ui/icons.js";
 import { escapeHtml as esc } from "../workbench/html.js";
+import { LEVEL_LABELS as LEVEL_NAMES } from "./model-picker.js";
+
+/** The levels a connection can narrow to (#27); `minimal` stays only on old settings. */
+const LEVEL_CHOICES = ["off", "low", "medium", "high", "xhigh", "max"];
+const LEVEL_SOURCES = { endpoint: ui("来自 /models 接口"), official: ui("官方 · 自动") };
 /** Both hosts share one settings UI; keys are submitted once and never read back. */
 export function installDesktopSettings({
   showToast,
@@ -58,6 +63,7 @@ export function installDesktopSettings({
   const save = (body) => request("POST", body);
   const saveRole = (body) => request("POST", body, "/api/model-settings/roles");
   const test = (body) => request("POST", body, "/api/model-settings/test");
+  const detectLevels = (body) => request("POST", body, "/api/model-settings/levels");
   const panel = document.createElement("div");
   panel.className = "modal-backdrop settings-backdrop";
   panel.hidden = true;
@@ -78,7 +84,7 @@ export function installDesktopSettings({
         <label class="settings-field">API Key<input name="apiKey" type="password" autocomplete="off" aria-label="API Key" aria-describedby="model-key-help"><small class="settings-help" id="model-key-help">${ui("密钥保存在执行主机的私有配置中。")}</small></label>
       </div>
       <div class="settings-capabilities">
-        <label class="settings-toggle"><span><strong>此模型支持图像输入</strong><small>未启用时，历史图片不会发送给模型；原图仍保留。</small></span><input name="supportsImages" type="checkbox" aria-label="此模型支持图像输入"></label>
+        <label class="settings-toggle"><span><strong>此模型支持图像输入<small class="settings-auto-tag" data-limit-tag="images" hidden>按模型识别</small></strong><small>未启用时，历史图片不会发送给模型；原图仍保留。</small></span><input name="supportsImages" type="checkbox" aria-label="此模型支持图像输入"></label>
         <label class="settings-toggle"><span><strong>用此连接分析图片，供纯文本模型使用</strong><small>所选图片将发送到此服务；仅保存用途，不切换聊天模型。</small></span><input name="vision" type="checkbox" aria-label="用此连接分析图片，供纯文本模型使用"></label>
       </div>
       <details class="settings-advanced"><summary>高级连接参数${icon("chevron-down")}</summary><div class="settings-advanced-content">
@@ -86,10 +92,11 @@ export function installDesktopSettings({
         <label class="settings-checkbox"><input name="supportsReasoningEffort" type="checkbox"><span>服务支持推理强度参数（reasoning_effort / reasoning.effort）</span></label>
         <label class="settings-checkbox"><input name="supportsPromptCacheKey" type="checkbox"><span>服务支持会话缓存键（prompt_cache_key）</span></label>
         <small class="settings-help">仅在服务商确认支持时开启；发送稳定会话键不保证服务端缓存命中。</small>
-        <label class="settings-field">推理强度<select name="reasoningEffort"><option value="off">关闭</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select></label>
-        <label class="settings-field">上下文窗口大小（token）<input name="contextWindow" type="number" min="1" max="9007199254740991" step="1" aria-describedby="model-context-help"></label>
+        <label class="settings-field">推理强度<select name="reasoningEffort"><option value="off">${esc(LEVEL_NAMES.off)}</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select></label>
+        <div class="settings-field settings-levels" data-model-levels><span class="settings-levels-head">支持的推理档位<small class="settings-levels-source" data-levels-source hidden></small></span><div class="settings-levels-chips" role="group" aria-label="支持的推理档位" data-levels-chips>${LEVEL_CHOICES.map((level) => `<label class="settings-level-chip"><input type="checkbox" name="reasoningLevels" value="${level}" checked><span>${esc(LEVEL_NAMES[level])}</span></label>`).join("")}</div><p class="settings-levels-value" data-levels-value hidden></p><small class="settings-help" data-levels-help></small></div>
+        <label class="settings-field"><span>上下文窗口大小（token）<small class="settings-auto-tag" data-limit-tag="contextWindow" hidden>按模型识别</small></span><input name="contextWindow" aria-label="上下文窗口大小（token）" type="number" min="1" max="9007199254740991" step="1" aria-describedby="model-context-help"></label>
         <small class="settings-help" id="model-context-help">按服务商容量填写，包含输入与输出，用于上下文预算和自动压缩。</small>
-        <div class="model-connection-fields"><label class="settings-field">Main 每次输出上限<input name="mainMaxTokens" type="number" min="1" max="65536" step="1"></label><label class="settings-field">子智能体每次输出上限<input name="subagentMaxTokens" type="number" min="1" max="65536" step="1"></label></div>
+        <div class="model-connection-fields"><label class="settings-field"><span>Main 每次输出上限<small class="settings-auto-tag" data-limit-tag="maxTokens" hidden>按模型识别</small></span><input name="mainMaxTokens" aria-label="Main 每次输出上限" type="number" min="1" max="65536" step="1"></label><label class="settings-field"><span>子智能体每次输出上限<small class="settings-auto-tag" data-limit-tag="maxTokens" hidden>按模型识别</small></span><input name="subagentMaxTokens" aria-label="子智能体每次输出上限" type="number" min="1" max="65536" step="1"></label></div>
       </div></details>
     </div><div class="settings-feedback"><p data-model-error role="alert"></p><p data-model-result role="status" aria-live="polite"></p></div>
     <footer class="modal-actions"><button class="app-button is-secondary" type="button" data-model-test>测试连接</button><button class="app-button is-primary" type="submit">保存连接</button><button type="submit" class="app-button is-primary" data-model-activate>保存并启用</button></footer></form></section>`;
@@ -361,6 +368,133 @@ export function installDesktopSettings({
         profileId: projectRole.value
       })
   );
+  /**
+   * Supported reasoning levels (#27): what the provider's /models entry or
+   * Pi's table for an official address says is shown read-only; otherwise the
+   * person ticks the levels, at least one. The default effort follows them.
+   */
+  let levelSource = "manual";
+  let levelRevision = 0;
+  let levelTimer;
+  const levelsField = panel.querySelector("[data-model-levels]");
+  const levelBoxes = () => levelsField.querySelectorAll('[name="reasoningLevels"]');
+  const checkedLevels = () => [...levelBoxes()].filter((box) => box.checked).map((box) => box.value);
+  const limitEffort = (levels) => {
+    const effort = form.elements.reasoningEffort;
+    for (const option of effort.options)
+      if (!option.dataset.legacyEffort) option.hidden = option.disabled = !levels.includes(option.value);
+    if (!levels.includes(effort.value) && effort.value !== "minimal") {
+      const order = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+      const at = order.indexOf(effort.value);
+      effort.value = levels.reduce((best, next) =>
+        Math.abs(order.indexOf(next) - at) < Math.abs(order.indexOf(best) - at) ? next : best
+      );
+    }
+  };
+  const showLevels = ({ source, levels }) => {
+    levelSource = source;
+    const described = source !== "manual";
+    const badge = levelsField.querySelector("[data-levels-source]");
+    badge.hidden = !described;
+    badge.textContent = LEVEL_SOURCES[source] || "";
+    levelsField.querySelector("[data-levels-chips]").hidden = described;
+    const value = levelsField.querySelector("[data-levels-value]");
+    value.hidden = !described;
+    value.textContent = levels.map((level) => LEVEL_NAMES[level] || level).join(" · ");
+    levelsField.querySelector("[data-levels-help]").textContent =
+      source === "endpoint"
+        ? ui("服务商的模型列表给出了这个模型支持的档位，按模型自动识别。")
+        : source === "official"
+          ? ui("这是模型厂商的官方地址，档位按模型自动识别，不能修改。")
+          : ui("无法自动识别这个服务的档位，请按服务商文档勾选；没勾的档位不会出现在输入框里。");
+    limitEffort(described ? levels : checkedLevels());
+  };
+  /**
+   * The model's own context window, output and image input from `/models`
+   * (#27). A field follows them until it is edited by hand; the saved value is
+   * the fallback for a model the endpoint does not describe.
+   */
+  const LIMIT_INPUTS = {
+    contextWindow: ["contextWindow"],
+    maxTokens: ["mainMaxTokens", "subagentMaxTokens"],
+    images: ["supportsImages"]
+  };
+  let autoFields = new Set(Object.keys(LIMIT_INPUTS));
+  let endpointLimits = {};
+  const untouched = (value) =>
+    Object.keys(LIMIT_INPUTS).filter((field) =>
+      field === "contextWindow"
+        ? (value.contextWindow ?? 256000) === 256000
+        : field === "maxTokens"
+          ? (value.mainMaxTokens ?? 8192) === 8192 && (value.subagentMaxTokens ?? 8192) === 8192
+          : value.supportsImages !== true
+    );
+  const endpointValue = (field) =>
+    field === "contextWindow"
+      ? endpointLimits.contextWindow
+      : field === "maxTokens"
+        ? endpointLimits.maxOutputTokens &&
+          Math.max(
+            1,
+            Math.min(
+              endpointLimits.maxOutputTokens,
+              65536,
+              Math.floor(Number(form.elements.contextWindow.value || 256000) / 2)
+            )
+          )
+        : endpointLimits.images;
+  const showLimits = (limits = endpointLimits) => {
+    endpointLimits = limits || {};
+    for (const field of ["contextWindow", "maxTokens", "images"]) {
+      const value = endpointValue(field);
+      const following = autoFields.has(field) && value !== undefined;
+      if (following)
+        for (const name of LIMIT_INPUTS[field]) {
+          const input = form.elements[name];
+          if (input.type === "checkbox") input.checked = value;
+          else input.value = String(value);
+        }
+      for (const tag of panel.querySelectorAll(`[data-limit-tag="${field}"]`)) tag.hidden = !following;
+    }
+  };
+  form.addEventListener("input", (event) => {
+    const field = Object.keys(LIMIT_INPUTS).find((key) => LIMIT_INPUTS[key].includes(event.target.name));
+    if (!field || !autoFields.has(field)) return;
+    // A value typed by hand wins over the endpoint's from now on.
+    autoFields.delete(field);
+    showLimits();
+  });
+  const refreshLevels = async () => {
+    const revision = ++levelRevision;
+    const { baseUrl, model, apiKey } = values();
+    if (!baseUrl.trim() || !model.trim()) {
+      showLimits({});
+      return showLevels({ source: "manual", levels: checkedLevels() });
+    }
+    try {
+      const result = await detectLevels({ profileId: selectedId, baseUrl, model, apiKey });
+      if (revision !== levelRevision) return;
+      showLevels(result.source === "manual" ? { source: "manual", levels: checkedLevels() } : result);
+      showLimits(result.limits);
+    } catch (error) {
+      // Detection only describes the levels; saving still validates what is sent.
+      if (revision === levelRevision) {
+        showLevels({ source: "manual", levels: checkedLevels() });
+        showLimits({});
+      }
+      console.warn("reasoning level detection failed", error);
+    }
+  };
+  levelsField.querySelector("[data-levels-chips]").addEventListener("change", (event) => {
+    // At least one level stays chosen.
+    if (!checkedLevels().length) event.target.checked = true;
+    limitEffort(checkedLevels());
+  });
+  form.addEventListener("input", (event) => {
+    if (!["baseUrl", "model", "apiKey"].includes(event.target.name)) return;
+    clearTimeout(levelTimer);
+    levelTimer = setTimeout(() => void refreshLevels(), 400);
+  });
   const fill = (value) => {
     form.elements.profileName.value = value.profileName || value.name || ui("新配置");
     form.elements.baseUrl.value = value.baseUrl || "";
@@ -390,6 +524,12 @@ export function installDesktopSettings({
     form.elements.apiKey.value = value.apiKey || "";
     form.elements.apiKey.placeholder = value.configured ? ui("留空保留已有密钥") : ui("填写 API Key");
     form.elements.apiKey.required = !value.configured;
+    const chosen = Array.isArray(value.reasoningLevels) ? value.reasoningLevels : LEVEL_CHOICES;
+    for (const box of levelBoxes()) box.checked = chosen.includes(box.value);
+    showLevels({ source: "manual", levels: chosen });
+    autoFields = new Set(Array.isArray(value.autoLimits) ? value.autoLimits : untouched(value));
+    showLimits({});
+    void refreshLevels();
     panel.querySelector("[data-model-error]").textContent = managed
       ? ui("当前连接由启动环境管理，请在启动配置中修改。")
       : snapshot.credentialError || "";
@@ -511,10 +651,14 @@ export function installDesktopSettings({
     supportsReasoningEffort: form.elements.supportsReasoningEffort.checked,
     supportsPromptCacheKey: form.elements.supportsPromptCacheKey.checked,
     reasoningEffort: form.elements.reasoningEffort.value,
+    // Only a connection nothing describes keeps its own levels; all of them is no narrowing.
+    reasoningLevels:
+      levelSource !== "manual" || checkedLevels().length === LEVEL_CHOICES.length ? null : checkedLevels(),
     thinkingFormat: form.elements.thinkingFormat.value,
     mainMaxTokens: optionalNumber("mainMaxTokens"),
     subagentMaxTokens: optionalNumber("subagentMaxTokens"),
-    contextWindow: optionalNumber("contextWindow")
+    contextWindow: optionalNumber("contextWindow"),
+    autoLimits: Object.keys(LIMIT_INPUTS).filter((field) => autoFields.has(field))
   });
   const readDraft = () => ({
     ...values(),

@@ -22,6 +22,8 @@ test(
     let child;
     let output = "";
     const model = createServer(async (request, response) => {
+      // The run reads the model list for its limits (#27); this fixture has none.
+      if (request.method !== "POST") return void response.writeHead(404).end();
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
       requests.push(JSON.parse(Buffer.concat(chunks).toString()));

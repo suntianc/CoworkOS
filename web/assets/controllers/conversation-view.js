@@ -228,6 +228,10 @@ export function createConversationView({
   let lastRender;
   let historyMarkup = new Map();
   let renderedEditTask;
+  // The newest message sent from this page that the view has already scrolled
+  // to. Sending scrolls to the end once; after that the reader's position
+  // decides, so scrolling up while a reply streams is not pulled back (#24).
+  let followedLocal;
   const thinkingStartedAt = new Map();
   const resumeThinkingAnimations = (scroll) => {
     const activeKeys = new Set();
@@ -626,8 +630,10 @@ export function createConversationView({
           history.querySelector("summary")?.focus?.({ preventScroll: true });
       });
       if (focusedRecovery) scroll.querySelector(focusedRecovery)?.focus?.({ preventScroll: true });
-      if (!preserveScroll && (nearBottom || state.localMessages.length))
-        scroll.scrollTop = scroll.scrollHeight;
+      const latestLocal = state.localMessages.at(-1);
+      const sent = Boolean(latestLocal) && latestLocal !== followedLocal;
+      followedLocal = latestLocal;
+      if (!preserveScroll && (nearBottom || sent)) scroll.scrollTop = scroll.scrollHeight;
     }
     messageEdit?.bind(scroll, task.taskId);
     if (preserveScroll) scroll.scrollTop = previousScrollTop;

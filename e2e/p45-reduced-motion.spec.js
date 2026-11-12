@@ -39,7 +39,9 @@ test("reduced motion stops every rendered animation while keeping opacity transi
 
     const normal = await motion(page);
     expect(normal.reduced).toBe(false);
-    expect(normal.panelAnimation).toBe("formicand-panel-in");
+    // The side panel is a layout column with no entrance of its own (#22);
+    // other panels (.ui-panel) still use the entrance keyframes checked below.
+    expect(normal.panelAnimation).toBe("none");
     expect(normal.drawerAnimation).toBe("formicand-drawer-in");
     expect(normal.listAnimation).toBe("formicand-list-in");
     expect(await keyframes(page, "formicand-panel-in")).toEqual(["0%", "100%"]);
@@ -114,7 +116,7 @@ test("reduced motion stops every rendered animation while keeping opacity transi
     expect(controls.spinnerBorder).toBe("0px");
 
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect.poll(async () => (await motion(page)).panelAnimation).toBe("formicand-panel-in");
+    await expect.poll(async () => (await motion(page)).drawerAnimation).toBe("formicand-drawer-in");
   } finally {
     await dashboard.stop();
   }

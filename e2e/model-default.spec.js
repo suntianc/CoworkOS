@@ -61,6 +61,8 @@ for (const slowModels of [true, false]) {
         }
         if (!slowModels) {
           await page.locator("#model-select").click();
+          // The popover opens on the reasoning rail; the model list is its second page.
+          await page.locator("#model-menu .effort-model").click();
           await page.locator('[data-model="old-model"]').click();
           await expect(page.locator(".model-name")).toHaveText("old-model");
         }

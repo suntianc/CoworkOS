@@ -62,15 +62,32 @@ test("the title row names the project, the requirement and walks back and forwar
     await page.keyboard.press("Meta+BracketLeft");
     await expect(title).toHaveText("第二个会话");
 
-    // Search and new session sit in the title row.
-    await page.locator("#titlebar-new-session").click();
+    // One set of entry points (#32): the expanded sidebar holds 新会话 and 搜索,
+    // and the title row leaves them out until the sidebar is collapsed.
+    const titleSearch = page.locator("#titlebar-search");
+    const titleNew = page.locator("#titlebar-new-session");
+    await expect(titleSearch).toBeHidden();
+    await expect(titleNew).toBeHidden();
+    const sideNew = await page.locator("#new-conversation").boundingBox();
+    const sideSearch = await page.locator("#sidebar-search").boundingBox();
+    expect(Math.round(sideSearch.y - (sideNew.y + sideNew.height))).toBe(6);
+    expect(Math.round(sideSearch.width)).toBe(Math.round(sideNew.width));
+    await page.locator("#sidebar-search").click();
+    await expect(page.getByRole("dialog", { name: "搜索对话" })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.locator("#sidebar-toggle").click();
+    await expect(titleSearch).toBeVisible();
+    await titleNew.click();
     // Without a model the new-session page is the first-use guide.
     await expect(title).toHaveText(/^(新会话|开始使用)$/);
     await expect(page).not.toHaveURL(/[?&]task=/);
     await expect(page.locator("[data-topbar-project-name]")).toHaveText("顶栏项目");
-    await page.locator("#titlebar-search").click();
+    await titleSearch.click();
     await expect(page.getByRole("dialog", { name: "搜索对话" })).toBeVisible();
     await page.keyboard.press("Escape");
+    await page.locator("#sidebar-toggle").click();
+    await expect(titleSearch).toBeHidden();
   } finally {
     await dashboard.stop();
   }

@@ -19,7 +19,7 @@ export function createResponsiveShell({
   closeButton,
   sidebar,
   storage = globalThis.localStorage,
-  navigation = "[data-entry-mode], [data-task], [data-project-create], #new-conversation, #new-project, #user-menu-button, #recover-drafts"
+  navigation = "[data-entry-mode], [data-task], [data-project-create], #new-conversation, #sidebar-search, #new-project, #user-menu-button, #recover-drafts"
 } = {}) {
   if (!toggles.length || !sidebar) return { open() {}, close() {}, destroy() {} };
   const narrow = window.matchMedia?.("(max-width: 639px)") ?? { matches: false };

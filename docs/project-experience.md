@@ -2,6 +2,8 @@
 
 中文 | [English](en/project-experience.md)
 
+> **已停用（2026-11-11，#33）**：项目经验整套停用。运行结束后不再提炼，不再向 Main 注入项目经验或项目技能，`/api/projects/:projectId/experience` 不再响应，界面入口已移除。开关是 [`PROJECT_EXPERIENCE_ENABLED`](../src/domain/project-experience.ts)；代码和已保存的数据暂时保留，P9 清理时删除。以下内容只描述停用前的行为。
+
 项目经验保存当前项目里可复用的结论与流程，独立于[个人记忆](user-memory.md)和 Task 内已有的上下文摘要。它不修改模型参数。自动沉淀可以提出项目技能的新版本；当前验证复核已保存的实际执行证据，不会额外启动命令、沙箱实验或效果 A/B。
 
 ## 使用与管理

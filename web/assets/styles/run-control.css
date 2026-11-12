@@ -161,12 +161,10 @@ html[data-theme] .composer .run-control[data-state="paused"] {
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--color-glass-edge);
+  border: 1px solid var(--popover-edge);
   border-radius: 14px;
   background: var(--popover-fill);
-  background-image: var(--popover-sheen);
-  box-shadow: 0 12px 36px #00000088;
-  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: var(--popover-shadow);
 }
 .run-cancel-confirm[hidden] {
   display: none;
@@ -313,12 +311,10 @@ html[data-theme] #toast.toast {
   display: flex;
   gap: 10px;
   padding: 10px 14px;
-  border: 1px solid var(--color-glass-edge);
+  border: 1px solid var(--popover-edge);
   border-radius: 12px;
   background: var(--popover-fill);
-  background-image: var(--popover-sheen);
-  box-shadow: 0 8px 24px #00000066;
-  backdrop-filter: blur(var(--panel-blur));
+  box-shadow: var(--popover-shadow);
   color: var(--color-text);
   pointer-events: auto;
   opacity: 0;
@@ -467,21 +463,14 @@ html[data-theme] .composer .model-select .model-logo .ui-icon {
   width: 15px;
   height: 15px;
 }
-.composer .model-separator {
+/* The model in the secondary colour, the level it runs at in the primary one (#27). */
+html[data-theme] .composer .reasoning-label {
   flex: none;
-  color: var(--color-text-3);
-}
-.composer .reasoning-label {
-  flex: none;
+  margin-left: 2px;
+  color: var(--color-text);
   white-space: nowrap;
 }
-.model-menu-separator {
-  height: 1px;
-  margin: 6px 4px;
-  background: var(--color-line);
-}
 @media (max-width: 520px) {
-  .composer .model-separator,
   .composer .reasoning-label {
     display: none;
   }

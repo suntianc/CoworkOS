@@ -6,10 +6,14 @@ import { join } from "node:path";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 import { ProjectExperienceStore } from "../dist/src/runtime/project-experience-store.js";
+import { PROJECT_EXPERIENCE_ENABLED } from "../dist/src/domain/project-experience.js";
+
+/** Project experience is switched off (#33); its enabled paths return with the switch or go in P9. */
+const switchedOff = PROJECT_EXPERIENCE_ENABLED ? false : "项目经验已整套停用（#33），P9 清理时随代码删除";
 
 test(
   "real Dashboard project experience is private, revision checked, independently scoped and survives a directory move",
-  { timeout: 30000 },
+  { timeout: 30000, skip: switchedOff },
   async (t) => {
     const dashboard = await startDashboard({ defaultProject: false });
     t.after(() => dashboard.stop());
@@ -101,7 +105,7 @@ test(
 
 test(
   "real Main completion enqueues one durable reference without a foreground learning request",
-  { timeout: 60000 },
+  { timeout: 60000, skip: switchedOff },
   async (t) => {
     const provider = await modelProtocolFixture("openai-completions", () => ({ text: "完成当前任务。" }));
     const dashboard = await startDashboard({ modelEndpoint: provider.baseUrl });

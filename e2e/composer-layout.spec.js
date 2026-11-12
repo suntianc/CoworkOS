@@ -96,7 +96,11 @@ test("the composer keeps one compact action row with long model and project name
       const anchor = await page.locator("#model-select").boundingBox();
       const bar = await page.locator(".composer-bar").boundingBox();
       expect(menu.x).toBeCloseTo(Math.max(bar.x, Math.min(anchor.x, bar.x + bar.width - menu.width)), 0);
+      await page.locator("#model-menu .effort-model").click();
       await page.locator("#model-menu [data-model]").click();
+      // A pick keeps the popover open; Esc closes it.
+      await page.keyboard.press("Escape");
+      await expect(page.locator("#model-menu")).toBeHidden();
       if (process.env.COWORK_KEEP_COMPOSER_PROBE === "1") {
         await page.locator(".composer").screenshot({ path: test.info().outputPath(`toolbar-${width}.png`) });
         if (width === 1440) await page.screenshot({ path: test.info().outputPath("home-1440.png") });

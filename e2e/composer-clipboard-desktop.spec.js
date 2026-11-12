@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from "@playwright/test";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -101,6 +102,9 @@ test("Electron editable context menu uses native clipboard editing and saves the
     expect(errors).toEqual([]);
   } finally {
     await native?.close();
+    // The backend outlives the window by design; stop this test's own (#35), found
+    // under the desktop data root (COWORK_DESKTOP_DATA), not ATRIA_HOME.
+    await stopNativeBackend(root);
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

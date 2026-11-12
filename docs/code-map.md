@@ -85,7 +85,7 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 运行视图由[运行泳道控制器](../web/assets/controllers/observe-runs.js)渲染：按节点读 Main 会话与运行中的 Task，从 `task.activity` 画阶段波形、子 Agent 分支与无进展标记，对外节点按常驻/接续名额分组并留出空名额平线；节点不提供活动指标时改画阶段色块并显示"指标未就绪"，减少动态效果时改为固定间隔的静态快照。验收为[泳道控制器回归](../test/p45-pulse-lanes.test.js)、[两个节点下的泳道](../e2e/p45-pulse-lanes.spec.js)与[指标未就绪/减少动态效果](../e2e/p45-pulse-lanes-degraded.spec.js)。
 观测总览由[观测总览控制器](../web/assets/controllers/observe-overview.js)渲染：节点卡片按节点角色显示运行中、等待你、本周合入，或对外节点的常驻/接续名额与待认领，离线节点只显示最后在线；需求矩阵把各项目需求按设计稿的五列归类（阶段来自[阶段映射](../web/assets/requirement-stages.js)），"需要处理"只读列出等待回复、审查未通过、长期待认领与节点离线，"正在运行"读需求、项目、节点、Main 会话、阶段与时长。项目记录以只读列表读取（看板、会话、开发、审查、合入、交付），不触发补投或 git 计算，只在视图可见时刷新。验收为[总览控制器回归](../test/p45-observe-overview.test.js)、[跨节点总览](../e2e/p45-observe-overview.spec.js)与[需要处理](../e2e/p45-observe-attention.spec.js)。
 
-工作侧栏的项目、Main 会话与子 Agent 树由 [项目控制器](../web/assets/controllers/project-controller.js) 渲染，折叠状态存在本地；新会话起始面、项目选择菜单与最近需求由 [新会话控制器](../web/assets/controllers/new-session.js) 持有。待回答问题来自目录条目的 `pendingQuestion`，样式在 [工作侧栏样式](../web/assets/work-sidebar.css)。验收为 [侧栏树](../e2e/p45-work-sidebar.spec.js)、[提问提示](../e2e/p45-question-dot.spec.js) 与[新会话](../e2e/p45-new-session.spec.js)。
+工作侧栏的项目、Main 会话与子 Agent 树由 [项目控制器](../web/assets/controllers/project-controller.js) 渲染，折叠状态存在本地；新会话起始面、项目选择菜单与最近需求由 [新会话控制器](../web/assets/controllers/new-session.js) 持有。待回答问题来自目录条目的 `pendingQuestion`，样式在 [工作侧栏样式](../web/assets/work-sidebar.css)。侧栏顶部的「新会话 ⌘K」与「搜索 ⌘P」是唯一一组入口，顶栏的同名图标只在侧栏收起、窄窗抽屉或观测页时显示（同一文件末尾的规则），验收见[顶栏](../e2e/p45-titlebar.spec.js)。验收为 [侧栏树](../e2e/p45-work-sidebar.spec.js)、[提问提示](../e2e/p45-question-dot.spec.js) 与[新会话](../e2e/p45-new-session.spec.js)。
 
 没有可用模型连接或没有项目时，工作入口由 [首次使用视图](../web/assets/controllers/first-use.js) 占据：三步状态每次渲染都从模型状态与项目目录推导，不存完成标记；连接模型进入设置的模型与角色页，添加项目打开[添加项目对话框](../web/assets/controllers/add-project.js)，第三步在引导内保持不可用、前置满足后由新会话起始面接替。只有缺少模型连接时输入框才不可发送，无项目时仍可发送为临时会话。验收为[首次使用](../e2e/p45-first-use.spec.js)与[空状态](../e2e/p45-empty-states.spec.js)。
 
@@ -96,6 +96,8 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 表中测试是起点；跨层修改同时验证消费者。`npm run test:unit -- --file test/xxx.test.js` 会准备构建；轻量检查用 `npm run verify`，发布或广泛影响的修改用 `npm run verify:full`。轻量 [验证编排](../scripts/verify.mjs) 构建 CLI 及 [Web 资源](../scripts/build-math.mjs)，仓库检查见 [验证回归](../test/repository-checks.test.js)。浏览器命令与原生验收见 [本地测试说明](testing-local-run.md)。
 
 ### 项目经验与个人记忆
+
+项目经验已整套停用（#33），由 `PROJECT_EXPERIENCE_ENABLED` 关闭，下文模块保留到 P9 清理；停用状态由 [secondary-surfaces](../e2e/secondary-surfaces.spec.js) 与 [run-service 停用用例](../test/project-experience-run-service.test.js) 验证。
 
 项目经验的[领域格式](../src/domain/project-experience.ts)、[独立存储与技能发布](../src/runtime/project-experience-store.ts)、[持久执行证据](../src/runtime/project-experience-evidence.ts)、[后台提炼与独立复核](../src/runtime/project-experience-learning.ts)和[有界前台投影](../src/runtime/project-experience-context.ts)与个人记忆分离。项目稳定身份、候选晋升、固定/回滚和损坏恢复见[存储回归](../test/project-experience-store.test.js)，假模型与证据归属见[学习回归](../test/project-experience-learning.test.js)，真实宿主隔离见[Pi 回归](../test/project-experience-pi.test.js)。
 
@@ -189,7 +191,7 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 侧栏项目树由 [项目控制器](../web/assets/controllers/project-controller.js) 与 [共用样式](../web/assets/ui.css) 管理。悬浮操作覆盖在标题末端，不改变标题几何；键盘聚焦显示操作，触屏常驻，未读与运行标记位于标题前。会话菜单优先放在侧栏旁，空间不足时根据上下空间定位。验证 [侧栏悬浮、折叠、命中、键盘和菜单定位](../e2e/sidebar-interactions.spec.js)。
 
-输入区主按钮的运行、草稿和停止状态由 `web/app.js` 的 `updateSendButton`、`sendMessage` 与 `stopTask` 装配；推理强度选择同样在此装配，默认显示 `/api/models` 的 `reasoningEffort`（Main 角色连接保存的强度），未显式选择时不发送 `thinkingLevel`，显式选择只作用于当前会话。先运行 [布局与停止](../e2e/composer-layout.spec.js)、[发送焦点](../e2e/composer-focus.spec.js)、[消息归属](../e2e/message-boundaries.spec.js)、[队列投递](../e2e/message-delivery.spec.js)、[角色连接强度](../test/p45-reasoning-effort.test.js) 和 [Composer 强度显示与切换](../e2e/p45-reasoning-effort.spec.js)，同步 [会话契约](runtime-reference.md#会话与消息) 与 [Product API](product-api.md)。
+输入区主按钮的运行、草稿和停止状态由 `web/app.js` 的 `updateSendButton`、`sendMessage` 与 `stopTask` 装配；推理强度选择同样在此装配，默认显示 `/api/models` 的 `reasoningEffort`（Main 角色连接保存的强度），未显式选择时不发送 `thinkingLevel`，显式选择只作用于当前会话。模型与推理强度的弹层在 `web/assets/controllers/model-picker.js`，各模型的档位由后端 `src/runtime/model-levels.ts` 解析（`/models` 条目、Pi 官方地址表、连接勾选）。先运行 [布局与停止](../e2e/composer-layout.spec.js)、[发送焦点](../e2e/composer-focus.spec.js)、[消息归属](../e2e/message-boundaries.spec.js)、[队列投递](../e2e/message-delivery.spec.js)、[角色连接强度](../test/p45-reasoning-effort.test.js) 和 [Composer 强度显示与切换](../e2e/p45-reasoning-effort.spec.js)，同步 [会话契约](runtime-reference.md#会话与消息) 与 [Product API](product-api.md)。
 
 新会话发送不等待全局标签刷新；[发送隔离回归](../e2e/message-send-isolation.spec.js) 验证标签请求未完成时仍可启动 Run 并释放输入。周期轮询复用在途刷新，主动刷新仍可替换旧读取，验证见[标签刷新回归](../test/tab-refresh.test.js)。标签解析在[应用路由](../src/dashboard/application-routes.ts)内按请求复用目录、项目和实例发现；[多标签回归](../test/application-tab-resolution.test.js) 覆盖跨目录窗口及下一请求的重命名、关闭更新。
 

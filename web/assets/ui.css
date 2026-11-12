@@ -2813,6 +2813,9 @@ body {
 .conversation-context-menu :is([data-session-action="stop"], [data-session-action="delete"]) {
   color: var(--ui-danger);
 }
+.project-menu .is-danger {
+  color: var(--ui-danger);
+}
 .conversation-context-menu [hidden] {
   display: none;
 }
@@ -2981,19 +2984,20 @@ body {
   width: 2px;
   background: var(--ui-border-hover);
 }
-:is(.sidebar-divider, .workspace-divider):focus-visible::after,
-:is(.sidebar-divider, .workspace-divider).is-dragging::after {
+/* Only keyboard focus uses the accent; a drag shows no coloured line (#20). */
+:is(.sidebar-divider, .workspace-divider):focus-visible::after {
   background: var(--ui-accent);
 }
 .sidebar-collapsed .sidebar-divider {
   display: none;
 }
-/* At rest the sidebar and the main panel meet without a rule; the pointer
-   cursor marks the panel edge, and keyboard focus or a drag shows the line. */
+/* The sidebar and the main panel meet without a rule, also while dragging:
+   the col-resize cursor and the moving edge are the feedback. Keyboard focus
+   still shows the line. */
 .sidebar-divider::after {
   opacity: 0;
 }
-.sidebar-divider:is(:focus-visible, .is-dragging)::after {
+.sidebar-divider:focus-visible::after {
   opacity: 1;
 }
 @media (max-width: 900px) {

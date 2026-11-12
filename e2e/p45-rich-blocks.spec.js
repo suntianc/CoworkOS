@@ -129,6 +129,42 @@ for (const scheme of ["dark", "light"])
       await page.keyboard.press("Escape");
       await expect(zoom).toHaveCount(0);
 
+      // Code is coloured by language from the theme's tokens, and copies as written (#26).
+      const code = answer.locator('.code-block:has(.code-block-language:text-is("typescript"))');
+      await expect(code.locator(".tok-keyword").first()).toHaveText("export");
+      await expect(code.locator(".tok-type")).toContainText(["Requirement"]);
+      await expect(code.locator(".tok-string")).toHaveText(['"reviewing"', '"developing"']);
+      const tokenColour = async (kind, token) =>
+        code.evaluate(
+          (node, [selector, name]) => {
+            const probe = document.createElement("span");
+            probe.style.color = getComputedStyle(node).getPropertyValue(name);
+            document.body.append(probe);
+            const expected = getComputedStyle(probe).color;
+            probe.remove();
+            return [getComputedStyle(node.querySelector(selector)).color, expected];
+          },
+          [`.tok-${kind}`, token]
+        );
+      for (const [kind, token] of [
+        ["keyword", "--code-keyword"],
+        ["string", "--code-string"],
+        ["function", "--code-function"]
+      ]) {
+        const [actual, expected] = await tokenColour(kind, token);
+        expect(actual, kind).toBe(expected);
+      }
+      await code.screenshot({ path: testInfo.outputPath(`code-${scheme}.png`) });
+      await code.hover();
+      await code.getByRole("button", { name: "复制" }).click();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+        [
+          "export function stageOf(record: Requirement) {",
+          '  return record.reviews.length ? "reviewing" : "developing";',
+          "}"
+        ].join("\n")
+      );
+
       const diff = answer.locator(".diff-block");
       await expect(diff.locator(".diff-path")).toHaveText("web/hooks/useChangeStages.ts");
       await expect(diff.locator(".diff-count.is-add")).toHaveText("+1");

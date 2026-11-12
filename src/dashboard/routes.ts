@@ -9,6 +9,7 @@ import { McpSupervisor } from "../applications/mcp-supervisor.js";
 import { handleApplicationRequest } from "./application-routes.js";
 import { handleProjectExperienceRequest } from "./project-experience-routes.js";
 import type { ProjectExperienceStore } from "../runtime/project-experience-store.js";
+import type { ModelLevels } from "../runtime/model-levels.js";
 import { handleUserMemoryRequest } from "./user-memory-routes.js";
 import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { serveArtifact } from "./artifact-response.js";
@@ -111,7 +112,7 @@ export interface DashboardRoutePorts {
   publishApplicationEvent(taskId: string, event: ApplicationEvent): Promise<void>;
   publishToReferencers(resourceId: string, event: ApplicationEvent): Promise<void>;
   mcpSupervisor: McpSupervisor;
-  availableModels(): Promise<string[]>;
+  availableModels(): Promise<Array<{ id: string } & ModelLevels>>;
   chooseLocalDirectory(): Promise<string | undefined>;
   resolveWorkspacePath(value: unknown): Promise<string>;
   registerWorkspace(root: string): Promise<void>;
@@ -121,6 +122,7 @@ export interface DashboardRoutePorts {
     projectId: string,
     input: { projectName?: unknown; projectDirectory?: unknown }
   ): Promise<unknown>;
+  removeProject(projectId: string): Promise<{ projectId: string; removedAt: string; taskIds: string[] }>;
   createProjectTask: WorkspaceDirectory["createProjectTask"];
   createTemporaryTask: WorkspaceDirectory["createTemporaryTask"];
   createTemporaryWorkspace: WorkspaceDirectory["createTemporaryWorkspace"];
@@ -548,18 +550,20 @@ export function createDashboardHandler(
             operationId: body.operationId,
             command: "projects.create",
             content: commandContent(body),
-            apply: async () => ({
-              status: 201,
-              body: {
-                project: await publishProject(
-                  await ports.createProject({
-                    projectName: body.projectName,
-                    projectDirectory: body.projectDirectory,
-                    ...(body.projectId === undefined ? {} : { projectId: body.projectId })
-                  })
-                )
-              }
-            })
+            apply: async () => {
+              const project = await publishProject(
+                await ports.createProject({
+                  projectName: body.projectName,
+                  projectDirectory: body.projectDirectory,
+                  ...(body.projectId === undefined ? {} : { projectId: body.projectId })
+                })
+              );
+              // A restored project's conversations were published as deleted; publish
+              // them again so subscribers see them return (reconciling alone would
+              // not revive them, since their own revisions did not change).
+              for (const task of project.tasks) await publishTask(task);
+              return { status: 201, body: { project } };
+            }
           })
         );
         return;
@@ -590,6 +594,15 @@ export function createDashboardHandler(
             })
           })
         );
+        return;
+      }
+      // Removing only takes the project off the list; its folder and conversations stay.
+      if (request.method === "DELETE" && projectMatch) {
+        const removed = await ports.removeProject(decodeURIComponent(projectMatch[1]));
+        // The conversations leave the catalog with it; the project's own removal
+        // reaches subscribers through the next reconciliation.
+        for (const taskId of removed.taskIds) await ports.events?.taskDeleted(taskId);
+        sendJson(response, 200, { projectId: removed.projectId, removed: true });
         return;
       }
       // Register an application destination without switching or moving any conversation.
@@ -664,6 +677,10 @@ export function createDashboardHandler(
         else sendJson(response, 405, { error: "method not allowed" });
         return;
       }
+      if (url.pathname === "/api/model-settings/levels" && request.method === "POST") {
+        sendJson(response, 200, await ports.modelSettings.levels(await readJsonBody(request)));
+        return;
+      }
       if (url.pathname === "/api/model-settings/test" && request.method === "POST") {
         sendJson(response, 200, await ports.modelSettings.test(await readJsonBody(request)));
         return;
@@ -699,11 +716,14 @@ export function createDashboardHandler(
         // role resolution the launch uses; absent when that connection is unusable.
         const mainEffort = status.modelRoles.roles.find((entry) => entry.role === "main")?.effective
           ?.thinkingLevel;
+        const models = await availableModels();
         sendJson(response, 200, {
           current: runtimeValue("COWORK_MODEL"),
           connectionProfileId: status.activeProfileId,
           ...(mainEffort ? { reasoningEffort: mainEffort } : {}),
-          models: await availableModels(),
+          models: models.map((model) => model.id),
+          // Each model's reasoning levels and where they came from (#27).
+          levels: Object.fromEntries(models.map(({ id, levels, source }) => [id, { levels, source }])),
           configured: Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
         });
         return;

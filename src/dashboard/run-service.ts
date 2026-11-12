@@ -2,6 +2,7 @@ import {
   readyMessageEditTransaction,
   finishMessageEditTransaction
 } from "../runtime/main-message-edit-transaction.js";
+import { applyEndpointLimits, type EndpointLimits } from "../runtime/model-limits.js";
 import type { UserMemoryStore } from "../runtime/user-memory-store.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -117,6 +118,8 @@ export interface RunServicePorts {
    * fixed for the life of the process.
    */
   resolveMainModel(request: ModelRoleRequest): ResolvedModelRole;
+  /** The chosen model's own limits from its connection's `/models` entry, when listed (#27). */
+  endpointLimits?: (selection: ResolvedModelRole) => Promise<EndpointLimits | undefined>;
   onRunStarting?: () => void;
   onRunExit?: (taskId: string) => void;
   onRunFinalized?: (location: TaskLocation, runId: string) => Promise<void>;
@@ -165,6 +168,7 @@ export function createDashboardRunService({
   coordinator,
   locateTask,
   resolveMainModel,
+  endpointLimits = async () => undefined,
   onRunStarting = () => {},
   onRunExit = () => {},
   onRunFinalized = async () => {},
@@ -454,7 +458,9 @@ export function createDashboardRunService({
     // this demand owns a slot: a host/project default changed while it waited
     // applies now, while an explicit profile/model/thinking choice above stays
     // the user's. The snapshot lives only in this process and on the Run record.
-    const selection = resolveMainModel(roleRequest);
+    // A field the connection leaves to the endpoint takes this model's own value.
+    const resolved = resolveMainModel(roleRequest);
+    const selection = applyEndpointLimits(resolved, await endpointLimits(resolved));
     const model = selection.model;
     const baseUrl = selection.baseUrl;
     const apiKey = selection.apiKey;
@@ -1140,7 +1146,12 @@ export function createDashboardRunService({
     );
   }
 
-  function withIdleProjectTasks<T>(taskIds: string[], action: () => Promise<T>): Promise<T> {
+  /** `change` names what waits for the project to be idle, for the refusal. */
+  function withIdleProjectTasks<T>(
+    taskIds: string[],
+    action: () => Promise<T>,
+    change = "更改项目文件夹"
+  ): Promise<T> {
     const ids = [...new Set(taskIds)].sort();
     const lockTasks = (index: number): Promise<T> =>
       index < ids.length ? serialize(ids[index], () => lockTasks(index + 1)) : inspect();
@@ -1154,7 +1165,7 @@ export function createDashboardRunService({
           (await readSleep(location.workspaceRoot, taskId)) ||
           (await projectExecutionIsAlive(location.workspaceRoot, taskId))
         )
-          throw new ProjectCatalogError("请先停止项目中的会话及后台工作，再更改项目文件夹", 409);
+          throw new ProjectCatalogError(`请先停止项目中的会话及后台工作，再${change}`, 409);
         const privateAgents = join(location.workspaceRoot, taskId, "agents", "subagents");
         // eslint-disable-next-line no-restricted-syntax -- 没有 subagents 目录表示该会话没有私有子代理，按空列表继续检查
         for (const agent of await readdir(privateAgents).catch(() => [])) {
@@ -1163,7 +1174,7 @@ export function createDashboardRunService({
               (job) => job.state === "running"
             )
           )
-            throw new ProjectCatalogError("请先停止项目中的后台命令，再更改项目文件夹", 409);
+            throw new ProjectCatalogError(`请先停止项目中的后台命令，再${change}`, 409);
         }
         const runIds = await readdir(join(location.workspaceRoot, taskId, "runs")).catch(
           (error: NodeJS.ErrnoException) => {
@@ -1179,7 +1190,7 @@ export function createDashboardRunService({
             timeoutMs: 0
           });
           if (coordination.pending.length || coordination.callbackPending.length)
-            throw new ProjectCatalogError("请先停止项目中的后台协作，再更改项目文件夹", 409);
+            throw new ProjectCatalogError(`请先停止项目中的后台协作，再${change}`, 409);
           const agents = join(location.workspaceRoot, taskId, "runs", runId, "agents");
           // eslint-disable-next-line no-restricted-syntax -- 该 Run 可能从未启动子代理，subagents 目录缺失按空列表继续
           const subagents = await readdir(join(agents, "subagents")).catch(() => []);
@@ -1188,7 +1199,7 @@ export function createDashboardRunService({
             ...subagents.map((subagent) => join(agents, "subagents", subagent))
           ]) {
             if ((await listJobs({ directory: join(agent, "jobs") })).some((job) => job.state === "running"))
-              throw new ProjectCatalogError("请先停止项目中的后台命令，再更改项目文件夹", 409);
+              throw new ProjectCatalogError(`请先停止项目中的后台命令，再${change}`, 409);
           }
         }
       }

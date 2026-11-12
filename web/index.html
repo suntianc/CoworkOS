@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0e0e0f" />
+    <meta name="theme-color" content="#0b0b0c" />
     <title>Formicand</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/app-icon.svg" />
     <link rel="alternate icon" type="image/svg+xml" sizes="32x32" href="/assets/brand/app-icon-32.svg" />
@@ -16,7 +16,6 @@
     <link rel="stylesheet" href="/assets/ui.css" />
     <link rel="stylesheet" href="/assets/system-theme.css" />
     <link rel="stylesheet" href="/assets/settings.css" />
-    <link rel="stylesheet" href="/assets/styles/project-experience.css" />
     <link rel="stylesheet" href="/assets/dialogs.css" />
     <link rel="stylesheet" href="/assets/workbench/dialogs.css" />
     <link rel="stylesheet" href="/assets/workbench/chrome.css" />
@@ -152,6 +151,7 @@
           <path d="m4 5 16 7-16 7 3-7-3-7Z" />
           <path d="M7 12h13" />
         </symbol>
+        <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5m-7 7 7-7 7 7" /></symbol>
         <symbol id="i-stop" viewBox="0 0 24 24">
           <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />
         </symbol>
@@ -577,6 +577,18 @@
                   ><svg class="ui-icon"><use href="#i-plus" /></svg></span
                 ><span class="new-label">新会话</span><kbd class="shortcut">⌘K</kbd>
               </button>
+              <button
+                class="new-conversation sidebar-search"
+                id="sidebar-search"
+                type="button"
+                aria-label="搜索"
+                aria-haspopup="dialog"
+                aria-keyshortcuts="Control+P Meta+P"
+              >
+                <span class="new-icon"
+                  ><svg class="ui-icon"><use href="#i-search" /></svg></span
+                ><span class="new-label">搜索</span><kbd class="shortcut">⌘P</kbd>
+              </button>
             </div>
             <div class="sidebar-section-label">
               <span class="sidebar-section-title">项目 <span id="conversation-count" hidden>0</span></span
@@ -786,15 +798,14 @@
                         id="model-select"
                         type="button"
                         title="切换模型与推理强度"
-                        aria-haspopup="listbox"
+                        aria-haspopup="dialog"
                         aria-expanded="false"
                       >
                         <span class="model-logo"
                           ><svg class="ui-icon" aria-hidden="true"><use href="#i-sparkles" /></svg
                         ></span>
                         <span class="model-name">Formicand Main</span
-                        ><span class="model-separator" aria-hidden="true">·</span
-                        ><span class="reasoning-label">推理 <span class="reasoning-name">自动</span></span
+                        ><span class="reasoning-label"><span class="reasoning-name">自动</span></span
                         ><span class="model-chevron"
                           ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
                         ></span>
@@ -829,13 +840,13 @@
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-stop" /></svg>
                       </button>
                       <button id="send-button" class="send-button" aria-label="发送">
-                        <svg class="ui-icon"><use href="#i-send" /></svg>
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-up" /></svg>
                       </button>
                     </div>
                     <div
-                      class="model-menu"
+                      class="model-menu model-picker"
                       id="model-menu"
-                      role="listbox"
+                      role="dialog"
                       aria-label="模型与推理强度"
                       hidden
                     ></div>

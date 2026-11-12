@@ -88,11 +88,10 @@ test("rename uses the shared dialog controls in light and dark at desktop and na
           };
         });
         expect(Math.abs(controls.inputWidth - controls.fieldWidth)).toBeLessThan(1);
-        expect(controls.primaryBackground).toBe(theme === "light" ? "rgb(28, 28, 34)" : "rgb(236, 236, 238)");
-        expect(controls.primaryColor).toBe(theme === "light" ? "rgb(244, 244, 248)" : "rgb(14, 14, 15)");
-        expect(controls.panelBackground).toBe(
-          theme === "light" ? "rgba(251, 251, 253, 0.95)" : "rgba(16, 16, 20, 0.88)"
-        );
+        expect(controls.primaryBackground).toBe(theme === "light" ? "rgb(24, 24, 27)" : "rgb(237, 237, 239)");
+        expect(controls.primaryColor).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(17, 17, 19)");
+        // Dialogs are solid overlays (#28).
+        expect(controls.panelBackground).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(28, 28, 32)");
         expect(controls.backdrop).toBe("none");
         await expect(save).toBeInViewport();
         await expect(cancel).toBeInViewport();

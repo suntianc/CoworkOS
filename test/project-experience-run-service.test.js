@@ -12,6 +12,10 @@ import { RunService } from "../dist/src/runtime/run-service.js";
 import { createLoadSkillTool, discoverSkills } from "../dist/src/runtime/skill-registry.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
+import { PROJECT_EXPERIENCE_ENABLED } from "../dist/src/domain/project-experience.js";
+
+/** Project experience is switched off (#33); its enabled paths return with the switch or go in P9. */
+const switchedOff = PROJECT_EXPERIENCE_ENABLED ? false : "项目经验已整套停用（#33），P9 清理时随代码删除";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "atria-project-experience-run-"));
@@ -121,7 +125,7 @@ async function publishExperienceAndSkill(store) {
 
 test(
   "RunService lazily loads managed project Skills, revokes them during a Run, and preserves the caller's load_skill",
-  { timeout: 30000 },
+  { timeout: 30000, skip: switchedOff },
   async (t) => {
     const f = await fixture(t);
     const skill = await publishExperienceAndSkill(f.store);
@@ -181,7 +185,7 @@ test(
 
 test(
   "corrupt optional project data cannot block the caller's manual Skill but fails closed for managed Skills",
-  { timeout: 30000 },
+  { timeout: 30000, skip: switchedOff },
   async (t) => {
     const f = await fixture(t);
     const skill = await publishExperienceAndSkill(f.store);
@@ -219,7 +223,7 @@ test(
 
 test(
   "RunService completion queues only enabled project learning references without background model requests",
-  { timeout: 30000 },
+  { timeout: 30000, skip: switchedOff },
   async (t) => {
     const f = await fixture(t);
     const defaults = await f.store.read();
@@ -287,7 +291,7 @@ test(
 
 test(
   "fresh RunService Tasks persist their input project directory so completed intake has readable evidence",
-  { timeout: 15000 },
+  { timeout: 15000, skip: switchedOff },
   async (t) => {
     const f = await fixture(t);
     const identity = projectExperienceIdentity({}, f.identity.projectDirectory);
@@ -329,5 +333,27 @@ test(
     await f.run("delegated-task", { agentId: "parser-reader" });
     assert.equal(f.requests.length, 1);
     assert.equal((await f.store.read()).pending.length, 0);
+  }
+);
+
+test(
+  "with project experience switched off, a fully enabled store adds nothing to a Run and queues nothing",
+  { timeout: 30000, skip: PROJECT_EXPERIENCE_ENABLED && "项目经验已启用" },
+  async (t) => {
+    const f = await fixture(t);
+    await publishExperienceAndSkill(f.store);
+    await f.store.configure({ enabled: true, learningEnabled: true });
+    const before = (await f.store.read()).pending.length;
+    f.setHandler((body) => {
+      assert.doesNotMatch(systemText(body), /PROJECT_EXPERIENCE_FACT|Parser compatibility/);
+      assert.ok(
+        !body.tools?.some((tool) => tool.function?.name === "load_skill"),
+        "no managed Skill reaches the Run"
+      );
+      return { text: "done" };
+    });
+    await f.run("switched-off");
+    assert.equal((await f.store.read()).pending.length, before, "a completed Run queues no learning");
+    assert.equal(f.requests.length, 1);
   }
 );

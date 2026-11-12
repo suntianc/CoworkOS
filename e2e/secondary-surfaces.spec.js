@@ -69,7 +69,7 @@ test("adding a project keeps a quiet two-mode dialog in both themes and sizes", 
   }
 });
 
-test("project dialogs and project experience confirmations use shared controls without native prompts", async ({
+test("project rename and removal use shared dialogs without native prompts, and a removed project comes back with its folder", async ({
   page
 }, info) => {
   const dashboard = await startDashboard({ defaultProject: false });
@@ -85,9 +85,20 @@ test("project dialogs and project experience confirmations use shared controls w
       data: { projectName: "视觉检查项目", projectDirectory }
     });
     const { project } = await created.json();
+    await page.request.post(`${dashboard.base}/api/tasks`, {
+      data: { taskId: "kept-history", goal: "移除后保留的会话", projectId: project.projectId }
+    });
     await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
     await page.goto(dashboard.base);
-    await expect(page.locator(`[data-project="${project.projectId}"]`)).toBeVisible();
+    const group = page.locator(`[data-project="${project.projectId}"]`);
+    await expect(group).toBeVisible();
+    const trigger = page.locator(`[data-project-settings="${project.projectId}"]`);
+    const open = async (name) => {
+      await trigger.locator("..").hover();
+      await trigger.click();
+      await page.getByRole("menuitem", { name, exact: true }).click();
+      return page.getByRole("dialog", { name, exact: true });
+    };
     for (const [width, theme] of [
       [1440, "light"],
       [320, "light"],
@@ -99,50 +110,48 @@ test("project dialogs and project experience confirmations use shared controls w
       // A web phone-sized window holds the sidebar in a drawer, so open it first.
       const drawer = await sidebarDrawerToggle(page);
       if (drawer) await drawer.click();
-      const trigger = page.locator(`[data-project-settings="${project.projectId}"]`);
-      await trigger.locator("..").hover();
-      await trigger.click();
-      const dialog = page.getByRole("dialog", { name: "项目设置", exact: true });
+      const dialog = await open("重命名项目");
       await contained(dialog, page);
       await expect(dialog.getByRole("textbox", { name: "项目名称" })).toHaveCSS("font-size", "14px");
       await expect(dialog.getByRole("button", { name: "保存", exact: true })).toHaveCSS("font-size", "14px");
       await expect(dialog.getByRole("button", { name: "保存", exact: true })).toHaveCSS(
         "background-color",
-        theme === "dark" ? "rgb(236, 236, 238)" : "rgb(28, 28, 34)"
+        theme === "dark" ? "rgb(237, 237, 239)" : "rgb(24, 24, 27)"
       );
       await page.screenshot({ path: info.outputPath(`project-${theme}-${width}.png`) });
       await dialog.getByRole("button", { name: "取消", exact: true }).click();
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "light" });
-    await page.locator(`[data-project-settings="${project.projectId}"]`).locator("..").hover();
-    await page.locator(`[data-project-settings="${project.projectId}"]`).click();
-    await page
-      .getByRole("dialog", { name: "项目设置", exact: true })
-      .getByRole("button", { name: "项目经验", exact: true })
-      .click();
-    const experience = page.getByRole("dialog", { name: "项目经验", exact: true });
-    await experience.getByRole("button", { name: "新增经验", exact: true }).click();
-    await experience.getByRole("textbox", { name: "经验或技能名称", exact: true }).fill("检查约定");
-    await experience.getByRole("textbox", { name: "经验或技能内容", exact: true }).fill("运行当前模块检查。");
-    await experience.getByRole("button", { name: "保存内容", exact: true }).click();
-    await expect(experience.locator("[data-editor]")).toBeHidden();
-    const item = experience.locator("[data-experience-id]");
-    await item.getByRole("button", { name: "删除", exact: true }).click();
-    const confirmation = item.getByRole("group", { name: "删除确认" });
-    await expect(confirmation).toContainText("删除后无法恢复");
-    await expect(confirmation.getByRole("button", { name: "取消", exact: true })).toBeFocused();
-    await expect(item).toHaveCSS("border-top-style", "solid");
-    await page.setViewportSize({ width: 320, height: 720 });
-    await contained(experience, page);
-    await confirmation.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: info.outputPath("project-experience-confirm-320.png") });
-    await confirmation.getByRole("button", { name: "取消", exact: true }).click();
-    await expect(confirmation).toHaveCount(0);
-    await expect(item.getByRole("button", { name: "删除", exact: true })).toBeFocused();
-    await item.getByRole("button", { name: "删除", exact: true }).click();
-    await item.getByRole("button", { name: "确认删除", exact: true }).click();
-    await expect(item).toHaveCount(0);
+
+    // Removing says what stays, then takes the project and its conversations off the list.
+    const removal = await open("移除项目");
+    await expect(removal).toContainText("工作文件夹里的文件不会被删除");
+    await page.screenshot({ path: info.outputPath("project-remove-1440.png") });
+    await removal.getByRole("button", { name: "移除项目", exact: true }).click();
+    await expect(removal).toBeHidden();
+    await expect(group).toHaveCount(0);
+    await expect(page.locator('.conversation-item[data-task="kept-history"]')).toHaveCount(0);
+    const listed = await (await page.request.get(`${dashboard.base}/api/tasks`)).json();
+    expect(listed.projects.map((entry) => entry.projectId)).not.toContain(project.projectId);
+    expect(listed.tasks.map((task) => task.taskId)).not.toContain("kept-history");
+
+    // Adding the same folder again restores the project with its identity and conversations.
+    const again = await page.request.post(`${dashboard.base}/api/projects`, {
+      data: { projectName: "回来的项目", projectDirectory }
+    });
+    expect(again.status()).toBe(201);
+    const restored = (await again.json()).project;
+    expect(restored.projectId).toBe(project.projectId);
+    expect(restored.tasks.map((task) => task.taskId)).toEqual(["kept-history"]);
+    await page.reload();
+    await expect(group).toContainText("回来的项目");
+    await expect(page.locator('.conversation-item[data-task="kept-history"]')).toBeVisible();
+
+    // Project experience is switched off: no route answers for it.
+    expect(
+      (await page.request.get(`${dashboard.base}/api/projects/${project.projectId}/experience`)).status()
+    ).toBe(404);
     expect(nativeDialogs).toBe(0);
   } finally {
     await dashboard.stop();

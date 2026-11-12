@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from "@playwright/test";
+import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -137,6 +138,9 @@ test("native edit restores an attachment-only message and survives relaunch with
     await page.screenshot({ path: testInfo.outputPath("native-resend-after-question-stop.png") });
   } finally {
     await native?.close();
+    // The backend outlives the window by design; stop this test's own (#35), found
+    // under the desktop data root (COWORK_DESKTOP_DATA), not ATRIA_HOME.
+    await stopNativeBackend(root);
     const backendLog = await readFile(join(root, "logs", "dashboard.log"), "utf8").catch(() => "");
     await writeFile(testInfo.outputPath("native-backend.log"), backendLog);
     await provider.close();

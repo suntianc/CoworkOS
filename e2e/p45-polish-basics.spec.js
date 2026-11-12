@@ -179,6 +179,18 @@ for (const theme of ["dark", "light"]) {
     try {
       await seedConversation(page, dashboard);
       await page.goto(dashboard.base);
+      // The main and requirement panels sit 6 px apart; the window edge keeps 10 px (#23).
+      await page.getByRole("button", { name: "切换任务面板" }).click();
+      const side = page.locator("#agent-pane");
+      await expect(side).toBeVisible();
+      await expect
+        .poll(async () => {
+          const [left, right] = [await page.locator("#work-entry").boundingBox(), await side.boundingBox()];
+          return [Math.round(right.x - (left.x + left.width)), Math.round(1440 - (right.x + right.width))];
+        })
+        .toEqual([6, 10]);
+      await page.getByRole("button", { name: "切换任务面板" }).click();
+
       await page.getByRole("button", { name: "设置", exact: true }).first().click();
       await page.getByRole("radio", { name: theme === "dark" ? "深色" : "浅色", exact: true }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -215,6 +227,9 @@ test("the main panel edge resizes the sidebar without a dividing line, and margi
     await page.mouse.move(main.x + 1, main.y + 300);
     await page.mouse.down();
     await page.mouse.move(main.x + 61, main.y + 300, { steps: 6 });
+    // No line appears while dragging either (#20); keyboard focus still shows one.
+    await expect(divider).toHaveClass(/is-dragging/);
+    expect(await divider.evaluate((node) => getComputedStyle(node, "::after").opacity)).toBe("0");
     await page.mouse.up();
     const after = (await page.locator("#conversation-sidebar").boundingBox()).width;
     expect(Math.round(after - before)).toBe(60);

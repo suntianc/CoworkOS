@@ -2,6 +2,8 @@
 
 English | [中文](../project-experience.md)
 
+> **Switched off (2026-11-11, #33)**: project experience is disabled as a whole. Nothing is learned after a Run, nothing reaches Main's context or the skill tool, `/api/projects/:projectId/experience` no longer answers, and the screens are gone. The switch is [`PROJECT_EXPERIENCE_ENABLED`](../../src/domain/project-experience.ts); the code and any stored data stay until the P9 cleanup removes them. The rest of this page describes the behaviour before it was switched off.
+
 Project experience preserves reusable facts and procedures for one project, separately from [personal memory (Chinese)](../user-memory.md) and existing Task context summaries. Evolution updates skill files and versions, not model weights. The reviewer checks saved execution evidence; it does not launch commands, sandbox experiments or quality A/B tests.
 
 ## Controls

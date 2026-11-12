@@ -315,7 +315,7 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
     const selected = sidebar.locator('.conversation-item[data-task="shell-a"]');
     const newConversation = sidebar.locator("#new-conversation");
     await expect(sidebar.locator(".brand-chevron")).toHaveCount(0);
-    // The title row replaced the brand row; search and navigation live there.
+    // The title row replaced the brand row and holds the navigation.
     await expect(sidebar.locator(".brand-lockup")).toHaveCount(0);
     await expect(sidebar.locator(".conversation-item-meta")).toHaveCount(0);
     await expect(selected).toHaveText("设计方案 A");
@@ -328,9 +328,11 @@ test("a compact sidebar keeps navigation reachable at desktop and narrow widths 
       expect(box.width).toBeGreaterThanOrEqual(44);
       expect(box.width).toBeLessThanOrEqual(248);
       expect((await selected.boundingBox()).height).toBe(36);
+      // Search lives in the sidebar while it is shown (#32), not in the title row.
+      await expect(sidebar.getByRole("button", { name: "搜索", exact: true })).toBeVisible();
       await expect(
         page.locator("#app-titlebar").getByRole("button", { name: "搜索", exact: true })
-      ).toBeVisible();
+      ).toBeHidden();
       for (const label of ["设置"]) {
         const control = sidebar.getByRole("button", { name: label, exact: true });
         await expect(control).toBeVisible();

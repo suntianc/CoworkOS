@@ -175,7 +175,13 @@ test("formatter excludes retained staged deletions locally and against a commit 
 
 test("quick verify prepares real web assets from a clean checkout", async () => {
   await fixture(async (root, put) => {
-    for (const name of ["verify.mjs", "test.mjs", "build-math.mjs", "build-document-markdown.mjs"]) {
+    for (const name of [
+      "verify.mjs",
+      "test.mjs",
+      "test-run-root.mjs",
+      "build-math.mjs",
+      "build-document-markdown.mjs"
+    ]) {
       await mkdir(join(root, "scripts"), { recursive: true });
       await copyFile(
         fileURLToPath(new URL("../scripts/" + name, import.meta.url)),

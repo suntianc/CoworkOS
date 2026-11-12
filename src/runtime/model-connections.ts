@@ -143,8 +143,10 @@ export function saveConnection(config: CoworkConfig, input: Record<string, unkno
   if (!registry.activeId || input.activate === true || input.profileId === undefined)
     registry.activeId = profile.id;
   const active = registry.profiles.find((p) => p.id === registry.activeId)!;
+  // The active connection's narrowed levels, or none: never another connection's.
+  const { reasoningLevels: _previousLevels, autoLimits: _previousLimits, ...rest } = config;
   return {
-    ...config,
+    ...rest,
     ...parseConnectionProfile(active as unknown as Record<string, unknown>, connectionProfile(active)),
     baseUrl: active.baseUrl,
     model: active.model,
