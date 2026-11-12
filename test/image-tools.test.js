@@ -117,3 +117,42 @@ test("image selection rejects conflicting aliases, incomplete comparisons and ma
   ])
     await assert.rejects(tool.execute(args));
 });
+
+test("image tools accept the retired goal and review arguments without a visual-analysis pass", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-image-legacy-arguments-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "pixel.png"), pixel);
+  const tools = createBuiltinTools({ rootDirectory: root, supportsImages: true });
+  // The removed vision connection used these descriptions to route a second
+  // model; the tool now returns pixels to the current connection.
+  for (const name of ["read_image", "read_images", "crop_image"]) {
+    const { description } = tools.get(name);
+    assert.doesNotMatch(description, /visual qa|vision|second model/i, `${name} still promises an analysis`);
+  }
+  const single = await tools.get("read_image").execute({
+    path: "pixel.png",
+    goal: "find the submit button",
+    review: true
+  });
+  assert.equal(single.content.filter((part) => part.type === "image").length, 1);
+  assert.equal(single.details.mode, "direct");
+  const batch = await tools.get("read_image").execute({
+    paths: ["pixel.png"],
+    goal: "compare the two states",
+    review: false
+  });
+  assert.equal(batch.details.images.length, 1);
+  const cropped = await tools.get("crop_image").execute({
+    path: "pixel.png",
+    region: { x: 0, y: 0, width: 1, height: 1 },
+    goal: "zoom in"
+  });
+  assert.equal(cropped.content.filter((part) => part.type === "image").length, 1);
+  // Acceptance is not permission: review=true still requires one image.
+  await assert.rejects(
+    tools
+      .get("read_images")
+      .execute({ images: [{ path: "pixel.png" }, { path: "pixel.png" }], review: true }),
+    /single image/
+  );
+});

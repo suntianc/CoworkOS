@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { id, now, type Event, type InboxMessage } from "../domain/types.js";
+import { now, type Event, type InboxMessage } from "../domain/types.js";
 import { JsonlEventStore } from "../storage/event-store.js";
 import { InboxStore } from "./scheduler.js";
 
@@ -16,12 +16,6 @@ export interface WatcherEvent {
   priority?: number;
 }
 
-export interface WatcherPoller {
-  watcherId: string;
-  poll: () => Promise<WatcherEvent[]>;
-  acknowledge?: (events: WatcherEvent[]) => Promise<void>;
-}
-
 export interface WatcherRuntimeInput {
   workspaceRoot: string;
   taskId: string;
@@ -34,13 +28,6 @@ export interface WatcherIngestResult {
   duplicate: boolean;
   messageId: string;
   eventId: string;
-}
-
-export interface WatcherPollResult {
-  accepted: number;
-  duplicates: number;
-  failed?: string;
-  results: WatcherIngestResult[];
 }
 
 /**
@@ -114,41 +101,6 @@ export class WatcherRuntime {
       messageId,
       eventId
     };
-  }
-
-  async poll(poller: WatcherPoller): Promise<WatcherPollResult> {
-    try {
-      const observations = await poller.poll();
-      const results = [] as WatcherIngestResult[];
-      for (const observation of observations)
-        results.push(
-          await this.ingest({ ...observation, watcherId: observation.watcherId || poller.watcherId })
-        );
-      await poller.acknowledge?.(observations);
-      return {
-        accepted: results.filter((result) => result.accepted).length,
-        duplicates: results.filter((result) => result.duplicate).length,
-        results
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await this.appendWatcherFailure(poller.watcherId, message);
-      return { accepted: 0, duplicates: 0, failed: message, results: [] };
-    }
-  }
-
-  private async appendWatcherFailure(watcherId: string, error: string): Promise<void> {
-    await new JsonlEventStore(
-      join(this.input.workspaceRoot, this.input.taskId, "runs", this.input.runId, "run_events.jsonl")
-    ).append({
-      eventId: id("watcher-error"),
-      type: "watcher.failed",
-      taskId: this.input.taskId,
-      runId: this.input.runId,
-      agentId: this.recipientAgentId,
-      occurredAt: now(),
-      payload: { watcherId, error }
-    });
   }
 }
 

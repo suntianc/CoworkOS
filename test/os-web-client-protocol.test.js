@@ -278,7 +278,6 @@ test("opening a PDF reads the bound backend's file through its authorized sessio
       throw new Error(message);
     },
     renderRightPanel() {},
-    getWorkbench: () => ({ editableKinds: new Set() }),
     openArtifactViewer: (path) => viewer.open(path)
   });
   for (const [root, instance, body] of [

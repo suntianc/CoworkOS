@@ -1,6 +1,7 @@
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { id, now, type InboxMessage } from "../domain/types.js";
+import { atomicWrite } from "../storage/atomic-file.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { InboxStore } from "./scheduler.js";
 
@@ -297,10 +298,4 @@ function safe(value: string): string {
 
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-async function atomicWrite(path: string, content: string): Promise<void> {
-  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporary, content, "utf8");
-  await rename(temporary, path);
 }

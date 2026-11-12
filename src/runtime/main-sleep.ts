@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
+import { atomicWrite } from "../storage/atomic-file.js";
 import { withFileLock } from "../storage/file-lock.js";
 
 /**
@@ -80,11 +81,4 @@ export async function markWakeFired(workspaceRoot: string, taskId: string): Prom
       `${JSON.stringify({ ...current, wakeFiredAt: new Date().toISOString() }, null, 2)}\n`
     );
   });
-}
-
-async function atomicWrite(path: string, content: string): Promise<void> {
-  await mkdir(join(path, ".."), { recursive: true });
-  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporary, content, "utf8");
-  await rename(temporary, path);
 }

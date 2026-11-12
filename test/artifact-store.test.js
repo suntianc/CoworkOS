@@ -122,6 +122,40 @@ test("updates retain identity, refresh hashes, remove deleted files and sort by 
   await assert.rejects(resolveTaskArtifact({ ...location, relativePath: "report.txt" }), { code: "ENOENT" });
 });
 
+test("a file that changes while it is hashed is skipped without poisoning the index cache", async (t) => {
+  const location = await fixture(t);
+  await write(join(location.task, "artifacts", "stable.txt"), "stable deliverable");
+  const racing = join(location.task, "artifacts", "racing.bin");
+  await write(racing, Buffer.alloc(64 * 1024 * 1024));
+  // Hashing a file this size takes long enough for the second stat to disagree
+  // with the first: the indexing race, seen through the public list.
+  let bumping = true;
+  const bump = (async () => {
+    for (let step = 1; bumping; step += 1) {
+      const stamp = new Date(Date.now() + step * 1000);
+      await utimes(racing, stamp, stamp);
+    }
+  })();
+  let listed;
+  try {
+    listed = await listTaskArtifacts(location);
+  } finally {
+    bumping = false;
+    await bump;
+  }
+  assert.deepEqual(
+    listed.map((artifact) => artifact.relativePath),
+    ["stable.txt"],
+    "the racing file is skipped, the settled one is indexed"
+  );
+  // The skipped path leaves no cache entry: the next pass indexes it normally.
+  const settled = await listTaskArtifacts(location);
+  assert.deepEqual(
+    settled.map((artifact) => artifact.relativePath),
+    ["racing.bin", "stable.txt"]
+  );
+});
+
 test("publishing uses the caller's user-facing path and safely replaces its bytes", async (t) => {
   const location = await fixture(t);
   const input = {

@@ -89,7 +89,7 @@ test("task boundaries reject missing IDs, excessive counts, modified originals a
   await writeFile(join(root, "uploads", file.uploadId, file.relativePath), "changed");
   await assert.rejects(store.attach(workspace, "task-a", [file.uploadId]), /发生变化/);
 });
-test("PDF, DOCX, PPTX and XLSX use document extraction; PDF pages and images return vision blocks", async (t) => {
+test("PDF, DOCX, PPTX and XLSX use document extraction; PDF pages and images return image blocks", async (t) => {
   const { root, workspace, store } = await fixture(t);
   await execute(process.env.COWORK_PYTHON || "python3", [
     "-c",

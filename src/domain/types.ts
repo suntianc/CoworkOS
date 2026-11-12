@@ -152,11 +152,11 @@ export interface TaskRecord {
   /**
    * What this record is for.
    *
-   * A "workspace" holds application documents that do not belong to any
-   * conversation yet — an editor is a thing a person can open on its own, and a
-   * document made there becomes a deliverable of a conversation only when they
-   * bind it. It uses the same storage as a conversation so nothing downstream
-   * needs a second code path, but it is not one and must not be listed as one.
+   * A "workspace" is a legacy holding record, not a conversation: it keeps an
+   * editor workspace out of session lists and out of session deletion. New
+   * temporary working directories ride on an ordinary record's
+   * `temporaryWorkspaceRoot`, so only records written before that change carry
+   * this kind; they keep the same storage so nothing on disk needs rewriting.
    */
   kind?: "conversation" | "workspace";
   /** 3 separates final artifacts from runtime metadata and agent candidates. */
