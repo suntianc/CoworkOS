@@ -1857,6 +1857,67 @@ html[data-theme] select:not([multiple], [size]) {
 html[data-theme] select:disabled {
   cursor: default;
 }
+/* A select's list is the application's own menu (select-menu.js): the popover
+   surface every other menu uses, a check on the current option, a hover fill. */
+html[data-theme] .ui-menu.select-menu {
+  position: fixed;
+  top: 0;
+  right: auto;
+  z-index: 2000;
+  display: block;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+html[data-theme] .select-menu .select-menu-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 12px 5px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+html[data-theme] .select-menu .select-menu-option:is(:hover, :focus-visible, :focus) {
+  outline: none;
+  background: var(--color-surface-3);
+}
+html[data-theme] .select-menu .select-menu-option[aria-disabled="true"] {
+  color: var(--color-text-3, var(--color-text-2));
+  background: transparent;
+  cursor: default;
+}
+.select-menu .select-menu-check {
+  display: inline-grid;
+  flex: 0 0 16px;
+  place-items: center;
+  color: var(--color-text);
+}
+.select-menu .select-menu-check .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+.select-menu .select-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.select-menu .select-menu-group {
+  padding: 8px 10px 4px 28px;
+  color: var(--color-text-2);
+  font-size: 12px;
+}
 /* Text fields and selects match :focus-visible on a click too, so they take a
    quiet edge and halo instead of the 2 px keyboard ring buttons use. */
 html[data-theme]
