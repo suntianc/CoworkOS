@@ -54,8 +54,34 @@ export function createRequirementPanel({
   let expanded = false;
   let bodySignature;
   let usageSignature;
+  let stage = "";
+  // Below this width the panel is a drawer over the conversation, so the title
+  // row control has room for the panel's name and phase.
+  const narrowWindow = window.matchMedia?.("(max-width: 1279px)") ?? { matches: false };
 
   const documentIcon = () => icon("file");
+
+  /**
+   * The title-row control that opens and closes this panel.
+   *
+   * Its name carries the phase the panel is showing wherever the panel floats
+   * over the conversation; its expanded state and the panel it controls stay
+   * programmatic at every width.
+   */
+  function paintToggle() {
+    const toggle = $("#output-pane-toggle");
+    if (!toggle) return;
+    const name = ui("需求进度");
+    const text = stage ? `${name} · ${ui(stage)}` : name;
+    const label = narrowWindow.matches ? text : ui("切换任务面板");
+    const value = toggle.querySelector("[data-panel-toggle-label]");
+    if (value && value.textContent !== text) value.textContent = text;
+    toggle.setAttribute("aria-label", label);
+    toggle.title = label;
+    toggle.setAttribute("aria-controls", "agent-pane");
+    toggle.setAttribute("aria-expanded", String(!document.body.classList.contains("output-collapsed")));
+  }
+  narrowWindow.addEventListener?.("change", paintToggle);
 
   const selectedProjectId = () => {
     const detail = state.detail;
@@ -437,7 +463,9 @@ export function createRequirementPanel({
     // A temporary workspace belongs to no project, so it has no requirement
     // records to read; the conversation's own usage still applies.
     if (state.selected && selectedProjectId()) ensure(state.selected);
-    onRendered(loaded?.requirement ? progressOf().label : "");
+    stage = loaded?.requirement ? progressOf().label : "";
+    onRendered(stage);
+    paintToggle();
     if (document.body.classList.contains("output-collapsed")) return;
     const body = $("[data-requirement-body]");
     const usage = $("[data-requirement-usage]");
@@ -486,6 +514,8 @@ export function createRequirementPanel({
   return {
     render,
     reset,
+    /** Repaint the title-row control after its panel opened or closed. */
+    paintToggle,
     /** The records the panel already read, for the caller that opens the preview drawer. */
     records: () => loaded,
     progress: () => (loaded?.requirement ? progressOf() : null),

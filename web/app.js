@@ -1456,6 +1456,7 @@ function chooseThinkingLevel(value) {
 
 async function toggleOutputPane() {
   animateLayout(() => document.body.classList.toggle("output-collapsed"), { part: "pane" });
+  requirementPanel.paintToggle();
   if (!document.body.classList.contains("output-collapsed")) renderRightPanel();
 }
 
