@@ -17,6 +17,13 @@ export class MainRequestSnapshotError extends Error {
 export interface MainRequestEnvironment {
   projectDirectory: string;
 }
+export type MainRequestReplaySkipReason = "pi_version_missing" | "pi_version_mismatch";
+/** Why a retry rebuilt the context instead of replaying the archived wire body. */
+export interface MainRequestReplaySkip {
+  reason: MainRequestReplaySkipReason;
+  /** Pi version that wrote the skipped archive; absent when it recorded none. */
+  archivedPiVersion?: string;
+}
 export interface MainRequestSnapshot {
   version: 1;
   taskId: string;
@@ -31,6 +38,9 @@ export interface MainRequestSnapshot {
   /** Older snapshots remain readable for audit, but exact replay fails closed. */
   executionScope?: MainRequestExecutionScope;
   endpoint?: string;
+  /** Pi version that wrote this snapshot; earlier archives only replay there. */
+  piVersion?: string;
+  replaySkipped?: MainRequestReplaySkip;
   body: string;
   bodySha256: string;
   checksum: string;
@@ -51,6 +61,10 @@ const validModel = (model: MainRequestModel | null | undefined) =>
   Array.isArray(model.input) &&
   Number.isFinite(model.maxTokens) &&
   Number.isFinite(model.contextWindow);
+const validReplaySkip = (skip: MainRequestReplaySkip | null) =>
+  skip !== null &&
+  ["pi_version_missing", "pi_version_mismatch"].includes(skip.reason) &&
+  (skip.archivedPiVersion === undefined || typeof skip.archivedPiVersion === "string");
 
 export function parseMainRequestModel(serialized: string): MainRequestModel {
   const model = JSON.parse(serialized) as MainRequestModel;
@@ -87,6 +101,8 @@ export class MainRequestStore {
       typeof snapshot.environment?.projectDirectory !== "string" ||
       (snapshot.executionScope !== undefined && !validMainRequestExecutionScope(snapshot.executionScope)) ||
       (snapshot.endpoint !== undefined && typeof snapshot.endpoint !== "string") ||
+      (snapshot.piVersion !== undefined && typeof snapshot.piVersion !== "string") ||
+      (snapshot.replaySkipped !== undefined && !validReplaySkip(snapshot.replaySkipped)) ||
       typeof snapshot.body !== "string" ||
       snapshot.bodySha256 !== hash(snapshot.body) ||
       snapshot.checksum !== checksum(snapshot)

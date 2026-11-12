@@ -181,6 +181,10 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   pi.on("agent_start", () => {
     agentStartedAt = Date.now();
   });
+  // Pi 1.5 enables prompt-cache warming by default. CoworkOS does not adopt the
+  // capability in this upgrade, so every refresh stops until the next real
+  // request instead of sending an extra model call while Main is idle.
+  pi.on("cache_warming_decision", () => ({ action: "stop" }));
   let requestRetry: MainRequestRetry | undefined;
   let freshRetryContext = false;
   let awaitingInitialPrompt = process.env.COWORK_INITIAL_PROMPT === "1";

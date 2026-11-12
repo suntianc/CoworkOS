@@ -16,6 +16,7 @@ const { MainRequestRetry, MainRequestConflictError } =
 const { ModelRequestRecorder } = await import("../dist/src/storage/model-request-recorder.js");
 const { recordModelRequests } = await import("../dist/src/runtime/model-request-recording.js");
 const { createCoworkModel } = await import("../dist/src/runtime/model-profile.js");
+const { installedPiVersion } = await import("./pi-version-fixture.mjs");
 
 /**
  * P4.6 #01: user memory, automatic learning and project experience are gone.
@@ -402,6 +403,7 @@ async function replayFixture(t, { context, body }) {
     environment: { projectDirectory: root, binding: "fixture-binding" },
     executionScope,
     endpoint: "http://fixture.test/v1/chat/completions",
+    piVersion: installedPiVersion,
     body
   });
   const retry = new MainRequestRetry(store, "run", async () => environment, "request");
