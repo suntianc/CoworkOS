@@ -15,6 +15,8 @@ test(
     let id,
       requests = 0;
     const server = createServer(async (req, res) => {
+      // The run reads the model list for its limits (#27); this fixture has none.
+      if (req.method !== "POST") return void res.writeHead(404).end();
       let raw = "";
       for await (const chunk of req.setEncoding("utf8")) raw += chunk;
       const request = JSON.parse(raw);
