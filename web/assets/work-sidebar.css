@@ -19,6 +19,16 @@ html[data-theme] .new-conversation.sidebar-search {
 html[data-theme] .new-conversation.sidebar-search .new-icon {
   color: var(--color-text-2);
 }
+html[data-theme] .new-conversation.sidebar-search:is(:hover, :focus-visible),
+html[data-theme] .new-conversation.sidebar-search:is(:hover, :focus-visible) .new-icon {
+  color: var(--color-text);
+}
+/* On a phone the title row keeps search, so the drawer leaves the row out. */
+@media (max-width: 639px) {
+  html[data-theme] .new-conversation.sidebar-search {
+    display: none;
+  }
+}
 html[data-theme] .new-conversation {
   display: flex;
   align-items: center;
