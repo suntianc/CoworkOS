@@ -23,7 +23,7 @@ async function fixture(t) {
   Object.assign(env, {
     ATRIA_HOME: user,
     COWORK_API_KEY: "private-cli-fixture-key",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0"
   });

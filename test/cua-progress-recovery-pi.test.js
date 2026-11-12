@@ -287,7 +287,7 @@ ${state === "confirmed" ? `- confirmed: ${operation} saved; evidence ${download.
         COWORK_REASONING_EFFORT: "off",
         COWORK_SUPPORTS_REASONING_EFFORT: "0",
         COWORK_BROWSER_EXECUTABLE: chromium.executablePath(),
-        COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+        COWORK_DISABLE_MAIN_GUARDIAN: "1",
         COWORK_WEB_TOOLS: "0",
         PI_CODING_AGENT_DIR: join(root, "pi"),
         PI_OFFLINE: "1"

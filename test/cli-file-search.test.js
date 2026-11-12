@@ -26,7 +26,7 @@ async function fixture(t) {
   Object.assign(env, {
     ATRIA_HOME: join(root, "user"),
     PI_OFFLINE: "1",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1"
+    COWORK_DISABLE_MAIN_GUARDIAN: "1"
   });
   return { root, put, env };
 }

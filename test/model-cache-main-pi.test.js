@@ -96,7 +96,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
           COWORK_MODEL: "protocol-fixture",
           COWORK_MODEL_API: api,
           COWORK_DASHBOARD_URL: "",
-          COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+          COWORK_DISABLE_MAIN_GUARDIAN: "1",
           COWORK_REASONING_EFFORT: "off",
           COWORK_SUPPORTS_REASONING_EFFORT: "0",
           COWORK_WEB_TOOLS: "0",

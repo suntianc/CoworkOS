@@ -21,7 +21,7 @@ test("desktop draft migration, switching and recovery survive restart", async ()
     COWORK_DESKTOP_DATA: profile,
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0",
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1"
+    COWORK_DISABLE_MAIN_GUARDIAN: "1"
   };
   const otherEnv = {
     ...inherited,
@@ -33,7 +33,7 @@ test("desktop draft migration, switching and recovery survive restart", async ()
     COWORK_HARNESS_ROOT: resolve("."),
     COWORK_WORKSPACE: join(root, "other-workspace"),
     COWORK_CONFIG: join(root, "other-config.json"),
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1"
+    COWORK_DISABLE_MAIN_GUARDIAN: "1"
   };
   await mkdir(env.HOME, { recursive: true });
   await mkdir(otherEnv.COWORK_WORKSPACE, { recursive: true });

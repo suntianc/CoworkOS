@@ -78,7 +78,7 @@ async function fixture(t, command) {
     COWORK_CONFIG: join(root, "config.json"),
     COWORK_HARNESS_ROOT: harness,
     COWORK_WORKSPACE: join(root, "workspace"),
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     COWORK_API_BASE: baseUrl,
     COWORK_API_KEY: "fixture-local",
     COWORK_MODEL: "fixture",

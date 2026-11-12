@@ -217,7 +217,7 @@ test(
     const env = {
       ...process.env,
       COWORK_DESKTOP_DATA: directory,
-      COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+      COWORK_DISABLE_MAIN_GUARDIAN: "1",
       PI_OFFLINE: "1"
     };
     for (const name of [

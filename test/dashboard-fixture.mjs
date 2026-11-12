@@ -37,6 +37,7 @@ export async function startDashboard({
   model = "browser-fixture",
   supportsImages = false,
   workspace: existingWorkspace,
+  mainGuardian = false,
   config = {},
   env = {},
   port: requestedPort,
@@ -65,6 +66,8 @@ export async function startDashboard({
       COWORK_TABS_INDEX: join(root, "tabs.json"),
       COWORK_CONFIG: join(root, "config.json"),
       COWORK_UI_PORT: String(port),
+      // Recovery is guardian-driven: only a fixture that tests it may relaunch a parked Task.
+      COWORK_DISABLE_MAIN_GUARDIAN: mainGuardian ? "0" : "1",
       ...(blenderExecutable ? { COWORK_BLENDER_EXECUTABLE: blenderExecutable } : {}),
       ...(webSearchEndpoint ? { COWORK_EXA_MCP_ENDPOINT: webSearchEndpoint } : {}),
       COWORK_API_BASE: modelEndpoint ?? "",

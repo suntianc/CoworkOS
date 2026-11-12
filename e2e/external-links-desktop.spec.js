@@ -24,7 +24,7 @@ test("desktop response links leave through the system browser and local viewers 
     COWORK_DESKTOP_DATA: join(root, "profile"),
     ATRIA_HOME: join(root, "home"),
     PI_CODING_AGENT_DIR: join(root, "pi"),
-    COWORK_DISABLE_WATCH_SUPERVISOR: "1",
+    COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
   let native;

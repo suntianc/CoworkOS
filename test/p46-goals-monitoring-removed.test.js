@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
+import { RETIRED_GUARDIAN_SWITCH } from "./retired-guardian-switch.mjs";
 import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-request-store.js";
 import { MainRequestRetry } from "../dist/src/runtime/main-request-retry.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
@@ -323,7 +324,7 @@ test("no goal or monitoring module or identifier remains in product sources", as
     "VirtualAgentStore",
     "monitoringPrograms",
     "backgroundMonitoringPaused",
-    "COWORK_DISABLE_WATCH_SUPERVISOR",
+    RETIRED_GUARDIAN_SWITCH,
     "COWORK_SUPERVISOR_AUTOSTART",
     "COWORK_SUPERVISOR_INTERVAL_MS",
     "goalDelegation",
