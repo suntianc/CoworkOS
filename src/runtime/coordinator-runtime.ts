@@ -38,7 +38,6 @@ import { ExperimentProgramStore } from "./experiment-program-store.js";
 import { SubagentQuestionStore } from "./subagent-questions.js";
 import { readRunMetrics } from "./experiment-metrics.js";
 import type { ExperimentRunStatus } from "../domain/experiment.js";
-import type { VisionModelConfig } from "../tools/vision-model.js";
 import { subagentRecoverySummary } from "./subagent-recovery-summary.js";
 import { subagentCallStatuses, type SubagentCallStatus } from "./subagent-call-status.js";
 import { delegationRoleGuidance, resolveWorkItemModel, type WorkItemModel } from "./delegation-model.js";
@@ -59,7 +58,6 @@ type DelegatedModelSettings = Pick<
 >;
 
 export interface SubagentDispatchInput extends DelegatedModelSettings {
-  visionModel?: VisionModelConfig;
   thinkingLevel?: PiThinkingLevel;
   api?: CoworkModelApi;
   thinkingFormat?: CoworkThinkingFormat;
@@ -252,7 +250,6 @@ export interface WaitForSubagentsResult {
 }
 
 export interface CoordinatorRecoveryInput extends DelegatedModelSettings {
-  visionModel?: VisionModelConfig;
   thinkingLevel?: PiThinkingLevel;
   api?: CoworkModelApi;
   thinkingFormat?: CoworkThinkingFormat;
@@ -644,7 +641,6 @@ export class CoordinatorRuntime {
             apiKey: input.apiKey,
             model: input.model,
             ...delegatedSettings(input, item.payload),
-            visionModel: input.visionModel,
             thinkingLevel:
               (item.payload as { thinkingLevel?: PiThinkingLevel } | undefined)?.thinkingLevel ??
               input.thinkingLevel,
@@ -984,7 +980,6 @@ export class CoordinatorRuntime {
             capabilities,
             commandEnv: { COWORK_API_TOKEN: undefined, ...input.commandEnv },
             supportsImages: execution.supportsImages,
-            visionModel: input.visionModel,
             web: input.web
           });
       const tools = new Map(baseTools);

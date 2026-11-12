@@ -22,10 +22,10 @@ async function fixture(t) {
     const send = (delta, finish_reason = null) =>
       response.write(
         `data: ${JSON.stringify({
-          id: `vision-${requests.length}`,
+          id: `image-${requests.length}`,
           object: "chat.completion.chunk",
           created: 1,
-          model: "vision-fixture",
+          model: "image-fixture",
           choices: [{ index: 0, delta, finish_reason }]
         })}\n\n`
       );
@@ -43,7 +43,7 @@ async function fixture(t) {
       });
       send({}, "tool_calls");
     } else {
-      send({ content: "Vision fixture complete." });
+      send({ content: "Image fixture complete." });
       send({}, "stop");
     }
     response.end("data: [DONE]\n\n");
@@ -58,7 +58,7 @@ async function fixture(t) {
     requests,
     baseUrl: `http://127.0.0.1:${server.address().port}`,
     apiKey: "local-fixture",
-    model: "vision-fixture",
+    model: "image-fixture",
     thinkingLevel: "off",
     supportsReasoningEffort: false,
     timeoutMs: 5000,
@@ -150,13 +150,16 @@ test(
     assert.equal((await session.run("Inspect the isolated fixture.")).termination, "completed");
     const sent = connection.requests[1];
     assert.ok(!JSON.stringify(sent).includes(image));
-    assert.match(sent.messages.findLast((message) => message.role === "tool").content, /未启用图像输入/);
+    assert.match(
+      sent.messages.findLast((message) => message.role === "tool").content,
+      /当前模型不支持图片输入/
+    );
   }
 );
 
 test("Main and delegated runs retain explicit image-input capabilities", { timeout: 20_000 }, async (t) => {
   const connection = await fixture(t);
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "atria-vision-runtime-"));
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "atria-image-input-runtime-"));
   t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
   const main = await new RunService(workspaceRoot).runPi({
     ...connection,
@@ -221,7 +224,7 @@ test(
   { timeout: 20_000 },
   async (t) => {
     const connection = await fixture(t);
-    const workspaceRoot = await mkdtemp(join(tmpdir(), "atria-vision-recovery-"));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "atria-image-input-recovery-"));
     t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
     for (const supportsImages of [true, false]) {
       connection.requests.length = 0;

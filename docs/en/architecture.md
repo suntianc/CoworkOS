@@ -81,7 +81,7 @@ Desktop ports change between launches, so origin localStorage alone cannot resto
 
   One Task owns the complete observe/action workflow; other Tasks wait in FIFO order. Global sessions renew automatically; legacy manual grants retain five-minute expiry. Takeover requires explicit human resume. Cancellation, navigation/crash, shutdown and workspace changes revoke temporary sessions; restart restores policy only.
 
-- macOS 14+ capture, unlocked input, actual vision models, commercial apps and clean-machine permissions require separate evidence. Permission/lock-screen skips do not certify input.
+- macOS 14+ capture, unlocked input, models that accept image input, commercial apps and clean-machine permissions require separate evidence. Permission/lock-screen skips do not certify input.
 - `GrantedPermissions` covers software v2/GUI host grants; it does not prove Pi bash/jobs are confined by a universal OS sandbox.
 - The App targets Apple Silicon Mac. Windows/Linux GUI drivers, remote workers, multiple users and unattended updates are not shipped.
 

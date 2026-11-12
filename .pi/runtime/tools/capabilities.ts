@@ -99,6 +99,8 @@ export function registerCapabilityTools(
     taskId: string;
     mainRunId: string;
     hasResources: () => Promise<boolean>;
+    /** Desktop, browser and CUA tools deliver screenshots, so a text-only Main never sees them. */
+    supportsImages: boolean;
     additionalGroups?: Record<string, { description: string; tools: readonly string[] }>;
   }
 ) {
@@ -170,6 +172,7 @@ export function registerCapabilityTools(
     const desired: string[] = [];
     available = {};
     for (const [name, group] of Object.entries(groups)) {
+      const imageOnly = name === "computer" || name === "browser" || name === "cua";
       const wanted =
         requested.has(name) ||
         (name === "attachments" &&
@@ -177,7 +180,7 @@ export function registerCapabilityTools(
         (name === "applications" && resources) ||
         (name === "jobs" && capabilities.longRunning) ||
         (name === "computer" && (activeDesktop || globalDesktop));
-      const permitted = name !== "jobs" || capabilities.longRunning;
+      const permitted = (name !== "jobs" || capabilities.longRunning) && (!imageOnly || input.supportsImages);
       const hosted = name !== "computer" || Boolean(base);
       const names =
         name === "computer"
@@ -197,7 +200,12 @@ export function registerCapabilityTools(
         enabled,
         tools: names,
         ...(!permitted
-          ? { reason: "Requires a recorded longRunning grant" }
+          ? {
+              reason:
+                name === "jobs"
+                  ? "Requires a recorded longRunning grant"
+                  : "Requires a model connection that accepts image input"
+            }
           : !hosted
             ? { reason: "No desktop host is available" }
             : {})
@@ -212,7 +220,7 @@ export function registerCapabilityTools(
     name: "enable_tools",
     label: "Load Task Tools",
     description:
-      "Discover and enable optional tool groups for the current task. Omit groups to list availability. Applications, attachments, delivery, jobs, monitors, computer, browser and cua are loaded only when needed. Enabling is not authorization: job grants and desktop grants remain enforced. Scripts need their underlying browser/computer tools enabled. CLI and App share all non-host-specific groups.",
+      "Discover and enable optional tool groups for the current task. Omit groups to list availability. Applications, attachments, delivery, jobs, monitors, computer, browser and cua are loaded only when needed; desktop, browser and CUA tools require a model connection that accepts image input. Enabling is not authorization: job grants and desktop grants remain enforced. Scripts need their underlying browser/computer tools enabled. CLI and App share all non-host-specific groups.",
     parameters: Type.Object({
       groups: Type.Optional(
         Type.Array(Type.Union(Object.keys(groups).map((name) => Type.Literal(name))), { uniqueItems: true })

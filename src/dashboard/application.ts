@@ -31,7 +31,6 @@ import {
   configuredThinkingFormat
 } from "../runtime/runtime-settings.js";
 import { configuredWebTools } from "../runtime/web-search-config.js";
-import { visionModelConfig } from "../runtime/vision-config.js";
 import {
   availableModels as catalogModels,
   cachedAvailableModels as cachedCatalog
@@ -492,7 +491,6 @@ export function createDashboardApplication(
         supportsReasoningEffort: configuredSupportsReasoningEffort(env),
         supportsPromptCacheKey: configuredSupportsPromptCacheKey(env),
         supportsImages: configuredSupportsImages(env),
-        visionModel: visionModelConfig(runtimeConfig),
         web: configuredWebTools(runtimeConfig)
       };
     }

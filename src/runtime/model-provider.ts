@@ -9,7 +9,7 @@ export function modelThinkingLevel(model: Model<Api>, level: PiThinkingLevel): P
   return clampThinkingLevel(model, level);
 }
 
-/** Shared serialization policy for probes, Main, delegated sessions and vision. */
+/** Shared serialization policy for probes, Main and delegated sessions. */
 export function createModelStreams(
   api: CoworkModelApi,
   cache: { supportsPromptCacheKey: boolean; sessionId?: string } = { supportsPromptCacheKey: false }

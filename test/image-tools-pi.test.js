@@ -6,7 +6,6 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
-import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
 
 const exec = promisify(execFile);
 const pixel = Buffer.from(
@@ -14,54 +13,12 @@ const pixel = Buffer.from(
   "base64"
 );
 
-test("delegated image analysis is delivered through a real PiSession and keeps credentials out of the recovery queue", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "atria-subagent-vision-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  await mkdir(join(root, "task"));
-  await writeFile(join(root, "task", "pixel.png"), pixel);
-  const vision = await modelProtocolFixture("openai-completions", () => ({
-    text: JSON.stringify({ status: "pass", summary: "Delegated image evidence", issues: [] })
-  }));
-  t.after(() => vision.close());
-  const agent = await modelProtocolFixture("openai-completions", (_body, requests) =>
-    requests.length === 1
-      ? { name: "read_image", arguments: { path: "pixel.png", scope: "task", review: true } }
-      : { text: "Image review completed." }
-  );
-  t.after(() => agent.close());
-  const result = await new CoordinatorRuntime().dispatch({
-    taskId: "task",
-    runId: "run",
-    callId: "call",
-    agentId: "image-agent",
-    task: "Review pixel.png",
-    mode: "sync",
-    workspaceRoot: root,
-    baseUrl: agent.baseUrl,
-    apiKey: "local-agent-secret",
-    model: "fixture",
-    thinkingLevel: "off",
-    supportsReasoningEffort: false,
-    supportsImages: false,
-    timeoutMs: 10000,
-    visionModel: { baseUrl: vision.baseUrl, apiKey: "local-vision-secret", model: "fixture" }
-  });
-  assert.equal(result.status, "succeeded");
-  assert.ok(JSON.stringify(agent.requests.at(-1).body).includes("Delegated image evidence"));
-  const queue = await readFile(join(root, "task", "runs", "run", "queue.json"), "utf8");
-  assert.equal(queue.includes("local-vision-secret"), false);
-});
-for (const [api, native] of [
-  ["openai-completions", false],
-  ["openai-completions", true],
-  ["openai-responses", false],
-  ["openai-responses", true]
-])
+for (const api of ["openai-completions", "openai-responses"])
   test(
-    `real Main ${api} read_image: normalized arguments return ${native ? "native pixels" : "separate Responses visual evidence"}`,
+    `real Main ${api} read_image returns native pixels for every accepted source`,
     { timeout: 45000 },
     async (t) => {
-      const root = await mkdtemp(join(tmpdir(), "atria-vision-pi-"));
+      const root = await mkdtemp(join(tmpdir(), "atria-image-tools-pi-"));
       t.after(() => rm(root, { recursive: true, force: true }));
       const project = join(root, "project"),
         workspace = join(root, "workspace");
@@ -72,15 +29,11 @@ for (const [api, native] of [
       await mkdir(join(workspace, "image-task", "agents", "main", "work", "preview"), { recursive: true });
       await writeFile(join(workspace, "image-task", taskImage), pixel);
       const imageCalls = [
-        native ? { paths: ["pixel.png", "pixel.png"] } : { path: "pixel.png", review: true },
+        { paths: ["pixel.png", "pixel.png"] },
         { path: taskImage, paths: [taskImage], scope: "task", review: false },
         { path: taskImage, paths: [""], scope: "task", review: false },
         { path: "", paths: [taskImage], scope: "task", review: false }
       ];
-      const vision = await modelProtocolFixture("openai-responses", () => ({
-        text: JSON.stringify({ status: "pass", summary: "Pixel fixture reviewed", issues: [] })
-      }));
-      t.after(() => vision.close());
       const main = await modelProtocolFixture(api, (_body, requests) =>
         requests.length <= imageCalls.length
           ? { name: "read_image", arguments: imageCalls[requests.length - 1] }
@@ -92,13 +45,12 @@ for (const [api, native] of [
         apiKey: "local-main-key",
         model: "fixture-main",
         api,
-        supportsImages: native,
+        supportsImages: true,
         reasoningEffort: "off",
         supportsReasoningEffort: false,
         modelConnections: {
           version: 1,
           activeId: "main",
-          visionId: "vision",
           profiles: [
             {
               id: "main",
@@ -106,21 +58,8 @@ for (const [api, native] of [
               baseUrl: main.baseUrl,
               apiKey: "local-main-key",
               model: "fixture-main",
-              supportsImages: native,
-              api,
-              reasoningEffort: "off",
-              supportsReasoningEffort: false,
-              mainMaxTokens: 8192,
-              subagentMaxTokens: 8192
-            },
-            {
-              id: "vision",
-              name: "Vision",
-              baseUrl: vision.baseUrl,
-              apiKey: "local-vision-key",
-              model: "fixture-vision",
               supportsImages: true,
-              api: "openai-responses",
+              api,
               reasoningEffort: "off",
               supportsReasoningEffort: false,
               mainMaxTokens: 8192,
@@ -179,29 +118,23 @@ for (const [api, native] of [
         const evidence = JSON.stringify(results.at(-1));
         assert.doesNotMatch(evidence, /Provide exactly one|Error|error/i);
         if (index > 0) assert.ok(evidence.includes(taskImage), "keep the Task image path in evidence");
-        if (native) {
-          const imageParts = messages
-            .flatMap((message) => {
-              const parts = api === "openai-responses" ? message.output : message.content;
-              return Array.isArray(parts) ? parts : [];
-            })
-            .filter((part) => part.type === (api === "openai-responses" ? "input_image" : "image_url"));
-          assert.equal(imageParts.length, index + 2, "aliases must not duplicate an image");
-          for (const part of imageParts)
-            assert.equal(
-              api === "openai-responses" ? part.image_url : part.image_url.url,
-              `data:image/png;base64,${pixel.toString("base64")}`
-            );
-        } else {
-          assert.ok(evidence.includes("Pixel fixture reviewed"), "deliver visual evidence after every call");
-          assert.equal(JSON.stringify(messages).includes("data:image/png;base64,"), false);
-        }
+        const imageParts = messages
+          .flatMap((message) => {
+            const parts = api === "openai-responses" ? message.output : message.content;
+            return Array.isArray(parts) ? parts : [];
+          })
+          .filter((part) => part.type === (api === "openai-responses" ? "input_image" : "image_url"));
+        assert.equal(imageParts.length, index + 2, "aliases must not duplicate an image");
+        for (const part of imageParts)
+          assert.equal(
+            api === "openai-responses" ? part.image_url : part.image_url.url,
+            `data:image/png;base64,${pixel.toString("base64")}`
+          );
       }
-      assert.equal(vision.requests.length, native ? 0 : 2, "reuse the identical Task image evidence");
       const session = await readFile(
         join(workspace, "image-task", "sessions", "main", "image-run-requests.jsonl"),
         "utf8"
       );
-      assert.equal(session.includes("local-vision-key"), false);
+      assert.equal(session.includes("local-main-key"), false);
     }
   );

@@ -436,3 +436,38 @@ test("advanced model fields may stay empty when saving a connection", async ({ p
     await provider.close();
   }
 });
+
+test("thinking format belongs to its saved connection and new profiles retain automatic detection", async ({
+  page
+}) => {
+  const dashboard = await startDashboard();
+  try {
+    await page.goto(dashboard.base);
+    await page.locator("#model-setup-button").click();
+    const dialog = page.getByRole("dialog", { name: "连接模型" });
+    await dialog.locator("details > summary").click();
+    await expect(dialog.locator('[name="thinkingFormat"]')).toHaveValue("auto");
+    await dialog.locator('[name="profileName"]').fill("GLM gateway");
+    await dialog.locator('[name="baseUrl"]').fill("https://gateway.example/v1");
+    await dialog.locator('[name="model"]').fill("glm-fixture");
+    await dialog.locator('[name="apiKey"]').fill("local-fixture-key");
+    await dialog.locator('[name="thinkingFormat"]').selectOption("zai");
+    await dialog.locator('[name="supportsReasoningEffort"]').check();
+    await dialog.locator('[name="reasoningEffort"]').selectOption("max");
+    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await page.reload();
+    await openModelConnectionEditor(page);
+    await expect(dialog.locator('[name="thinkingFormat"]')).toHaveValue("zai");
+    await dialog.locator("[data-model-profiles]").selectOption("");
+    await expect(dialog.locator('[name="thinkingFormat"]')).toHaveValue("auto");
+    const status = await page.evaluate(async () => (await fetch("/api/model-settings")).json());
+    expect(status.profiles.find((profile) => profile.id === status.activeProfileId).thinkingFormat).toBe(
+      "zai"
+    );
+    await dialog.locator("[data-model-profiles]").selectOption(status.activeProfileId);
+    await expect(dialog.locator('[name="thinkingFormat"]')).toHaveValue("zai");
+  } finally {
+    await dashboard.stop();
+  }
+});

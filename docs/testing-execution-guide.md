@@ -81,16 +81,16 @@ L3/L4 应真正经过生产 Pi 和执行工具，不能用假的 Agent 替掉执
 
 能力使用稳定 ID，例如 `runtime.resume`、`coordination.delegate`、`resource.cas`、`cli.onboarding`、`desktop.quit`。同一能力关联多个测试，一个测试也可覆盖多个能力。目录至少保存以下字段：
 
-| 字段                               | 含义                                   |
-| ---------------------------------- | -------------------------------------- |
-| `id`、`owner`、`risk`              | 稳定身份、维护者、P0/P1/P2             |
-| `status`、`introducedIn`           | 当前能力或未来规划，首次版本           |
-| `entrypoints`、`platforms`         | CLI/App/API 及支持平台                 |
-| `implementationPaths`、`consumers` | 变更影响路径与接口两端                 |
-| `requires`、`permissionMode`       | 原生引擎、视觉模型、系统授权等前置条件 |
-| `invariants`、`requiredLayers`     | 不变量及必须提供的证据层               |
-| `caseIds`、`requiredProfiles`      | 关联 case 及每个环境的必跑范围         |
-| `docs`、`compatibility`            | 产品承诺、兼容和迁移规则               |
+| 字段                               | 含义                                             |
+| ---------------------------------- | ------------------------------------------------ |
+| `id`、`owner`、`risk`              | 稳定身份、维护者、P0/P1/P2                       |
+| `status`、`introducedIn`           | 当前能力或未来规划，首次版本                     |
+| `entrypoints`、`platforms`         | CLI/App/API 及支持平台                           |
+| `implementationPaths`、`consumers` | 变更影响路径与接口两端                           |
+| `requires`、`permissionMode`       | 原生引擎、支持图片输入的模型、系统授权等前置条件 |
+| `invariants`、`requiredLayers`     | 不变量及必须提供的证据层                         |
+| `caseIds`、`requiredProfiles`      | 关联 case 及每个环境的必跑范围                   |
+| `docs`、`compatibility`            | 产品承诺、兼容和迁移规则                         |
 
 能力覆盖状态只允许 `planned`、`implemented_unverified`、`verified`、`regressed`、`not_applicable`。只有当前构建在该能力要求的全部环境中运行并通过，才记为 verified。测试文件存在、历史通过、在不适用平台跳过，都不能把能力标成 verified。
 
@@ -159,7 +159,7 @@ CLI fixture 设置独立 `ATRIA_HOME`、`COWORK_CONFIG`、`COWORK_WORKSPACE`、`
 
 ## 10 真实模型能力评测
 
-真实模型使用固定版本的数据集、任务说明、独立 oracle 和允许工具范围；模型自由选择操作顺序。脚本化 fixture 的路径确定性不能替代模型规划能力。模型兼容测试分别覆盖文本+工具、推理参数、视觉、Main/Subagent 和压缩/恢复；声明不支持的能力测明确降级。
+真实模型使用固定版本的数据集、任务说明、独立 oracle 和允许工具范围；模型自由选择操作顺序。脚本化 fixture 的路径确定性不能替代模型规划能力。模型兼容测试分别覆盖文本+工具、推理参数、图片输入、Main/Subagent 和压缩/恢复；声明不支持的能力测明确降级。
 
 首版建议核心 8 个任务在 CLI/App 各重复 3 次，另测应用与原生专项；这只是建立基线的样本量，不足以证明稳定 95% 成功率。后续对高价值类别累计 20–30 次独立运行并给出区间估计。稳定集、扩展集和暂不公开的挑战集分开，冻结后不能按某版失败随意删题。
 

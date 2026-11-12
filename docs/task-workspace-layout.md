@@ -294,7 +294,7 @@ node scripts/migrate-artifacts.mjs --workspace /path/to/workspace --task <task-i
 
 草稿只保存附件元数据和 uploadId，桌面草稿格式 v3 可跨端口恢复，并兼容旧文本草稿。已完成上传后才允许发送或关闭窗口；切换对话会取消尚未完成的上传。删除附件按钮只解除该草稿的引用，不删除历史消息使用的原文件。当前未实现未引用上传文件的定期清理。
 
-Main 的 `read_attachment` 工具按格式读取，支持文字分页、PDF 页面和图片视觉输入；模型未启用图像时会返回明确提示。PDF/Office 解析使用本机 Python 3 与 pypdf/PyMuPDF/python-docx/python-pptx/openpyxl；缺失依赖时原文件与下载仍可用，不会将二进制文件误当作文字发送。图片预览无需这些依赖。PDF 页面按需渲染，Office 预览为提取文字，并非完整排版预览。
+Main 的 `read_attachment` 工具按格式读取，支持文字分页、PDF 页面和图片输入；模型不支持图片输入时返回明确提示。PDF/Office 解析使用本机 Python 3 与 pypdf/PyMuPDF/python-docx/python-pptx/openpyxl；缺失依赖时原文件与下载仍可用，不会将二进制文件误当作文字发送。图片预览无需这些依赖。PDF 页面按需渲染，Office 预览为提取文字，并非完整排版预览。
 
 ## Watch 分析与通知恢复
 

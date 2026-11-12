@@ -134,12 +134,11 @@ import { recordCliSessionBinding } from "../../scripts/cli-session.mjs";
 import { registerWebSearchTools } from "./tools/web-search.ts";
 import { registerSearchTools } from "./tools/file-search.ts";
 import { registerImageTools } from "./tools/images.ts";
-import { visionModelConfig } from "../../dist/src/runtime/vision-config.js";
 
 export default async function registerCoworkExtension(pi: ExtensionAPI) {
   const config = loadConfig();
   const runtimeEnv = runtimeSettingsEnv(config);
-  const visionModel = visionModelConfig(config);
+  const supportsImages = configuredSupportsImages(runtimeEnv);
   const supportsReasoningEffort = configuredSupportsReasoningEffort(runtimeEnv);
   const currentThinkingLevel = (): PiThinkingLevel =>
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 Pi 宿主不提供 getThinkingLevel，缺方法时回退到配置的推理强度
@@ -164,7 +163,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     projectDirectory,
     secrets: [
       process.env.COWORK_API_KEY,
-      visionModel?.apiKey,
       config.apiKey,
       process.env.COWORK_SERPER_API_KEY,
       process.env.SERPER_API_KEY,
@@ -381,8 +379,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         thinkingFormat: configuredThinkingFormat(runtimeEnv),
         supportsReasoningEffort,
         supportsPromptCacheKey: configuredSupportsPromptCacheKey(runtimeEnv),
-        supportsImages: configuredSupportsImages(runtimeEnv),
-        visionModel,
+        supportsImages,
         maxTurns: configuredSubagentMaxTurns(runtimeEnv),
         maxTokens: configuredSubagentMaxTokens(runtimeEnv),
         contextWindow: configuredContextWindow(runtimeEnv),
@@ -1362,10 +1359,7 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
       return supportsReasoningEffort;
     },
     get supportsImages() {
-      return configuredSupportsImages(runtimeEnv);
-    },
-    get visionModel() {
-      return visionModel;
+      return supportsImages;
     },
     get taskId() {
       return taskId;
@@ -1425,7 +1419,8 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
     workspaceRoot,
     taskId,
     mainRunId,
-    hasResources: async () => (await applicationBridge.workbench.listResources(taskId)).length > 0
+    hasResources: async () => (await applicationBridge.workbench.listResources(taskId)).length > 0,
+    supportsImages
   });
   pi.registerCommand("cowork-status", {
     description: "Show Cowork workspace and active Coordinator jobs",

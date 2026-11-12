@@ -23,10 +23,7 @@ async function fixture(t, options = {}) {
     `require('node:fs').writeFileSync(${JSON.stringify(piEnv)},JSON.stringify({
       apiKey: process.env.COWORK_API_KEY ?? null,
       apiBase: process.env.COWORK_API_BASE ?? null,
-      model: process.env.COWORK_MODEL ?? null,
-      visionKey: process.env.COWORK_VISION_API_KEY ?? null,
-      visionBase: process.env.COWORK_VISION_API_BASE ?? null,
-      visionModel: process.env.COWORK_VISION_MODEL ?? null
+      model: process.env.COWORK_MODEL ?? null
     }));
 console.log('fixture Pi exited');
 `
@@ -36,8 +33,7 @@ console.log('fixture Pi exited');
     `const fs=require('node:fs');
 fs.writeFileSync(${JSON.stringify(evidence)},JSON.stringify(process.argv.slice(2)));
 fs.writeFileSync(${JSON.stringify(supervisorEnv)},JSON.stringify({
-  apiKey: process.env.COWORK_API_KEY ?? null,
-  visionKey: process.env.COWORK_VISION_API_KEY ?? null
+  apiKey: process.env.COWORK_API_KEY ?? null
 }));`
   );
   const configPath = join(root, "config.json");
@@ -97,7 +93,6 @@ test("host-stored credentials autostart the Watch supervisor and reach the Pi ch
       modelConnections: {
         version: 1,
         activeId: "main",
-        visionId: "vision",
         profiles: [
           {
             id: "main",
@@ -106,21 +101,13 @@ test("host-stored credentials autostart the Watch supervisor and reach the Pi ch
             model: "fixture-model",
             api: "openai-completions",
             supportsImages: false
-          },
-          {
-            id: "vision",
-            name: "Vision",
-            baseUrl: "http://vision.example/v1",
-            model: "vision-model",
-            api: "openai-completions",
-            supportsImages: true
           }
         ]
       }
     },
     credentials: {
       version: 1,
-      modelConnections: { main: "host-main-key", vision: "host-vision-key" }
+      modelConnections: { main: "host-main-key" }
     },
     env: { COWORK_API_KEY: undefined }
   });
@@ -145,9 +132,6 @@ test("host-stored credentials autostart the Watch supervisor and reach the Pi ch
   assert.equal(pi.apiKey, "host-main-key", "the Pi child receives the host-stored model key");
   assert.equal(pi.apiBase, "http://unused.test");
   assert.equal(pi.model, "fixture-model");
-  assert.equal(pi.visionKey, "host-vision-key", "the Pi child receives the host-stored vision key");
-  assert.equal(pi.visionBase, "http://vision.example/v1");
-  assert.equal(pi.visionModel, "vision-model");
 });
 
 test("information-only Pi commands do not start a detached Watch supervisor", async (t) => {

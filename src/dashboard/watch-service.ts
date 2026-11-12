@@ -22,7 +22,6 @@ export function createWatchService(ports: {
     | "thinkingFormat"
     | "contextWindow"
     | "supportsImages"
-    | "visionModel"
     | "web"
   >;
   cancelTask: (taskId: string) => Promise<unknown>;

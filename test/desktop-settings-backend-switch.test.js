@@ -137,7 +137,6 @@ function modelFixture(t, intercept) {
   const status = (value) => ({
     ...value,
     activeProfileId: value.id,
-    visionProfileId: "",
     profiles: [value],
     managedByEnvironment: false
   });

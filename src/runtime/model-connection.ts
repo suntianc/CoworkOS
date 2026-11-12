@@ -25,17 +25,17 @@ export interface ModelConnectionInput extends Partial<ConnectionProfile> {
   supportsImages?: boolean;
 }
 
-interface VisionFixture {
+interface ImageFixture {
   imageUrl: string;
   code: string;
 }
 interface ConnectionTestOptions {
-  visionFixture?: () => VisionFixture;
+  imageFixture?: () => ImageFixture;
 }
 
 // The challenge answer exists only in generated pixels, never in the prompt/schema.
 // A color-only probe can accidentally pass when a model guesses its fixed color.
-function createVisionFixture(): VisionFixture {
+function createImageFixture(): ImageFixture {
   const code = randomInt(2) === 0 ? "2" : "4";
   const glyphs = {
     "2": ["01110", "10001", "00001", "00010", "00100", "01000", "11111"],
@@ -107,7 +107,7 @@ export async function testModelConnection(input: ModelConnectionInput, options: 
     throw new Error("图像能力设置必须为布尔值");
   const profile = parseConnectionProfile({ ...input }, connectionProfile(input));
   const format = profile.api === "openai-responses" ? "Responses" : "Chat Completions";
-  const fixture = input.supportsImages ? (options.visionFixture ?? createVisionFixture)() : undefined;
+  const fixture = input.supportsImages ? (options.imageFixture ?? createImageFixture)() : undefined;
   const started = Date.now();
   const content: Array<TextContent | ImageContent> = [
     {

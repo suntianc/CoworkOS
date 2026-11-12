@@ -94,21 +94,9 @@ Client sessions use the `CoworkOS Client` encryption identity through a separate
 
 Main reads its role when a Run is admitted and records the non-sensitive source as `main.run_spawned.modelSelection`; a later settings change affects the next Run while an in-flight Run and a saved request retry keep their recorded selection. `executor` and `reviewer` are read each time a delegated work item actually starts — including an item still queued behind its prerequisites — so a binding change applies to items that have not started while a started attempt keeps its choice. With no binding the item keeps the launching Run's connection, which is why the settings view reports no fixed effective connection for them. `router` remains a later path's configuration key. A saved role referencing a missing connection reports the role, scope and connection id and is refused rather than falling back to another account.
 
-## Separate vision connection
+## Image input
 
-`modelConnections.visionId` references a saved connection with `supportsImages` enabled. Native image models receive pixels directly; the separate vision connection is used when a text-only model calls `read_image`. See [model connections](configuration.md#app-and-web-model-connections) for the UI.
-
-CLI environment configuration requires `COWORK_VISION_API_BASE`, `COWORK_VISION_API_KEY` and `COWORK_VISION_MODEL` together. A complete configuration overrides the saved vision connection; missing fields fail.
-
-| Optional variable                         | Purpose and default                                     |
-| ----------------------------------------- | ------------------------------------------------------- |
-| `COWORK_VISION_MODEL_API`                 | Vision connection's message format                      |
-| `COWORK_VISION_THINKING_FORMAT`           | Vision connection's thinking format                     |
-| `COWORK_VISION_MAX_TOKENS`                | 8192 by default; 1 to 65536, capped at 8192 for reviews |
-| `COWORK_VISION_REASONING_EFFORT`          | `off` by default                                        |
-| `COWORK_VISION_SUPPORTS_REASONING_EFFORT` | `false` by default                                      |
-
-Trusted child processes inherit the selected connection. Keys stay out of UI and queues, using the existing encrypted or private JSON storage.
+Images are read by the Main connection itself. When the connection enables `supportsImages`, image reads, screenshots and `read_attachment` send pixels as message content. When the connection does not accept image input, images are not sent to the model and the image tools state plainly that the current model does not support images. Desktop control, browser control and CUA scripts are offered only on a connection that accepts image input. See [model connections](configuration.md#app-and-web-model-connections) for the UI.
 
 ## Web search
 
@@ -130,7 +118,7 @@ Tools preserve source titles, URLs, bodies and available dates without inventing
 
 Environment variables take precedence. Only HTTP(S) proxy URLs are accepted, such as `http://proxy.example:8080`. The bypass list always includes `localhost`, `127.0.0.1` and `::1`, preserving other entries.
 
-Settings apply to CLI Main, headless CLI, subagents, model discovery, connection checks and separate vision requests with both model protocols. Sessions, vision analyses and checks release their proxy connections on completion or cancellation. Interactive Pi uses SDK environment proxies; there are no separate model or vision proxy variables. Treat credential-bearing proxy URLs as private configuration.
+Settings apply to CLI Main, headless CLI, subagents, model discovery and connection checks with both model protocols. Sessions and checks release their proxy connections on completion or cancellation. Interactive Pi uses SDK environment proxies; there are no separate model proxy variables. Treat credential-bearing proxy URLs as private configuration.
 
 ## Project data storage
 

@@ -39,6 +39,6 @@ Main 的 `computer_observe`、`computer_wait` 与 `computer_act` 后续观察也
 
 默认限制为每图 20 MiB；`read_image(paths)` 合计 20 MiB，`read_images(images)` 合计 40 MiB；PNG 输入/输出各不超过 16M 像素；每 Task 归档最多 512 MiB / 1024 张。归档限额包含 metadata 和中断残留，达到限额拒绝新写入，已有 `imageRef` 仍可读取。跟随 Task 数据备份，暂无自动回收或降级迁移。
 
-支持图片的模型直接得到按传入顺序排列的图片 blocks，不额外调用视觉模型；文本模型沿用配置的视觉连接，将多图放入同一次有序比较请求，结果缓存同时包含每张图的 hash 与顺序。三个读图工具均支持 `goal` 与 `review`（结构化视觉 QA）；`review: true` 仅接受单张图片，逐页检查最终产物。调用取消停止后续读写/模型请求；文件读写和图片解码都受上述尺寸限制，跨进程归档锁最多等待 1 秒。
+支持图片输入的模型直接得到按传入顺序排列的图片 blocks；连接不支持图片输入时像素不发送，读图工具明确说明当前模型不支持图片。结果缓存同时包含每张图的 hash 与顺序。三个读图工具均支持 `goal` 与 `review`（结构化视觉 QA）；`review: true` 仅接受单张图片，逐页检查最终产物。调用取消停止后续读写/模型请求；文件读写和图片解码都受上述尺寸限制，跨进程归档锁最多等待 1 秒。
 
 回归见 [真实像素/边界](../test/visual-observation.test.js) 与 [真实 Main/委派 Pi 工具链](../test/visual-observation-pi.test.js)。它们使用本地假模型，不替代实际多模态模型的识别质量或原生屏幕权限验收。

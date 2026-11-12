@@ -1,18 +1,14 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createVisionAnalyzer } from "../../../dist/src/tools/vision-model.js";
 import { createImageTools } from "../../../dist/src/tools/read-image.js";
 import type { CoworkToolContext } from "../extension.ts";
 
 export function registerImageTools(pi: ExtensionAPI, context: CoworkToolContext) {
-  const analyze = createVisionAnalyzer();
   const tools = createImageTools({
     rootDirectory: context.projectDirectory,
     taskDirectory: context.taskWorkspace,
     workScope: "project",
-    supportsImages: context.supportsImages,
-    visionModel: context.visionModel,
-    analyze
+    supportsImages: context.supportsImages
   });
   for (const name of Object.keys(tools) as Array<keyof typeof tools>) {
     const tool = tools[name];
