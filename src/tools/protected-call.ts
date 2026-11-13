@@ -11,16 +11,16 @@ import type { ProtectedPaths } from "./protected-paths.js";
  *
  * A shell command can write through redirection or a file-moving command
  * without either write tool. Those targets are extracted here too, following
- * `cd`/`pushd`/`popd`, `git -C` and `make -C`, because a relative path means
+ * `cd`/`pushd`/`popd` and `git -C`, because a relative path means
  * nothing without the directory it was resolved from. When that directory is
  * itself unknowable (`cd "$D"`), a relative write is treated as possibly
  * protected while any protected path exists in the project.
  *
- * This is best-effort recognition of common shell forms, not a sandbox. A
- * command that opens a protected path from inside an interpreter, a backtick
- * substitution, `xargs`, or a tool that writes without naming the file stays
- * outside what a tool-call check can see; keeping the paths away from the
- * agent still needs permissions and convention.
+ * This is best-effort recognition of common shell forms, not a sandbox. Known
+ * gaps include writes from inside an interpreter, command substitution inside
+ * quotes, backticks, `xargs`, `find -delete`, `git clean` and `curl -O` (the URL
+ * is not the written file). Keeping the paths away from the agent still needs
+ * permissions and convention.
  */
 
 export interface ProtectedCallRefusal {
@@ -213,7 +213,12 @@ function parseTokens(tokens: ShellToken[], state: ShellState): ShellWrite[] {
     if (token.kind === "op" && token.value === ")") {
       flush();
       const restored = groups.pop();
-      if (restored) Object.assign(state, restored);
+      if (restored) {
+        state.directory = restored.directory;
+        state.previous = restored.previous;
+        state.unresolved = restored.unresolved;
+        state.stack = restored.stack;
+      }
       continue;
     }
     if (token.kind === "op" && SEGMENT_BREAKS.has(token.value)) {
@@ -227,6 +232,12 @@ function parseTokens(tokens: ShellToken[], state: ShellState): ShellWrite[] {
       index += 1;
       continue;
     }
+    // `{ ...; }` runs in the current shell, so its `cd` carries into the
+    // following segment; only a standalone brace is a group marker.
+    if ((token.value === "{" || token.value === "}") && words.length === 0) {
+      flush();
+      continue;
+    }
     words.push(token.value);
   }
   flush();
@@ -235,9 +246,9 @@ function parseTokens(tokens: ShellToken[], state: ShellState): ShellWrite[] {
 
 function copyState(state: ShellState): ShellState {
   return {
-    ...(state.directory ? { directory: state.directory } : {}),
+    directory: state.directory,
     unresolved: state.unresolved,
-    ...(state.previous ? { previous: state.previous } : {}),
+    previous: state.previous,
     stack: [...state.stack]
   };
 }
@@ -286,10 +297,15 @@ function argumentsOf(words: string[]): { command: string; args: string[] } {
 
 /** The directory this one command's target arguments resolve from. */
 function commandBase(command: string, args: string[], state: ShellState): ShellBase {
-  if (command !== "git" && command !== "make") return { ...state };
-  const index = args.findIndex((value) => value === "-C");
-  if (index < 0) return { ...state };
-  return combineDirectory(state, args[index + 1]);
+  if (command !== "git") return { ...state };
+  let base: ShellBase = { directory: state.directory, unresolved: state.unresolved };
+  // Git applies repeated -C options cumulatively: -C a -C b is a/b.
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== "-C") continue;
+    base = combineDirectory(base, args[index + 1]);
+    index += 1;
+  }
+  return base;
 }
 
 function combineDirectory(state: ShellBase, value: string | undefined): ShellBase {
@@ -394,8 +410,11 @@ function commandWrites(command: string, args: string[], base: ShellBase): ShellW
     const subIndex = rest.findIndex((value) => !value.startsWith("-"));
     const subcommand = rest[subIndex];
     if (subcommand === "rm" || subcommand === "mv") add(nonOptions(rest.slice(subIndex + 1)));
-    else if ((subcommand === "checkout" || subcommand === "restore") && rest.includes("--"))
-      add(nonOptions(rest.slice(rest.indexOf("--") + 1)));
+    else if (subcommand === "checkout" || subcommand === "restore") {
+      const tail = rest.slice(subIndex + 1);
+      const separator = tail.indexOf("--");
+      add(nonOptions(separator >= 0 ? tail.slice(separator + 1) : tail));
+    }
   }
   return writes;
 }

@@ -368,18 +368,27 @@ test(
       reason: protectedPathReason(path, "eval/")
     });
 
-    for (const command of [
-      "cd eval && rm score.py",
-      "cd eval && printf x > score.py",
-      "git -C eval rm score.py",
-      'cd "$D" && rm score.py',
-      "pushd eval && rm score.py",
-      "(cd eval && rm score.py)",
-      'cd eval && bash -c "rm score.py"'
+    for (const [command, path] of [
+      ["cd eval && rm score.py", "score.py"],
+      ["cd eval && printf x > score.py", "score.py"],
+      ["git -C eval rm score.py", "score.py"],
+      ['cd "$D" && rm score.py', "score.py"],
+      ["pushd eval && rm score.py", "score.py"],
+      ["(cd eval && rm score.py)", "score.py"],
+      ['cd eval && bash -c "rm score.py"', "score.py"],
+      ["(cd ..) ; rm eval/score.py", "eval/score.py"],
+      ["(cd /tmp) ; rm eval/score.py", "eval/score.py"],
+      ["echo $(cd ..) ; rm eval/score.py", "eval/score.py"],
+      ["{ cd eval; rm score.py; }", "score.py"],
+      ["{ cd eval; }; rm score.py", "score.py"],
+      ["git -C . -C eval rm score.py", "score.py"],
+      ["git restore eval/score.py", "eval/score.py"],
+      ["git restore --worktree eval/score.py", "eval/score.py"],
+      ["git checkout eval/score.py", "eval/score.py"]
     ]) {
       assert.deepEqual(
         protectedCallRefusal("bash", { command }, guard, site),
-        refusal("score.py"),
+        refusal(path),
         `${command} must resolve relative to the directory it reached`
       );
     }
@@ -388,7 +397,8 @@ test(
       "cd eval && cd - && rm score.py",
       "pushd eval && popd && rm score.py",
       "cd /tmp && rm score.py",
-      "make -C eval clean"
+      "make -C eval clean",
+      "(cd eval) ; rm score.py"
     ]) {
       assert.equal(
         protectedCallRefusal("bash", { command }, guard, site),
@@ -520,12 +530,17 @@ test(
     await writeFile(join(site, "eval", "score.py"), "score = 1\n");
     await git(site, ["add", "-A"]);
     await git(site, ["commit", "-m", "scorer"]);
-    const expected = protectedPathReason("score.py", "eval/");
     const commands = [
-      "cd eval && rm score.py",
-      "cd eval && printf 'hacked\\n' > score.py",
-      "git -C eval rm score.py",
-      'cd "$D" && rm score.py'
+      { command: "cd eval && rm score.py", path: "score.py" },
+      { command: "cd eval && printf 'hacked\\n' > score.py", path: "score.py" },
+      { command: "git -C eval rm score.py", path: "score.py" },
+      { command: 'cd "$D" && rm score.py', path: "score.py" },
+      { command: "(cd ..) ; rm eval/score.py", path: "eval/score.py" },
+      { command: "echo $(cd ..) ; rm eval/score.py", path: "eval/score.py" },
+      { command: "{ cd eval; rm score.py; }", path: "score.py" },
+      { command: "git -C . -C eval rm score.py", path: "score.py" },
+      { command: "git restore eval/score.py", path: "eval/score.py" },
+      { command: "git checkout eval/score.py", path: "eval/score.py" }
     ];
 
     const { provider, runRoot } = await delegatedCall(t, {
@@ -534,9 +549,15 @@ test(
       payload: { task: "Verify the scorer", projectDirectory: site, delegation: { role: "executor" } },
       handle: (_body, requests) => {
         const index = requests.length - 1;
-        if (index > 0 && index <= commands.length)
-          assert.equal(refusalText(requests), expected, `${commands[index - 1]} is refused like Main`);
-        if (index < commands.length) return { name: "bash", arguments: { command: commands[index] } };
+        if (index > 0 && index <= commands.length) {
+          const previous = commands[index - 1];
+          assert.equal(
+            refusalText(requests),
+            protectedPathReason(previous.path, "eval/"),
+            `${previous.command} is refused like Main`
+          );
+        }
+        if (index < commands.length) return { name: "bash", arguments: { command: commands[index].command } };
         return { text: "Done" };
       }
     });
@@ -554,8 +575,13 @@ test(
       );
       return refusals.length === commands.length ? refusals : undefined;
     }, "the delegated guard refusal events");
+    // The refusal event is written fire-and-forget, so event order is not the
+    // tool-call order; the multiset of refused paths is what stays stable.
+    assert.deepEqual(
+      event.map((entry) => entry.payload.path).sort(),
+      commands.map((command) => command.path).sort()
+    );
     for (const entry of event) {
-      assert.equal(entry.payload.path, "score.py");
       assert.equal(entry.payload.pattern, "eval/");
       assert.equal(entry.payload.toolName, "bash");
       assert.equal(entry.taskId, TASK_ID);

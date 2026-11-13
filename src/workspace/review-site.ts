@@ -96,8 +96,15 @@ export async function prepareReviewSite(site: ReviewSite): Promise<void> {
   } catch (error) {
     throw invalid(error instanceof Error ? error.message : String(error));
   }
-  if (!(await reviewSiteIsIntact({ ...site, commit })))
+  if (!(await reviewSiteIsIntact({ ...site, commit }))) {
+    try {
+      await git(site.repository, ["worktree", "remove", "--force", site.directory]);
+      // eslint-disable-next-line no-restricted-syntax -- 现场刚创建却未通过核对时，移除它是清理动作；移除失败仍要报告无法确认候选，不能掩盖原始结论
+    } catch {
+      /* the invalid-site error below is the actionable one */
+    }
     throw invalid(`审查现场创建后无法确认候选 ${commit}（${site.directory}）`);
+  }
 }
 
 /**
