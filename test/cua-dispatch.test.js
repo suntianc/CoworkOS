@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 
 const requirePi = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const { createJiti } = await import(requirePi.resolve("jiti"));

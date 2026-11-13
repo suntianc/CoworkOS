@@ -193,9 +193,9 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 无新消息的 Main 续执行由 [续执行协议与输入落盘](../src/runtime/main-continuation.ts)、[会话恢复](../scripts/main-session.mjs) 和 [Pi 扩展](../.pi/runtime/extension.ts) 处理；先验证 [输入恢复](../test/main-continuation.test.js)、[真实 Pi 恢复](../test/main-recovery-pi.test.js) 和 [浏览器重试](../e2e/request-recovery.spec.js)，同步 [恢复说明](runtime-reference.md#请求重试与上下文恢复)。
 
-Main 失败请求重放由 [私有请求槽](../src/storage/main-request-store.ts)、[重试生命周期](../src/runtime/main-request-retry.ts) 和 provider 边界的 [归档装饰器](../src/runtime/model-request-recording.ts) 负责。保存完整 wire body、原模型/上下文和请求关联；摘要请求不占槽，重放时暂停新回调确认，之后处理迟到/已保存输入；未实际读取的文档变更不确认已读。恢复可选工具不扩大授权，成功后继续正常工具循环。
+Main 失败请求重放由 [私有请求槽](../src/storage/main-request-store.ts)、[重试生命周期](../src/runtime/main-request-retry.ts) 和 provider 边界的 [归档装饰器](../src/runtime/model-request-recording.ts) 负责。保存完整 wire body、原模型/上下文和请求关联；[Pi 版本](../src/runtime/pi-version.ts) 从实际解析到的包读取并随快照保存，版本不一致或旧快照没有版本时不再重放，改为从会话重建上下文并在重试记录中写明原因；摘要请求不占槽，重放时暂停新回调确认，之后处理迟到/已保存输入；未实际读取的文档变更不确认已读。恢复可选工具不扩大授权，成功后继续正常工具循环。
 
-回归见 [双协议重启/设置与完整性](../test/main-request-retry.test.js)、[真实 Pi 完整请求比较](../test/main-recovery-pi.test.js) 和 [流式中断/浏览器重试](../e2e/request-recovery.spec.js)，同步 [恢复参考](runtime-reference.md#请求重试与上下文恢复)、[API](product-api.md) 与 [数据布局](task-workspace-layout.md)。
+回归见 [双协议重启/设置与完整性](../test/main-request-retry.test.js)、[快照版本](../test/p46-snapshot-pi-version.test.js)、[真实 Pi 完整请求比较](../test/main-recovery-pi.test.js) 和 [流式中断/浏览器重试](../e2e/request-recovery.spec.js)，同步 [恢复参考](runtime-reference.md#请求重试与上下文恢复)、[API](product-api.md) 与 [数据布局](task-workspace-layout.md)。
 
 等待工具与 Inbox 投递的回调归属沿 [Coordinator](../src/runtime/coordinator-runtime.ts)、[Inbox 文件锁与租约](../src/runtime/scheduler.ts)、[持久确认](../src/runtime/main-inbox-delivery.ts) 和 [Pi 工具](../.pi/runtime/tools/coordination.ts) 追踪；验证 [认领/中断恢复](../test/main-inbox-delivery.test.js)、[真实完成判定](../test/main-completion-api.test.js) 和 [回调生命周期](../test/coordination-callback-lifecycle.test.js)。
 
@@ -259,7 +259,7 @@ CLI tgz 随包携带锁文件对应的可移植生产依赖与依赖记录，不
 
 运行时的 [零 turn 上限与委派恢复](../test/jobbench-runtime.test.js) 及 [命令退出](../test/command-timeout.test.js) 回归独立验证模型与进程生命周期。
 
-Node 测试的递归发现由 [日常测试入口](../scripts/test.mjs) 的 `discoverNodeTests` 负责，[发布编排](../scripts/release-test-plan.mjs) 共用它，覆盖 `.test.js`、`.test.mjs`、`.test.ts`；发布运行器自测单独执行。发现、编译路径和失败传播变更先验证 [运行器回归](../test/release/runner.test.mjs)，使用与报告边界见 [本地测试指南](testing-local-run.md)。
+Node 测试的递归发现由 [日常测试入口](../scripts/test.mjs) 的 `discoverNodeTests` 负责，[发布编排](../scripts/release-test-plan.mjs) 共用它，覆盖 `.test.js`、`.test.mjs`、`.test.ts`；发布运行器自测不在日常发现内，由 `npm run verify` 执行。发现、编译路径和失败传播变更先验证 [运行器回归](../test/release/runner.test.mjs)，使用与报告边界见 [本地测试指南](testing-local-run.md)。
 
 ## 三种常见修改流程
 

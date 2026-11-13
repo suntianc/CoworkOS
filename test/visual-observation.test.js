@@ -186,7 +186,7 @@ test("paths comparisons keep main aliases and yield reusable archived images alo
       images: [{ path: "frame.png" }, { imageRef: before.imageRef }],
       review: true
     }),
-    /one page at a time/
+    /review=true accepts a single image/
   );
 });
 

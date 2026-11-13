@@ -92,6 +92,16 @@ export function createComposerSession({
   let nextDraftIdentity = 0;
   let warned = false;
   const projectDraft = (key) => typeof key === "string" && key.startsWith("new:");
+  /**
+   * The unbound new-conversation draft becomes the first selected project's
+   * draft; an upload still in flight keeps the identity it started with.
+   */
+  const adoptDraftIdentity = (key, fromKey) => {
+    const identity = draftIdentities.get(fromKey);
+    if (identity === undefined) return;
+    draftIdentities.delete(fromKey);
+    draftIdentities.set(key, identity);
+  };
   const hasContent = (draft) =>
     Boolean(draft && typeof draft === "object" && (draft.text || draft.attachments?.length || draft.editing));
   const readRecord = (storageKey) => {
@@ -902,7 +912,9 @@ export function createComposerSession({
       for (const key of memory.keys()) if (!pendingStorage.has(key)) memory.delete(key);
       retainedDrafts.clear();
       draftOwners.clear();
-      draftIdentities.clear();
+      // The first bind carries the drafts it was showing into the backend's
+      // namespace; their identities stay. A switch to another backend drops them.
+      if (previous) draftIdentities.clear();
       editing = undefined;
       editDraft = undefined;
       current = undefined;
@@ -921,12 +933,14 @@ export function createComposerSession({
         projectDraft(key) &&
         (current === "new" || current === undefined) &&
         ![...pendingMigrations.values()].some(({ sourceKey }) => sourceKey === keyFor("new")) &&
-        !hasRecord(keyFor(key)) &&
-        read("new")
+        !hasRecord(keyFor(key))
       ) {
         const source = read("new");
-        registerMigration(keyFor(key), { sourceKey: keyFor("new"), source });
-        finishMigrations();
+        if (source) {
+          registerMigration(keyFor(key), { sourceKey: keyFor("new"), source });
+          finishMigrations();
+        }
+        adoptDraftIdentity(key, "new");
       }
       current = key;
       token += 1;

@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "sdkVersion": "0.87.1",
+  "sdkVersion": "1.5.2",
   "entry": "dist/bundle/cli.js",
   "files": {
-    "dist/bundle/cli-runtime.js": "9ca136a7caa977d936aa789d7448a3dfb17851677ff5ac8c0dbcf23c31a02142",
-    "dist/bundle/chunks/chunk-OJP47DM6.js": "81c81a21ec81e84200205f561687408ff5e3738fbbbb3c2a6c186b348d376020"
+    "dist/bundle/cli-runtime.js": "8fdd4161be64f4aadb8bec47ae77b56dcbeab288da6e55dcab3e0243e50f80fc",
+    "dist/bundle/chunks/chunk-VEJDBY3O.js": "effbbd5d6247983dc11c7ae5796eb24bda88f9ebf78c707d3f92ca73cbb8b51e"
   },
   "changes": [
     {
@@ -15,15 +15,15 @@
     },
     {
       "id": "agent-bash-output",
-      "file": "dist/bundle/chunks/chunk-OJP47DM6.js",
+      "file": "dist/bundle/chunks/chunk-VEJDBY3O.js",
       "original": "tempFilePrefix:\"pi-bash\"",
       "replacement": "tempFilePrefix:\"atria-bash\""
     },
     {
       "id": "manual-bash-output",
-      "file": "dist/bundle/chunks/chunk-OJP47DM6.js",
-      "original": "`pi-bash-${id}.log`",
-      "replacement": "`atria-bash-${id}.log`"
+      "file": "dist/bundle/chunks/chunk-VEJDBY3O.js",
+      "original": "createOutputFileStream(\"pi-bash\",\".log\")",
+      "replacement": "createOutputFileStream(\"atria-bash\",\".log\")"
     }
   ]
 }

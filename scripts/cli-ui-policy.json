@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "sdkVersion": "0.87.1",
+  "sdkVersion": "1.5.2",
   "className": "_InteractiveMode",
   "entry": "dist/bundle/cli.js",
-  "target": "dist/bundle/chunks/chunk-OJP47DM6.js",
-  "spansSha256": "e27b70334f674fd7188996931b2010a29849dbe1438e7fff904d0b075b8e7f82",
+  "target": "dist/bundle/chunks/chunk-VEJDBY3O.js",
+  "spansSha256": "800027c8dd812c3fa91e03ed7a65b47590f177e124b9ebbd98cee3b0dd126288",
   "files": {
     "dist/bundle/cli.js": "e79626f2dd6f94aa45d30f3fa63cd84319a6eefcd150b353cfaf274366926774",
-    "dist/bundle/cli-runtime.js": "9ca136a7caa977d936aa789d7448a3dfb17851677ff5ac8c0dbcf23c31a02142",
-    "dist/bundle/chunks/chunk-OJP47DM6.js": "81c81a21ec81e84200205f561687408ff5e3738fbbbb3c2a6c186b348d376020"
+    "dist/bundle/cli-runtime.js": "8fdd4161be64f4aadb8bec47ae77b56dcbeab288da6e55dcab3e0243e50f80fc",
+    "dist/bundle/chunks/chunk-VEJDBY3O.js": "effbbd5d6247983dc11c7ae5796eb24bda88f9ebf78c707d3f92ca73cbb8b51e"
   },
   "methods": [
     "renderProjectTrustWarningIfNeeded",

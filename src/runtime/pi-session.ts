@@ -5,12 +5,12 @@ import {
   createModels,
   createProvider,
   contentText,
-  Type,
   type AssistantMessage,
   type ImageContent,
   type Provider,
   type TextContent
 } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
 import type { RuntimeTool } from "./tool.js";
 import { TraceRecorder } from "../storage/trace-recorder.js";

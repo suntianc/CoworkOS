@@ -212,7 +212,7 @@ test(
     const f = await fixture(t);
     const agent = join(f.root, "agent");
     const project = join(f.root, "project");
-    await f.put("project/hello.txt", "hello fixture\n");
+    await f.put("project/hello.txt", "hello fixture\nsecond line\n");
     await f.put("project/nested/deep.txt", "deep fixture\n");
     await f.put("project/.git/hidden", "ignored");
     await symlink(project, join(project, "loop"));
@@ -288,7 +288,8 @@ test(
       const root = process.env.ATRIA_SEARCH_FIXTURE_PROJECT;
       const found = await createFindTool(root).execute("find-fixture", {pattern:"*.txt"});
       const searched = await createGrepTool(root).execute("grep-fixture", {pattern:"fixture",glob:"hello.txt",literal:true});
-      console.log(JSON.stringify({found,searched}));
+      const contextual = await createGrepTool(root).execute("grep-context", {pattern:"fixture",glob:"hello.txt",literal:true,context:1});
+      console.log(JSON.stringify({found,searched,contextual}));
     `
       ],
       {
@@ -300,6 +301,11 @@ test(
     const tools = JSON.parse(pi.stdout);
     assert.equal(tools.found.content[0].text, "hello.txt\nnested/deep.txt");
     assert.equal(tools.searched.content[0].text, "hello.txt:1: hello fixture");
+    assert.equal(
+      tools.contextual.content[0].text,
+      "hello.txt:1: hello fixture\nhello.txt-2- second line",
+      "context rows travel through the rg adapter's --context flag"
+    );
     await assert.rejects(
       exec(rg, ["--", "absent", project], { env: f.env }),
       (error) => error.code === 1 && error.stdout === ""

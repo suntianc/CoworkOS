@@ -11,7 +11,7 @@ import { InputStore, inputPrompt } from "../dist/src/workspace/input-store.js";
 import { Readable } from "node:stream";
 
 test(
-  "real Main reads local upload text and returns an image to a vision-capable model",
+  "real Main reads local upload text and returns an image to an image-capable model",
   { timeout: 45_000 },
   async (t) => {
     const root = await mkdtemp(join(tmpdir(), "atria-publish-"));

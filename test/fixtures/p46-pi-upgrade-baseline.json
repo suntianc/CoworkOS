@@ -1,0 +1,1084 @@
+{
+  "path": "/v1/chat/completions",
+  "envelope": {
+    "keys": ["model", "messages", "stream", "stream_options", "store", "max_completion_tokens", "tools"],
+    "stream": true,
+    "streamOptions": {
+      "include_usage": true
+    },
+    "store": false,
+    "maxCompletionTokens": 64,
+    "messages": [
+      {
+        "role": "system",
+        "blockTypes": ["text"]
+      },
+      {
+        "role": "user",
+        "blockTypes": ["text"]
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "read",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to read (relative or absolute)"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Line number to start reading from (1-indexed)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to read"
+          }
+        }
+      }
+    },
+    {
+      "name": "bash",
+      "parameters": {
+        "type": "object",
+        "required": ["command"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout in seconds (optional, no default timeout)"
+          }
+        }
+      }
+    },
+    {
+      "name": "edit",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "edits"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to edit (relative or absolute)"
+          },
+          "edits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["oldText", "newText"],
+              "properties": {
+                "oldText": {
+                  "type": "string",
+                  "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."
+                },
+                "newText": {
+                  "type": "string",
+                  "description": "Replacement text for this targeted edit."
+                }
+              }
+            },
+            "description": "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."
+          }
+        }
+      }
+    },
+    {
+      "name": "write",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to write (relative or absolute)"
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to write to the file"
+          }
+        }
+      }
+    },
+    {
+      "name": "askhuman",
+      "parameters": {
+        "type": "object",
+        "required": ["question"],
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "A concrete question the user can answer."
+          },
+          "context": {
+            "type": "string",
+            "description": "Short context explaining why the decision is needed."
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Optional answer choices."
+            }
+          },
+          "recommended": {
+            "type": "number",
+            "description": "Zero-based index into options: the choice you would make yourself, and the one you proceed on if nobody answers in time."
+          }
+        }
+      }
+    },
+    {
+      "name": "sleep_until",
+      "parameters": {
+        "type": "object",
+        "required": ["reason"],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Why this Task is parked and what you will do next, in your own terms."
+          },
+          "wakeInSeconds": {
+            "type": "number",
+            "description": "Wake after this many seconds. Minimum 60."
+          }
+        }
+      }
+    },
+    {
+      "name": "call_subagent",
+      "parameters": {
+        "type": "object",
+        "required": ["task", "mode"],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "A concrete objective for one Subagent with relevant context, scope, constraints and acceptance evidence. A substantial independent end-to-end attempt is valid. The summary returns conclusions, candidate output paths and validation evidence."
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "uniqueItems": true,
+            "description": "Explicit upload IDs this delegate may inspect with read_attachment."
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "sync"
+              },
+              {
+                "type": "string",
+                "const": "async"
+              }
+            ],
+            "description": "sync waits for the Subagent result; async returns immediately and delivers a later callback. Both execute once; async does not mean persistent."
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "executor"
+              },
+              {
+                "type": "string",
+                "const": "reviewer"
+              }
+            ],
+            "description": "Which role this work item runs as. executor implements and verifies; reviewer runs an independent session over the result. Omit for executor. The role's connection is read on this host when the item starts."
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "uniqueItems": true,
+            "description": "callIds from this Run that must finish first. A work item with unfinished prerequisites does not start until they are terminal, and does not run at all when one of them failed or was cancelled."
+          },
+          "developmentId": {
+            "type": "string",
+            "description": "Run this work item in its own checkout forked from the recorded requirement checkout. Its directory, not the user's working tree, becomes the delegate's project directory; ensure_workspace must have made it ready."
+          },
+          "continueCallId": {
+            "type": "string",
+            "description": "Rework by continuing this Run's finished Executor call: same agent identity, checkpoint history and checkout, with this task appended as the next turn. The finished call stays finished; this creates one new call instead of repeating it."
+          },
+          "reviewId": {
+            "type": "string",
+            "description": "With continueCallId: the review whose finding this rework answers, recorded on the new call."
+          },
+          "profileId": {
+            "type": "string",
+            "description": "One-off model connection for this work item only; not saved as a role binding. A missing id is an error, never a fallback."
+          },
+          "model": {
+            "type": "string",
+            "description": "One-off model on the connection the role resolves to, for this work item only."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "send_subagent_message",
+      "parameters": {
+        "type": "object",
+        "required": ["callId", "message"],
+        "properties": {
+          "callId": {
+            "type": "string",
+            "description": "The callId returned by call_subagent."
+          },
+          "message": {
+            "type": "string",
+            "description": "Concrete guidance for the Subagent to apply at its next turn, or the answer to its question."
+          },
+          "questionId": {
+            "type": "string",
+            "description": "Answer this pending question from the Subagent. Omit for ordinary guidance."
+          },
+          "priority": {
+            "type": "number",
+            "description": "Optional priority; higher-priority messages are reserved for urgent guidance."
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_subagent",
+      "parameters": {
+        "type": "object",
+        "required": ["callId"],
+        "properties": {
+          "callId": {
+            "type": "string",
+            "description": "The callId returned by call_subagent."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Short reason for cancelling the work."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_subagent_status",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "description": "Filter to one Subagent id; omit to show all Subagents."
+          }
+        }
+      }
+    },
+    {
+      "name": "wait_for_subagents",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "callIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "A callId returned by call_subagent."
+            }
+          },
+          "timeoutMs": {
+            "type": "number",
+            "description": "Maximum wait in milliseconds; default 30 seconds."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_task_status",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "resultCallIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Specific async callIds whose stored result bodies you need to reread; omit for compact status. This does not consume callbacks."
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "finish_task",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "Short human-readable completion summary."
+          }
+        }
+      }
+    },
+    {
+      "name": "grant_capabilities",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectWrite": {
+            "type": "boolean",
+            "description": "Agents may edit the user's project, not only their own directory."
+          },
+          "evalPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Paths that must stay read-only, relative to the project: the scorer, its fixtures, the test data."
+          },
+          "longRunning": {
+            "type": "boolean",
+            "description": "Jobs take minutes or hours; supervise them rather than deadline them."
+          },
+          "reason": {
+            "type": "string",
+            "description": "What the user authorized this for, in their terms."
+          }
+        }
+      }
+    },
+    {
+      "name": "project_ledger",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "query",
+              "get",
+              "create",
+              "update",
+              "decide",
+              "set_decision_effective",
+              "board",
+              "claim_board",
+              "pause_board",
+              "release_board",
+              "cancel_board"
+            ]
+          },
+          "q": {
+            "type": "string",
+            "description": "query: match requirement title or content."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "delivered", "withdrawn"]
+          },
+          "requirementId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "get/update/decide/set_decision_effective target."
+          },
+          "decisionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "set_decision_effective target."
+          },
+          "boardId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "claim_board/pause_board/release_board/cancel_board target."
+          },
+          "requestId": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Optional retry identity for a board write; a repeat returns the committed result."
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The revision returned by the last read; a stale value is refused."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Why this revision happened."
+          },
+          "sourceKind": {
+            "type": "string",
+            "enum": ["internal", "external", "legacy"]
+          },
+          "sourceReference": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "Opaque external label."
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "decide: the decision itself."
+          },
+          "effective": {
+            "type": "boolean",
+            "description": "decide defaults true; retract with false."
+          }
+        },
+        "required": ["action"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_development",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "get",
+              "query",
+              "find_by_requirement",
+              "update",
+              "ensure_workspace",
+              "review_plan",
+              "freeze_candidate",
+              "attach_reviewer",
+              "record_finding",
+              "rule_finding",
+              "record_rework",
+              "complete_review",
+              "delivery_check",
+              "query_reviews",
+              "get_review",
+              "request_merge",
+              "apply_merge",
+              "merge_status",
+              "delivery_status"
+            ]
+          },
+          "requirementId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "create/find_by_requirement/delivery_status target requirement."
+          },
+          "developmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "get/update/ensure_workspace/review/merge/delivery_status target."
+          },
+          "goal": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "create/update: what this development must achieve."
+          },
+          "completionCriteria": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "description": "create/update: observable conditions that make the requirement done."
+          },
+          "route": {
+            "type": "string",
+            "enum": ["quick", "direct", "full"],
+            "description": "The suggested path: quick, direct or full. A suggestion, not a quota."
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "update: the revision returned by the last read; a stale value is refused."
+          },
+          "channel": {
+            "type": "string",
+            "enum": ["self", "independent", "combined"],
+            "description": "review_plan: self (Main verified a small change), independent, or combined for a final version. self checks bind to the current commit/tree; record them again after the checkout moves."
+          },
+          "basis": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "review_plan/rule_finding: why this channel or ruling is justified."
+          },
+          "checks": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "command": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "exitCode": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "output": {
+                  "type": "string",
+                  "maxLength": 8000
+                }
+              },
+              "required": ["name", "exitCode"],
+              "additionalProperties": false
+            },
+            "description": "review_plan/record_finding/complete_review: command, exit code and captured output."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["independent", "combined"],
+            "description": "freeze_candidate: independent review, or combined (which requires a combined plan) for the final version."
+          },
+          "previousReviewId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "freeze_candidate: the review whose findings and new changes this re-review covers."
+          },
+          "authorCallId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "freeze_candidate: the Executor work item that produced the candidate; its identity must differ from the Reviewer's."
+          },
+          "reviewId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "attach_reviewer/record/rule/complete/get_review target."
+          },
+          "callId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "attach_reviewer: the Reviewer work item returned by call_subagent. The first Reviewer owns the review; retrying the same call is safe and another call is refused."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "record_finding: short finding title."
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "record_finding: what is wrong and why."
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "record_finding: file or symbol."
+          },
+          "rawFailure": {
+            "type": "string",
+            "maxLength": 8000,
+            "description": "record_finding: the Reviewer's verbatim failing output, kept for later reading."
+          },
+          "findingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "rule_finding: the finding to rule on."
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["fix", "dismiss"],
+            "description": "rule_finding: fix it, or dismiss it with a recorded basis. Findings of failed or drifted reviews stay rulable; a passed review is closed."
+          },
+          "category": {
+            "type": "string",
+            "enum": ["false_positive", "out_of_scope", "other"],
+            "description": "rule_finding with dismiss: why the finding does not stand."
+          },
+          "findingIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "description": "record_rework: findings this continuation fixed."
+          },
+          "fromCallId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "record_rework: the original Executor call whose session and checkout continued."
+          },
+          "continuationCallId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "record_rework: the continuation call returned by call_subagent continueCallId."
+          },
+          "mergeChecks": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                }
+              },
+              "required": ["name", "command"],
+              "additionalProperties": false
+            },
+            "description": "request_merge: commands to run on the target-plus-candidate version. Omit to reuse the recorded self checks or the passed review's checks."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["passed", "failed"],
+            "description": "complete_review: whether the fixed candidate satisfies the completion criteria."
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "complete_review: the Reviewer's conclusion."
+          }
+        },
+        "required": ["action"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "load_skill",
+      "parameters": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Exact skill name from the available skill catalog."
+          }
+        }
+      }
+    },
+    {
+      "name": "clear_context",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Short explanation for this context reset."
+          }
+        }
+      }
+    },
+    {
+      "name": "browse_workspace",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "tree"
+              },
+              {
+                "type": "string",
+                "const": "read"
+              },
+              {
+                "type": "string",
+                "const": "search"
+              }
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative path inside the Task workspace; default is the workspace root."
+          },
+          "query": {
+            "type": "string",
+            "description": "Text to search for when mode=search."
+          },
+          "offset": {
+            "type": "number",
+            "description": "Byte offset for mode=read; use nextOffset from a truncated result to continue."
+          },
+          "depth": {
+            "type": "number",
+            "description": "Tree depth, default 2."
+          },
+          "maxEntries": {
+            "type": "number",
+            "description": "Maximum entries or matches, default 200."
+          }
+        }
+      }
+    },
+    {
+      "name": "read_image",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": ["string", "null"],
+            "description": "Single image file path, relative or absolute inside the selected root. Specify exactly one non-empty path or imageRef; omit this field or set null/\"\" when using the other source."
+          },
+          "imageRef": {
+            "type": ["string", "null"],
+            "description": "Historical imageRef from this Task. Specify exactly one non-empty path or imageRef; omit this field or set null/\"\" when using the other source."
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["project", "task"]
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 0,
+            "maxItems": 4,
+            "description": "Use 1–4 non-empty relative image paths, or absolute paths inside the selected root. An empty list is ignored when another source is set."
+          },
+          "goal": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "Accepted for compatibility and unused; the images are returned to the current model."
+          },
+          "review": {
+            "type": "boolean",
+            "description": "Accepted for compatibility; true still requires a single image."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "read_images",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "images": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": ["string", "null"],
+                  "description": "Single image file path, relative or absolute inside the selected root. Specify exactly one non-empty path or imageRef; omit this field or set null/\"\" when using the other source."
+                },
+                "imageRef": {
+                  "type": ["string", "null"],
+                  "description": "Historical imageRef from this Task. Specify exactly one non-empty path or imageRef; omit this field or set null/\"\" when using the other source."
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": ["project", "task"]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "goal": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "Accepted for compatibility and unused; the images are returned to the current model."
+          },
+          "review": {
+            "type": "boolean",
+            "description": "Accepted for compatibility; true still requires a single image."
+          }
+        },
+        "required": ["images"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "crop_image",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": ["string", "null"],
+            "description": "Single image file path, relative or absolute inside the selected root. Specify exactly one non-empty path or imageRef; omit this field or set null/\"\" when using the other source."
+          },
+          "imageRef": {
+            "type": ["string", "null"],
+            "description": "Historical imageRef from this Task. Specify exactly one non-empty path or imageRef; omit this field or set null/\"\" when using the other source."
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["project", "task"]
+          },
+          "region": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "y": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "width": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": ["x", "y", "width", "height"],
+            "additionalProperties": false
+          },
+          "scale": {
+            "type": "number",
+            "minimum": 0.25,
+            "maximum": 8
+          },
+          "goal": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "Accepted for compatibility and unused; the images are returned to the current model."
+          },
+          "review": {
+            "type": "boolean",
+            "description": "Accepted for compatibility; true still requires a single image."
+          }
+        },
+        "required": ["region"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_images",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "find",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern"],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory to search in (default: current directory)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of results (default: 1000)"
+          }
+        }
+      }
+    },
+    {
+      "name": "grep",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern"],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Search pattern (regex or literal string)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory or file to search (default: current directory)"
+          },
+          "glob": {
+            "type": "string",
+            "description": "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'"
+          },
+          "ignoreCase": {
+            "type": "boolean",
+            "description": "Case-insensitive search (default: false)"
+          },
+          "literal": {
+            "type": "boolean",
+            "description": "Treat pattern as literal string instead of regex (default: false)"
+          },
+          "context": {
+            "type": "number",
+            "description": "Number of lines to show before and after each match (default: 0)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of matches to return (default: 100)"
+          }
+        }
+      }
+    },
+    {
+      "name": "search",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "numResults": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        }
+      }
+    },
+    {
+      "name": "visit",
+      "parameters": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "enable_tools",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "attachments"
+                },
+                {
+                  "type": "string",
+                  "const": "delivery"
+                },
+                {
+                  "type": "string",
+                  "const": "jobs"
+                },
+                {
+                  "type": "string",
+                  "const": "browser"
+                },
+                {
+                  "type": "string",
+                  "const": "cua"
+                },
+                {
+                  "type": "string",
+                  "const": "computer"
+                }
+              ]
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    }
+  ],
+  "systemPrompt": {
+    "structure": [
+      "<tools>",
+      "</tools>",
+      "<rules>",
+      "</rules>",
+      "<addendum>",
+      "# CoworkOS Main Agent",
+      "<identity>",
+      "</identity>",
+      "<mission>",
+      "</mission>",
+      "<authority>",
+      "</authority>",
+      "<execution>",
+      "</execution>",
+      "<capabilities>",
+      "</capabilities>",
+      "<delegation>",
+      "</delegation>",
+      "<workspace>",
+      "</workspace>",
+      "<long_running>",
+      "</long_running>",
+      "<state>",
+      "</state>",
+      "<safety>",
+      "</safety>",
+      "<delivery>",
+      "</delivery>",
+      "</addendum>",
+      "<skills>",
+      "<available_skills>",
+      "</available_skills>",
+      "</skills>",
+      "<cwd>",
+      "</cwd>",
+      "<current_workspace>",
+      "<current_workspace>",
+      "</current_workspace>",
+      "</current_workspace>",
+      "<atria_main_context>",
+      "</atria_main_context>"
+    ]
+  }
+}

@@ -25,6 +25,10 @@ export function recordModelRequests(
         context = prepared?.context ?? context;
         const replay = prepared?.replay;
         const replayBody = prepared?.replayBody;
+        // A retry that rebuilt its context still descends from the archived
+        // request; the record states both the lineage and why it was not resent.
+        const retryOf = retry?.retryOf;
+        const replaySkipped = retry?.replaySkipped;
         if (replay) options = { ...options, sessionId: replay.sessionId };
         let requestId = randomUUID();
         let httpAttempt = 0;
@@ -72,8 +76,7 @@ export function recordModelRequests(
                 context: requestContext,
                 sessionId: options?.sessionId,
                 body: init.body,
-                endpoint: typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
-                ...(replay ? { retryOf: replay.retryOf ?? replay.requestId } : {})
+                endpoint: typeof input === "string" ? input : input instanceof URL ? input.href : input.url
               });
               captured = true;
             }
@@ -87,7 +90,8 @@ export function recordModelRequests(
               toolsSha256: recordingHash(tools),
               context: requestContext,
               request,
-              ...(replay ? { retryOf: replay.retryOf ?? replay.requestId } : {})
+              ...(retryOf ? { retryOf } : {}),
+              ...(replaySkipped ? { replaySkipped } : {})
             });
             const response = await (options?.fetch ?? globalThis.fetch)(input, init);
             // Deliberately exclude headers (cookies, auth and provider credentials).

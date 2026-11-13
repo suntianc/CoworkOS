@@ -1,5 +1,6 @@
-import { validateToolArguments, type Static, type TSchema, type ToolCall } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { validateToolArguments, type ToolCall } from "@earendil-works/pi-ai";
+import type { Static, TSchema } from "typebox";
+import type { ExtensionAPI, ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { errorMessage, type RuntimeToolResult } from "../helpers.ts";
 
@@ -26,7 +27,7 @@ type CapturedTool = {
     id: string,
     params: unknown,
     signal: AbortSignal | undefined,
-    ctx: ExtensionContext
+    ctx: ExtensionToolContext
   ) => Promise<RuntimeToolResult>;
 };
 
@@ -84,7 +85,7 @@ export function createCuaDispatcher(pi: ExtensionAPI) {
     name: string,
     params: unknown,
     signal: AbortSignal | undefined,
-    ctx: ExtensionContext
+    ctx: ExtensionToolContext
   ): Promise<RuntimeToolResult> {
     if (signal?.aborted) return failed("cancelled", "CUA 操作已取消");
     if (!CUA_TOOLS.has(name)) return failed("tool_not_allowed", `脚本不能调用 ${name}`);

@@ -569,6 +569,45 @@ test("Main answers a Subagent question through send_subagent_message and cannot 
   }
 });
 
+test("Pi prompt-cache warming stays off for the CoworkOS Main session", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-extension-warming-"));
+  const previous = { ...process.env };
+  t.after(async () => {
+    for (const name of Object.keys(process.env)) if (!(name in previous)) delete process.env[name];
+    Object.assign(process.env, previous);
+    await rm(root, { recursive: true, force: true });
+  });
+  Object.assign(process.env, {
+    COWORK_API_BASE: "https://example.test",
+    COWORK_API_KEY: "local-fixture",
+    COWORK_CONFIG: join(root, "config.json"),
+    COWORK_WORKSPACE: root,
+    COWORK_PROJECT_DIR: root,
+    COWORK_TASK_ID: "warming-task",
+    COWORK_RUN_ID: "main-warming"
+  });
+  await writeFile(process.env.COWORK_CONFIG, "{}\n");
+  await new LocalWorkspaceStore(root).createTask("warming-task", { goal: "warming" });
+  const pi = fakePi();
+  await (
+    await loadExtension()
+  )(pi);
+  const decide = pi.handlers.get("cache_warming_decision");
+  assert.equal(typeof decide, "function", "Main must answer Pi's cache-warming decision hook");
+  // Pi 1.5 warms the prompt cache by default; this upgrade keeps the new
+  // capability off, so every refresh is stopped instead of costing a model call.
+  assert.deepEqual(
+    await decide({
+      type: "cache_warming_decision",
+      action: "warm",
+      warmCost: 0.01,
+      missCost: 0.3,
+      continuationProbability: 0.5
+    }),
+    { action: "stop" }
+  );
+});
+
 test("a delegated workspace without the run credential still registers the extension", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-extension-delegated-"));
   const previous = { ...process.env };

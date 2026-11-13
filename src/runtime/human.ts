@@ -1,6 +1,7 @@
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { id, now, type InboxMessage } from "../domain/types.js";
+import { atomicWrite } from "../storage/atomic-file.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { InboxStore } from "./scheduler.js";
 
@@ -37,6 +38,18 @@ export interface HumanRequest {
   answeredAt?: string;
   /** Records the replacement Run and the unresolved state to restore on edit rollback. */
   superseded?: { runId: string; status: "pending" | "unanswered" };
+}
+
+/**
+ * A decision the retired long-term-goal tool recorded when it needed input.
+ *
+ * Nothing can advance or answer one any more. The request stores no source
+ * field, so the reliable marker is the id that tool chose for its questions:
+ * `human-goal_` followed by its revision hash. `create()` never produces that
+ * prefix — its own ids are `human_<uuid>` — so it stays unique to legacy data.
+ */
+export function isRetiredGoalDecision(request: Pick<HumanRequest, "requestId">): boolean {
+  return request.requestId.startsWith("human-goal_");
 }
 
 /**
@@ -88,6 +101,18 @@ export class HumanRequestStore {
 
   async read(taskId: string, requestId: string): Promise<HumanRequest> {
     return JSON.parse(await readFile(this.path(taskId, requestId), "utf8")) as HumanRequest;
+  }
+
+  /**
+   * Pending questions a person must still answer.
+   *
+   * A decision recorded by the retired long-term-goal tool can never be
+   * answered: the tool that asked is gone. Left in `pending` it would refuse
+   * every Main launch and keep the guardian from restarting the Task, so
+   * launch sites ask for this list instead of `list(taskId, "pending")`.
+   */
+  async listBlockingPending(taskId: string): Promise<HumanRequest[]> {
+    return (await this.list(taskId, "pending")).filter((request) => !isRetiredGoalDecision(request));
   }
 
   async list(taskId: string, status?: HumanRequestStatus): Promise<HumanRequest[]> {
@@ -297,10 +322,4 @@ function safe(value: string): string {
 
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-async function atomicWrite(path: string, content: string): Promise<void> {
-  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporary, content, "utf8");
-  await rename(temporary, path);
 }

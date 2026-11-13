@@ -48,10 +48,11 @@ export function parseSearchToolArguments(tool, args, cwd = process.cwd()) {
           `CoworkOS Pi fd adapter does not support ${flag}; use the find tool for file searches.`
         );
     } else {
-      if (["--line-number", "--json"].includes(flag)) continue;
+      if (["--no-config", "--line-number", "--json"].includes(flag)) continue;
       else if (flag === "--ignore-case") parameters.ignoreCase = true;
       else if (flag === "--fixed-strings") parameters.literal = true;
       else if (flag === "--glob") parameters.glob = value();
+      else if (flag === "--context") parameters.context = Number(value());
       else
         throw new Error(
           `CoworkOS Pi rg adapter does not support ${flag}; use the grep tool for content searches.`
@@ -80,9 +81,11 @@ export async function runSearchToolAdapter(
     for (const path of result.paths) write(`${path}\n`);
     return 0;
   }
-  for (const match of result.matches) {
+  // Pi's grep stream distinguishes hits from --context rows; both carry a path,
+  // line number and the line text.
+  for (const entry of result.lines) {
     write(
-      `${JSON.stringify({ type: "match", data: { path: { text: match.path }, lines: { text: `${match.line}\n` }, line_number: match.lineNumber } })}\n`
+      `${JSON.stringify({ type: entry.isMatch ? "match" : "context", data: { path: { text: entry.path }, lines: { text: `${entry.line}\n` }, line_number: entry.lineNumber } })}\n`
     );
   }
   return result.matchCount ? 0 : 1;

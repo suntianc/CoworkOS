@@ -11,6 +11,7 @@ import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-requ
 import { MainRequestRetry, mainRequestEnvironment } from "../dist/src/runtime/main-request-retry.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { readModelRequestRetry } from "../dist/src/runtime/model-request-retry.js";
+import { installedPiVersion } from "./pi-version-fixture.mjs";
 
 const storeModule = new URL("../dist/src/storage/main-request-store.js", import.meta.url).href;
 const retryModule = new URL("../dist/src/runtime/main-request-retry.js", import.meta.url).href;
@@ -61,6 +62,7 @@ async function storage(t) {
     environment: recordedEnvironment,
     executionScope,
     endpoint: "http://127.0.0.1:1/v1/chat/completions",
+    piVersion: installedPiVersion,
     body: '{ "model": "fixture", "messages": [], "temperature": 0.4 }'
   };
   const capture = {
@@ -333,4 +335,42 @@ test("an older Main snapshot without execution scope remains readable but prepar
     message: /缺少执行归属记录/
   });
   assert.equal(await readFile(f.store.filePath, "utf8"), original);
+});
+
+test("a snapshot written before Pi versions were recorded stays readable and rebuilds on retry", async (t) => {
+  const f = await storage(t);
+  await f.store.begin({ ...f.input, piVersion: undefined });
+  await f.store.settle(f.input.requestId, "failed");
+  const reloaded = new MainRequestStore(f.store.filePath, "task");
+  assert.equal((await reloaded.read()).piVersion, undefined);
+  const retry = new MainRequestRetry(
+    reloaded,
+    "retry-run",
+    () => mainRequestEnvironment(f.root, "task", f.environment.projectDirectory),
+    f.input.requestId
+  );
+  const prepared = await retry.prepare(f.model, f.context);
+  assert.equal(prepared.replay, undefined, "an unversioned archive must not be replayed");
+  assert.deepEqual(retry.replaySkipped, { reason: "pi_version_missing" });
+  const preserved = await reloaded.pending();
+  assert.equal(
+    preserved.requestId,
+    f.input.requestId,
+    "the archive stays recoverable until the retry claims it"
+  );
+  assert.equal(preserved.body, f.input.body);
+});
+
+test("malformed version annotations report a damaged snapshot instead of throwing", async (t) => {
+  for (const [name, patch] of [
+    ["a non-string Pi version", { piVersion: 123 }],
+    ["a null replay reason", { replaySkipped: null }],
+    ["an unknown replay reason", { replaySkipped: { reason: "unknown" } }]
+  ]) {
+    await t.test(name, async (t) => {
+      const f = await storage(t);
+      await f.store.begin({ ...f.input, ...patch });
+      await assert.rejects(f.store.read(), snapshotChanged);
+    });
+  }
 });

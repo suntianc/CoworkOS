@@ -9,10 +9,12 @@ export const verificationScripts = [
   "check:extensions",
   "format:check",
   "check:docs",
-  "check:source"
+  "check:source",
+  // Discovery defers test/release/, so the release-runner regression needs this gate.
+  "test:release:runner"
 ];
 
-export const fullVerificationScripts = ["build:full", ...verificationScripts.slice(2), "test:release:runner"];
+export const fullVerificationScripts = ["build:full", ...verificationScripts.slice(2)];
 
 export async function verify(args = process.argv.slice(2), run = runCommand) {
   if (args.some((argument) => !["--full", "--list", "--help", "-h"].includes(argument)))
@@ -30,7 +32,7 @@ export async function verify(args = process.argv.slice(2), run = runCommand) {
     console.log(
       full
         ? "Full verification builds all assets once, runs static checks, release-runner self-tests and all deterministic Node tests."
-        : "Quick verification builds the CLI and web assets, then runs static checks. Run focused tests for changed behavior; use npm run verify:full for the full suite."
+        : "Quick verification builds the CLI and web assets, runs the static checks and the release-runner self-test. Run focused tests for changed behavior; use npm run verify:full for the full suite."
     );
     for (const step of steps) console.log(`${step.command} ${step.args.join(" ")}`);
     console.log(
@@ -46,7 +48,7 @@ export async function verify(args = process.argv.slice(2), run = runCommand) {
   console.log(
     full
       ? "\nFull verification passed. Review skipped Node checks and run the relevant browser/native/release layer."
-      : "\nQuick verification passed. Behavioral tests were not run; run focused tests for changed behavior."
+      : "\nQuick verification passed. The release-runner self-test ran; other behavioral tests did not, so run focused tests for changed behavior."
   );
   return 0;
 }

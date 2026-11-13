@@ -67,11 +67,18 @@ for (const api of ["openai-completions", "openai-responses"]) {
       },
       { name: "after-done", sse: basic + usageFrame(rawUsage(api)), ...baseline },
       { name: "after-done-zero", sse: basic + usageFrame(rawUsage(api, 0)), ...baseline },
-      { name: "eof-no-delimiter", sse: prefix + usageFrame(rawUsage(api)).trimEnd(), ...unknown },
+      // Pi 1.5 consumes a final SSE frame terminated by EOF instead of a blank
+      // line, so this usage report now counts like the same frame before [DONE].
+      { name: "eof-no-delimiter", sse: prefix + usageFrame(rawUsage(api)).trimEnd(), ...known },
       {
+        // A single trailing newline still leaves only the line, not a blank
+        // separator; Pi 1.5 dispatches that final zero-usage event at EOF.
         name: "eof-single-newline-zero",
         sse: prefix + usageFrame(rawUsage(api, 0)).trimEnd() + "\n",
-        ...unknown
+        tokens: true,
+        cache: true,
+        total: 0,
+        read: 0
       },
       {
         name: "thread-event-ignored",

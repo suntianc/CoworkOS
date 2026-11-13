@@ -70,12 +70,12 @@ test("a supervisor wake-up never appears as something the person said", () => {
         type: "message_start",
         message: { role: "user", content: [{ type: "text", text: SUPERVISOR_WAKE_TURN }], timestamp: 3 }
       },
-      { type: "tool_execution_end", toolName: "apply_resource_operation" }
+      { type: "tool_execution_end", toolName: "write" }
     ]
   );
   assert.equal(withEvents.length, 1);
   assert.ok(
-    withEvents[0].events.some((event) => event.toolName === "apply_resource_operation"),
+    withEvents[0].events.some((event) => event.toolName === "write"),
     "work done after the wake-up still belongs to the request that caused it"
   );
 });

@@ -18,7 +18,7 @@ npm run verify -- --list
 npm run verify:full -- --list
 ```
 
-`verify` runs `build:cli`, `build:web-assets`, `lint`, `check:extensions`, `format:check`, `check:docs` and `check:source`, without behavioral tests. `build:web-assets` prepares KaTeX and Markdown dependencies, but not native desktop resources. `verify:full` (equivalent to `verify -- --full`) uses one `build:full`, then static checks, `test:release:runner` and the complete Node suite. Both modes stop at the first failure and preserve its exit code. Quick checks do not certify related behavior or the full suite.
+`verify` runs `build:cli`, `build:web-assets`, `lint`, `check:extensions`, `format:check`, `check:docs`, `check:source` and `test:release:runner`; the release-runner self-test is the only behavioral test it runs. `build:web-assets` prepares KaTeX and Markdown dependencies, but not native desktop resources. `verify:full` (equivalent to `verify -- --full`) uses one `build:full`, then the static checks, `test:release:runner` and the complete Node suite. Both modes stop at the first failure and preserve its exit code. Quick checks do not certify related behavior or the full suite.
 
 `format:check` defaults to uncommitted changes. For committed changes, verify the baseline with `git rev-parse --verify '<base>^{commit}'`, then run `FORMAT_BASE=<base> npm run format:check` to select `<base>...HEAD`; manual CI uses `HEAD^`. On a clean worktree the default command may print `No changed files to format`; see the [empty-selection pitfall (Chinese)](../pitfalls/testing.md#提交后格式检查没有选中文件).
 
@@ -48,7 +48,7 @@ npm run test:unit -- --skip-build --file test/publish-artifact-pi.test.js --conc
 
 `--match` is a case-sensitive file-path substring. `--file` is an exact repository-relative source test path. They cannot be combined. Unknown files and empty matches fail before building.
 
-The runner discovers `.test.js`, `.test.mjs` and `.test.ts` files recursively under `test/`. TypeScript tests run their compiled output; p0/p1/p2 retain their script assertions. The release runner under `test/release/` is invoked separately, and its self-tests are included in `verify:full`. New tests should use isolated fixtures, temporary directories and fake model services.
+The runner discovers `.test.js`, `.test.mjs` and `.test.ts` files recursively under `test/`. TypeScript tests run their compiled output; p0/p1/p2 retain their script assertions. The release runner under `test/release/` is invoked separately, and its self-tests are included in `verify` and `verify:full`. New tests should use isolated fixtures, temporary directories and fake model services.
 
 Ordinary Node checks print deferred native work: `computer-native.test.js` and the visible desktop development relaunch variant. The existing release catalog controls these gates. Ordinary runs disable the desktop native variant even when its environment variable is set on the developer machine; use `--native` below for real window operation.
 
@@ -136,7 +136,7 @@ npm run test:release -- --native --packages
 # Debug an existing complete build; the report records build omission
 npm run test:release -- --stage cli --skip-build
 
-# Runner regression only; verify:full includes it, ordinary npm test/CI does not
+# Runner regression only; verify and verify:full include it, ordinary npm test/CI does not
 npm run test:release:runner
 ```
 
