@@ -116,6 +116,10 @@ export interface DashboardRoutePorts {
   ): Promise<{ taskId: string }>;
   messageVersion(taskId: string, versionId: string): Promise<unknown>;
   activeRuns: RunService["activeRuns"];
+  /** Whether a Main process exists, including one adopted after a restart. */
+  mainProcessRunning?: RunService["mainProcessRunning"];
+  /** Resolve a Main this backend has not met yet before a destructive change. */
+  ensureMainProcess?: RunService["ensureMainProcess"];
   cancelTask: RunService["cancelTask"];
   queuedMessageAction: RunService["queuedMessageAction"];
   queueInterjection: RunService["queueInterjection"];
@@ -151,6 +155,13 @@ export function createDashboardHandler(
     taskListItem,
     appendRunEvent
   } = ports;
+  /** A Main this backend spawned or adopted after a restart owns the session. */
+  const mainRunning = async (taskId: string) =>
+    ports.ensureMainProcess
+      ? await ports.ensureMainProcess(taskId)
+      : ports.mainProcessRunning
+        ? ports.mainProcessRunning(taskId)
+        : activeRuns.has(taskId);
   /**
    * Publish the catalog object this route just committed.
    *
@@ -871,7 +882,7 @@ export function createDashboardHandler(
       const interjectMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/interject$/);
       if (request.method === "POST" && interjectMatch) {
         const taskId = decodeURIComponent(interjectMatch[1]);
-        const target = ports.interjectionTarget(taskId);
+        const target = await ports.interjectionTarget(taskId);
         if (!target) {
           sendJson(response, 409, { error: "当前没有正在运行的回合，直接发送消息即可。" });
           return;
@@ -921,7 +932,7 @@ export function createDashboardHandler(
           payload: body.payload ?? {}
         });
         let wake;
-        if (body.wake === true && !activeRuns.has(taskId) && !result.duplicate) {
+        if (body.wake === true && !(await mainRunning(taskId)) && !result.duplicate) {
           try {
             wake = await startMainRun(
               taskId,
@@ -1015,7 +1026,7 @@ export function createDashboardHandler(
       }
       if (request.method === "DELETE") {
         const location = await locateTask(taskId);
-        if (activeRuns.has(taskId)) throw new Error("请先停止任务，再删除会话");
+        if (await mainRunning(taskId)) throw new Error("请先停止任务，再删除会话");
         if (location.task.kind === "workspace") throw new Error("工作区不能作为会话删除");
         await location.store.deleteTask(taskId);
         await ports.events?.taskDeleted(taskId);
@@ -1042,7 +1053,7 @@ export function createDashboardHandler(
             patch[field] = body[field];
           }
         }
-        if (patch.archived && activeRuns.has(taskId)) throw new Error("请先停止任务，再归档会话");
+        if (patch.archived && (await mainRunning(taskId))) throw new Error("请先停止任务，再归档会话");
         sendJson(
           response,
           200,

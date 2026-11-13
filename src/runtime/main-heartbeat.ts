@@ -28,6 +28,14 @@ export interface MainHeartbeat {
    * which is also what a backend that adopted the process can read.
    */
   turnActive?: boolean;
+  /**
+   * Identity of the turn `turnActive` describes.
+   *
+   * A backend that did not observe the process watches this change to know a
+   * new turn started, and reads the last one with `turnActive: false` once the
+   * turn is over. It is unique per process lifetime, not just per Run.
+   */
+  turnId?: string;
 }
 
 /** A Main refreshed within this window is considered alive. */
@@ -41,7 +49,7 @@ export async function writeHeartbeat(
   workspaceRoot: string,
   taskId: string,
   runId: string,
-  state: { turnActive?: boolean } = {}
+  state: { turnActive?: boolean; turnId?: string } = {}
 ): Promise<void> {
   const path = heartbeatPath(workspaceRoot, taskId);
   const beat: MainHeartbeat = {
@@ -49,7 +57,8 @@ export async function writeHeartbeat(
     host: hostname(),
     runId,
     updatedAt: new Date().toISOString(),
-    ...(state.turnActive === undefined ? {} : { turnActive: state.turnActive })
+    ...(state.turnActive === undefined ? {} : { turnActive: state.turnActive }),
+    ...(state.turnId === undefined ? {} : { turnId: state.turnId })
   };
   await mkdir(join(workspaceRoot, taskId, "agents", "main"), { recursive: true });
   const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;
@@ -71,7 +80,8 @@ export async function readHeartbeat(
       host: typeof value.host === "string" ? value.host : "",
       runId: typeof value.runId === "string" ? value.runId : "",
       updatedAt: value.updatedAt,
-      ...(typeof value.turnActive === "boolean" ? { turnActive: value.turnActive } : {})
+      ...(typeof value.turnActive === "boolean" ? { turnActive: value.turnActive } : {}),
+      ...(typeof value.turnId === "string" ? { turnId: value.turnId } : {})
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;

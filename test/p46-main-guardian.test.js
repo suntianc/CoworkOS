@@ -111,7 +111,7 @@ async function fixture(
         /* the fake Main already exited */
       }
     }
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
   const spawned = (taskId) =>
     records.filter((record) => record.type === "main.run_spawned" && (!taskId || record.taskId === taskId));

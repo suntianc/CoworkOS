@@ -499,9 +499,11 @@ These checks enforce execution and delivery state. Main remains responsible for 
   "humanRequests": [],
   "humanResumePending": false,
   "parked": { "wakeAt": "2026-01-01T00:10:00.000Z", "reason": "refresh the report" },
-  "runtime": { "active": false }
+  "runtime": { "active": false, "mainRunning": false, "stopping": false }
 }
 ```
+
+`runtime.active` 表示当前有回合在跑；`runtime.mainRunning` 表示常驻 Main 进程是否存在（空闲时为 true）；两者在后端重启接管后仍由进程记录与心跳给出。
 
 `parked` is present only while a durable sleep record waits for a timed wake; it carries `wakeAt` and `reason` from `agents/main/sleep.json` and is absent otherwise. Readers use it to tell a genuinely parked Task from an unfinished stop.
 
@@ -694,11 +696,12 @@ The Runtime writes the observation to the Event Log and Main Inbox. `watcherId +
 ## 交互与恢复契约
 
 - `PATCH /api/tasks/:taskId` 接受 optional `title`（1–100 字符）、`pinned`、`archived`。原有 goal 与 Task 身份保持不变；旧记录缺省为未置顶、未归档。运行中的任务需先停止才能归档；搜索可重新打开已归档会话并恢复。
-- `POST /api/tasks/:taskId/action` 的 pause 在 Task 记录写入持久暂停请求，Main 在当前工具调用或模型回复结束、下一次工具调用或模型请求之前读取并停下；进程退出后状态为 `paused`，`pause.pausedAt` 记录边界时间，已完成文件与需求记录保留。没有运行中的 Main 时返回 409；该边界已完成 Task 时保持 `completed`。`/run` 携带 `{ "resume": true }` 从同一 Run 和 Pi 会话继续，保留已完成的工具结果，不重复已完成步骤。暂停后进程已退出，不占 Main 名额；`cancel` 从暂停状态正常终止。目录与详情提供 optional `pause`（`requestedAt`、`pausedAt`）和 `paused` 状态，继续前 `runtime.active` 为 false。
-- `POST /api/tasks/:taskId/action` 的 cancel 通过 Run 服务终止对应 Pi 进程组、取消未完成委派并等待输出落盘，再返回。其他任务和后续运行不受影响。Detail 的 `runtime.stopping` 为停止中的 optional 标志。
+- `POST /api/tasks/:taskId/action` 的 pause 在 Task 记录写入持久暂停请求，Main 在当前工具调用或模型回复结束、下一次工具调用或模型请求之前读取并停下；状态变为 `paused`，`pause.pausedAt` 记录边界时间，已完成文件与需求记录保留。没有运行中的 Main 或没有进行中的回合时返回 409；该边界已完成 Task 时保持 `completed`。暂停**不结束进程**：常驻 Main 与它的 Pi 会话继续存活并继续占用常驻名额，暂停期间到达的回调与其他消息留在持久 Inbox，恢复后才送达；暂停中且没有子代理在跑时按空闲计时退出（见 `mainIdleTimeoutMs`）。暂停期间 `POST /run` 的消息进入 Inbox 并保持排队，响应状态仍为 `paused`。`/run` 携带 `{ "resume": true }` 从同一 Run、进程与 Pi 会话继续，先送达等待中的消息，再保留已完成的工具结果、不重复已完成步骤。目录与详情提供 optional `pause`（`requestedAt`、`pausedAt`）和 `paused` 状态；没有进行中的回合时 `runtime.active` 为 false。后端重启后暂停、关闭与插入消息都作用于已接管的同一进程。
+- `POST /api/tasks/:taskId/action` 的 interrupt 中断 Main 当前正在输出的回合（模型输出或工具调用到此为止），返回 `202`；会话、Task 与在跑的子代理都保留，进程继续等待下一条消息。没有进行中的回合时返回 409。
+- `POST /api/tasks/:taskId/action` 的 cancel 关闭会话：通过 Run 服务终止对应 Pi 进程组、取消该会话未完成的委派并等待输出落盘，再返回。其他任务和后续运行不受影响。Detail 的 `runtime.stopping` 为停止中的 optional 标志；`runtime.mainRunning` 表示常驻 Main 进程是否存在（空闲也为 true），`runtime.active` 只表示当前是否有回合在跑。后端重启后重新接管仍在运行的 Main，这两个字段来自进程记录与它写的心跳。
 - Web 和桌面共用 `GET /api/model-settings`：返回当前连接状态以及 `activeProfileId`、`profiles`（`id`、`name`、`active`、`configured` 和非密钥参数），不返回明文或加密密钥。POST 接受 `baseUrl`、`model`、`apiKey`、`api`、`supportsImages`、`contextWindow`（上下文容量，默认 256000 token，正的安全整数）、推理/输出参数，以及 `profileId`、`profileName` 和 `activate`；`profileId: ""` 新建，非空编辑指定组，省略则兼容原单组调用、修改当前组。`activate: true` 保存并启用；首组自动启用。旧的图片分析角色字段不再读取、返回或生效：配置里残留的角色按未知字段忽略，请求里的 `vision` 不会改变任何连接。空密钥只保留指定组原密钥，新组必须提供密钥。测试接口按 `profileId` 查找该组密钥，不修改当前启用项。环境管理的连接和运行中的任务拒绝保存。配置列表使用 `modelConnections.version: 1`，首次写入前保留 `.before-model-profiles` 备份，配置与备份权限为 0600。模型密钥保存在所选执行主机的凭据文件中，保存设置不重启后端。`GET /api/model-settings?projectId=<项目 ID>` 额外返回 `modelRoles`：Main 的有效来源（项目覆盖、主机默认、当前启用连接或启动环境）、连接名称、模型和推理强度；Executor、Reviewer 已接通委派，有绑定时给出该绑定的有效来源，未绑定时 `effective` 为 `null`（工作项沿用启动 Run 的连接）；Router 仍以 `wired: false` 列出。`POST /api/model-settings/roles` 以 `{ role, profileId, projectId? }` 保存主机默认或项目覆盖，`profileId: ""` 清除；引用的连接不存在时拒绝保存，已保存的失效引用在状态中给出可定位错误并拒绝下一次 Run，不会改用其他账号。项目覆盖按共享项目 ID 保存在执行主机本机配置中，不随项目进入共享数据或远端主机。角色变更对下一次 Run 生效，在途 Run 保持启动时的快照。
 - `GET /api/models` 新增 `connectionProfileId`，配置切换后前端清除旧服务的会话模型选择；已有会话历史保留，后续请求使用新启用的模型配置。响应还带 `reasoningEffort`：下一次 Main 运行将使用的推理强度，取自 Main 角色解析到的连接（主机默认、项目覆盖或当前启用连接）；该连接尚不可用时省略。Composer 的推理强度选择以它为默认显示；用户未显式选择时不随请求发送 `thinkingLevel`，各角色运行使用其绑定连接保存的强度，显式选择只作用于该次运行。响应的 `levels` 按模型给出可选档位与来源（`endpoint` 服务商 `/models` 条目、`official` Pi 内置的官方地址表、`manual` 连接上勾选的 `reasoningLevels`，默认六档）；Composer 只显示当前模型的档位，切换模型时已选档位不受支持则移到最近一档。连接保存 `reasoningLevels`（至少一项，须包含连接默认强度，`null` 清除）；`POST /api/model-settings/levels` 供连接编辑页识别档位。
-- 本地附件通过下方 [Local input uploads](#local-input-uploads) 的上传、预览与引用接口读取；现有文本草稿附件的限制不代表上传接口的文件能力。Run prompt 通过 stdin 传给 Pi，服务边界仍拒绝 NUL 和超限消息。
+- 本地附件通过下方 [Local input uploads](#local-input-uploads) 的上传、预览与引用接口读取；现有文本草稿附件的限制不代表上传接口的文件能力。`/run` 的消息不经过 stdin：后端把它写入该 Run 的持久 Inbox，由 Main 进程在回合边界读取（首条消息作为真实用户消息开始该回合），服务边界仍拒绝 NUL 和超限消息。
 - interject 的 Inbox 投递不变；响应增加 `messageId`，事件保存完整消息用于跨 Run 的对话投影。`steer` 在界面显示为补充指令；`followUp` 排队时显示等待状态，消费后按新请求分组，保留前一请求的最终回复。
 
 ## Local input uploads

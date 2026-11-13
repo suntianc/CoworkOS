@@ -816,6 +816,8 @@ export function createDashboardApplication(
       return readArchivedMessageVersion(location.workspaceRoot, taskId, versionId);
     },
     activeRuns,
+    mainProcessRunning: runs.mainProcessRunning,
+    ensureMainProcess: runs.ensureMainProcess,
     cancelTask: runs.cancelTask,
     queuedMessageAction: runs.queuedMessageAction,
     queueInterjection: runs.queueInterjection,
@@ -828,6 +830,10 @@ export function createDashboardApplication(
   };
   const server = createServer(createDashboardHandler(routes));
   server.once("listening", () => void mainCapacity.start());
+  // Take over the Mains a previous backend left running before any management
+  // call can be asked about them: close, pause, interrupt and insertion all
+  // read the adopted state, not the next message.
+  server.once("listening", () => void runs.adoptExistingMains());
   server.once("listening", () => runs.startMainGuardian());
 
   return {

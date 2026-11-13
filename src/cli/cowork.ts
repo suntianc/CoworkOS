@@ -181,9 +181,9 @@ async function main() {
     const commandEnv = spawnAllowed ? await businessCommandEnvironment(process.env) : undefined;
     const supervisor = new MainSupervisor({
       workspaceRoot,
-      launch: ({ taskId: resumeTask, runId: resumeRun }) => {
+      launch: async ({ taskId: resumeTask, runId: resumeRun }) => {
         if (!spawnAllowed) return;
-        spawnMainProcess({
+        await spawnMainProcess({
           taskId: resumeTask,
           runId: resumeRun,
           harnessRoot,

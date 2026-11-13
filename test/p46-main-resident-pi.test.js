@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
@@ -479,5 +479,418 @@ test(
       "closing the session stops the work it still owes"
     );
     release();
+  }
+);
+
+/** End the recorded Main's whole process group, the way a crash would. */
+function killMain(record) {
+  try {
+    process.kill(-record.pid, "SIGKILL");
+  } catch {
+    /* the group already exited */
+  }
+}
+
+/** Every Run event of one type, read from the durable log. */
+async function runEvents(f, taskId, runId, type) {
+  const text = await readFile(
+    join(f.dashboard.workspaceRoot, taskId, "runs", runId, "run_events.jsonl"),
+    "utf8"
+  ).catch(() => "");
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((event) => event?.type === type);
+}
+
+test(
+  "a backend restart adopts the running Main, and its turn state still comes from the durable record",
+  { timeout: 180_000 },
+  async (t) => {
+    let heldStarted = false;
+    let release;
+    const held = new Promise((done) => {
+      release = done;
+    });
+    const f = await fixture(t, {
+      handle: async ({ response, requests }) => {
+        if (requests.length === 1) {
+          heldStarted = true;
+          await held;
+          return complete(response, "released after the interrupt");
+        }
+        return complete(response, `answer ${requests.length}`);
+      }
+    });
+    await f.createTask("resident-adopted-turn", "Adopted turn state");
+    await f.api("/api/tasks/resident-adopted-turn/run", { prompt: "ADOPTED_FIRST_INPUT" });
+    await waitFor(() => heldStarted, "the in-flight model request", 60_000);
+    const record = await f.mainRecord("resident-adopted-turn");
+
+    // The restart leaves the turn running in the same process, and the new
+    // backend takes that process over before any message names it.
+    await f.dashboard.restart();
+    assert.equal(alive(record.pid), true);
+    assert.equal((await f.detail("resident-adopted-turn")).runtime.mainRunning, true);
+
+    // An insertion reaches the adopted process too: the target comes from the
+    // process record, not from a process this backend spawned.
+    const injected = await f.api("/api/tasks/resident-adopted-turn/interject", {
+      message: "ADOPTED_INTERJECT",
+      delivery: "steer"
+    });
+    assert.equal(injected.delivered, true);
+
+    // Interrupting must find the in-flight turn even though this backend never
+    // saw its stdout: the process's heartbeat is the durable turn record.
+    const interrupted = await f.api("/api/tasks/resident-adopted-turn/action", { action: "interrupt" });
+    assert.equal(interrupted.interrupted, true);
+    const idle = await waitFor(
+      async () => {
+        const value = await f.detail("resident-adopted-turn");
+        return value.runtime.active === false ? value : undefined;
+      },
+      "the adopted turn to settle",
+      60_000
+    );
+    assert.equal(alive(record.pid), true, "the process stays after the interrupt");
+    assert.notEqual(idle.task.status, "cancelled");
+    // With the turn over, the adopted process must read as idle rather than
+    // staying "active" for the life of the process.
+    await f.api("/api/tasks/resident-adopted-turn/action", { action: "interrupt" }).then(
+      () => assert.fail("an idle adopted Main has no turn to interrupt"),
+      (error) => assert.match(error.message, /409|没有正在运行的回合/)
+    );
+    release();
+  }
+);
+
+test(
+  "a Main that dies mid-turn after a restart settles as failed, not as an idle stop",
+  { timeout: 180_000 },
+  async (t) => {
+    let heldStarted = false;
+    const f = await fixture(t, {
+      handle: async ({ response, requests }) => {
+        if (requests.length === 1) {
+          heldStarted = true;
+          response.writeHead(200, { "content-type": "text/event-stream" });
+          stream(response, { role: "assistant", content: "PARTIAL_BEFORE_CRASH" });
+          // Never finishes: the process is killed with the request open.
+          return;
+        }
+        return complete(response, `answer ${requests.length}`);
+      }
+    });
+    await f.createTask("resident-crash", "Crash mid-turn");
+    await f.api("/api/tasks/resident-crash/run", { prompt: "CRASH_FIRST_INPUT" });
+    await waitFor(() => heldStarted, "the in-flight model request", 60_000);
+    const record = await f.mainRecord("resident-crash");
+    const runId = (await f.detail("resident-crash")).task.activeRunId;
+
+    await f.dashboard.restart();
+    assert.equal(alive(record.pid), true);
+    killMain(record);
+
+    const failed = await waitFor(
+      async () => {
+        const value = await f.detail("resident-crash");
+        return value.task.status === "failed" ? value : undefined;
+      },
+      "the mid-turn death to settle as failed",
+      60_000
+    );
+    assert.equal(failed.runtime.active, false);
+    assert.equal(failed.runtime.mainRunning, false);
+    assert.equal((await runEvents(f, "resident-crash", runId, "main.run_failed")).length, 1);
+    assert.equal(
+      (await runEvents(f, "resident-crash", runId, "main.run_stopped")).length,
+      0,
+      "a crash is not reported as an idle stop"
+    );
+    // The failed request remains replayable: that is the recovery surface.
+    assert.ok(failed.retryRequest, "the failed request is offered for an exact retry");
+  }
+);
+
+test(
+  "after a restart, a pause reaches the adopted Main and is recorded at its step boundary",
+  { timeout: 180_000 },
+  async (t) => {
+    let release;
+    const held = new Promise((done) => {
+      release = done;
+    });
+    let secondStep = false;
+    const f = await fixture(t, {
+      handle: async ({ response, requests }) => {
+        if (requests.length === 1) return toolCall(response, "bash", { command: "printf ADOPTED_PAUSE" });
+        secondStep = true;
+        await held;
+        return complete(response, `answer ${requests.length}`);
+      }
+    });
+    await f.createTask("resident-pause-adopted", "Adopted pause");
+    await f.api("/api/tasks/resident-pause-adopted/run", { prompt: "ADOPTED_PAUSE_INPUT" });
+    await waitFor(() => secondStep, "the in-flight second request", 60_000);
+    const record = await f.mainRecord("resident-pause-adopted");
+
+    await f.dashboard.restart();
+    // No new message names the process: the pause itself must reach it.
+    const pauseRequested = await f.api("/api/tasks/resident-pause-adopted/action", { action: "pause" });
+    assert.equal(pauseRequested.status, "running", "the pause request is recorded first");
+    release();
+    const paused = await waitFor(
+      async () => {
+        const value = await f.detail("resident-pause-adopted");
+        return value.task.status === "paused" ? value : undefined;
+      },
+      "the adopted turn to pause",
+      60_000
+    );
+    assert.equal(paused.runtime.active, false);
+    assert.equal(paused.task.pause.pausedAt !== undefined, true);
+    assert.equal(alive(record.pid), true, "pause keeps the adopted process");
+  }
+);
+
+test(
+  "after a restart, closing the session ends the adopted Main and its pending delegation",
+  { timeout: 180_000 },
+  async (t) => {
+    let heldStarted = false;
+    let release;
+    const held = new Promise((done) => {
+      release = done;
+    });
+    const f = await fixture(t, {
+      handle: async ({ response, requests }) => {
+        if (!heldStarted) {
+          heldStarted = true;
+          await held;
+          return complete(response, "released by the close");
+        }
+        return complete(response, `answer ${requests.length}`);
+      }
+    });
+    await f.createTask("resident-close-adopted", "Adopted close");
+    const run = await f.api("/api/tasks/resident-close-adopted/run", { prompt: "ADOPTED_CLOSE_INPUT" });
+    await waitFor(() => heldStarted, "the in-flight request", 60_000);
+    const record = await f.mainRecord("resident-close-adopted");
+    const { DurableScheduler } = await import("../dist/src/runtime/scheduler.js");
+    const scheduler = new DurableScheduler(
+      join(f.dashboard.workspaceRoot, "resident-close-adopted", "runs", run.runId, "queue.json")
+    );
+    await scheduler.enqueue({
+      stepId: "adopted-close-delegation",
+      taskId: "resident-close-adopted",
+      runId: run.runId,
+      agentId: "subagent_4",
+      importance: "normal",
+      payload: { task: "open until the session closes", projectDirectory: f.dashboard.workspaceRoot },
+      maxAttempts: 1
+    });
+
+    await f.dashboard.restart();
+    await f.api("/api/tasks/resident-close-adopted/action", { action: "cancel" });
+    const closed = await waitFor(
+      async () => {
+        const value = await f.detail("resident-close-adopted");
+        return value.task.status === "cancelled" ? value : undefined;
+      },
+      "the adopted session to close",
+      60_000
+    );
+    assert.equal(closed.runtime.mainRunning, false);
+    await waitFor(() => !alive(record.pid), "the adopted Main to exit", 30_000);
+    assert.equal(
+      (await scheduler.list()).find((item) => item.stepId === "adopted-close-delegation").status,
+      "cancelled"
+    );
+    release();
+  }
+);
+
+test(
+  "a session whose Main was adopted after a restart is not deletable or archivable",
+  { timeout: 180_000 },
+  async (t) => {
+    let heldStarted = false;
+    let release;
+    const held = new Promise((done) => {
+      release = done;
+    });
+    const f = await fixture(t, {
+      handle: async ({ response, requests }) => {
+        if (!heldStarted) {
+          heldStarted = true;
+          await held;
+          return complete(response, "released");
+        }
+        return complete(response, `answer ${requests.length}`);
+      }
+    });
+    await f.createTask("resident-undeletable", "Undeletable session");
+    await f.api("/api/tasks/resident-undeletable/run", { prompt: "UNDELETABLE_INPUT" });
+    await waitFor(() => heldStarted, "the in-flight request", 60_000);
+    const record = await f.mainRecord("resident-undeletable");
+
+    await f.dashboard.restart();
+    // The adopted Main still owns the session, so deleting or archiving it is
+    // the same destructive act it is while this backend spawned the process.
+    const removed = await fetch(`${f.dashboard.base}/api/tasks/resident-undeletable`, { method: "DELETE" });
+    assert.equal(removed.status, 400);
+    const archived = await fetch(`${f.dashboard.base}/api/tasks/resident-undeletable`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ archived: true })
+    });
+    assert.equal(archived.status, 400);
+    assert.equal(alive(record.pid), true, "the adopted Main is untouched");
+
+    await f.api("/api/tasks/resident-undeletable/action", { action: "cancel" });
+    await waitFor(() => !alive(record.pid), "the closed Main to exit", 30_000);
+    release();
+  }
+);
+
+test(
+  "a recovered Main from the supervisor path is the one the next message reaches",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fixture(t, {
+      handle: ({ response, requests }) => complete(response, `answer ${requests.length}`)
+    });
+    await f.createTask("resident-supervisor", "Supervisor recovery");
+    const run = await f.api("/api/tasks/resident-supervisor/run", { prompt: "SUPERVISOR_FIRST_INPUT" });
+    await f.settleTurn("resident-supervisor");
+    const original = await f.mainRecord("resident-supervisor");
+
+    // A Main that goes away with work still pending is what the recovery
+    // supervisor starts again.
+    killMain(original);
+    await waitFor(() => !alive(original.pid), "the original Main to exit", 30_000);
+    const { spawnMainProcess } = await import("../dist/src/runtime/main-supervisor.js");
+    const recovered = await spawnMainProcess({
+      taskId: "resident-supervisor",
+      runId: run.runId,
+      harnessRoot: resolve("."),
+      workspaceRoot: f.dashboard.workspaceRoot,
+      env: f.dashboard.env
+    });
+    assert.ok(recovered?.pid, "the supervisor records the process it started");
+    assert.notEqual(recovered.pid, original.pid);
+
+    // The next message must reach that process, not start a second Main.
+    await f.api("/api/tasks/resident-supervisor/run", { prompt: "SUPERVISOR_SECOND_INPUT" });
+    await f.settleTurn("resident-supervisor");
+    assert.equal(
+      (await f.mainRecord("resident-supervisor")).pid,
+      recovered.pid,
+      "the message reached the supervisor's Main"
+    );
+    assert.equal(alive(recovered.pid), true);
+    killMain(recovered);
+  }
+);
+
+test(
+  "a dead Main record settles once, however many later runs look at it",
+  { timeout: 180_000 },
+  async (t) => {
+    let heldStarted = false;
+    const f = await fixture(t, {
+      handle: async ({ response, requests }) => {
+        if (requests.length === 1) {
+          heldStarted = true;
+          response.writeHead(200, { "content-type": "text/event-stream" });
+          stream(response, { role: "assistant", content: "PARTIAL_BEFORE_DEAD_RECORD" });
+          return;
+        }
+        return complete(response, `answer ${requests.length}`);
+      }
+    });
+    await f.createTask("resident-dead-record", "Dead record");
+    const run = await f.api("/api/tasks/resident-dead-record/run", { prompt: "DEAD_RECORD_INPUT" });
+    await waitFor(() => heldStarted, "the in-flight model request", 60_000);
+    const record = await f.mainRecord("resident-dead-record");
+    killMain(record);
+    await waitFor(
+      async () => (await f.detail("resident-dead-record")).task.status === "failed",
+      "the death to settle",
+      60_000
+    );
+    const settled = JSON.parse(
+      await readFile(
+        join(
+          f.dashboard.workspaceRoot,
+          "resident-dead-record",
+          "runs",
+          run.runId,
+          "agents",
+          "main",
+          "process.json"
+        ),
+        "utf8"
+      )
+    );
+    assert.ok(settled.settledAt, "the exit is recorded once the projection is complete");
+    assert.equal(settled.exitSignal, "SIGKILL");
+
+    // Later launches consult the same record; none may project the exit again.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const rejected = await fetch(`${f.dashboard.base}/api/tasks/resident-dead-record/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "x".repeat(520 * 1024) })
+      });
+      assert.equal(rejected.status, 400);
+    }
+    assert.equal((await runEvents(f, "resident-dead-record", run.runId, "main.run_failed")).length, 1);
+  }
+);
+
+test(
+  "a message that arrives while paused stays queued and the API reports the paused status",
+  { timeout: 180_000 },
+  async (t) => {
+    let release;
+    const held = new Promise((done) => {
+      release = done;
+    });
+    let secondStep = false;
+    const f = await fixture(t, {
+      handle: async ({ response, requests }) => {
+        if (requests.length === 1) return toolCall(response, "bash", { command: "printf PAUSED_MESSAGE" });
+        secondStep = true;
+        await held;
+        return complete(response, `answer ${requests.length}`);
+      }
+    });
+    await f.createTask("resident-paused-message", "Paused message");
+    const run = await f.api("/api/tasks/resident-paused-message/run", { prompt: "PAUSED_FIRST_INPUT" });
+    await waitFor(() => secondStep, "the second model request", 60_000);
+    await f.api("/api/tasks/resident-paused-message/action", { action: "pause" });
+    release();
+    await waitFor(
+      async () => (await f.detail("resident-paused-message")).task.status === "paused",
+      "the pause to be recorded",
+      60_000
+    );
+    const queued = await f.api("/api/tasks/resident-paused-message/run", { prompt: "PAUSED_LATE_INPUT" });
+    assert.equal(queued.status, "paused", "the reply matches the Task, not a turn that did not start");
+    const detail = await f.detail("resident-paused-message");
+    assert.equal(detail.task.status, "paused");
+    const messages = await f.readInbox("resident-paused-message", run.runId);
+    const late = messages.find((message) => message.payload?.message === "PAUSED_LATE_INPUT");
+    assert.ok(late, "the message is durable in the Inbox");
+    assert.equal(late.state, "ready", "a paused Main leaves it queued");
   }
 );

@@ -36,7 +36,7 @@ async function queuedWakes(root, taskId, runId) {
 /** A Task parked earlier, a Task that has since moved on, and one Inbox each. */
 async function parkedFixture(t, { parkedRun, activeRun }) {
   const root = await mkdtemp(join(tmpdir(), "atria-wake-edges-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const store = new LocalWorkspaceStore(root);
   await store.createTask("task", { goal: "watch the queue" });
   await store.createRun("task", parkedRun);
@@ -179,7 +179,7 @@ async function serviceFixture(t, { tasks = [] } = {}) {
   });
   t.after(async () => {
     await service.stop();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
   const spawned = (taskId) =>
     records.filter((record) => record.type === "main.run_spawned" && (!taskId || record.taskId === taskId));

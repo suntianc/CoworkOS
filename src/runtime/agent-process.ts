@@ -4,6 +4,7 @@ import { appendFile, mkdir, open, readFile, readdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { atomicWrite } from "../storage/atomic-file.js";
+import { withFileLock } from "../storage/file-lock.js";
 import { now } from "../domain/types.js";
 import {
   processGroupIsAlive,
@@ -306,11 +307,14 @@ export class AgentProcessHost {
     // fired while the identity and record were being written.
     if (exit.happened || child.exitCode !== null || child.signalCode !== null) {
       this.children.delete(recordKey(record));
-      void this.settle({
-        ...record,
-        exitCode: child.exitCode,
-        exitSignal: child.signalCode
-      });
+      const closed = { ...record, exitCode: child.exitCode, exitSignal: child.signalCode };
+      void (async () => {
+        // The exit facts are part of the record a later reader (or a backend
+        // that adopts the workspace) uses to tell a crash from an idle stop.
+        // eslint-disable-next-line no-restricted-syntax -- 退出信息只是结算输入，写不进去时仍按内存中的退出事实结算
+        await this.writeRecord(closed).catch(() => {});
+        await this.settle(closed);
+      })();
     }
     return record;
   }
@@ -433,6 +437,23 @@ export class AgentProcessHost {
     await this.writeRecord(settled);
   }
 
+  /**
+   * Record that this process is gone and its projection is complete.
+   *
+   * `settledAt` is what stops a second observer — an adoption pass after a
+   * restart, or a poll racing the close event — from projecting the same exit
+   * twice. A projection that writes its own outcome first keeps it. The record
+   * is only marked when it still describes this process: a relaunch for the
+   * same Run reuses the path, and an old exit must not settle the new one.
+   */
+  async markExited(record: AgentProcessRecord): Promise<void> {
+    const path = agentProcessRecordPathFor(record);
+    const current = await readRecord(path);
+    if (current && !sameProcess(current, record)) return;
+    if (current?.settledAt) return;
+    await this.writeRecord({ ...(current ?? record), settledAt: now() });
+  }
+
   private async settle(record: AgentProcessRecord): Promise<void> {
     const key = recordKey(record);
     const existing = this.settling.get(key);
@@ -443,17 +464,41 @@ export class AgentProcessHost {
         clearInterval(watcher);
         this.watchers.delete(key);
       }
-      // The parent's close event and a poll can both arrive; the fresh record
-      // is the one place that says whether somebody already settled it.
-      const current = await readRecord(agentProcessRecordPathFor(record));
-      if (current?.settledAt) return;
+      // The parent's close event, an adoption pass and a poll can all arrive.
+      // The durable record is the one place that says whether somebody already
+      // settled it, and the lock makes "check, project, mark" one decision.
       try {
-        await this.onExit?.(current ?? record);
+        await withFileLock(
+          `${agentProcessRecordPathFor(record)}.settle`,
+          async () => {
+            const current = await readRecord(agentProcessRecordPathFor(record));
+            // The path can already describe a newer process for the same Run;
+            // projecting an old exit from it would settle the wrong one.
+            const same = current === undefined || sameProcess(current, record);
+            if (same && current?.settledAt) return;
+            try {
+              await this.onExit?.(same && current ? current : record);
+            } catch (error) {
+              // Settlement failures are logged, not fatal: the record stays
+              // unsettled so the next adoption retries.
+              console.error(
+                `[cowork] agent process settlement failed: ${error instanceof Error ? error.message : String(error)}`
+              );
+              return;
+            }
+            await this.markExited(record);
+          },
+          { recoverDeadOwner: true }
+        );
       } catch (error) {
-        // Settlement failures are logged, not fatal: the record stays unsettled
-        // so the next adoption retries, and callbacks are idempotent by callId.
+        // The workspace itself can be going away (a stopped host or a removed
+        // temporary directory) while a close event arrives. Nothing is left to
+        // reconcile there, and the rejection has no caller that could handle
+        // it: settlement is always a background projection.
         console.error(
-          `[cowork] agent process settlement failed: ${error instanceof Error ? error.message : String(error)}`
+          `[cowork] agent process record unavailable during settlement: ${
+            error instanceof Error ? error.message : String(error)
+          }`
         );
       }
     })().finally(() => this.settling.delete(key));
@@ -515,6 +560,11 @@ export class AgentProcessHost {
   private async writeRecord(record: AgentProcessRecord): Promise<void> {
     await atomicWrite(agentProcessRecordPathFor(record), `${JSON.stringify(record, null, 2)}\n`);
   }
+}
+
+/** Whether two records describe the same launched process. */
+function sameProcess(left: AgentProcessRecord, right: AgentProcessRecord): boolean {
+  return left.pid === right.pid && left.startedAt === right.startedAt && left.token === right.token;
 }
 
 function recordKey(record: Pick<AgentProcessRecord, "runId" | "callId">): string {

@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { withFileLock } from "../storage/file-lock.js";
@@ -9,6 +8,7 @@ import { JsonlEventStore } from "../storage/event-store.js";
 import { id, now } from "../domain/types.js";
 import { mainIsAlive, readHeartbeat } from "./main-heartbeat.js";
 import { clearSleep, readSleep } from "./main-sleep.js";
+import { AgentProcessHost, agentProcessDirectory, type AgentProcessRecord } from "./agent-process.js";
 
 /**
  * Restarts a Main that stopped while work was still addressed to it.
@@ -361,45 +361,51 @@ export const SUPERVISOR_WAKE_TURN =
   "Resume this task from its durable state: consume the pending Inbox messages and continue.";
 
 /**
- * The default launcher: the same entry point a user would run by hand.
+ * The recovery launcher, for a host with no Dashboard process of its own.
+ *
+ * A recovered Main is resident too, and it is started through the same process
+ * host as every other Main, so it writes the pid + OS start time record a later
+ * backend uses to take it over. A Run with a live Main is never started twice:
+ * the durable record is checked first and returned instead.
  *
  * Main resumes from its own durable state — Inbox, memory and the recorded
- * rounds — so the wake turn carries no instruction about what to do next: that
- * decision belongs to Main.
+ * rounds — so the pending Inbox work starts its first turn; no wake prompt is
+ * sent.
  */
-export function spawnMainProcess(input: {
+export async function spawnMainProcess(input: {
   taskId: string;
   runId: string;
   harnessRoot: string;
   workspaceRoot: string;
   env?: NodeJS.ProcessEnv;
-}): void {
-  const child = spawn(
-    process.execPath,
-    [
-      join(input.harnessRoot, "scripts", "start-pi.mjs"),
-      // A resumed Main is resident too: it starts in Pi's long-lived
-      // interface and the pending Inbox work is what starts its first turn.
-      "--mode",
-      "rpc",
-      "--continue",
-      "--session-dir",
-      join(input.workspaceRoot, input.taskId, "sessions", "main", "pi")
-    ],
-    {
-      cwd: input.harnessRoot,
-      env: {
-        ...process.env,
-        ...input.env,
-        COWORK_CLI_SESSION: "0",
-        COWORK_MAIN_RESIDENT: "1",
-        COWORK_WORKSPACE: input.workspaceRoot,
-        COWORK_TASK_ID: input.taskId,
-        COWORK_RUN_ID: input.runId
-      },
-      stdio: "ignore",
-      detached: true
-    }
-  );
-  child.unref();
+}): Promise<AgentProcessRecord | undefined> {
+  const host = new AgentProcessHost({
+    workspaceRoot: input.workspaceRoot,
+    harnessRoot: input.harnessRoot,
+    env: { ...process.env, ...input.env },
+    // The Run is projected by whichever backend adopts the exit.
+    onExit: () => {}
+  });
+  const live = await host.adopt({ taskId: input.taskId, runId: input.runId });
+  const running = live.find((record) => record.role === "main");
+  if (running) return running;
+  const task = await new LocalWorkspaceStore(input.workspaceRoot)
+    .readTask(input.taskId)
+    // eslint-disable-next-line no-restricted-syntax -- 任务记录缺失时按安装目录启动，启动器自己会按默认值补全项目目录
+    .catch(() => undefined);
+  const directory = agentProcessDirectory(input.workspaceRoot, input.taskId, input.runId, "main", "main");
+  return host.launch({
+    taskId: input.taskId,
+    runId: input.runId,
+    callId: input.runId,
+    agentId: "main",
+    role: "main",
+    workingDirectory: input.harnessRoot,
+    projectDirectory: task?.projectDirectory ?? join(input.workspaceRoot, input.taskId),
+    sessionDirectory: join(input.workspaceRoot, input.taskId, "sessions", "main", "pi"),
+    resultPath: join(directory, "process-result.json"),
+    mode: "resident",
+    sessionArgs: ["--continue"],
+    env: { COWORK_CLI_SESSION: "0" }
+  });
 }

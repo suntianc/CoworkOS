@@ -18,7 +18,7 @@ import {
 } from "../runtime/main-message-edit.js";
 import { InputStore, inputPrompt, readTaskInput } from "../workspace/input-store.js";
 import { queuedUserTurn, readQueuedUserTurn } from "../runtime/queued-user-turn.js";
-import { MainInboxDelivery } from "../runtime/main-inbox-delivery.js";
+import { MainInboxDelivery, isMainControlType } from "../runtime/main-inbox-delivery.js";
 import { mainContextPaths } from "../runtime/main-context.js";
 import { mainInputPath, readMainInput, saveMainInput, type MainInput } from "../runtime/main-continuation.js";
 import { appendFile, readdir, realpath } from "node:fs/promises";
@@ -48,9 +48,12 @@ import { InboxStore } from "../runtime/scheduler.js";
 import { SubagentQuestionStore } from "../runtime/subagent-questions.js";
 import { assessTaskCompletion, isFinalAssistantMessage } from "../runtime/task-completion.js";
 import { mainRunFailure, MainRunOutput } from "./main-run-outcome.js";
-import { mainIsAlive, readHeartbeat } from "../runtime/main-heartbeat.js";
+import { readHeartbeat } from "../runtime/main-heartbeat.js";
+import { processIsAlive } from "../runtime/process-identity.js";
+import { hostname } from "node:os";
 import { projectExecutionIsAlive } from "../workspace/project-execution.js";
 import { ProjectCatalogError } from "../workspace/project-catalog.js";
+import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import { normalizeReasoningEffort, type PiThinkingLevel } from "../runtime/runtime-settings.js";
 import type { MainCapacityDecision, MainCapacityRequest } from "../domain/main-capacity.js";
 import { modelRoleSnapshot, type ModelRoleRequest, type ResolvedModelRole } from "../runtime/role-models.js";
@@ -204,14 +207,17 @@ export function createDashboardRunService({
     host: AgentProcessHost;
     record: AgentProcessRecord;
     output: MainRunOutput;
-    /** A turn was accepted and has not settled yet. */
+    /**
+     * Turn state from this process's own event stream.
+     *
+     * Only meaningful when `observed` is true; an adopted process's turns are
+     * reported by the durable heartbeat instead.
+     */
     turnActive: boolean;
     /** Whether this backend observes the process's own event stream. */
     observed: boolean;
-    /** A turn was accepted while this backend could not watch it directly. */
+    /** When this backend handed the adopted process a turn. */
     turnAcceptedAt?: number;
-    /** The adopted process's heartbeat has reported its turn. */
-    turnSeenActive?: boolean;
     /** This exit replaces the process; it must not settle the Run. */
     replacing: boolean;
     /** The exit was already handled; a late spawn must not re-register it. */
@@ -247,13 +253,12 @@ export function createDashboardRunService({
   async function prepareRunTransition(location: TaskLocation, runId: string, next: TaskStatus) {
     const { taskId } = location.task;
     let current = await location.store.readTask(taskId);
-    if (
-      (!activeRuns.has(taskId) && !residentMain(taskId)) ||
-      activeRunIds.get(taskId) !== runId ||
-      current.activeRunId !== runId ||
-      current.status === "cancelled"
-    )
+    // The durable Run identity is the ownership fact. An in-memory handle is
+    // not required: a record discovered after a restart owns the same Run its
+    // Task names, and that exit must still settle the Task.
+    if ((activeRunIds.has(taskId) && activeRunIds.get(taskId) !== runId) || current.activeRunId !== runId)
       return;
+    if (current.status === "cancelled") return;
     if (current.status === "completed" && next !== "completed") {
       // finish_task can succeed before the final provider response. Only this
       // still-owned execution may reopen its provisional completion; another
@@ -271,6 +276,34 @@ export function createDashboardRunService({
   const residentMain = (taskId: string): ResidentMain | undefined => residentMains.get(taskId);
 
   /**
+   * The turn a resident process reports in its durable heartbeat.
+   *
+   * A backend that adopted the process cannot see its event stream, so the
+   * heartbeat written at every turn boundary is the only witness to whether a
+   * turn is running. It belongs to this Main only when it names the same Run
+   * and this host: the record names the launcher, the heartbeat the Pi process
+   * it started, so their pids differ by design.
+   */
+  async function mainTurnState(
+    location: TaskLocation,
+    taskId: string,
+    record: AgentProcessRecord
+  ): Promise<{ active: boolean; turnId?: string } | undefined> {
+    // eslint-disable-next-line no-restricted-syntax -- 心跳只是一个提示；读不到时由调用方按没有回合处理，而不是阻断退出结算
+    const beat = await readHeartbeat(location.workspaceRoot, taskId).catch(() => undefined);
+    // The record names the launcher, the heartbeat the Pi process it started,
+    // so the pid is not the same value. The Run identity plus this host is what
+    // ties the heartbeat to this Main; `turnActive` outlives the process on
+    // purpose, because the last value it wrote is how a crash is told from an
+    // idle stop.
+    if (!beat || (beat.host && beat.host !== hostname()) || beat.runId !== record.runId) return undefined;
+    return {
+      active: beat.turnActive === true,
+      ...(beat.turnId ? { turnId: beat.turnId } : {})
+    };
+  }
+
+  /**
    * What one resident Main's exit means for its Task and Run.
    *
    * The process — not the turn — ends the Run. A replaced process leaves the
@@ -286,16 +319,23 @@ export function createDashboardRunService({
       const location = resident?.location ?? (await locateTask(taskId));
       const taskWorkspace = location.workspaceRoot;
       const replacing = resident?.replacing === true;
-      resident?.output.finish();
+      const observed = resident?.observed === true;
+      if (observed) resident.output.finish();
       const settledTask = await location.store.readTask(taskId);
       if (replacing) return;
       if (cancellations.has(taskId) || settledTask.status === "cancelled") return;
-      if (activeRunIds.get(taskId) !== runId || settledTask.activeRunId !== runId) return;
-      const last = resident?.output.message;
+      if (settledTask.activeRunId !== runId) return;
+      // A process this backend spawned reports its own terminal message and
+      // turn boundary. An adopted one has neither, so its exit is classified
+      // by the durable turn state it wrote: a turn still marked running is a
+      // mid-turn death, not an idle stop.
+      const last = observed ? resident.output.message : undefined;
       const code = record.exitCode ?? null;
       const signal = (record.exitSignal as NodeJS.Signals | null) ?? null;
       const modelFailed = last?.role === "assistant" && last.stopReason === "error";
-      const turnWasActive = resident?.turnActive === true;
+      const turn = observed ? undefined : await mainTurnState(location, taskId, record);
+      const turnWasActive = observed ? resident.turnActive : turn?.active === true;
+      const turnId = turn?.turnId;
       const interrupted = last?.role === "assistant" && ["aborted", "length"].includes(last.stopReason ?? "");
       const event = (type: string, payload: unknown) =>
         appendRunEvent(taskWorkspace, taskId, runId, type, payload);
@@ -337,7 +377,8 @@ export function createDashboardRunService({
           code,
           signal,
           reason: settledTask.status === "paused" ? "paused" : "idle",
-          status: settledTask.status
+          status: settledTask.status,
+          ...(turnId ? { turnId } : {})
         });
         const finalized = await location.store.readTask(taskId);
         if (finalized.activeRunId === runId && ["completed", "failed"].includes(finalized.status)) {
@@ -352,7 +393,7 @@ export function createDashboardRunService({
         // including the recorded request a person may replay.
         if (!(await prepareRunTransition(location, runId, "failed"))) return;
         const { error, failure } = mainRunFailure(last, code, signal);
-        await event("main.run_failed", { error, code, signal, failure });
+        await event("main.run_failed", { error, code, signal, failure, ...(turnId ? { turnId } : {}) });
         try {
           await location.store.transitionTask(taskId, "failed", {
             runId,
@@ -507,12 +548,12 @@ export function createDashboardRunService({
       harnessRoot: projectRoot,
       onExit: (record) => handleResidentExit(taskId, record.runId, record)
     });
-    const records = await host.records(taskId, task.activeRunId);
-    const record = records.find((candidate) => candidate.role === "main" && !candidate.settledAt);
-    if (!record || !(await host.owns(record))) {
-      if (record) await handleResidentExit(taskId, record.runId, record);
-      return undefined;
-    }
+    // `adopt` watches a live process and settles a dead record through the one
+    // deduplicated settlement path, so a record found after a restart is
+    // projected exactly once.
+    const live = await host.adopt({ taskId, runId: task.activeRunId });
+    const record = live.find((candidate) => candidate.role === "main");
+    if (!record) return undefined;
     const resident: ResidentMain = {
       taskId,
       runId: record.runId,
@@ -521,7 +562,7 @@ export function createDashboardRunService({
       record,
       output: new MainRunOutput(),
       // A process that survived a backend restart may be mid-turn, and this
-      // backend cannot observe that turn; its own heartbeat carries the flag.
+      // backend cannot observe that turn; its own heartbeat carries the state.
       turnActive: false,
       observed: false,
       replacing: false,
@@ -530,8 +571,76 @@ export function createDashboardRunService({
     residentMains.set(taskId, resident);
     activeRunIds.set(taskId, record.runId);
     interjectionTargets.set(taskId, { runId: record.runId });
-    await host.adopt({ taskId, runId: record.runId });
     return resident;
+  }
+
+  /**
+   * The resident Main for a Task, taking it over from the previous backend if
+   * this one has not met it yet.
+   *
+   * Management actions go through here so a still-running Main is reachable
+   * after a restart before any new message names it.
+   */
+  async function residentFor(taskId: string): Promise<ResidentMain | undefined> {
+    const known = residentMains.get(taskId);
+    if (known) return known;
+    const location = await locateTask(taskId);
+    return adoptResidentMain(taskId, location);
+  }
+
+  /**
+   * Take over every Main a previous backend left running.
+   *
+   * Runs once when the service starts: management actions (close, pause,
+   * interrupt, insertion) and status reads must see a surviving Main without
+   * waiting for the next message to name it.
+   */
+  async function adoptExistingMains(): Promise<{ adopted: number }> {
+    const result = { adopted: 0 };
+    if (stopping) return result;
+    const roots =
+      (await mainGuardian
+        ?.workspaceRoots()
+        // eslint-disable-next-line no-restricted-syntax -- 工作区列表读不到时本次不接管任何会话，下一次启动或消息仍会走到接管路径
+        .catch(() => [])) ?? [];
+    for (const workspaceRoot of roots) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stopping 由 stop() 在接管等待期间置位，TS 看不到这次闭包写入
+      if (stopping) break;
+      const tasks = await new LocalWorkspaceStore(workspaceRoot)
+        .listTasks()
+        // eslint-disable-next-line no-restricted-syntax -- 单个工作区的任务列表读不到时跳过它，不影响其他工作区的接管
+        .catch(() => []);
+      for (const task of tasks) {
+        // eslint-disable-next-line no-restricted-syntax -- 单个 Task 的记录损坏不能阻断其余会话的接管
+        const location = await locateTask(task.taskId).catch(() => undefined);
+        if (!location) continue;
+        const before = residentMains.get(task.taskId);
+        // eslint-disable-next-line no-restricted-syntax -- 接管失败只影响这一个会话，下一个周期或消息仍会重试
+        const adopted = await adoptResidentMain(task.taskId, location).catch(() => undefined);
+        if (adopted && adopted !== before) result.adopted += 1;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Whether an Inbox already holds a turn's worth of work.
+   *
+   * A continuation (or an edit) needs a wake command only when nothing else is
+   * queued: a queued user message or callback starts the turn itself, and a
+   * second empty continuation would add a turn nobody asked for.
+   */
+  async function hasQueuedTurn(inbox: InboxStore): Promise<boolean> {
+    const at = Date.now();
+    return (await inbox.list("main")).some(
+      (message) =>
+        // Only work the reader can take now counts: a live lease from a dead
+        // process is not deliverable until it expires, and waiting for it
+        // would leave the new process idle with nothing to do.
+        (message.state === "ready" ||
+          (message.state === "leased" && Date.parse(message.lease?.expiresAt ?? "") <= at)) &&
+        !isMainControlType((message.payload as { type?: unknown } | undefined)?.type)
+    );
   }
 
   /**
@@ -552,31 +661,46 @@ export function createDashboardRunService({
     requestedModel?: string;
     messageId: string;
   }): Promise<
-    { taskId: string; runId: string; status: "running"; model: string; sessionId?: string } | undefined
+    | { taskId: string; runId: string; status: "running" | "paused"; model: string; sessionId?: string }
+    | undefined
   > {
     const { resident, task, location, prompt, continuation, submission, messageId } = input;
     if (residentMain(resident.taskId) !== resident) return undefined;
     if (resident.runId !== (task.activeRunId ?? resident.runId)) return undefined;
     if (task.status === "cancelled" || task.status === "failed") return undefined;
+    if (!resident.observed && !processIsAlive(resident.record.pid)) {
+      // The record names the launcher this process was started as; when it is
+      // gone the adoption path settles the exit instead of a message being
+      // queued behind a dead reader. The heartbeat is only the turn state: a
+      // process that just started has not written one yet.
+      return undefined;
+    }
     if (input.requestedModel && normalizeModel(input.requestedModel) !== (task.model || "")) return undefined;
     if (prompt.includes("\0")) throw new Error("消息包含不支持的二进制字符，请移除附件后重试");
     if (Buffer.byteLength(prompt, "utf8") > 512 * 1024) throw new Error("消息及附件合计不能超过 512 KB");
     if (!prompt.trim() && !continuation) throw new Error("prompt must not be empty");
     const taskWorkspace = location.workspaceRoot;
-    // The same gates the launch path applies before a Mian may take work.
+    // The same gates the launch path applies before a Main may take work.
     if ((await new HumanRequestStore(taskWorkspace).listBlockingPending(resident.taskId)).length)
       throw new Error("请先回答任务中待确认的问题，再继续运行。");
     const model = task.model || "";
+    // A message that arrives while the Task is paused stays queued: the pause
+    // is the user's hold on new turns, so only an explicit resume clears it and
+    // the API answers with the status the Task actually has.
+    const staysPaused = !continuation && Boolean(task.pause);
     await location.store.updateTask(resident.taskId, {
       ...(!continuation ? { goal: task.goal || prompt.slice(0, 4_000) } : {}),
       model,
       activeRunId: resident.runId,
-      ...(task.pause ? { pause: undefined } : {})
+      ...(task.pause && !staysPaused ? { pause: undefined } : {})
     });
     const inbox = new InboxStore(
       join(taskWorkspace, resident.taskId, "runs", resident.runId, "agents", "main", "inbox-store.json")
     );
     if (continuation) {
+      // An explicit resume always wakes the process: the pause it just lifted
+      // stopped its turn loop, so queued work alone would wait for the next
+      // file event. The queued work is steered into the turn it starts.
       const resumeId = `main-resume-${randomUUID()}`;
       await inbox.enqueue({
         messageId: resumeId,
@@ -622,12 +746,20 @@ export function createDashboardRunService({
     await appendRunEvent(taskWorkspace, resident.taskId, resident.runId, "main.turn_delivered", {
       prompt: prompt.slice(0, 4_000),
       continuation,
-      messageId
+      messageId,
+      ...(staysPaused ? { queuedWhilePaused: true } : {})
     });
-    resident.turnActive = true;
-    resident.turnAcceptedAt = Date.now();
+    if (!staysPaused) {
+      resident.turnActive = true;
+      resident.turnAcceptedAt = Date.now();
+    }
     interjectionTargets.set(resident.taskId, { runId: resident.runId });
-    return { taskId: resident.taskId, runId: resident.runId, status: "running", model };
+    return {
+      taskId: resident.taskId,
+      runId: resident.runId,
+      status: staysPaused ? "paused" : "running",
+      model
+    };
   }
 
   async function launchMainRunWithAdmission(
@@ -642,7 +774,7 @@ export function createDashboardRunService({
   ): Promise<{
     taskId: string;
     runId: string;
-    status: "running" | "queued" | "duplicate";
+    status: "running" | "paused" | "queued" | "duplicate";
     model: string;
     sessionId?: string;
     queuePosition?: number;
@@ -661,7 +793,17 @@ export function createDashboardRunService({
     // A resident Main serving this Task takes the turn in the process it
     // already has. Only a request that needs a different process (an edit, a
     // retry, another model) falls through, and that one replaces it.
-    const resident = residentMains.get(taskId) ?? (await adoptResidentMain(taskId, location));
+    let resident = await residentFor(taskId);
+    if (resident && !resident.observed && !processIsAlive(resident.record.pid)) {
+      // The entry may predate a crash: its process is gone but the exit has
+      // not been projected yet. Drop it and look again, so a Main the recovery
+      // supervisor started for the same session is adopted instead of a
+      // second process being started beside it. The process record, not the
+      // heartbeat, says whether it is alive: a just-started one has no
+      // heartbeat of its own yet.
+      await stopResidentMain(taskId, { replacing: true });
+      resident = await residentFor(taskId);
+    }
     if (resident) {
       // A retry or a request for another Run while a Main still serves this
       // Task is the same duplicate the launch check always refused: the Run
@@ -959,7 +1101,11 @@ export function createDashboardRunService({
     // A continuation and a message edit both already have their turn in the
     // session (restored from the accepted input); the process only needs to be
     // told to start it. A fresh message is itself the turn.
-    if (continuation || submission?.edit) {
+    // A replay must start its own turn: the callbacks that are waiting are
+    // held until the archived request has been resent, so queued work cannot
+    // be what starts it.
+    const hasQueuedWork = await hasQueuedTurn(inbox);
+    if ((continuation || submission?.edit) && (retryRequest || !hasQueuedWork)) {
       const resumeId = `main-resume-${randomUUID()}`;
       await inbox.enqueue({
         messageId: resumeId,
@@ -971,7 +1117,7 @@ export function createDashboardRunService({
         payload: { type: "main.resume" },
         createdAt
       });
-    } else {
+    } else if (!continuation && !submission?.edit) {
       await inbox.enqueue({
         messageId,
         recipientAgentId: "main",
@@ -1294,7 +1440,9 @@ export function createDashboardRunService({
         // possible now that the process outlives its turns.
         if (location.task.activeRunId !== request.runId)
           throw new MainMessageEditConflict("请先停止当前运行并等待停止完成，再修改重发。");
-        if (residentMain(taskId)) await stopResidentMain(taskId, { replacing: true });
+        // An edit stops the process that owns the session, whether this
+        // backend started it or took it over after a restart.
+        if (await adoptResidentMain(taskId, location)) await stopResidentMain(taskId, { replacing: true });
         const source = await latestEditableMessage(location.workspaceRoot, taskId, request.runId);
         if (
           !source ||
@@ -1359,10 +1507,10 @@ export function createDashboardRunService({
     );
   }
 
-  function interjectionTarget(taskId: string): InterjectionTarget | undefined {
+  async function interjectionTarget(taskId: string): Promise<InterjectionTarget | undefined> {
     // A resident Main is reachable while its entry exists, whether this
-    // backend spawned it or adopted it after a restart.
-    if (!residentMain(taskId)) return;
+    // backend spawned it or took it over from the previous backend.
+    if (!(await residentFor(taskId))) return;
     return interjectionTargets.get(taskId);
   }
 
@@ -1421,7 +1569,7 @@ export function createDashboardRunService({
         const location = await locateTask(taskId);
         const currentRunId = location.task.activeRunId;
         if (!currentRunId) return { error: "这条消息已不在队列中。" };
-        const active = residentMain(taskId) !== undefined;
+        const active = (await adoptResidentMain(taskId, location)) !== undefined;
         // A process can exit between saving its first prompt and acknowledging it.
         if (!active)
           await new MainInboxDelivery(location.workspaceRoot, taskId, currentRunId).acknowledge(
@@ -1528,9 +1676,11 @@ export function createDashboardRunService({
     async function inspect() {
       for (const taskId of ids) {
         const location = await locateTask(taskId);
+        // eslint-disable-next-line no-restricted-syntax -- 接管失败只表示这里不认识该进程，后续的活进程检查仍会读心跳与执行记录
+        const resident = await adoptResidentMain(taskId, location).catch(() => undefined);
         if (
           activeRuns.has(taskId) ||
-          residentMain(taskId) !== undefined ||
+          resident !== undefined ||
           taskFinalizations.has(taskId) ||
           ["running", "paused", "waiting"].includes(location.task.status) ||
           (await readSleep(location.workspaceRoot, taskId)) ||
@@ -1590,7 +1740,10 @@ export function createDashboardRunService({
     return serialize(taskId, async () => {
       const location = await locateTask(taskId);
       if (location.task.status === "paused") return { task: location.task };
-      if (location.task.status !== "running" || !residentMain(taskId) || !location.task.activeRunId)
+      // Take over a Main the previous backend left running before deciding
+      // whether a turn is in flight.
+      if (!(await adoptResidentMain(taskId, location))) return { refused: "no_active_run" as const };
+      if (location.task.status !== "running" || !location.task.activeRunId)
         return { refused: "no_active_run" as const };
       if (!location.task.pause) {
         const task = await location.store.updateTask(taskId, {
@@ -1620,11 +1773,12 @@ export function createDashboardRunService({
   function interruptTask(taskId: string) {
     return serialize(taskId, async () => {
       const location = await locateTask(taskId);
-      const resident = residentMain(taskId);
-      const heartbeat = await readHeartbeat(location.workspaceRoot, taskId);
-      const turnActive = resident?.turnActive ?? (mainIsAlive(heartbeat) && heartbeat?.turnActive === true);
+      // The adopted process reports its turn through the durable heartbeat;
+      // a process this backend observes reports its event stream.
+      const resident = await adoptResidentMain(taskId, location);
+      const turnActive = resident ? await taskTurnActive(taskId) : undefined;
       const runId = resident?.runId ?? location.task.activeRunId;
-      if (!turnActive || !runId) return { refused: "no_active_turn" as const };
+      if (!resident || turnActive !== true || !runId) return { refused: "no_active_turn" as const };
       const inbox = new InboxStore(
         join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
       );
@@ -1762,7 +1916,7 @@ export function createDashboardRunService({
         humanWakeups.delete(taskId);
         return { status: "delivered" };
       }
-      if (residentMain(taskId) || activeRuns.has(taskId)) {
+      if ((await adoptResidentMain(taskId, location)) || activeRuns.has(taskId)) {
         humanWakeups.add(taskId);
         return { status: "resuming" };
       }
@@ -1804,22 +1958,20 @@ export function createDashboardRunService({
   /**
    * Whether a turn is running for this Task right now.
    *
-   * `undefined` means this backend is not watching the process (it adopted the
-   * Task's Main after a restart); the caller then reads the process heartbeat.
+   * `undefined` means this backend does not know the Task's Main (no resident
+   * and no live process); the caller then reads the heartbeat itself. A
+   * process this backend observed reports its own event stream; an adopted one
+   * reports the durable turn state it writes at every boundary.
    */
   async function taskTurnActive(taskId: string): Promise<boolean | undefined> {
     const resident = residentMains.get(taskId);
     if (!resident) return undefined;
     if (resident.observed) return resident.turnActive;
-    // An adopted process reports its own turn state. Until its heartbeat says
-    // otherwise, a turn this backend just handed over is still starting.
-    const beat = await readHeartbeat(resident.location.workspaceRoot, taskId);
-    if (mainIsAlive(beat) && beat?.turnActive === true) {
-      resident.turnSeenActive = true;
-      return true;
-    }
-    if (resident.turnSeenActive) return false;
-    return resident.turnAcceptedAt === undefined ? undefined : true;
+    const state = await mainTurnState(resident.location, taskId, resident.record);
+    if (state?.active) return true;
+    // A turn this backend just handed over may not have reached its first
+    // heartbeat write yet; the hand-over is the only evidence until then.
+    return resident.turnAcceptedAt !== undefined && Date.now() - resident.turnAcceptedAt < 5_000;
   }
 
   /** Whether a Main process for this Task exists, idle or working. */
@@ -1827,10 +1979,25 @@ export function createDashboardRunService({
     return activeRuns.has(taskId) || residentMains.has(taskId);
   }
 
+  /**
+   * Whether a Main owns this Task, taking it over first when this backend has
+   * not met it yet. Destructive management decisions use this instead of the
+   * in-memory map so a Main still running from the previous backend cannot be
+   * deleted, archived or duplicated during the startup adoption window.
+   */
+  async function ensureMainProcess(taskId: string): Promise<boolean> {
+    if (mainProcessRunning(taskId)) return true;
+    // eslint-disable-next-line no-restricted-syntax -- 未知或不可用的 Task 由调用方的正常 404 处理，这里只回答“有没有 Main”
+    const resident = await residentFor(taskId).catch(() => undefined);
+    return resident !== undefined;
+  }
+
   return {
     activeRuns,
     taskTurnActive,
     mainProcessRunning,
+    ensureMainProcess,
+    adoptExistingMains,
     isBusy: () => activeRuns.size > 0 || taskOperations.size > 0 || finalizations.size > 0,
     startMainRun,
     pauseTask,

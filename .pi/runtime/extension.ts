@@ -203,6 +203,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
   let agentStartedAt = 0;
   let sessionContext: ExtensionContext | undefined;
   let turnActive = false;
+  // Unique per process lifetime: a backend that adopts this process sees the
+  // id change at every new turn and knows the previous one is over.
+  let turnId = `${process.pid}-0`;
+  let turnCount = 0;
   pi.on("agent_start", () => {
     agentStartedAt = Date.now();
   });
@@ -883,12 +887,14 @@ async function registerMainExtension(pi: ExtensionAPI) {
     }
   });
 
-  const writeMainHeartbeat = () => writeHeartbeat(workspaceRoot, taskId, mainRunId, { turnActive });
+  const writeMainHeartbeat = () => writeHeartbeat(workspaceRoot, taskId, mainRunId, { turnActive, turnId });
   pi.on("agent_start", async (_event, ctx) => {
     awaitingInitialPrompt = false;
     lastMainMessage = undefined;
     sessionContext = ctx;
     turnActive = true;
+    turnCount += 1;
+    turnId = `${process.pid}-${turnCount}`;
     touchMainActivity();
     // Tell any supervisor, and a backend that adopted this process, that the
     // Task has a turn running right now. A one-turn process reports liveness

@@ -23,7 +23,7 @@ async function fixture(t) {
     join(harnessRoot, "scripts/start-pi.mjs"),
     `import {writeFile} from 'node:fs/promises'; await writeFile(${JSON.stringify(evidence)},JSON.stringify({marker:process.env.COWORK_CLI_SESSION,taskId:process.env.COWORK_TASK_ID,runId:process.env.COWORK_RUN_ID}));`
   );
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const readChild = async () => {
     for (let count = 0; count < 100; count++) {
       try {
