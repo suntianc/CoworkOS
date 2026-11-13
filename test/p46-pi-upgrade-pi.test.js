@@ -209,10 +209,36 @@ test(
     const inbox = new InboxStore(
       join(f.dashboard.workspaceRoot, "startup-task", "runs", runId, "agents", "main", "inbox-store.json")
     );
-    assert.deepEqual(
-      (await inbox.list("main")).map((message) => message.state),
-      ["consumed"],
+    // The Inbox also carries the accepted prompt as the run's own user turn
+    // (Main is resident and reads its turn there), so the assertion is about
+    // this callback, not about the Inbox holding one message in total.
+    const messages = await inbox.list("main");
+    const callback = messages.filter((message) => message.messageId === "startup-callback");
+    assert.equal(callback.length, 1, "the callback is held exactly once");
+    assert.equal(callback[0].kind, "callback");
+    assert.equal(
+      callback[0].state,
+      "consumed",
       "the delivered callback is acknowledged, not left for a second run"
+    );
+    assert.equal(
+      messages.filter((message) => message.kind === "callback").length,
+      1,
+      "no second callback copy was queued"
+    );
+    assert.ok(
+      messages.some((message) => message.kind === "human_command" && message.state === "consumed"),
+      "the accepted prompt is the only other message, delivered as the run's turn"
+    );
+    // One model request carried it, and the evidence appears there once.
+    const carrying = f.requests.filter((request) =>
+      JSON.stringify(request.messages).includes("STARTUP_CALLBACK_EVIDENCE")
+    );
+    assert.equal(carrying.length, 1, "the callback reached exactly one model request");
+    assert.equal(
+      JSON.stringify(carrying[0].messages).split("STARTUP_CALLBACK_EVIDENCE").length - 1,
+      1,
+      "the callback entered that request once"
     );
   }
 );
