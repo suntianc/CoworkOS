@@ -81,20 +81,23 @@ test(
 
     const oldProcess = dashboard.child;
     const oldPid = oldProcess.pid;
+    // The Main is a resident process, not a child of the backend: the restart
+    // leaves its turn (and its held model request) running, and the new
+    // backend adopts it from its durable record.
     await dashboard.restart({ newPort: true });
     assert.notEqual(dashboard.child.pid, oldPid, "recovery runs in a newly launched backend process");
     assert.ok(oldProcess.exitCode !== null || oldProcess.signalCode !== null, "the old backend exited");
     const restored = await api(`/api/tasks/${taskId}`);
-    assert.equal(restored.task.status, "waiting");
+    assert.equal(restored.task.status, "running", "the adopted Main is still working on its turn");
     assert.equal(restored.task.activeRunId, first.runId);
-    assert.equal(restored.runtime.active, false);
+    assert.equal(restored.runtime.active, true, "the heartbeat reports the adopted turn");
+    assert.equal(restored.runtime.mainRunning, true, "the backend reports the resident Main");
     assert.equal((await readQueued()).state, "ready");
     assert.equal(provider.requests.length, 2, "restart alone must not issue another model request");
     release();
 
-    const resumed = await api(`/api/tasks/${taskId}/interject/${queued.messageId}/steer`, {});
-    assert.equal(resumed.runId, first.runId);
-    await waitFor(() => provider.requests.length === 3, "the queued request must reach the resumed model");
+    await waitFor(() => provider.requests.length === 3, "the queued request must reach the adopted Main");
+    assert.equal((await api(`/api/tasks/${taskId}`)).task.activeRunId, first.runId);
     const messages = provider.requests[2].body.messages;
     assert.ok(
       messages.some(

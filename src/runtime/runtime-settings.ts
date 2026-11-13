@@ -99,6 +99,8 @@ export interface RuntimeSettingsConfig extends HttpProxyConfig {
   supportsPromptCacheKey?: boolean;
   workspaceRoot?: string;
   mainTimeoutMs?: number;
+  /** How long a resident Main stays idle before it exits and keeps its state. */
+  mainIdleTimeoutMs?: number;
   subagentTimeoutMs?: number;
   mainMaxTurns?: number;
   subagentMaxTurns?: number;
@@ -132,6 +134,7 @@ export function runtimeSettingsEnv(config: RuntimeSettingsConfig = {}): NodeJS.P
     ["supportsImages", "COWORK_SUPPORTS_IMAGES"],
     ["supportsPromptCacheKey", "COWORK_SUPPORTS_PROMPT_CACHE_KEY"],
     ["mainTimeoutMs", "COWORK_MAIN_TIMEOUT_MS"],
+    ["mainIdleTimeoutMs", "COWORK_MAIN_IDLE_TIMEOUT_MS"],
     ["subagentTimeoutMs", "COWORK_SUBAGENT_TIMEOUT_MS"],
     ["mainMaxTurns", "COWORK_MAIN_MAX_TURNS"],
     ["subagentMaxTurns", "COWORK_MAX_TURNS"],
@@ -204,6 +207,20 @@ function positiveCappedEnv(env: NodeJS.ProcessEnv, name: string, fallback: numbe
 /** Main Agent wall-clock deadline.  Zero means unlimited. */
 export function configuredMainTimeout(env: NodeJS.ProcessEnv = process.env): number {
   return nonNegativeEnv(env, "COWORK_MAIN_TIMEOUT_MS", 0);
+}
+
+/**
+ * How long a resident Main may sit with no turn and no Subagent running.
+ *
+ * Exiting is a state-preserving stop: the Pi session, the Task and its Inbox
+ * stay on disk, and the next message or callback starts a Main again. A
+ * resident Main holds a capacity slot and a model process while it waits, so
+ * "forever" is the wrong default for a session nobody is using.
+ */
+export const DEFAULT_MAIN_IDLE_TIMEOUT_MS = 30 * 60_000;
+
+export function configuredMainIdleTimeout(env: NodeJS.ProcessEnv = process.env): number {
+  return nonNegativeEnv(env, "COWORK_MAIN_IDLE_TIMEOUT_MS", DEFAULT_MAIN_IDLE_TIMEOUT_MS);
 }
 
 /**

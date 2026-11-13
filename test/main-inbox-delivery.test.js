@@ -83,6 +83,43 @@ test("wait consumes a ready callback and delivery cannot inject it again", async
   assert.equal(receipts.find((event) => event.type === "callback.consumed").payload.delivery, "wait");
 });
 
+test("a startup batch appends the queue and lets only the user turn open the run", async (t) => {
+  const { inbox, bridge } = await fixture(t);
+  await inbox.enqueue({
+    messageId: "startup-user",
+    recipientAgentId: "main",
+    kind: "human_command",
+    eventId: "startup-user-event",
+    priority: 120,
+    state: "ready",
+    payload: { type: "human.message", message: "你好！", delivery: "steer", initial: true },
+    createdAt: new Date(Date.now() + 1).toISOString()
+  });
+  const sends = [];
+  await bridge.deliver(
+    (message, options) => {
+      sends.push({
+        id: message.details?._coworkInbox?.messageId,
+        triggerTurn: options.triggerTurn,
+        userTurn: options.userTurn?.messageId
+      });
+    },
+    { batchStart: true }
+  );
+  // Everything queued before the process's first turn is context; only the
+  // person's own turn opens the run, so a queued callback cannot open a second.
+  assert.deepEqual(
+    sends.map((send) => send.id),
+    ["callback-one", "startup-user"],
+    "the callback is appended and the user turn is last"
+  );
+  assert.deepEqual(
+    sends.map((send) => send.triggerTurn),
+    [false, true]
+  );
+  assert.equal(sends[1].userTurn, "startup-user");
+});
+
 test("wait does not return a callback already leased for Main delivery", async (t) => {
   const { root, inbox, bridge } = await fixture(t);
   await completeFixtureCall(root);

@@ -10,6 +10,7 @@ import { createDashboardRunService } from "../dist/src/dashboard/run-service.js"
 import { readTaskRuntimeEvents } from "../dist/src/runtime/conversation-history.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { singleConnectionMainModel } from "./role-model-fixture.mjs";
+import { reapRecordedMains } from "./fixtures/pi-process-fixture.mjs";
 
 const delta = (text) => ({
   type: "message_update",
@@ -168,7 +169,10 @@ test("a real child's stderr cannot split stdout JSON events and remains availabl
   });
   t.after(async () => {
     await service.stop();
-    await rm(root, { recursive: true, force: true });
+    // The backend leaves a resident Main running by design; this fixture owns
+    // the fake one it started.
+    await reapRecordedMains(join(root, "workspace"));
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
   await service.startMainRun("task", "synthetic-only", "run");
   const output = join(workspaceRoot, "task", "runs", "run", "runtime-output.log");

@@ -104,6 +104,15 @@ export default {
   "」和它的会话从列表移除。工作文件夹里的文件不会被删除，会话记录保留在本机；以后重新添加同一个文件夹，项目和会话会一起回来。":
     "” and its conversations will be removed from the list. Files in the working folder are not deleted and the conversation history stays on this computer; adding the same folder again brings the project and its conversations back.",
   "任务已停止，已保存的内容保留": "Task stopped. Saved content is retained.",
+  "会话已关闭，已保存的内容保留": "Session closed. Saved content is retained.",
+  "本回合已中断，会话保留": "This turn was interrupted. The session is kept.",
+  中断本回合: "Interrupt turn",
+  正在中断本回合: "Interrupting this turn",
+  "正在中断本回合…": "Interrupting this turn…",
+  "中断本回合？": "Interrupt this turn?",
+  "Main 会停止输出。会话、子代理和已完成的内容都保留，可以继续发消息。":
+    "Main stops producing output. The session, its Subagents and finished work are kept, so you can send another message.",
+  关闭会话: "Close session",
   个文件未添加: " files could not be added",
   重试: "Retry",
   "请将文件拖入对话输入区；当前内容已保留。":
@@ -640,6 +649,7 @@ export default {
   "可以手动重试继续。": "Retry to continue.",
   "Main 正在工作": "Main is working",
   当前步骤结束后暂停: "Pauses after the current step",
+  "暂停，当前步骤结束后生效": "Pause after the current step",
   暂停中: "Pausing",
   取消运行: "Cancel run",
   "取消本次运行？": "Cancel this run?",

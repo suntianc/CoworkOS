@@ -68,6 +68,48 @@ function inContext(messageId) {
   ];
 }
 
+test("a lease records the holder's OS identity, so a reused pid never keeps it alive", async (t) => {
+  const { readProcessIdentity } = await import("../dist/src/runtime/process-identity.js");
+  const f = await fixture(t);
+  const holder = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  t.after(() => {
+    try {
+      holder.kill("SIGKILL");
+    } catch {
+      /* the fixture process already exited */
+    }
+  });
+  const identity = await readProcessIdentity(holder.pid);
+  assert.ok(identity, "the holder has a readable OS identity");
+  await enqueue(f, { messageId: "owned-lease", kind: "human_command", payload: { message: "held" } });
+  const lease = await f.inbox.lease(AGENT_ID, 1, `agent-${holder.pid}-holder`, identity);
+  assert.equal(lease?.lease?.owner?.startedAt, identity.startedAt);
+  // Expire it while the process is alive: a live owner keeps its message.
+  await writeFile(
+    join(f.directory, "inbox-store.json"),
+    JSON.stringify([{ ...lease, lease: { ...lease.lease, expiresAt: new Date(0).toISOString() } }])
+  );
+  assert.equal(await f.inbox.lease(AGENT_ID, 1_000, "agent-1-other"), undefined, "a live owner keeps it");
+
+  // The same number now names an unrelated process: the recorded start time
+  // does not match, so the message is not pinned to a pid that was reused.
+  await writeFile(
+    join(f.directory, "inbox-store.json"),
+    JSON.stringify([
+      {
+        ...lease,
+        lease: {
+          ...lease.lease,
+          expiresAt: new Date(0).toISOString(),
+          owner: { pid: holder.pid, startedAt: `${identity.startedAt} (reused)` }
+        }
+      }
+    ])
+  );
+  const reclaimed = await f.inbox.lease(AGENT_ID, 1_000, "agent-1-other", identity);
+  assert.equal(reclaimed?.messageId, "owned-lease");
+});
+
 test("a message is delivered once and consumed only after it reaches the context", async (t) => {
   const f = await fixture(t);
   await enqueue(f, {

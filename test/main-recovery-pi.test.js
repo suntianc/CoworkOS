@@ -577,9 +577,20 @@ for (const action of ["cancel", "shutdown"]) {
         const exited = once(local.child, "exit");
         local.child.kill("SIGTERM");
         await exited;
+        // The resident Main is not a child of the backend: the shutdown ends
+        // the backend only, and the still-active final response keeps the
+        // provisional finish_task completion it recorded.
         const stored = JSON.parse(await readFile(join(local.workspaceRoot, taskId, "task.json"), "utf8"));
-        assert.equal(stored.status, "waiting");
+        assert.equal(stored.status, "completed");
+        assert.equal(stored.completion.signal, "finish_task");
         assert.equal(stored.activeRunId, run.runId);
+        const record = JSON.parse(
+          await readFile(
+            join(local.workspaceRoot, taskId, "runs", run.runId, "agents", "main", "process.json"),
+            "utf8"
+          )
+        );
+        assert.equal(processAlive(record.pid), true, "the resident Main survives the backend shutdown");
         status = stored.status;
       }
       await receipt(local.root, taskId, {
@@ -590,4 +601,13 @@ for (const action of ["cancel", "shutdown"]) {
       });
     }
   );
+}
+
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
 }

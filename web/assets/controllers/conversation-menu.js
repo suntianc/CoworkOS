@@ -34,7 +34,7 @@ export function createConversationMenu({
     ${row("pin", ui("置顶"), "pin")}
     ${row("unread", ui("标记为未读"), "eye")}
     <div class="session-menu-separator" role="separator"></div>
-    ${row("stop", ui("停止任务"), "stop")}
+    ${row("stop", ui("关闭会话"), "stop")}
     ${row("archive", ui("归档"), "archive")}
     ${row("delete", ui("删除"), "trash")}
   </div>`;

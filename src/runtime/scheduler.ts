@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { id, now, type Importance, type InboxMessage } from "../domain/types.js";
 import { withFileLock } from "../storage/file-lock.js";
+import { verifyProcessIdentity, type ProcessIdentity } from "./process-identity.js";
 
 export type WorkStatus = "queued" | "leased" | "completed" | "failed" | "cancelled";
 
@@ -281,7 +282,10 @@ export class CheckpointStore {
     });
     await previous;
     try {
-      return await withFileLock(this.filePath, fn);
+      // The owner is this host's process: a Main that was killed between
+      // taking the lock and releasing it must not stall the next reader for the
+      // whole timeout. Recovery only reclaims an owner whose pid is gone.
+      return await withFileLock(this.filePath, fn, { recoverDeadOwner: true });
     } finally {
       release();
     }
@@ -310,11 +314,12 @@ export class InboxStore {
   async lease(
     recipientAgentId: string,
     leaseMs = INBOX_MESSAGE_LEASE_MS,
-    consumerId = `consumer-${process.pid}`
+    consumerId = `consumer-${process.pid}`,
+    owner?: ProcessIdentity
   ): Promise<InboxMessage | undefined> {
     return this.withLock(async () => {
       const messages = await this.read();
-      const reclaimed = this.reclaimExpiredInMemory(messages);
+      const reclaimed = await this.reclaimExpiredInMemory(messages);
       const message = messages
         .filter((candidate) => candidate.recipientAgentId === recipientAgentId && candidate.state === "ready")
         .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))[0];
@@ -328,7 +333,8 @@ export class InboxStore {
       message.state = "leased";
       message.lease = {
         consumerId,
-        expiresAt: new Date(Date.now() + Math.max(1_000, leaseMs)).toISOString()
+        expiresAt: new Date(Date.now() + Math.max(1_000, leaseMs)).toISOString(),
+        ...(owner ? { owner } : {})
       };
       await this.write(messages);
       return message;
@@ -341,11 +347,12 @@ export class InboxStore {
     recipientAgentId: string,
     messageId: string,
     leaseMs = INBOX_MESSAGE_LEASE_MS,
-    consumerId = `consumer-${process.pid}`
+    consumerId = `consumer-${process.pid}`,
+    owner?: ProcessIdentity
   ): Promise<InboxMessage | undefined> {
     return this.withLock(async () => {
       const messages = await this.read();
-      this.reclaimExpiredInMemory(messages);
+      await this.reclaimExpiredInMemory(messages);
       const message = messages.find(
         (candidate) => candidate.recipientAgentId === recipientAgentId && candidate.messageId === messageId
       );
@@ -356,7 +363,8 @@ export class InboxStore {
       message.state = "leased";
       message.lease = {
         consumerId,
-        expiresAt: new Date(Date.now() + Math.max(1_000, leaseMs)).toISOString()
+        expiresAt: new Date(Date.now() + Math.max(1_000, leaseMs)).toISOString(),
+        ...(owner ? { owner } : {})
       };
       await this.write(messages);
       return message;
@@ -364,10 +372,14 @@ export class InboxStore {
   }
 
   /** Wait owns the body until its tool result is saved, or its process exits. */
-  async claimReadyCallbackForWait(callId: string, consumerId: string): Promise<InboxMessage | undefined> {
+  async claimReadyCallbackForWait(
+    callId: string,
+    consumerId: string,
+    owner?: ProcessIdentity
+  ): Promise<InboxMessage | undefined> {
     return this.withLock(async () => {
       const messages = await this.read();
-      this.reclaimExpiredInMemory(messages);
+      await this.reclaimExpiredInMemory(messages);
       const message = messages.find(
         (candidate) =>
           candidate.recipientAgentId === "main" &&
@@ -379,7 +391,8 @@ export class InboxStore {
       message.state = "leased";
       message.lease = {
         consumerId,
-        expiresAt: new Date(Date.now() + 60_000).toISOString()
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        ...(owner ? { owner } : {})
       };
       await this.write(messages);
       return message;
@@ -392,7 +405,7 @@ export class InboxStore {
       const messages = await this.read();
       let changed = false;
       for (const message of messages) {
-        if (message.state !== "leased" || !waitOwner(message) || waitOwnerIsAlive(message)) continue;
+        if (message.state !== "leased" || !waitOwner(message) || (await waitOwnerIsAlive(message))) continue;
         message.state = "ready";
         message.lease = undefined;
         changed = true;
@@ -516,14 +529,17 @@ export class InboxStore {
     });
     await previous;
     try {
-      return await withFileLock(this.filePath, fn);
+      // The owner is this host's process: a Main that was killed between
+      // taking the lock and releasing it must not stall the next reader for the
+      // whole timeout. Recovery only reclaims an owner whose pid is gone.
+      return await withFileLock(this.filePath, fn, { recoverDeadOwner: true });
     } finally {
       release();
     }
   }
 
   /** Returns whether an expired lease had to be reclaimed. */
-  private reclaimExpiredInMemory(messages: InboxMessage[]): boolean {
+  private async reclaimExpiredInMemory(messages: InboxMessage[]): Promise<boolean> {
     const at = Date.now();
     let changed = false;
     for (const message of messages) {
@@ -531,8 +547,10 @@ export class InboxStore {
       // A lease held by a live consumer is not late. The message may already be
       // queued in that process and still waiting for its context, and giving it
       // to that same consumer again would deliver it twice. This applies to
-      // every message kind, not only the wait callbacks.
-      if (consumerOwnerIsAlive(message.lease.consumerId)) continue;
+      // every message kind, not only the wait callbacks. A lease that recorded
+      // the holder's OS start time is checked by identity, so a reused pid is
+      // never mistaken for the process that took it.
+      if (await consumerOwnerIsAlive(message.lease.consumerId, message.lease.owner)) continue;
       message.state = "ready";
       message.lease = undefined;
       changed = true;
@@ -554,8 +572,12 @@ function consumerOwnerPid(consumerId: string | undefined): number | undefined {
   return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
 }
 
-function consumerOwnerIsAlive(consumerId: string | undefined): boolean {
-  const pid = consumerOwnerPid(consumerId);
+async function consumerOwnerIsAlive(
+  consumerId: string | undefined,
+  owner?: { pid: number; startedAt: string }
+): Promise<boolean> {
+  if (owner?.startedAt) return verifyProcessIdentity(owner);
+  const pid = owner?.pid ?? consumerOwnerPid(consumerId);
   return pid !== undefined && processIsAlive(pid);
 }
 
@@ -573,7 +595,8 @@ function waitOwner(message: InboxMessage): number | undefined {
   return consumerOwnerPid(message.lease?.consumerId);
 }
 
-function waitOwnerIsAlive(message: InboxMessage): boolean {
+async function waitOwnerIsAlive(message: InboxMessage): Promise<boolean> {
+  if (message.lease?.owner?.startedAt) return verifyProcessIdentity(message.lease.owner);
   const pid = waitOwner(message);
   return pid !== undefined && processIsAlive(pid);
 }

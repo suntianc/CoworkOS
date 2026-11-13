@@ -177,7 +177,9 @@ export function createRunControl({
     }
     const pausing = Boolean(task.pause);
     pauseButton.disabled = busy || pausing;
-    pauseButton.title = pausing ? ui("当前步骤结束后暂停") : ui("暂停");
+    // Pause stops at the step boundary and keeps the process; the session and
+    // its queued work wait for the resume.
+    pauseButton.title = pausing ? ui("当前步骤结束后暂停") : ui("暂停，当前步骤结束后生效");
     pauseButton.setAttribute("aria-label", pausing ? ui("暂停中") : ui("暂停"));
   }
 

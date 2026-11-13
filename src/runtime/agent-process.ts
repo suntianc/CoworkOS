@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, readdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { atomicWrite } from "../storage/atomic-file.js";
+import { withFileLock } from "../storage/file-lock.js";
 import { now } from "../domain/types.js";
 import {
   processGroupIsAlive,
@@ -51,8 +52,30 @@ export interface AgentProcessLaunch {
   role: AgentProcessRole;
   /** The work item's site; the process runs with this as its CWD. */
   workingDirectory: string;
-  /** The turn handed to the agent on stdin. */
-  prompt: string;
+  /**
+   * The project an agent edits, when it differs from the CWD.
+   *
+   * A delegated agent's CWD is its site. Main runs from the install root but
+   * works in the project the Task selected.
+   */
+  projectDirectory?: string;
+  /** The turn handed to the agent on stdin; absent for a resident process. */
+  prompt?: string;
+  /**
+   * How long this process lives.
+   *
+   * `turn` (the default) runs one prompt and exits. `resident` keeps the
+   * process available between turns: it is started in Pi's long-lived RPC
+   * interface, its stdin stays open for the life of the process, and its own
+   * durable Inbox is what wakes it for the next turn.
+   */
+  mode?: "turn" | "resident";
+  /** Called with each stdout chunk of a resident process, in arrival order. */
+  onStdout?: (chunk: Buffer) => void;
+  /** Called with each stderr chunk of a resident process, in arrival order. */
+  onStderr?: (chunk: Buffer) => void;
+  /** Session selection for a resident process, replacing the per-call id. */
+  sessionArgs?: string[];
   /** Pi session directory; one call keeps its own transcript. */
   sessionDirectory: string;
   /** The extension writes this record before the process exits. */
@@ -84,6 +107,9 @@ export interface AgentProcessRecord {
   stdoutPath: string;
   stderrPath: string;
   leaseToken?: string;
+  /** OS exit facts, recorded when this backend observed the exit itself. */
+  exitCode?: number | null;
+  exitSignal?: string | null;
   settledAt?: string;
   outcome?: AgentProcessOutcome;
 }
@@ -97,6 +123,13 @@ export interface AgentProcessHostOptions {
   launcher?: string;
   /** Called once per process when it is observed to have exited. */
   onExit?: (record: AgentProcessRecord) => Promise<void> | void;
+  /**
+   * Called once the launch record exists, before the caller gets it back.
+   *
+   * A caller that must report the spawned handle (so a stop can be awaited on
+   * the process it actually ended) needs it from the host that owns it.
+   */
+  onSpawn?: (record: AgentProcessRecord, child: ChildProcess) => void;
   /** How often an adopted (not parented) process is checked for liveness. */
   pollMs?: number;
   /** SIGTERM→SIGKILL window when the backend stops a process. */
@@ -137,6 +170,7 @@ export class AgentProcessHost {
   private readonly baseEnv: NodeJS.ProcessEnv;
   private readonly launcher: string;
   private readonly onExit?: (record: AgentProcessRecord) => Promise<void> | void;
+  private readonly onSpawn?: (record: AgentProcessRecord, child: ChildProcess) => void;
   private readonly pollMs: number;
   private readonly graceMs: number;
   private readonly children = new Map<string, ChildProcess>();
@@ -149,6 +183,7 @@ export class AgentProcessHost {
     this.baseEnv = options.env ?? {};
     this.launcher = options.launcher ?? join(this.harnessRoot, "scripts", "start-pi.mjs");
     this.onExit = options.onExit;
+    this.onSpawn = options.onSpawn;
     this.pollMs = Math.max(100, options.pollMs ?? 2_000);
     this.graceMs = Math.max(100, options.graceMs ?? 2_000);
   }
@@ -173,42 +208,64 @@ export class AgentProcessHost {
     const stderrPath = join(directory, "agent-stderr.log");
     const env = this.launchEnv(input, token);
     await mkdir(directory, { recursive: true });
-    const stdout = await open(stdoutPath, "a");
-    const stderr = await open(stderrPath, "a");
+    const resident = input.mode === "resident";
+    const stdout = resident ? undefined : await open(stdoutPath, "a");
+    const stderr = resident ? undefined : await open(stderrPath, "a");
     let child: ChildProcess;
     let spawnFailure: Promise<Error>;
+    // A process that dies during this launch's own awaits must still settle.
+    // `close` fires once, whether or not anyone is listening yet, so the
+    // listener is attached before the next await and the result is reconciled
+    // after the record exists instead of waiting for an event that already
+    // happened.
+    const exit = { happened: false };
+    let record: AgentProcessRecord | undefined;
     try {
-      child = spawn(
-        process.execPath,
-        [
-          this.launcher,
-          "--print",
-          "--mode",
-          "json",
-          "--session-dir",
-          input.sessionDirectory,
-          "--session-id",
-          input.callId,
-          ...(input.args ?? [])
-        ],
-        {
-          cwd: input.workingDirectory,
-          env,
-          // A separate group is what lets the backend stop the whole tree and
-          // what keeps it alive when the backend itself goes away.
-          detached: process.platform !== "win32",
-          stdio: ["pipe", stdout.fd, stderr.fd]
-        }
-      );
+      child = spawn(process.execPath, this.launchArgs(input), {
+        cwd: input.workingDirectory,
+        env,
+        // A separate group is what lets the backend stop the whole tree and
+        // what keeps it alive when the backend itself goes away.
+        detached: process.platform !== "win32",
+        stdio: ["pipe", resident ? "pipe" : stdout!.fd, resident ? "pipe" : stderr!.fd]
+      });
+      // A resident process owns its stdout, so the backend can follow its
+      // turns; the same bytes still go to the durable log beside the record.
+      if (resident) {
+        child.stderr?.on("data", (chunk: Buffer) => input.onStderr?.(chunk));
+        let logWrites = Promise.resolve();
+        child.stdout?.on("data", (chunk: Buffer) => {
+          // Keep the durable log complete without reordering chunks; the
+          // caller parses the same bytes immediately.
+          logWrites = logWrites
+            .then(() => appendFile(stdoutPath, chunk))
+            // eslint-disable-next-line no-restricted-syntax -- 诊断日志写入失败不影响事件流与进程生命周期
+            .catch(() => {});
+          input.onStdout?.(chunk);
+        });
+      }
       // A spawn failure is reported asynchronously on `error` and leaves no
       // pid. Attach the listener before the next await (closing the parent's
       // file handles yields to the event loop): an unhandled `error` event
       // would crash the backend, and the launch would never be settled.
       spawnFailure = new Promise<Error>((resolve) => child.once("error", resolve));
+      child.once("close", (code, signal) => {
+        exit.happened = true;
+        if (!record) return;
+        this.children.delete(recordKey(record));
+        const closed = { ...record, exitCode: code, exitSignal: signal };
+        void (async () => {
+          // Keep the exit facts for the projection that follows; a crash and a
+          // clean stop must not look the same to the caller.
+          // eslint-disable-next-line no-restricted-syntax -- 退出信息只是结算输入，记录写不进去时仍按内存中的退出事实结算
+          await this.writeRecord(closed).catch(() => {});
+          await this.settle(closed);
+        })();
+      });
     } finally {
       // The child owns its copies; the parent closes its own handles.
-      await stdout.close();
-      await stderr.close();
+      await stdout?.close();
+      await stderr?.close();
     }
     const pid = child.pid;
     if (!pid) {
@@ -219,7 +276,7 @@ export class AgentProcessHost {
       throw new Error(`Agent process did not start: ${failure.message}`);
     }
     const identity = await readProcessIdentity(pid);
-    const record: AgentProcessRecord = {
+    record = {
       version: 1,
       taskId: input.taskId,
       runId: input.runId,
@@ -240,16 +297,25 @@ export class AgentProcessHost {
     };
     await this.writeRecord(record);
     this.children.set(recordKey(record), child);
+    this.onSpawn?.(record, child);
     child.stdin?.on("error", () => {
       /* a closed stdin is not a launch failure; close settles the process */
     });
-    child.stdin?.end(input.prompt);
+    if (input.prompt !== undefined) child.stdin?.end(input.prompt);
     // `close` also fires after an asynchronous spawn error, so one settlement
-    // path covers normal exits and process-level errors.
-    child.once("close", () => {
+    // path covers normal exits and process-level errors. It may already have
+    // fired while the identity and record were being written.
+    if (exit.happened || child.exitCode !== null || child.signalCode !== null) {
       this.children.delete(recordKey(record));
-      void this.settle(record);
-    });
+      const closed = { ...record, exitCode: child.exitCode, exitSignal: child.signalCode };
+      void (async () => {
+        // The exit facts are part of the record a later reader (or a backend
+        // that adopts the workspace) uses to tell a crash from an idle stop.
+        // eslint-disable-next-line no-restricted-syntax -- 退出信息只是结算输入，写不进去时仍按内存中的退出事实结算
+        await this.writeRecord(closed).catch(() => {});
+        await this.settle(closed);
+      })();
+    }
     return record;
   }
 
@@ -310,8 +376,11 @@ export class AgentProcessHost {
     const deadline = Date.now() + this.graceMs;
     while (Date.now() < deadline && processGroupIsAlive(record.pid)) await pause(this.pollMs);
     // The launcher can exit before a descendant in the same group; the group,
-    // not the recorded pid, is what must be gone when stop resolves.
-    if (processGroupIsAlive(record.pid)) signalGroup(record.pid, "SIGKILL");
+    // not the recorded pid, is what must be gone when stop resolves. The
+    // identity is checked again here because the grace window is long enough
+    // for the recorded leader to end and its number to be reused by an
+    // unrelated group; a signal is only sent to the process this host started.
+    if (processGroupIsAlive(record.pid) && (await this.owns(record))) signalGroup(record.pid, "SIGKILL");
     await this.settle(record);
   }
 
@@ -368,6 +437,23 @@ export class AgentProcessHost {
     await this.writeRecord(settled);
   }
 
+  /**
+   * Record that this process is gone and its projection is complete.
+   *
+   * `settledAt` is what stops a second observer — an adoption pass after a
+   * restart, or a poll racing the close event — from projecting the same exit
+   * twice. A projection that writes its own outcome first keeps it. The record
+   * is only marked when it still describes this process: a relaunch for the
+   * same Run reuses the path, and an old exit must not settle the new one.
+   */
+  async markExited(record: AgentProcessRecord): Promise<void> {
+    const path = agentProcessRecordPathFor(record);
+    const current = await readRecord(path);
+    if (current && !sameProcess(current, record)) return;
+    if (current?.settledAt) return;
+    await this.writeRecord({ ...(current ?? record), settledAt: now() });
+  }
+
   private async settle(record: AgentProcessRecord): Promise<void> {
     const key = recordKey(record);
     const existing = this.settling.get(key);
@@ -378,17 +464,42 @@ export class AgentProcessHost {
         clearInterval(watcher);
         this.watchers.delete(key);
       }
-      // The parent's close event and a poll can both arrive; the fresh record
-      // is the one place that says whether somebody already settled it.
-      const current = await readRecord(agentProcessRecordPathFor(record));
-      if (current?.settledAt) return;
+      // The parent's close event, an adoption pass and a poll can all arrive.
+      // The durable record is the one place that says whether somebody already
+      // settled it, and the lock makes "check, project, mark" one decision.
       try {
-        await this.onExit?.(current ?? record);
+        await withFileLock(
+          `${agentProcessRecordPathFor(record)}.settle`,
+          async () => {
+            const current = await readRecord(agentProcessRecordPathFor(record));
+            // The path now describes a newer process for the same Run. This
+            // exit belongs to a process that was replaced: projecting it would
+            // settle the Run the new process still owns, so it is dropped.
+            if (current !== undefined && !sameProcess(current, record)) return;
+            if (current?.settledAt) return;
+            try {
+              await this.onExit?.(current ?? record);
+            } catch (error) {
+              // Settlement failures are logged, not fatal: the record stays
+              // unsettled so the next adoption retries.
+              console.error(
+                `[cowork] agent process settlement failed: ${error instanceof Error ? error.message : String(error)}`
+              );
+              return;
+            }
+            await this.markExited(record);
+          },
+          { recoverDeadOwner: true }
+        );
       } catch (error) {
-        // Settlement failures are logged, not fatal: the record stays unsettled
-        // so the next adoption retries, and callbacks are idempotent by callId.
+        // The workspace itself can be going away (a stopped host or a removed
+        // temporary directory) while a close event arrives. Nothing is left to
+        // reconcile there, and the rejection has no caller that could handle
+        // it: settlement is always a background projection.
         console.error(
-          `[cowork] agent process settlement failed: ${error instanceof Error ? error.message : String(error)}`
+          `[cowork] agent process record unavailable during settlement: ${
+            error instanceof Error ? error.message : String(error)
+          }`
         );
       }
     })().finally(() => this.settling.delete(key));
@@ -405,7 +516,24 @@ export class AgentProcessHost {
         await this.settle(record);
       })();
     }, this.pollMs);
+    // An observer must never be the reason a host (the CLI recovery loop, a
+    // test) stays alive; the process it watches is detached and outlives it.
+    watcher.unref();
     this.watchers.set(key, watcher);
+  }
+
+  private launchArgs(input: AgentProcessLaunch): string[] {
+    const resident = input.mode === "resident";
+    return [
+      this.launcher,
+      ...(resident ? ["--mode", "rpc"] : ["--print", "--mode", "json"]),
+      "--session-dir",
+      input.sessionDirectory,
+      // A resident process continues one Pi session for the life of the
+      // process; its caller chose how to select it.
+      ...(input.sessionArgs ?? ["--session-id", input.callId]),
+      ...(input.args ?? [])
+    ];
   }
 
   private launchEnv(input: AgentProcessLaunch, token: string): NodeJS.ProcessEnv {
@@ -415,12 +543,14 @@ export class AgentProcessHost {
       ...input.env,
       COWORK_HARNESS_ROOT: this.harnessRoot,
       COWORK_WORKSPACE: this.workspaceRoot,
-      COWORK_PROJECT_DIR: input.workingDirectory,
+      COWORK_PROJECT_DIR: input.projectDirectory ?? input.workingDirectory,
       COWORK_TASK_ID: input.taskId,
       COWORK_RUN_ID: input.runId,
       COWORK_CLI_SESSION: "0",
-      COWORK_AGENT_ROLE: input.role,
-      COWORK_AGENT_ID: input.agentId,
+      // Only a delegated process takes the launcher's role branch; Main keeps
+      // its own launch path and its own project directory.
+      ...(input.role === "main" ? {} : { COWORK_AGENT_ROLE: input.role, COWORK_AGENT_ID: input.agentId }),
+      ...(input.mode === "resident" ? { COWORK_MAIN_RESIDENT: "1" } : {}),
       PI_OFFLINE: "1"
     };
     if (input.role !== "main") {
@@ -434,6 +564,11 @@ export class AgentProcessHost {
   private async writeRecord(record: AgentProcessRecord): Promise<void> {
     await atomicWrite(agentProcessRecordPathFor(record), `${JSON.stringify(record, null, 2)}\n`);
   }
+}
+
+/** Whether two records describe the same launched process. */
+function sameProcess(left: AgentProcessRecord, right: AgentProcessRecord): boolean {
+  return left.pid === right.pid && left.startedAt === right.startedAt && left.token === right.token;
 }
 
 function recordKey(record: Pick<AgentProcessRecord, "runId" | "callId">): string {

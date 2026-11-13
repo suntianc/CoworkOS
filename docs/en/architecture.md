@@ -36,9 +36,11 @@ Importing `createDashboardApplication()` opens no port and installs no signal ha
 
 ## Task, Run and process lifetime
 
-A browser request flows through HTTP routes → Dashboard Run → ProcessHost → Pi launcher → Pi extension → Coordinator. CLI can use runtime services directly. These entrypoints share business semantics.
+A browser request flows through HTTP routes → Dashboard Run → AgentProcessHost → Pi launcher → Pi extension → Coordinator. CLI can use runtime services directly. These entrypoints share business semantics.
 
-Dashboard Run owns the Main child process and serializes starting/stopping the same Task. Runtime RunService owns the actual Pi session, Task/Run events and checkpoints. Persist state and output before announcing completion; the last text message alone is insufficient.
+Dashboard Run owns the Main process and serializes starting/stopping the same Task. Runtime RunService owns the actual Pi session, Task/Run events and checkpoints. Persist state and output before announcing completion; the last text message alone is insufficient.
+
+Main is resident: one Run is served by one Pi process, a finished turn leaves that process running, and later user messages and callbacks arrive through its own durable Inbox and start the next turn. The process is identified by the host and OS start time recorded at launch, so a backend restart or upgrade re-adopts the Main still running. Only closing the session (which also stops the Subagents that session started), the idle timeout and a model request that cannot continue end it. A pause stops at the step boundary and keeps the process; a cancel interrupts the current turn only. An idle exit keeps the session file and Task state, and the next message or callback starts Main again on the same session. Whether a Main process exists and whether a turn is running are separate facts, reported by the backend record and by the process heartbeat.
 
 On desktop exit, trusted IPC first waits for the renderer's draft/document save check; unsaved documents or task drafts prompt the user to return and fix them or confirm the exit. The backend and accepted runs continue after the desktop closes. Save failures preserve the window and draft.
 
@@ -46,7 +48,7 @@ Desktop and Web read and save model and search settings through the selected exe
 
 Pi `before_agent_start` registers tools before the first request; `context` refreshes context between later requests. Tests must cover real Pi hook order and subprocess termination.
 
-The durable Inbox is the delivery channel Main and delegated processes share: the backend writes callbacks, external events, guidance, questions and peer messages into the target process's own Inbox, and a delegated process's extension reads it at a safe turn boundary. An idle delegated process is woken by a file watch, never over standard input and never by polling. A message counts as consumed only once it is in the process's Pi session context, so it survives backend restarts and is read exactly once. Timed parks and Main recovery keep their rules: the Dashboard Run service checks periodically and starts a Main again for a Task with callbacks or a due wake when no Main is alive, and Main decides whether to continue.
+The durable Inbox is the delivery channel Main and delegated processes share: the backend writes callbacks, external events, guidance, questions and peer messages into the target process's own Inbox, and the process's extension reads it at a safe turn boundary. `main.interrupt` and `main.resume` travel the same channel as process commands, consumed without entering the model context. An idle delegated process is woken by a file watch, never over standard input and never by polling. A message counts as consumed only once it is in the process's Pi session context, so it survives backend restarts and is read exactly once. Timed parks and Main recovery keep their rules: the Dashboard Run service checks periodically and starts a Main again for a Task with callbacks or a due wake when no Main is alive, and Main decides whether to continue.
 
 Visual observations share the Task image archive. Dashboard/desktop owns native ComputerUse policy, exclusive sessions and current action credentials; Main/Pi owns its ephemeral Chromium context.
 
