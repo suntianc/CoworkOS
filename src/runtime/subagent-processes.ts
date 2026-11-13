@@ -1,7 +1,10 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { id, now } from "../domain/types.js";
+import { atomicWrite } from "../storage/atomic-file.js";
 import { JsonlEventStore } from "../storage/event-store.js";
+import { git } from "../workspace/development-workspace.js";
+import { prepareReviewSite, releaseReviewSite, type ReviewSite } from "../workspace/review-site.js";
 import { DurableScheduler, type WorkItem } from "./scheduler.js";
 import { prepareWorkItemSite, type WorkItemSite } from "../workspace/work-item-workspace.js";
 import {
@@ -71,6 +74,8 @@ interface WorkPayload {
   task?: string;
   projectDirectory?: string;
   workItemSite?: WorkItemSite;
+  /** The frozen candidate a Reviewer examines, when the dispatcher knows it. */
+  reviewSite?: unknown;
   delegation?: { role?: string };
   dependsOn?: string[];
 }
@@ -195,24 +200,61 @@ export class SubagentProcessService {
 
   private async launch(item: WorkItem, payload: WorkPayload, leaseToken: string): Promise<void> {
     const role = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
-    const workingDirectory = await this.workingDirectory(payload);
+    const site = await this.workingSite(payload, role);
     const taskWorkspace = join(this.workspaceRoot, item.taskId);
     const sessionDirectory = join(taskWorkspace, "sessions", item.agentId, "pi", item.stepId);
     const directory = agentProcessDirectory(this.workspaceRoot, item.taskId, item.runId, role, item.agentId);
     await mkdir(sessionDirectory, { recursive: true });
-    await this.host.launch({
-      taskId: item.taskId,
-      runId: item.runId,
-      callId: item.stepId,
-      agentId: item.agentId,
-      role,
-      workingDirectory,
-      prompt: delegatedPrompt(payload.task ?? "Continue the delegated task."),
-      sessionDirectory,
-      resultPath: join(directory, "result.json"),
-      env: this.childEnv(role),
-      leaseToken
-    });
+    if (site.reviewSite) {
+      await prepareReviewSite(site.reviewSite);
+      // The marker is what lets a backend that restarts later find and clean this
+      // checkout; the process record alone does not carry the candidate facts.
+      await atomicWrite(reviewSiteMarker(directory), `${JSON.stringify(site.reviewSite)}\n`);
+    }
+    try {
+      await this.host.launch({
+        taskId: item.taskId,
+        runId: item.runId,
+        callId: item.stepId,
+        agentId: item.agentId,
+        role,
+        workingDirectory: site.directory,
+        prompt: delegatedPrompt(payload.task ?? "Continue the delegated task."),
+        sessionDirectory,
+        resultPath: join(directory, "result.json"),
+        env: this.childEnv(role),
+        leaseToken
+      });
+    } catch (error) {
+      if (site.reviewSite) await this.discardReviewSite(site.reviewSite, directory);
+      throw error;
+    }
+  }
+
+  /**
+   * The site this work item runs in.
+   *
+   * A Reviewer never shares the Executor's checkout: an explicit review site
+   * names the frozen candidate, and a requirement-bound work item is detached
+   * at the development checkout's candidate commit instead of forking a branch
+   * of its own. The checkout is removed when the review process ends.
+   */
+  private async workingSite(
+    payload: WorkPayload,
+    role: AgentProcessRole
+  ): Promise<{ directory: string; reviewSite?: ReviewSite }> {
+    const explicit = reviewSiteInput(payload.reviewSite);
+    if (explicit) return { directory: resolve(explicit.directory), reviewSite: explicit };
+    if (role === "reviewer" && payload.workItemSite) {
+      const directory = resolve(payload.workItemSite.directory);
+      const reviewSite: ReviewSite = {
+        repository: resolve(payload.workItemSite.developmentDirectory),
+        commit: await git(payload.workItemSite.developmentDirectory, ["rev-parse", "HEAD"]),
+        directory
+      };
+      return { directory, reviewSite };
+    }
+    return { directory: await this.workingDirectory(payload) };
   }
 
   /**
@@ -234,6 +276,14 @@ export class SubagentProcessService {
   }
 
   private async settle(record: AgentProcessRecord): Promise<void> {
+    try {
+      await this.projectOutcome(record);
+    } finally {
+      await this.cleanupReviewSite(record);
+    }
+  }
+
+  private async projectOutcome(record: AgentProcessRecord): Promise<void> {
     const result = await this.findSettled(record);
     const runRoot = join(this.workspaceRoot, record.taskId, "runs", record.runId);
     const scheduler = new DurableScheduler(join(runRoot, "queue.json"));
@@ -300,6 +350,31 @@ export class SubagentProcessService {
       ...(result.error ? { error: result.error } : {})
     });
     await this.options.onSettled?.(result);
+  }
+
+  /** Remove the Reviewer checkout and its marker after the process settled. */
+  private async cleanupReviewSite(record: AgentProcessRecord): Promise<void> {
+    const directory = agentProcessDirectory(
+      this.workspaceRoot,
+      record.taskId,
+      record.runId,
+      record.role,
+      record.agentId
+    );
+    const site = await readReviewSiteMarker(reviewSiteMarker(directory));
+    if (!site) return;
+    await this.discardReviewSite(site, directory);
+  }
+
+  private async discardReviewSite(site: ReviewSite, processDirectory: string): Promise<void> {
+    try {
+      await releaseReviewSite(site);
+      await rm(reviewSiteMarker(processDirectory), { force: true });
+    } catch (error) {
+      console.error(
+        `[cowork] review site cleanup failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   private async findSettled(record: AgentProcessRecord): Promise<SubagentProcessResult> {
@@ -495,6 +570,33 @@ export class SubagentProcessService {
 
   private queuePath(input: { taskId: string; runId: string }): string {
     return join(this.workspaceRoot, input.taskId, "runs", input.runId, "queue.json");
+  }
+}
+
+function reviewSiteMarker(processDirectory: string): string {
+  return join(processDirectory, "review-site.json");
+}
+
+/** Validate an explicit review site; a malformed one is a locatable launch error. */
+function reviewSiteInput(value: unknown): ReviewSite | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Subagent review site is not an object");
+  const input = value as Record<string, unknown>;
+  const repository = typeof input.repository === "string" ? input.repository.trim() : "";
+  const commit = typeof input.commit === "string" ? input.commit.trim() : "";
+  const directory = typeof input.directory === "string" ? input.directory.trim() : "";
+  if (!repository || !commit || !directory)
+    throw new Error("Subagent review site requires repository, commit and directory");
+  return { repository, commit, directory };
+}
+
+async function readReviewSiteMarker(path: string): Promise<ReviewSite | undefined> {
+  try {
+    return reviewSiteInput(JSON.parse(await readFile(path, "utf8")));
+    // eslint-disable-next-line no-restricted-syntax -- 标记不存在或已损坏时没有可清理的审查现场；进程终态仍按结果记录结算
+  } catch {
+    return undefined;
   }
 }
 

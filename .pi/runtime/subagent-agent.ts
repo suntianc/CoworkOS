@@ -25,6 +25,7 @@ import { loadConfig } from "./helpers.ts";
 import { registerCoworkProvider } from "./provider.ts";
 import { MainCompactionRetry } from "./main-compaction-retry.ts";
 import { registerSubagentInbox } from "./subagent-inbox.ts";
+import { blockedToolCall, taskProtectedPaths } from "./protected-call.ts";
 import { registerSubagentTools } from "./tools/subagent.ts";
 
 /**
@@ -98,6 +99,11 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
     supportsPromptCacheKey: configuredSupportsPromptCacheKey(runtimeEnv)
   });
 
+  // The same protected-path rule Main enforces, with this process's checkout as
+  // the project root. A shell command is a write path too, so the shared guard
+  // reads it rather than trusting that the Reviewer merely lacks write/edit.
+  const currentGuard = () => taskProtectedPaths(workspaceRoot, taskId, workingDirectory);
+
   const rolePrompt = subagentRolePrompt({
     role,
     name,
@@ -106,10 +112,21 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
     deliverablesDirectory
   });
 
+  // Pi 1.5 warms the prompt cache by default. A delegated process does not
+  // adopt the capability either, so every refresh stops until the next real
+  // request instead of sending an extra model call while the work item runs.
+  pi.on("cache_warming_decision", () => ({ action: "stop" }));
+
+  pi.on("tool_call", async (event) => {
+    const refused = blockedToolCall(event.toolName, event.input, await currentGuard(), workingDirectory);
+    return refused ? { block: true, reason: refused.reason } : undefined;
+  });
+
   pi.on("session_start", async () => {
     // The role — not the extension entry — decides what this process may do.
-    // Reviewer tools are read-only by construction, so an inactive write or
-    // shell tool is not one a later tool discovery could switch back on.
+    // The Reviewer has no write/edit tool; its shell runs inside its own
+    // candidate checkout, so a later tool discovery cannot hand it a way to
+    // change the Executor's checkout or the candidate commit.
     await mkdir(deliverablesDirectory, { recursive: true });
     pi.setActiveTools(subagentToolNames(role));
   });
@@ -247,7 +264,7 @@ function subagentRolePrompt(input: {
   if (input.role === "reviewer")
     return [
       ...shared,
-      "You are read-only: no edit or write tool and no shell tool are active. Examine the candidate, the diff and the evidence Main gave you; you cannot change the project, and you do not need to.",
+      "You examine a checkout of the candidate that is yours alone: run the tests and commands that prove or reproduce what you report. You have no edit or write tool, so files you create stay in your checkout and never reach the candidate, the Executor's checkout or the project.",
       "Your conclusion reaches Main only through submit_review: verdict is pass or changes_requested, and every finding states its location, the evidence for it and whether it blocks acceptance. Call it when the examination is complete; a work item that ends without a submitted conclusion is recorded as a failure. A malformed submission is reported as an error and can be corrected.",
       ASK_MAIN_GUIDANCE,
       SEND_PEER_MESSAGE_GUIDANCE

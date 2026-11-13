@@ -44,6 +44,7 @@ const EXECUTOR_TOOLS = ["ask_main", "bash", "browse_workspace", "edit", "read", 
 
 const REVIEWER_TOOLS = [
   "ask_main",
+  "bash",
   "browse_workspace",
   "find",
   "grep",
@@ -212,7 +213,7 @@ test(
 );
 
 test(
-  "a Reviewer process is read-only, declares the conclusion tool, and still has no Main-only tool",
+  "a Reviewer process has a shell but no write tool, declares the conclusion tool, and still has no Main-only tool",
   { timeout: 120_000 },
   async (t) => {
     const { provider } = await delegatedCall(t, {
@@ -231,12 +232,17 @@ test(
     const declared = new Set(toolNames(request));
     for (const name of MAIN_ONLY_TOOLS)
       assert.equal(declared.has(name), false, `${name} is Main's and must not reach a Subagent`);
-    for (const name of ["write", "edit", "bash"])
+    for (const name of ["write", "edit"])
       assert.equal(
         declared.has(name),
         false,
-        `${name} can change project files, so a read-only Reviewer must not hold it`
+        `${name} can change project files, so a Reviewer must not hold it`
       );
+    assert.equal(
+      declared.has("bash"),
+      true,
+      "the Reviewer runs its verification inside its own candidate checkout"
+    );
     assert.equal(
       declared.has("submit_review"),
       true,
@@ -247,7 +253,16 @@ test(
     const system = request.messages.find((message) => message.role === "system").content;
     assert.match(system, /independent Reviewer/, "the role line is the in-process Reviewer line");
     assert.match(system, /submit_review/, "the process is told how its conclusion reaches Main");
-    assert.match(system, /no edit or write tool and no shell tool/, "the Reviewer is told it is read-only");
+    assert.match(
+      system,
+      /run the tests and commands that prove or reproduce what you report/,
+      "the Reviewer is told it verifies in its own checkout"
+    );
+    assert.match(
+      system,
+      /files you create stay in your checkout and never reach the candidate/,
+      "the Reviewer is told its changes stay out of the candidate"
+    );
     assert.doesNotMatch(system, /You run this work item as the Executor/);
   }
 );
