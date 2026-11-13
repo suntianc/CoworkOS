@@ -265,6 +265,7 @@ export async function findSubagentCall(input: {
           delegation?: { role?: string };
           projectDirectory?: string;
           workItemSite?: { directory?: string };
+          reviewSite?: { directory?: string };
           developmentId?: string;
           continuation?: { fromCallId?: string };
         };
@@ -272,7 +273,10 @@ export async function findSubagentCall(input: {
     >(join(runsRoot, run.runId, "queue.json"), []);
     const item = queue.find((entry) => entry.stepId === input.callId);
     if (!item) continue;
-    const workspace = item.payload?.workItemSite?.directory ?? item.payload?.projectDirectory;
+    const workspace =
+      item.payload?.reviewSite?.directory ??
+      item.payload?.workItemSite?.directory ??
+      item.payload?.projectDirectory;
     return {
       callId: item.stepId,
       agentId: item.agentId,

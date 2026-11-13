@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
 import { DurableScheduler } from "../dist/src/runtime/scheduler.js";
 import { SubagentProcessService } from "../dist/src/runtime/subagent-processes.js";
 import { isolatedPiEnvironment, startLocalProvider } from "./fixtures/pi-process-fixture.mjs";
@@ -17,6 +19,7 @@ import { isolatedPiEnvironment, startLocalProvider } from "./fixtures/pi-process
  */
 
 const harness = resolve(".");
+const execFileAsync = promisify(execFile);
 const MODEL = "p46-role-model";
 const TASK_ID = "p46-role-task";
 const RUN_ID = "p46-role-run";
@@ -44,6 +47,7 @@ const EXECUTOR_TOOLS = ["ask_main", "bash", "browse_workspace", "edit", "read", 
 
 const REVIEWER_TOOLS = [
   "ask_main",
+  "bash",
   "browse_workspace",
   "find",
   "grep",
@@ -87,6 +91,13 @@ async function delegatedCall(t, { role, agentId, callId, handle, task = "执行�
   await mkdir(workspace, { recursive: true });
   await mkdir(site, { recursive: true });
   await writeFile(join(site, "SITE_MARKER.txt"), "delegated work site\n");
+  // The site is the candidate Executors edit and Reviewers copy; a Reviewer
+  // without a requirement site needs a commit to detach its own checkout at.
+  await execFileAsync("git", ["-C", site, "init", "-b", "main"], { windowsHide: true });
+  await execFileAsync("git", ["-C", site, "config", "user.email", "p46@example.test"], { windowsHide: true });
+  await execFileAsync("git", ["-C", site, "config", "user.name", "P46"], { windowsHide: true });
+  await execFileAsync("git", ["-C", site, "add", "-A"], { windowsHide: true });
+  await execFileAsync("git", ["-C", site, "commit", "-m", "delegated site"], { windowsHide: true });
   const runRoot = join(workspace, TASK_ID, "runs", RUN_ID);
   const provider = await startLocalProvider({ model: MODEL, handle });
   await writeFile(
@@ -212,7 +223,7 @@ test(
 );
 
 test(
-  "a Reviewer process is read-only, declares the conclusion tool, and still has no Main-only tool",
+  "a Reviewer process has a shell but no write tool, declares the conclusion tool, and still has no Main-only tool",
   { timeout: 120_000 },
   async (t) => {
     const { provider } = await delegatedCall(t, {
@@ -231,12 +242,17 @@ test(
     const declared = new Set(toolNames(request));
     for (const name of MAIN_ONLY_TOOLS)
       assert.equal(declared.has(name), false, `${name} is Main's and must not reach a Subagent`);
-    for (const name of ["write", "edit", "bash"])
+    for (const name of ["write", "edit"])
       assert.equal(
         declared.has(name),
         false,
-        `${name} can change project files, so a read-only Reviewer must not hold it`
+        `${name} can change project files, so a Reviewer must not hold it`
       );
+    assert.equal(
+      declared.has("bash"),
+      true,
+      "the Reviewer runs its verification inside its own candidate checkout"
+    );
     assert.equal(
       declared.has("submit_review"),
       true,
@@ -247,7 +263,16 @@ test(
     const system = request.messages.find((message) => message.role === "system").content;
     assert.match(system, /independent Reviewer/, "the role line is the in-process Reviewer line");
     assert.match(system, /submit_review/, "the process is told how its conclusion reaches Main");
-    assert.match(system, /no edit or write tool and no shell tool/, "the Reviewer is told it is read-only");
+    assert.match(
+      system,
+      /run the tests and commands that prove or reproduce what you report/,
+      "the Reviewer is told it verifies in its own checkout"
+    );
+    assert.match(
+      system,
+      /files you create stay in your checkout and never reach the candidate/,
+      "the Reviewer is told its changes stay out of the candidate"
+    );
     assert.doesNotMatch(system, /You run this work item as the Executor/);
   }
 );

@@ -6,19 +6,18 @@
  * orchestration tools are deliberately absent: a Subagent cannot delegate,
  * finish the Task, ask the human, park the Task or change Task capabilities.
  *
- * The Reviewer is read-only by construction: it gets no write/edit tool and no
- * shell tool, because a shell can write files regardless of which tool name
- * performed the write. Its verification is reading the change, the evidence and
- * the recorded commands; anything that must be executed is Main's or an
- * Executor's job.
+ * The Reviewer gets no write/edit tool, but does get a shell: it runs its
+ * verification inside a checkout of the candidate that the backend creates for
+ * it, so anything it writes stays in that copy and never reaches the candidate
+ * commit, the Executor's checkout or the user's project.
  */
 
 export type SubagentRole = "executor" | "reviewer";
 
 /** Pi's coding tools: read, run, and edit in the work site. */
 const EXECUTOR_FILE_TOOLS = ["read", "bash", "edit", "write"] as const;
-/** Read-only file and search tools for a Reviewer. */
-const REVIEWER_FILE_TOOLS = ["read", "grep", "find", "ls"] as const;
+/** Inspection and verification tools for a Reviewer, inside its own checkout. */
+const REVIEWER_FILE_TOOLS = ["read", "bash", "grep", "find", "ls"] as const;
 /** Shared Task workspace, read-only, for evidence outside the work site. */
 const SHARED_WORKSPACE_TOOLS = ["browse_workspace"] as const;
 /** The channels a delegated process may use. */
