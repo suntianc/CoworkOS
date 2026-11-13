@@ -151,11 +151,17 @@ test("switching conversations never flashes a welcome page while the next one lo
       };
       requestAnimationFrame(tick);
     });
-    for (const taskId of ["switch-b", "switch-a", "switch-b"]) {
+    for (const [taskId, goal] of [
+      ["switch-b", "会话乙"],
+      ["switch-a", "会话甲"],
+      ["switch-b", "会话乙"]
+    ]) {
       await page.locator(`.conversation-item[data-task="${taskId}"]`).click();
-      await page.waitForTimeout(500);
+      // The routed detail read is slow on purpose: wait for the switched
+      // conversation's own message, so every frame of the transition is sampled.
+      await expect(page.locator("#conversation .chat-message.user").first()).toContainText(goal);
+      await expect(page.locator("#topbar-task")).toHaveText(goal);
     }
-    await expect(page.locator("#topbar-task")).toHaveText("会话乙");
     expect(await page.evaluate(() => window.welcomeFrames)).toBe(0);
   } finally {
     await dashboard.stop();

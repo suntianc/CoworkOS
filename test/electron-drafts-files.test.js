@@ -1799,6 +1799,96 @@ test("a draft typed before the first connection survives a temporary storage fai
   assert.equal(input.value, "typed while connecting");
 });
 
+test("the unbound new draft keeps its identity through the first project handover", () => {
+  const { session } = draftFixture();
+  session.activate(null);
+  const identity = session.shownDraftIdentity;
+  assert.equal(typeof identity, "number");
+  session.activate(null, { projectId: "project-a" });
+  assert.equal(session.currentKey, "new:project-a");
+  assert.equal(session.shownDraftIdentity, identity);
+});
+
+test("the first backend bind keeps the shown draft identity and a backend switch drops it", () => {
+  const { session } = draftFixture();
+  session.activate(null);
+  const identity = session.shownDraftIdentity;
+  session.setBackend("backend-a");
+  // The bind re-keys the same draft into the backend's namespace, so an upload
+  // started before it still belongs to the draft on screen.
+  assert.equal(session.shownDraftIdentity, identity);
+  session.activate(null);
+  assert.equal(session.shownDraftIdentity, identity);
+  session.setBackend("backend-b");
+  assert.equal(session.shownDraftIdentity, undefined);
+  session.activate(null);
+  assert.notEqual(session.shownDraftIdentity, identity);
+});
+
+test("submitting a draft moves its identity to the created task", () => {
+  const { session } = draftFixture();
+  session.activate(null);
+  const identity = session.shownDraftIdentity;
+  session.transfer("task-1");
+  assert.equal(session.currentKey, "task-1");
+  assert.equal(session.shownDraftIdentity, identity);
+  session.activate(null);
+  assert.notEqual(session.shownDraftIdentity, identity);
+});
+
+test("a rejected upload keeps its retry when its own draft is activated again", async () => {
+  const context = "first";
+  let files = [];
+  const statuses = [];
+  let attempts = 0;
+  const uploader = createFileUpload({
+    getDraftIdentity: () => context,
+    getFiles: () => files,
+    setFiles: (value) => (files = value),
+    onStatus: (status) => statuses.push(status),
+    onBusy() {},
+    onError() {},
+    upload: (file) =>
+      attempts++ === 0
+        ? Promise.reject(new Error("fixture failure"))
+        : Promise.resolve({ name: file.name, sha256: "retried", uploadId: "upload-retried" })
+  });
+  await uploader.add([new File(["first"], "first.txt")]);
+  assert.deepEqual(statuses.at(-1), { failed: 1 });
+  // Binding the page re-activates the draft already on screen: the failed file
+  // and its retry must stay with that draft.
+  assert.equal(uploader.retireUnlessShownDraft(), false);
+  assert.deepEqual(statuses.at(-1), { failed: 1 });
+  await uploader.retry();
+  assert.deepEqual(
+    files.map((file) => file.name),
+    ["first.txt"]
+  );
+});
+
+test("an upload without a draft identity is retired instead of following an activation", async () => {
+  let context;
+  let files = [];
+  let release;
+  const statuses = [];
+  const uploader = createFileUpload({
+    getDraftIdentity: () => context,
+    getFiles: () => files,
+    setFiles: (value) => (files = value),
+    onStatus: (status) => statuses.push(status),
+    onBusy() {},
+    onError() {},
+    upload: () => new Promise((resolve) => (release = resolve))
+  });
+  const pending = uploader.add([new File(["first"], "first.txt")]);
+  context = "first";
+  assert.equal(uploader.retireUnlessShownDraft(), true);
+  release({ name: "first.txt", sha256: "first", uploadId: "upload-first" });
+  await pending;
+  assert.deepEqual(files, []);
+  assert.equal(statuses.at(-1), null);
+});
+
 test("a response body finishing after a backend switch is rejected", async (t) => {
   let releaseBody;
   let bodyStarted;
@@ -1852,7 +1942,7 @@ test("cancelled upload cannot block or add files to a different draft", async ()
   let files = [];
   const busy = [];
   const uploader = createFileUpload({
-    getContext: () => context,
+    getDraftIdentity: () => context,
     getFiles: () => files,
     setFiles: (value) => (files = value),
     onStatus() {},
@@ -1865,7 +1955,7 @@ test("cancelled upload cannot block or add files to a different draft", async ()
   });
   const first = uploader.add([new File(["first"], "first.txt")]);
   context = "second";
-  assert.equal(uploader.navigate(), true);
+  assert.equal(uploader.retireUnlessShownDraft(), true);
   await uploader.add([new File(["second"], "second.txt")]);
   release({ name: "first.txt", sha256: "first", uploadId: "upload-first" });
   await first;
@@ -1882,7 +1972,7 @@ test("a late activation of the uploaded draft keeps the upload running and the p
   let files = [];
   const busy = [];
   const uploader = createFileUpload({
-    getContext: () => context,
+    getDraftIdentity: () => context,
     getFiles: () => files,
     setFiles: (value) => (files = value),
     onStatus() {},
@@ -1891,7 +1981,7 @@ test("a late activation of the uploaded draft keeps the upload running and the p
     upload: () => new Promise((resolve) => (release = resolve))
   });
   const first = uploader.add([new File(["first"], "first.txt")]);
-  assert.equal(uploader.navigate(), false);
+  assert.equal(uploader.retireUnlessShownDraft(), false);
   assert.deepEqual(busy, [true]);
   release({ name: "first.txt", sha256: "first", uploadId: "upload-first" });
   await first;
@@ -2101,7 +2191,7 @@ test("selected bytes and artifacts stay with their authorized backend", { timeou
   let context = 1;
   let files = [];
   const uploader = createFileUpload({
-    getContext: () => context,
+    getDraftIdentity: () => context,
     getFiles: () => files,
     setFiles: (value) => (files = value),
     onStatus() {},
@@ -2158,7 +2248,7 @@ test("selected bytes and artifacts stay with their authorized backend", { timeou
   const oldUrl = opened;
   viewer.reset();
   context += 1;
-  uploader.navigate();
+  uploader.retireUnlessShownDraft();
   files = [];
   assert.equal((await client.switchBackend({ baseUrl: b.instance.url })).status, "connected");
   await assert.rejects(fetch(oldUrl));

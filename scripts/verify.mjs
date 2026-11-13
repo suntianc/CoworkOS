@@ -2,9 +2,9 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { repositoryRoot, runCommand } from "./test.mjs";
 
-export const verificationScripts = [
-  "build:cli",
-  "build:web-assets",
+/** Builds quick verification runs before its checks, and full verification replaces them. */
+export const verificationBuildScripts = ["build:cli", "build:web-assets"];
+export const verificationCheckScripts = [
   "lint",
   "check:extensions",
   "format:check",
@@ -13,8 +13,10 @@ export const verificationScripts = [
   // Discovery defers test/release/, so the release-runner regression needs this gate.
   "test:release:runner"
 ];
+export const verificationScripts = [...verificationBuildScripts, ...verificationCheckScripts];
 
-export const fullVerificationScripts = ["build:full", ...verificationScripts.slice(2)];
+export const fullVerificationBuildScripts = ["build:full"];
+export const fullVerificationScripts = [...fullVerificationBuildScripts, ...verificationCheckScripts];
 
 export async function verify(args = process.argv.slice(2), run = runCommand) {
   if (args.some((argument) => !["--full", "--list", "--help", "-h"].includes(argument)))
