@@ -601,7 +601,7 @@ export function createDashboardApplication(
       : [];
     const heartbeat = await readHeartbeat(taskWorkspace, taskId);
     const mainRunning = runs.mainProcessRunning(taskId) || mainIsAlive(heartbeat);
-    const active = activeAtStart ?? (mainIsAlive(heartbeat) && heartbeat?.turnActive === true);
+    const active = activeAtStart;
     let damagedRetry = false;
     const requestStore = new MainRequestStore(mainRequestPath(taskWorkspace, taskId), taskId);
     const retry =

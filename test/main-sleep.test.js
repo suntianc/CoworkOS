@@ -52,7 +52,11 @@ async function loadExtension() {
   return module.default ?? module;
 }
 
-const ctx = { ui: { notify() {}, setStatus() {} }, sessionManager: { getEntries: () => [] } };
+const ctx = {
+  ui: { notify() {}, setStatus() {} },
+  sessionManager: { getEntries: () => [] },
+  isIdle: () => true
+};
 
 async function harness(t) {
   const root = await mkdtemp(join(tmpdir(), "atria-sleep-"));

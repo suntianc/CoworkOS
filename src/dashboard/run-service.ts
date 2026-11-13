@@ -48,7 +48,7 @@ import { InboxStore } from "../runtime/scheduler.js";
 import { SubagentQuestionStore } from "../runtime/subagent-questions.js";
 import { assessTaskCompletion, isFinalAssistantMessage } from "../runtime/task-completion.js";
 import { mainRunFailure, MainRunOutput } from "./main-run-outcome.js";
-import { readHeartbeat } from "../runtime/main-heartbeat.js";
+import { mainIsAlive, readHeartbeat } from "../runtime/main-heartbeat.js";
 import { processIsAlive, verifyProcessIdentity } from "../runtime/process-identity.js";
 import { hostname } from "node:os";
 import { projectExecutionIsAlive } from "../workspace/project-execution.js";
@@ -217,7 +217,6 @@ export function createDashboardRunService({
     /** Whether this backend observes the process's own event stream. */
     observed: boolean;
     /** When this backend handed the adopted process a turn. */
-    turnAcceptedAt?: number;
     /** This exit replaces the process; it must not settle the Run. */
     replacing: boolean;
     /** The exit was already handled; a late spawn must not re-register it. */
@@ -225,6 +224,11 @@ export function createDashboardRunService({
     requestId?: string;
   }
   const residentMains = new Map<string, ResidentMain>();
+  // A turn accepted for delivery but not yet recorded by the extension. The
+  // record wins as soon as it is newer than this acceptance, so the flag only
+  // covers the gap between the API accepting the turn and Pi writing its
+  // first boundary.
+  const pendingTurns = new Map<string, number>();
   /** Spawned handles, so a stop can report the process it actually ended. */
   const activeRuns = new Map<string, ChildProcess>();
   const activeRunIds = new Map<string, string>();
@@ -287,18 +291,19 @@ export function createDashboardRunService({
   async function mainTurnState(
     location: TaskLocation,
     taskId: string,
-    record: AgentProcessRecord
-  ): Promise<{ active: boolean; turnId?: string } | undefined> {
+    runId: string
+  ): Promise<{ active: boolean; alive: boolean; recordedAt: number; turnId?: string } | undefined> {
     // eslint-disable-next-line no-restricted-syntax -- 心跳只是一个提示；读不到时由调用方按没有回合处理，而不是阻断退出结算
     const beat = await readHeartbeat(location.workspaceRoot, taskId).catch(() => undefined);
-    // The record names the launcher, the heartbeat the Pi process it started,
-    // so the pid is not the same value. The Run identity plus this host is what
-    // ties the heartbeat to this Main; `turnActive` outlives the process on
-    // purpose, because the last value it wrote is how a crash is told from an
-    // idle stop.
-    if (!beat || (beat.host && beat.host !== hostname()) || beat.runId !== record.runId) return undefined;
+    // The Run identity plus this host ties the record to this Main: the process
+    // record names the launcher, the heartbeat the Pi process it started, so
+    // their pids differ by design. `turnActive` outlives the process on purpose,
+    // because the last value it wrote is how a crash is told from an idle stop.
+    if (!beat || (beat.host && beat.host !== hostname()) || beat.runId !== runId) return undefined;
     return {
       active: beat.turnActive === true,
+      alive: mainIsAlive(beat),
+      recordedAt: Date.parse(beat.updatedAt),
       ...(beat.turnId ? { turnId: beat.turnId } : {})
     };
   }
@@ -380,8 +385,10 @@ export function createDashboardRunService({
       const code = record.exitCode ?? null;
       const signal = (record.exitSignal as NodeJS.Signals | null) ?? null;
       const modelFailed = last?.role === "assistant" && last.stopReason === "error";
-      const turn = observed ? undefined : await mainTurnState(location, taskId, record);
-      const turnWasActive = observed ? resident.turnActive : turn?.active === true;
+      const turn = await mainTurnState(location, taskId, runId);
+      // The durable turn record is the source when it exists; a process that
+      // died before writing one falls back to what its own event stream showed.
+      const turnWasActive = turn ? turn.active : observed ? resident.turnActive : false;
       const turnId = turn?.turnId;
       const interrupted = last?.role === "assistant" && ["aborted", "length"].includes(last.stopReason ?? "");
       const event = (type: string, payload: unknown) =>
@@ -536,6 +543,7 @@ export function createDashboardRunService({
         if (residentMains.get(taskId) === resident) {
           residentMains.delete(taskId);
           activeRuns.delete(taskId);
+          pendingTurns.delete(taskId);
           interjectionTargets.delete(taskId);
           onRunExit(taskId);
         }
@@ -821,6 +829,10 @@ export function createDashboardRunService({
         createdAt: now()
       });
     }
+    // The message that will open this process's next turn is accepted; until
+    // the extension records that boundary, this is what `runtime.active`
+    // reports (paused work is not a turn starting).
+    if (!staysPaused) pendingTurns.set(resident.taskId, Date.now());
     await appendRunEvent(taskWorkspace, resident.taskId, resident.runId, "main.turn_delivered", {
       prompt: prompt.slice(0, 4_000),
       continuation,
@@ -829,7 +841,6 @@ export function createDashboardRunService({
     });
     if (!staysPaused) {
       resident.turnActive = true;
-      resident.turnAcceptedAt = Date.now();
     }
     interjectionTargets.set(resident.taskId, { runId: resident.runId });
     return {
@@ -1207,6 +1218,10 @@ export function createDashboardRunService({
         createdAt
       });
     }
+    // This Run has a message that opens its first turn; the process is started
+    // below. The extension replaces this acceptance with its own record at the
+    // first boundary.
+    pendingTurns.set(taskId, Date.now());
     const launchEnv: NodeJS.ProcessEnv = {
       ...process.env,
       COWORK_API_TOKEN: runCredential,
@@ -1853,10 +1868,14 @@ export function createDashboardRunService({
       const location = await locateTask(taskId);
       // The adopted process reports its turn through the durable heartbeat;
       // a process this backend observes reports its event stream.
-      const resident = await adoptResidentMain(taskId, location);
-      const turnActive = resident ? await taskTurnActive(taskId) : undefined;
+      // Adoption is only used for the Run identity; the turn decision below
+      // reads the durable record and does not need the takeover to succeed.
+      // eslint-disable-next-line no-restricted-syntax -- 接管失败时仍按持久回合记录判断，消息留给下一个 Main 读取
+      const resident = await adoptResidentMain(taskId, location).catch(() => undefined);
+      // Both this decision and `runtime.active` read the same durable record.
+      const turnActive = await taskTurnActive(taskId);
       const runId = resident?.runId ?? location.task.activeRunId;
-      if (!resident || turnActive !== true || !runId) return { refused: "no_active_turn" as const };
+      if (!turnActive || !runId) return { refused: "no_active_turn" as const };
       const inbox = new InboxStore(
         join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
       );
@@ -2052,15 +2071,42 @@ export function createDashboardRunService({
    * process this backend observed reports its own event stream; an adopted one
    * reports the durable turn state it writes at every boundary.
    */
-  async function taskTurnActive(taskId: string): Promise<boolean | undefined> {
+  async function taskTurnActive(taskId: string): Promise<boolean> {
+    // The heartbeat is the one record both the Task view and the interrupt
+    // command read, so they cannot disagree about whether a turn exists. The
+    // turn counts only while that process is still alive: a record left by a
+    // dead Main is how the exit is classified, not a turn the user can stop.
     const resident = residentMains.get(taskId);
-    if (!resident) return undefined;
-    if (resident.observed) return resident.turnActive;
-    const state = await mainTurnState(resident.location, taskId, resident.record);
-    if (state?.active) return true;
-    // A turn this backend just handed over may not have reached its first
-    // heartbeat write yet; the hand-over is the only evidence until then.
-    return resident.turnAcceptedAt !== undefined && Date.now() - resident.turnAcceptedAt < 5_000;
+    const location = resident?.location ?? (await locateTask(taskId));
+    // eslint-disable-next-line no-restricted-syntax -- 读不到任务时按没有回合处理：状态查询不能因为损坏的记录抛出
+    const task = await location.store.readTask(taskId).catch(() => location.task);
+    const runId = task.activeRunId ?? resident?.runId;
+    if (!runId) return false;
+    // A paused Task is not running a turn: the pause stops new turns, so the
+    // Task view and the interrupt must not report the turn the record still
+    // describes while the pause is being written.
+    if (task.pause || task.status === "paused") return false;
+    const state = await mainTurnState(location, taskId, runId);
+    if (state) {
+      // A record that says "running" stays the answer while this backend is
+      // still settling that Run: a process that just exited has not written its
+      // terminal Task status yet, and reporting "no turn" there is what lets a
+      // reader see a running Task as idle.
+      if (state.active && (state.alive || activeRuns.has(taskId))) return true;
+      // The extension writes its own boundary; once that record is newer than
+      // the acceptance, it is the answer and the acceptance no longer counts.
+      const pendingAt = pendingTurns.get(taskId);
+      if (pendingAt !== undefined && state.recordedAt >= pendingAt) {
+        pendingTurns.delete(taskId);
+        return false;
+      }
+    }
+    const pendingAt = pendingTurns.get(taskId);
+    if (pendingAt === undefined) return false;
+    // A turn accepted for delivery has not written its first boundary yet; the
+    // process that will write it must still be there, or the launch failed.
+    if (resident) return residentProcessAlive(resident.record);
+    return activeRuns.has(taskId);
   }
 
   /** Whether a Main process for this Task exists, idle or working. */

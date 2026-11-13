@@ -220,6 +220,26 @@ async function registerMainExtension(pi: ExtensionAPI) {
   // Inbox delivery must append to that context instead of racing it. A
   // resident Main has no such prompt: its Inbox is what starts the first turn.
   let awaitingInitialPrompt = process.env.COWORK_INITIAL_PROMPT === "1" && !resident;
+  /**
+   * Whether the Inbox already holds the message that starts this process's
+   * first turn. Only a message the startup delivery will actually send counts:
+   * a paused Main reads only commands, and follow-ups wait for a later turn.
+   */
+  const startupTurnPending = async (): Promise<boolean> => {
+    const paused = await pausedNow();
+    for (const message of await inboxDelivery.pending()) {
+      if (message.state !== "ready") continue;
+      const payload = message.payload as { type?: string; delivery?: string; initial?: boolean } | undefined;
+      if (paused) {
+        if (payload?.type === "main.resume") return true;
+        continue;
+      }
+      if (message.kind === "human_command" && payload?.type === "human.message")
+        return payload.initial === true;
+      return true;
+    }
+    return false;
+  };
   const pausedNow = async (): Promise<boolean> =>
     new LocalWorkspaceStore(workspaceRoot)
       .readTask(taskId)
@@ -247,7 +267,16 @@ async function registerMainExtension(pi: ExtensionAPI) {
           );
           return;
         }
-        pi.sendMessage(message, awaitingInitialPrompt ? { ...options, triggerTurn: false } : options);
+        // A person's insertion belongs to the turn that was running when they
+        // sent it. If that turn has already ended (they interrupted it, or it
+        // finished first), appending it without opening a turn keeps an
+        // interrupt from resurrecting the work it just stopped.
+        const insertionAfterTurn =
+          message.customType === "cowork-user-message" && (sessionContext?.isIdle() ?? true);
+        pi.sendMessage(
+          message,
+          awaitingInitialPrompt || insertionAfterTurn ? { ...options, triggerTurn: false } : options
+        );
       },
       {
         includeFollowUps,
@@ -758,7 +787,12 @@ async function registerMainExtension(pi: ExtensionAPI) {
   pi.on("agent_settled", async (_event, ctx) => {
     try {
       sessionContext = ctx;
-      turnActive = false;
+      // A model request that failed ends this process and the Run service
+      // settles the Run as failed from the exit. Keep the turn record active
+      // until that exit: reporting the turn over here would show an idle Main
+      // while the Task is still running and about to be failed.
+      const failedTurn = lastMainMessage as { role?: string; stopReason?: string } | undefined;
+      turnActive = failedTurn?.role === "assistant" && failedTurn.stopReason === "error";
       touchMainActivity();
       if (mainContext) await persistMainContext(mainContext, ctx.sessionManager.getBranch());
       const replayOnly = Boolean(process.env.COWORK_MAIN_RETRY_REQUEST_ID) && !freshRetryContext;
@@ -780,12 +814,13 @@ async function registerMainExtension(pi: ExtensionAPI) {
         // that Run as failed from the exit, so this boundary records nothing.
         if (lastMainMessage && (lastMainMessage as { stopReason?: string }).stopReason === "error") return;
         if (task.pause && task.status === "running") {
-          await taskStore.transitionTask(taskId, "paused", { runId: mainRunId, reason: "ui_pause" });
-          const paused = await taskStore.readTask(taskId);
-          if (paused.pause && !paused.pause.pausedAt)
+          // Record when the turn stopped before the Task reports itself paused:
+          // a reader that sees `paused` must already find the boundary time.
+          if (!task.pause.pausedAt)
             await taskStore.updateTask(taskId, {
-              pause: { ...paused.pause, pausedAt: new Date().toISOString() }
+              pause: { ...task.pause, pausedAt: new Date().toISOString() }
             });
+          await taskStore.transitionTask(taskId, "paused", { runId: mainRunId, reason: "ui_pause" });
           await updateRuntime({
             runtimePhase: "waiting",
             runtimeLastEvent: { type: "main_turn_settled", summary: "paused" }
@@ -858,9 +893,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
     } catch (error) {
       ctx.ui.notify(`Task settlement hook failed: ${errorMessage(error)}`, "warning");
     } finally {
-      // The heartbeat's idle flag is what a backend that adopted this process
-      // reads as "the turn is over", so it is written after the boundary it
-      // describes has been recorded, never before.
+      // The durable turn record is what the next turn state is read from. It is
+      // written after the boundary's Task status, so a reader never sees the
+      // Task settled while the record still says a turn is running; a paused
+      // Task is reported idle by the backend's read of this same record.
       if (resident) {
         // eslint-disable-next-line no-restricted-syntax -- 心跳只是存活与回合提示，写入失败由下一次写入重写
         void writeMainHeartbeat().catch(() => {});
@@ -914,10 +950,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
         // A failed model request is not a resting state: the session cannot
         // continue past it, and the backend settles the Run (and frees the
         // retry slot) from this exit. A person's retry starts the archived
-        // request again in a fresh process, as it always did.
-        turnActive = false;
-        // eslint-disable-next-line no-restricted-syntax -- 心跳只是存活与回合提示，写入失败由下一次写入重写
-        void writeMainHeartbeat().catch(() => {});
+        // request again in a fresh process, as it always did. The record stays
+        // active until that exit: the backend's failed settlement is the
+        // boundary, so an idle record here would report a still-running Task
+        // as having no turn.
         ctx.shutdown();
         return;
       }
@@ -1279,6 +1315,15 @@ async function registerMainExtension(pi: ExtensionAPI) {
           inboxDeliveryActive = false;
         }
       };
+      // The launch queued the turn that starts this process. Record it before
+      // delivering, so a backend that reads the durable turn record between
+      // process start and the first agent_start does not see an idle Main while
+      // its first turn is already on its way.
+      if (resident && !firstTurnStarted) {
+        turnActive = await startupTurnPending();
+        // eslint-disable-next-line no-restricted-syntax -- 心跳只是存活与回合提示，写入失败由下一次写入重写
+        void writeMainHeartbeat().catch(() => {});
+      }
       await pollMainInbox();
       // External events and callbacks are written to Main's Inbox by other
       // services. A file watch is what notices one while this process is idle,
@@ -1300,10 +1345,9 @@ async function registerMainExtension(pi: ExtensionAPI) {
       });
       // Tell any supervisor that this Task already has a Main. Without this a
       // supervisor would read "no Main" while one is running and start a
-      // second, putting two agents on the same project. The turn flag is what
-      // separates "working" from "resident and idle".
-      // eslint-disable-next-line no-restricted-syntax -- 心跳只是存活与回合提示，写入失败由下一次写入重写
-      void writeMainHeartbeat().catch(() => {});
+      // second, putting two agents on the same project. The turn flag was
+      // written above, before the delivery; it is not rewritten here because
+      // Pi may already have started the turn and this write would be older.
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = setInterval(
         // eslint-disable-next-line no-restricted-syntax -- 定时心跳写入失败时下一次 tick 会重写心跳文件，单次失败不影响 interval 本身
