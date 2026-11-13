@@ -4,7 +4,7 @@ import type { Event, InboxMessage } from "../domain/types.js";
 import { JsonlEventStore } from "../storage/event-store.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { agentDisplayName } from "./agent-identity.js";
-import { InboxStore } from "./scheduler.js";
+import { INBOX_MESSAGE_LEASE_MS, InboxStore } from "./scheduler.js";
 
 /**
  * The read half of an Agent's durable Inbox, shared by Main and delegated
@@ -51,8 +51,6 @@ interface InboxIdentity {
   messageId?: string;
 }
 
-const MESSAGE_LEASE_MS = 60_000;
-
 export class AgentInboxDelivery {
   private readonly inbox: InboxStore;
   private readonly events: JsonlEventStore;
@@ -66,7 +64,9 @@ export class AgentInboxDelivery {
     this.inbox = new InboxStore(join(input.directory, "inbox-store.json"));
     this.events = new JsonlEventStore(input.eventsPath);
     this.receiptLock = join(input.directory, ".inbox-consumed");
-    this.consumerId = `${input.recipientAgentId}-${randomUUID()}`;
+    // The pid lets the Inbox keep this process's unread messages across a lease
+    // expiry while it is still running.
+    this.consumerId = `agent-${process.pid}-${randomUUID()}`;
   }
 
   /** How many messages this process has queued but not yet confirmed. */
@@ -86,10 +86,15 @@ export class AgentInboxDelivery {
       for (;;) {
         const message = await this.inbox.lease(
           this.input.recipientAgentId,
-          MESSAGE_LEASE_MS,
+          INBOX_MESSAGE_LEASE_MS,
           this.consumerId
         );
         if (!message) return;
+        // Already handed to this session and waiting for the context that
+        // confirms it. Sending it again would show the model the same guidance
+        // twice, whether this process re-leased it or another consumer released
+        // it back to ready.
+        if (this.queued.has(message.messageId)) continue;
         this.queued.add(message.messageId);
         try {
           if ((await send(message)) !== "discard") continue;
@@ -125,7 +130,7 @@ export class AgentInboxDelivery {
         current = await this.inbox.leaseMessage(
           this.input.recipientAgentId,
           current.messageId,
-          MESSAGE_LEASE_MS,
+          INBOX_MESSAGE_LEASE_MS,
           this.consumerId
         );
       if (!current) continue;

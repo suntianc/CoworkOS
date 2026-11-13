@@ -209,22 +209,19 @@ export class SubagentQuestionStore {
       waiting = undefined;
       resolve?.();
     };
+    // A watch that cannot be attached rejects here: the tool reports it
+    // instead of silently waiting out a deadline nothing could shorten.
     const stopWatching = await watchFiles(
       [this.path(taskId, questionId), ...(options.cancellationWatchPaths ?? [])],
       markChanged,
       { debounceMs: 20 }
-    ).catch((error: unknown) => {
-      // A watch that cannot be attached still leaves the deadline: the wait
-      // ends as unanswered instead of failing the tool that asked, and the
-      // reason is kept for diagnosis rather than silently changing the outcome.
-      process.stderr.write(
-        `[cowork] question watch failed: ${error instanceof Error ? error.message : String(error)}\n`
-      );
-      return () => {};
-    });
+    );
     try {
       for (;;) {
         const observed = version;
+        // The first pass is the read that follows attach: a write that raced
+        // the OS watch registration is seen here, and later writes reach this
+        // loop as change events.
         const settled = await settle();
         if (settled) return settled;
         if (version !== observed) continue;

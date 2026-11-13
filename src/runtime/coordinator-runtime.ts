@@ -9,7 +9,7 @@ import { PiSession, type PiSessionOptions, type PiSessionResult } from "./pi-ses
 import { createBuiltinTools } from "../tools/builtin.js";
 import { projectWritesEnabled } from "../tools/protected-paths.js";
 import { resolveCapabilities } from "./task-capabilities.js";
-import { CheckpointStore, DurableScheduler, InboxStore } from "./scheduler.js";
+import { CheckpointStore, DurableScheduler, INBOX_MESSAGE_LEASE_MS, InboxStore } from "./scheduler.js";
 import { LocalWorkspaceStore, type Artifact } from "../workspace/workspace-store.js";
 import { emptyCompaction, readAgentCheckpoint } from "./agent-checkpoint.js";
 import type { RuntimeTool } from "./tool.js";
@@ -1023,7 +1023,7 @@ export class CoordinatorRuntime {
           )
         );
         for (;;) {
-          const message = await inbox.lease(input.agentId, 60_000, `subagent-${process.pid}`);
+          const message = await inbox.lease(input.agentId, INBOX_MESSAGE_LEASE_MS, `subagent-${process.pid}`);
           if (!message) return;
           try {
             const payload = message.payload as {

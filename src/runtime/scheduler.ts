@@ -288,6 +288,9 @@ export class CheckpointStore {
   }
 }
 
+/** How long a leased Inbox message stays with its consumer before another may take it. */
+export const INBOX_MESSAGE_LEASE_MS = 60_000;
+
 /** Durable Inbox with lease/consume semantics and duplicate enqueue protection. */
 export class InboxStore {
   private mutex: Promise<void> = Promise.resolve();
@@ -306,7 +309,7 @@ export class InboxStore {
 
   async lease(
     recipientAgentId: string,
-    leaseMs = 60_000,
+    leaseMs = INBOX_MESSAGE_LEASE_MS,
     consumerId = `consumer-${process.pid}`
   ): Promise<InboxMessage | undefined> {
     return this.withLock(async () => {
@@ -337,7 +340,7 @@ export class InboxStore {
   async leaseMessage(
     recipientAgentId: string,
     messageId: string,
-    leaseMs = 60_000,
+    leaseMs = INBOX_MESSAGE_LEASE_MS,
     consumerId = `consumer-${process.pid}`
   ): Promise<InboxMessage | undefined> {
     return this.withLock(async () => {
@@ -524,34 +527,53 @@ export class InboxStore {
     const at = Date.now();
     let changed = false;
     for (const message of messages) {
-      if (message.state === "leased" && message.lease && Date.parse(message.lease.expiresAt) <= at) {
-        // A long sibling tool can delay persistence/acknowledgement. Do not
-        // give a live wait's body to another channel merely because time passed.
-        if (waitOwner(message) && waitOwnerIsAlive(message)) continue;
-        message.state = "ready";
-        message.lease = undefined;
-        changed = true;
-      }
+      if (message.state !== "leased" || !message.lease || Date.parse(message.lease.expiresAt) > at) continue;
+      // A lease held by a live consumer is not late. The message may already be
+      // queued in that process and still waiting for its context, and giving it
+      // to that same consumer again would deliver it twice. This applies to
+      // every message kind, not only the wait callbacks.
+      if (consumerOwnerIsAlive(message.lease.consumerId)) continue;
+      message.state = "ready";
+      message.lease = undefined;
+      changed = true;
     }
     return changed;
   }
 }
 
-function waitOwner(message: InboxMessage): number | undefined {
-  if (message.kind !== "callback") return;
-  const consumer = message.lease?.consumerId;
-  if (typeof consumer !== "string") return;
-  const match = consumer.match(/^wait-(\d+)-/);
-  return match ? Number(match[1]) : undefined;
+/**
+ * The process a consumer id names, for ids written as `<kind>-<pid>-<rest>`.
+ *
+ * Main's own consumers do not carry a pid and therefore keep the ordinary lease
+ * expiry; a consumer that does carry one keeps its messages while it runs.
+ */
+function consumerOwnerPid(consumerId: string | undefined): number | undefined {
+  const match = consumerId?.match(/^(?:wait|agent)-(\d+)-/);
+  if (!match) return undefined;
+  const pid = Number(match[1]);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
 }
 
-function waitOwnerIsAlive(message: InboxMessage): boolean {
-  const pid = waitOwner(message);
-  if (!pid) return false;
+function consumerOwnerIsAlive(consumerId: string | undefined): boolean {
+  const pid = consumerOwnerPid(consumerId);
+  return pid !== undefined && processIsAlive(pid);
+}
+
+function processIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
+}
+
+function waitOwner(message: InboxMessage): number | undefined {
+  if (message.kind !== "callback") return;
+  return consumerOwnerPid(message.lease?.consumerId);
+}
+
+function waitOwnerIsAlive(message: InboxMessage): boolean {
+  const pid = waitOwner(message);
+  return pid !== undefined && processIsAlive(pid);
 }

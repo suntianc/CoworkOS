@@ -1,6 +1,6 @@
-import { watch, type FSWatcher } from "node:fs";
+import { statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { dirname } from "node:path";
 
 /** Stop a watch and release its OS handles. */
 export type StopWatching = () => void;
@@ -8,65 +8,81 @@ export type StopWatching = () => void;
 export interface FileWatchOptions {
   /** Coalesce the burst of events one atomic write produces. */
   debounceMs?: number;
-  /**
-   * How long to wait for the OS to start delivering on the new watch.
-   *
-   * `watch()` returns before the kernel-side watch is receiving events on
-   * macOS. A change made inside that window is invisible to the watcher, so the
-   * caller must not rely on events until it has passed. A caller's first read
-   * after this resolves still sees anything that changed meanwhile.
-   */
-  startupMs?: number;
 }
 
 /**
  * Call `onChange` when one of `paths` is replaced or rewritten, without polling.
  *
  * Runtime state is written by renaming a temporary file over the target, which
- * replaces the watched inode. Watching the containing directory instead of the
- * file keeps the watch alive across those writes; the event's file name selects
- * which target changed. The directory is created first so the watch can be
- * attached before the first write.
+ * replaces the watched inode. The containing directory is what is watched, so
+ * the watch survives those writes. The event's file name is not trusted: macOS
+ * coalesces a burst in one directory into an event that may name another entry,
+ * so every event re-reads each watched file's identity and only a real change
+ * is reported.
+ *
+ * The caller reads the current state once after this resolves. A write that
+ * raced the OS watch registration is seen by that read; every later write
+ * arrives as an event whose identity check reports it.
  */
 export async function watchFiles(
   paths: readonly string[],
   onChange: () => void,
   options: FileWatchOptions = {}
 ): Promise<StopWatching> {
-  const targets = new Map<string, Set<string>>();
+  const directories = new Map<string, Map<string, string>>();
   for (const path of paths) {
     const directory = dirname(path);
     await mkdir(directory, { recursive: true });
-    const names = targets.get(directory) ?? new Set<string>();
-    names.add(basename(path));
-    targets.set(directory, names);
+    const targets = directories.get(directory) ?? new Map<string, string>();
+    // Snapshot before attaching: a change after this point differs from the
+    // snapshot even when its event was lost to the registration window, so the
+    // next event still reports it.
+    targets.set(path, fileSignature(path));
+    directories.set(directory, targets);
   }
   const debounceMs = Math.max(10, options.debounceMs ?? 25);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const notify = () => {
-    if (timer) return;
+  let stopped = false;
+  const watchers: FSWatcher[] = [];
+
+  const check = () => {
+    let changed = false;
+    for (const targets of directories.values()) {
+      for (const [path, previous] of targets) {
+        const current = fileSignature(path);
+        if (current === previous) continue;
+        targets.set(path, current);
+        changed = true;
+      }
+    }
+    if (changed && !stopped) onChange();
+  };
+  const schedule = () => {
+    if (stopped || timer) return;
     timer = setTimeout(() => {
       timer = undefined;
-      onChange();
+      // A timer callback cannot await without leaving the notification to a
+      // floating promise; the check is a couple of local stats, so it runs synchronously.
+      check();
     }, debounceMs);
   };
-  const watchers: FSWatcher[] = [];
   const stop = () => {
+    if (stopped) return;
+    stopped = true;
     if (timer) clearTimeout(timer);
     timer = undefined;
     for (const watcher of watchers) watcher.close();
     watchers.length = 0;
   };
+
   try {
-    for (const [directory, names] of targets) {
+    for (const directory of directories.keys()) {
       // `persistent: false`: a watcher must never be the reason a one-shot Pi
       // process stays alive after its last turn.
-      const watcher = watch(directory, { persistent: false }, (_event, filename) => {
-        if (!filename || names.has(filename.toString())) notify();
-      });
+      const watcher = watch(directory, { persistent: false }, () => schedule());
       watcher.on("error", () => {
-        // The directory went away or the OS dropped this watch. The waiter's
-        // own deadline still ends the wait; there is no target left to watch.
+        // The directory went away or the OS dropped this watch. The caller's
+        // own deadline still ends the wait; there is nothing left to watch.
       });
       watchers.push(watcher);
     }
@@ -74,6 +90,21 @@ export async function watchFiles(
     stop();
     throw error;
   }
-  await new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, options.startupMs ?? 100)));
   return stop;
+}
+
+/**
+ * The identity of the watched file, including its inode.
+ *
+ * An atomic write renames a new file over the old one, so comparing content or
+ * size alone could miss a same-size rewrite. An unreadable target yields a
+ * stable value that differs from any real file, which reports it as a change.
+ */
+function fileSignature(path: string): string {
+  try {
+    const value = statSync(path);
+    return `${value.dev}:${value.ino}:${value.mtimeMs}:${value.size}`;
+  } catch (error) {
+    return `unreadable:${error instanceof Error ? error.message : String(error)}`;
+  }
 }

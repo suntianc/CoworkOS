@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -128,6 +130,96 @@ test("a message the process never read is handed to its next process instead of 
   assert.deepEqual(sent, ["unread-guidance"], "the next process reads it once");
   await second.acknowledge(inContext("unread-guidance"));
   assert.equal((await f.inbox.list(AGENT_ID))[0].state, "consumed");
+});
+
+test("a running consumer keeps its expired lease, so the message is handed over once", async (t) => {
+  const f = await fixture(t);
+  await enqueue(f, {
+    messageId: "held-guidance",
+    kind: "human_command",
+    payload: { message: "Hold this until the turn ends.", from: "main" }
+  });
+  const storePath = join(f.directory, "inbox-store.json");
+  const inboxDelivery = delivery(f);
+  const sent = [];
+  const send = (message) => {
+    sent.push(message.messageId);
+    return "delivered";
+  };
+  await inboxDelivery.deliver(send);
+
+  // The in-flight turn outlives the lease. The message is already in the
+  // session's queue, so it must not become claimable again just because time
+  // passed while its owner is still running.
+  const expired = JSON.parse(await readFile(storePath, "utf8"));
+  expired[0].lease.expiresAt = new Date(0).toISOString();
+  await writeFile(storePath, JSON.stringify(expired));
+  await inboxDelivery.deliver(send);
+
+  const after = JSON.parse(await readFile(storePath, "utf8"));
+  assert.deepEqual(sent, ["held-guidance"], "the model must not read the same guidance twice");
+  assert.equal(after[0].state, "leased");
+  assert.equal(
+    after[0].lease.expiresAt,
+    new Date(0).toISOString(),
+    "a live consumer's lease is left alone instead of being renewed or reclaimed"
+  );
+
+  await inboxDelivery.acknowledge(inContext("held-guidance"));
+  assert.equal((await f.inbox.list(AGENT_ID))[0].state, "consumed");
+});
+
+test("a message already handed to the session is not handed over again if it becomes ready", async (t) => {
+  const f = await fixture(t);
+  await enqueue(f, {
+    messageId: "already-sent",
+    kind: "peer_message",
+    payload: { message: "One finding.", senderAgentId: "subagent_2", senderCallId: "call-2" }
+  });
+  const storePath = join(f.directory, "inbox-store.json");
+  const inboxDelivery = delivery(f);
+  const sent = [];
+  const send = (message) => {
+    sent.push(message.messageId);
+    return "delivered";
+  };
+  await inboxDelivery.deliver(send);
+
+  // A re-leased message (another consumer's crash recovery, or a duplicate
+  // wake-up) is still the one this session already carries.
+  const released = JSON.parse(await readFile(storePath, "utf8"));
+  released[0].state = "ready";
+  delete released[0].lease;
+  await writeFile(storePath, JSON.stringify(released));
+  await inboxDelivery.deliver(send);
+
+  assert.deepEqual(sent, ["already-sent"], "queuing state, not the Inbox state alone, decides a hand-over");
+  assert.equal((await f.inbox.list(AGENT_ID))[0].state, "leased");
+  await inboxDelivery.acknowledge(inContext("already-sent"));
+  assert.equal((await f.inbox.list(AGENT_ID))[0].state, "consumed");
+});
+
+test("a message leased by a process that is gone is delivered", async (t) => {
+  const f = await fixture(t);
+  await enqueue(f, {
+    messageId: "dead-owner",
+    kind: "human_command",
+    payload: { message: "Read this after the crash.", from: "main" }
+  });
+  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  await once(child, "close");
+  await f.inbox.leaseMessage(AGENT_ID, "dead-owner", 60_000, `agent-${child.pid}-fixture`);
+  const storePath = join(f.directory, "inbox-store.json");
+  const expired = JSON.parse(await readFile(storePath, "utf8"));
+  expired[0].lease.expiresAt = new Date(0).toISOString();
+  await writeFile(storePath, JSON.stringify(expired));
+
+  const sent = [];
+  await delivery(f).deliver((message) => {
+    sent.push(message.messageId);
+    return "delivered";
+  });
+  assert.deepEqual(sent, ["dead-owner"], "a dead consumer must not pin its message forever");
 });
 
 test("an idle delivery attempt does not rewrite the Inbox", async (t) => {
