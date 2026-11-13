@@ -109,6 +109,14 @@ call_subagent({
 
 Reviewer 的结论只经 `submit_review({verdict, findings})` 提交：`verdict` 为 `pass` 或 `changes_requested`，每条 finding 含 `location`、`evidence` 与 `blocking`。`changes_requested` 至少给出一条 finding，`pass` 不能携带 blocking finding；不合法的提交作为工具错误返回，模型可改正后重试。结论写入该工作项结果记录的 `review` 字段并随回调送达 Main；Reviewer 没有提交结论就结束记为失败，后端读取结果记录时按同一格式复核。验证 [真实角色工具表与结论](../test/p46-subagent-roles-pi.test.js)。
 
+### 子代理的持久收件箱与追加消息
+
+Main 发给运行中子代理的追加消息、对 `ask_main` 问题的回答与同伴消息都先写入该子代理自己的持久 Inbox（`runs/<runId>/agents/subagents/<id>/inbox-store.json`），由子代理进程内的扩展在安全回合边界读取，作为下一轮输入。消息不经标准输入，也不要求写入时后端仍在运行：后端重启或子代理在停机期间继续工作都不影响送达。
+
+扩展用文件监听唤醒空闲进程（例如 `ask_main` 阻塞等待时监听问题记录），不轮询。消息先租约给该进程，只有出现在它的 Pi 会话上下文中才记为已消费，并写入 `inbox.consumed` 事件；因此每条消息只读一次。进程在读取前退出时消息仍是持久的，由同一 Agent 的下一个进程重新投递。`ask_main` 的回答仍作为阻塞工具的结果返回，而不是普通追加消息——Pi 的 steer 队列只在当前回合的工具返回后排空，工具等待自己会死锁。
+
+验证见 [真实子代理进程的送达、提问与取消](../test/p46-subagent-messages-pi.test.js)。
+
 ### 子智能体之间的单向消息
 
 运行中的 Subagent 可以调用 `send_peer_message({targetCallId, message, priority?})`，向同一 Task/Run 中的另一个 Subagent 发送一条非阻塞消息。`targetCallId` 必须由 Main 在委派任务或后续指导中提供；消息最多 8,000 个字符，适合传递短问题、修正意见、结论或文件/产物路径。

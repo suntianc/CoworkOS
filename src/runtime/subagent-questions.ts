@@ -1,8 +1,10 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { now } from "../domain/types.js";
+import { id, now } from "../domain/types.js";
 import { atomicWrite } from "../storage/atomic-file.js";
 import { withFileLock } from "../storage/file-lock.js";
+import { watchFiles } from "./file-watch.js";
+import { InboxStore } from "./scheduler.js";
 
 export type SubagentQuestionStatus = "pending" | "answered" | "expired";
 
@@ -25,9 +27,14 @@ export interface SubagentQuestion {
 
 export interface WaitForAnswerOptions {
   timeoutMs: number;
-  pollMs?: number;
-  /** A blocking tool never receives the agent's AbortSignal, so cancellation is polled. */
+  /**
+   * A blocking tool never receives the agent's AbortSignal, so cancellation is
+   * checked by the waiter. The files listed in `cancellationWatchPaths` are
+   * watched: the waiter re-checks when one of them changes, rather than polling.
+   */
   isCancelled?: () => Promise<boolean> | boolean;
+  /** Durable records that change when this call is cancelled, e.g. the queue. */
+  cancellationWatchPaths?: string[];
 }
 
 export type WaitForAnswerResult =
@@ -163,20 +170,18 @@ export class SubagentQuestionStore {
   /**
    * Block until Main answers, the deadline passes, or the call is cancelled.
    *
-   * Polling a file is what makes this work at all: the existing Main -> Subagent
-   * path injects through `agent.steer()`, whose queue is only drained after the
-   * current turn's tool calls return — so a tool waiting on a steered reply
-   * would wait for itself. Cancellation is polled for the same reason the reply
-   * is: this tool never receives the agent's AbortSignal.
+   * The answer arrives in a file, so waiting on it is a file watch rather than
+   * a poll loop: the question file and any cancellation records are watched,
+   * and the deadline is the only timer. Reading the answer as a tool result is
+   * also why the message channel is not used — Pi only drains Main's guidance
+   * after the current turn's tool calls return, so a tool waiting for it would
+   * wait for itself.
    */
   async waitForAnswer(
     taskId: string,
     questionId: string,
     options: WaitForAnswerOptions
   ): Promise<WaitForAnswerResult> {
-    // A coarse interval would add its own latency to every answered question,
-    // leaving the Subagent idle after Main has already decided.
-    const pollMs = Math.max(50, options.pollMs ?? 250);
     const deadline = Date.now() + Math.max(0, options.timeoutMs);
     // Closing the question is also how the race with a just-arrived answer is
     // settled: `expire` leaves an answered record alone, so whatever it returns
@@ -187,14 +192,64 @@ export class SubagentQuestionStore {
       if (question.status === "answered") return { status: "answered", question };
       return { status: reason, question };
     };
-    for (;;) {
+    const settle = async (): Promise<WaitForAnswerResult | undefined> => {
       const question = await this.read(taskId, questionId);
       if (question.status === "answered") return { status: "answered", question };
       if (question.status === "expired") return { status: "expired", question };
       if (await options.isCancelled?.()) return close("cancelled");
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) return close("expired");
-      await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
+      if (Date.now() >= deadline) return close("expired");
+      return undefined;
+    };
+
+    let version = 0;
+    let waiting: (() => void) | undefined;
+    const markChanged = () => {
+      version += 1;
+      const resolve = waiting;
+      waiting = undefined;
+      resolve?.();
+    };
+    const stopWatching = await watchFiles(
+      [this.path(taskId, questionId), ...(options.cancellationWatchPaths ?? [])],
+      markChanged,
+      { debounceMs: 20 }
+    ).catch((error: unknown) => {
+      // A watch that cannot be attached still leaves the deadline: the wait
+      // ends as unanswered instead of failing the tool that asked, and the
+      // reason is kept for diagnosis rather than silently changing the outcome.
+      process.stderr.write(
+        `[cowork] question watch failed: ${error instanceof Error ? error.message : String(error)}\n`
+      );
+      return () => {};
+    });
+    try {
+      for (;;) {
+        const observed = version;
+        const settled = await settle();
+        if (settled) return settled;
+        if (version !== observed) continue;
+        const remaining = deadline - Date.now();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, Math.max(0, remaining));
+        });
+        try {
+          await Promise.race([
+            new Promise<void>((resolve) => {
+              // Arm the wake before re-checking the version: a change between
+              // the settlement read and this point must still end the wait.
+              waiting = resolve;
+              if (version !== observed) resolve();
+            }),
+            timeout
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+          waiting = undefined;
+        }
+      }
+    } finally {
+      stopWatching();
     }
   }
 
@@ -205,6 +260,108 @@ export class SubagentQuestionStore {
   private path(taskId: string, questionId: string): string {
     return join(this.directory(safe(taskId)), `${safe(questionId)}.json`);
   }
+}
+
+export interface AskMainInput {
+  workspaceRoot: string;
+  taskId: string;
+  runId: string;
+  callId: string;
+  agentId: string;
+  agentName: string;
+  question: string;
+  assumption: string;
+  timeoutMs: number;
+  /** The per-attempt question budget and how many this attempt already used. */
+  maxQuestions: number;
+  asked: number;
+  isCancelled?: () => Promise<boolean> | boolean;
+  cancellationWatchPaths?: string[];
+  /** Run once the question and its notification to Main are durable. */
+  onRaised?: (question: SubagentQuestion) => Promise<void> | void;
+  /** Run when the wait settles, before the caller maps the outcome. */
+  onSettled?: (
+    status: "answered" | "expired" | "cancelled",
+    question: SubagentQuestion
+  ) => Promise<void> | void;
+}
+
+export type AskMainOutcome =
+  | { status: "refused"; reason: string; instruction: string }
+  | { status: "answered"; question: SubagentQuestion }
+  | { status: "expired"; question: SubagentQuestion }
+  | { status: "cancelled"; question: SubagentQuestion };
+
+/**
+ * Raise one Subagent question and wait for Main's answer.
+ *
+ * The flow is one implementation because both execution paths must behave
+ * identically: the same budget wording, the same durable question record, the
+ * same high-priority notification in Main's Inbox, the same bounded wait, and
+ * the same fallback to the declared assumption. The two callers only map the
+ * outcome to their own tool result shape.
+ */
+export async function askMain(input: AskMainInput): Promise<AskMainOutcome> {
+  const question = input.question.trim();
+  const assumption = input.assumption.trim();
+  if (!question) throw new Error("ask_main requires question");
+  if (!assumption)
+    throw new Error("ask_main requires the assumption you will follow if the question goes unanswered");
+  if (input.asked >= input.maxQuestions) {
+    return {
+      status: "refused",
+      reason: `this attempt has already used its ${input.maxQuestions} question(s)`,
+      instruction: "Decide for yourself, state the assumption you made in your final summary, and continue."
+    };
+  }
+  const store = new SubagentQuestionStore(input.workspaceRoot);
+  // Unique per question rather than derived from the attempt: a retried
+  // dispatch must be able to ask again, and a stale question from an
+  // interrupted attempt is closed at the call's terminal boundary.
+  const questionId = id("question");
+  const record = await store.create({
+    questionId,
+    taskId: input.taskId,
+    runId: input.runId,
+    callId: input.callId,
+    agentId: input.agentId,
+    agentName: input.agentName,
+    question,
+    assumption
+  });
+  // Main reads its own durable Inbox; the question outranks an ordinary result
+  // because a blocked collaborator loses its whole remaining wait.
+  await new InboxStore(
+    join(input.workspaceRoot, input.taskId, "runs", input.runId, "agents", "main", "inbox-store.json")
+  ).enqueue({
+    messageId: `subagent-question-${questionId}`,
+    recipientAgentId: "main",
+    kind: "subagent_question",
+    callId: input.callId,
+    eventId: id("event"),
+    priority: 50,
+    state: "ready",
+    payload: {
+      type: "subagent.question",
+      questionId,
+      callId: input.callId,
+      agentId: input.agentId,
+      name: input.agentName,
+      question,
+      assumption,
+      timeoutMs: input.timeoutMs,
+      instruction: `Answer with send_subagent_message({ callId: "${input.callId}", questionId: "${questionId}", message: "<your answer>" }). ${input.agentName} is blocked until you answer or the wait expires.`
+    },
+    createdAt: now()
+  });
+  await input.onRaised?.(record);
+  const settled = await store.waitForAnswer(input.taskId, questionId, {
+    timeoutMs: input.timeoutMs,
+    ...(input.isCancelled ? { isCancelled: input.isCancelled } : {}),
+    ...(input.cancellationWatchPaths ? { cancellationWatchPaths: input.cancellationWatchPaths } : {})
+  });
+  await input.onSettled?.(settled.status, settled.question);
+  return settled;
 }
 
 function safe(value: string): string {

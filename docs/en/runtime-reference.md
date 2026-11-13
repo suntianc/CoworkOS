@@ -109,6 +109,14 @@ A delegated process loads the same extension as Main but declares its tools by r
 
 A Reviewer's conclusion is submitted only through `submit_review({verdict, findings})`: `verdict` is `pass` or `changes_requested`, and every finding states its `location`, `evidence` and `blocking`. `changes_requested` needs at least one finding, and `pass` cannot carry a blocking finding; a malformed submission is a tool error the model can correct and retry. The conclusion is written to the work item's result record under `review` and reaches Main with the callback; a Reviewer that ends without submitting one is recorded as failed, and the backend re-checks the same format when it reads the record. Verify [real role tool tables and conclusion](../../test/p46-subagent-roles-pi.test.js).
 
+### A delegated process's durable Inbox and guidance
+
+Guidance Main sends to a running Subagent, the answer to its `ask_main` question and a peer message are all written first to that Subagent's own durable Inbox (`runs/<runId>/agents/subagents/<id>/inbox-store.json`). The extension inside the process reads it at a safe turn boundary and feeds it as the next turn's input. Messages never travel over standard input, and delivery does not require the backend to still be running: a backend restart, or work continuing while it is down, does not lose them.
+
+The extension wakes an idle process with a file watch (for example the question record while `ask_main` blocks) rather than polling. A message is leased to that process and recorded as consumed only once it appears in the process's Pi session context, which also writes an `inbox.consumed` event; each message is read once. A message whose process exits before reading it stays durable and is delivered again by that agent's next process. `ask_main` still returns Main's answer as the result of the blocking tool rather than as ordinary guidance — Pi drains its steer queue only after the current turn's tool calls return, so a tool waiting on it would deadlock.
+
+Verify with [real delegated delivery, questions and cancellation](../../test/p46-subagent-messages-pi.test.js).
+
 ### One-way Subagent peer messages
 
 An active Subagent can call `send_peer_message({targetCallId, message, priority?})` to send a non-blocking message to another Subagent in the same Task/Run. Main must provide `targetCallId` in the delegated brief or later guidance. Messages are limited to 8,000 characters and are intended for short questions, corrections, findings, or file/artifact paths.

@@ -47,7 +47,8 @@ import {
   type PiThinkingLevel
 } from "./runtime-settings.js";
 import { ExperimentProgramStore } from "./experiment-program-store.js";
-import { SubagentQuestionStore } from "./subagent-questions.js";
+import { askMain, SubagentQuestionStore } from "./subagent-questions.js";
+import { formatAgentInboxMessage } from "./agent-inbox-delivery.js";
 import { readRunMetrics } from "./experiment-metrics.js";
 import type { ExperimentRunStatus } from "../domain/experiment.js";
 import { subagentRecoverySummary } from "./subagent-recovery-summary.js";
@@ -1031,23 +1032,15 @@ export class CoordinatorRuntime {
               senderAgentId?: unknown;
               senderCallId?: unknown;
             };
-            const text = typeof payload.message === "string" ? payload.message.trim() : "";
+            const text = formatAgentInboxMessage(message);
             if (!text) {
               await inbox.consume(message.messageId);
               continue;
             }
             const peerMessage = message.kind === "peer_message";
-            const senderName =
-              peerMessage && typeof payload.senderAgentId === "string"
-                ? agentDisplayName(payload.senderAgentId)
-                : "Main";
-            const senderLabel =
-              peerMessage && typeof payload.senderCallId === "string"
-                ? [senderName, payload.senderCallId].join(" (") + ")"
-                : senderName;
             const injected: AgentMessage = {
               role: "user",
-              content: `[Message from ${senderLabel}]\n${text}\n\nContinue the assigned task with this guidance. Acknowledge or incorporate it in your next response when relevant.`,
+              content: text,
               timestamp: Date.now()
             };
             current.session.agent.steer(injected);
@@ -1336,7 +1329,6 @@ export class CoordinatorRuntime {
     maxQuestions: number;
   }): RuntimeTool {
     const { input, callId, events, scheduler, timeoutMs, maxQuestions } = context;
-    const store = new SubagentQuestionStore(input.workspaceRoot);
     const agentName = agentDisplayName(input.agentId);
     let asked = 0;
     return {
@@ -1363,71 +1355,18 @@ export class CoordinatorRuntime {
           question?: unknown;
           assumption?: unknown;
         };
-        const question = typeof value.question === "string" ? value.question.trim() : "";
-        const assumption = typeof value.assumption === "string" ? value.assumption.trim() : "";
-        if (!question) throw new Error("ask_main requires question");
-        if (!assumption)
-          throw new Error("ask_main requires the assumption you will follow if the question goes unanswered");
-        if (asked >= maxQuestions) {
-          return {
-            status: "refused",
-            reason: `this attempt has already used its ${maxQuestions} question(s)`,
-            instruction:
-              "Decide for yourself, state the assumption you made in your final summary, and continue."
-          };
-        }
-        asked += 1;
-        // Unique per question rather than derived from the attempt: a retried
-        // dispatch must be able to ask again, and a stale question from an
-        // interrupted attempt is closed by expireOpenQuestions, not by id reuse.
-        const questionId = id("question");
-        const record = await store.create({
-          questionId,
+        const outcome = await askMain({
+          workspaceRoot: input.workspaceRoot,
           taskId: input.taskId,
           runId: input.runId,
           callId,
           agentId: input.agentId,
           agentName,
-          question,
-          assumption
-        });
-        const inbox = new InboxStore(
-          join(input.workspaceRoot, input.taskId, "runs", input.runId, "agents", "main", "inbox-store.json")
-        );
-        await inbox.enqueue({
-          messageId: `subagent-question-${questionId}`,
-          recipientAgentId: "main",
-          kind: "subagent_question",
-          callId,
-          eventId: id("event"),
-          // A blocked collaborator outranks an ordinary result: Main reading this
-          // late costs the Subagent its whole remaining wait.
-          priority: 50,
-          state: "ready",
-          payload: {
-            type: "subagent.question",
-            questionId,
-            callId,
-            agentId: input.agentId,
-            name: agentName,
-            question,
-            assumption,
-            timeoutMs,
-            instruction: `Answer with send_subagent_message({ callId: "${callId}", questionId: "${questionId}", message: "<your answer>" }). ${agentName} is blocked until you answer or the wait expires.`
-          },
-          createdAt: now()
-        });
-        await this.append(
-          events,
-          event(input, callId, "question.raised", input.agentId, {
-            questionId,
-            question,
-            assumption,
-            timeoutMs
-          })
-        );
-        const settled = await store.waitForAnswer(input.taskId, questionId, {
+          question: typeof value.question === "string" ? value.question : "",
+          assumption: typeof value.assumption === "string" ? value.assumption : "",
           timeoutMs,
+          maxQuestions,
+          asked,
           isCancelled: async () => {
             if (this.cancelRequests.has(callId) || this.activeSubagents.get(callId)?.cancelRequested)
               return true;
@@ -1436,22 +1375,44 @@ export class CoordinatorRuntime {
               (candidate) => candidate.stepId === callId
             );
             return item?.status === "cancelled";
+          },
+          cancellationWatchPaths: [
+            join(input.workspaceRoot, input.taskId, "runs", input.runId, "queue.json")
+          ],
+          onRaised: async (question) => {
+            await this.append(
+              events,
+              event(input, callId, "question.raised", input.agentId, {
+                questionId: question.questionId,
+                question: question.question,
+                assumption: question.assumption,
+                timeoutMs
+              })
+            );
+          },
+          onSettled: async (status, question) => {
+            await this.append(
+              events,
+              event(input, callId, `question.${status}`, input.agentId, {
+                questionId: question.questionId,
+                answer: question.answer
+              })
+              // eslint-disable-next-line no-restricted-syntax -- 这条提问结算事件只是诊断记录，写失败不能阻止把作答结果返回给仍在阻塞等待的 Subagent
+            ).catch(() => {
+              /* diagnostics only */
+            });
           }
         });
-        await this.append(
-          events,
-          event(input, callId, `question.${settled.status}`, input.agentId, {
-            questionId,
-            answer: settled.question.answer
-          })
-          // eslint-disable-next-line no-restricted-syntax -- 这条提问结算事件只是诊断记录，写失败不能阻止把作答结果返回给仍在阻塞等待的 Subagent
-        ).catch(() => {
-          /* diagnostics only */
-        });
-        if (settled.status === "answered") {
-          return { status: "answered", questionId, answer: settled.question.answer };
-        }
-        if (settled.status === "cancelled") {
+        if (outcome.status === "refused")
+          return { status: outcome.status, reason: outcome.reason, instruction: outcome.instruction };
+        asked += 1;
+        if (outcome.status === "answered")
+          return {
+            status: "answered",
+            questionId: outcome.question.questionId,
+            answer: outcome.question.answer
+          };
+        if (outcome.status === "cancelled") {
           throw new SubagentTerminationError(
             "cancelled",
             "Subagent was cancelled while waiting for Main's answer"
@@ -1459,9 +1420,9 @@ export class CoordinatorRuntime {
         }
         return {
           status: "unanswered",
-          questionId,
+          questionId: outcome.question.questionId,
           waitedMs: timeoutMs,
-          instruction: `Main did not answer in time. Continue under the assumption you stated (${record.assumption}) and say in your final summary that you proceeded on it unanswered.`
+          instruction: `Main did not answer in time. Continue under the assumption you stated (${outcome.question.assumption}) and say in your final summary that you proceeded on it unanswered.`
         };
       }
     };

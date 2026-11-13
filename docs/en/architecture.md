@@ -46,7 +46,7 @@ Desktop and Web read and save model and search settings through the selected exe
 
 Pi `before_agent_start` registers tools before the first request; `context` refreshes context between later requests. Tests must cover real Pi hook order and subprocess termination.
 
-A durable inbox, timed parks and Main recovery exist: the Dashboard Run service checks periodically and starts a Main again for a Task with callbacks or a due wake when no Main is alive. External events reach Main through the durable inbox, and Main decides whether to continue.
+The durable Inbox is the delivery channel Main and delegated processes share: the backend writes callbacks, external events, guidance, questions and peer messages into the target process's own Inbox, and a delegated process's extension reads it at a safe turn boundary. An idle delegated process is woken by a file watch, never over standard input and never by polling. A message counts as consumed only once it is in the process's Pi session context, so it survives backend restarts and is read exactly once. Timed parks and Main recovery keep their rules: the Dashboard Run service checks periodically and starts a Main again for a Task with callbacks or a due wake when no Main is alive, and Main decides whether to continue.
 
 Visual observations share the Task image archive. Dashboard/desktop owns native ComputerUse policy, exclusive sessions and current action credentials; Main/Pi owns its ephemeral Chromium context.
 

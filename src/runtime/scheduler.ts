@@ -311,13 +311,15 @@ export class InboxStore {
   ): Promise<InboxMessage | undefined> {
     return this.withLock(async () => {
       const messages = await this.read();
-      this.reclaimExpiredInMemory(messages);
+      const reclaimed = this.reclaimExpiredInMemory(messages);
       const message = messages
         .filter((candidate) => candidate.recipientAgentId === recipientAgentId && candidate.state === "ready")
         .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))[0];
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 没有可租用的消息时过滤结果为空，索引 [0] 在运行期返回 undefined
       if (!message) {
-        await this.write(messages);
+        // Nothing was leased and reclaiming changed nothing: rewriting an
+        // unchanged Inbox would wake a file-watching reader for no reason.
+        if (reclaimed) await this.write(messages);
         return undefined;
       }
       message.state = "leased";
@@ -517,8 +519,10 @@ export class InboxStore {
     }
   }
 
-  private reclaimExpiredInMemory(messages: InboxMessage[]): void {
+  /** Returns whether an expired lease had to be reclaimed. */
+  private reclaimExpiredInMemory(messages: InboxMessage[]): boolean {
     const at = Date.now();
+    let changed = false;
     for (const message of messages) {
       if (message.state === "leased" && message.lease && Date.parse(message.lease.expiresAt) <= at) {
         // A long sibling tool can delay persistence/acknowledgement. Do not
@@ -526,8 +530,10 @@ export class InboxStore {
         if (waitOwner(message) && waitOwnerIsAlive(message)) continue;
         message.state = "ready";
         message.lease = undefined;
+        changed = true;
       }
     }
+    return changed;
   }
 }
 
