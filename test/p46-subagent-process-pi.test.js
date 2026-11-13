@@ -453,7 +453,7 @@ test(
     // A; an abnormal exit before the extension writes a result record.
     const abnormal = "call-p46-abnormal";
     await queueCall(f, { callId: abnormal, agentId: "subagent_4", task: "异常退出", site: f.site });
-    startBackend(f, provider);
+    const backend = startBackend(f, provider);
     await waitFor(() => provider.requests.length === 1, "the abnormal call request");
     const running = await waitForRecord(f, "subagent_4");
     try {
@@ -470,6 +470,11 @@ test(
       "an abnormal exit is a terminal failure, not a silent retry"
     );
     turn.release();
+    // Stop this backend before part B queues its own call: a running worker
+    // polls every 100ms and would claim that call first, leaving the explicit
+    // claim below undefined. Ownership of the call under test must be decided
+    // by this test, not by a poll race.
+    await stopProcess(backend.child);
 
     // B; a live pid that is not the recorded process must not be adopted.
     const sleeper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], {
@@ -485,6 +490,7 @@ test(
       site: f.site
     });
     const claimed = await scheduler.claim("fixture", 60_000, lease);
+    assert.ok(claimed?.lease, "the call under test is claimed by this test, not by a running backend");
     const stale = {
       version: 1,
       taskId: TASK_ID,

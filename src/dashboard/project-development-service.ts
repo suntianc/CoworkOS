@@ -1925,6 +1925,29 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       return (await gateway()).getDevelopment(found.projectId, developmentId, backendId);
     },
 
+    /**
+     * What a delegated work item needs from one requirement.
+     *
+     * Only a ready checkout this backend owns can be forked. A Reviewer also
+     * needs the candidate its review froze: reading the checkout's HEAD at
+     * start instead would let a commit made after the freeze move the site
+     * under the review.
+     */
+    async dispatchSiteForTask(taskId: string, developmentId: string) {
+      const found = await taskProject(taskId);
+      const record = await (await gateway()).getDevelopment(found.projectId, developmentId, ports.backendId);
+      if (!record.workspace || record.workspace.state !== "ready")
+        throw conflict("开发记录没有就绪的本机现场；先 ensure_workspace", "review_workspace_not_ready");
+      const reviews = await (await gateway()).queryReviews(found.projectId, developmentId);
+      const frozen = reviews.filter((review) => review.state === "in_review").at(-1);
+      return {
+        directory: record.workspace.directory,
+        ...(frozen
+          ? { candidate: { repository: record.workspace.directory, commit: frozen.candidate.commit } }
+          : {})
+      };
+    },
+
     async find(
       projectId: string,
       requirementId: unknown,

@@ -469,6 +469,34 @@ Runtime SSE tails newly appended log bytes every 40 ms; durable Task events reta
 
 For existing Task sessions recorded under the old harness working directory, the launcher copies the full Pi session into the selected project using Pi's session-fork API before continuing. The original session is retained, and later requests reuse the aligned session; this avoids Pi's CWD filter silently starting an empty conversation.
 
+### Backend delegation
+
+```text
+POST /api/tasks/:taskId/subagents
+```
+
+Main's delegation tools reach the serving backend here; the host credential is the Run credential, so a delegated process never receives it. A dispatch request registers one work item in the Run's durable queue and returns the identity Main then uses:
+
+```json
+{
+  "action": "dispatch",
+  "task": "Implement the export entry and return evidence.",
+  "mode": "sync",
+  "role": "executor",
+  "dependsOn": ["call-..."],
+  "developmentId": "development_...",
+  "continueCallId": "call-...",
+  "reviewId": "review_...",
+  "attachments": ["upload-..."]
+}
+```
+
+The response is `{ accepted: true, callId, runId, agentId, name, role, mode, developmentId?, workspace?, continuedFrom?, dependsOn? }`. `mode: "async"` returns as soon as the work item is durably visible; `mode: "sync"` means the tool waits for that call's settled record (its callback and result) and returns it as the tool result. Main's `wait_for_subagents`, `get_subagent_status` and `get_task_status` read the same durable queue, callback and result records; they never ask the backend for in-memory state.
+
+Requests refused before a work item exists leave no record: an unknown dependency or continuation, a non-terminal or non-Executor continuation, a continuation with no earlier session file, a Reviewer whose requirement has no frozen candidate, a development whose checkout is not ready, an attachment outside the Task, or a Run that is no longer the Task's own. Once the item is queued, a start failure is that item's outcome, with its own callback.
+
+Cancel through the same endpoint: `{ "action": "cancel", "callId": "call-...", "reason": "optional" }` returns `{ callId, agentId, status: "cancelled" | "already_terminal", previousStatus }`. A queued item with no process is settled in the queue; a running one has its process group stopped.
+
 ### Delegated work and completion
 
 An async `call_subagent` acceptance is returned only after durable queue registration. Completion callbacks are persisted in Main's Inbox and delivered with Pi steering before the next model inference. Queuing a message is not consumption: its Inbox lease remains pending until the message appears in Main's saved context. Delivery is serialized and deduplicated, including while a slow tool is running; a restored session can acknowledge an already saved callback without sending it again.

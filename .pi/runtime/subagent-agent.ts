@@ -1,4 +1,6 @@
+import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
@@ -13,6 +15,8 @@ import { projectCompactionMessages } from "../../dist/src/runtime/compaction-inp
 import { ASK_MAIN_GUIDANCE, SEND_PEER_MESSAGE_GUIDANCE } from "../../dist/src/runtime/subagent-guidance.js";
 import type { ReviewConclusion } from "../../dist/src/runtime/subagent-review.js";
 import { subagentToolNames, type SubagentRole } from "../../dist/src/runtime/subagent-roles.js";
+import { capabilityProvider, parseCapabilityGrants } from "../../dist/src/runtime/capability-provider.js";
+import { attachmentCapabilityProvider } from "../../dist/src/workspace/attachment-capabilities.js";
 import {
   configuredContextWindow,
   configuredModelApi,
@@ -29,6 +33,7 @@ import { MainCompactionRetry } from "./main-compaction-retry.ts";
 import { registerSubagentInbox } from "./subagent-inbox.ts";
 import { blockedToolCall, taskProtectedPaths } from "./protected-call.ts";
 import { registerSubagentTools } from "./tools/subagent.ts";
+import { SubagentQuestionStore } from "../../dist/src/runtime/subagent-questions.js";
 
 /**
  * The delegated process half of the shared agent extension.
@@ -123,13 +128,28 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
     }
   };
 
-  const rolePrompt = subagentRolePrompt({
-    role,
-    name,
-    workingDirectory,
-    taskWorkspace,
-    deliverablesDirectory
-  });
+  // The backend passes what this work item was granted. No grant means no
+  // capability tool at all: an ungranted reader is not registered rather than
+  // registered and made to refuse every id.
+  const harnessRoot = resolve(process.env.COWORK_HARNESS_ROOT ?? process.cwd());
+  const grants = parseCapabilityGrants(process.env.COWORK_AGENT_GRANTS);
+  if (grants.some((grant) => grant.provider !== "attachments"))
+    throw new Error(
+      `Delegated agent received an unsupported capability grant: ${grants.map((grant) => grant.provider).join(", ")}`
+    );
+  // Capability registration is async (a grant is checked against this Task's
+  // own upload records), so it happens at the start boundary, before Pi builds
+  // the first request's tool table and system prompt.
+  let capabilityPrompt: string | undefined;
+  const rolePrompt = () =>
+    subagentRolePrompt({
+      role,
+      name,
+      workingDirectory,
+      taskWorkspace,
+      deliverablesDirectory,
+      ...(capabilityPrompt ? { capabilityPrompt } : {})
+    });
 
   // Pi 1.5 warms the prompt cache by default. A delegated process does not
   // adopt the capability either, so every refresh stops until the next real
@@ -149,7 +169,31 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
     // candidate checkout, so a later tool discovery cannot hand it a way to
     // change the Executor's checkout or the candidate commit.
     await mkdir(deliverablesDirectory, { recursive: true });
-    pi.setActiveTools(subagentToolNames(role));
+    if (grants.length) {
+      const provided = await capabilityProvider(
+        new Map([["attachments", attachmentCapabilityProvider(harnessRoot)]])
+      )(grants, {
+        taskId,
+        runId,
+        callId,
+        agentId,
+        workspaceRoot,
+        workingDirectory,
+        supportsImages: configuredSupportsImages(runtimeEnv)
+      });
+      capabilityPrompt = provided.prompt;
+      for (const [toolName, tool] of provided.tools)
+        pi.registerTool({
+          name: toolName,
+          label: toolName,
+          description: tool.description ?? toolName,
+          parameters: Type.Unsafe(tool.parameters ?? { type: "object", properties: {} }),
+          async execute(_toolCallId, params, signal): Promise<AgentToolResult<unknown>> {
+            return (await tool.execute(params, signal)) as AgentToolResult<unknown>;
+          }
+        });
+    }
+    pi.setActiveTools(subagentToolNames(role, grants));
   });
 
   // Role text is additive: Pi's own tool list and rules stay, and the role
@@ -158,10 +202,10 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
   pi.on("before_agent_start", async (event) => {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版 Pi 调用方可能只提供 systemPrompt，缺少结构化选项时走下面的回退分支
     if (event.systemPromptOptions) {
-      event.systemPromptOptions.sections.subagent_role = rolePrompt;
+      event.systemPromptOptions.sections.subagent_role = rolePrompt();
       return;
     }
-    return { systemPrompt: `${event.systemPrompt}\n\n<subagent_role>\n${rolePrompt}\n</subagent_role>` };
+    return { systemPrompt: `${event.systemPrompt}\n\n<subagent_role>\n${rolePrompt()}\n</subagent_role>` };
   });
 
   pi.on("context_with_system", (event) => ({
@@ -219,6 +263,25 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
   // `agent_end` is the last hook Pi awaits before a --print host may dispose the
   // session, so the record is durable before the process can exit.
   pi.on("agent_end", async (event) => {
+    // A question this attempt left open can never be answered once it ends.
+    // Closing it here keeps a finished work item from parking its Task.
+    try {
+      const expired = await new SubagentQuestionStore(workspaceRoot).expireForCall(taskId, callId);
+      if (expired.length > 0)
+        await guardEvents.append({
+          eventId: `question-expired-${randomUUID()}`,
+          type: "question.expired_on_terminal",
+          taskId,
+          runId,
+          agentId,
+          callId,
+          occurredAt: new Date().toISOString(),
+          payload: { questionIds: expired.map((question) => question.questionId) }
+        });
+      // eslint-disable-next-line no-restricted-syntax -- 关闭遗留提问是收尾簿记，失败不能把已结束的一轮判成失败
+    } catch {
+      /* bookkeeping only */
+    }
     const last = event.messages.findLast((message) => message.role === "assistant");
     const completed = Boolean(last && !["error", "aborted", "length"].includes(last.stopReason));
     const response = last && completed ? textFrom(last.content) : "";
@@ -273,6 +336,8 @@ function subagentRolePrompt(input: {
   workingDirectory: string;
   taskWorkspace: string;
   deliverablesDirectory: string;
+  /** Text the granted capabilities add, such as the upload ids this item may read. */
+  capabilityPrompt?: string;
 }): string {
   const shared = [
     delegationRoleGuidance({ role: input.role }),
@@ -280,7 +345,8 @@ function subagentRolePrompt(input: {
     `Your working directory: ${input.workingDirectory}. File and command tools resolve relative paths from there.`,
     `Shared Task workspace (browse_workspace paths start here): ${input.taskWorkspace}.`,
     "Read the specific brief or source files named by Main. Use browse_workspace to inspect shared Task state, other Agents' progress and published artifacts when the task depends on them.",
-    "The final response must be the complete conclusion, not progress narration. Do not claim work you did not perform. State any assumption you made and why."
+    "The final response must be the complete conclusion, not progress narration. Do not claim work you did not perform. State any assumption you made and why.",
+    ...(input.capabilityPrompt ? [input.capabilityPrompt] : [])
   ];
   if (input.role === "reviewer")
     return [
@@ -288,7 +354,8 @@ function subagentRolePrompt(input: {
       "You examine a checkout of the candidate that is yours alone: run the tests and commands that prove or reproduce what you report. You have no edit or write tool, so files you create stay in your checkout and never reach the candidate, the Executor's checkout or the project.",
       "Your conclusion reaches Main only through submit_review: verdict is pass or changes_requested, and every finding states its location, the evidence for it and whether it blocks acceptance. Call it when the examination is complete; a work item that ends without a submitted conclusion is recorded as a failure. A malformed submission is reported as an error and can be corrected.",
       ASK_MAIN_GUIDANCE,
-      SEND_PEER_MESSAGE_GUIDANCE
+      SEND_PEER_MESSAGE_GUIDANCE,
+      ...(input.capabilityPrompt ? [input.capabilityPrompt] : [])
     ].join("\n\n");
   return [
     ...shared,

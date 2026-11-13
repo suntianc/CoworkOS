@@ -11,6 +11,7 @@ import { askMain } from "../../../dist/src/runtime/subagent-questions.js";
 import { DurableScheduler } from "../../../dist/src/runtime/scheduler.js";
 import { parseReviewConclusion, type ReviewConclusion } from "../../../dist/src/runtime/subagent-review.js";
 import { sendPeerMessage, type PeerMessageResult } from "../../../dist/src/runtime/subagent-peer-message.js";
+import { JsonlEventStore } from "../../../dist/src/storage/event-store.js";
 import {
   ASK_MAIN_TOOL_DESCRIPTION,
   SEND_PEER_MESSAGE_TOOL_DESCRIPTION
@@ -45,6 +46,28 @@ export function registerSubagentTools(pi: ExtensionAPI, context: SubagentToolCon
   // Bounds a Subagent that would rather ask than decide; per attempt, like the
   // in-process dispatcher, so a rework turn starts with a fresh budget.
   let asked = 0;
+  // The question lifecycle is a Run fact every reader agrees on: Main's tools,
+  // the status view and completion gating read these events, not this process.
+  const events = new JsonlEventStore(
+    join(context.workspaceRoot, context.taskId, "runs", context.runId, "run_events.jsonl")
+  );
+  const recordQuestion = async (type: string, payload: Record<string, unknown>): Promise<void> => {
+    try {
+      await events.append({
+        eventId: `event-${type}-${payload.questionId ?? context.callId}`,
+        type,
+        taskId: context.taskId,
+        runId: context.runId,
+        agentId: context.agentId,
+        callId: context.callId,
+        occurredAt: new Date().toISOString(),
+        payload
+      });
+      // eslint-disable-next-line no-restricted-syntax -- 提问事件只是诊断记录，写不进去不能阻止这次提问/回答返回给模型
+    } catch {
+      /* diagnostics only */
+    }
+  };
 
   pi.registerTool({
     name: "ask_main",
@@ -77,6 +100,20 @@ export function registerSubagentTools(pi: ExtensionAPI, context: SubagentToolCon
         timeoutMs: configuredSubagentQuestionTimeout(runtimeEnv),
         maxQuestions: configuredSubagentMaxQuestions(runtimeEnv),
         asked,
+        onRaised: async (question) => {
+          await recordQuestion("question.raised", {
+            questionId: question.questionId,
+            question: question.question,
+            assumption: question.assumption,
+            timeoutMs: configuredSubagentQuestionTimeout(runtimeEnv)
+          });
+        },
+        onSettled: async (status, question) => {
+          await recordQuestion(`question.${status}`, {
+            questionId: question.questionId,
+            answer: question.answer
+          });
+        },
         isCancelled: async () => signal?.aborted === true || (await callCancelled(context)),
         cancellationWatchPaths: [
           join(context.workspaceRoot, context.taskId, "runs", context.runId, "queue.json")

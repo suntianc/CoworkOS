@@ -365,18 +365,18 @@ test(
           if (step === 0) {
             arrived.add("A");
             await gate;
-            return { name: "write_file", arguments: { path: "export-a.txt", content: "executor a\n" } };
+            return { name: "write", arguments: { path: "export-a.txt", content: "executor a\n" } };
           }
-          if (step === 1) return { name: "write_file", arguments: { path: "shared.txt", content: "a\n" } };
+          if (step === 1) return { name: "write", arguments: { path: "shared.txt", content: "a\n" } };
           return { text: "A 完成：已写入 export-a.txt 与 shared.txt。" };
         }
         if (role === "b") {
           if (step === 0) {
             assert.ok(arrived.has("A"), "A was already running when B started");
             arrived.add("B");
-            return { name: "write_file", arguments: { path: "export-b.txt", content: "executor b\n" } };
+            return { name: "write", arguments: { path: "export-b.txt", content: "executor b\n" } };
           }
-          if (step === 1) return { name: "write_file", arguments: { path: "shared.txt", content: "b\n" } };
+          if (step === 1) return { name: "write", arguments: { path: "shared.txt", content: "b\n" } };
           return { text: "B 完成：已写入 export-b.txt 与 shared.txt。" };
         }
         if (role === "d") {
@@ -385,7 +385,7 @@ test(
               calls.a?.callId,
               "the dependent item starts only after the item it waits for was dispatched"
             );
-            return { name: "write_file", arguments: { path: "export-d.txt", content: "executor d\n" } };
+            return { name: "write", arguments: { path: "export-d.txt", content: "executor d\n" } };
           }
           return { text: "D 完成：已写入 export-d.txt。" };
         }
@@ -398,6 +398,7 @@ test(
         assert.equal(files["export-a.txt"], "executor a\n");
         assert.equal(files["export-b.txt"], "executor b\n");
         assert.equal(files["export-d.txt"], "executor d\n");
+        if (step === 0) return { name: "submit_review", arguments: { verdict: "pass", findings: [] } };
         return {
           text: `C 完成：汇总现场包含 feature.txt、export-a.txt、export-b.txt、export-d.txt，内容一致。`
         };

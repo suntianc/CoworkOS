@@ -27,6 +27,32 @@ export type CapabilityProvider = (
   context: CapabilityContext
 ) => Promise<ProvidedCapabilities>;
 
+/**
+ * Grants a launched process receives in its environment.
+ *
+ * The backend passes them as JSON so the delegated process can register the
+ * matching capability tools itself; an unreadable value is refused instead of
+ * silently widening or narrowing what the model may call.
+ */
+export function parseCapabilityGrants(raw: string | undefined): CapabilityGrant[] {
+  if (raw === undefined || raw.trim() === "") return [];
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("CoworkOS 子代理能力授权无法读取");
+  }
+  if (!Array.isArray(value)) throw new Error("CoworkOS 子代理能力授权格式不合法");
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry))
+      throw new Error("CoworkOS 子代理能力授权格式不合法");
+    const grant = entry as Record<string, unknown>;
+    if (typeof grant.provider !== "string" || !grant.provider.trim())
+      throw new Error("CoworkOS 子代理能力授权缺少提供方");
+    return { provider: grant.provider, scope: grant.scope };
+  });
+}
+
 /** Refuse collisions rather than silently replacing a core or another provider's tool. */
 export function addCapabilityTools(
   target: Map<string, RuntimeTool>,

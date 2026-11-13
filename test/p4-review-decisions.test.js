@@ -605,13 +605,12 @@ test(
           return { text: "审查裁定流程已完成。" };
         }
         if (role === "a") {
-          if (step === 0)
-            return { name: "write_file", arguments: { path: "export.txt", content: "header\n" } };
+          if (step === 0) return { name: "write", arguments: { path: "export.txt", content: "header\n" } };
           if (step === 1) return { text: "A 完成：已写入 export.txt 的 header。" };
           if (step === 2) {
             assert.match(userText(body), /修复审查发现/);
             return {
-              name: "write_file",
+              name: "write",
               arguments: { path: "export.txt", content: "header\ndata\n" }
             };
           }
@@ -620,21 +619,37 @@ test(
         if (role === "b") {
           if (step === 0)
             return {
-              name: "run_command",
+              name: "bash",
               arguments: { command: 'wc -l < export.txt | tr -d "\\n"' }
             };
           if (step === 1) {
             assert.match(lastToolText(body), /1/);
             return {
-              text: "完成标准内：导出只有 header，缺少数据行。另有范围外建议：改用 PDF。误报：文件名不是 report.csv，但标准未约定。 "
+              name: "submit_review",
+              arguments: {
+                verdict: "changes_requested",
+                findings: [
+                  {
+                    location: "export.txt",
+                    evidence: "wc -l < export.txt 输出 1：只有 header，完成标准要求至少一行数据。",
+                    blocking: true
+                  }
+                ]
+              }
             };
           }
+          if (step === 2)
+            return {
+              text: "完成标准内：导出只有 header，缺少数据行。另有范围外建议：改用 PDF。误报：文件名不是 report.csv，但标准未约定。 "
+            };
           return { text: "审查完成。" };
         }
         if (role === "c") {
-          if (step === 0) return { name: "run_command", arguments: { command: "wc -l < export.txt" } };
+          if (step === 0) return { name: "bash", arguments: { command: "wc -l < export.txt" } };
+          if (step === 1) return { name: "submit_review", arguments: { verdict: "pass", findings: [] } };
           return { text: "复审通过：数据行为 2 行。" };
         }
+        if (step === 0) return { name: "submit_review", arguments: { verdict: "pass", findings: [] } };
         return { text: "组合版本终审通过。" };
       } catch (error) {
         failures.push(error.stack ?? error.message);

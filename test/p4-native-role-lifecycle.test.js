@@ -323,6 +323,7 @@ test(
     const failures = [];
     const workItems = {};
     const arrived = new Set();
+    const subagentSteps = new Map();
     let mainSteps = 0;
     let reachedObservation;
     const observation = new Promise((done) => {
@@ -402,16 +403,19 @@ test(
         const label = identityOf(entry.body);
         arrived.add(label);
         await barrier;
+        const stepIndex = subagentSteps.get(label) ?? 0;
+        subagentSteps.set(label, stepIndex + 1);
         // One Executor stays busy in a real command so Main can cancel it
         // while the other four finish independently.
         if (label === "C")
           return {
-            name: "run_command",
-            arguments: {
-              command: process.execPath,
-              args: ["-e", "setTimeout(() => {}, 120000)"]
-            }
+            name: "bash",
+            arguments: { command: `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 120000)"` }
           };
+        // A Reviewer's call succeeds only with the structured conclusion the
+        // role's own tool submits; its prose is not the verdict.
+        if ((label === "D" || label === "E") && stepIndex === 0)
+          return { name: "submit_review", arguments: { verdict: "pass", findings: [] } };
         return { text: `${label} 完成：已在本工作项内检查现场。` };
       } catch (error) {
         failures.push(error.stack ?? error.message);
@@ -445,6 +449,10 @@ test(
     assert.equal(started.status, 202, JSON.stringify(started.body));
 
     const observed = await Promise.race([observation, scriptFailure]);
+    // A delegated work item is now a real Pi process: each one boots its own
+    // runtime before its first model request, so the observation point waits
+    // for the fact it is about (five live requests), not for a timer.
+    await waitFor(() => arrived.size === 5, "all five work items reached the model together");
     assert.equal(arrived.size, 5, "all five work items reached the model together");
     const observedAgents = observed.agents;
     assert.equal(observedAgents.length, 5);

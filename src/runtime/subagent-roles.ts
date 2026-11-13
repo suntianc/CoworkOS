@@ -12,6 +12,8 @@
  * commit, the Executor's checkout or the user's project.
  */
 
+import type { CapabilityGrant } from "./capability-provider.js";
+
 export type SubagentRole = "executor" | "reviewer";
 
 /** Pi's coding tools: read, run, and edit in the work site. */
@@ -24,8 +26,21 @@ const SHARED_WORKSPACE_TOOLS = ["browse_workspace"] as const;
 const CHANNEL_TOOLS = ["ask_main", "send_peer_message"] as const;
 
 /** The exact active tool list one role's process declares to the model. */
-export function subagentToolNames(role: SubagentRole): string[] {
-  return role === "reviewer"
-    ? [...REVIEWER_FILE_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS, "submit_review"]
-    : [...EXECUTOR_FILE_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS];
+export function subagentToolNames(role: SubagentRole, grants: readonly CapabilityGrant[] = []): string[] {
+  const base =
+    role === "reviewer"
+      ? [...REVIEWER_FILE_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS, "submit_review"]
+      : [...EXECUTOR_FILE_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS];
+  return [...base, ...capabilityToolNames(grants)];
+}
+
+/**
+ * Capability tools a work item was granted.
+ *
+ * Only a granted provider adds its tool: a delegated process with no grant
+ * declares no attachment reader at all, rather than holding one that rejects
+ * every id.
+ */
+export function capabilityToolNames(grants: readonly CapabilityGrant[]): string[] {
+  return grants.some((grant) => grant.provider === "attachments") ? ["read_attachment"] : [];
 }

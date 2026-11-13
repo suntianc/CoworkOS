@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { id, now } from "../domain/types.js";
 import { atomicWrite } from "../storage/atomic-file.js";
@@ -45,6 +45,14 @@ export interface SubagentProcessServiceOptions {
   harnessRoot: string;
   /** Model connection and configuration facts the launcher needs. */
   env: NodeJS.ProcessEnv;
+  /**
+   * Per-item environment, resolved when that item actually starts.
+   *
+   * A role binding and its connection are read on this host at the start
+   * boundary, so a binding changed while an item waited applies to this start,
+   * and a recovered item re-reads the configuration instead of replaying one.
+   */
+  envFor?: (item: WorkItem) => NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
   /** How often an adopted process's identity is checked. */
   pollMs?: number;
   /** Queue lease period; renewed every service cycle while the process runs. */
@@ -78,6 +86,10 @@ interface WorkPayload {
   reviewSite?: unknown;
   delegation?: { role?: string };
   dependsOn?: string[];
+  /** The Executor session this item appends to; absent for a fresh call. */
+  continuation?: { fromCallId: string; reviewId?: string; sessionCallId?: string };
+  /** Capability grants this work item was dispatched with. */
+  capabilityGrants?: unknown[];
 }
 
 export class SubagentProcessService {
@@ -115,6 +127,7 @@ export class SubagentProcessService {
     const items = await scheduler.list();
     const records = await this.host.records(input.taskId, input.runId);
     const active = new Set(records.filter((record) => !record.settledAt).map((record) => record.callId));
+    const statusOf = new Map(items.map((item) => [item.stepId, item.status]));
     const terminal = new Set(items.filter((item) => isTerminal(item.status)).map((item) => item.stepId));
     const results: SubagentProcessResult[] = [];
     const workerId = `subagent-process-${process.pid}`;
@@ -129,18 +142,31 @@ export class SubagentProcessService {
         continue;
       }
       const payload = (item.payload ?? {}) as WorkPayload;
-      if ((payload.dependsOn ?? []).some((stepId) => !terminal.has(stepId))) continue;
+      const dependsOn = [...new Set(payload.dependsOn ?? [])];
+      // A work item with an unfinished prerequisite stays queued and holds no
+      // lease, so it is visible as pending without a worker owning it.
+      if (dependsOn.some((stepId) => !terminal.has(stepId))) continue;
+      // Every prerequisite is terminal. One that did not complete ends this
+      // item without starting it: an item that can never run must be settled
+      // too, or its Task would wait for it forever.
+      const failed = dependsOn.filter((stepId) => statusOf.get(stepId) !== "completed");
+      if (failed.length > 0) {
+        const reason = `前置工作 ${failed.join("、")} 未成功完成，本工作项未执行`;
+        const result = await this.settleUnstarted(item, payload, reason);
+        if (result) results.push(result);
+        continue;
+      }
       const claimed = await scheduler.claim(workerId, this.leaseMs, item.stepId);
       if (!claimed?.lease) continue;
       try {
         await this.launch(claimed, payload, claimed.lease.token);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const failed = await scheduler
+        const failedItem = await scheduler
           .fail(claimed.stepId, claimed.lease.token, message)
           // eslint-disable-next-line no-restricted-syntax -- 队列写入失败时仍要把启动失败通知 Main；租约到期后由 reclaimExpired 接管，不能因此丢掉这次失败
           .catch(() => undefined);
-        const retryScheduled = failed?.status === "queued";
+        const retryScheduled = failedItem?.status === "queued";
         if (!retryScheduled) {
           const role: AgentProcessRole = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
           results.push(await this.projectFailure(input, claimed, role, message));
@@ -148,6 +174,38 @@ export class SubagentProcessService {
       }
     }
     return results;
+  }
+
+  /**
+   * Settle an item whose prerequisites ended without completing.
+   *
+   * It never starts, so no process, lease or callback would otherwise exist for
+   * it; the queue row, the dependency event and Main's callback are the whole
+   * outcome. Recording them here is what keeps a cancelled prerequisite from
+   * leaving a work item Main would wait for forever.
+   */
+  private async settleUnstarted(
+    item: WorkItem,
+    payload: WorkPayload,
+    reason: string
+  ): Promise<SubagentProcessResult | undefined> {
+    const scheduler = new DurableScheduler(this.queuePath({ taskId: item.taskId, runId: item.runId }));
+    await scheduler.failUnstarted(item.stepId, reason);
+    const role: AgentProcessRole = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
+    await new JsonlEventStore(join(this.workspaceRoot, item.taskId, "runs", item.runId, "run_events.jsonl"))
+      .append({
+        eventId: id("event"),
+        type: "call.dependency_failed",
+        taskId: item.taskId,
+        runId: item.runId,
+        agentId: item.agentId,
+        callId: item.stepId,
+        occurredAt: now(),
+        payload: { callId: item.stepId, dependsOn: payload.dependsOn ?? [], error: reason }
+      })
+      // eslint-disable-next-line no-restricted-syntax -- 诊断事件写失败不能阻止给 Main 的失败回调，队列行已经带着原因
+      .catch(() => undefined);
+    return await this.projectFailure({ taskId: item.taskId, runId: item.runId }, item, role, reason);
   }
 
   /** Renew the leases of running processes so a second backend cannot claim them. */
@@ -202,9 +260,20 @@ export class SubagentProcessService {
     const role = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
     const site = await this.workingSite(item, payload, role);
     const taskWorkspace = join(this.workspaceRoot, item.taskId);
-    const sessionDirectory = join(taskWorkspace, "sessions", item.agentId, "pi", item.stepId);
+    // A continuation appends one turn to the Executor's own Pi session: the
+    // session directory and id are the original call's, not this call's. The
+    // chain root is recorded on the item, so a rework of a rework opens the
+    // transcript that already contains every earlier round.
+    const sessionCallId = payload.continuation
+      ? (payload.continuation.sessionCallId ?? payload.continuation.fromCallId)
+      : item.stepId;
+    const sessionDirectory = join(taskWorkspace, "sessions", item.agentId, "pi", sessionCallId);
     const directory = agentProcessDirectory(this.workspaceRoot, item.taskId, item.runId, role, item.agentId);
     await mkdir(sessionDirectory, { recursive: true });
+    // A continuation opens the earlier transcript by its file: the session id
+    // lookup compares the header's working directory with this process's, and
+    // the two spellings of the same symlinked work site need not agree.
+    const sessionFile = payload.continuation ? await resumeSessionFile(sessionDirectory) : undefined;
     if (site.reviewSite) {
       // The marker goes first: a worktree that exists without one could never be
       // found and cleaned after a backend restart. A failed creation removes it.
@@ -224,10 +293,18 @@ export class SubagentProcessService {
         agentId: item.agentId,
         role,
         workingDirectory: site.directory,
-        prompt: delegatedPrompt(payload.task ?? "Continue the delegated task."),
+        // A resumed session takes the rework brief as its prompt argument: the
+        // transcript it opened already owns stdin's role for the first turn.
+        prompt: sessionFile ? "" : delegatedPrompt(payload.task ?? "Continue the delegated task."),
         sessionDirectory,
+        ...(sessionFile
+          ? {
+              sessionArgs: ["--session", sessionFile],
+              args: ["--", delegatedPrompt(payload.task ?? "Continue the delegated task.")]
+            }
+          : {}),
         resultPath: join(directory, "result.json"),
-        env: this.childEnv(role),
+        env: await this.childEnv(item, role),
         leaseToken
       });
     } catch (error) {
@@ -296,16 +373,30 @@ export class SubagentProcessService {
     return resolve(payload.projectDirectory);
   }
 
-  private childEnv(role: AgentProcessRole): NodeJS.ProcessEnv {
-    return { ...this.options.env, COWORK_AGENT_ROLE: role };
+  private async childEnv(item: WorkItem, role: AgentProcessRole): Promise<NodeJS.ProcessEnv> {
+    const payload = (item.payload ?? {}) as WorkPayload;
+    return {
+      ...this.options.env,
+      ...(this.options.envFor ? await this.options.envFor(item) : {}),
+      COWORK_AGENT_ROLE: role,
+      // A delegated process has no Dashboard tools; the host credential belongs
+      // to the requesting Run and must not let a Subagent act as Main.
+      COWORK_API_TOKEN: undefined,
+      COWORK_DASHBOARD_URL: undefined,
+      ...(payload.capabilityGrants && payload.capabilityGrants.length > 0
+        ? { COWORK_AGENT_GRANTS: JSON.stringify(payload.capabilityGrants) }
+        : {})
+    };
   }
 
   private async settle(record: AgentProcessRecord): Promise<void> {
-    try {
-      await this.projectOutcome(record);
-    } finally {
-      await this.cleanupReviewSite(record);
-    }
+    const result = await this.findSettled(record);
+    await this.projectOutcome(record);
+    // A Reviewer's checkout is the evidence its review was recorded against:
+    // Main binds the review and checks the candidate's drift after the call is
+    // over, so a successful review keeps the site. One that never produced a
+    // conclusion leaves nothing to examine, and a retry recreates it.
+    if (result.status !== "succeeded") await this.cleanupReviewSite(record);
   }
 
   private async projectOutcome(record: AgentProcessRecord): Promise<void> {
@@ -343,6 +434,19 @@ export class SubagentProcessService {
           diagnostics: result.diagnostics,
           ...(result.error ? { error: result.error } : {})
         });
+    // A retry the queue scheduled is not an outcome Main may act on yet, but
+    // the Run still records that this attempt is being replaced.
+    if (retryScheduled)
+      await events.append({
+        eventId: id("event"),
+        type: "run.retry_scheduled",
+        taskId: record.taskId,
+        runId: record.runId,
+        agentId: record.agentId,
+        callId: record.callId,
+        occurredAt: now(),
+        payload: { callId: record.callId, error: result.error }
+      });
     const eventType =
       result.status === "succeeded"
         ? "run.completed"
@@ -664,6 +768,21 @@ function settledResult(record: AgentProcessRecord): SubagentProcessResult | unde
     agentId: record.agentId,
     ...record.outcome
   };
+}
+
+/** The transcript a continuation appends to; absent when the earlier attempt left none. */
+async function resumeSessionFile(directory: string): Promise<string> {
+  const files = (
+    await readdir(directory)
+      // eslint-disable-next-line no-restricted-syntax -- 会话目录不存在就是没有可续接的记录，下面的报错是给调用方的结论
+      .catch(() => [] as string[])
+  )
+    .filter((file) => file.endsWith(".jsonl"))
+    .sort()
+    .reverse();
+  if (!files[0])
+    throw new Error(`没有可续接的会话记录：${directory} 中没有 Pi 会话文件；不能新建 Agent 冒充原上下文`);
+  return join(directory, files[0]);
 }
 
 async function readResult(path: string): Promise<AgentResultRecord | undefined> {

@@ -7,6 +7,8 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { DurableScheduler } from "../dist/src/runtime/scheduler.js";
+import { InputStore } from "../dist/src/workspace/input-store.js";
+import { Readable } from "node:stream";
 import { SubagentProcessService } from "../dist/src/runtime/subagent-processes.js";
 import { isolatedPiEnvironment, startLocalProvider } from "./fixtures/pi-process-fixture.mjs";
 
@@ -80,11 +82,19 @@ function toolNames(request) {
   return (request.tools ?? []).map((tool) => tool.function?.name ?? tool.name).sort();
 }
 
+/** The text of the last tool result in a recorded model request. */
+function lastToolText(body) {
+  const last = (body.messages ?? []).findLast((message) => message.role === "tool");
+  if (!last) return "";
+  const content = last.content;
+  return typeof content === "string" ? content : (content ?? []).map((part) => part.text ?? "").join("");
+}
+
 /**
  * One delegated call through the real backend path: a durable queue item, the
  * process service that launches it, and Main's callback once it settles.
  */
-async function delegatedCall(t, { role, agentId, callId, handle, task = "执行本轮任务" }) {
+async function delegatedCall(t, { role, agentId, callId, handle, task = "执行本轮任务", grants, prepare }) {
   const root = await mkdtemp(join(tmpdir(), "p46-role-"));
   const workspace = join(root, "workspace");
   const site = join(root, "work-site");
@@ -99,6 +109,8 @@ async function delegatedCall(t, { role, agentId, callId, handle, task = "执行�
   await execFileAsync("git", ["-C", site, "add", "-A"], { windowsHide: true });
   await execFileAsync("git", ["-C", site, "commit", "-m", "delegated site"], { windowsHide: true });
   const runRoot = join(workspace, TASK_ID, "runs", RUN_ID);
+  const prepared = await prepare?.({ workspace, site });
+  const capabilityGrants = grants ?? prepared?.grants;
   const provider = await startLocalProvider({ model: MODEL, handle });
   await writeFile(
     join(root, "config.json"),
@@ -116,7 +128,12 @@ async function delegatedCall(t, { role, agentId, callId, handle, task = "执行�
     runId: RUN_ID,
     agentId,
     importance: "normal",
-    payload: { task, projectDirectory: site, delegation: { role } },
+    payload: {
+      task,
+      projectDirectory: site,
+      delegation: { role },
+      ...(capabilityGrants ? { capabilityGrants } : {})
+    },
     maxAttempts: 1
   });
   const service = new SubagentProcessService({
@@ -457,5 +474,59 @@ test(
     const callback = messages.find((message) => message.callId === "call-role-stale");
     assert.equal(callback.payload.status, "failed", JSON.stringify(callback.payload));
     assert.equal(callback.payload.review, undefined);
+  }
+);
+
+/** A real Task upload the capability provider can validate against. */
+async function receiveInput(workspace, name, body) {
+  const store = new InputStore(join(workspace, TASK_ID, "inputs"));
+  return await store.receive(name, Readable.from([Buffer.from(body, "utf8")]));
+}
+
+test(
+  "a granted attachment registers read_attachment, and an ungranted work item registers nothing",
+  { timeout: 120_000 },
+  async (t) => {
+    let uploadId = "";
+    const granted = await delegatedCall(t, {
+      agentId: "subagent_granted",
+      callId: "call-granted-attachment",
+      prepare: async ({ workspace }) => {
+        const file = await receiveInput(workspace, "brief.txt", "delegated attachment body\n");
+        uploadId = file.uploadId;
+        return { grants: [{ provider: "attachments", scope: [file.uploadId] }] };
+      },
+      handle: (body, requests) => {
+        if (requests.length === 1) {
+          assert.equal(
+            toolNames(body).includes("read_attachment"),
+            true,
+            "a granted attachment registers the reader"
+          );
+          assert.match(JSON.stringify(body.tools), /read_attachment/);
+          return { name: "read_attachment", arguments: { id: uploadId } };
+        }
+        if (requests.length === 2) {
+          assert.match(lastToolText(body), /delegated attachment body/);
+          return { text: "已读取委托附件。" };
+        }
+        return { text: "已读取委托附件。" };
+      }
+    });
+    assert.equal(granted.callback.payload.status, "succeeded", JSON.stringify(granted.callback.payload));
+
+    const ungranted = await delegatedCall(t, {
+      agentId: "subagent_ungranted",
+      callId: "call-ungranted-attachment",
+      handle: (body) => {
+        assert.equal(
+          toolNames(body).includes("read_attachment"),
+          false,
+          "a work item dispatched without a grant registers no attachment reader"
+        );
+        return { text: "未读取任何附件。" };
+      }
+    });
+    assert.equal(ungranted.callback.payload.status, "succeeded", JSON.stringify(ungranted.callback.payload));
   }
 );

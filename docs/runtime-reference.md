@@ -95,6 +95,16 @@ call_subagent({
 
 附件读取只接受已共享的 ID；未共享的附件不因 Main 可读而出现在子智能体中。委派成功或总结不能替代 Main 对结果的核对。
 
+### 派单经后端
+
+`call_subagent` 只向后端登记工作项：后端把登记写进该 Run 的持久队列（`queue.json`）并答复 `callId`，依赖满足后由后端启动独立的子代理 Pi 进程，进程结束时把结论写回队列、运行事件与 Main 的回调。`mode: "sync"` 表示派单后等待该工作项的结束记录（结果记录与回调）并作为工具结果返回；`mode: "async"` 在登记落盘后立即返回，结果经回调送达。`wait_for_subagents`、`get_subagent_status` 与 `get_task_status` 读同一份队列、回调与结果记录，不依赖后端内存。
+
+每个工作区根只有一个属主启动与结算委派进程：Dashboard 运行时 CLI worker 不接管（`coworkos worker` 报告属主后退出）。属主启动时从持久记录接管仍在运行的子代理，并在停机期间结束的子代理上补发回调；结算由进程记录上的文件锁去重，所以同一工作项不会产生两份回调。中止启动的拒单在任何持久写入之前完成，不留下无人结算的工作项；已入队后启动失败按该工作项自己的失败结算。
+
+前端（Dashboard）在派单时确定工作项的现场与候选：`developmentId` 取本后端就绪的需求现场；Reviewer 的 `reviewSite` 固定为需求当前冻结候选的提交（没有独立审查时按派单那一刻的提交冻结），因此冻结之后 Executor 现场再前进也不会移动 Reviewer 的审查对象。工作项现场、会话目录与结论都在持久记录里，返修续接同一个 Executor 的 Pi 会话文件（`sessions/<agentId>/pi/<原 callId>`）与现场，追加一轮。附件授权随工作项传递：被授权的上传 ID 在派单时校验，委派进程只在有授权时注册 `read_attachment`，未授权不注册。
+
+后端重启不影响这些记录：Main 的本地凭据与后端实例一起保存在数据根，被接管的 Main 继续用同一凭据访问新的后端进程；子代理进程与 Main 一样不随后端退出。运行在 CLI（没有本地服务）时 `call_subagent` 仍走进程内执行，这是 #06 删除该循环前保留的唯一路径。
+
 ### 执行角色、工作项依赖与需求现场
 
 委派默认以 `executor` 角色运行，审查使用 `role: "reviewer"`。两个角色在前置工作结束、即将创建会话时读取执行主机的角色配置：显式传入的 `profileId`/`model` 优先，其次是该项目的覆盖，再是主机默认；都没有时沿用 Main 本次 Run 的连接，普通 `call_subagent({task,mode})` 行为不变。选择以非敏感快照写入 `call.model_selected`，只在真正启动时记录；排队期间修改绑定会作用于该工作项本次启动，删除引用则让它以包含角色、范围和连接 ID 的错误结束，不会改投其他账号。启动后的请求保持原连接，后续配置变更只影响之后启动的工作项。密钥留在执行主机，不进入工作项记录、回调或界面响应。
@@ -103,11 +113,11 @@ call_subagent({
 
 传入 `developmentId` 时，工作项在需求现场的独立执行现场运行：从本后端 `project_development` 记录中的 ready 需求现场按当前提交分出该工作项自己的 `git worktree` 与分支（`<需求现场同级的 work-items>/<callId>`），作为该 Subagent 的项目目录。并行工作项互不覆盖，也不会写入需求集成现场或用户原工作树；现场未 ready 时拒绝委派，提示先执行 `ensure_workspace`。Main 用现有文件/Git 工具明确收取结果到集成现场；需要审查汇总结果时，在汇总后委派 Reviewer，它从汇总现场的新提交分出自己的现场。重试、重启恢复和返修沿用同一目录与分支，保留已有提交和文件，不重建或 reset。`get_subagent_status`、Task 详情给出每个工作项的 callId、名称、角色、模型、实际工作目录、依赖、阻塞状态和失败原因；界面在这些字段上显示角色、模型与独立现场。
 
-`continueCallId`（可配 `reviewId`）是原上下文返修契约：它必须指向本 Run 中已结束的 Executor 工作项，复用该工作项的 agent 身份、检查点历史与现场，把返修任务作为同一会话的下一轮追加，而不是新建 Agent 或重复执行已终态工作。运行中的工作项、Reviewer、已有续接在运行或现场不可续接的调用会被拒绝；重启恢复沿用同一续接记录。`project_development` 的审查动作把候选提交、候选树、Reviewer 身份和现场、发现、裁定和返修关联写为共享记录；候选提交或受审内容变化后，旧结论不会被当作当前候选的有效审查。失败或漂移的审查仍可对其发现作裁定或记录返修，复审沿明确的 previousReview 链结算已验证的修复，链外发现不受影响；self 通道的自检绑定记录时的提交/树，现场前移后需在当版本重新验证。完整接口见 [Product API](product-api.md#fixed-candidate-reviews)。`request_merge` 把已满足交付资格的需求候选提交到项目共同入口，`application` 由配置的执行后端串行更新目标分支；等待期间目标前移时会在最新目标与候选的组合版本上重新运行检查。`apply_merge` 由该执行后端核对中断操作并继续队列，`merge_status` 读取操作、实际合入 SHA 与可幂等对账的回执；失败只处理操作自有现场，保留用户脏文件、先前合入和未合入分支。真实合入后程序自动写台账/看板交付：外部需求转待发布并保留归属人与实际合入 commit，内部需求只写台账。`delivery_status` 读取阶段、协作者进度、固定到交付版本的改动、检查与同步回执；共享服务暂不可达时执行主机保留本机待同步事实，恢复后按有界重试自动补齐，不要求重新开发或合入。
+`continueCallId`（可配 `reviewId`）是原上下文返修契约：它必须指向本 Run 中已结束的 Executor 工作项，复用该工作项的 agent 身份、Pi 会话文件与现场，把返修任务作为同一会话的下一轮追加，而不是新建 Agent 或重复执行已终态工作；没有可续接的会话记录时拒绝派单。运行中的工作项、Reviewer、已有续接在运行或现场不可续接的调用会被拒绝；重启恢复沿用同一续接记录。`project_development` 的审查动作把候选提交、候选树、Reviewer 身份和现场、发现、裁定和返修关联写为共享记录；候选提交或受审内容变化后，旧结论不会被当作当前候选的有效审查。失败或漂移的审查仍可对其发现作裁定或记录返修，复审沿明确的 previousReview 链结算已验证的修复，链外发现不受影响；self 通道的自检绑定记录时的提交/树，现场前移后需在当版本重新验证。完整接口见 [Product API](product-api.md#fixed-candidate-reviews)。`request_merge` 把已满足交付资格的需求候选提交到项目共同入口，`application` 由配置的执行后端串行更新目标分支；等待期间目标前移时会在最新目标与候选的组合版本上重新运行检查。`apply_merge` 由该执行后端核对中断操作并继续队列，`merge_status` 读取操作、实际合入 SHA 与可幂等对账的回执；失败只处理操作自有现场，保留用户脏文件、先前合入和未合入分支。真实合入后程序自动写台账/看板交付：外部需求转待发布并保留归属人与实际合入 commit，内部需求只写台账。`delivery_status` 读取阶段、协作者进度、固定到交付版本的改动、检查与同步回执；共享服务暂不可达时执行主机保留本机待同步事实，恢复后按有界重试自动补齐，不要求重新开发或合入。
 
 ### 角色工具与审查结论
 
-子代理进程与 Main 加载同一个扩展，按角色声明工具表。Executor 得到 `read`、`bash`、`edit`、`write`、只读的 `browse_workspace`、`ask_main` 与 `send_peer_message`；Reviewer 得到 `read`、`bash`、`grep`、`find`、`ls`、`browse_workspace`、同样的两个通道工具与 `submit_review`，没有 `write`/`edit`。后端从被审候选的提交为 Reviewer 建一份 detach 的独立 checkout 作为它的项目目录，审查结束、进程退出后清理；没有需求现场时按项目当前 HEAD 建同样的副本，项目不是 Git 仓库则在启动前拒绝。它运行的测试与写入的文件留在这份副本里，不进入候选提交、Executor 的现场或用户工作树。两个角色都没有 `call_subagent`、`send_subagent_message`、`cancel_subagent`、`get_subagent_status`、`wait_for_subagents`、`get_task_status`、`finish_task`、`askhuman`、`sleep_until`、`grant_capabilities`、`clear_context`、`enable_tools`、`project_ledger`、`project_development` 与 `publish_artifact`，因此子代理不能再派子代理或改变 Task 生命周期。角色说明沿用进程内委派使用的同一段文本；角色只决定工具，不扩大授权：电脑操控、浏览器与 CUA 等能力由 Main 的扩展注册，委派进程当前不提供，授权传递随派单闭环单独实现。Main 与两个角色对受保护路径的 `write`、`edit` 与 `bash` 写入按同一规则拦截并返回同一段错误；`bash` 拦截跟随 `cd`、`pushd`/`popd`、`git -C` 与子 shell 的目录切换解析相对目标，目录无法确定时只要项目内存在受保护路径就保守拒绝。它尽力识别常见写法，不是沙箱：解释器内写入、引号内的命令替换、反引号、`xargs`、`find -delete`、`git clean` 等仍可能绕过。委派进程与 Main 一样对 `cache_warming_decision` 返回 `stop`，不进行提示缓存保温。委派进程的上下文压缩与 Main 相同：Pi 原生压缩、同一工具回执投影与失败冷却。
+子代理进程与 Main 加载同一个扩展，按角色声明工具表。Executor 得到 `read`、`bash`、`edit`、`write`、只读的 `browse_workspace`、`ask_main` 与 `send_peer_message`；Reviewer 得到 `read`、`bash`、`grep`、`find`、`ls`、`browse_workspace`、同样的两个通道工具与 `submit_review`，没有 `write`/`edit`。后端从被审候选的提交为 Reviewer 建一份 detach 的独立 checkout 作为它的项目目录；成功的审查保留这份现场，因为 Main 在进程结束后才绑定审查并核对候选是否漂移，没有产出结论的失败尝试才清理。没有需求现场时按派单时刻的 HEAD 冻结候选并建同样的副本，项目不是 Git 仓库则在派单前拒绝。它运行的测试与写入的文件留在这份副本里，不进入候选提交、Executor 的现场或用户工作树。两个角色都没有 `call_subagent`、`send_subagent_message`、`cancel_subagent`、`get_subagent_status`、`wait_for_subagents`、`get_task_status`、`finish_task`、`askhuman`、`sleep_until`、`grant_capabilities`、`clear_context`、`enable_tools`、`project_ledger`、`project_development` 与 `publish_artifact`，因此子代理不能再派子代理或改变 Task 生命周期。角色说明沿用同一段文本；角色只决定工具，不扩大授权：电脑操控、浏览器与 CUA 等能力由 Main 的扩展注册，委派进程当前不提供。附件授权随工作项传递，只有被授权的上传 ID 才让委派进程注册 `read_attachment`。Main 与两个角色对受保护路径的 `write`、`edit` 与 `bash` 写入按同一规则拦截并返回同一段错误；`bash` 拦截跟随 `cd`、`pushd`/`popd`、`git -C` 与子 shell 的目录切换解析相对目标，目录无法确定时只要项目内存在受保护路径就保守拒绝。它尽力识别常见写法，不是沙箱：解释器内写入、引号内的命令替换、反引号、`xargs`、`find -delete`、`git clean` 等仍可能绕过。委派进程与 Main 一样对 `cache_warming_decision` 返回 `stop`，不进行提示缓存保温。委派进程的上下文压缩与 Main 相同：Pi 原生压缩、同一工具回执投影与失败冷却。
 
 Reviewer 的结论只经 `submit_review({verdict, findings})` 提交：`verdict` 为 `pass` 或 `changes_requested`，每条 finding 含 `location`、`evidence` 与 `blocking`。`changes_requested` 至少给出一条 finding，`pass` 不能携带 blocking finding；不合法的提交作为工具错误返回，模型可改正后重试。结论写入该工作项结果记录的 `review` 字段并随回调送达 Main；Reviewer 没有提交结论就结束记为失败，后端读取结果记录时按同一格式复核。验证 [真实角色工具表与结论](../test/p46-subagent-roles-pi.test.js)。
 
@@ -127,9 +137,9 @@ Main 发给运行中子代理的追加消息、对 `ask_main` 问题的回答与
 
 ### 查询任务与委派状态
 
-`get_task_status()` 默认只返回委派的标识、状态、回调状态和诊断路径，不重复附带子任务简报、结果正文、错误正文或产物清单。`resultAvailable` 表示已有持久回调或诊断文件，重试期间也可能指向上一轮尝试，不代表本次任务已完成或验证通过。只有回调已持久确认消费时，`resultDelivered` 才为 `true`；无回调（例如同步委派）时省略该字段，`callbackState` 为 `none`。
+`get_task_status()` 默认只返回委派的标识、状态、回调状态和诊断路径，不重复附带子任务简报、结果正文、错误正文或产物清单。`resultAvailable` 表示已有持久回调或诊断文件，重试期间也可能指向上一轮尝试，不代表本次任务已完成或验证通过。只有回调已持久确认消费时，`resultDelivered` 才为 `true`；没有回调记录时省略该字段，`callbackState` 为 `none`（同步委派的后台实现同样写回调，只是它随同步工具结果确认消费）。
 
-需要找回某次异步结果时，用 `get_task_status({resultCallIds:["<callId>"]})` 显式重读指定回调保存的正文、错误和产物路径；其余委派仍返回简要状态。查询不认领或消费 Inbox 消息，待交付结果通过原有回调或 `wait_for_subagents` 接收。同步委派没有回调正文可重读，诊断路径指向完整运行记录，应按需定向查看。
+需要找回某次异步结果时，用 `get_task_status({resultCallIds:["<callId>"]})` 显式重读指定回调保存的正文、错误和产物路径；其余委派仍返回简要状态。查询不认领或消费 Inbox 消息，待交付结果通过原有回调或 `wait_for_subagents` 接收。同步委派把同一份回调作为工具结果交付并随该工具结果确认消费，之后仍可按 `resultCallIds` 重读；诊断路径指向完整运行记录。
 
 ### 子智能体中断后的部分进展
 
