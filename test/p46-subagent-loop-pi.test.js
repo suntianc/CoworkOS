@@ -36,6 +36,15 @@ async function waitFor(check, label, timeout = 120_000) {
   }
 }
 
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
 const messageText = (message) =>
   typeof message.content === "string"
     ? message.content
@@ -774,11 +783,14 @@ test(
       f.provider.requests.some((entry) => userText(entry.body).includes("插入的变更")),
       "the inserted change was read by a Main turn"
     );
+    const mainRecords = (await processRecords(f, run.body.runId)).filter((record) => record.role === "main");
+    assert.equal(mainRecords.length, 1, "one Main process served the whole wait");
     assert.equal(
-      (await processRecords(f, run.body.runId)).filter((record) => record.role === "main").length,
-      1,
-      "one Main process served the whole wait"
+      mainRecords[0].settledAt,
+      undefined,
+      "a Subagent settling never settles Main's own process record"
     );
+    assert.equal(alive(mainRecords[0].pid), true, "the waiting Main is still the same live process");
     await assertEverythingSettled(f, run.body.runId);
   }
 );

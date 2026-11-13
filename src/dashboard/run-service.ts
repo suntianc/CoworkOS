@@ -615,7 +615,10 @@ export function createDashboardRunService({
     // `adopt` watches a live process and settles a dead record through the one
     // deduplicated settlement path, so a record found after a restart is
     // projected exactly once.
-    const live = await host.adopt({ taskId, runId: task.activeRunId });
+    // This host manages Main only: a delegated process in the same run
+    // directory is the subagent backend's, and settling it here would finalize
+    // the Task on a Subagent's exit.
+    const live = await host.adopt({ taskId, runId: task.activeRunId, roles: ["main"] });
     const record = live.find((candidate) => candidate.role === "main");
     if (!record) return undefined;
     const resident: ResidentMain = {

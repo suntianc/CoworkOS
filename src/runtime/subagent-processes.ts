@@ -92,6 +92,9 @@ interface WorkPayload {
   capabilityGrants?: unknown[];
 }
 
+/** The roles this service launches and settles; Main belongs to the run service. */
+const DELEGATED_ROLES = ["executor", "reviewer"] as const;
+
 export class SubagentProcessService {
   private readonly host: AgentProcessHost;
   private readonly workspaceRoot: string;
@@ -112,7 +115,14 @@ export class SubagentProcessService {
 
   /** Take over the still-running processes of a Run and settle those already gone. */
   async adopt(input: { taskId: string; runId: string }): Promise<void> {
-    await this.host.adopt(input);
+    // A Run's directory also holds Main's process record; only delegated roles
+    // belong to this service, and adopting Main's record would settle the Main.
+    await this.host.adopt({ ...input, roles: DELEGATED_ROLES });
+  }
+
+  /** This Run's delegated process records, never Main's. */
+  private async delegatedRecords(input: { taskId: string; runId: string }) {
+    return (await this.host.records(input.taskId, input.runId)).filter((record) => record.role !== "main");
   }
 
   /**
@@ -125,7 +135,7 @@ export class SubagentProcessService {
     const scheduler = new DurableScheduler(this.queuePath(input));
     await scheduler.reclaimExpired();
     const items = await scheduler.list();
-    const records = await this.host.records(input.taskId, input.runId);
+    const records = await this.delegatedRecords(input);
     const active = new Set(records.filter((record) => !record.settledAt).map((record) => record.callId));
     const statusOf = new Map(items.map((item) => [item.stepId, item.status]));
     const terminal = new Set(items.filter((item) => isTerminal(item.status)).map((item) => item.stepId));
@@ -211,7 +221,7 @@ export class SubagentProcessService {
   /** Renew the leases of running processes so a second backend cannot claim them. */
   async maintain(input: { taskId: string; runId: string }): Promise<void> {
     const scheduler = new DurableScheduler(this.queuePath(input));
-    for (const record of await this.host.records(input.taskId, input.runId)) {
+    for (const record of await this.delegatedRecords(input)) {
       if (record.settledAt || !record.leaseToken) continue;
       try {
         await scheduler.renew(record.callId, record.leaseToken, this.leaseMs);
@@ -248,7 +258,7 @@ export class SubagentProcessService {
 
   /** Whether any process this Run launched is still running. */
   async running(input: { taskId: string; runId: string }): Promise<boolean> {
-    const records = await this.host.records(input.taskId, input.runId);
+    const records = await this.delegatedRecords(input);
     return records.some((record) => !record.settledAt);
   }
 
@@ -693,7 +703,7 @@ export class SubagentProcessService {
     runId: string;
     callId: string;
   }): Promise<AgentProcessRecord | undefined> {
-    const records = await this.host.records(record.taskId, record.runId);
+    const records = await this.delegatedRecords(record);
     return records.find((candidate) => candidate.callId === record.callId);
   }
 
