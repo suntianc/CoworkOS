@@ -282,7 +282,10 @@ export class CheckpointStore {
     });
     await previous;
     try {
-      return await withFileLock(this.filePath, fn);
+      // The owner is this host's process: a Main that was killed between
+      // taking the lock and releasing it must not stall the next reader for the
+      // whole timeout. Recovery only reclaims an owner whose pid is gone.
+      return await withFileLock(this.filePath, fn, { recoverDeadOwner: true });
     } finally {
       release();
     }
@@ -526,7 +529,10 @@ export class InboxStore {
     });
     await previous;
     try {
-      return await withFileLock(this.filePath, fn);
+      // The owner is this host's process: a Main that was killed between
+      // taking the lock and releasing it must not stall the next reader for the
+      // whole timeout. Recovery only reclaims an owner whose pid is gone.
+      return await withFileLock(this.filePath, fn, { recoverDeadOwner: true });
     } finally {
       release();
     }

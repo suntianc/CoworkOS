@@ -1885,8 +1885,10 @@ export function createDashboardRunService({
         recipientAgentId: "main",
         kind: "human_command",
         eventId: `main-interrupt-event-${messageId}`,
-        // Ahead of ordinary work: an interrupt is about the turn in flight.
-        priority: 200,
+        // Ahead of callbacks and external events, but behind a user insertion
+        // enqueued before it: the person's message belongs to the turn the
+        // interrupt then stops, not to a fresh turn after it.
+        priority: 110,
         state: "ready",
         payload: { type: "main.interrupt" },
         createdAt: now()

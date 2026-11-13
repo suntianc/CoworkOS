@@ -267,16 +267,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
           );
           return;
         }
-        // A person's insertion belongs to the turn that was running when they
-        // sent it. If that turn has already ended (they interrupted it, or it
-        // finished first), appending it without opening a turn keeps an
-        // interrupt from resurrecting the work it just stopped.
-        const insertionAfterTurn =
-          message.customType === "cowork-user-message" && (sessionContext?.isIdle() ?? true);
-        pi.sendMessage(
-          message,
-          awaitingInitialPrompt || insertionAfterTurn ? { ...options, triggerTurn: false } : options
-        );
+        // A person's insertion that arrives while a turn is running joins that
+        // turn. If the turn has already ended, the person is still waiting for
+        // an answer, so the message opens one — it is never appended silently.
+        pi.sendMessage(message, awaitingInitialPrompt ? { ...options, triggerTurn: false } : options);
       },
       {
         includeFollowUps,

@@ -66,7 +66,10 @@ async function ownerWasCancelled(lockPath: string, owner: LockOwner): Promise<bo
 /** Only the successful claimant can remove an abandoned directory generation. */
 async function recoverAbandonedLock(lockPath: string, ownerPath: string, staleMs: number): Promise<void> {
   const observed = await readOwner(ownerPath);
-  const local = observed.owner?.host === hostname();
+  // A legacy owner records no host. Its pid can only be judged on this host, so
+  // treat a missing host as local for the dead-pid check; a live pid still
+  // holds the lock in either form, and another host's owner is left for the TTL.
+  const local = !observed.owner?.host || observed.owner.host === hostname();
   const cancelled = observed.owner && (await ownerWasCancelled(lockPath, observed.owner));
   // Legacy owners without a host still cannot be removed while their PID lives.
   if (

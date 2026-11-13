@@ -97,16 +97,27 @@ async function fixture(t, { handle, idleTimeoutMs, env = {} } = {}) {
     await new Promise((done) => provider.close(done));
   });
   const api = async (path, body) => {
-    const response = await fetch(`${dashboard.base}${path}`, {
-      ...(body === undefined
-        ? {}
-        : {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body)
-          }),
-      signal: AbortSignal.timeout(10_000)
-    });
+    const startedAt = Date.now();
+    let response;
+    try {
+      response = await fetch(`${dashboard.base}${path}`, {
+        ...(body === undefined
+          ? {}
+          : {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body)
+            }),
+        signal: AbortSignal.timeout(10_000)
+      });
+    } catch (error) {
+      const cause = error?.cause;
+      assert.fail(
+        `${path} failed after ${Date.now() - startedAt}ms; backend ${
+          dashboard.child.exitCode ?? "alive"
+        }; cause ${cause?.code ?? cause?.message ?? "none"}`
+      );
+    }
     const payload = await response.json();
     assert.ok(response.ok, `${response.status} ${JSON.stringify(payload)}`);
     return payload;
@@ -577,6 +588,58 @@ test(
       (error) => assert.match(error.message, /409|没有正在运行的回合/)
     );
     release();
+  }
+);
+
+test(
+  "an insertion delivered after the turn ended opens a turn and is answered",
+  { timeout: 180_000 },
+  async (t) => {
+    const { InboxStore } = await import("../dist/src/runtime/scheduler.js");
+    const f = await fixture(t, {
+      handle: ({ response, requests }) => complete(response, `answer ${requests.length}`)
+    });
+    await f.createTask("resident-late-insertion", "Late insertion");
+    const first = await f.api("/api/tasks/resident-late-insertion/run", { prompt: "LATE_FIRST_INPUT" });
+    const settled = await f.settleTurn("resident-late-insertion");
+    assert.equal(settled.task.status, "completed");
+    // A person typed this while the first turn was running; its delivery lands
+    // after that turn has ended. It must be answered, not appended silently.
+    const inbox = new InboxStore(
+      join(
+        f.dashboard.workspaceRoot,
+        "resident-late-insertion",
+        "runs",
+        first.runId,
+        "agents",
+        "main",
+        "inbox-store.json"
+      )
+    );
+    await inbox.enqueue({
+      messageId: "late-insertion",
+      recipientAgentId: "main",
+      kind: "human_command",
+      eventId: "late-insertion-event",
+      priority: 120,
+      state: "ready",
+      payload: { type: "human.message", message: "LATE_INSERTION_INPUT", delivery: "steer" },
+      createdAt: new Date().toISOString()
+    });
+    const answered = await waitFor(
+      async () => {
+        const value = await f.detail("resident-late-insertion");
+        return value.runtime.active === false && f.requests.length === 2 ? value : undefined;
+      },
+      "the late insertion to open a turn and be answered",
+      60_000
+    );
+    assert.match(JSON.stringify(f.requests[1].messages), /LATE_INSERTION_INPUT/);
+    assert.equal(
+      (await inbox.list("main")).find((message) => message.messageId === "late-insertion").state,
+      "consumed"
+    );
+    assert.equal(answered.task.status, "completed");
   }
 );
 
