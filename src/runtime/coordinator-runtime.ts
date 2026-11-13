@@ -14,6 +14,18 @@ import { LocalWorkspaceStore, type Artifact } from "../workspace/workspace-store
 import { emptyCompaction, readAgentCheckpoint } from "./agent-checkpoint.js";
 import type { RuntimeTool } from "./tool.js";
 import { addCapabilityTools, type CapabilityGrant, type CapabilityProvider } from "./capability-provider.js";
+import {
+  sendPeerMessage as queuePeerMessage,
+  type PeerMessageInput,
+  type PeerMessageResult
+} from "./subagent-peer-message.js";
+import {
+  ASK_MAIN_GUIDANCE,
+  ASK_MAIN_TOOL_DESCRIPTION,
+  NO_ASK_MAIN_GUIDANCE,
+  SEND_PEER_MESSAGE_GUIDANCE,
+  SEND_PEER_MESSAGE_TOOL_DESCRIPTION
+} from "./subagent-guidance.js";
 import type { WebToolOptions } from "../tools/web-tools.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createLoadSkillTool, discoverSkills, skillCatalogPrompt } from "./skill-registry.js";
@@ -171,24 +183,7 @@ export interface SubagentMessageResult {
   status: "queued";
 }
 
-export interface PeerMessageInput {
-  taskId: string;
-  runId: string;
-  workspaceRoot: string;
-  senderCallId: string;
-  targetCallId: string;
-  message: string;
-  priority?: number;
-}
-
-export interface PeerMessageResult {
-  messageId: string;
-  senderCallId: string;
-  targetCallId: string;
-  senderAgentId: string;
-  targetAgentId: string;
-  status: "queued";
-}
+export type { PeerMessageInput, PeerMessageResult } from "./subagent-peer-message.js";
 
 export interface SubagentCancelInput {
   taskId: string;
@@ -483,82 +478,7 @@ export class CoordinatorRuntime {
 
   /** Queue a durable, non-blocking message from one running Subagent to another. */
   async sendPeerMessage(input: PeerMessageInput): Promise<PeerMessageResult> {
-    const message = input.message.trim();
-    if (!message) throw new Error("message must not be empty");
-    if (message.length > 8_000) throw new Error("peer message must be at most 8000 characters");
-    if (input.senderCallId === input.targetCallId)
-      throw new Error("peer message target must be a different Subagent");
-    const scheduler = new DurableScheduler(
-      join(input.workspaceRoot, input.taskId, "runs", input.runId, "queue.json")
-    );
-    const items = await scheduler.list();
-    const sender = items.find((candidate) => candidate.stepId === input.senderCallId);
-    if (!sender) throw new Error(`unknown sender call: ${input.senderCallId}`);
-    if (sender.status !== "leased") throw new Error(`sender call ${input.senderCallId} is not active`);
-    const target = items.find((candidate) => candidate.stepId === input.targetCallId);
-    if (!target) throw new Error(`unknown peer call: ${input.targetCallId}`);
-    if (!["queued", "leased"].includes(target.status))
-      throw new Error(`peer call ${input.targetCallId} is already ${target.status}`);
-    const messageId = id("peer-message");
-    const inbox = new InboxStore(
-      join(
-        input.workspaceRoot,
-        input.taskId,
-        "runs",
-        input.runId,
-        "agents",
-        "subagents",
-        target.agentId,
-        "inbox-store.json"
-      )
-    );
-    await inbox.enqueue({
-      messageId,
-      recipientAgentId: target.agentId,
-      senderAgentId: sender.agentId,
-      senderCallId: input.senderCallId,
-      kind: "peer_message",
-      callId: input.targetCallId,
-      eventId: id("event"),
-      priority: input.priority ?? 1,
-      state: "ready",
-      payload: {
-        message,
-        from: "subagent",
-        senderAgentId: sender.agentId,
-        senderCallId: input.senderCallId,
-        targetAgentId: target.agentId,
-        priority: input.priority ?? 1
-      },
-      createdAt: now()
-    });
-    const events = new JsonlEventStore(
-      join(input.workspaceRoot, input.taskId, "runs", input.runId, "run_events.jsonl")
-    );
-    await events.append(
-      event(
-        { taskId: input.taskId, runId: input.runId },
-        input.targetCallId,
-        "peer_message.queued",
-        sender.agentId,
-        {
-          messageId,
-          senderCallId: input.senderCallId,
-          senderAgentId: sender.agentId,
-          targetCallId: input.targetCallId,
-          targetAgentId: target.agentId,
-          priority: input.priority ?? 1
-        }
-      )
-    );
-    return {
-      messageId,
-      senderCallId: input.senderCallId,
-      targetCallId: input.targetCallId,
-      senderAgentId: sender.agentId,
-      targetAgentId: target.agentId,
-      status: "queued"
-    };
+    return queuePeerMessage(input);
   }
 
   /** Cancel a queued or running Subagent; a live session is aborted at once. */
@@ -1037,11 +957,11 @@ export class CoordinatorRuntime {
                 ]
               : []),
             canAskMain
-              ? "You can reach Main with ask_main when an ambiguity would change your approach and you cannot settle it from the workspace or the project — which evaluation script is authoritative, which of two incompatible readings of the task is meant, a constraint that turns out to be wrong. It blocks until Main answers or the wait runs out, so ask only when the answer changes what you do, not whenever you are unsure; investigate first, and never ask for something a file or command would tell you. State the assumption you will follow if nobody answers, because an unanswered question continues under it rather than failing. Ask on its own turn, not alongside other tool calls, and put one decision in one question."
+              ? ASK_MAIN_GUIDANCE
               : call.resolvedMode === "async"
-                ? "There is no way to reach Main during this task. When you hit an ambiguity you cannot resolve from the workspace or the project, choose the most reasonable reading, say plainly in your summary which assumption you made and why, and continue."
-                : "This is a synchronous delegation: Main is waiting inside its own tool call and cannot be reached, so there is no way to ask it anything. When you hit an ambiguity you cannot resolve from the workspace or the project, choose the most reasonable reading, say plainly in your summary which assumption you made and why, and continue.",
-            "You may use send_peer_message to send a short, non-blocking question, correction or finding to another Subagent in this Task when Main has given you its target callId. The message is queued for the peer's next safe turn and does not wait for a reply; include a file or artifact path when that is clearer than copying large content.",
+                ? NO_ASK_MAIN_GUIDANCE.async
+                : NO_ASK_MAIN_GUIDANCE.sync,
+            SEND_PEER_MESSAGE_GUIDANCE,
             "Read the specific brief or source files named by Main with browse_workspace. Put substantial reusable candidate outputs under your own deliverables/. Runtime reports those Task-relative paths to Main without moving them; Main reviews the files and uses existing file/command tools to copy accepted final deliverables into Task artifacts/.",
             "Return a concise natural-language or simple Markdown summary of the completed work, including the conclusion and useful evidence such as file paths, line numbers, commands or test results.",
             "Only write a file under deliverables/ when the task produces a substantial report, script or other reusable output; do not create files just to repeat a short message. Keep temporary files and intermediate logs in work/ or logs/ in your own directory. Do not write to Task artifacts/.",
@@ -1352,8 +1272,7 @@ export class CoordinatorRuntime {
     senderCallId: string;
   }): RuntimeTool {
     return {
-      description:
-        "Send a short, non-blocking message to another Subagent in this Task. The target must be a callId supplied by Main. The message is queued for the peer's next safe turn; this tool never waits for a reply.",
+      description: SEND_PEER_MESSAGE_TOOL_DESCRIPTION,
       parameters: {
         type: "object",
         properties: {
@@ -1421,8 +1340,7 @@ export class CoordinatorRuntime {
     const agentName = agentDisplayName(input.agentId);
     let asked = 0;
     return {
-      description:
-        "Ask Main one question that must be answered before you can continue correctly, and wait for the reply. Use it only when the answer would change your approach and the workspace, project and your own tools cannot settle it — not for anything you could read, run or reasonably decide yourself. You must state the assumption you will follow if no answer arrives: the wait is bounded, and an unanswered question continues under that assumption instead of failing. Call it on its own turn rather than beside other tool calls.",
+      description: ASK_MAIN_TOOL_DESCRIPTION,
       parameters: {
         type: "object",
         properties: {

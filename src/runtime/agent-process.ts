@@ -11,6 +11,7 @@ import {
   readProcessIdentity,
   verifyProcessIdentity
 } from "./process-identity.js";
+import type { ReviewConclusion } from "./subagent-review.js";
 
 /**
  * The process model Main and delegated agents share.
@@ -32,6 +33,8 @@ export interface AgentProcessOutcome {
   response: string;
   outputFiles: string[];
   diagnostics: AgentProcessDiagnostics;
+  /** A Reviewer's structured conclusion, kept with the recorded outcome. */
+  review?: ReviewConclusion;
   error?: string;
 }
 

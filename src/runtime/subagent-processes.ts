@@ -12,6 +12,7 @@ import {
   type AgentProcessStatus
 } from "./agent-process.js";
 import { enqueueMainCallback, formatSubagentSummary } from "./subagent-callback.js";
+import { parseReviewConclusion, type ReviewConclusion } from "./subagent-review.js";
 
 /**
  * The backend side of delegated agent processes.
@@ -31,6 +32,8 @@ export interface SubagentProcessResult {
   response: string;
   outputFiles: string[];
   diagnostics: { tracePath: string; resultPath: string };
+  /** A Reviewer's structured conclusion; absent for an Executor result. */
+  review?: ReviewConclusion;
   error?: string;
 }
 
@@ -60,6 +63,7 @@ interface AgentResultRecord {
   response?: unknown;
   outputFiles?: unknown;
   diagnostics?: unknown;
+  review?: unknown;
   error?: unknown;
 }
 
@@ -252,6 +256,7 @@ export class SubagentProcessService {
           callId: record.callId,
           agentId: record.agentId,
           status: result.status,
+          callbackMetadata: result.review ? { review: result.review } : undefined,
           response: formatSubagentSummary({
             status: result.status,
             rawResponse: result.response,
@@ -291,6 +296,7 @@ export class SubagentProcessService {
       response: result.response,
       outputFiles: result.outputFiles,
       diagnostics: result.diagnostics,
+      ...(result.review ? { review: result.review } : {}),
       ...(result.error ? { error: result.error } : {})
     });
     await this.options.onSettled?.(result);
@@ -331,6 +337,22 @@ export class SubagentProcessService {
       ? result.outputFiles.filter((path): path is string => typeof path === "string")
       : [];
     const response = typeof result.response === "string" ? result.response.trim() : "";
+    // A Reviewer's conclusion is the result Main acts on; a record with a
+    // completed turn but no usable conclusion is a failed call, not a review
+    // Main has to interpret from prose.
+    let review: ReviewConclusion | undefined;
+    if (record.role === "reviewer" && result.termination === "completed") {
+      const parsed = parseReviewConclusion(result.review);
+      if (!parsed.ok)
+        return {
+          ...base,
+          status: "failed",
+          response,
+          outputFiles,
+          error: `Reviewer result has no valid review conclusion: ${parsed.errors.join("; ")}`
+        };
+      review = parsed.review;
+    }
     if (result.termination !== "completed")
       return {
         ...base,
@@ -350,7 +372,7 @@ export class SubagentProcessService {
         outputFiles,
         error: "Subagent completed without returning a textual summary"
       };
-    return { ...base, status: "succeeded", response, outputFiles };
+    return { ...base, status: "succeeded", response, outputFiles, ...(review ? { review } : {}) };
   }
 
   private async projectFailure(
