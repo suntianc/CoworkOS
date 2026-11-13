@@ -103,6 +103,12 @@ call_subagent({
 
 `continueCallId`（可配 `reviewId`）是原上下文返修契约：它必须指向本 Run 中已结束的 Executor 工作项，复用该工作项的 agent 身份、检查点历史与现场，把返修任务作为同一会话的下一轮追加，而不是新建 Agent 或重复执行已终态工作。运行中的工作项、Reviewer、已有续接在运行或现场不可续接的调用会被拒绝；重启恢复沿用同一续接记录。`project_development` 的审查动作把候选提交、候选树、Reviewer 身份和现场、发现、裁定和返修关联写为共享记录；候选提交或受审内容变化后，旧结论不会被当作当前候选的有效审查。失败或漂移的审查仍可对其发现作裁定或记录返修，复审沿明确的 previousReview 链结算已验证的修复，链外发现不受影响；self 通道的自检绑定记录时的提交/树，现场前移后需在当版本重新验证。完整接口见 [Product API](product-api.md#fixed-candidate-reviews)。`request_merge` 把已满足交付资格的需求候选提交到项目共同入口，`application` 由配置的执行后端串行更新目标分支；等待期间目标前移时会在最新目标与候选的组合版本上重新运行检查。`apply_merge` 由该执行后端核对中断操作并继续队列，`merge_status` 读取操作、实际合入 SHA 与可幂等对账的回执；失败只处理操作自有现场，保留用户脏文件、先前合入和未合入分支。真实合入后程序自动写台账/看板交付：外部需求转待发布并保留归属人与实际合入 commit，内部需求只写台账。`delivery_status` 读取阶段、协作者进度、固定到交付版本的改动、检查与同步回执；共享服务暂不可达时执行主机保留本机待同步事实，恢复后按有界重试自动补齐，不要求重新开发或合入。
 
+### 角色工具与审查结论
+
+子代理进程与 Main 加载同一个扩展，按角色声明工具表。Executor 得到 `read`、`bash`、`edit`、`write`、只读的 `browse_workspace`、`ask_main` 与 `send_peer_message`；Reviewer 得到 `read`、`grep`、`find`、`ls`、`browse_workspace`、同样的两个通道工具与 `submit_review`，没有写文件与命令工具——`bash` 能够写文件，所以不提供。两个角色都没有 `call_subagent`、`send_subagent_message`、`cancel_subagent`、`get_subagent_status`、`wait_for_subagents`、`get_task_status`、`finish_task`、`askhuman`、`sleep_until`、`grant_capabilities`、`clear_context`、`enable_tools`、`project_ledger`、`project_development` 与 `publish_artifact`，因此子代理不能再派子代理或改变 Task 生命周期。角色说明沿用进程内委派使用的同一段文本；角色只决定工具，不扩大授权，电脑操控、浏览器与 CUA 等能力仍由现有 capability grant 与支持图片输入的连接决定。委派进程的上下文压缩与 Main 相同：Pi 原生压缩、同一工具回执投影与失败冷却。
+
+Reviewer 的结论只经 `submit_review({verdict, findings})` 提交：`verdict` 为 `pass` 或 `changes_requested`，每条 finding 含 `location`、`evidence` 与 `blocking`。`changes_requested` 至少给出一条 finding，`pass` 不能携带 blocking finding；不合法的提交作为工具错误返回，模型可改正后重试。结论写入该工作项结果记录的 `review` 字段并随回调送达 Main；Reviewer 没有提交结论就结束记为失败，后端读取结果记录时按同一格式复核。验证 [真实角色工具表与结论](../test/p46-subagent-roles-pi.test.js)。
+
 ### 子智能体之间的单向消息
 
 运行中的 Subagent 可以调用 `send_peer_message({targetCallId, message, priority?})`，向同一 Task/Run 中的另一个 Subagent 发送一条非阻塞消息。`targetCallId` 必须由 Main 在委派任务或后续指导中提供；消息最多 8,000 个字符，适合传递短问题、修正意见、结论或文件/产物路径。

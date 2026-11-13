@@ -24,13 +24,24 @@ const EXPECTED_BASELINE_DIFFERENCES = [
   {
     path: "tools.grep.parameters.properties.glob.description",
     change:
-      "\"Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'\" -> \"Filter files by glob pattern, relative to path, e.g. … A pattern without '/' matches file names at any depth\"",
+      "\"Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'\" -> \"Filter files by glob pattern, relative to path, e.g. '*.ts', 'src/**/*.ts' or '**/*.spec.ts'. A pattern without '/' matches file names at any depth\"",
+    current:
+      "Filter files by glob pattern, relative to path, e.g. '*.ts', 'src/**/*.ts' or '**/*.spec.ts'. A pattern without '/' matches file names at any depth",
     reason:
       "Pi 1.5.2 rewords the built-in grep tool's glob option. The option name, type, required list and JSON Schema shape are unchanged."
   }
 ];
 
 const TOOL_DIFFERENCE_PATHS = EXPECTED_BASELINE_DIFFERENCES.map((entry) => entry.path);
+
+/** The recorded value of one `tools.<name>.<path>` entry in the current capture. */
+function toolPathValue(summary, path) {
+  const [tools, name, ...rest] = path.split(".");
+  assert.equal(tools, "tools", `unsupported difference path: ${path}`);
+  const tool = summary.tools.find((entry) => entry.name === name);
+  assert.ok(tool, `the current capture has no tool named ${name}`);
+  return rest.reduce((value, key) => value?.[key], tool);
+}
 
 function diffPaths(expected, actual, prefix = "") {
   if (Object.is(expected, actual)) return [];
@@ -85,6 +96,15 @@ test(
         2
       )}`
     );
+
+    // A path-only allowance would accept any replacement text. Pin the text the
+    // upgrade actually produced, so a later reword is a reviewed change again.
+    for (const entry of EXPECTED_BASELINE_DIFFERENCES)
+      assert.equal(
+        toolPathValue(current, entry.path),
+        entry.current,
+        `the recorded replacement text at ${entry.path}`
+      );
 
     assert.deepEqual(
       current.systemPrompt.structure,
