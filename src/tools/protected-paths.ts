@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsFilePath, resolveFileTarget, resolveProtectedTarget } from "./file-path.js";
@@ -104,6 +105,19 @@ export class ProtectedPaths {
       }
     }
     return undefined;
+  }
+
+  /**
+   * The first pattern whose path currently exists under the guarded root.
+   *
+   * A relative write after a directory change we cannot follow could land on
+   * any of them. Only patterns inside the project count: an absolute protected
+   * root such as the harness install is not a plausible target of a relative
+   * shell path, and blocking every relative write for it would stop ordinary
+   * work in a project that is not the harness.
+   */
+  firstExistingPattern(): string | undefined {
+    return this.patterns.find((pattern) => existsSync(resolve(this.root, pattern)));
   }
 
   /** Throw when a write would land on a protected path. */

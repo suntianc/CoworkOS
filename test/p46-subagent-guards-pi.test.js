@@ -89,7 +89,7 @@ async function readJsonRecords(runRoot) {
  * One delegated call through the real backend path, returning the settled
  * result, process record and the requests the local provider recorded.
  */
-async function delegatedCall(t, { agentId, callId, handle, payload }) {
+async function delegatedCall(t, { agentId, callId, handle, payload, observe, expectFailure = false }) {
   const root = await mkdtemp(join(tmpdir(), "p46-guard-"));
   const workspace = join(root, "workspace");
   const runRoot = join(workspace, TASK_ID, "runs", RUN_ID);
@@ -152,11 +152,13 @@ async function delegatedCall(t, { agentId, callId, handle, payload }) {
     await rm(root, { recursive: true, force: true });
   };
   t.after(cleanup);
+  if (observe) Object.assign(observe, { root, workspace, runRoot });
   await service.startQueued({ taskId: TASK_ID, runId: RUN_ID });
   const callback = await waitFor(async () => {
     const messages = await readJson(join(runRoot, "agents", "main", "inbox-store.json"), []);
     return messages.find((message) => message.callId === callId && message.kind === "callback");
   }, `${callId} callback`);
+  if (expectFailure) return { root, workspace, runRoot, provider, callback };
   const result = await readJson(join(runRoot, "agents", "subagents", agentId, "result.json"), undefined);
   const process = await waitFor(async () => {
     const record = await readJson(join(runRoot, "agents", "subagents", agentId, "process.json"), undefined);
@@ -196,7 +198,7 @@ test(
       callId: "call-guard-review-site",
       payload: {
         task: "Review the candidate in a checkout of your own",
-        projectDirectory: reviewerDirectory,
+        projectDirectory: executorDirectory,
         reviewSite: { repository, commit: candidate, directory: reviewerDirectory },
         delegation: { role: "reviewer" }
       },
@@ -241,6 +243,159 @@ test(
       () => Promise.resolve(!existsSync(reviewerDirectory)),
       "the Reviewer checkout to be removed"
     );
+  }
+);
+
+test(
+  "a Reviewer with only a project directory gets a detached checkout of that repository",
+  { timeout: 120_000 },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "p46-review-derived-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const repository = join(root, "project");
+    await mkdir(repository, { recursive: true });
+    await git(repository, ["init", "-b", "main"]);
+    await git(repository, ["config", "user.email", "p46@example.test"]);
+    await git(repository, ["config", "user.name", "P46"]);
+    await writeFile(join(repository, "README.md"), "candidate\n");
+    await git(repository, ["add", "-A"]);
+    await git(repository, ["commit", "-m", "candidate"]);
+    const candidate = await git(repository, ["rev-parse", "HEAD"]);
+    await writeFile(join(repository, "user-untracked.txt"), "keep me\n");
+    const observe = {};
+
+    const { provider, result, callback, process } = await delegatedCall(t, {
+      agentId: "subagent_derived_review",
+      callId: "call-guard-derived-review",
+      observe,
+      payload: {
+        task: "Review the candidate in a checkout of your own",
+        projectDirectory: repository,
+        delegation: { role: "reviewer" }
+      },
+      handle: async (_body, requests) => {
+        if (requests.length === 1)
+          return { name: "bash", arguments: { command: "printf 'review only\n' > reviewer-note.txt" } };
+        if (requests.length === 2) {
+          const record = await readJson(
+            join(observe.runRoot, "agents", "subagents", "subagent_derived_review", "process.json"),
+            undefined
+          );
+          assert.ok(record?.workingDirectory, "the Reviewer process has a working directory");
+          assert.notEqual(
+            record.workingDirectory,
+            repository,
+            "it never runs in the user's project directory"
+          );
+          assert.equal(
+            await git(record.workingDirectory, ["rev-parse", "HEAD"]),
+            candidate,
+            "its detached checkout is the project HEAD"
+          );
+          assert.equal(
+            existsSync(join(record.workingDirectory, "reviewer-note.txt")),
+            true,
+            "the shell writes inside its own checkout"
+          );
+          assert.equal(
+            existsSync(join(repository, "reviewer-note.txt")),
+            false,
+            "the user's working tree is untouched"
+          );
+          return { name: "submit_review", arguments: { verdict: "pass", findings: [] } };
+        }
+        return { text: "Review complete" };
+      }
+    });
+
+    assert.equal(result.termination, "completed");
+    assert.equal(callback.payload.status, "succeeded", JSON.stringify(callback.payload));
+    assert.notEqual(process.workingDirectory, repository);
+    assert.equal(await git(repository, ["status", "--porcelain"]), "?? user-untracked.txt");
+    await waitFor(
+      () => Promise.resolve(!existsSync(process.workingDirectory)),
+      "the derived Reviewer checkout to be removed"
+    );
+  }
+);
+
+test(
+  "a Reviewer without a checkout and without a Git project is refused before it starts",
+  { timeout: 60_000 },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "p46-review-no-git-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const site = join(root, "plain-site");
+    await mkdir(site, { recursive: true });
+    await writeFile(join(site, "notes.txt"), "user notes\n");
+
+    const { callback, runRoot } = await delegatedCall(t, {
+      agentId: "subagent_no_checkout",
+      callId: "call-guard-no-checkout",
+      expectFailure: true,
+      payload: {
+        task: "Review the candidate",
+        projectDirectory: site,
+        delegation: { role: "reviewer" }
+      },
+      handle: () => ({ text: "should never run" })
+    });
+
+    assert.equal(callback.payload.status, "failed", JSON.stringify(callback.payload));
+    assert.match(callback.payload.error, /Reviewer work item has no candidate checkout/);
+    assert.match(callback.payload.error, /plain-site/);
+    assert.equal(
+      existsSync(join(runRoot, "agents", "subagents", "subagent_no_checkout", "process.json")),
+      false,
+      "no Reviewer process was started"
+    );
+    assert.deepEqual(await readdir(site), ["notes.txt"], "the plain project directory is untouched");
+  }
+);
+
+test(
+  "relative shell writes follow cd, pushd and git -C, and an unresolved directory is refused",
+  { timeout: 60_000 },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "p46-guard-relative-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const site = join(root, "site");
+    await mkdir(join(site, "eval"), { recursive: true });
+    const guard = configuredProtectedPaths(site, { COWORK_EVAL_PATHS: "eval/" }, []);
+    const refusal = (path) => ({
+      path,
+      pattern: "eval/",
+      reason: protectedPathReason(path, "eval/")
+    });
+
+    for (const command of [
+      "cd eval && rm score.py",
+      "cd eval && printf x > score.py",
+      "git -C eval rm score.py",
+      'cd "$D" && rm score.py',
+      "pushd eval && rm score.py",
+      "(cd eval && rm score.py)",
+      'cd eval && bash -c "rm score.py"'
+    ]) {
+      assert.deepEqual(
+        protectedCallRefusal("bash", { command }, guard, site),
+        refusal("score.py"),
+        `${command} must resolve relative to the directory it reached`
+      );
+    }
+    for (const command of [
+      "cd eval && cd .. && rm score.py",
+      "cd eval && cd - && rm score.py",
+      "pushd eval && popd && rm score.py",
+      "cd /tmp && rm score.py",
+      "make -C eval clean"
+    ]) {
+      assert.equal(
+        protectedCallRefusal("bash", { command }, guard, site),
+        undefined,
+        `${command} does not write a protected path`
+      );
+    }
   }
 );
 
@@ -298,7 +453,12 @@ test(
     t.after(() => rm(root, { recursive: true, force: true }));
     const site = join(root, "site");
     await mkdir(join(site, "eval"), { recursive: true });
+    await git(site, ["init", "-b", "main"]);
+    await git(site, ["config", "user.email", "p46@example.test"]);
+    await git(site, ["config", "user.name", "P46"]);
     await writeFile(join(site, "eval", "score.py"), "score = 1\n");
+    await git(site, ["add", "-A"]);
+    await git(site, ["commit", "-m", "candidate"]);
     const expected = protectedPathReason("eval/score.py", "eval/");
 
     const { provider, result } = await delegatedCall(t, {
@@ -345,6 +505,128 @@ function fakePi() {
     }
   };
 }
+
+test(
+  "a real shell cannot escape protection by changing directory before the write",
+  { timeout: 120_000 },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "p46-guard-cd-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const site = join(root, "site");
+    await mkdir(join(site, "eval"), { recursive: true });
+    await git(site, ["init", "-b", "main"]);
+    await git(site, ["config", "user.email", "p46@example.test"]);
+    await git(site, ["config", "user.name", "P46"]);
+    await writeFile(join(site, "eval", "score.py"), "score = 1\n");
+    await git(site, ["add", "-A"]);
+    await git(site, ["commit", "-m", "scorer"]);
+    const expected = protectedPathReason("score.py", "eval/");
+    const commands = [
+      "cd eval && rm score.py",
+      "cd eval && printf 'hacked\\n' > score.py",
+      "git -C eval rm score.py",
+      'cd "$D" && rm score.py'
+    ];
+
+    const { provider, runRoot } = await delegatedCall(t, {
+      agentId: "subagent_cd_guard",
+      callId: "call-guard-cd",
+      payload: { task: "Verify the scorer", projectDirectory: site, delegation: { role: "executor" } },
+      handle: (_body, requests) => {
+        const index = requests.length - 1;
+        if (index > 0 && index <= commands.length)
+          assert.equal(refusalText(requests), expected, `${commands[index - 1]} is refused like Main`);
+        if (index < commands.length) return { name: "bash", arguments: { command: commands[index] } };
+        return { text: "Done" };
+      }
+    });
+
+    assert.equal(provider.requests.length, commands.length + 1);
+    assert.equal(await readFile(join(site, "eval", "score.py"), "utf8"), "score = 1\n");
+    assert.equal(await git(site, ["status", "--porcelain"]), "");
+    const event = await waitFor(async () => {
+      const events = (await readFile(join(runRoot, "run_events.jsonl"), "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      const refusals = events.filter(
+        (entry) => entry.type === "guard.write_refused" && entry.agentId === "subagent_cd_guard"
+      );
+      return refusals.length === commands.length ? refusals : undefined;
+    }, "the delegated guard refusal events");
+    for (const entry of event) {
+      assert.equal(entry.payload.path, "score.py");
+      assert.equal(entry.payload.pattern, "eval/");
+      assert.equal(entry.payload.toolName, "bash");
+      assert.equal(entry.taskId, TASK_ID);
+      assert.equal(entry.runId, RUN_ID);
+    }
+  }
+);
+
+test(
+  "an Executor carrying a reviewSite, or a review site that cannot be created, is refused before launch",
+  { timeout: 60_000 },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "p46-review-refused-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const repository = join(root, "project");
+    await mkdir(repository, { recursive: true });
+    await git(repository, ["init", "-b", "main"]);
+    await git(repository, ["config", "user.email", "p46@example.test"]);
+    await git(repository, ["config", "user.name", "P46"]);
+    await writeFile(join(repository, "README.md"), "candidate\n");
+    await git(repository, ["add", "-A"]);
+    await git(repository, ["commit", "-m", "candidate"]);
+    const candidate = await git(repository, ["rev-parse", "HEAD"]);
+    const site = join(root, "executor-site");
+    await mkdir(site, { recursive: true });
+
+    const executor = await delegatedCall(t, {
+      agentId: "subagent_executor_review_site",
+      callId: "call-guard-executor-review-site",
+      expectFailure: true,
+      payload: {
+        task: "Change the feature",
+        projectDirectory: site,
+        reviewSite: { repository, commit: candidate, directory: join(root, "not-used") },
+        delegation: { role: "executor" }
+      },
+      handle: () => ({ text: "should never run" })
+    });
+    assert.equal(executor.callback.payload.status, "failed", JSON.stringify(executor.callback.payload));
+    assert.match(executor.callback.payload.error, /Executor work item must not carry a reviewSite/);
+    assert.equal(
+      existsSync(
+        join(executor.runRoot, "agents", "subagents", "subagent_executor_review_site", "process.json")
+      ),
+      false
+    );
+
+    const reviewer = await delegatedCall(t, {
+      agentId: "subagent_missing_commit",
+      callId: "call-guard-missing-commit",
+      expectFailure: true,
+      payload: {
+        task: "Review the candidate",
+        projectDirectory: site,
+        reviewSite: { repository, commit: "0123456789abcdef", directory: join(root, "missing-commit-site") },
+        delegation: { role: "reviewer" }
+      },
+      handle: () => ({ text: "should never run" })
+    });
+    assert.equal(reviewer.callback.payload.status, "failed", JSON.stringify(reviewer.callback.payload));
+    assert.match(reviewer.callback.payload.error, /审查候选提交不存在|0123456789abcdef/);
+    assert.equal(
+      existsSync(
+        join(reviewer.runRoot, "agents", "subagents", "subagent_missing_commit", "review-site.json")
+      ),
+      false,
+      "the marker is removed when the checkout cannot be created"
+    );
+    assert.equal(existsSync(join(root, "missing-commit-site")), false);
+  }
+);
 
 test(
   "a backend that adopts a dead review process still removes its checkout",

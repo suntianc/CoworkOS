@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { ProtectedPaths } from "./protected-paths.js";
 
 /**
@@ -10,10 +10,17 @@ import type { ProtectedPaths } from "./protected-paths.js";
  * what is protected cannot reach one process and miss the other.
  *
  * A shell command can write through redirection or a file-moving command
- * without either write tool. Those targets are extracted here too; a command
- * that opens a protected path from inside an interpreter is outside what a
- * tool-call check can see, which is why the paths are also kept away from the
- * agent by convention and permissions.
+ * without either write tool. Those targets are extracted here too, following
+ * `cd`/`pushd`/`popd`, `git -C` and `make -C`, because a relative path means
+ * nothing without the directory it was resolved from. When that directory is
+ * itself unknowable (`cd "$D"`), a relative write is treated as possibly
+ * protected while any protected path exists in the project.
+ *
+ * This is best-effort recognition of common shell forms, not a sandbox. A
+ * command that opens a protected path from inside an interpreter, a backtick
+ * substitution, `xargs`, or a tool that writes without naming the file stays
+ * outside what a tool-call check can see; keeping the paths away from the
+ * agent still needs permissions and convention.
  */
 
 export interface ProtectedCallRefusal {
@@ -37,8 +44,9 @@ export function protectedPathReason(path: string, pattern: string): string {
  * Decide whether one tool call writes a protected path.
  *
  * The candidate is matched as the model wrote it (relative paths resolve from
- * the process's project directory), so the refusal names the path the model
- * used and not an internal absolute one.
+ * the directory the shell reached, starting at the process's project
+ * directory), so the refusal names the path the model used and not an
+ * internal absolute one.
  */
 export function protectedCallRefusal(
   toolName: string,
@@ -46,21 +54,50 @@ export function protectedCallRefusal(
   guard: ProtectedPaths,
   projectDirectory: string
 ): ProtectedCallRefusal | undefined {
-  for (const path of writeTargets(toolName, input)) {
-    const pattern = guard.match(resolve(projectDirectory, path));
-    if (pattern) return { path, pattern, reason: protectedPathReason(path, pattern) };
+  for (const write of writeTargets(toolName, input)) {
+    const pattern = patternFor(write, guard, projectDirectory);
+    if (pattern) return { path: write.path, pattern, reason: protectedPathReason(write.path, pattern) };
   }
   return undefined;
 }
 
-function writeTargets(toolName: string, input: unknown): string[] {
+interface ShellWrite {
+  /** The target as written in the command. */
+  path: string;
+  /** The directory the target resolves from, relative to the project or absolute. */
+  directory?: string;
+  /** The command's directory could not be determined; a relative target may be protected. */
+  unresolved?: boolean;
+}
+
+interface ShellBase {
+  directory?: string;
+  unresolved: boolean;
+}
+
+interface ShellState extends ShellBase {
+  /** Directory before the last determinate `cd`, for `cd -`. */
+  previous?: string;
+  /** `pushd` entries. */
+  stack: ShellBase[];
+}
+
+function patternFor(write: ShellWrite, guard: ProtectedPaths, projectDirectory: string): string | undefined {
+  if (!isAbsolute(write.path) && write.unresolved) return guard.firstExistingPattern();
+  const absolute = write.directory
+    ? resolve(projectDirectory, write.directory, write.path)
+    : resolve(projectDirectory, write.path);
+  return guard.match(absolute);
+}
+
+function writeTargets(toolName: string, input: unknown): ShellWrite[] {
   if (!input || typeof input !== "object" || Array.isArray(input)) return [];
   const value = input as { path?: unknown; file_path?: unknown; command?: unknown };
   if (toolName === "write" || toolName === "edit") {
     const path = value.path ?? value.file_path;
-    return typeof path === "string" && path ? [path] : [];
+    return typeof path === "string" && path ? [{ path }] : [];
   }
-  if (toolName === "bash") return typeof value.command === "string" ? shellWriteTargets(value.command) : [];
+  if (toolName === "bash") return typeof value.command === "string" ? shellWrites(value.command) : [];
   return [];
 }
 
@@ -86,7 +123,7 @@ const OPERATORS = [
   ")",
   "\n"
 ];
-const SEGMENT_BREAKS = new Set(["|", "&&", "||", ";", "&", "(", ")", "\n"]);
+const SEGMENT_BREAKS = new Set(["|", "&&", "||", ";", "&", "\n"]);
 const REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 
 /** Split a shell command into words and operators, keeping quoted words whole. */
@@ -134,35 +171,84 @@ function tokenize(command: string): ShellToken[] {
   return tokens;
 }
 
-/** Write targets named by one shell command: redirections and file-writing commands. */
+/** Write target paths named by one shell command; the base directory alone is dropped. */
 export function shellWriteTargets(command: string): string[] {
-  return collectShellTargets(tokenize(command));
+  return shellWrites(command).map((write) => write.path);
 }
 
-function collectShellTargets(tokens: ShellToken[]): string[] {
-  const targets: string[] = [];
-  let segment: ShellToken[] = [];
-  const endSegment = () => {
-    if (segment.length) targets.push(...segmentTargets(segment));
-    segment = [];
+function shellWrites(command: string, initial: ShellBase = { unresolved: false }): ShellWrite[] {
+  const state: ShellState = { ...initial, stack: [] };
+  return parseTokens(tokenize(command), state);
+}
+
+function parseTokens(tokens: ShellToken[], state: ShellState): ShellWrite[] {
+  const writes: ShellWrite[] = [];
+  const groups: ShellState[] = [];
+  let words: string[] = [];
+  let redirects: string[] = [];
+  const flush = () => {
+    for (const path of redirects) {
+      const target = shellWrite(path, state);
+      if (target) writes.push(target);
+    }
+    redirects = [];
+    if (!words.length) return;
+    const segment = words;
+    words = [];
+    const { command, args } = argumentsOf(segment);
+    if (command === "cd" || command === "pushd" || command === "popd") {
+      changeDirectory(command, args, state);
+      return;
+    }
+    const base = commandBase(command, args, state);
+    writes.push(...commandWrites(command, args, base));
   };
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
+    if (token.kind === "op" && token.value === "(") {
+      flush();
+      groups.push(copyState(state));
+      continue;
+    }
+    if (token.kind === "op" && token.value === ")") {
+      flush();
+      const restored = groups.pop();
+      if (restored) Object.assign(state, restored);
+      continue;
+    }
     if (token.kind === "op" && SEGMENT_BREAKS.has(token.value)) {
-      endSegment();
+      flush();
       continue;
     }
     if (token.kind === "op") {
       const next = index + 1 < tokens.length ? tokens[index + 1] : undefined;
       if (!next || next.kind !== "word" || !next.value || next.value.startsWith("&")) continue;
-      if (REDIRECTS.has(token.value)) targets.push(next.value);
+      if (REDIRECTS.has(token.value)) redirects.push(next.value);
       index += 1;
       continue;
     }
-    segment.push(token);
+    words.push(token.value);
   }
-  endSegment();
-  return targets.filter(isWritableToken);
+  flush();
+  return writes;
+}
+
+function copyState(state: ShellState): ShellState {
+  return {
+    ...(state.directory ? { directory: state.directory } : {}),
+    unresolved: state.unresolved,
+    ...(state.previous ? { previous: state.previous } : {}),
+    stack: [...state.stack]
+  };
+}
+
+function shellWrite(path: string, base: ShellBase): ShellWrite | undefined {
+  if (!isWritableToken(path)) return undefined;
+  return {
+    path,
+    ...(base.directory ? { directory: base.directory } : {}),
+    ...(base.unresolved ? { unresolved: true } : {})
+  };
 }
 
 function isWritableToken(token: string): boolean {
@@ -177,8 +263,7 @@ function isWritableToken(token: string): boolean {
 }
 
 /** Non-option arguments of a command, after any leading assignments and wrappers. */
-function argumentsOf(tokens: ShellToken[]): { command: string; args: string[] } {
-  const words = tokens.flatMap((token) => (token.kind === "word" ? [token.value] : []));
+function argumentsOf(words: string[]): { command: string; args: string[] } {
   let index = 0;
   while (index < words.length) {
     const word = words[index];
@@ -199,38 +284,131 @@ function argumentsOf(tokens: ShellToken[]): { command: string; args: string[] } 
   return { command, args: words.slice(index + 1) };
 }
 
-function segmentTargets(tokens: ShellToken[]): string[] {
-  const { command, args } = argumentsOf(tokens);
-  const targets: string[] = [];
+/** The directory this one command's target arguments resolve from. */
+function commandBase(command: string, args: string[], state: ShellState): ShellBase {
+  if (command !== "git" && command !== "make") return { ...state };
+  const index = args.findIndex((value) => value === "-C");
+  if (index < 0) return { ...state };
+  return combineDirectory(state, args[index + 1]);
+}
+
+function combineDirectory(state: ShellBase, value: string | undefined): ShellBase {
+  if (!value || isUnknownDirectory(value)) return { directory: state.directory, unresolved: true };
+  if (isAbsolute(value)) return { directory: value, unresolved: false };
+  if (state.unresolved) return { directory: state.directory, unresolved: true };
+  return { directory: join(state.directory ?? ".", value), unresolved: false };
+}
+
+function isUnknownDirectory(value: string): boolean {
+  return !value || value.includes("$") || value.includes("`") || value.startsWith("~") || /[*?]/.test(value);
+}
+
+/** Track a shell directory change across the following segments. */
+function changeDirectory(command: string, args: string[], state: ShellState): void {
+  if (command === "popd") {
+    const previous = state.stack.pop();
+    if (!previous) {
+      state.unresolved = true;
+      return;
+    }
+    state.previous = state.unresolved ? undefined : (state.directory ?? ".");
+    state.directory = previous.directory;
+    state.unresolved = previous.unresolved;
+    return;
+  }
+  const value = args.find((argument) => argument === "-" || !argument.startsWith("-"));
+  if (command === "pushd") {
+    if (value === undefined) {
+      state.unresolved = true;
+      return;
+    }
+    state.stack.push({ directory: state.directory, unresolved: state.unresolved });
+    cdTo(state, value);
+    return;
+  }
+  cdTo(state, value);
+}
+
+function cdTo(state: ShellState, value: string | undefined): void {
+  if (value === undefined) {
+    state.previous = state.unresolved ? undefined : (state.directory ?? ".");
+    state.unresolved = true;
+    return;
+  }
+  if (value === "-") {
+    const previous = state.previous;
+    if (previous === undefined || state.unresolved) {
+      state.unresolved = true;
+      return;
+    }
+    state.previous = state.directory ?? ".";
+    state.directory = previous;
+    state.unresolved = false;
+    return;
+  }
+  const combined = combineDirectory(state, value);
+  state.previous = state.unresolved ? undefined : (state.directory ?? ".");
+  state.directory = combined.directory;
+  state.unresolved = combined.unresolved;
+}
+
+function commandWrites(command: string, args: string[], base: ShellBase): ShellWrite[] {
+  const writes: ShellWrite[] = [];
+  const add = (values: string[]) => {
+    for (const value of values) {
+      const target = shellWrite(value, base);
+      if (target) writes.push(target);
+    }
+  };
   const nonOptions = (values: string[]) => values.filter((value) => value && !value.startsWith("-"));
   if (["bash", "sh", "zsh", "dash", "eval"].includes(command)) {
     const flag = args.indexOf("-c");
     const script = flag >= 0 ? args[flag + 1] : command === "eval" ? args.join(" ") : undefined;
-    if (script) targets.push(...shellWriteTargets(script));
-    else targets.push(...nonOptions(args));
-  } else if (command === "tee") targets.push(...nonOptions(args));
+    if (script) writes.push(...shellWrites(script, base));
+    else add(nonOptions(args));
+  } else if (command === "tee") add(nonOptions(args));
   else if (
     ["rm", "rmdir", "unlink", "shred", "touch", "mkdir", "truncate", "chmod", "chown", "chgrp"].includes(
       command
     )
   )
-    targets.push(...nonOptions(args));
-  else if (command === "mv") targets.push(...args.filter((value) => !value.startsWith("-")));
+    add(nonOptions(args));
+  else if (command === "mv") add(args.filter((value) => !value.startsWith("-")));
   else if (["cp", "install", "ln", "rsync"].includes(command)) {
-    const values = nonOptions(args);
-    if (values.length) targets.push(values.at(-1)!);
+    const destination = nonOptions(args).at(-1);
+    if (destination) add([destination]);
   } else if (command === "dd") {
-    for (const value of args) if (value.startsWith("of=")) targets.push(value.slice(3));
+    add(args.filter((value) => value.startsWith("of=")).map((value) => value.slice(3)));
   } else if (command === "curl" || command === "wget") {
     const flagIndex = args.findIndex(
       (value) => value === "-o" || value === "--output" || value === "-O" || value === "--output-document"
     );
-    if (flagIndex >= 0 && args[flagIndex + 1]) targets.push(args[flagIndex + 1]);
+    if (flagIndex >= 0 && args[flagIndex + 1]) add([args[flagIndex + 1]]);
   } else if (command === "sed" || command === "perl") {
     const inPlace = args.some(
       (value) => value === "-i" || value.startsWith("-i.") || /^-[a-zA-Z]*i[a-zA-Z]*$/.test(value)
     );
-    if (inPlace) targets.push(...nonOptions(args));
+    if (inPlace) add(nonOptions(args));
+  } else if (command === "git") {
+    const rest = withoutDirectoryFlag(args);
+    const subIndex = rest.findIndex((value) => !value.startsWith("-"));
+    const subcommand = rest[subIndex];
+    if (subcommand === "rm" || subcommand === "mv") add(nonOptions(rest.slice(subIndex + 1)));
+    else if ((subcommand === "checkout" || subcommand === "restore") && rest.includes("--"))
+      add(nonOptions(rest.slice(rest.indexOf("--") + 1)));
   }
-  return targets;
+  return writes;
+}
+
+/** Remove `-C <directory>` from a command's arguments before reading its file targets. */
+function withoutDirectoryFlag(args: string[]): string[] {
+  const rest: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "-C") {
+      index += 1;
+      continue;
+    }
+    rest.push(args[index]);
+  }
+  return rest;
 }

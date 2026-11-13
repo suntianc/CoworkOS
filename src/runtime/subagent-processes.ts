@@ -200,16 +200,21 @@ export class SubagentProcessService {
 
   private async launch(item: WorkItem, payload: WorkPayload, leaseToken: string): Promise<void> {
     const role = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
-    const site = await this.workingSite(payload, role);
+    const site = await this.workingSite(item, payload, role);
     const taskWorkspace = join(this.workspaceRoot, item.taskId);
     const sessionDirectory = join(taskWorkspace, "sessions", item.agentId, "pi", item.stepId);
     const directory = agentProcessDirectory(this.workspaceRoot, item.taskId, item.runId, role, item.agentId);
     await mkdir(sessionDirectory, { recursive: true });
     if (site.reviewSite) {
-      await prepareReviewSite(site.reviewSite);
-      // The marker is what lets a backend that restarts later find and clean this
-      // checkout; the process record alone does not carry the candidate facts.
+      // The marker goes first: a worktree that exists without one could never be
+      // found and cleaned after a backend restart. A failed creation removes it.
       await atomicWrite(reviewSiteMarker(directory), `${JSON.stringify(site.reviewSite)}\n`);
+      try {
+        await prepareReviewSite(site.reviewSite);
+      } catch (error) {
+        await rm(reviewSiteMarker(directory), { force: true });
+        throw error;
+      }
     }
     try {
       await this.host.launch({
@@ -240,10 +245,15 @@ export class SubagentProcessService {
    * of its own. The checkout is removed when the review process ends.
    */
   private async workingSite(
+    item: WorkItem,
     payload: WorkPayload,
     role: AgentProcessRole
   ): Promise<{ directory: string; reviewSite?: ReviewSite }> {
-    const explicit = reviewSiteInput(payload.reviewSite);
+    if (role !== "reviewer" && payload.reviewSite !== undefined)
+      throw new Error(
+        "Executor work item must not carry a reviewSite; a candidate checkout belongs to a Reviewer"
+      );
+    const explicit = role === "reviewer" ? reviewSiteInput(payload.reviewSite) : undefined;
     if (explicit) return { directory: resolve(explicit.directory), reviewSite: explicit };
     if (role === "reviewer" && payload.workItemSite) {
       const directory = resolve(payload.workItemSite.directory);
@@ -253,6 +263,21 @@ export class SubagentProcessService {
         directory
       };
       return { directory, reviewSite };
+    }
+    if (role === "reviewer") {
+      // A Reviewer without a requirement site still needs its own candidate
+      // copy: its shell must never run in the user's project directory.
+      const projectDirectory = payload.projectDirectory ? resolve(payload.projectDirectory) : undefined;
+      if (!projectDirectory)
+        throw new Error(
+          "Reviewer work item has no candidate checkout: dispatch it with a projectDirectory, workItemSite or reviewSite"
+        );
+      const commit = await reviewerCandidate(projectDirectory);
+      const directory = join(
+        agentProcessDirectory(this.workspaceRoot, item.taskId, item.runId, role, item.agentId),
+        "review-site"
+      );
+      return { directory, reviewSite: { repository: projectDirectory, commit, directory } };
     }
     return { directory: await this.workingDirectory(payload) };
   }
@@ -570,6 +595,24 @@ export class SubagentProcessService {
 
   private queuePath(input: { taskId: string; runId: string }): string {
     return join(this.workspaceRoot, input.taskId, "runs", input.runId, "queue.json");
+  }
+}
+
+/** The commit a Reviewer without a recorded candidate can copy; refuse when there is none. */
+async function reviewerCandidate(directory: string): Promise<string> {
+  try {
+    await git(directory, ["rev-parse", "--git-dir"]);
+  } catch {
+    throw new Error(
+      `Reviewer work item has no candidate checkout: ${directory} is not a Git repository; dispatch it under a developmentId or pass a reviewSite with the candidate commit`
+    );
+  }
+  try {
+    return await git(directory, ["rev-parse", "--verify", "HEAD^{commit}"]);
+  } catch {
+    throw new Error(
+      `Reviewer work item has no candidate checkout: ${directory} has no commit; commit the candidate or pass a reviewSite with the candidate commit`
+    );
   }
 }
 

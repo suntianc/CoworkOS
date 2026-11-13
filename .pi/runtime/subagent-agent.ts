@@ -1,7 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { atomicWrite } from "../../dist/src/storage/atomic-file.js";
+import { JsonlEventStore } from "../../dist/src/storage/event-store.js";
 import { listAgentOutputFiles } from "../../dist/src/runtime/progress.js";
 import { createCoworkModel } from "../../dist/src/runtime/model-profile.js";
 import { atriaRoleIdentity } from "../../dist/src/domain/agent-identity.js";
@@ -103,6 +105,23 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
   // the project root. A shell command is a write path too, so the shared guard
   // reads it rather than trusting that the Reviewer merely lacks write/edit.
   const currentGuard = () => taskProtectedPaths(workspaceRoot, taskId, workingDirectory);
+  const guardEvents = new JsonlEventStore(join(workspaceRoot, taskId, "runs", runId, "run_events.jsonl"));
+  const appendGuardEvent = async (path: string, pattern: string, toolName: string): Promise<void> => {
+    try {
+      await guardEvents.append({
+        eventId: `guard-${randomUUID()}`,
+        type: "guard.write_refused",
+        taskId,
+        runId,
+        agentId,
+        occurredAt: new Date().toISOString(),
+        payload: { path, pattern, toolName }
+      });
+      // eslint-disable-next-line no-restricted-syntax -- 拒绝写入已经通过 tool_call 返回给模型，诊断事件写入失败只少了事后记录
+    } catch {
+      /* diagnostics only */
+    }
+  };
 
   const rolePrompt = subagentRolePrompt({
     role,
@@ -119,7 +138,9 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
 
   pi.on("tool_call", async (event) => {
     const refused = blockedToolCall(event.toolName, event.input, await currentGuard(), workingDirectory);
-    return refused ? { block: true, reason: refused.reason } : undefined;
+    if (!refused) return undefined;
+    void appendGuardEvent(refused.path, refused.pattern, event.toolName);
+    return { block: true, reason: refused.reason };
   });
 
   pi.on("session_start", async () => {

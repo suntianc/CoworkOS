@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
 import { DurableScheduler } from "../dist/src/runtime/scheduler.js";
 import { SubagentProcessService } from "../dist/src/runtime/subagent-processes.js";
 import { isolatedPiEnvironment, startLocalProvider } from "./fixtures/pi-process-fixture.mjs";
@@ -17,6 +19,7 @@ import { isolatedPiEnvironment, startLocalProvider } from "./fixtures/pi-process
  */
 
 const harness = resolve(".");
+const execFileAsync = promisify(execFile);
 const MODEL = "p46-role-model";
 const TASK_ID = "p46-role-task";
 const RUN_ID = "p46-role-run";
@@ -88,6 +91,13 @@ async function delegatedCall(t, { role, agentId, callId, handle, task = "执行�
   await mkdir(workspace, { recursive: true });
   await mkdir(site, { recursive: true });
   await writeFile(join(site, "SITE_MARKER.txt"), "delegated work site\n");
+  // The site is the candidate Executors edit and Reviewers copy; a Reviewer
+  // without a requirement site needs a commit to detach its own checkout at.
+  await execFileAsync("git", ["-C", site, "init", "-b", "main"], { windowsHide: true });
+  await execFileAsync("git", ["-C", site, "config", "user.email", "p46@example.test"], { windowsHide: true });
+  await execFileAsync("git", ["-C", site, "config", "user.name", "P46"], { windowsHide: true });
+  await execFileAsync("git", ["-C", site, "add", "-A"], { windowsHide: true });
+  await execFileAsync("git", ["-C", site, "commit", "-m", "delegated site"], { windowsHide: true });
   const runRoot = join(workspace, TASK_ID, "runs", RUN_ID);
   const provider = await startLocalProvider({ model: MODEL, handle });
   await writeFile(
