@@ -282,7 +282,7 @@ const composerSession = createComposerSession({
   setAttachments: (files) => {
     // A kept upload still owns the busy state: sending and closing stay blocked
     // until it ends, so only a navigation that retires it releases them here.
-    if (fileUpload?.navigate()) readingAttachments = false;
+    if (fileUpload?.retireUnlessShownDraft()) readingAttachments = false;
     attachmentPreview?.close({ restoreFocus: false });
     // Navigation retires a read belonging to the previous draft immediately.
     attachmentReadVersion += 1;
@@ -1684,7 +1684,7 @@ $("#sidebar-search").addEventListener("click", openTaskSearch);
 attachmentPreview = installAttachmentPreview({ api, mediaUrl: mediaObjectUrl });
 fileUpload = createFileUpload({
   upload: (file, options) => management.upload(file, options),
-  getContext: () => composerSession.currentDraftIdentity,
+  getDraftIdentity: () => composerSession.shownDraftIdentity,
   getFiles: () => state.attachments,
   setFiles: (files) => {
     state.attachments = files;
@@ -1822,7 +1822,7 @@ async function createTaskFromDraft(
   submission,
   temporaryWorkspaceRoot
 ) {
-  const draftIdentity = composerSession.currentDraftIdentity;
+  const draftIdentity = composerSession.shownDraftIdentity;
   const pending = pendingCreation(draftIdentity, [goal, projectId, temporaryWorkspaceRoot || null]);
   const taskId = pending.taskId;
   const body = { taskId, goal, projectId, ...(temporaryWorkspaceRoot ? { temporaryWorkspaceRoot } : {}) };
@@ -1960,13 +1960,13 @@ async function interject(taskId, text, delivery = "followUp") {
 function currentSubmission() {
   return (
     (state.selected && sending.get(`task:${state.selected}`)) ||
-    sending.get(`draft:${composerSession.currentDraftIdentity}`)
+    sending.get(`draft:${composerSession.shownDraftIdentity}`)
   );
 }
 
 function beginSubmission(taskId = state.selected) {
   const submission = { keys: new Set(), launching: false };
-  const draftKey = `draft:${composerSession.currentDraftIdentity}`;
+  const draftKey = `draft:${composerSession.shownDraftIdentity}`;
   submission.keys.add(draftKey);
   sending.set(draftKey, submission);
   if (taskId) associateSubmission(submission, taskId);

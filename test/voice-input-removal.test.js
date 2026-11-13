@@ -98,7 +98,7 @@ test("uploaded attachment and text survive a fresh composer session and remain i
   first.input.value = "Draft with an attachment";
   const bytes = [];
   const upload = createFileUpload({
-    getContext: () => first.session.currentToken,
+    getDraftIdentity: () => first.session.currentToken,
     getFiles: first.getFiles,
     setFiles: first.setFiles,
     onStatus() {},

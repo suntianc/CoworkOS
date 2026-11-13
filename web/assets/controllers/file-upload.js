@@ -41,7 +41,7 @@ export function defaultUpload(file, { name = file.name, signal, onProgress: prog
   });
 }
 export function createFileUpload({
-  getContext,
+  getDraftIdentity,
   getFiles,
   setFiles,
   onStatus,
@@ -50,7 +50,7 @@ export function createFileUpload({
   upload = defaultUpload
 }) {
   let controller,
-    activeDraft,
+    uploadDraftIdentity,
     retryFiles = [];
   async function add(files) {
     if (!files.length) return;
@@ -59,13 +59,13 @@ export function createFileUpload({
     if (files.some((file) => file.size > MAX_FILE_BYTES)) throw new Error(ui("单个文件不能超过25 MB"));
     if ([...files, ...getFiles()].reduce((size, file) => size + (file.size || 0), 0) > 100 * 1024 * 1024)
       throw new Error(ui("附件合计不能超过100 MB"));
-    const draft = getContext();
+    const draftIdentity = getDraftIdentity();
     const active = new AbortController();
     controller = active;
-    activeDraft = draft;
+    uploadDraftIdentity = draftIdentity;
     retryFiles = [];
     onBusy(true);
-    const current = () => getContext() === draft && !active.signal.aborted;
+    const current = () => getDraftIdentity() === draftIdentity && !active.signal.aborted;
     try {
       for (let index = 0; index < files.length; index++) {
         if (!current()) break;
@@ -95,7 +95,9 @@ export function createFileUpload({
       if (controller === active) {
         controller = undefined;
         onBusy(false);
-        onStatus(retryFiles.length && getContext() === draft ? { failed: retryFiles.length } : null);
+        onStatus(
+          retryFiles.length && getDraftIdentity() === draftIdentity ? { failed: retryFiles.length } : null
+        );
       }
     }
   }
@@ -109,15 +111,18 @@ export function createFileUpload({
   }
   /**
    * The composer showed a draft. Re-activating the draft an upload belongs to
-   * (a repeated or late activation) leaves it running and keeps the page busy;
-   * any other draft retires it with the draft it came from. Returns whether an
-   * in-flight upload was retired, so only that case releases the busy state.
+   * (a repeated or late activation, such as the first backend bind or the first
+   * project taking over the unbound draft) leaves it running and keeps its
+   * failure and retry on screen; any other draft retires it with the draft it
+   * came from. An upload without a draft identity cannot be attributed, so it
+   * is retired too. Returns whether an in-flight upload was retired, so only
+   * that case releases the busy state.
    */
-  function navigate() {
-    if (controller && activeDraft !== undefined && getContext() === activeDraft) return false;
+  function retireUnlessShownDraft() {
+    if (uploadDraftIdentity !== undefined && getDraftIdentity() === uploadDraftIdentity) return false;
     const retired = Boolean(controller);
     cancel();
     return retired;
   }
-  return { add, retry: () => add([...retryFiles]), cancel, navigate };
+  return { add, retry: () => add([...retryFiles]), cancel, retireUnlessShownDraft };
 }

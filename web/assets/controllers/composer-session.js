@@ -86,6 +86,8 @@ export function createComposerSession({
   let journalPresent = false;
   let invalidJournal = false;
   let current;
+  /** The draft the composer shows, which outlives `current` across a first bind. */
+  let shownDraftIdentity;
   let editing;
   let editDraft;
   let token = 0;
@@ -526,6 +528,7 @@ export function createComposerSession({
     write("active", current);
   };
   const showDraft = (draft) => {
+    shownDraftIdentity = draftIdentities.get(current);
     editing =
       draft?.editing &&
       typeof draft.editing.messageId === "string" &&
@@ -734,8 +737,9 @@ export function createComposerSession({
     get currentToken() {
       return token;
     },
-    get currentDraftIdentity() {
-      return draftIdentities.get(current);
+    /** The identity of the draft on screen; uploads compare it across activations. */
+    get shownDraftIdentity() {
+      return shownDraftIdentity;
     },
     snapshot() {
       const draft = { text: input.value, attachments: [...getAttachments()] };
@@ -762,6 +766,7 @@ export function createComposerSession({
     detach() {
       save();
       current = undefined;
+      shownDraftIdentity = undefined;
       editing = undefined;
       editDraft = undefined;
       token += 1;
@@ -908,17 +913,21 @@ export function createComposerSession({
       // The visible composer must not keep the backend being left's text; the
       // caller activates a conversation to load this backend's own draft.
       input.value = "";
-      setAttachments([]);
       for (const key of memory.keys()) if (!pendingStorage.has(key)) memory.delete(key);
       retainedDrafts.clear();
       draftOwners.clear();
-      // The first bind carries the drafts it was showing into the backend's
-      // namespace; their identities stay. A switch to another backend drops them.
-      if (previous) draftIdentities.clear();
+      // The first bind carries the draft it was showing into the backend's
+      // namespace, so its identity stays and an upload it owns keeps running.
+      // A switch to another backend replaces it.
+      if (previous) {
+        draftIdentities.clear();
+        shownDraftIdentity = undefined;
+      }
       editing = undefined;
       editDraft = undefined;
       current = undefined;
       token += 1;
+      setAttachments([]);
     },
     activate(taskId, { fresh = false, projectId } = {}) {
       const key = taskId || (projectId ? `new:${encodeURIComponent(projectId)}` : "new");
@@ -978,10 +987,9 @@ export function createComposerSession({
       }
       save();
       write(current, null);
-      draftIdentities.set(taskId, draftIdentities.get(current));
       // The submitted draft now belongs to the task. Returning to its empty
       // new-conversation slot starts an independent draft and send gate.
-      draftIdentities.delete(current);
+      adoptDraftIdentity(taskId, current);
       current = taskId;
       save();
       retainedDrafts.delete(sourceToken);

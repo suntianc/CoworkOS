@@ -66,6 +66,56 @@ for (const firstProject of [false, true])
     }
   });
 
+// The catalog read that binds the backend and hands the unbound new-conversation
+// draft to the first project can land after a rejected upload. Retiring the
+// upload there must not take away its failure and retry.
+test("a rejected upload keeps its retry when the startup binding lands afterwards", async ({ page }) => {
+  const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });
+  let releaseCatalog;
+  const catalogGate = new Promise((resolve) => (releaseCatalog = resolve));
+  let released = false;
+  let rejectFirst = true;
+  try {
+    // Every catalog reader can hand the draft to the first project: the poll
+    // read, the event snapshot and the replayed event stream. Hold all three.
+    const hold = async (route) => {
+      if (!released) await catalogGate;
+      await route.continue().catch(() => {});
+    };
+    await page.route("**/api/events/snapshot", hold);
+    await page.route("**/api/events/stream*", hold);
+    await page.route("**/api/tasks", hold);
+    await page.route("**/api/uploads?name=rejected.txt", (route) => {
+      if (rejectFirst) {
+        rejectFirst = false;
+        return route.fulfill({ status: 503, json: { error: "fixture failure" } });
+      }
+      return route.continue();
+    });
+    await page.goto(dashboard.base);
+    await page.locator("#file-input").setInputFiles({
+      name: "rejected.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("rejected original")
+    });
+    await expect(page.locator("[data-upload-retry]")).toBeVisible();
+    released = true;
+    releaseCatalog();
+    // The startup binding hands the draft to the first project, then keeps the
+    // rejected file and its retry with that draft.
+    await expect(page.locator("#composer-project")).toBeVisible();
+    await expect(page.locator("[data-upload-retry]")).toBeVisible();
+    await expect(page.locator("#upload-status")).toContainText("1 个文件未添加");
+    await page.locator("[data-upload-retry]").click();
+    await expect(page.locator("#attachment-strip")).toContainText("rejected.txt");
+    await expect(page.locator("#upload-status")).toBeHidden();
+  } finally {
+    released = true;
+    releaseCatalog();
+    await dashboard.stop();
+  }
+});
+
 test("an upload does not follow the person to another conversation", async ({ page }) => {
   const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });
   const releases = new Map();

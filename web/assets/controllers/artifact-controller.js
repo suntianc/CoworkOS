@@ -461,7 +461,7 @@ export function createArtifactController({
     const openSystemAction = canOpenSystem
       ? `<button type="button" class="drawer-action is-icon" data-open-system aria-label="${ui(
           "用系统默认应用打开"
-        )}" title="${ui("用系统默认应用打开")}">${icon("pencil")}</button>`
+        )}" title="${ui("用系统默认应用打开")}">${icon("open-app")}</button>`
       : "";
     const openAction = isChange
       ? ""
