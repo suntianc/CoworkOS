@@ -220,7 +220,7 @@ test("real Pi receives a complete attachment and steering; stop aborts inference
     await page.locator(`.conversation-item[data-task="${taskId}"]`).hover();
     await page.locator(`.conversation-item[data-task="${taskId}"]`).click({ button: "right" });
     await page.locator('[data-session-action="stop"]').click();
-    await expect(page.locator("#toast")).toContainText("任务已停止", { timeout: 10_000 });
+    await expect(page.locator("#toast")).toContainText("会话已关闭", { timeout: 10_000 });
     await expect(page.locator("#stop-button")).toBeHidden({ timeout: 10_000 });
     await expect(page.locator("#send-button")).toBeVisible();
     await expect(page.locator("#composer-input")).toHaveValue("等待发送期间写的下一条草稿");

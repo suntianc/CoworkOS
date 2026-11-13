@@ -99,10 +99,17 @@ for (const api of ["openai-completions", "openai-responses"]) {
       assert.equal(original.runtime.active, true);
       assert.equal(original.humanRequests[0]?.status, "pending");
       const question = original.humanRequests[0];
-      // A restart can leave a durable question after its waiting process has exited.
-      if (pause === "restart") await f.dashboard.restart();
-      else assert.equal((await f.call("/action", { action: "cancel" })).status, 200);
-      original = await f.settle(pause === "restart" ? "waiting" : "cancelled");
+      // A restart leaves the resident Main alive: it survives the backend and
+      // is still blocked on the durable question the new backend adopts.
+      if (pause === "restart") {
+        await f.dashboard.restart();
+        original = await f.detail();
+        assert.equal(original.runtime.active, true, "the adopted Main is still waiting on the answer");
+        assert.equal(original.runtime.mainRunning, true);
+      } else {
+        assert.equal((await f.call("/action", { action: "cancel" })).status, 200);
+        original = await f.settle("cancelled");
+      }
       assert.equal(original.humanRequests[0].status, "pending");
       const continuation = await f.call("/run", { prompt: "ORDINARY_CONTINUATION" });
       assert.equal(continuation.status, 400);

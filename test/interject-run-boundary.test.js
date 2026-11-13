@@ -79,6 +79,11 @@ async function fixture(t) {
   });
   const inbox = (runId) =>
     new InboxStore(join(workspaceRoot, "task", "runs", runId, "agents", "main", "inbox-store.json"));
+  /** The Run's first turn is itself an Inbox message; a test looks for the interjection. */
+  const interjections = async (runId) =>
+    (await inbox(runId).list("main")).filter(
+      (message) => message.payload?.type === "human.message" && message.payload.initial !== true
+    );
   async function finish(runId) {
     await writeFile(join(root, `release-${runId}`), "");
     for (let i = 0; i < 500; i += 1) {
@@ -120,7 +125,7 @@ async function fixture(t) {
     const completed = handler(request, response).then(() => response);
     return { bodyEntered: bodyEntered.promise, releaseBody: releaseBody.resolve, completed };
   }
-  return { service, store, events, inbox, finish, interject };
+  return { service, store, events, inbox, interjections, finish, interject };
 }
 
 test("a delayed interjection cannot be accepted into a finished run after the next run starts", async (t) => {
@@ -134,8 +139,8 @@ test("a delayed interjection cannot be accepted into a finished run after the ne
   const response = await request.completed;
   assert.equal(response.status, 409, JSON.stringify(response.body));
   assert.equal((await f.store.readTask("task")).activeRunId, "run-new");
-  assert.deepEqual(await f.inbox("run-old").list("main"), []);
-  assert.deepEqual(await f.inbox("run-new").list("main"), []);
+  assert.deepEqual(await f.interjections("run-old"), []);
+  assert.deepEqual(await f.interjections("run-new"), []);
   assert.equal(
     f.events.some((event) => event.type === "user.interjected"),
     false
@@ -152,7 +157,7 @@ test("a delayed interjection cannot be accepted after the user stops its run", a
   const response = await request.completed;
   assert.equal(response.status, 409, JSON.stringify(response.body));
   assert.equal((await f.store.readTask("task")).status, "cancelled");
-  assert.deepEqual(await f.inbox("run-old").list("main"), []);
+  assert.deepEqual(await f.interjections("run-old"), []);
   assert.equal(
     f.events.some((event) => event.type === "user.interjected"),
     false
@@ -168,7 +173,7 @@ test("an interjection is durably accepted while its original run is still active
   const response = await request.completed;
   assert.equal(response.status, 202, JSON.stringify(response.body));
   assert.equal(response.body.runId, "run-old");
-  const messages = await f.inbox("run-old").list("main");
+  const messages = await f.interjections("run-old");
   assert.equal(messages.length, 1);
   assert.equal(messages[0].messageId, response.body.messageId);
   assert.equal(messages[0].payload.message, "必须保留在原运行的补充消息。");
@@ -187,7 +192,7 @@ test("a delayed interjection cannot reach a resumed Main process that reuses the
   assert.equal(response.status, 409, JSON.stringify(response.body));
   assert.equal((await f.store.readTask("task")).activeRunId, "run-old");
   assert.equal(f.service.activeRuns.has("task"), true);
-  assert.deepEqual(await f.inbox("run-old").list("main"), []);
+  assert.deepEqual(await f.interjections("run-old"), []);
   assert.equal(
     f.events.some((event) => event.type === "user.interjected"),
     false

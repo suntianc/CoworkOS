@@ -116,7 +116,7 @@ test("the run bar pauses at the step boundary and continues from that point", as
     await expect(bar.locator("[data-run-step]")).toHaveText("第 1 步");
     await expect(bar.getByRole("button", { name: "暂停" })).toBeVisible();
     // Stopping moved to the composer's stop key; the strip only pauses.
-    await expect(bar.getByRole("button", { name: "取消运行" })).toHaveCount(0);
+    await expect(bar.getByRole("button", { name: "中断本回合" })).toHaveCount(0);
     await expect(page.locator("#stop-button")).toBeVisible();
     await expect
       .poll(async () =>
@@ -231,15 +231,15 @@ test("cancel asks before it stops the run and keeps the run on 继续运行", as
 
     // The stop key asks first.
     const stop = page.locator("#stop-button");
-    await expect(stop).toHaveAccessibleName("取消运行");
+    await expect(stop).toHaveAccessibleName("中断本回合");
     await stop.click();
     const dialog = page.locator("#run-cancel-confirm");
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("取消这次运行？");
-    await expect(dialog).toContainText("已完成的步骤和文件改动会保留");
+    await expect(dialog).toContainText("中断本回合？");
+    await expect(dialog).toContainText("会话、子代理和已完成的内容都保留");
     await expect(dialog.getByRole("button")).toHaveCount(2);
     await expect(dialog.getByRole("button", { name: "继续运行" })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "取消运行" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "中断本回合" })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("cancel-confirm-1440.png") });
 
     await dialog.getByRole("button", { name: "继续运行" }).click();
@@ -249,10 +249,17 @@ test("cancel asks before it stops the run and keeps the run on 继续运行", as
     await waitForTask(page, local, taskId, (detail) => detail.task.status === "running");
 
     await stop.click();
-    await dialog.getByRole("button", { name: "取消运行" }).click();
+    await dialog.getByRole("button", { name: "中断本回合" }).click();
     await expect(bar).toBeHidden({ timeout: 30_000 });
-    await waitForTask(page, local, taskId, (detail) => detail.task.status === "cancelled");
-    await expect(page.locator("#toast")).toContainText("任务已停止");
+    // The turn stops; the session and its Main process stay for the next message.
+    await waitForTask(
+      page,
+      local,
+      taskId,
+      (detail) => detail.runtime.active === false && detail.runtime.mainRunning === true
+    );
+    expect((await taskState(page, local, taskId)).task.status).not.toBe("cancelled");
+    await expect(page.locator("#toast")).toContainText("本回合已中断");
   } finally {
     await page.unrouteAll({ behavior: "ignoreErrors" }).catch(() => {});
     await local.stop();
@@ -363,7 +370,7 @@ test("while Main waits the strip names the Subagents it waits for, and the model
     const name = await page.locator('.subagent-row[data-agent="subagent_1"] .subagent-name').textContent();
     await expect(bar.locator("[data-run-detail]")).toHaveText(name.trim());
     // No command text is shown, and the strip offers no second cancel.
-    await expect(bar.getByRole("button", { name: "取消运行" })).toHaveCount(0);
+    await expect(bar.getByRole("button", { name: "中断本回合" })).toHaveCount(0);
 
     // One button and one menu hold both the model and the reasoning effort.
     await expect(page.locator("#reasoning-select")).toHaveCount(0);

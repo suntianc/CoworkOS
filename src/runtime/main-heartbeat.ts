@@ -20,6 +20,14 @@ export interface MainHeartbeat {
   host: string;
   runId: string;
   updatedAt: string;
+  /**
+   * Whether a turn is running right now.
+   *
+   * A resident Main is alive while it is idle, so liveness alone no longer
+   * answers "is it working". The process writes this at every turn boundary,
+   * which is also what a backend that adopted the process can read.
+   */
+  turnActive?: boolean;
 }
 
 /** A Main refreshed within this window is considered alive. */
@@ -29,20 +37,42 @@ function heartbeatPath(workspaceRoot: string, taskId: string): string {
   return join(workspaceRoot, taskId, "agents", "main", "heartbeat.json");
 }
 
-export async function writeHeartbeat(workspaceRoot: string, taskId: string, runId: string): Promise<void> {
+export async function writeHeartbeat(
+  workspaceRoot: string,
+  taskId: string,
+  runId: string,
+  state: { turnActive?: boolean } = {}
+): Promise<void> {
   const path = heartbeatPath(workspaceRoot, taskId);
-  const beat: MainHeartbeat = { pid: process.pid, host: hostname(), runId, updatedAt: new Date().toISOString() };
+  const beat: MainHeartbeat = {
+    pid: process.pid,
+    host: hostname(),
+    runId,
+    updatedAt: new Date().toISOString(),
+    ...(state.turnActive === undefined ? {} : { turnActive: state.turnActive })
+  };
   await mkdir(join(workspaceRoot, taskId, "agents", "main"), { recursive: true });
   const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;
   await writeFile(temporary, `${JSON.stringify(beat)}\n`, "utf8");
   await rename(temporary, path);
 }
 
-export async function readHeartbeat(workspaceRoot: string, taskId: string): Promise<MainHeartbeat | undefined> {
+export async function readHeartbeat(
+  workspaceRoot: string,
+  taskId: string
+): Promise<MainHeartbeat | undefined> {
   try {
-    const value = JSON.parse(await readFile(heartbeatPath(workspaceRoot, taskId), "utf8")) as Partial<MainHeartbeat>;
+    const value = JSON.parse(
+      await readFile(heartbeatPath(workspaceRoot, taskId), "utf8")
+    ) as Partial<MainHeartbeat>;
     if (typeof value.pid !== "number" || typeof value.updatedAt !== "string") return undefined;
-    return { pid: value.pid, host: typeof value.host === "string" ? value.host : "", runId: typeof value.runId === "string" ? value.runId : "", updatedAt: value.updatedAt };
+    return {
+      pid: value.pid,
+      host: typeof value.host === "string" ? value.host : "",
+      runId: typeof value.runId === "string" ? value.runId : "",
+      updatedAt: value.updatedAt,
+      ...(typeof value.turnActive === "boolean" ? { turnActive: value.turnActive } : {})
+    };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
@@ -51,8 +81,12 @@ export async function readHeartbeat(workspaceRoot: string, taskId: string): Prom
 
 /** Whether a process is running. Only meaningful for a pid on this host. */
 function pidAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; }
-  catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 /**
@@ -63,7 +97,11 @@ function pidAlive(pid: number): boolean {
  * pid is additionally checked, so a crash is noticed before the staleness
  * window elapses rather than after it.
  */
-export function mainIsAlive(beat: MainHeartbeat | undefined, nowMs = Date.now(), staleMs = HEARTBEAT_STALE_MS): boolean {
+export function mainIsAlive(
+  beat: MainHeartbeat | undefined,
+  nowMs = Date.now(),
+  staleMs = HEARTBEAT_STALE_MS
+): boolean {
   if (!beat) return false;
   const age = nowMs - Date.parse(beat.updatedAt);
   if (!Number.isFinite(age) || age > staleMs) return false;

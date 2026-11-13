@@ -107,6 +107,7 @@ export interface DashboardRoutePorts {
   runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
   startMainRun: RunService["startMainRun"];
   pauseTask: RunService["pauseTask"];
+  interruptTask: RunService["interruptTask"];
   launchMainRun: MainRunLauncher;
   editMainMessage: RunService["editMainMessage"];
   forkConversation(
@@ -141,6 +142,7 @@ export function createDashboardHandler(
     runtimeValue,
     startMainRun,
     pauseTask,
+    interruptTask,
     activeRuns,
     cancelTask,
     resumeHumanAnswers,
@@ -1053,7 +1055,13 @@ export function createDashboardHandler(
       if (request.method === "POST" && url.pathname.endsWith("/action")) {
         const body = await readJsonBody(request);
         const action = body.action;
-        if (action !== "pause" && action !== "cancel" && action !== "resume" && action !== "complete")
+        if (
+          action !== "pause" &&
+          action !== "interrupt" &&
+          action !== "cancel" &&
+          action !== "resume" &&
+          action !== "complete"
+        )
           throw new Error("unsupported task action");
         const location = await locateTask(taskId);
         const task = location.task;
@@ -1064,6 +1072,15 @@ export function createDashboardHandler(
             return;
           }
           sendJson(response, 200, await publishTask(await taskListItem({ ...location, task: paused.task })));
+          return;
+        }
+        if (action === "interrupt") {
+          const interrupted = await interruptTask(taskId);
+          if (interrupted.refused) {
+            sendJson(response, 409, { error: "当前没有正在运行的回合" });
+            return;
+          }
+          sendJson(response, 202, interrupted);
           return;
         }
         if (action === "complete") {

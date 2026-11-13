@@ -32,6 +32,48 @@ interface ContextMessage {
   details?: { _coworkInbox?: InboxIdentity; _coworkInboxMessages?: InboxIdentity[] };
 }
 
+/**
+ * Process-level commands a resident Main reads from its own Inbox.
+ *
+ * They are not model input: they start, resume or interrupt the local turn
+ * loop, and are consumed as soon as that has happened. Interrupt and resume
+ * live here because the backend must not depend on this process's stdin or on
+ * a second control channel.
+ */
+export const MAIN_CONTROL_TYPES = ["main.interrupt", "main.resume"] as const;
+export type MainControlType = (typeof MAIN_CONTROL_TYPES)[number];
+
+export function isMainControlType(value: unknown): value is MainControlType {
+  return typeof value === "string" && (MAIN_CONTROL_TYPES as readonly string[]).includes(value);
+}
+
+/** What the receiver should do beyond appending a custom message. */
+export interface MainInboxSendOptions {
+  triggerTurn: true;
+  deliverAs: "steer" | "followUp";
+  /**
+   * The first user turn of a Run carries the person's own message, not the
+   * Inbox envelope. It starts the turn as a real user message.
+   */
+  userTurn?: { messageId: string };
+}
+
+export type MainInboxSend = (
+  message: DeliveredMessage,
+  options: MainInboxSendOptions
+) => void | Promise<void>;
+
+export interface MainInboxDeliveryOptions {
+  includeFollowUps?: boolean;
+  /**
+   * A paused Main keeps arriving work durable in the Inbox instead of opening
+   * a turn; control messages still reach the process so it can resume.
+   */
+  paused?: boolean;
+  /** Run a process-level command; `true` means it was handled and consumed. */
+  onControl?: (type: MainControlType, message: InboxMessage) => Promise<boolean>;
+}
+
 /** Pi's sendMessage is fire-and-forget. Queuing is not acknowledgement:
  * keep Inbox leases until the message appears in Main's saved context. */
 export class MainInboxDelivery {
@@ -44,19 +86,50 @@ export class MainInboxDelivery {
   private delivery = Promise.resolve();
   private humanAnswerWaits = 0;
 
+  private readonly inboxFile: string;
+
   constructor(
     private readonly workspaceRoot: string,
     private readonly taskId: string,
     private readonly runId: string
   ) {
     const runPath = join(workspaceRoot, taskId, "runs", runId);
-    this.inbox = new InboxStore(join(runPath, "agents", "main", "inbox-store.json"));
+    this.inboxFile = join(runPath, "agents", "main", "inbox-store.json");
+    this.inbox = new InboxStore(this.inboxFile);
     this.events = new JsonlEventStore(join(runPath, "run_events.jsonl"));
     this.receiptLock = join(runPath, "agents", "main", ".inbox-consumed");
   }
 
   get queuedCount(): number {
     return this.queued.size;
+  }
+
+  /** The durable file a running Main watches for new work. */
+  get inboxPath(): string {
+    return this.inboxFile;
+  }
+
+  /** Work that has not been consumed yet, whether or not it is leased. */
+  async pending(): Promise<InboxMessage[]> {
+    return (await this.inbox.list("main")).filter((message) => message.state !== "consumed");
+  }
+
+  /**
+   * Return messages this process queued but never confirmed.
+   *
+   * A process can end between queueing a message and reading it. Releasing
+   * those leases makes the message readable now instead of after the lease
+   * expires, and the next Main for this Run still reads it exactly once.
+   */
+  async releaseUnconfirmed(): Promise<void> {
+    if (this.queued.size === 0) return;
+    await this.delivery;
+    for (const message of await this.inbox.list("main")) {
+      if (!this.queued.has(message.messageId)) continue;
+      if (message.state !== "leased" || message.lease?.consumerId !== this.consumerId) continue;
+      await this.inbox.release(message.messageId);
+      this.queued.delete(message.messageId);
+    }
   }
 
   /** A Pi message can remain queued beyond its Inbox lease. While this
@@ -78,11 +151,8 @@ export class MainInboxDelivery {
   }
 
   deliver(
-    send: (
-      message: DeliveredMessage,
-      options: { triggerTurn: true; deliverAs: "steer" | "followUp" }
-    ) => void | Promise<void>,
-    { includeFollowUps = true } = {}
+    send: MainInboxSend,
+    { includeFollowUps = true, paused = false, onControl }: MainInboxDeliveryOptions = {}
   ): Promise<void> {
     const delivery = this.delivery.then(async () => {
       await this.inbox.recoverAbandonedWaitCallbacks();
@@ -96,6 +166,8 @@ export class MainInboxDelivery {
         .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt));
       for (const candidate of candidates) {
         const candidatePayload = candidate.payload as { type?: string; delivery?: string } | undefined;
+        const candidateType = candidatePayload?.type;
+        const control = isMainControlType(candidateType) ? candidateType : undefined;
         if (
           !includeFollowUps &&
           candidate.kind === "human_command" &&
@@ -103,12 +175,29 @@ export class MainInboxDelivery {
           candidatePayload.delivery === "followUp"
         )
           continue;
+        // Ordinary work waits for the resume control message; a command is
+        // what resumes it, so commands are read in either state.
+        if (paused && !control) continue;
         if (this.humanAnswerWaits && isHumanAnswerMessage(candidate)) continue;
         const message = await this.inbox.leaseMessage("main", candidate.messageId, 60_000, this.consumerId);
         if (message?.state !== "leased" || message.lease?.consumerId !== this.consumerId) continue;
         // A tool can start waiting while the asynchronous lease is acquired.
         if (this.humanAnswerWaits && isHumanAnswerMessage(message)) {
           await this.inbox.release(message.messageId);
+          continue;
+        }
+        if (control) {
+          try {
+            if (!(await onControl?.(control, message))) {
+              await this.inbox.release(message.messageId);
+              continue;
+            }
+            await this.inbox.consume(message.messageId);
+            await this.recordConsumed(message);
+          } catch (error) {
+            await this.inbox.release(message.messageId);
+            throw error;
+          }
           continue;
         }
         this.queued.add(message.messageId);
@@ -160,34 +249,46 @@ export class MainInboxDelivery {
                 // eslint-disable-next-line no-restricted-syntax -- 实验趋势是附加信息，读不到时消息照常投递，只是不带趋势段落
                 .catch(() => undefined)
             : undefined;
+          // The first message of a Run starts that Run's turn as the person's
+          // own request, not as an aside to work already in flight. Later
+          // user messages keep the "supplement while working" framing.
+          const initialTurn = isUserMessage && payload.initial === true && !followUp;
           await send(
             {
-              customType: isUserMessage
-                ? "cowork-user-message"
-                : isJobFinished
-                  ? "cowork-job-finished"
-                  : isExternalEvent
-                    ? "cowork-external-event"
-                    : isHumanAnswer
-                      ? "cowork-human-answer"
-                      : isSubagentQuestion
-                        ? "cowork-subagent-question"
-                        : "cowork-callback",
+              customType: initialTurn
+                ? "cowork-user-turn"
+                : isUserMessage
+                  ? "cowork-user-message"
+                  : isJobFinished
+                    ? "cowork-job-finished"
+                    : isExternalEvent
+                      ? "cowork-external-event"
+                      : isHumanAnswer
+                        ? "cowork-human-answer"
+                        : isSubagentQuestion
+                          ? "cowork-subagent-question"
+                          : "cowork-callback",
               // A user message is delivered as what it is — the person speaking —
               // rather than wrapped in the Inbox envelope the machinery uses. The
               // envelope reads as a system notice, and Main treated it as one.
-              content: isUserMessage
-                ? followUp
-                  ? `用户排队的下一条请求（当前工作结束后处理）：\n${String(payload.message ?? "")}`
-                  : `用户在你工作期间补充了一句话：\n${String(payload.message ?? "")}\n\n如果它改变了当前该做的事，就据此调整；如果只是补充信息，记下来继续。不要重新开始已经完成的部分。`
-                : `Cowork ${isJobFinished ? "job finished" : isExternalEvent ? "external event" : isHumanAnswer ? "human answer" : isSubagentQuestion ? "subagent question" : "callback"} received from Inbox:\n${JSON.stringify(message.payload)}${digest ? `\n\n${digest}` : ""}`,
+              content: initialTurn
+                ? String(payload.message ?? "")
+                : isUserMessage
+                  ? followUp
+                    ? `用户排队的下一条请求（当前工作结束后处理）：\n${String(payload.message ?? "")}`
+                    : `用户在你工作期间补充了一句话：\n${String(payload.message ?? "")}\n\n如果它改变了当前该做的事，就据此调整；如果只是补充信息，记下来继续。不要重新开始已经完成的部分。`
+                  : `Cowork ${isJobFinished ? "job finished" : isExternalEvent ? "external event" : isHumanAnswer ? "human answer" : isSubagentQuestion ? "subagent question" : "callback"} received from Inbox:\n${JSON.stringify(message.payload)}${digest ? `\n\n${digest}` : ""}`,
               display: true,
               details: {
                 ...payload,
                 _coworkInbox: { taskId: this.taskId, runId: this.runId, messageId: message.messageId }
               }
             },
-            { triggerTurn: true, deliverAs: followUp ? "followUp" : "steer" }
+            {
+              triggerTurn: true,
+              deliverAs: followUp ? "followUp" : "steer",
+              ...(initialTurn ? { userTurn: { messageId: message.messageId } } : {})
+            }
           );
         } catch (error) {
           this.queued.delete(message.messageId);
@@ -310,6 +411,10 @@ export class MainInboxDelivery {
     this.recorded.add(message.messageId);
     if (!appended) return;
     const payload = message.payload as { type?: string } | undefined;
+    // A user turn's receipt is the conversation itself; naming it as a runtime
+    // event would also make the request context differ between the first send
+    // and its retries, which must carry the same messages.
+    if (message.kind === "human_command" && payload?.type === "human.message") return;
     const isHumanAnswer = message.kind === "human_command" && payload?.type === "human.answer";
     const isJobFinished = message.kind === "external_event" && payload?.type === "job.finished";
     await updateMainContextRuntime(mainContextPaths(this.workspaceRoot, this.taskId), {

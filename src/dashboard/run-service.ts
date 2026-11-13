@@ -4,6 +4,7 @@ import {
 } from "../runtime/main-message-edit-transaction.js";
 import { applyEndpointLimits, type EndpointLimits } from "../runtime/model-limits.js";
 import { randomUUID } from "node:crypto";
+import type { ChildProcess } from "node:child_process";
 import {
   latestEditableMessage,
   saveAcceptedMainMessage,
@@ -19,12 +20,7 @@ import { InputStore, inputPrompt, readTaskInput } from "../workspace/input-store
 import { queuedUserTurn, readQueuedUserTurn } from "../runtime/queued-user-turn.js";
 import { MainInboxDelivery } from "../runtime/main-inbox-delivery.js";
 import { mainContextPaths } from "../runtime/main-context.js";
-import {
-  MAIN_CONTINUATION_COMMAND,
-  mainInputPath,
-  readMainInput,
-  saveMainInput
-} from "../runtime/main-continuation.js";
+import { mainInputPath, readMainInput, saveMainInput, type MainInput } from "../runtime/main-continuation.js";
 import { appendFile, readdir, realpath } from "node:fs/promises";
 import { listJobs } from "../tools/jobs.js";
 import { join, resolve } from "node:path";
@@ -47,11 +43,12 @@ import {
   type MainSupervisorCycleResult
 } from "../runtime/main-supervisor.js";
 import { readSleep, clearSleep } from "../runtime/main-sleep.js";
-import { ProcessHost } from "../runtime/process-host.js";
+import { AgentProcessHost, type AgentProcessRecord } from "../runtime/agent-process.js";
 import { InboxStore } from "../runtime/scheduler.js";
 import { SubagentQuestionStore } from "../runtime/subagent-questions.js";
 import { assessTaskCompletion, isFinalAssistantMessage } from "../runtime/task-completion.js";
 import { mainRunFailure, MainRunOutput } from "./main-run-outcome.js";
+import { mainIsAlive, readHeartbeat } from "../runtime/main-heartbeat.js";
 import { projectExecutionIsAlive } from "../workspace/project-execution.js";
 import { ProjectCatalogError } from "../workspace/project-catalog.js";
 import { normalizeReasoningEffort, type PiThinkingLevel } from "../runtime/runtime-settings.js";
@@ -192,8 +189,38 @@ export function createDashboardRunService({
   appendRunEvent,
   readJsonFile
 }: RunServicePorts) {
-  const processes = new ProcessHost();
-  const activeRuns = processes.processes;
+  /**
+   * A Run keeps one resident Main process for its whole life.
+   *
+   * The process does not end with its turn: its Inbox wakes it for the next
+   * one, and only closing the session, the idle timeout or a model request
+   * that could not continue ends it. One process therefore owns one Run, and
+   * a later message is delivered to it instead of starting a second one.
+   */
+  interface ResidentMain {
+    taskId: string;
+    runId: string;
+    location: TaskLocation;
+    host: AgentProcessHost;
+    record: AgentProcessRecord;
+    output: MainRunOutput;
+    /** A turn was accepted and has not settled yet. */
+    turnActive: boolean;
+    /** Whether this backend observes the process's own event stream. */
+    observed: boolean;
+    /** A turn was accepted while this backend could not watch it directly. */
+    turnAcceptedAt?: number;
+    /** The adopted process's heartbeat has reported its turn. */
+    turnSeenActive?: boolean;
+    /** This exit replaces the process; it must not settle the Run. */
+    replacing: boolean;
+    /** The exit was already handled; a late spawn must not re-register it. */
+    settled: boolean;
+    requestId?: string;
+  }
+  const residentMains = new Map<string, ResidentMain>();
+  /** Spawned handles, so a stop can report the process it actually ended. */
+  const activeRuns = new Map<string, ChildProcess>();
   const activeRunIds = new Map<string, string>();
   const interjectionTargets = new Map<string, InterjectionTarget>();
   let stopping = false;
@@ -221,7 +248,7 @@ export function createDashboardRunService({
     const { taskId } = location.task;
     let current = await location.store.readTask(taskId);
     if (
-      !activeRuns.has(taskId) ||
+      (!activeRuns.has(taskId) && !residentMain(taskId)) ||
       activeRunIds.get(taskId) !== runId ||
       current.activeRunId !== runId ||
       current.status === "cancelled"
@@ -239,6 +266,368 @@ export function createDashboardRunService({
       });
     }
     return current;
+  }
+
+  const residentMain = (taskId: string): ResidentMain | undefined => residentMains.get(taskId);
+
+  /**
+   * What one resident Main's exit means for its Task and Run.
+   *
+   * The process — not the turn — ends the Run. A replaced process leaves the
+   * Task to whoever replaces it; a crashed one fails the turn it was in; one
+   * that exits after a settled turn is the state-preserving stop (idle
+   * timeout or a closed session), so the Task keeps the state its last turn
+   * recorded and the next message starts a Main again.
+   */
+  function handleResidentExit(taskId: string, runId: string, record: AgentProcessRecord): Promise<void> {
+    const resident = residentMains.get(taskId);
+    if (resident && resident.runId !== runId) return Promise.resolve();
+    const finalization = (async () => {
+      const location = resident?.location ?? (await locateTask(taskId));
+      const taskWorkspace = location.workspaceRoot;
+      const replacing = resident?.replacing === true;
+      resident?.output.finish();
+      const settledTask = await location.store.readTask(taskId);
+      if (replacing) return;
+      if (cancellations.has(taskId) || settledTask.status === "cancelled") return;
+      if (activeRunIds.get(taskId) !== runId || settledTask.activeRunId !== runId) return;
+      const last = resident?.output.message;
+      const code = record.exitCode ?? null;
+      const signal = (record.exitSignal as NodeJS.Signals | null) ?? null;
+      const modelFailed = last?.role === "assistant" && last.stopReason === "error";
+      const turnWasActive = resident?.turnActive === true;
+      const interrupted = last?.role === "assistant" && ["aborted", "length"].includes(last.stopReason ?? "");
+      const event = (type: string, payload: unknown) =>
+        appendRunEvent(taskWorkspace, taskId, runId, type, payload);
+      if (stopping) {
+        // The backend is going away and the process ended with it. Nothing is
+        // failed; the Task is parked for the next Main.
+        if (await prepareRunTransition(location, runId, "waiting"))
+          await location.store.transitionTask(taskId, "waiting", { runId, reason: "desktop_shutdown" });
+        return;
+      }
+      const settlePause = async (request: NonNullable<TaskRecord["pause"]>) => {
+        if (!(await prepareRunTransition(location, runId, "paused"))) return;
+        await location.store.transitionTask(taskId, "paused", { runId, reason: "ui_pause" });
+        await event("main.run_paused", {
+          code,
+          signal,
+          reason: "ui_pause",
+          requestedAt: request.requestedAt
+        });
+        const paused = await location.store.readTask(taskId);
+        if (paused.pause && !paused.pause.pausedAt)
+          await location.store.updateTask(taskId, {
+            pause: { ...paused.pause, pausedAt: new Date().toISOString() }
+          });
+      };
+      // Aborting at a step boundary surfaces through Pi as an aborted
+      // operation. The durable pause request identifies it, while a model
+      // error that happened to overlap a pause still shows its own failure.
+      const errorMessage = last?.errorMessage ?? "";
+      if (settledTask.pause && modelFailed && /abort/i.test(errorMessage)) {
+        await settlePause(settledTask.pause);
+        return;
+      }
+      if (!modelFailed && !turnWasActive) {
+        // Between turns: the process ends an idle Run. Its last turn already
+        // recorded waiting, completed or paused, and that state is kept, so
+        // the next message or callback starts a Main from it.
+        await event("main.run_stopped", {
+          code,
+          signal,
+          reason: settledTask.status === "paused" ? "paused" : "idle",
+          status: settledTask.status
+        });
+        const finalized = await location.store.readTask(taskId);
+        if (finalized.activeRunId === runId && ["completed", "failed"].includes(finalized.status)) {
+          // eslint-disable-next-line no-restricted-syntax -- 调用方的收尾回调失败不能跳过后面的容量释放与内存记账
+          await onRunFinalized({ ...location, task: finalized }, runId).catch(() => {});
+        }
+        return;
+      }
+      if (modelFailed || (code !== 0 && !interrupted)) {
+        // A model request that could not continue ends the resident process,
+        // and a crash does the same: either way the Run settles as failed,
+        // including the recorded request a person may replay.
+        if (!(await prepareRunTransition(location, runId, "failed"))) return;
+        const { error, failure } = mainRunFailure(last, code, signal);
+        await event("main.run_failed", { error, code, signal, failure });
+        try {
+          await location.store.transitionTask(taskId, "failed", {
+            runId,
+            error,
+            reason: "dashboard_main_exit"
+          });
+          // eslint-disable-next-line no-restricted-syntax -- 失败事件的原始错误已落盘，状态转换失败不能覆盖或中断收尾
+        } catch {
+          /* preserve original failure */
+        }
+        return;
+      }
+      // The process ended while a turn was in flight without reporting a
+      // model error: settle that turn from what the Run recorded before exit.
+      let coordination;
+      try {
+        coordination = await coordinator.waitForSubagents({
+          taskId,
+          runId,
+          workspaceRoot: taskWorkspace,
+          timeoutMs: 0
+        });
+      } catch (error) {
+        if (!(await prepareRunTransition(location, runId, "waiting"))) return;
+        await event("main.run_waiting", { reason: "completion_check_failed", error: String(error) });
+        await location.store.transitionTask(taskId, "waiting", {
+          runId,
+          reason: "completion_check_failed"
+        });
+        return;
+      }
+      const assessment = assessTaskCompletion({
+        pendingJobs: (
+          await listJobs({
+            directory: join(taskWorkspace, taskId, "runs", runId, "agents", "main", "jobs")
+          })
+        ).filter((job) => job.state === "running").length,
+        pendingCalls: coordination.pending.length,
+        pendingCallbacks: coordination.callbackPending.length,
+        pendingHumanRequests: (await new HumanRequestStore(taskWorkspace).list(taskId, "pending")).length,
+        pendingSubagentQuestions: (await new SubagentQuestionStore(taskWorkspace).list(taskId, "pending"))
+          .length,
+        // eslint-disable-next-line no-restricted-syntax -- 睡眠标记读不到时按未挂起处理，完成评估继续走正常判定
+        parkedForWake: Boolean(await readSleep(taskWorkspace, taskId).catch(() => undefined)),
+        hasFinalAnswer: isFinalAssistantMessage(last)
+      });
+      const pauseNow = assessment.ready ? undefined : (await location.store.readTask(taskId)).pause;
+      if (pauseNow) {
+        await settlePause(pauseNow);
+        return;
+      }
+      const current = await prepareRunTransition(location, runId, assessment.ready ? "completed" : "waiting");
+      if (!current) return;
+      if (assessment.ready || (await readSleep(taskWorkspace, taskId)))
+        await resetMainSupervisorBackoff(taskWorkspace, taskId);
+      await event(assessment.ready ? "main.run_completed" : "main.run_waiting", {
+        code,
+        signal,
+        coordination,
+        reason: assessment.reason
+      });
+      try {
+        await location.store.transitionTask(taskId, assessment.ready ? "completed" : "waiting", {
+          runId,
+          reason: assessment.ready ? "dashboard_main_exit" : assessment.reason,
+          completion: {
+            signal: assessment.ready
+              ? current.completion?.signal === "finish_task"
+                ? "finish_task"
+                : "natural_stop"
+              : "interrupted"
+          }
+        });
+        // eslint-disable-next-line no-restricted-syntax -- 终态事件已经落盘，状态转换失败不能让这次 Run 收尾中断
+      } catch {
+        /* preserve event */
+      }
+      const finalized = await location.store.readTask(taskId);
+      if (finalized.activeRunId === runId && ["completed", "failed"].includes(finalized.status)) {
+        // eslint-disable-next-line no-restricted-syntax -- 调用方的收尾回调失败不能跳过后面的容量释放与内存记账
+        await onRunFinalized({ ...location, task: finalized }, runId).catch(() => {});
+      }
+    })()
+      .catch((error) =>
+        console.error(
+          `[cowork] run finalization failed: ${error instanceof Error ? error.message : String(error)}`
+        )
+      )
+      .finally(async () => {
+        finalizations.delete(finalization);
+        if (taskFinalizations.get(taskId) === finalization) taskFinalizations.delete(taskId);
+        if (resident) resident.settled = true;
+        if (residentMains.get(taskId) === resident) {
+          residentMains.delete(taskId);
+          activeRuns.delete(taskId);
+          interjectionTargets.delete(taskId);
+          onRunExit(taskId);
+        }
+        if (activeRunIds.get(taskId) === runId) activeRunIds.delete(taskId);
+        // The process is gone, so this Run no longer occupies an external
+        // slot; the next waiting demand may start now.
+        if (resident?.requestId && mainCapacity)
+          await mainCapacity
+            .release(resident.requestId)
+            .catch((error) =>
+              console.error(
+                `[cowork] external capacity release failed: ${error instanceof Error ? error.message : String(error)}`
+              )
+            );
+        // A quick reply can arrive while askhuman's process is still exiting.
+        // Wait for its durable settlement before starting the resumed session.
+        if (!stopping && humanWakeups.has(taskId)) void resumeHumanAnswers(taskId);
+      });
+    finalizations.add(finalization);
+    taskFinalizations.set(taskId, finalization);
+    return finalization;
+  }
+
+  /** End the resident Main serving a Task, waiting for its Run to settle. */
+  async function stopResidentMain(taskId: string, options: { replacing?: boolean } = {}): Promise<void> {
+    const resident = residentMains.get(taskId);
+    if (!resident) return;
+    resident.replacing = options.replacing === true;
+    await resident.host
+      .stop(resident.record)
+      .catch((error) =>
+        console.error(
+          `[cowork] stopping the resident Main failed: ${error instanceof Error ? error.message : String(error)}`
+        )
+      );
+    await taskFinalizations.get(taskId);
+  }
+
+  /**
+   * Take over a Main a previous backend left running for this Task.
+   *
+   * The process record carries the pid, host and OS start time it was launched
+   * with, so a recycled pid is never mistaken for it. An adopted process keeps
+   * running; later messages go to its Inbox and its own heartbeat reports the
+   * state this backend cannot observe directly.
+   */
+  async function adoptResidentMain(
+    taskId: string,
+    location: TaskLocation
+  ): Promise<ResidentMain | undefined> {
+    const existing = residentMains.get(taskId);
+    if (existing) return existing;
+    const task = await location.store.readTask(taskId);
+    if (!task.activeRunId) return undefined;
+    const host = new AgentProcessHost({
+      workspaceRoot: location.workspaceRoot,
+      harnessRoot: projectRoot,
+      onExit: (record) => handleResidentExit(taskId, record.runId, record)
+    });
+    const records = await host.records(taskId, task.activeRunId);
+    const record = records.find((candidate) => candidate.role === "main" && !candidate.settledAt);
+    if (!record || !(await host.owns(record))) {
+      if (record) await handleResidentExit(taskId, record.runId, record);
+      return undefined;
+    }
+    const resident: ResidentMain = {
+      taskId,
+      runId: record.runId,
+      location,
+      host,
+      record,
+      output: new MainRunOutput(),
+      // A process that survived a backend restart may be mid-turn, and this
+      // backend cannot observe that turn; its own heartbeat carries the flag.
+      turnActive: false,
+      observed: false,
+      replacing: false,
+      settled: false
+    };
+    residentMains.set(taskId, resident);
+    activeRunIds.set(taskId, record.runId);
+    interjectionTargets.set(taskId, { runId: record.runId });
+    await host.adopt({ taskId, runId: record.runId });
+    return resident;
+  }
+
+  /**
+   * Hand one turn to the Main that is already serving this Task.
+   *
+   * The process stays for its whole Run, so a later message is queued in its
+   * own Inbox rather than starting a second process. Returning `undefined`
+   * means this request needs a new process (an edit, a retry, another model,
+   * or a process that is already gone); the caller starts one.
+   */
+  async function deliverResidentTurn(input: {
+    resident: ResidentMain;
+    task: TaskRecord;
+    location: TaskLocation;
+    prompt: string;
+    continuation: boolean;
+    submission?: MainLaunchSubmission;
+    requestedModel?: string;
+    messageId: string;
+  }): Promise<
+    { taskId: string; runId: string; status: "running"; model: string; sessionId?: string } | undefined
+  > {
+    const { resident, task, location, prompt, continuation, submission, messageId } = input;
+    if (residentMain(resident.taskId) !== resident) return undefined;
+    if (resident.runId !== (task.activeRunId ?? resident.runId)) return undefined;
+    if (task.status === "cancelled" || task.status === "failed") return undefined;
+    if (input.requestedModel && normalizeModel(input.requestedModel) !== (task.model || "")) return undefined;
+    if (prompt.includes("\0")) throw new Error("消息包含不支持的二进制字符，请移除附件后重试");
+    if (Buffer.byteLength(prompt, "utf8") > 512 * 1024) throw new Error("消息及附件合计不能超过 512 KB");
+    if (!prompt.trim() && !continuation) throw new Error("prompt must not be empty");
+    const taskWorkspace = location.workspaceRoot;
+    // The same gates the launch path applies before a Mian may take work.
+    if ((await new HumanRequestStore(taskWorkspace).listBlockingPending(resident.taskId)).length)
+      throw new Error("请先回答任务中待确认的问题，再继续运行。");
+    const model = task.model || "";
+    await location.store.updateTask(resident.taskId, {
+      ...(!continuation ? { goal: task.goal || prompt.slice(0, 4_000) } : {}),
+      model,
+      activeRunId: resident.runId,
+      ...(task.pause ? { pause: undefined } : {})
+    });
+    const inbox = new InboxStore(
+      join(taskWorkspace, resident.taskId, "runs", resident.runId, "agents", "main", "inbox-store.json")
+    );
+    if (continuation) {
+      const resumeId = `main-resume-${randomUUID()}`;
+      await inbox.enqueue({
+        messageId: resumeId,
+        recipientAgentId: "main",
+        kind: "human_command",
+        eventId: `main-resume-event-${resumeId}`,
+        priority: 100,
+        state: "ready",
+        payload: { type: "main.resume" },
+        createdAt: now()
+      });
+    } else {
+      const body: MainInput = {
+        version: 1,
+        prompt,
+        submittedAt: Date.now(),
+        body: submission?.body,
+        taskId: resident.taskId,
+        runId: resident.runId,
+        attachmentIds: submission?.attachmentIds,
+        textAttachments: submission?.textAttachments,
+        ...(submission?.thinkingLevel
+          ? { thinkingLevel: normalizeReasoningEffort(submission.thinkingLevel, "thinkingLevel") }
+          : {}),
+        messageId,
+        source:
+          submission?.source ?? (readQueuedUserTurn(prompt) ? ("inbox" as const) : ("composer" as const))
+      };
+      await saveMainInput(mainInputPath(taskWorkspace, resident.taskId, resident.runId), body);
+      await saveAcceptedMainMessage(taskWorkspace, resident.taskId, body);
+      submission?.onAcceptedInput?.(messageId);
+      await inbox.enqueue({
+        messageId,
+        recipientAgentId: "main",
+        kind: "human_command",
+        eventId: `main-turn-${messageId}`,
+        priority: 120,
+        state: "ready",
+        payload: { type: "human.message", message: prompt, delivery: "steer", initial: true },
+        createdAt: now()
+      });
+    }
+    await appendRunEvent(taskWorkspace, resident.taskId, resident.runId, "main.turn_delivered", {
+      prompt: prompt.slice(0, 4_000),
+      continuation,
+      messageId
+    });
+    resident.turnActive = true;
+    resident.turnAcceptedAt = Date.now();
+    interjectionTargets.set(resident.taskId, { runId: resident.runId });
+    return { taskId: resident.taskId, runId: resident.runId, status: "running", model };
   }
 
   async function launchMainRunWithAdmission(
@@ -262,15 +651,41 @@ export function createDashboardRunService({
     // A dispatched demand already owns its slot; keep that identity so the
     // process record and the release below address the same claim.
     if (submission?.admittedRequestId) admission.requestId = submission.admittedRequestId;
-    const existing = activeRuns.get(taskId);
-    if (existing && !existing.killed) throw new Error("Task already has an active Main run");
     const location = await locateTask(taskId);
     const task = location.task;
     const taskWorkspace = location.workspaceRoot;
-    // An answer can be queued while an edit replaces its Run. Validate again
-    // inside the serialized launch so it cannot resume the replacement branch.
+    // An answer can be queued while an edit replaces its Run. Validate before
+    // any process decision so it cannot resume the replacement branch.
     if (submission?.source === "human" && task.activeRunId !== requestedRunId)
       throw new Error("该问题所属运行已变更，请刷新任务。");
+    // A resident Main serving this Task takes the turn in the process it
+    // already has. Only a request that needs a different process (an edit, a
+    // retry, another model) falls through, and that one replaces it.
+    const resident = residentMains.get(taskId) ?? (await adoptResidentMain(taskId, location));
+    if (resident) {
+      // A retry or a request for another Run while a Main still serves this
+      // Task is the same duplicate the launch check always refused: the Run
+      // it names has already started.
+      if (retryRequestId || (requestedRunId !== undefined && requestedRunId !== resident.runId))
+        throw new Error("Task already has an active Main run");
+      if (!submission?.edit) {
+        const delivered = await deliverResidentTurn({
+          resident,
+          task,
+          location,
+          prompt,
+          continuation: resume && !prompt.trim(),
+          ...(submission ? { submission } : {}),
+          ...(requestedModel ? { requestedModel } : {}),
+          messageId: readQueuedUserTurn(prompt)?.messageId ?? randomUUID()
+        });
+        if (delivered) return delivered;
+      }
+      // An edit, another model or a process that is already gone replaces it.
+      await stopResidentMain(taskId, { replacing: true });
+    }
+    const existing = activeRuns.get(taskId);
+    if (existing && !existing.killed) throw new Error("Task already has an active Main run");
     // Completing a request ends a run, not the conversation's Pi session.
     const continueSession = resume || Boolean(task.activeRunId);
     const continuation = resume && !prompt.trim();
@@ -534,81 +949,84 @@ export function createDashboardRunService({
       throw new Error("Runtime is shutting down");
     }
     if (submission?.edit) await readyMessageEditTransaction(taskWorkspace, taskId);
-    const script = join(projectRoot, "scripts", "start-pi.mjs");
-    const child = processes.start(
-      taskId,
-      process.execPath,
-      [
-        script,
-        "--print",
-        "--mode",
-        "json",
-        ...(versions?.sessionFile
-          ? ["--session", versions.sessionFile]
-          : continueSession
-            ? ["--continue"]
-            : ["--session-id", runId]),
-        "--session-dir",
-        join(taskWorkspace, taskId, "sessions", "main", "pi")
-      ],
-      {
-        cwd: projectRoot,
-        env: {
-          ...process.env,
-          COWORK_API_TOKEN: runCredential,
-          ...mainRunEnv({
-            baseUrl,
-            apiKey,
-            model,
-            taskWorkspace,
-            projectDirectory: task.projectDirectory,
-            taskId,
-            runId,
-            dashboardUrl,
-            piAgentDir: process.env.PI_CODING_AGENT_DIR,
-            projectRoot,
-            selection,
-            ...(input?.thinkingLevel
-              ? { thinkingLevel: normalizeReasoningEffort(input.thinkingLevel, "thinkingLevel") }
-              : {})
-          }),
-          COWORK_MAIN_CONTINUATION: continuation ? inputPath : "",
-          // Admission is this process's budget decision; the launcher must not
-          // ask for a second slot for the same Run.
-          ...(admission.requestId ? { COWORK_MAIN_CAPACITY_GRANTED: admission.requestId } : {}),
-          COWORK_MAIN_RETRY_REQUEST_ID: retryRequest?.requestId ?? "",
-          COWORK_MAIN_RETRY_MODEL: retryRequest ? JSON.stringify(retryRequest.model) : ""
-        },
-        stdio: ["pipe", "pipe", "pipe"]
-      }
+    // The first turn of this Run arrives the way every later one does: through
+    // the process's own durable Inbox. A continuation starts without new
+    // input, so it is woken by the resume command instead.
+    const inbox = new InboxStore(
+      join(taskWorkspace, taskId, "runs", runId, "agents", "main", "inbox-store.json")
     );
-    admission.spawned = true;
-    if (admission.requestId && mainCapacity && child.pid)
-      await mainCapacity
-        .bindProcess(admission.requestId, child.pid)
-        .catch((error) =>
-          console.error(
-            `[cowork] external capacity process record failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          )
-        );
-    activeRunIds.set(taskId, runId);
-    interjectionTargets.set(taskId, { runId });
-    child.stdin?.on("error", () => {
-      /* child close/error settles the run */
-    });
-    child.stdin?.end(
-      continuation
-        ? MAIN_CONTINUATION_COMMAND
-        : input?.source === "composer" && input.messageId
-          ? queuedUserTurn({ taskId, runId, messageId: input.messageId, text: prompt })
-          : prompt
-    );
+    const createdAt = now();
+    // A continuation and a message edit both already have their turn in the
+    // session (restored from the accepted input); the process only needs to be
+    // told to start it. A fresh message is itself the turn.
+    if (continuation || submission?.edit) {
+      const resumeId = `main-resume-${randomUUID()}`;
+      await inbox.enqueue({
+        messageId: resumeId,
+        recipientAgentId: "main",
+        kind: "human_command",
+        eventId: `main-resume-event-${resumeId}`,
+        priority: 100,
+        state: "ready",
+        payload: { type: "main.resume" },
+        createdAt
+      });
+    } else {
+      await inbox.enqueue({
+        messageId,
+        recipientAgentId: "main",
+        kind: "human_command",
+        eventId: `main-turn-${messageId}`,
+        priority: 120,
+        state: "ready",
+        payload: { type: "human.message", message: prompt, delivery: "steer", initial: true },
+        createdAt
+      });
+    }
+    const launchEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      COWORK_API_TOKEN: runCredential,
+      ...mainRunEnv({
+        baseUrl,
+        apiKey,
+        model,
+        taskWorkspace,
+        projectDirectory: task.projectDirectory,
+        taskId,
+        runId,
+        dashboardUrl,
+        piAgentDir: process.env.PI_CODING_AGENT_DIR,
+        projectRoot,
+        selection,
+        ...(input?.thinkingLevel
+          ? { thinkingLevel: normalizeReasoningEffort(input.thinkingLevel, "thinkingLevel") }
+          : {})
+      }),
+      // A continuation restores the accepted input this Run inherits, and an
+      // edit restores its rewritten input, into the selected session before
+      // Pi starts. The resident process never reads stdin.
+      COWORK_MAIN_CONTINUATION: continuation || submission?.edit ? inputPath : "",
+      // Admission is this process's budget decision; the launcher must not
+      // ask for a second slot for the same Run.
+      ...(admission.requestId ? { COWORK_MAIN_CAPACITY_GRANTED: admission.requestId } : {}),
+      COWORK_MAIN_RETRY_REQUEST_ID: retryRequest?.requestId ?? "",
+      COWORK_MAIN_RETRY_MODEL: retryRequest ? JSON.stringify(retryRequest.model) : ""
+    };
     const outputPath = join(taskWorkspace, taskId, "runs", runId, "runtime-output.log");
     const stderrPath = join(taskWorkspace, taskId, "runs", runId, "runtime-stderr.log");
-    const runOutput = new MainRunOutput();
-    let spawnError: Error | undefined;
+    // The turn boundary is the Process's own event stream: a resident Main
+    // starts and settles turns while the backend watches.
+    const runOutput = new MainRunOutput((type) => {
+      const current = residentMains.get(taskId);
+      if (!current || current.runId !== runId) return;
+      if (type === "agent_start") current.turnActive = true;
+      else if (type === "agent_settled") {
+        // A failed request ends this process; the Run stays "working" until
+        // the exit settles it as failed, so a page cannot read it as idle.
+        if (runOutput.message?.stopReason === "error") return;
+        current.turnActive = false;
+      }
+    });
     // Concurrent appendFile calls can reorder stream chunks. Preserve arrival
     // order so message_start, deltas and final snapshots remain coherent.
     let outputWrites = Promise.resolve();
@@ -621,203 +1039,103 @@ export function createDashboardRunService({
           )
         );
     };
-    child.stdout?.on("data", (chunk: Buffer) => {
-      runOutput.write(chunk);
-      persistOutput(outputPath, chunk);
+    // Registered before the launch returns: a process that exits during the
+    // launch's own awaits must still be settled, and its late events must not
+    // re-register it.
+    const entry: ResidentMain = {
+      taskId,
+      runId,
+      location,
+      host: undefined as unknown as AgentProcessHost,
+      record: undefined as unknown as AgentProcessRecord,
+      output: runOutput,
+      // The turn this launch enqueued has been accepted; it clears when Pi
+      // reports the Run settled.
+      turnActive: true,
+      observed: true,
+      replacing: false,
+      settled: false,
+      ...(admission.requestId ? { requestId: admission.requestId } : {})
+    };
+    const host = new AgentProcessHost({
+      workspaceRoot: taskWorkspace,
+      harnessRoot: projectRoot,
+      env: launchEnv,
+      onSpawn: (spawned, child) => {
+        if (entry.settled) return;
+        entry.record = spawned;
+        activeRuns.set(taskId, child);
+      },
+      onExit: (record) => handleResidentExit(taskId, record.runId, record)
     });
-    // A diagnostic can arrive between stdout fragments of one JSON event.
-    // Preserve its original bytes without corrupting the model event stream.
-    child.stderr?.on("data", (chunk) => persistOutput(stderrPath, chunk));
-    child.once("error", (error) => {
-      // close owns the single durable terminal event and Task transition.
-      spawnError = error;
-    });
-    child.once("close", (code, signal) => {
-      const finalization = (async () => {
-        await outputWrites;
-        runOutput.finish();
-        const settledTask = await location.store.readTask(taskId);
-        if (cancellations.has(taskId) || settledTask.status === "cancelled") return;
-        // A pause this backend already recorded has no second close to settle.
-        if (settledTask.status === "paused") return;
-        if (activeRunIds.get(taskId) !== runId || settledTask.activeRunId !== runId) return;
-        // A launch failure or truncated stream can leave the persisted context
-        // unchanged. Only this process's terminal event can complete/fail it;
-        // previous successful or failed turns remain diagnostic history.
-        const last = runOutput.message;
-        const modelFailed = last?.role === "assistant" && last.stopReason === "error";
-        const interrupted =
-          last?.role === "assistant" && ["aborted", "length"].includes(last.stopReason ?? "");
-        if (stopping) {
-          if (await prepareRunTransition(location, runId, "waiting"))
-            await location.store.transitionTask(taskId, "waiting", { runId, reason: "desktop_shutdown" });
-          return;
-        }
-        const settlePause = async (request: NonNullable<TaskRecord["pause"]>) => {
-          if (!(await prepareRunTransition(location, runId, "paused"))) return;
-          // The status is the fact the next resume reads; the event only
-          // explains it, so it is appended after the transition.
-          await location.store.transitionTask(taskId, "paused", {
-            runId,
-            reason: "ui_pause"
-          });
-          await appendRunEvent(taskWorkspace, taskId, runId, "main.run_paused", {
-            code,
-            signal,
-            reason: "ui_pause",
-            requestedAt: request.requestedAt
-          });
-          const paused = await location.store.readTask(taskId);
-          if (paused.pause && !paused.pause.pausedAt)
-            await location.store.updateTask(taskId, {
-              pause: { ...paused.pause, pausedAt: new Date().toISOString() }
-            });
-        };
-        // Aborting at the step boundary surfaces through Pi as an aborted
-        // operation. The durable pause request identifies it, while a model
-        // error that happened to overlap a pause still shows its own failure.
-        if (settledTask.pause && modelFailed && /abort/i.test(last.errorMessage ?? "")) {
-          await settlePause(settledTask.pause);
-          return;
-        }
-        if ((code === 0 || interrupted) && !modelFailed) {
-          let coordination;
-          try {
-            coordination = await coordinator.waitForSubagents({
-              taskId,
-              runId,
-              workspaceRoot: taskWorkspace,
-              timeoutMs: 0
-            });
-          } catch (error) {
-            if (!(await prepareRunTransition(location, runId, "waiting"))) return;
-            await appendRunEvent(taskWorkspace, taskId, runId, "main.run_waiting", {
-              reason: "completion_check_failed",
-              error: String(error)
-            });
-            await location.store.transitionTask(taskId, "waiting", {
-              runId,
-              reason: "completion_check_failed"
-            });
-            return;
-          }
-          let assessment = assessTaskCompletion({
-            pendingJobs: (
-              await listJobs({
-                directory: join(taskWorkspace, taskId, "runs", runId, "agents", "main", "jobs")
-              })
-            ).filter((job) => job.state === "running").length,
-            pendingCalls: coordination.pending.length,
-            pendingCallbacks: coordination.callbackPending.length,
-            pendingHumanRequests: (await new HumanRequestStore(taskWorkspace).list(taskId, "pending")).length,
-            pendingSubagentQuestions: (await new SubagentQuestionStore(taskWorkspace).list(taskId, "pending"))
-              .length,
-            // eslint-disable-next-line no-restricted-syntax -- 睡眠标记读不到时按未挂起处理，完成评估继续走正常判定
-            parkedForWake: Boolean(await readSleep(taskWorkspace, taskId).catch(() => undefined)),
-            hasFinalAnswer: isFinalAssistantMessage(last)
-          });
-          // A user pause owns this boundary only when the step did not finish
-          // the Task. Completed work stays completed rather than becoming a
-          // pause a person would have to resume.
-          // A pause can arrive while completion checks were awaiting jobs or
-          // delegations, so read the request again at the boundary we are
-          // about to write. Completion still wins when the step finished it.
-          const pauseNow = assessment.ready ? undefined : (await location.store.readTask(taskId)).pause;
-          if (pauseNow) {
-            await settlePause(pauseNow);
-            return;
-          }
-          const current = await prepareRunTransition(
-            location,
-            runId,
-            assessment.ready ? "completed" : "waiting"
-          );
-          if (!current) return;
-          if (assessment.ready || (await readSleep(taskWorkspace, taskId)))
-            await resetMainSupervisorBackoff(taskWorkspace, taskId);
-          await appendRunEvent(
-            taskWorkspace,
-            taskId,
-            runId,
-            assessment.ready ? "main.run_completed" : "main.run_waiting",
-            { code, signal, coordination, reason: assessment.reason }
-          );
-          try {
-            await location.store.transitionTask(taskId, assessment.ready ? "completed" : "waiting", {
-              runId,
-              reason: assessment.ready ? "dashboard_main_exit" : assessment.reason,
-              completion: {
-                signal: assessment.ready
-                  ? current.completion?.signal === "finish_task"
-                    ? "finish_task"
-                    : "natural_stop"
-                  : "interrupted"
-              }
-            });
-            // eslint-disable-next-line no-restricted-syntax -- 终态事件已经落盘，状态转换失败不能让这次 Run 收尾中断
-          } catch {
-            /* preserve event */
-          }
-        } else {
-          if (!(await prepareRunTransition(location, runId, "failed"))) return;
-          const { error, failure } = mainRunFailure(last, code, signal, spawnError);
-          await appendRunEvent(taskWorkspace, taskId, runId, "main.run_failed", {
-            error,
-            code,
-            signal,
-            failure
-          });
-          try {
-            await location.store.transitionTask(taskId, "failed", {
-              runId,
-              error,
-              reason: "dashboard_main_exit"
-            });
-            // eslint-disable-next-line no-restricted-syntax -- 失败事件的原始错误已落盘，状态转换失败不能覆盖或中断收尾
-          } catch {
-            /* preserve original failure */
-          }
-        }
-        const finalized = await location.store.readTask(taskId);
-        if (finalized.activeRunId === runId && ["completed", "failed"].includes(finalized.status)) {
-          // eslint-disable-next-line no-restricted-syntax -- 调用方的收尾回调失败不能跳过后面的容量释放与内存记账
-          await onRunFinalized({ ...location, task: finalized }, runId).catch(() => {});
-        }
-      })()
+    entry.host = host;
+    residentMains.set(taskId, entry);
+    let record: AgentProcessRecord;
+    try {
+      record = await host.launch({
+        taskId,
+        runId,
+        callId: runId,
+        agentId: "main",
+        role: "main",
+        workingDirectory: projectRoot,
+        projectDirectory: task.projectDirectory ?? taskWorkspace,
+        // One Pi session for the life of the resident process; a message edit
+        // resumes exactly the version it rewrote.
+        sessionDirectory: join(taskWorkspace, taskId, "sessions", "main", "pi"),
+        resultPath: join(taskWorkspace, taskId, "runs", runId, "agents", "main", "process-result.json"),
+        env: { COWORK_API_TOKEN: runCredential },
+        mode: "resident",
+        ...(versions?.sessionFile
+          ? { sessionArgs: ["--session", versions.sessionFile] }
+          : continueSession
+            ? { sessionArgs: ["--continue"] }
+            : { sessionArgs: ["--session-id", runId] }),
+        onStdout: (chunk) => {
+          runOutput.write(chunk);
+          persistOutput(outputPath, chunk);
+        },
+        // A diagnostic can arrive between stdout fragments of one JSON event.
+        // Preserve its original bytes without corrupting the model event stream.
+        onStderr: (chunk) => persistOutput(stderrPath, chunk)
+      });
+    } catch (error) {
+      // A process that never started owns no Run state to settle later, so the
+      // failure is recorded here, once, with the cause the OS reported.
+      const message = error instanceof Error ? error.message : String(error);
+      runOutput.finish();
+      await appendRunEvent(taskWorkspace, taskId, runId, "main.run_failed", {
+        error: message,
+        code: null,
+        signal: null,
+        failure: { kind: "main_process", spawn: true }
+      });
+      await location.store
+        .transitionTask(taskId, "failed", { runId, error: message, reason: "dashboard_main_exit" })
+        // eslint-disable-next-line no-restricted-syntax -- 失败事件已落盘，状态转换失败不能覆盖启动失败本身
+        .catch(() => {});
+      if (admission.requestId && mainCapacity)
+        // eslint-disable-next-line no-restricted-syntax -- 启动失败已记录，释放名额失败不能替换这个错误
+        await mainCapacity.release(admission.requestId).catch(() => {});
+      activeRunIds.delete(taskId);
+      interjectionTargets.delete(taskId);
+      if (submission?.edit) await finishMessageEditTransaction(taskWorkspace, taskId);
+      return { taskId, runId, status: "running", model };
+    }
+    admission.spawned = true;
+    if (admission.requestId && mainCapacity)
+      await mainCapacity
+        .bindProcess(admission.requestId, record.pid)
         .catch((error) =>
           console.error(
-            `[cowork] run finalization failed: ${error instanceof Error ? error.message : String(error)}`
+            `[cowork] external capacity process record failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
           )
-        )
-        .finally(async () => {
-          // Keep the request active until its durable completion state is saved.
-          finalizations.delete(finalization);
-          if (taskFinalizations.get(taskId) === finalization) taskFinalizations.delete(taskId);
-          if (activeRuns.get(taskId) === child) {
-            onRunExit(taskId);
-            activeRuns.delete(taskId);
-            interjectionTargets.delete(taskId);
-          }
-          if (activeRunIds.get(taskId) === runId) activeRunIds.delete(taskId);
-          // The process is gone, so this Run no longer occupies an external
-          // slot; the next waiting demand may start now.
-          if (admission.requestId && mainCapacity)
-            await mainCapacity
-              .release(admission.requestId)
-              .catch((error) =>
-                console.error(
-                  `[cowork] external capacity release failed: ${
-                    error instanceof Error ? error.message : String(error)
-                  }`
-                )
-              );
-          // A quick reply can arrive while askhuman's process is still exiting.
-          // Wait for its durable settlement before starting the resumed session.
-          if (!stopping && humanWakeups.has(taskId)) void resumeHumanAnswers(taskId);
-        });
-      finalizations.add(finalization);
-      taskFinalizations.set(taskId, finalization);
-    });
+        );
+    entry.record = record;
+    activeRunIds.set(taskId, runId);
+    interjectionTargets.set(taskId, { runId });
     if (submission?.edit) await finishMessageEditTransaction(taskWorkspace, taskId);
     return {
       taskId,
@@ -898,7 +1216,7 @@ export function createDashboardRunService({
       const supervisor = new MainSupervisor({
         workspaceRoot,
         // A Run this host owns is alive even before its heartbeat is written.
-        isRunning: (taskId) => activeRuns.has(taskId),
+        isRunning: (taskId) => residentMain(taskId) !== undefined || activeRuns.has(taskId),
         launch: async ({ taskId, runId }) => {
           await startMainRun(taskId, SUPERVISOR_WAKE_TURN, runId, true, undefined, undefined, {
             origin: "internal",
@@ -970,8 +1288,13 @@ export function createDashboardRunService({
           };
         }
         await taskFinalizations.get(taskId);
-        if (activeRuns.has(taskId) || location.task.activeRunId !== request.runId)
+        // An edit rewrites the Pi session under the running Main. The process
+        // is stopped first — an idle one or one blocked on a durable question —
+        // and relaunched on the edited version. That is what keeps editing
+        // possible now that the process outlives its turns.
+        if (location.task.activeRunId !== request.runId)
           throw new MainMessageEditConflict("请先停止当前运行并等待停止完成，再修改重发。");
+        if (residentMain(taskId)) await stopResidentMain(taskId, { replacing: true });
         const source = await latestEditableMessage(location.workspaceRoot, taskId, request.runId);
         if (
           !source ||
@@ -1013,7 +1336,7 @@ export function createDashboardRunService({
             }
           });
         } catch (error) {
-          if (rollback && !activeRuns.has(taskId)) {
+          if (rollback && !residentMain(taskId) && !activeRuns.has(taskId)) {
             if (acceptedMessageId)
               await rejectAcceptedMainMessage(location.workspaceRoot, taskId, acceptedMessageId);
             await rollback();
@@ -1037,8 +1360,9 @@ export function createDashboardRunService({
   }
 
   function interjectionTarget(taskId: string): InterjectionTarget | undefined {
-    const child = activeRuns.get(taskId);
-    if (!child || child.killed || child.exitCode !== null || child.signalCode !== null) return;
+    // A resident Main is reachable while its entry exists, whether this
+    // backend spawned it or adopted it after a restart.
+    if (!residentMain(taskId)) return;
     return interjectionTargets.get(taskId);
   }
 
@@ -1051,15 +1375,11 @@ export function createDashboardRunService({
     return serialize(taskId, async () => {
       await taskFinalizations.get(taskId);
       const location = await locateTask(taskId);
-      const child = activeRuns.get(taskId);
       // Keep the identity captured when the request entered the route. Reading
       // its body may span a stop or a whole new Run, which must not receive it.
       if (
         stopping ||
-        !child ||
-        child.killed ||
-        child.exitCode !== null ||
-        child.signalCode !== null ||
+        residentMain(taskId)?.runId !== target.runId ||
         interjectionTargets.get(taskId) !== target ||
         activeRunIds.get(taskId) !== target.runId ||
         location.task.activeRunId !== target.runId ||
@@ -1101,7 +1421,7 @@ export function createDashboardRunService({
         const location = await locateTask(taskId);
         const currentRunId = location.task.activeRunId;
         if (!currentRunId) return { error: "这条消息已不在队列中。" };
-        const active = activeRuns.has(taskId);
+        const active = residentMain(taskId) !== undefined;
         // A process can exit between saving its first prompt and acknowledging it.
         if (!active)
           await new MainInboxDelivery(location.workspaceRoot, taskId, currentRunId).acknowledge(
@@ -1210,6 +1530,7 @@ export function createDashboardRunService({
         const location = await locateTask(taskId);
         if (
           activeRuns.has(taskId) ||
+          residentMain(taskId) !== undefined ||
           taskFinalizations.has(taskId) ||
           ["running", "paused", "waiting"].includes(location.task.status) ||
           (await readSleep(location.workspaceRoot, taskId)) ||
@@ -1269,7 +1590,7 @@ export function createDashboardRunService({
     return serialize(taskId, async () => {
       const location = await locateTask(taskId);
       if (location.task.status === "paused") return { task: location.task };
-      if (location.task.status !== "running" || !activeRuns.has(taskId) || !location.task.activeRunId)
+      if (location.task.status !== "running" || !residentMain(taskId) || !location.task.activeRunId)
         return { refused: "no_active_run" as const };
       if (!location.task.pause) {
         const task = await location.store.updateTask(taskId, {
@@ -1288,6 +1609,44 @@ export function createDashboardRunService({
     });
   }
 
+  /**
+   * Stop the turn Main is producing, leaving the session and its work alone.
+   *
+   * The command travels through the process's own durable Inbox like every
+   * other message, so it needs no second control channel: Main aborts the run
+   * where Pi next checks its signal and stays available for the next message.
+   * Subagents already running are not cancelled; the Task is not ended.
+   */
+  function interruptTask(taskId: string) {
+    return serialize(taskId, async () => {
+      const location = await locateTask(taskId);
+      const resident = residentMain(taskId);
+      const heartbeat = await readHeartbeat(location.workspaceRoot, taskId);
+      const turnActive = resident?.turnActive ?? (mainIsAlive(heartbeat) && heartbeat?.turnActive === true);
+      const runId = resident?.runId ?? location.task.activeRunId;
+      if (!turnActive || !runId) return { refused: "no_active_turn" as const };
+      const inbox = new InboxStore(
+        join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
+      );
+      const messageId = `main-interrupt-${randomUUID()}`;
+      await inbox.enqueue({
+        messageId,
+        recipientAgentId: "main",
+        kind: "human_command",
+        eventId: `main-interrupt-event-${messageId}`,
+        // Ahead of ordinary work: an interrupt is about the turn in flight.
+        priority: 200,
+        state: "ready",
+        payload: { type: "main.interrupt" },
+        createdAt: now()
+      });
+      await appendRunEvent(location.workspaceRoot, taskId, runId, "main.interrupt_requested", {
+        messageId
+      });
+      return { taskId, runId, interrupted: true };
+    });
+  }
+
   function cancelTask(taskId: string) {
     return serialize(taskId, async () => {
       cancellations.add(taskId);
@@ -1298,6 +1657,14 @@ export function createDashboardRunService({
         const location = await locateTask(taskId);
         if (location.task.status === "completed") {
           const runId = activeRunIds.get(taskId);
+          // A finished Task whose resident Main is idle keeps its completed
+          // outcome; closing only ends that process. A turn still producing
+          // the final response is a provisional completion, so cancelling it
+          // takes the ordinary terminal path below.
+          if (runId && residentMain(taskId) && (await taskTurnActive(taskId)) !== true) {
+            await stopResidentMain(taskId);
+            return (await locateTask(taskId)).task;
+          }
           if (!runId || !(await prepareRunTransition(location, runId, "cancelled"))) return location.task;
         }
         let failed = false;
@@ -1349,7 +1716,7 @@ export function createDashboardRunService({
             if (rejected?.status === "rejected") throw rejected.reason;
           }
         });
-        await attempt(() => processes.stopKey(taskId));
+        await attempt(() => stopResidentMain(taskId));
         await attempt(async () => taskFinalizations.get(taskId));
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- failed 由 attempt 的 catch 回调置位，TS 在读取处看不到这次闭包写入
         if (failed) throw failure;
@@ -1395,7 +1762,7 @@ export function createDashboardRunService({
         humanWakeups.delete(taskId);
         return { status: "delivered" };
       }
-      if (activeRuns.has(taskId)) {
+      if (residentMain(taskId) || activeRuns.has(taskId)) {
         humanWakeups.add(taskId);
         return { status: "resuming" };
       }
@@ -1434,11 +1801,40 @@ export function createDashboardRunService({
     return operation;
   }
 
+  /**
+   * Whether a turn is running for this Task right now.
+   *
+   * `undefined` means this backend is not watching the process (it adopted the
+   * Task's Main after a restart); the caller then reads the process heartbeat.
+   */
+  async function taskTurnActive(taskId: string): Promise<boolean | undefined> {
+    const resident = residentMains.get(taskId);
+    if (!resident) return undefined;
+    if (resident.observed) return resident.turnActive;
+    // An adopted process reports its own turn state. Until its heartbeat says
+    // otherwise, a turn this backend just handed over is still starting.
+    const beat = await readHeartbeat(resident.location.workspaceRoot, taskId);
+    if (mainIsAlive(beat) && beat?.turnActive === true) {
+      resident.turnSeenActive = true;
+      return true;
+    }
+    if (resident.turnSeenActive) return false;
+    return resident.turnAcceptedAt === undefined ? undefined : true;
+  }
+
+  /** Whether a Main process for this Task exists, idle or working. */
+  function mainProcessRunning(taskId: string): boolean {
+    return activeRuns.has(taskId) || residentMains.has(taskId);
+  }
+
   return {
     activeRuns,
+    taskTurnActive,
+    mainProcessRunning,
     isBusy: () => activeRuns.size > 0 || taskOperations.size > 0 || finalizations.size > 0,
     startMainRun,
     pauseTask,
+    interruptTask,
     editMainMessage,
     interjectionTarget,
     queueInterjection,
@@ -1457,9 +1853,15 @@ export function createDashboardRunService({
       // drained with the other task operations before its process is reaped.
       await stopMainGuardian();
       // A startup may be between durable writes and spawn. Drain accepted task
-      // operations before disabling ProcessHost so they can settle without a child.
+      // operations before dropping observers so they can settle without a child.
       await Promise.allSettled([...taskOperations.values()]);
-      await processes.stop();
+      // A resident Main is not a child of this backend: a restart or upgrade
+      // must leave it running. Only the observers go away; the next backend
+      // adopts the processes from their durable records.
+      for (const resident of residentMains.values()) {
+        resident.host.close();
+        activeRuns.delete(resident.taskId);
+      }
       await Promise.all(finalizations);
     }
   };

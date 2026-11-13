@@ -11,6 +11,8 @@ export class MainRunOutput {
   private discarding = false;
   message?: ConversationMessage;
 
+  constructor(private readonly onEvent?: (type: string) => void) {}
+
   write(chunk: Buffer): void {
     this.consume(this.decoder.write(chunk));
   }
@@ -51,6 +53,7 @@ export class MainRunOutput {
     } catch {
       return;
     }
+    if (typeof event.type === "string") this.onEvent?.(event.type);
     if (event.type === "agent_start") {
       this.message = undefined;
       return;

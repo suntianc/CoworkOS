@@ -378,13 +378,13 @@ export function spawnMainProcess(input: {
     process.execPath,
     [
       join(input.harnessRoot, "scripts", "start-pi.mjs"),
-      "--print",
+      // A resumed Main is resident too: it starts in Pi's long-lived
+      // interface and the pending Inbox work is what starts its first turn.
       "--mode",
-      "json",
+      "rpc",
       "--continue",
       "--session-dir",
-      join(input.workspaceRoot, input.taskId, "sessions", "main", "pi"),
-      SUPERVISOR_WAKE_TURN
+      join(input.workspaceRoot, input.taskId, "sessions", "main", "pi")
     ],
     {
       cwd: input.harnessRoot,
@@ -392,6 +392,7 @@ export function spawnMainProcess(input: {
         ...process.env,
         ...input.env,
         COWORK_CLI_SESSION: "0",
+        COWORK_MAIN_RESIDENT: "1",
         COWORK_WORKSPACE: input.workspaceRoot,
         COWORK_TASK_ID: input.taskId,
         COWORK_RUN_ID: input.runId

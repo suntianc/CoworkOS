@@ -4,6 +4,7 @@ import type { Event, InboxMessage } from "../domain/types.js";
 import { JsonlEventStore } from "../storage/event-store.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { agentDisplayName } from "./agent-identity.js";
+import { readProcessIdentity, type ProcessIdentity } from "./process-identity.js";
 import { INBOX_MESSAGE_LEASE_MS, InboxStore } from "./scheduler.js";
 
 /**
@@ -58,6 +59,7 @@ export class AgentInboxDelivery {
   private readonly consumerId: string;
   private readonly queued = new Set<string>();
   private readonly recorded = new Set<string>();
+  private identity?: Promise<ProcessIdentity | undefined>;
   private delivery = Promise.resolve();
 
   constructor(private readonly input: AgentInboxDeliveryInput) {
@@ -67,6 +69,20 @@ export class AgentInboxDelivery {
     // The pid lets the Inbox keep this process's unread messages across a lease
     // expiry while it is still running.
     this.consumerId = `agent-${process.pid}-${randomUUID()}`;
+  }
+
+  /**
+   * This process's own OS identity.
+   *
+   * A lease records it so a later reader can tell this consumer from an
+   * unrelated process that inherited its pid. Read once; a host without `ps`
+   * falls back to the pid check.
+   */
+  private ownerIdentity(): Promise<ProcessIdentity | undefined> {
+    this.identity ??= readProcessIdentity(process.pid)
+      // eslint-disable-next-line no-restricted-syntax -- 无法读取本机进程启动时间时退回 pid 判断，租约仍然可用
+      .catch(() => undefined);
+    return this.identity;
   }
 
   /** How many messages this process has queued but not yet confirmed. */
@@ -83,11 +99,13 @@ export class AgentInboxDelivery {
    */
   deliver(send: AgentInboxSend): Promise<void> {
     const delivery = this.delivery.then(async () => {
+      const owner = await this.ownerIdentity();
       for (;;) {
         const message = await this.inbox.lease(
           this.input.recipientAgentId,
           INBOX_MESSAGE_LEASE_MS,
-          this.consumerId
+          this.consumerId,
+          owner
         );
         if (!message) return;
         // Already handed to this session and waiting for the context that
@@ -131,7 +149,8 @@ export class AgentInboxDelivery {
           this.input.recipientAgentId,
           current.messageId,
           INBOX_MESSAGE_LEASE_MS,
-          this.consumerId
+          this.consumerId,
+          await this.ownerIdentity()
         );
       if (!current) continue;
       if (current.state === "leased" && current.lease?.consumerId === this.consumerId)

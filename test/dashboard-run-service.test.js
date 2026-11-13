@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -47,6 +47,34 @@ test("a human resumption captured before message editing cannot launch into the 
   assert.equal((await f.store.readTask("task")).activeRunId, "replacement-run");
   assert.equal(f.records.length, 0);
 });
+
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+/** End every fake resident Main this test left behind, by its recorded group. */
+async function endResidentMains(workspaceRoot) {
+  const runs = await readdir(join(workspaceRoot, "task", "runs")).catch(() => []);
+  for (const runId of runs) {
+    const record = await readFile(
+      join(workspaceRoot, "task", "runs", runId, "agents", "main", "process.json"),
+      "utf8"
+    )
+      .then((value) => JSON.parse(value))
+      .catch(() => undefined);
+    if (!record?.pid) continue;
+    try {
+      process.kill(-record.pid, "SIGKILL");
+    } catch {
+      /* the fake process already exited */
+    }
+  }
+}
 
 async function fixture(
   t,
@@ -99,7 +127,10 @@ async function fixture(
   });
   t.after(async () => {
     await service.stop();
-    await rm(root, { recursive: true, force: true });
+    // A resident Main outlives the backend, so the fixture is what ends the
+    // fake process it started.
+    await endResidentMains(workspaceRoot);
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
   async function settle() {
     for (let i = 0; i < 500; i += 1) {
@@ -407,14 +438,21 @@ test("cancelling a still-active provisional finish_task clears completion and se
   );
 });
 
-test("desktop shutdown leaves a still-active provisional finish_task waiting for continuation", async (t) => {
+test("desktop shutdown leaves the resident Main running and its Task state intact", async (t) => {
   const f = await fixture(t, { running: true });
   await f.service.startMainRun("task", "等待最终回复。", "finish-run");
   await finishBeforeResponse(f);
   await f.service.stop();
-  const task = await f.settle();
-  assert.equal(task.status, "waiting");
-  assert.notEqual(task.completion.signal, "finish_task");
+  // A backend restart must not end the Main: the process is not a child whose
+  // life this backend owns, and the next backend adopts it from its record.
+  const record = JSON.parse(
+    await readFile(
+      join(f.workspaceRoot, "task", "runs", "finish-run", "agents", "main", "process.json"),
+      "utf8"
+    )
+  );
+  assert.equal(processAlive(record.pid), true, "the resident Main survives the backend");
+  assert.equal((await f.store.readTask("task")).status, "completed");
 });
 
 test("an older exiting process cannot reopen or fail another run's completed Task", async (t) => {

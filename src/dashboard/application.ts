@@ -565,7 +565,8 @@ export function createDashboardApplication(
   async function taskDetails(taskId: string): Promise<unknown> {
     // A run may settle while the slower history reads are in progress. Keep
     // that snapshot active instead of pairing stale task data with an idle run.
-    const activeAtStart = activeRuns.has(taskId);
+    // A resident Main is alive while it is idle; "active" is about a turn.
+    const activeAtStart = await runs.taskTurnActive(taskId);
     const location = await locateTask(taskId);
     const { task } = location;
     const taskWorkspace = location.workspaceRoot;
@@ -598,8 +599,9 @@ export function createDashboardApplication(
           // eslint-disable-next-line no-restricted-syntax -- 作业目录要到第一个后台调用才创建，缺失时按空列表展示
         }).catch(() => [])
       : [];
-    const active =
-      activeAtStart || activeRuns.has(taskId) || mainIsAlive(await readHeartbeat(taskWorkspace, taskId));
+    const heartbeat = await readHeartbeat(taskWorkspace, taskId);
+    const mainRunning = runs.mainProcessRunning(taskId) || mainIsAlive(heartbeat);
+    const active = activeAtStart ?? (mainIsAlive(heartbeat) && heartbeat?.turnActive === true);
     let damagedRetry = false;
     const requestStore = new MainRequestStore(mainRequestPath(taskWorkspace, taskId), taskId);
     const retry =
@@ -687,6 +689,8 @@ export function createDashboardApplication(
       ...(parked ? { parked: { wakeAt: parked.wakeAt, reason: parked.reason } } : {}),
       runtime: {
         active,
+        /** A resident Main process exists for this Task, idle or working. */
+        mainRunning,
         stopping: runs.cancellations.has(taskId),
         model:
           active || !runtimeConfig.modelConnections?.activeId
@@ -804,6 +808,7 @@ export function createDashboardApplication(
     runtimeValue,
     startMainRun,
     pauseTask: runs.pauseTask,
+    interruptTask: runs.interruptTask,
     editMainMessage: runs.editMainMessage,
     forkConversation,
     messageVersion: async (taskId, versionId) => {

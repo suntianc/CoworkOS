@@ -94,7 +94,17 @@ export interface InboxMessage {
   eventId: string;
   priority: number;
   state: "ready" | "leased" | "consumed";
-  lease?: { consumerId: string; expiresAt: string };
+  lease?: {
+    consumerId: string;
+    expiresAt: string;
+    /**
+     * Who holds the lease, when that holder is a process.
+     *
+     * A pid alone cannot tell a live consumer from one whose number was
+     * reused; the OS start time recorded at lease time does.
+     */
+    owner?: { pid: number; startedAt: string };
+  };
   payload: unknown;
   createdAt: string;
 }

@@ -96,6 +96,21 @@ async function fixture(
   });
   t.after(async () => {
     await service.stop();
+    // A resident Main outlives its backend; the fixture ends the fake process.
+    for (const task of tasks) {
+      const record = await readFile(
+        join(workspaceRoot, task.taskId, "runs", RUN(task.taskId), "agents", "main", "process.json"),
+        "utf8"
+      )
+        .then((value) => JSON.parse(value))
+        .catch(() => undefined);
+      if (!record?.pid) continue;
+      try {
+        process.kill(-record.pid, "SIGKILL");
+      } catch {
+        /* the fake Main already exited */
+      }
+    }
     await rm(root, { recursive: true, force: true });
   });
   const spawned = (taskId) =>
@@ -108,6 +123,15 @@ async function fixture(
     assert.fail(`the guardian did not start ${taskId}`);
   };
   return { root, workspaceRoot, store, service, records, spawned, waitForSpawn };
+}
+
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
 }
 
 async function queueCallback(workspaceRoot, taskId, runId) {
@@ -222,15 +246,26 @@ for (const name of ["COWORK_DISABLE_MAIN_GUARDIAN"])
     assert.equal(f.spawned().length, 0);
   });
 
-test("shutdown stops the guardian and leaves no launch in progress", async (t) => {
+test("shutdown stops the guardian, leaves no launch in progress, and keeps the resident Main", async (t) => {
   enabledGuardian(t);
   const f = await fixture(t, { tasks: [{ taskId: "guarded" }] });
   f.service.startMainGuardian();
   await f.waitForSpawn("guarded");
+  // The record is durable before the process is observable to this backend.
+  for (let attempt = 0; attempt < 300 && f.service.activeRuns.size === 0; attempt += 1) await delay(10);
   assert.equal(f.service.activeRuns.size, 1);
 
   await f.service.stop();
-  assert.equal(f.service.activeRuns.size, 0, "shutdown reaps the Main it started");
+  assert.equal(f.service.activeRuns.size, 0, "the backend drops its observers");
+  // Lifecycle is separate from the backend: a restart must find the Main it
+  // left running and adopt it, not start a second one.
+  const record = JSON.parse(
+    await readFile(
+      join(f.workspaceRoot, "guarded", "runs", RUN("guarded"), "agents", "main", "process.json"),
+      "utf8"
+    )
+  );
+  assert.equal(processAlive(record.pid), true, "the resident Main survives the backend");
   assert.deepEqual(await f.service.runMainGuardianCycle(), [], "a stopped backend takes no new decisions");
   await delay(50);
   assert.equal(f.spawned("guarded").length, 1, "no cycle runs after shutdown");

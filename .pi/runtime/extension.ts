@@ -1,6 +1,6 @@
 import { resetMainSupervisorBackoff } from "../../dist/src/runtime/main-supervisor.js";
 import { configuredWebTools } from "../../dist/src/runtime/web-search-config.js";
-import { readQueuedUserTurn } from "../../dist/src/runtime/queued-user-turn.js";
+import { queuedUserTurn, readQueuedUserTurn } from "../../dist/src/runtime/queued-user-turn.js";
 import { withoutRetiredSections } from "../../dist/src/runtime/retired-system-sections.js";
 import {
   formatSkillsForPrompt,
@@ -24,7 +24,8 @@ import {
   updateMainContextRuntime
 } from "../../dist/src/runtime/main-context.js";
 import { HEARTBEAT_STALE_MS, writeHeartbeat } from "../../dist/src/runtime/main-heartbeat.js";
-import { MainInboxDelivery } from "../../dist/src/runtime/main-inbox-delivery.js";
+import { watchFiles, type StopWatching } from "../../dist/src/runtime/file-watch.js";
+import { MainInboxDelivery, type MainControlType } from "../../dist/src/runtime/main-inbox-delivery.js";
 import {
   MAIN_CONTINUATION_TYPE,
   isMainContinuationMessage,
@@ -36,6 +37,7 @@ import {
   configuredMainMaxTokens,
   configuredContextWindow,
   configuredMainMaxTurns,
+  configuredMainIdleTimeout,
   configuredMainTimeout,
   configuredModelApi,
   configuredThinkingFormat,
@@ -193,7 +195,14 @@ async function registerMainExtension(pi: ExtensionAPI) {
     new Map([["attachments", attachmentCapabilityProvider(harnessRoot)]])
   );
   const inboxDelivery = new MainInboxDelivery(workspaceRoot, taskId, mainRunId);
+  // A resident Main serves many turns from one process. It is started in Pi's
+  // long-lived interface, its Inbox wakes it, and it exits only when the
+  // session is closed, when it has been idle long enough, or when a turn
+  // cannot continue (a model request that failed).
+  const resident = process.env.COWORK_MAIN_RESIDENT === "1";
   let agentStartedAt = 0;
+  let sessionContext: ExtensionContext | undefined;
+  let turnActive = false;
   pi.on("agent_start", () => {
     agentStartedAt = Date.now();
   });
@@ -203,18 +212,46 @@ async function registerMainExtension(pi: ExtensionAPI) {
   pi.on("cache_warming_decision", () => ({ action: "stop" }));
   let requestRetry: MainRequestRetry | undefined;
   let freshRetryContext = false;
-  let awaitingInitialPrompt = process.env.COWORK_INITIAL_PROMPT === "1";
-  // Dashboard's --print invocation already has a user prompt to start the
-  // turn. Startup Inbox delivery must append to that context, not race it
-  // with a second model turn before Pi has even attached its event stream.
-  const deliverCallbacks = (includeFollowUps = false) =>
-    requestRetry?.isReplaying
-      ? Promise.resolve()
-      : inboxDelivery.deliver(
-          (message, options) =>
-            pi.sendMessage(message, awaitingInitialPrompt ? { ...options, triggerTurn: false } : options),
-          { includeFollowUps }
-        );
+  // A one-turn host already has a user prompt to start the turn, so startup
+  // Inbox delivery must append to that context instead of racing it. A
+  // resident Main has no such prompt: its Inbox is what starts the first turn.
+  let awaitingInitialPrompt = process.env.COWORK_INITIAL_PROMPT === "1" && !resident;
+  const pausedNow = async (): Promise<boolean> =>
+    new LocalWorkspaceStore(workspaceRoot)
+      .readTask(taskId)
+      .then((task) => Boolean(task.pause) || task.status === "paused")
+      // eslint-disable-next-line no-restricted-syntax -- 任务记录读不到时按未暂停处理；真正的暂停检查在回合边界还会再读一次
+      .catch(() => false);
+  const deliverCallbacks = async (includeFollowUps = false) => {
+    // While an exact replay is pending, ordinary work stays queued: the old
+    // request is resent as it was, not mixed with what arrived since. The
+    // resume command is what starts that replay, so it is still read.
+    const replaying = requestRetry?.isReplaying === true;
+    await inboxDelivery.deliver(
+      async (message, options) => {
+        if (options.userTurn) {
+          // The first message of a Run is the person's own turn. The identity
+          // marker lets the Inbox receipt be confirmed from saved context.
+          pi.sendUserMessage(
+            queuedUserTurn({
+              taskId,
+              runId: mainRunId,
+              messageId: options.userTurn.messageId,
+              text: message.content
+            }),
+            { deliverAs: options.deliverAs }
+          );
+          return;
+        }
+        pi.sendMessage(message, awaitingInitialPrompt ? { ...options, triggerTurn: false } : options);
+      },
+      {
+        includeFollowUps,
+        paused: replaying || (await pausedNow()),
+        onControl: (type) => handleMainControl(type)
+      }
+    );
+  };
   const coordinator = new CoordinatorRuntime();
   const experimentStore = new ExperimentProgramStore(workspaceRoot);
   const humanStore = new HumanRequestStore(workspaceRoot);
@@ -229,7 +266,9 @@ async function registerMainExtension(pi: ExtensionAPI) {
   let pendingContextClear: { reason: string } | undefined;
   let inboxDeliveryActive = false;
   let recoveryActive = false;
-  let inboxPoller: ReturnType<typeof setInterval> | undefined;
+  let stopInboxWatch: StopWatching | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let idleCheck: Promise<void> | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let mainTimeoutTimer: ReturnType<typeof setTimeout> | undefined;
   let lastMainMessage: unknown;
@@ -254,6 +293,77 @@ async function registerMainExtension(pi: ExtensionAPI) {
    * Bookkeeping must never break delegation, so any failure here leaves the
    * call to proceed unrecorded.
    */
+  const mainIdleTimeoutMs = configuredMainIdleTimeout(runtimeEnv);
+  /**
+   * Read the process-level commands a resident Main receives from its Inbox.
+   *
+   * They are not model input: they act on the local turn loop, so they are
+   * consumed rather than appended to the conversation.
+   */
+  const handleMainControl = async (type: MainControlType): Promise<boolean> => {
+    if (type === "main.interrupt") {
+      // Interrupting stops the turn in flight and nothing else: the process,
+      // the Task and the Subagents already running stay as they are.
+      sessionContext?.abort();
+      return true;
+    }
+    // Resume is a turn in the same session without a new message from the
+    // person; the task record no longer says paused by the time this runs.
+    pi.sendMessage(
+      { customType: MAIN_CONTINUATION_TYPE, content: [], display: false },
+      { triggerTurn: true }
+    );
+    return true;
+  };
+
+  const stopMainIdleTimer = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = undefined;
+  };
+  /**
+   * Restart the idle clock.
+   *
+   * The clock only runs between turns: a resident Main that is waiting for a
+   * Subagent is working, and one that still has a turn in flight is not idle
+   * even when no model request is on the wire at that instant.
+   */
+  const touchMainActivity = () => {
+    stopMainIdleTimer();
+    if (!resident || mainIdleTimeoutMs <= 0) return;
+    idleTimer = setTimeout(() => void runIdleCheck(), mainIdleTimeoutMs);
+    idleTimer.unref();
+  };
+  const runIdleCheck = (): Promise<void> => {
+    idleCheck ??= (async () => {
+      // Re-arm first: a check that finds work simply leaves the next one set.
+      touchMainActivity();
+      if (active > 0 || recoveryActive || inboxDelivery.queuedCount) return;
+      if (sessionContext?.hasPendingMessages()) return;
+      const pending = await coordinator
+        .waitForSubagents({ taskId, runId: mainRunId, workspaceRoot, timeoutMs: 0 })
+        // eslint-disable-next-line no-restricted-syntax -- 协作者队列读不到时按仍有工作在跑处理，宁可多留一会儿也不丢失等待中的回调
+        .catch(() => undefined);
+      if (!pending || pending.pending.length || pending.callbackPending.length) return;
+      const paused = await pausedNow();
+      // Work that arrived during a pause stays durable for the next Main; a
+      // paused Task is idle even while it has queued messages.
+      if (!paused) {
+        const ready = (await inboxDelivery.pending()).filter((message) => message.state !== "consumed");
+        if (ready.length) return;
+      }
+      // The exit preserves state: the session file, the Task and its Inbox
+      // stay on disk, and the next message or callback starts a Main again.
+      await new LocalWorkspaceStore(workspaceRoot)
+        .transitionTask(taskId, "waiting", { runId: mainRunId, reason: "main_idle_timeout" })
+        // eslint-disable-next-line no-restricted-syntax -- 状态转换失败不改变退出决定，退出的 Run 仍会由运行服务按空闲结束结算
+        .catch(() => {});
+      sessionContext?.shutdown();
+    })().finally(() => {
+      idleCheck = undefined;
+    });
+    return idleCheck;
+  };
+
   const openExperimentRun = async (input: { callId: string; agentId: string; objective: string }) => {
     try {
       return await experimentStore.openRun({
@@ -662,6 +772,9 @@ async function registerMainExtension(pi: ExtensionAPI) {
 
   pi.on("agent_settled", async (_event, ctx) => {
     try {
+      sessionContext = ctx;
+      turnActive = false;
+      touchMainActivity();
       if (mainContext) await persistMainContext(mainContext, ctx.sessionManager.getBranch());
       const replayOnly = Boolean(process.env.COWORK_MAIN_RETRY_REQUEST_ID) && !freshRetryContext;
       await inboxDelivery.settle(replayOnly ? [] : ctx.sessionManager.getEntries());
@@ -675,9 +788,24 @@ async function registerMainExtension(pi: ExtensionAPI) {
           (parked && Date.parse(parked.parkedAt) >= agentStartedAt)
         )
           await resetMainSupervisorBackoff(workspaceRoot, taskId);
-        // A paused Task leaves this boundary to the Run's close path, which
-        // records the pause once the process has actually stopped.
-        if (task.status === "running" && !task.pause) {
+        // A resident Main stays alive when a pause stops the turn: the pause
+        // is recorded here, at the boundary it stopped at, and the process
+        // waits with its Inbox untouched until the resume command arrives.
+        // A failed model request ends this process; the Run service settles
+        // that Run as failed from the exit, so this boundary records nothing.
+        if (lastMainMessage && (lastMainMessage as { stopReason?: string }).stopReason === "error") return;
+        if (task.pause && task.status === "running") {
+          await taskStore.transitionTask(taskId, "paused", { runId: mainRunId, reason: "ui_pause" });
+          const paused = await taskStore.readTask(taskId);
+          if (paused.pause && !paused.pause.pausedAt)
+            await taskStore.updateTask(taskId, {
+              pause: { ...paused.pause, pausedAt: new Date().toISOString() }
+            });
+          await updateRuntime({
+            runtimePhase: "waiting",
+            runtimeLastEvent: { type: "main_turn_settled", summary: "paused" }
+          });
+        } else if (task.status === "running" && !task.pause) {
           const pending = await coordinator.waitForSubagents({
             taskId,
             runId: mainRunId,
@@ -744,12 +872,31 @@ async function registerMainExtension(pi: ExtensionAPI) {
       });
     } catch (error) {
       ctx.ui.notify(`Task settlement hook failed: ${errorMessage(error)}`, "warning");
+    } finally {
+      // The heartbeat's idle flag is what a backend that adopted this process
+      // reads as "the turn is over", so it is written after the boundary it
+      // describes has been recorded, never before.
+      if (resident) {
+        // eslint-disable-next-line no-restricted-syntax -- 心跳只是存活与回合提示，写入失败由下一次写入重写
+        void writeMainHeartbeat().catch(() => {});
+      }
     }
   });
 
+  const writeMainHeartbeat = () => writeHeartbeat(workspaceRoot, taskId, mainRunId, { turnActive });
   pi.on("agent_start", async (_event, ctx) => {
     awaitingInitialPrompt = false;
     lastMainMessage = undefined;
+    sessionContext = ctx;
+    turnActive = true;
+    touchMainActivity();
+    // Tell any supervisor, and a backend that adopted this process, that the
+    // Task has a turn running right now. A one-turn process reports liveness
+    // on the regular interval only; its turn flag is not what is read.
+    if (resident) {
+      // eslint-disable-next-line no-restricted-syntax -- 心跳只是存活与回合提示，写入失败由下一次写入重写
+      void writeMainHeartbeat().catch(() => {});
+    }
     if (mainTimeoutTimer) clearTimeout(mainTimeoutTimer);
     if (mainTimeoutMs > 0) {
       mainTimeoutTimer = setTimeout(() => {
@@ -772,8 +919,20 @@ async function registerMainExtension(pi: ExtensionAPI) {
   });
   pi.on("agent_end", async (event, ctx) => {
     try {
+      sessionContext = ctx;
       const last = event.messages.findLast((message) => message.role === "assistant");
       lastMainMessage = last;
+      if (resident && last?.stopReason === "error") {
+        // A failed model request is not a resting state: the session cannot
+        // continue past it, and the backend settles the Run (and frees the
+        // retry slot) from this exit. A person's retry starts the archived
+        // request again in a fresh process, as it always did.
+        turnActive = false;
+        // eslint-disable-next-line no-restricted-syntax -- 心跳只是存活与回合提示，写入失败由下一次写入重写
+        void writeMainHeartbeat().catch(() => {});
+        ctx.shutdown();
+        return;
+      }
       if (!last || ["error", "aborted", "length"].includes(last.stopReason) || pendingContextClear) return;
       // Pi awaits this hook before settling --print. Keep the Main session
       // alive for outstanding one-shot work and let queued callbacks trigger
@@ -1035,6 +1194,15 @@ async function registerMainExtension(pi: ExtensionAPI) {
   const browserTools = registerBrowserTools(cuaBridge.capturePi, toolContext);
   const cuaScripts = registerCuaScriptTools(cuaBridge.capturePi, cuaBridge.dispatch);
   pi.on("session_shutdown", async () => {
+    stopInboxWatch?.();
+    stopInboxWatch = undefined;
+    stopMainIdleTimer();
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = undefined;
+    // A message handed to Pi but never read before this process ends becomes
+    // readable for the next Main now, not after the lease expires.
+    // eslint-disable-next-line no-restricted-syntax -- 进程正在退出；未能交回的消息仍会在租约到期后可读
+    await inboxDelivery.releaseUnconfirmed().catch(() => {});
     await cuaScripts.dispose();
     await browserTools.dispose();
   });
@@ -1059,6 +1227,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
   });
 
   pi.on("session_start", async (event, ctx) => {
+    sessionContext = ctx;
     if (event.reason !== "startup") {
       await cuaScripts.reset();
       await browserTools.closeAll();
@@ -1124,35 +1293,37 @@ async function registerMainExtension(pi: ExtensionAPI) {
       };
       await pollMainInbox();
       // External events and callbacks are written to Main's Inbox by other
-      // services. Polling keeps an already-running Main responsive; if Main is
-      // offline, the same messages remain durable for the next startup.
-      if (inboxPoller) clearInterval(inboxPoller);
-      const pollMs = Math.max(1_000, Number(process.env.COWORK_INBOX_POLL_MS ?? 3_000));
-      inboxPoller = setInterval(
-        () =>
-          // eslint-disable-next-line no-restricted-syntax -- Pi 可能在子任务结束前销毁 Main，发送失败会释放 Inbox 租约并由下一次启动重新投递
-          void pollMainInbox().catch(() => {
-            // Pi can dispose Main before its children finish. Failed sends
-            // release their leases; the next Main recovers the durable Inbox.
-          }),
-        pollMs
-      );
-      // Do not keep Pi --print alive solely because the background poller is
-      // scheduled. An interactive Pi process remains alive normally, while a
-      // one-shot session can exit once its turn has settled.
-      inboxPoller.unref();
+      // services. A file watch is what notices one while this process is idle,
+      // so delivery needs neither stdin nor polling; if Main is offline, the
+      // same messages remain durable for the next startup.
+      stopInboxWatch?.();
+      stopInboxWatch = await watchFiles([inboxDelivery.inboxPath], () => {
+        // eslint-disable-next-line no-restricted-syntax -- Pi 可能在子任务结束前销毁 Main，发送失败会释放 Inbox 租约并由下一次启动重新投递
+        void pollMainInbox().catch(() => {
+          // Pi can dispose Main before its children finish. Failed sends
+          // release their leases; the next Main recovers the durable Inbox.
+        });
+        touchMainActivity();
+      }).catch((error: unknown) => {
+        // A watch that cannot attach leaves the durable Inbox for the next
+        // process; turn boundaries still deliver what is already queued.
+        ctx.ui.notify(`Main Inbox watch failed: ${errorMessage(error)}`, "warning");
+        return undefined;
+      });
       // Tell any supervisor that this Task already has a Main. Without this a
       // supervisor would read "no Main" while one is running and start a
-      // second, putting two agents on the same project.
-      // eslint-disable-next-line no-restricted-syntax -- 心跳只是给 supervisor 的存活提示，写入失败不应中断 session_start 的其余装配
-      void writeHeartbeat(workspaceRoot, taskId, mainRunId).catch(() => {});
+      // second, putting two agents on the same project. The turn flag is what
+      // separates "working" from "resident and idle".
+      // eslint-disable-next-line no-restricted-syntax -- 心跳只是存活与回合提示，写入失败由下一次写入重写
+      void writeMainHeartbeat().catch(() => {});
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = setInterval(
         // eslint-disable-next-line no-restricted-syntax -- 定时心跳写入失败时下一次 tick 会重写心跳文件，单次失败不影响 interval 本身
-        () => void writeHeartbeat(workspaceRoot, taskId, mainRunId).catch(() => {}),
+        () => void writeMainHeartbeat().catch(() => {}),
         Math.max(1_000, Math.floor(HEARTBEAT_STALE_MS / 3))
       );
       heartbeatTimer.unref();
+      touchMainActivity();
       if (
         !cliPresentation.startup(ctx, {
           workspaceRoot,

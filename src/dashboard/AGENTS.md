@@ -3,7 +3,7 @@
 入口装配在 `application.ts`；端口、信号与 Electron 父进程消息由 `../cli/dashboard.ts` 安装。HTTP 辅助、产出行响应和 Main 环境都在本目录。
 
 - `*routes.ts` 负责请求验证、服务调用与状态码，不能启动进程；Run 服务不依赖 HTTP 响应对象。这些规则由根 ESLint 检查。
-- `run-service.ts` 负责启动、串行化、取消、恢复和完成判定，通过 `runtime/process-host.ts` 管理进程。完成/停止响应前必须完成必要落盘与进程回收。
+- `run-service.ts` 负责启动、串行化、取消、恢复和完成判定，通过 `runtime/agent-process.ts` 管理 Main 进程。Main 常驻：一个 Run 由一个进程服务，一轮结束不退出；只有关闭会话、空闲超时和无法继续的模型请求结束它，后端退出只放弃观察并等下次接管。完成/停止响应前必须完成必要落盘与进程回收。
 - `http.ts` 负责 Host/Origin、会话认证和请求大小。新 API 不绕过入口检查；日志和错误不暴露配置原文。
 - 修改 SSE 同时检查 `event-stream.ts`、前端 connection controller 与持久事件消费者；确保重连不重复交付。
 

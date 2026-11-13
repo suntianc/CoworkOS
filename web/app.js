@@ -417,7 +417,7 @@ runControl = createRunControl({
   api,
   showToast,
   onChanged: () => refresh(),
-  cancelRun: (taskId) => stopTask(taskId),
+  cancelRun: (taskId) => interruptTask(taskId),
   continueRun: (taskId) => continuePausedRun(taskId),
   isContinuing: (taskId) => continuingTasks.has(taskId)
 });
@@ -1490,6 +1490,33 @@ function clearAttachments() {
 }
 
 createConversationLayout($("#conversation"));
+/**
+ * Interrupt the turn Main is producing.
+ *
+ * The session, its Subagents and everything already done stay; the process
+ * waits for the next message.
+ */
+async function interruptTask(taskId = state.selected) {
+  if (!taskId || isTaskStopping(taskId)) return;
+  stopEpochs.set(taskId, (stopEpochs.get(taskId) || 0) + 1);
+  stoppingTasks.add(taskId);
+  updateSendButton();
+  try {
+    await api(`/api/tasks/${encodeURIComponent(taskId)}/action`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "interrupt" })
+    });
+    await refresh();
+    showToast(ui("本回合已中断，会话保留"));
+  } catch (error) {
+    showToast(requestErrorMessage(error));
+  } finally {
+    stoppingTasks.delete(taskId);
+    updateSendButton();
+  }
+}
+/** Close the session: it stops the running turn and the Subagents it started. */
 async function stopTask(taskId = state.selected) {
   if (!taskId || isTaskStopping(taskId)) return;
   stopEpochs.set(taskId, (stopEpochs.get(taskId) || 0) + 1);
@@ -1502,7 +1529,7 @@ async function stopTask(taskId = state.selected) {
       body: JSON.stringify({ action: "cancel" })
     });
     await refresh();
-    showToast(ui("任务已停止，已保存的内容保留"));
+    showToast(ui("会话已关闭，已保存的内容保留"));
   } catch (error) {
     showToast(requestErrorMessage(error));
   } finally {
@@ -2099,8 +2126,8 @@ function updateSendButton() {
   $("#stop-button").hidden = !showStop;
   $("#stop-button").disabled = stopping;
   $("#stop-button").setAttribute("aria-busy", String(stopping));
-  $("#stop-button").setAttribute("aria-label", stopping ? ui("正在停止任务") : ui("取消运行"));
-  $("#stop-button").title = stopping ? ui("正在停止任务…") : ui("取消运行");
+  $("#stop-button").setAttribute("aria-label", stopping ? ui("正在中断本回合") : ui("中断本回合"));
+  $("#stop-button").title = stopping ? ui("正在中断本回合…") : ui("中断本回合");
   $("#model-setup-button").hidden = state.modelConfigured !== false;
   $("#send-button").title = awaitingSetup
     ? firstUse.lockReason()

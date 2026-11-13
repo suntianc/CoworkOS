@@ -1,9 +1,10 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 
 const harnessRoot = resolve(new URL("..", import.meta.url).pathname);
@@ -129,7 +130,12 @@ export async function startDashboard({
   const stop = () =>
     (stopping ??= (async () => {
       await stopChild();
-      await rm(root, { recursive: true, force: true });
+      // A resident Main outlives the backend it was started by. The fixture is
+      // what finally ends it, by the identity recorded at launch.
+      await endResidentMains(workspaceRoot);
+      // A process settling as the tree is removed can write one last record;
+      // retry the removal instead of failing the test that already passed.
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     })());
   try {
     await ready();
@@ -172,5 +178,40 @@ export async function startDashboard({
   } catch (error) {
     await stop();
     throw error;
+  }
+}
+
+/** End every resident Main this fixture left running, by its recorded process group. */
+async function endResidentMains(workspaceRoot) {
+  for (const task of await readdir(workspaceRoot, { withFileTypes: true }).catch(() => [])) {
+    if (!task.isDirectory()) continue;
+    const runs = await readdir(join(workspaceRoot, task.name, "runs")).catch(() => []);
+    for (const runId of runs) {
+      const record = await readFile(
+        join(workspaceRoot, task.name, "runs", runId, "agents", "main", "process.json"),
+        "utf8"
+      )
+        .then((value) => JSON.parse(value))
+        .catch(() => undefined);
+      if (!record?.pid || record.host !== hostname()) continue;
+      if (!(await sameProcess(record.pid, record.startedAt))) continue;
+      try {
+        process.kill(-record.pid, "SIGKILL");
+      } catch {
+        /* the group already exited */
+      }
+    }
+  }
+}
+
+async function sameProcess(pid, startedAt) {
+  try {
+    const { stdout } = await promisify(execFile)("ps", ["-p", String(pid), "-o", "lstart="], {
+      timeout: 5_000,
+      env: { ...process.env, LC_ALL: "C", LANG: "C" }
+    });
+    return stdout.trim() === startedAt;
+  } catch {
+    return false;
   }
 }

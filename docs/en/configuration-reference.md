@@ -235,12 +235,13 @@ These are underlying Runtime defaults, overridden by files or environment settin
 | `contextWindow`             | `COWORK_CONTEXT_WINDOW`               | 256000 tokens                                                   |
 | `mainTimeoutMs`             | `COWORK_MAIN_TIMEOUT_MS`              | 0, unlimited                                                    |
 | `subagentTimeoutMs`         | `COWORK_SUBAGENT_TIMEOUT_MS`          | 0, unlimited; legacy `COWORK_TIMEOUT_MS` affects subagents only |
+| `mainIdleTimeoutMs`         | `COWORK_MAIN_IDLE_TIMEOUT_MS`         | 1800000 (30 minutes); 0 never exits while idle                  |
 | `commandTimeoutMs`          | `COWORK_COMMAND_TIMEOUT_MS`           | 1800000 (30 minutes); 0 is unlimited                            |
 | `maxAttempts`               | `COWORK_MAX_ATTEMPTS`                 | 3 including the first delegation; 1 disables delegation retries |
 | `subagentQuestionTimeoutMs` | `COWORK_SUBAGENT_QUESTION_TIMEOUT_MS` | 180000 (3 minutes); 0 disables questions to Main                |
 | `humanAnswerTimeoutMs`      | `COWORK_HUMAN_ANSWER_TIMEOUT_MS`      | 60000 (1 minute)                                                |
 | `subagentMaxQuestions`      | `COWORK_SUBAGENT_MAX_QUESTIONS`       | 3                                                               |
 
-Timeouts are milliseconds. `maxAttempts` is a delegation budget, separate from model request retries. See the [runtime reference](runtime-reference.md#request-retry-and-context-recovery) for long tasks and retries.
+Timeouts are milliseconds. `mainTimeoutMs` bounds one turn's model work; `mainIdleTimeoutMs` is how long a resident Main keeps its process with no turn running and no Subagent working. When it expires the process exits with its session and Task state kept, and the next message or callback starts Main again. `maxAttempts` is a delegation budget, separate from model request retries. See the [runtime reference](runtime-reference.md#request-retry-and-context-recovery) for long tasks and retries.
 
 Implementation: [configuration](../../src/runtime/config.ts), [runtime settings](../../src/runtime/runtime-settings.ts), [model profiles](../../src/runtime/model-profile.ts). Regression tests: [CLI setup](../../test/cli-onboarding.test.js), [model protocol](../../test/model-protocol.test.js).
