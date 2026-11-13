@@ -199,6 +199,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
   let agentStartedAt = 0;
   let sessionContext: ExtensionContext | undefined;
   let turnActive = false;
+  // Until the process's first turn starts, the Inbox is read as one batch: the
+  // queued messages are appended and exactly one of them opens the run, so a
+  // callback queued before startup cannot open a second run beside the user's.
+  let firstTurnStarted = false;
   // Unique per process lifetime: a backend that adopts this process sees the
   // id change at every new turn and knows the previous one is over.
   let turnId = `${process.pid}-0`;
@@ -248,6 +252,9 @@ async function registerMainExtension(pi: ExtensionAPI) {
       {
         includeFollowUps,
         paused: replaying || (await pausedNow()),
+        // Only the startup read before the first turn needs the batch: after
+        // that, each message is steered into the turn already in flight.
+        batchStart: !firstTurnStarted && (sessionContext?.isIdle() ?? true),
         onControl: (type) => handleMainControl(type)
       }
     );
@@ -866,6 +873,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
     awaitingInitialPrompt = false;
     lastMainMessage = undefined;
     sessionContext = ctx;
+    firstTurnStarted = true;
     turnActive = true;
     turnCount += 1;
     turnId = `${process.pid}-${turnCount}`;

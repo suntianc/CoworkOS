@@ -49,7 +49,7 @@ export function isMainControlType(value: unknown): value is MainControlType {
 
 /** What the receiver should do beyond appending a custom message. */
 export interface MainInboxSendOptions {
-  triggerTurn: true;
+  triggerTurn: boolean;
   deliverAs: "steer" | "followUp";
   /**
    * The first user turn of a Run carries the person's own message, not the
@@ -72,6 +72,15 @@ export interface MainInboxDeliveryOptions {
   paused?: boolean;
   /** Run a process-level command; `true` means it was handled and consumed. */
   onControl?: (type: MainControlType, message: InboxMessage) => Promise<boolean>;
+  /**
+   * Hand everything ready in this pass to Pi before any turn starts.
+   *
+   * A resident Main's startup read uses this: the person's turn is appended
+   * last and is the only message that starts a run, so a callback that was
+   * already queued before the process started joins that first request instead
+   * of opening a second run once the first has settled.
+   */
+  batchStart?: boolean;
 }
 
 /** Pi's sendMessage is fire-and-forget. Queuing is not acknowledgement:
@@ -152,18 +161,34 @@ export class MainInboxDelivery {
 
   deliver(
     send: MainInboxSend,
-    { includeFollowUps = true, paused = false, onControl }: MainInboxDeliveryOptions = {}
+    { includeFollowUps = true, paused = false, onControl, batchStart = false }: MainInboxDeliveryOptions = {}
   ): Promise<void> {
     const delivery = this.delivery.then(async () => {
       await this.inbox.recoverAbandonedWaitCallbacks();
-      const candidates = (await this.inbox.list("main"))
+      const ready = (await this.inbox.list("main"))
         .filter(
           (message) =>
             !this.queued.has(message.messageId) &&
             (message.state === "ready" ||
               (message.state === "leased" && Date.parse(message.lease?.expiresAt ?? "") <= Date.now()))
         )
+        .filter(
+          (message) =>
+            includeFollowUps ||
+            message.kind !== "human_command" ||
+            (message.payload as { type?: unknown; delivery?: unknown } | undefined)?.type !==
+              "human.message" ||
+            (message.payload as { delivery?: unknown }).delivery !== "followUp"
+        )
         .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt));
+      // At startup the whole queue is context the first request must already
+      // contain: everything but one message is appended without opening a
+      // turn, and the initial user turn (or, without one, the resume command
+      // or the last message) is what starts the single run.
+      const trigger = batchStart ? startupTrigger(ready) : undefined;
+      const candidates = trigger
+        ? [...ready.filter((message) => message.messageId !== trigger.messageId), trigger]
+        : ready;
       for (const candidate of candidates) {
         const candidatePayload = candidate.payload as { type?: string; delivery?: string } | undefined;
         const candidateType = candidatePayload?.type;
@@ -178,6 +203,9 @@ export class MainInboxDelivery {
         // Ordinary work waits for the resume control message; a command is
         // what resumes it, so commands are read in either state.
         if (paused && !control) continue;
+        // A startup batch has exactly one trigger. Any other command would
+        // start a turn of its own, so it waits for the next pass.
+        if (trigger && control && candidate.messageId !== trigger.messageId) continue;
         if (this.humanAnswerWaits && isHumanAnswerMessage(candidate)) continue;
         const message = await this.inbox.leaseMessage("main", candidate.messageId, 60_000, this.consumerId);
         if (message?.state !== "leased" || message.lease?.consumerId !== this.consumerId) continue;
@@ -285,7 +313,7 @@ export class MainInboxDelivery {
               }
             },
             {
-              triggerTurn: true,
+              triggerTurn: trigger === undefined ? true : message.messageId === trigger.messageId,
               deliverAs: followUp ? "followUp" : "steer",
               ...(initialTurn ? { userTurn: { messageId: message.messageId } } : {})
             }
@@ -444,6 +472,31 @@ export class MainInboxDelivery {
  * context about which event was last recorded, so it carries only the identity
  * it can be correlated with.
  */
+/**
+ * Which message in a startup batch starts the one run.
+ *
+ * The initial user turn is the person's request and belongs in that run's first
+ * request after the context that was already queued. Without one, a resume
+ * command is the trigger; with neither, the last message is.
+ */
+function startupTrigger(messages: readonly InboxMessage[]): InboxMessage | undefined {
+  const userTurn = [...messages].reverse().find((message) => {
+    const payload = message.payload as { type?: unknown; delivery?: unknown; initial?: unknown } | undefined;
+    return (
+      message.kind === "human_command" &&
+      payload?.type === "human.message" &&
+      payload.initial === true &&
+      payload.delivery !== "followUp"
+    );
+  });
+  if (userTurn) return userTurn;
+  const control = [...messages].reverse().find((message) => {
+    const payload = message.payload as { type?: unknown } | undefined;
+    return isMainControlType(payload?.type);
+  });
+  return control ?? messages[messages.length - 1];
+}
+
 function runtimeEventReference(
   message: InboxMessage,
   payload: Record<string, unknown> | undefined
