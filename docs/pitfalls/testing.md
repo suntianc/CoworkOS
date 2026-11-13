@@ -103,3 +103,27 @@
 - **Confirm：** 对比失败用例与本次改动的关系，单独重复运行失败项，确认是回归、测试缺陷还是环境问题。
 - **Avoid：** 失败后只单独重跑失败项，确认原因并修好后再整体合入。只改动部分模块时只跑相关测试；全量（`npm run verify:full` 加 `npx playwright test --workers=1`）只在合入 main 前或终审时跑一次，收尾复用同一提交上的全量结果。
 - **Sources：** 2026-11-11 [P4.5 复盘](../p4.5-retrospective.md#3-测试重复导致合入很慢)、[WL-11](../workloop-followups.md#wl-11-合入与收尾的重复检查)。
+
+## 替换环境开关后旧用法残留
+
+- **Trigger：** 一张票新增环境开关或接口，另一张票删除旧的那个，例如测试中关闭 Main 守护的开关从 `COWORK_DISABLE_WATCH_SUPERVISOR` 换成 `COWORK_DISABLE_MAIN_GUARDIAN`。
+- **What happens：** 旧名被删、新名没有补上的地方静默失效。P4.6 第一轮约 80 处测试启动的后端因此运行了守护，时序用例偶发失败，起初被当成负载问题。
+- **Confirm：** `rg -n "<旧名>" src test e2e scripts desktop .pi` 应无结果，`rg -n "<新名>"` 覆盖原来每一处调用方；守护开关由 `test/p46-guardian-off-in-tests.test.js` 扫描。
+- **Avoid：** 工单写明「每个旧用法都要有新用法」，用 rg 全量查 `test/`、`e2e/`；改名跨票时由后一张票负责替换，并用扫描测试守住。
+- **Sources：** 2026-11-13 [P4.6 摘录](evidence/os-p46/retro.md#开关替换后旧用法残留第一轮)。
+
+## 偶发失败未对照基线就下结论
+
+- **Trigger：** 门禁或终审中时序类用例偶发失败，准备判定为负载、环境或既有问题。
+- **What happens：** 回归也会表现为偶发。P4.6 第一轮把开关替换导致的回归误判为负载偶发；反过来，第二轮 `e2e/file-upload.spec.js:97` 若不对照，会被误当成本轮回归。
+- **Confirm：** 在基线提交（`git archive <base>` 到 scratch，`npm ci` 后构建）和候选上各连跑同一用例多次（建议 ≥10 次），比较失败率与失败签名。第二轮实测 tip 约 23%、基线约 39%，签名相同。
+- **Avoid：** 结论写明两边的次数、失败率和签名；基线同样失败才归为既有问题，并单独开票。只在候选上失败时按回归处理。
+- **Sources：** 2026-11-13 [P4.6 摘录](evidence/os-p46/retro.md#偶发失败的基线对照第二轮)、[第一轮复盘教训](evidence/os-p46/retro.md#开关替换后旧用法残留第一轮)。
+
+## 高负载下动画帧与上传竞态用例偶发
+
+- **Trigger：** load average 持续在 8 以上（系统进程或其他应用占用，不只是遗留测试浏览器）时运行 Playwright 全量。
+- **What happens：** 依赖逐帧采样或启动时序的用例更容易失败：`e2e/p45-motion.spec.js:44` 抓不到动画中间帧，`e2e/file-upload.spec.js:97` 的上传重试按钮超时。P4.6 第二轮 finish 在负载约 10 时出现前者。
+- **Confirm：** 失败时记录 `uptime`；同一提交上单独重跑失败用例，通过且本次改动不涉及对应界面，即可归为负载。仍需参考上一条对照基线。
+- **Avoid：** 开跑前 `uptime` 与 `ps -Ao pcpu,pid,command -r | head` 核对负载来源，偏高时先等或关闭占用；先排除 [遗留测试浏览器](#遗留的无头测试浏览器推高负载)。失败后只重跑该用例。
+- **Sources：** 2026-11-13 [P4.6 摘录](evidence/os-p46/retro.md#高负载下的动画帧用例第二轮)。
