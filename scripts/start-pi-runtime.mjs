@@ -27,6 +27,13 @@ import { runCliProcess } from "./cli-runtime-host.mjs";
 export async function startPi({ uiCompatibility } = {}) {
   // Component release credentials are never model/Agent/tool credentials.
   delete process.env.ATRIA_COMPONENTS_GITHUB_TOKEN;
+  // A delegated agent uses the same launcher and extension as Main; only the
+  // role selects the other lifecycle. It is not a Main and must not take a Main
+  // slot, a project execution lease or Main's continuation state.
+  if (process.env.COWORK_AGENT_ROLE) {
+    await startDelegatedAgent();
+    return;
+  }
   // A Main dispatched by the program must own a durable capacity slot before it
   // does any work. Registering the process itself closes the spawn→bind window:
   // a child whose reservation was already released refuses to run, so recovery
@@ -56,39 +63,10 @@ export async function startPi({ uiCompatibility } = {}) {
   let capacityExecution;
   try {
     const harnessRoot = resolve(process.env.COWORK_HARNESS_ROOT ?? process.cwd());
-    const piBin = resolve(
-      harnessRoot,
-      "node_modules",
-      ".bin",
-      process.platform === "win32" ? "pi.cmd" : "pi"
-    );
-    let piEntry = resolve(
-      harnessRoot,
-      "node_modules",
-      "@earendil-works",
-      "pi-coding-agent",
-      "dist",
-      "bundle",
-      "cli.js"
-    );
-    let executable;
-    try {
-      await access(piBin);
-      executable = piBin;
-      // eslint-disable-next-line no-restricted-syntax -- npm 可能把依赖提升到包外，本地 .bin 缺失时改为从已安装模块解析入口
-    } catch {
-      try {
-        // npm may hoist dependencies outside the package; resolve from this installed module.
-        piEntry = fileURLToPath(
-          new URL("./bundle/cli.js", import.meta.resolve("@earendil-works/pi-coding-agent"))
-        );
-        await access(piEntry);
-        executable = piEntry;
-        // eslint-disable-next-line no-restricted-syntax -- 两种定位都失败时已经打印安装提示并以退出码 1 结束，无需再抛异常
-      } catch {
-        console.error("CoworkOS Agent 运行时未安装完整，请运行 npm ci 或重新安装 CLI。");
-        process.exit(1);
-      }
+    const executable = await resolvePiEntry(harnessRoot);
+    if (!executable) {
+      console.error("CoworkOS Agent 运行时未安装完整，请运行 npm ci 或重新安装 CLI。");
+      process.exit(1);
     }
 
     const userArgs = process.argv.slice(2);
@@ -486,4 +464,76 @@ export async function startPi({ uiCompatibility } = {}) {
       // eslint-disable-next-line no-restricted-syntax -- finally 释放名额失败时进程正在退出，租约由执行主机超时回收
       await capacityExecution.capacity.release(capacityExecution.requestId).catch(() => {});
   }
+}
+
+/** Locate the installed Pi entry, whichever way npm laid the package out. */
+async function resolvePiEntry(harnessRoot) {
+  const piBin = resolve(harnessRoot, "node_modules", ".bin", process.platform === "win32" ? "pi.cmd" : "pi");
+  try {
+    await access(piBin);
+    return piBin;
+    // eslint-disable-next-line no-restricted-syntax -- npm 可能把依赖提升到包外，本地 .bin 缺失时改为从已安装模块解析入口
+  } catch {
+    try {
+      // npm may hoist dependencies outside the package; resolve from this installed module.
+      const entry = fileURLToPath(
+        new URL("./bundle/cli.js", import.meta.resolve("@earendil-works/pi-coding-agent"))
+      );
+      await access(entry);
+      return entry;
+      // eslint-disable-next-line no-restricted-syntax -- 两种定位都失败时返回 undefined，由调用方打印安装提示并以退出码 1 结束
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+/**
+ * Launch one delegated agent turn.
+ *
+ * The backend already fixed the role, Task/Run/callId and work site in the
+ * environment and the CWD. This path only adds the shared Pi flags, keeps the
+ * new-capability defaults off, and hands the process to the same extension.
+ */
+async function startDelegatedAgent() {
+  // The backend owns this process's connection and passes it down. A work site
+  // is project code, so a config.json inside it can never supply model settings.
+  const missing = ["COWORK_API_BASE", "COWORK_API_KEY", "COWORK_MODEL"].filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    console.error(`CoworkOS 子代理启动缺少模型环境变量：${missing.join("、")}。`);
+    process.exit(1);
+  }
+  const harnessRoot = resolve(process.env.COWORK_HARNESS_ROOT ?? process.cwd());
+  const executable = await resolvePiEntry(harnessRoot);
+  if (!executable) {
+    console.error("CoworkOS Agent 运行时未安装完整，请运行 npm ci 或重新安装 CLI。");
+    process.exit(1);
+  }
+  const baseUrl = process.env.COWORK_API_BASE;
+  const model = process.env.COWORK_MODEL;
+  const thinkingLevel = normalizeReasoningEffort(
+    process.env.COWORK_REASONING_EFFORT ?? configuredReasoningEffort(),
+    "COWORK_REASONING_EFFORT"
+  );
+  const providerId = coworkProviderId(baseUrl, process.env.COWORK_CONNECTION_ID ?? "");
+  const args = [
+    // The same capability defaults Main pins: a delegated process must not
+    // silently gain tools from the host's MCP configuration.
+    "--no-mcp",
+    "--extension",
+    resolve(harnessRoot, ".pi", "extensions", "cowork.ts"),
+    "--provider",
+    providerId,
+    "--model",
+    model,
+    "--thinking",
+    thinkingLevel,
+    ...process.argv.slice(2)
+  ];
+  process.exitCode = await runCliProcess({
+    executable,
+    args,
+    env: { ...process.env },
+    projectDirectory: process.cwd()
+  });
 }

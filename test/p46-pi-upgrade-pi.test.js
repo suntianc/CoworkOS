@@ -1,15 +1,11 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
-import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
-import { protocolStream } from "./model-protocol-fixture.mjs";
+import { isolatedPiEnvironment, spawnPiRpc, startLocalProvider } from "./fixtures/pi-process-fixture.mjs";
 import { captureStandardMainRun, summarizeRequest } from "./p46-pi-upgrade-capture.mjs";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
 
@@ -103,26 +99,18 @@ test(
 );
 
 async function mainRunFixture(t, { runId, inbox }) {
-  const requests = [];
-  const provider = createServer(async (request, response) => {
-    if (request.method !== "POST") {
-      response.writeHead(200, { "content-type": "application/json" });
-      return response.end(JSON.stringify({ data: [{ id: "p46-startup-model" }] }));
-    }
-    requests.push(JSON.parse(await readFixtureRequestBody(request)));
-    response.writeHead(200, { "content-type": "text/event-stream" });
-    response.end(protocolStream("openai-completions", { text: "启动完成。" }));
+  const provider = await startLocalProvider({
+    model: "p46-startup-model",
+    handle: () => ({ text: "启动完成。" })
   });
-  provider.listen(0, "127.0.0.1");
-  await once(provider, "listening");
+  const requests = provider.requests;
   const dashboard = await startDashboard({
-    modelEndpoint: `http://127.0.0.1:${provider.address().port}`,
+    modelEndpoint: provider.baseUrl.replace(/\/v1$/, ""),
     model: "p46-startup-model"
   });
   t.after(async () => {
     await dashboard.stop();
-    provider.closeAllConnections();
-    await new Promise((done) => provider.close(done));
+    await provider.close();
   });
   await writeFile(
     join(dashboard.root, "config.json"),
@@ -210,9 +198,9 @@ test(
 );
 
 function rpcFixture(t, env) {
-  const child = spawn(
-    process.execPath,
-    [
+  const rpc = spawnPiRpc({
+    command: process.execPath,
+    args: [
       join(harness, "scripts", "atria.mjs"),
       "start",
       "--mode",
@@ -227,69 +215,12 @@ function rpcFixture(t, env) {
       "--extension",
       join(harness, "test", "fixtures", "p46-pi-upgrade-probe.mjs")
     ],
-    { cwd: env.root, env: env.env, stdio: ["pipe", "pipe", "pipe"] }
-  );
-  const events = [];
-  const pending = new Map();
-  let buffer = "";
-  let stderr = "";
-  child.stderr.on("data", (chunk) => (stderr += chunk));
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk;
-    while (buffer.includes("\n")) {
-      const index = buffer.indexOf("\n");
-      const line = buffer.slice(0, index).trim();
-      buffer = buffer.slice(index + 1);
-      if (!line) continue;
-      let value;
-      try {
-        value = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      events.push(value);
-      const request = value.type === "response" ? pending.get(value.id) : undefined;
-      if (!request) continue;
-      pending.delete(value.id);
-      clearTimeout(request.timer);
-      if (value.success) request.resolve(value.data);
-      else request.reject(new Error(JSON.stringify(value)));
-    }
+    cwd: env.root,
+    env: env.env,
+    label: "p46"
   });
-  t.after(async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    const exited = once(child, "close");
-    child.kill("SIGTERM");
-    const timeout = new AbortController();
-    try {
-      await Promise.race([exited, delay(3_000, undefined, { signal: timeout.signal })]);
-    } finally {
-      timeout.abort();
-    }
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    child.kill("SIGKILL");
-    await exited;
-  });
-  const send = (type, values = {}) =>
-    new Promise((resolveRequest, rejectRequest) => {
-      const id = `p46-${events.length}-${pending.size}`;
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        rejectRequest(new Error(`RPC ${type} timed out: ${stderr}`));
-      }, 30_000);
-      pending.set(id, { resolve: resolveRequest, reject: rejectRequest, timer });
-      child.stdin.write(`${JSON.stringify({ id, type, ...values })}\n`);
-    });
-  const waitFor = async (predicate, timeout = 30_000) => {
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      const found = events.find(predicate);
-      if (found) return found;
-      await delay(25);
-    }
-    throw new Error(`missing RPC event: ${stderr}`);
-  };
-  return { child, events, send, waitFor };
+  t.after(() => rpc.stop());
+  return rpc;
 }
 
 /**
@@ -304,43 +235,24 @@ async function probeRpc(t, { startupSend }) {
   await mkdir(profile);
   await mkdir(workspace);
   await writeFile(join(root, "fixture.txt"), "probe fixture\n");
-  const requests = [];
-  const provider = createServer(async (request, response) => {
-    if (request.method !== "POST") {
-      response.writeHead(200, { "content-type": "application/json" });
-      return response.end(JSON.stringify({ data: [{ id: "p46-rpc-model" }] }));
-    }
-    requests.push(JSON.parse(await readFixtureRequestBody(request)));
-    response.writeHead(200, { "content-type": "text/event-stream" });
-    response.end(
-      protocolStream(
-        "openai-completions",
-        // The first call leaves one tool round, so a message queued during the
-        // run start has a later model call to reach.
-        requests.length === 1
-          ? { name: "read", arguments: { path: "fixture.txt" } }
-          : { text: `reply ${requests.length}` }
-      )
-    );
+  // The first call leaves one tool round, so a message queued during the run
+  // start has a later model call to reach.
+  const provider = await startLocalProvider({
+    model: "p46-rpc-model",
+    handle: (_body, requests) =>
+      requests.length === 1
+        ? { name: "read", arguments: { path: "fixture.txt" } }
+        : { text: `reply ${requests.length}` }
   });
-  provider.listen(0, "127.0.0.1");
-  await once(provider, "listening");
-  t.after(async () => {
-    provider.closeAllConnections();
-    await new Promise((done) => provider.close(done));
-  });
-  const baseUrl = `http://127.0.0.1:${provider.address().port}/v1`;
+  t.after(() => provider.close());
+  const requests = provider.requests;
+  const baseUrl = provider.baseUrl;
   await writeFile(
     join(root, "config.json"),
     JSON.stringify({ baseUrl, apiKey: "fixture-local", model: "p46-rpc-model" })
   );
   const probeLog = join(root, "probe.jsonl");
-  const env = {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([key]) => !/^(?:COWORK_|PI_|ATRIA_|OPENAI_|ANTHROPIC_|SERPER_|EXA_|NODE_OPTIONS)/.test(key)
-      )
-    ),
+  const env = isolatedPiEnvironment({
     HOME: root,
     TMPDIR: root,
     ATRIA_HOME: join(root, "home"),
@@ -359,7 +271,7 @@ async function probeRpc(t, { startupSend }) {
     PI_OFFLINE: "1",
     P46_PROBE_LOG: probeLog,
     ...(startupSend ? { P46_PROBE_STARTUP: "1" } : {})
-  };
+  });
   const rpc = rpcFixture(t, { root, env });
   await rpc.send("get_state");
   return {

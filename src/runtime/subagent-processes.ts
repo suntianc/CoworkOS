@@ -1,0 +1,510 @@
+import { mkdir, readFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
+import { id, now } from "../domain/types.js";
+import { JsonlEventStore } from "../storage/event-store.js";
+import { DurableScheduler, type WorkItem } from "./scheduler.js";
+import { prepareWorkItemSite, type WorkItemSite } from "../workspace/work-item-workspace.js";
+import {
+  AgentProcessHost,
+  agentProcessDirectory,
+  type AgentProcessRecord,
+  type AgentProcessRole,
+  type AgentProcessStatus
+} from "./agent-process.js";
+import { enqueueMainCallback, formatSubagentSummary } from "./subagent-callback.js";
+
+/**
+ * The backend side of delegated agent processes.
+ *
+ * It turns a queued work item into a Pi process, keeps the queue lease alive
+ * while that process runs, and projects the process's result record back into
+ * the queue, the Run events and Main's Inbox. After a restart it adopts the
+ * processes the previous backend was watching; a process that ended without a
+ * result record is a failure, never a success with an empty answer.
+ */
+export interface SubagentProcessResult {
+  taskId: string;
+  runId: string;
+  callId: string;
+  agentId: string;
+  status: AgentProcessStatus;
+  response: string;
+  outputFiles: string[];
+  diagnostics: { tracePath: string; resultPath: string };
+  error?: string;
+}
+
+export interface SubagentProcessServiceOptions {
+  workspaceRoot: string;
+  harnessRoot: string;
+  /** Model connection and configuration facts the launcher needs. */
+  env: NodeJS.ProcessEnv;
+  /** How often an adopted process's identity is checked. */
+  pollMs?: number;
+  /** Queue lease period; renewed every service cycle while the process runs. */
+  leaseMs?: number;
+  graceMs?: number;
+  onSettled?: (result: SubagentProcessResult) => void | Promise<void>;
+}
+
+/** The result record the subagent extension writes before its process exits. */
+interface AgentResultRecord {
+  version?: unknown;
+  taskId?: unknown;
+  runId?: unknown;
+  callId?: unknown;
+  agentId?: unknown;
+  token?: unknown;
+  termination?: unknown;
+  stopReason?: unknown;
+  response?: unknown;
+  outputFiles?: unknown;
+  diagnostics?: unknown;
+  error?: unknown;
+}
+
+interface WorkPayload {
+  task?: string;
+  projectDirectory?: string;
+  workItemSite?: WorkItemSite;
+  delegation?: { role?: string };
+  dependsOn?: string[];
+}
+
+export class SubagentProcessService {
+  private readonly host: AgentProcessHost;
+  private readonly workspaceRoot: string;
+  private readonly leaseMs: number;
+
+  constructor(private readonly options: SubagentProcessServiceOptions) {
+    this.workspaceRoot = options.workspaceRoot;
+    this.leaseMs = Math.max(1_000, options.leaseMs ?? 60_000);
+    this.host = new AgentProcessHost({
+      workspaceRoot: options.workspaceRoot,
+      harnessRoot: options.harnessRoot,
+      env: options.env,
+      ...(options.pollMs === undefined ? {} : { pollMs: options.pollMs }),
+      ...(options.graceMs === undefined ? {} : { graceMs: options.graceMs }),
+      onExit: (record) => this.settle(record)
+    });
+  }
+
+  /** Take over the still-running processes of a Run and settle those already gone. */
+  async adopt(input: { taskId: string; runId: string }): Promise<void> {
+    await this.host.adopt(input);
+  }
+
+  /**
+   * Launch every queued item whose prerequisites are terminal.
+   *
+   * An item with a live process record is already being executed by this or a
+   * previous backend. It is never started twice.
+   */
+  async startQueued(input: { taskId: string; runId: string }): Promise<SubagentProcessResult[]> {
+    const scheduler = new DurableScheduler(this.queuePath(input));
+    await scheduler.reclaimExpired();
+    const items = await scheduler.list();
+    const records = await this.host.records(input.taskId, input.runId);
+    const active = new Set(records.filter((record) => !record.settledAt).map((record) => record.callId));
+    const terminal = new Set(items.filter((item) => isTerminal(item.status)).map((item) => item.stepId));
+    const results: SubagentProcessResult[] = [];
+    const workerId = `subagent-process-${process.pid}`;
+    for (const item of items) {
+      if (item.status !== "queued") continue;
+      // A running process whose lease expired (this backend was slow or away)
+      // gets that lease back instead of a second process for the same call.
+      if (active.has(item.stepId)) {
+        const running = records.find((record) => record.callId === item.stepId && !record.settledAt);
+        const reclaimed = await scheduler.claim(workerId, this.leaseMs, item.stepId);
+        if (running && reclaimed?.lease) await this.host.updateLease(running, reclaimed.lease.token);
+        continue;
+      }
+      const payload = (item.payload ?? {}) as WorkPayload;
+      if ((payload.dependsOn ?? []).some((stepId) => !terminal.has(stepId))) continue;
+      const claimed = await scheduler.claim(workerId, this.leaseMs, item.stepId);
+      if (!claimed?.lease) continue;
+      try {
+        await this.launch(claimed, payload, claimed.lease.token);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const failed = await scheduler
+          .fail(claimed.stepId, claimed.lease.token, message)
+          // eslint-disable-next-line no-restricted-syntax -- 队列写入失败时仍要把启动失败通知 Main；租约到期后由 reclaimExpired 接管，不能因此丢掉这次失败
+          .catch(() => undefined);
+        const retryScheduled = failed?.status === "queued";
+        if (!retryScheduled) {
+          const role: AgentProcessRole = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
+          results.push(await this.projectFailure(input, claimed, role, message));
+        }
+      }
+    }
+    return results;
+  }
+
+  /** Renew the leases of running processes so a second backend cannot claim them. */
+  async maintain(input: { taskId: string; runId: string }): Promise<void> {
+    const scheduler = new DurableScheduler(this.queuePath(input));
+    for (const record of await this.host.records(input.taskId, input.runId)) {
+      if (record.settledAt || !record.leaseToken) continue;
+      try {
+        await scheduler.renew(record.callId, record.leaseToken, this.leaseMs);
+        // eslint-disable-next-line no-restricted-syntax -- 续租失败说明租约已被其他后端收回；该过程仍由身份核对观察，不能因此误杀或重复启动
+      } catch {
+        /* another backend owns the lease; identity polling still observes this process */
+      }
+    }
+  }
+
+  /**
+   * Stop one delegated process group and record it as cancelled.
+   *
+   * The durable queue is the authority: a call that already reached a terminal
+   * state keeps that outcome and is never rewritten by a late stop request. A
+   * process whose pid no longer matches its launch record is already gone, so
+   * it is settled from its records without any signal being sent.
+   */
+  async stop(input: {
+    taskId: string;
+    runId: string;
+    callId: string;
+  }): Promise<SubagentProcessResult | undefined> {
+    const record = await this.findRecord(input);
+    if (!record) return undefined;
+    const settled = settledResult(record);
+    if (settled) return settled;
+    const item = await this.findQueueItem(input.taskId, input.runId, input.callId);
+    if (item && isTerminal(item.status)) return this.findSettled(record);
+    if (await this.host.owns(record)) await this.markQueueCancelled(input.taskId, input.runId, record.callId);
+    await this.host.stop(record);
+    return this.findSettled(record);
+  }
+
+  /** Whether any process this Run launched is still running. */
+  async running(input: { taskId: string; runId: string }): Promise<boolean> {
+    const records = await this.host.records(input.taskId, input.runId);
+    return records.some((record) => !record.settledAt);
+  }
+
+  close(): void {
+    this.host.close();
+  }
+
+  private async launch(item: WorkItem, payload: WorkPayload, leaseToken: string): Promise<void> {
+    const role = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
+    const workingDirectory = await this.workingDirectory(payload);
+    const taskWorkspace = join(this.workspaceRoot, item.taskId);
+    const sessionDirectory = join(taskWorkspace, "sessions", item.agentId, "pi", item.stepId);
+    const directory = agentProcessDirectory(this.workspaceRoot, item.taskId, item.runId, role, item.agentId);
+    await mkdir(sessionDirectory, { recursive: true });
+    await this.host.launch({
+      taskId: item.taskId,
+      runId: item.runId,
+      callId: item.stepId,
+      agentId: item.agentId,
+      role,
+      workingDirectory,
+      prompt: delegatedPrompt(payload.task ?? "Continue the delegated task."),
+      sessionDirectory,
+      resultPath: join(directory, "result.json"),
+      env: this.childEnv(role),
+      leaseToken
+    });
+  }
+
+  /**
+   * The item's own checkout when the requirement assigned one, otherwise the
+   * project directory it was dispatched with. Site preparation stays the
+   * existing implementation; this service only names the directory to run in.
+   */
+  private async workingDirectory(payload: WorkPayload): Promise<string> {
+    if (payload.workItemSite) {
+      await prepareWorkItemSite(payload.workItemSite);
+      return resolve(payload.workItemSite.directory);
+    }
+    if (!payload.projectDirectory) throw new Error("Subagent work item has no working site");
+    return resolve(payload.projectDirectory);
+  }
+
+  private childEnv(role: AgentProcessRole): NodeJS.ProcessEnv {
+    return { ...this.options.env, COWORK_AGENT_ROLE: role };
+  }
+
+  private async settle(record: AgentProcessRecord): Promise<void> {
+    const result = await this.findSettled(record);
+    const runRoot = join(this.workspaceRoot, record.taskId, "runs", record.runId);
+    const scheduler = new DurableScheduler(join(runRoot, "queue.json"));
+    let retryScheduled = false;
+    if (result.status === "cancelled")
+      await this.markQueueCancelled(record.taskId, record.runId, record.callId);
+    else if (result.status === "succeeded")
+      await this.completeQueue(scheduler, record.callId, record.leaseToken);
+    else retryScheduled = await this.failQueue(scheduler, record, result.error ?? "Subagent process failed");
+
+    const events = new JsonlEventStore(join(runRoot, "run_events.jsonl"));
+    // A retryable failure is still in flight, so it is not an outcome Main may
+    // act on; the callback follows the terminal attempt like an in-process call.
+    const callback = retryScheduled
+      ? undefined
+      : await enqueueMainCallback({
+          workspaceRoot: this.workspaceRoot,
+          taskId: record.taskId,
+          runId: record.runId,
+          callId: record.callId,
+          agentId: record.agentId,
+          status: result.status,
+          response: formatSubagentSummary({
+            status: result.status,
+            rawResponse: result.response,
+            outputFiles: result.outputFiles,
+            diagnostics: result.diagnostics,
+            ...(result.error ? { error: result.error } : {})
+          }),
+          outputFiles: result.outputFiles,
+          diagnostics: result.diagnostics,
+          ...(result.error ? { error: result.error } : {})
+        });
+    const eventType =
+      result.status === "succeeded"
+        ? "run.completed"
+        : result.status === "cancelled"
+          ? "run.cancelled"
+          : "run.failed";
+    await events.append({
+      eventId: id("event"),
+      type: eventType,
+      taskId: record.taskId,
+      runId: record.runId,
+      agentId: record.agentId,
+      callId: record.callId,
+      occurredAt: now(),
+      payload: {
+        callId: record.callId,
+        ...(result.status === "succeeded" ? {} : { error: result.error, state: result.status }),
+        ...(retryScheduled ? { retryScheduled: true } : {}),
+        outputFiles: result.outputFiles,
+        diagnostics: result.diagnostics,
+        ...(callback?.queued ? { callbackMessageId: callback.messageId } : {})
+      }
+    });
+    await this.host.markSettled(record, {
+      status: result.status,
+      response: result.response,
+      outputFiles: result.outputFiles,
+      diagnostics: result.diagnostics,
+      ...(result.error ? { error: result.error } : {})
+    });
+    await this.options.onSettled?.(result);
+  }
+
+  private async findSettled(record: AgentProcessRecord): Promise<SubagentProcessResult> {
+    const taskWorkspace = join(this.workspaceRoot, record.taskId);
+    const result = await readResult(record.resultPath);
+    const diagnostics = {
+      tracePath: relative(taskWorkspace, record.sessionDirectory),
+      resultPath: relative(taskWorkspace, record.resultPath)
+    };
+    const base = {
+      taskId: record.taskId,
+      runId: record.runId,
+      callId: record.callId,
+      agentId: record.agentId,
+      outputFiles: [] as string[],
+      diagnostics
+    };
+    // Cancellation is a durable queue fact, so the backend that observes the
+    // exit and the backend that requested the stop agree even across restarts.
+    const item = (
+      await new DurableScheduler(
+        join(this.workspaceRoot, record.taskId, "runs", record.runId, "queue.json")
+      ).list()
+    ).find((candidate) => candidate.stepId === record.callId);
+    if (item?.status === "cancelled")
+      return { ...base, status: "cancelled", response: "", error: "Subagent was cancelled by the backend" };
+    if (!result || result.token !== record.token || typeof result.termination !== "string")
+      return {
+        ...base,
+        status: "failed",
+        response: "",
+        error: "Subagent exited without writing a result record"
+      };
+    const outputFiles = Array.isArray(result.outputFiles)
+      ? result.outputFiles.filter((path): path is string => typeof path === "string")
+      : [];
+    const response = typeof result.response === "string" ? result.response.trim() : "";
+    if (result.termination !== "completed")
+      return {
+        ...base,
+        status: "failed",
+        response,
+        outputFiles,
+        error:
+          typeof result.error === "string" && result.error
+            ? result.error
+            : `Subagent ended with termination ${result.termination}`
+      };
+    if (!response)
+      return {
+        ...base,
+        status: "failed",
+        response: "",
+        outputFiles,
+        error: "Subagent completed without returning a textual summary"
+      };
+    return { ...base, status: "succeeded", response, outputFiles };
+  }
+
+  private async projectFailure(
+    input: { taskId: string; runId: string },
+    item: WorkItem,
+    role: AgentProcessRole,
+    message: string
+  ): Promise<SubagentProcessResult> {
+    const taskWorkspace = join(this.workspaceRoot, item.taskId);
+    const diagnostics = {
+      tracePath: `sessions/${item.agentId}/pi/${item.stepId}`,
+      resultPath: relative(
+        taskWorkspace,
+        join(
+          agentProcessDirectory(this.workspaceRoot, item.taskId, item.runId, role, item.agentId),
+          "result.json"
+        )
+      )
+    };
+    const result: SubagentProcessResult = {
+      ...input,
+      callId: item.stepId,
+      agentId: item.agentId,
+      status: "failed",
+      response: "",
+      outputFiles: [],
+      diagnostics,
+      error: message
+    };
+    await new JsonlEventStore(join(this.workspaceRoot, item.taskId, "runs", item.runId, "run_events.jsonl"))
+      .append({
+        eventId: id("event"),
+        type: "run.failed",
+        taskId: item.taskId,
+        runId: item.runId,
+        agentId: item.agentId,
+        callId: item.stepId,
+        occurredAt: now(),
+        payload: {
+          callId: item.stepId,
+          error: message,
+          state: "failed",
+          retryScheduled: false,
+          outputFiles: [],
+          diagnostics
+        }
+      })
+      // eslint-disable-next-line no-restricted-syntax -- 启动失败的诊断事件写失败不能阻止给 Main 的失败回调，原始错误已经随回调与队列返回
+      .catch(() => undefined);
+    await enqueueMainCallback({
+      workspaceRoot: this.workspaceRoot,
+      taskId: item.taskId,
+      runId: item.runId,
+      callId: item.stepId,
+      agentId: item.agentId,
+      status: "failed",
+      response: formatSubagentSummary({
+        status: "failed",
+        rawResponse: "",
+        outputFiles: [],
+        diagnostics,
+        error: message
+      }),
+      outputFiles: [],
+      diagnostics,
+      error: message
+    });
+    return result;
+  }
+
+  private async completeQueue(
+    scheduler: DurableScheduler,
+    callId: string,
+    token: string | undefined
+  ): Promise<void> {
+    if (!token) return;
+    const item = (await scheduler.list()).find((candidate) => candidate.stepId === callId);
+    if (!item || isTerminal(item.status)) return;
+    // eslint-disable-next-line no-restricted-syntax -- 终态已由结果记录与回调表达；队列写入失败时租约到期会由 reclaimExpired 复核，不能让回调因排队长写失败而丢失
+    await scheduler.complete(callId, token).catch(() => undefined);
+  }
+
+  /** Returns whether the queue will retry the item, so the callback waits. */
+  private async failQueue(
+    scheduler: DurableScheduler,
+    record: AgentProcessRecord,
+    error: string
+  ): Promise<boolean> {
+    if (!record.leaseToken) return false;
+    const item = (await scheduler.list()).find((candidate) => candidate.stepId === record.callId);
+    if (!item || isTerminal(item.status)) return false;
+    const updated = await scheduler
+      .fail(record.callId, record.leaseToken, error)
+      // eslint-disable-next-line no-restricted-syntax -- 失败本身才是结果；队列写入失败时租约到期重试，回调已经记录了这次失败
+      .catch(() => undefined);
+    return updated?.status === "queued";
+  }
+
+  private async markQueueCancelled(taskId: string, runId: string, callId: string): Promise<void> {
+    const scheduler = new DurableScheduler(join(this.workspaceRoot, taskId, "runs", runId, "queue.json"));
+    const item = (await scheduler.list()).find((candidate) => candidate.stepId === callId);
+    if (!item || isTerminal(item.status)) return;
+    // eslint-disable-next-line no-restricted-syntax -- 取消已由进程组与回调表达；队列写入失败时下一次取消或租约回收会补上终态
+    await scheduler.cancel(callId).catch(() => undefined);
+  }
+
+  private async findQueueItem(taskId: string, runId: string, callId: string): Promise<WorkItem | undefined> {
+    const scheduler = new DurableScheduler(join(this.workspaceRoot, taskId, "runs", runId, "queue.json"));
+    return (await scheduler.list()).find((candidate) => candidate.stepId === callId);
+  }
+
+  private async findRecord(record: {
+    taskId: string;
+    runId: string;
+    callId: string;
+  }): Promise<AgentProcessRecord | undefined> {
+    const records = await this.host.records(record.taskId, record.runId);
+    return records.find((candidate) => candidate.callId === record.callId);
+  }
+
+  private queuePath(input: { taskId: string; runId: string }): string {
+    return join(this.workspaceRoot, input.taskId, "runs", input.runId, "queue.json");
+  }
+}
+
+function delegatedPrompt(task: string): string {
+  return [
+    `Main 分配的任务：${task}`,
+    "完成后请返回完整结论；如果创建了 deliverables/ 文件，请列出路径。证据直接写在总结中；不要返回‘正在处理’之类的过程叙述，也不要声称没有执行过的操作。"
+  ].join("\n");
+}
+
+function isTerminal(status: WorkItem["status"]): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+/** The recorded outcome of a process this backend already settled. */
+function settledResult(record: AgentProcessRecord): SubagentProcessResult | undefined {
+  if (!record.settledAt || !record.outcome) return undefined;
+  return {
+    taskId: record.taskId,
+    runId: record.runId,
+    callId: record.callId,
+    agentId: record.agentId,
+    ...record.outcome
+  };
+}
+
+async function readResult(path: string): Promise<AgentResultRecord | undefined> {
+  try {
+    const value = JSON.parse(await readFile(path, "utf8")) as AgentResultRecord;
+    return value;
+    // eslint-disable-next-line no-restricted-syntax -- 结果记录缺失或损坏就是“没有结果记录”，调用方据此把退出记为失败
+  } catch {
+    return undefined;
+  }
+}

@@ -43,6 +43,7 @@ import { subagentCallStatuses, type SubagentCallStatus } from "./subagent-call-s
 import { delegationRoleGuidance, resolveWorkItemModel, type WorkItemModel } from "./delegation-model.js";
 import type { DelegatedModelRequest } from "./role-models.js";
 import { prepareWorkItemSite, type WorkItemSite } from "../workspace/work-item-workspace.js";
+import { enqueueMainCallback, formatSubagentSummary } from "./subagent-callback.js";
 
 type DelegatedModelSettings = Pick<
   PiSessionOptions,
@@ -1654,54 +1655,19 @@ export class CoordinatorRuntime {
     status: SubagentDispatchResult["status"],
     error?: string
   ): Promise<void> {
-    const inboxPath = join(
-      input.workspaceRoot,
-      input.taskId,
-      "runs",
-      input.runId,
-      "agents",
-      "main",
-      "inbox-store.json"
-    );
-    const inbox = new InboxStore(inboxPath);
-    const messageId = `callback-${call.callId}-${status}`;
-    const alreadyQueued = (await inbox.list("main")).some((message) => message.messageId === messageId);
-    await inbox.enqueue({
-      // A callback is a projection of a terminal call state. Keeping its id
-      // deterministic makes retries and process recovery idempotent.
-      messageId,
-      recipientAgentId: "main",
-      kind: "callback",
+    await enqueueMainCallback({
+      workspaceRoot: input.workspaceRoot,
+      taskId: input.taskId,
+      runId: input.runId,
       callId: call.callId,
-      eventId: id("event"),
-      priority: 1,
-      state: "ready",
-      payload: {
-        ...input.callbackMetadata,
-        callId: call.callId,
-        agentId: input.agentId,
-        name: agentDisplayName(input.agentId),
-        status,
-        response,
-        artifacts: [],
-        outputFiles,
-        diagnostics,
-        error
-      },
-      createdAt: now()
+      agentId: input.agentId,
+      status,
+      response,
+      outputFiles,
+      diagnostics,
+      error,
+      callbackMetadata: input.callbackMetadata
     });
-    if (!alreadyQueued) {
-      const events = new JsonlEventStore(
-        join(input.workspaceRoot, input.taskId, "runs", input.runId, "run_events.jsonl")
-      );
-      await events.append(
-        event(input, call.callId, "callback.queued", "coordinator", {
-          messageId,
-          recipientAgentId: "main",
-          status
-        })
-      );
-    }
   }
 
   /**
@@ -1900,28 +1866,4 @@ function delegatedSettings(input: DelegatedModelSettings, payload?: unknown): De
   return Object.fromEntries(
     fields.map((field) => [field, saved[field] ?? input[field]]).filter((entry) => entry[1] !== undefined)
   );
-}
-
-function formatSubagentSummary(input: {
-  status: SubagentDispatchResult["status"];
-  rawResponse: string;
-  outputFiles: string[];
-  diagnostics: NonNullable<SubagentDispatchResult["diagnostics"]>;
-  error?: string;
-}): string {
-  const body =
-    input.rawResponse ||
-    input.error ||
-    "Subagent did not return a textual summary; inspect its diagnostic records and any candidate outputs.";
-  const metadata = [`[Coordinator] status=${input.status}`];
-  if (input.outputFiles.length > 0) {
-    metadata.push(
-      `Candidate outputs (Task-relative paths for browse_workspace; review before copying accepted final files into Task artifacts/):\n${input.outputFiles.map((path) => `- ${path}`).join("\n")}`
-    );
-  }
-  metadata.push(
-    `Diagnostics (Task-relative): trace=${input.diagnostics.tracePath}; result=${input.diagnostics.resultPath}`
-  );
-  if (input.error) metadata.push(`error=${input.error}`);
-  return `${body}\n\n${metadata.join("\n")}`;
 }
