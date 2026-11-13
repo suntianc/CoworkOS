@@ -53,8 +53,6 @@ import {
   runtimeSettingsEnv
 } from "../../dist/src/runtime/runtime-settings.js";
 import { createCoworkModel } from "../../dist/src/runtime/model-profile.js";
-import { createModelStreams } from "../../dist/src/runtime/model-provider.js";
-import { guardCompactionSummaries } from "../../dist/src/runtime/compaction-summary-guard.js";
 import { recordModelRequests } from "../../dist/src/runtime/model-request-recording.js";
 import { ModelRequestRecorder } from "../../dist/src/storage/model-request-recorder.js";
 import {
@@ -104,8 +102,26 @@ import { recordCliSessionBinding } from "../../scripts/cli-session.mjs";
 import { registerWebSearchTools } from "./tools/web-search.ts";
 import { registerSearchTools } from "./tools/file-search.ts";
 import { registerImageTools } from "./tools/images.ts";
+import { registerSubagentAgent } from "./subagent-agent.ts";
+import { registerCoworkProvider } from "./provider.ts";
 
+/**
+ * One extension entry for Main and delegated agent processes.
+ *
+ * A delegated process selects its role through the environment the backend
+ * launched it with; it loads the same file, tools and lifecycle hooks rather
+ * than a second extension that would drift from Main's.
+ */
 export default async function registerCoworkExtension(pi: ExtensionAPI) {
+  const role = process.env.COWORK_AGENT_ROLE;
+  if (role === "executor" || role === "reviewer") {
+    registerSubagentAgent(pi, role);
+    return;
+  }
+  return registerMainExtension(pi);
+}
+
+async function registerMainExtension(pi: ExtensionAPI) {
   const config = loadConfig();
   const runtimeEnv = runtimeSettingsEnv(config);
   const supportsImages = configuredSupportsImages(runtimeEnv);
@@ -871,16 +887,14 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
         }
       }
     );
-    pi.registerProvider(model.provider, {
-      baseUrl: model.baseUrl,
+    registerCoworkProvider(pi, {
+      model,
       apiKey,
-      api: model.api,
-      streamSimple: guardCompactionSummaries(
+      sessionId: `atria:${taskId}:main`,
+      supportsPromptCacheKey: configuredSupportsPromptCacheKey(runtimeEnv),
+      wrap: (streams) =>
         recordModelRequests(
-          createModelStreams(model.api, {
-            supportsPromptCacheKey: configuredSupportsPromptCacheKey(runtimeEnv),
-            sessionId: `atria:${taskId}:main`
-          }),
+          streams,
           new ModelRequestRecorder(
             join(taskWorkspace, "sessions", "main", `${mainRunId}-requests.jsonl`),
             { taskId, runId: mainRunId, agentId: "main" },
@@ -888,8 +902,6 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
           ),
           requestRetry
         )
-      ).streamSimple,
-      models: [model]
     });
   }
 
@@ -1175,4 +1187,4 @@ export default async function registerCoworkExtension(pi: ExtensionAPI) {
   return toolContext;
 }
 
-export type CoworkToolContext = Awaited<ReturnType<typeof registerCoworkExtension>>;
+export type CoworkToolContext = Awaited<ReturnType<typeof registerMainExtension>>;

@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { protocolStream } from "./model-protocol-fixture.mjs";
-import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
+import { isolatedPiEnvironment, spawnPiRpc, startLocalProvider } from "./fixtures/pi-process-fixture.mjs";
 import { coworkProviderId } from "../dist/src/runtime/model-profile.js";
 
 /**
@@ -98,46 +95,28 @@ async function sessionHarness(t) {
   await mkdir(sessions, { recursive: true });
   await writeFile(join(workspace, "fixture.txt"), FIXTURE_TEXT);
 
-  const requests = [];
-  const provider = createServer(async (request, response) => {
-    if (request.method !== "POST") {
-      response.writeHead(200, { "content-type": "application/json" });
-      return response.end(JSON.stringify({ data: [{ id: MODEL }] }));
-    }
-    requests.push(JSON.parse(await readFixtureRequestBody(request)));
-    response.writeHead(200, { "content-type": "text/event-stream" });
-    // Every write turn calls the read tool first so the session contains a tool
-    // call and its result; the following request answers with plain text.
-    response.end(
-      protocolStream(
-        "openai-completions",
-        requests.length % 2 === 1
-          ? { name: "read", arguments: { path: "fixture.txt" } }
-          : { text: `reply ${requests.length}` }
-      )
-    );
+  // Every write turn calls the read tool first so the session contains a tool
+  // call and its result; the following request answers with plain text.
+  const provider = await startLocalProvider({
+    model: MODEL,
+    handle: (_body, requests) =>
+      requests.length % 2 === 1
+        ? { name: "read", arguments: { path: "fixture.txt" } }
+        : { text: `reply ${requests.length}` }
   });
-  provider.listen(0, "127.0.0.1");
-  await once(provider, "listening");
   t.after(async () => {
-    provider.closeAllConnections();
-    await new Promise((done) => provider.close(done));
+    await provider.close();
     await rm(root, { recursive: true, force: true });
   });
-
-  const baseUrl = `http://127.0.0.1:${provider.address().port}/v1`;
+  const requests = provider.requests;
+  const baseUrl = provider.baseUrl;
   return {
     root,
     workspace,
     sessions,
     requests,
     baseUrl,
-    env: {
-      ...Object.fromEntries(
-        Object.entries(process.env).filter(
-          ([key]) => !/^(?:COWORK_|PI_|ATRIA_|OPENAI_|ANTHROPIC_|SERPER_|EXA_|NODE_OPTIONS)/.test(key)
-        )
-      ),
+    env: isolatedPiEnvironment({
       HOME: root,
       TMPDIR: root,
       ATRIA_HOME: join(root, "home"),
@@ -152,7 +131,7 @@ async function sessionHarness(t) {
       COWORK_REASONING_EFFORT: "off",
       PI_CODING_AGENT_DIR: join(root, "profile"),
       PI_OFFLINE: "1"
-    }
+    })
   };
 }
 
@@ -179,66 +158,13 @@ function spawnPi(fixture, { bundleEntry, session }) {
     fixture.sessions,
     ...(session ? ["--session", session] : [])
   ];
-  const child = spawn(process.execPath, args, {
+  return spawnPiRpc({
+    command: process.execPath,
+    args,
     cwd: fixture.workspace,
     env: fixture.env,
-    stdio: ["pipe", "pipe", "pipe"]
+    label: "p46-session"
   });
-  const events = [];
-  const pending = new Map();
-  let buffer = "";
-  let stderr = "";
-  child.stderr.setEncoding("utf8").on("data", (chunk) => (stderr += chunk));
-  child.stdout.setEncoding("utf8").on("data", (chunk) => {
-    buffer += chunk;
-    while (buffer.includes("\n")) {
-      const index = buffer.indexOf("\n");
-      const line = buffer.slice(0, index).trim();
-      buffer = buffer.slice(index + 1);
-      if (!line) continue;
-      let value;
-      try {
-        value = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      events.push(value);
-      const request = value.type === "response" ? pending.get(value.id) : undefined;
-      if (!request) continue;
-      pending.delete(value.id);
-      clearTimeout(request.timer);
-      if (value.success) request.resolve(value.data);
-      else request.reject(new Error(JSON.stringify(value)));
-    }
-  });
-  const send = (type, values = {}) =>
-    new Promise((resolveRequest, rejectRequest) => {
-      const id = `p46-session-${events.length}-${pending.size}`;
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        rejectRequest(new Error(`RPC ${type} timed out: ${stderr}`));
-      }, 30_000);
-      pending.set(id, { resolve: resolveRequest, reject: rejectRequest, timer });
-      child.stdin.write(`${JSON.stringify({ id, type, ...values })}\n`);
-    });
-  const waitFor = async (predicate, timeout = 30_000) => {
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      const found = events.find(predicate);
-      if (found) return found;
-      await delay(25);
-    }
-    throw new Error(`missing RPC event: ${stderr}`);
-  };
-  const stop = async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    const exited = once(child, "close");
-    child.kill("SIGTERM");
-    const timer = setTimeout(() => child.kill("SIGKILL"), 3_000);
-    await exited;
-    clearTimeout(timer);
-  };
-  return { events, send, waitFor, stop, getStderr: () => stderr };
 }
 
 /** Send one prompt and return the model requests it produced. */

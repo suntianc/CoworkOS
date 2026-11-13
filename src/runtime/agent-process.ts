@@ -1,0 +1,447 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, readdir } from "node:fs/promises";
+import { hostname } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { atomicWrite } from "../storage/atomic-file.js";
+import { now } from "../domain/types.js";
+import {
+  processGroupIsAlive,
+  processIsAlive,
+  readProcessIdentity,
+  verifyProcessIdentity
+} from "./process-identity.js";
+
+/**
+ * The process model Main and delegated agents share.
+ *
+ * A backend launches an agent as its own Pi process group, so the process is
+ * not a child whose life the backend owns: a backend restart or upgrade must
+ * not end work already in flight. The backend stays the manager for the rest of
+ * the life of that process — it observes the exit while it is the parent, and
+ * re-adopts a still-running process after a restart by checking the pid against
+ * the OS start time recorded at launch. A pid on its own is never enough.
+ */
+export type AgentProcessRole = "main" | "executor" | "reviewer";
+
+export type AgentProcessStatus = "succeeded" | "failed" | "timed_out" | "cancelled";
+
+/** What a settled process leaves for its backend to project. */
+export interface AgentProcessOutcome {
+  status: AgentProcessStatus;
+  response: string;
+  outputFiles: string[];
+  diagnostics: AgentProcessDiagnostics;
+  error?: string;
+}
+
+export interface AgentProcessDiagnostics {
+  tracePath: string;
+  resultPath: string;
+}
+
+export interface AgentProcessLaunch {
+  taskId: string;
+  runId: string;
+  callId: string;
+  agentId: string;
+  role: AgentProcessRole;
+  /** The work item's site; the process runs with this as its CWD. */
+  workingDirectory: string;
+  /** The turn handed to the agent on stdin. */
+  prompt: string;
+  /** Pi session directory; one call keeps its own transcript. */
+  sessionDirectory: string;
+  /** The extension writes this record before the process exits. */
+  resultPath: string;
+  /** Model, workspace and configuration facts for the child. */
+  env: NodeJS.ProcessEnv;
+  /** Durable queue lease this process is fulfilling, renewed while it runs. */
+  leaseToken?: string;
+  /** Extra launcher arguments appended after the shared ones. */
+  args?: string[];
+}
+
+export interface AgentProcessRecord {
+  version: 1;
+  taskId: string;
+  runId: string;
+  callId: string;
+  agentId: string;
+  role: AgentProcessRole;
+  pid: number;
+  host: string;
+  /** OS process start identity; a reused pid does not match it. */
+  startedAt: string;
+  token: string;
+  launchedAt: string;
+  workingDirectory: string;
+  sessionDirectory: string;
+  resultPath: string;
+  stdoutPath: string;
+  stderrPath: string;
+  leaseToken?: string;
+  settledAt?: string;
+  outcome?: AgentProcessOutcome;
+}
+
+export interface AgentProcessHostOptions {
+  workspaceRoot: string;
+  harnessRoot: string;
+  /** Connection facts and configuration inherited by every launched process. */
+  env?: NodeJS.ProcessEnv;
+  /** Absolute launcher path, for a host that installs its own entry. */
+  launcher?: string;
+  /** Called once per process when it is observed to have exited. */
+  onExit?: (record: AgentProcessRecord) => Promise<void> | void;
+  /** How often an adopted (not parented) process is checked for liveness. */
+  pollMs?: number;
+  /** SIGTERM→SIGKILL window when the backend stops a process. */
+  graceMs?: number;
+}
+
+/** The directory an agent's durable process records live in. */
+export function agentProcessDirectory(
+  workspaceRoot: string,
+  taskId: string,
+  runId: string,
+  role: AgentProcessRole,
+  agentId: string
+): string {
+  return join(
+    workspaceRoot,
+    taskId,
+    "runs",
+    runId,
+    "agents",
+    role === "main" ? "main" : join("subagents", agentId)
+  );
+}
+
+export function agentProcessRecordPath(
+  workspaceRoot: string,
+  taskId: string,
+  runId: string,
+  role: AgentProcessRole,
+  agentId: string
+): string {
+  return join(agentProcessDirectory(workspaceRoot, taskId, runId, role, agentId), "process.json");
+}
+
+export class AgentProcessHost {
+  private readonly workspaceRoot: string;
+  private readonly harnessRoot: string;
+  private readonly baseEnv: NodeJS.ProcessEnv;
+  private readonly launcher: string;
+  private readonly onExit?: (record: AgentProcessRecord) => Promise<void> | void;
+  private readonly pollMs: number;
+  private readonly graceMs: number;
+  private readonly children = new Map<string, ChildProcess>();
+  private readonly watchers = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly settling = new Map<string, Promise<void>>();
+
+  constructor(options: AgentProcessHostOptions) {
+    this.workspaceRoot = options.workspaceRoot;
+    this.harnessRoot = resolve(options.harnessRoot);
+    this.baseEnv = options.env ?? {};
+    this.launcher = options.launcher ?? join(this.harnessRoot, "scripts", "start-pi.mjs");
+    this.onExit = options.onExit;
+    this.pollMs = Math.max(100, options.pollMs ?? 2_000);
+    this.graceMs = Math.max(100, options.graceMs ?? 2_000);
+  }
+
+  /**
+   * Start one agent process group and record who it is before handing back.
+   *
+   * The record is durable before the prompt is delivered: a backend that dies
+   * in between leaves an adoption record for the process it just created
+   * instead of an unowned child.
+   */
+  async launch(input: AgentProcessLaunch): Promise<AgentProcessRecord> {
+    const token = randomUUID();
+    const directory = agentProcessDirectory(
+      this.workspaceRoot,
+      input.taskId,
+      input.runId,
+      input.role,
+      input.agentId
+    );
+    const stdoutPath = join(directory, "agent-output.log");
+    const stderrPath = join(directory, "agent-stderr.log");
+    const env = this.launchEnv(input, token);
+    await mkdir(directory, { recursive: true });
+    const stdout = await open(stdoutPath, "a");
+    const stderr = await open(stderrPath, "a");
+    let child: ChildProcess;
+    try {
+      child = spawn(
+        process.execPath,
+        [
+          this.launcher,
+          "--print",
+          "--mode",
+          "json",
+          "--session-dir",
+          input.sessionDirectory,
+          "--session-id",
+          input.callId,
+          ...(input.args ?? [])
+        ],
+        {
+          cwd: input.workingDirectory,
+          env,
+          // A separate group is what lets the backend stop the whole tree and
+          // what keeps it alive when the backend itself goes away.
+          detached: process.platform !== "win32",
+          stdio: ["pipe", stdout.fd, stderr.fd]
+        }
+      );
+    } finally {
+      // The child owns its copies; the parent closes its own handles.
+      await stdout.close();
+      await stderr.close();
+    }
+    const pid = child.pid;
+    if (!pid) throw new Error("Agent process did not start");
+    const identity = await readProcessIdentity(pid);
+    const record: AgentProcessRecord = {
+      version: 1,
+      taskId: input.taskId,
+      runId: input.runId,
+      callId: input.callId,
+      agentId: input.agentId,
+      role: input.role,
+      pid,
+      host: hostname(),
+      startedAt: identity?.startedAt ?? "",
+      token,
+      launchedAt: now(),
+      workingDirectory: input.workingDirectory,
+      sessionDirectory: input.sessionDirectory,
+      resultPath: input.resultPath,
+      stdoutPath,
+      stderrPath,
+      ...(input.leaseToken ? { leaseToken: input.leaseToken } : {})
+    };
+    await this.writeRecord(record);
+    this.children.set(recordKey(record), child);
+    child.stdin?.on("error", () => {
+      /* the close event settles; a closed stdin is not a launch failure */
+    });
+    child.stdin?.end(input.prompt);
+    child.once("error", () => {
+      // close owns the single settlement; a spawn error has no separate path.
+    });
+    child.once("exit", () => {
+      this.children.delete(recordKey(record));
+      void this.settle(record);
+    });
+    return record;
+  }
+
+  /**
+   * Take over the processes a previous backend started for this Run.
+   *
+   * A live process is observed by polling the identity written at launch; one
+   * that ended while no backend was watching is settled from its durable
+   * records, so Main still receives the callback it was owed.
+   */
+  async adopt(input: { taskId: string; runId: string }): Promise<AgentProcessRecord[]> {
+    const records = await this.records(input.taskId, input.runId);
+    const adopted: AgentProcessRecord[] = [];
+    for (const record of records) {
+      if (record.settledAt) continue;
+      if (this.children.has(recordKey(record))) {
+        adopted.push(record);
+        continue;
+      }
+      const ours = record.host === hostname();
+      const live = ours && (await verifyProcessIdentity({ pid: record.pid, startedAt: record.startedAt }));
+      if (!live) {
+        await this.settle(record);
+        continue;
+      }
+      adopted.push(record);
+      this.watch(record);
+    }
+    return adopted;
+  }
+
+  /** Stop one process group and let its exit settle the record. */
+  async stop(record: AgentProcessRecord): Promise<void> {
+    if (!processGroupIsAlive(record.pid)) {
+      await this.settle(record);
+      return;
+    }
+    signalGroup(record.pid, "SIGTERM");
+    const deadline = Date.now() + this.graceMs;
+    while (Date.now() < deadline && processGroupIsAlive(record.pid)) await pause(this.pollMs);
+    // The launcher can exit before a descendant in the same group; the group,
+    // not the recorded pid, is what must be gone when stop resolves.
+    if (processGroupIsAlive(record.pid)) signalGroup(record.pid, "SIGKILL");
+    await this.settle(record);
+  }
+
+  /** Record the queue lease this process currently holds. */
+  async updateLease(record: AgentProcessRecord, leaseToken: string): Promise<void> {
+    await this.writeRecord({ ...record, leaseToken });
+  }
+
+  /** Stop watching every adopted process; used by a backend that is shutting down. */
+  close(): void {
+    for (const watcher of this.watchers.values()) clearInterval(watcher);
+    this.watchers.clear();
+  }
+
+  async records(taskId: string, runId: string): Promise<AgentProcessRecord[]> {
+    const agents = join(this.workspaceRoot, taskId, "runs", runId, "agents");
+    const paths = [join(agents, "main", "process.json")];
+    const subagents = join(agents, "subagents");
+    const entries = await readdir(subagents, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        // A Run with no delegated process yet has no subagents directory.
+        if (error.code === "ENOENT") return [];
+        throw error;
+      }
+    );
+    for (const entry of entries)
+      if (entry.isDirectory()) paths.push(join(subagents, entry.name, "process.json"));
+    const records: AgentProcessRecord[] = [];
+    for (const path of paths) {
+      const value = await readRecord(path);
+      if (value) records.push(value);
+    }
+    return records;
+  }
+
+  async record(input: {
+    taskId: string;
+    runId: string;
+    role: AgentProcessRole;
+    agentId: string;
+  }): Promise<AgentProcessRecord | undefined> {
+    return readRecord(
+      agentProcessRecordPath(this.workspaceRoot, input.taskId, input.runId, input.role, input.agentId)
+    );
+  }
+
+  /** Persist the outcome the backend projected from the process's result record. */
+  async markSettled(record: AgentProcessRecord, outcome: AgentProcessOutcome): Promise<void> {
+    const settled: AgentProcessRecord = {
+      ...record,
+      settledAt: record.settledAt ?? now(),
+      outcome
+    };
+    await this.writeRecord(settled);
+  }
+
+  private async settle(record: AgentProcessRecord): Promise<void> {
+    const key = recordKey(record);
+    const existing = this.settling.get(key);
+    if (existing) return existing;
+    const operation = (async () => {
+      const watcher = this.watchers.get(key);
+      if (watcher) {
+        clearInterval(watcher);
+        this.watchers.delete(key);
+      }
+      // The parent's close event and a poll can both arrive; the fresh record
+      // is the one place that says whether somebody already settled it.
+      const current = await readRecord(agentProcessRecordPathFor(record));
+      if (current?.settledAt) return;
+      try {
+        await this.onExit?.(current ?? record);
+      } catch (error) {
+        // Settlement failures are logged, not fatal: the record stays unsettled
+        // so the next adoption retries, and callbacks are idempotent by callId.
+        console.error(
+          `[cowork] agent process settlement failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    })().finally(() => this.settling.delete(key));
+    this.settling.set(key, operation);
+    return operation;
+  }
+
+  private watch(record: AgentProcessRecord): void {
+    const key = recordKey(record);
+    if (this.watchers.has(key)) return;
+    const watcher = setInterval(() => {
+      void (async () => {
+        if (await verifyProcessIdentity({ pid: record.pid, startedAt: record.startedAt })) return;
+        await this.settle(record);
+      })();
+    }, this.pollMs);
+    this.watchers.set(key, watcher);
+  }
+
+  private launchEnv(input: AgentProcessLaunch, token: string): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...this.baseEnv,
+      ...input.env,
+      COWORK_HARNESS_ROOT: this.harnessRoot,
+      COWORK_WORKSPACE: this.workspaceRoot,
+      COWORK_PROJECT_DIR: input.workingDirectory,
+      COWORK_TASK_ID: input.taskId,
+      COWORK_RUN_ID: input.runId,
+      COWORK_CLI_SESSION: "0",
+      COWORK_AGENT_ROLE: input.role,
+      COWORK_AGENT_ID: input.agentId,
+      PI_OFFLINE: "1"
+    };
+    if (input.role !== "main") {
+      env.COWORK_SUBAGENT_CALL_ID = input.callId;
+      env.COWORK_SUBAGENT_TOKEN = token;
+      env.COWORK_SUBAGENT_RESULT = input.resultPath;
+    }
+    return env;
+  }
+
+  private async writeRecord(record: AgentProcessRecord): Promise<void> {
+    await atomicWrite(agentProcessRecordPathFor(record), `${JSON.stringify(record, null, 2)}\n`);
+  }
+}
+
+function recordKey(record: Pick<AgentProcessRecord, "runId" | "callId">): string {
+  return `${record.runId}:${record.callId}`;
+}
+
+function agentProcessRecordPathFor(record: AgentProcessRecord): string {
+  return join(dirname(record.stdoutPath), "process.json");
+}
+
+async function readRecord(path: string): Promise<AgentProcessRecord | undefined> {
+  try {
+    const value = JSON.parse(await readFile(path, "utf8")) as Partial<AgentProcessRecord>;
+    if (
+      value.version !== 1 ||
+      typeof value.pid !== "number" ||
+      typeof value.taskId !== "string" ||
+      typeof value.runId !== "string" ||
+      typeof value.agentId !== "string" ||
+      typeof value.callId !== "string" ||
+      typeof value.startedAt !== "string" ||
+      typeof value.resultPath !== "string"
+    )
+      return undefined;
+    return value as AgentProcessRecord;
+    // eslint-disable-next-line no-restricted-syntax -- 记录尚未写入或已损坏时视为没有可接管的进程；调用方从队列恢复而不是猜测一个 pid
+  } catch {
+    return undefined;
+  }
+}
+
+function signalGroup(pid: number, signal: NodeJS.Signals): void {
+  try {
+    if (process.platform !== "win32") process.kill(-pid, signal);
+    else process.kill(pid, signal);
+    // eslint-disable-next-line no-restricted-syntax -- 进程组可能在信号发出前已退出（ESRCH）；退出由 settle 从记录与 pid 复盘
+  } catch {
+    /* the process group has already exited */
+  }
+}
+
+async function pause(ms: number): Promise<void> {
+  await new Promise<void>((done) => setTimeout(done, ms));
+}
