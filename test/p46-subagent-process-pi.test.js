@@ -589,3 +589,282 @@ test(
     assert.equal((await callbacks(f, callId)).length, 1, "cancellation reports one callback");
   }
 );
+
+/** Spawn a live detached process-group leader the fixture never launched. */
+function unrelatedGroup(f) {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    detached: true,
+    stdio: "ignore"
+  });
+  f.processes.push(child);
+  return child;
+}
+
+/** Write the durable record a previous backend would have left behind. */
+async function writeStaleRecord(f, { callId, agentId, pid, host, startedAt, leaseToken }) {
+  const directory = join(f.runRoot, "agents", "subagents", agentId);
+  const sessionDirectory = join(f.workspace, TASK_ID, "sessions", agentId, "pi", callId);
+  await mkdir(directory, { recursive: true });
+  await mkdir(sessionDirectory, { recursive: true });
+  await writeFile(
+    join(directory, "process.json"),
+    JSON.stringify({
+      version: 1,
+      taskId: TASK_ID,
+      runId: RUN_ID,
+      callId,
+      agentId,
+      role: "executor",
+      pid,
+      host,
+      startedAt,
+      token: `stale-${callId}`,
+      launchedAt: new Date(0).toISOString(),
+      workingDirectory: f.site,
+      sessionDirectory,
+      resultPath: join(directory, "result.json"),
+      stdoutPath: join(directory, "agent-output.log"),
+      stderrPath: join(directory, "agent-stderr.log"),
+      leaseToken
+    })
+  );
+}
+
+test(
+  "stopping a record whose identity no longer matches never signals the pid's new owner",
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const reusedPid = unrelatedGroup(f);
+    const foreignHost = unrelatedGroup(f);
+    await waitFor(
+      () => reusedPid.pid && groupAlive(reusedPid.pid) && foreignHost.pid && groupAlive(foreignHost.pid),
+      "the unrelated process groups"
+    );
+    const cases = [
+      {
+        callId: "call-p46-stale-identity",
+        agentId: "subagent_7",
+        child: reusedPid,
+        host: hostname(),
+        startedAt: "Thu Jan  1 00:00:01 1970"
+      },
+      {
+        callId: "call-p46-stale-host",
+        agentId: "subagent_8",
+        child: foreignHost,
+        host: "a-different-host",
+        startedAt: "Thu Jan  1 00:00:01 1970"
+      }
+    ];
+    for (const entry of cases) {
+      const scheduler = await queueCall(f, {
+        callId: entry.callId,
+        agentId: entry.agentId,
+        task: "stale process record",
+        site: f.site
+      });
+      const claimed = await scheduler.claim("fixture", 60_000, entry.callId);
+      await writeStaleRecord(f, {
+        callId: entry.callId,
+        agentId: entry.agentId,
+        pid: entry.child.pid,
+        host: entry.host,
+        startedAt: entry.startedAt,
+        leaseToken: claimed.lease.token
+      });
+    }
+
+    const service = new SubagentProcessService({
+      workspaceRoot: f.workspace,
+      harnessRoot: harness,
+      env: {},
+      pollMs: 50,
+      graceMs: 200
+    });
+    try {
+      for (const entry of cases) {
+        const result = await service.stop({ taskId: TASK_ID, runId: RUN_ID, callId: entry.callId });
+        assert.equal(
+          groupAlive(entry.child.pid),
+          true,
+          `stopping a stale record must not signal the unrelated group ${entry.child.pid}`
+        );
+        assert.equal(
+          result?.status,
+          "failed",
+          `a record with no result is settled as ended, not cancelled (${entry.callId})`
+        );
+      }
+    } finally {
+      service.close();
+    }
+
+    for (const entry of cases) {
+      assert.equal(
+        groupAlive(entry.child.pid),
+        true,
+        `the unrelated process group ${entry.child.pid} must not be signalled`
+      );
+      assert.equal(alive(entry.child.pid), true, "the unrelated group leader is still running");
+    }
+    const items = await queueItems(f);
+    for (const entry of cases) {
+      assert.equal(items.find((item) => item.stepId === entry.callId).status, "failed");
+      const [callback] = await callbacks(f, entry.callId);
+      assert.equal(callback.payload.status, "failed", JSON.stringify(callback.payload));
+    }
+  }
+);
+
+test(
+  "a launch that cannot start settles the call instead of crashing the backend",
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const provider = await startLocalProvider({
+      model: "p46-subagent-model",
+      handle: () => ({ text: "never reached" })
+    });
+    t.after(() => provider.close());
+    await writeFile(
+      join(f.root, "config.json"),
+      JSON.stringify({
+        api: "openai-completions",
+        baseUrl: provider.baseUrl,
+        apiKey: "fixture-key",
+        model: "p46-subagent-model"
+      })
+    );
+    const callId = "call-p46-missing-site";
+    await queueCall(f, {
+      callId,
+      agentId: "subagent_9",
+      task: "launch without a work site",
+      site: join(f.root, "missing-work-site")
+    });
+    const backend = startBackend(f, provider);
+    const [callback] = await waitForCallback(f, callId);
+    assert.equal(callback.payload.status, "failed", JSON.stringify(callback.payload));
+    assert.match(callback.payload.error, /did not start/i);
+    assert.equal(
+      (await queueItems(f)).find((item) => item.stepId === callId).status,
+      "failed",
+      "a launch failure is a terminal failure"
+    );
+    await delay(500);
+    assert.equal(backend.child.exitCode, null, "the backend keeps running after the launch failure");
+  }
+);
+
+test("stopping a call that already finished reports its durable outcome", { timeout: 60_000 }, async (t) => {
+  const f = await fixture(t);
+  const provider = await startLocalProvider({
+    model: "p46-subagent-model",
+    handle: () => ({ text: "P46_ALREADY_DONE" })
+  });
+  t.after(() => provider.close());
+  await writeFile(
+    join(f.root, "config.json"),
+    JSON.stringify({
+      api: "openai-completions",
+      baseUrl: provider.baseUrl,
+      apiKey: "fixture-key",
+      model: "p46-subagent-model"
+    })
+  );
+  const callId = "call-p46-already-succeeded";
+  await queueCall(f, { callId, agentId: "subagent_10", task: "已完成的调用", site: f.site });
+  startBackend(f, provider);
+  const [callback] = await waitForCallback(f, callId);
+  assert.equal(callback.payload.status, "succeeded");
+  await waitFor(
+    async () => (await queueItems(f)).find((item) => item.stepId === callId)?.status === "completed",
+    "the call to finish"
+  );
+  await waitFor(async () => {
+    const record = await readJson(recordPath(f, "subagent_10"), undefined);
+    return record?.settledAt ? record : undefined;
+  }, "the finished call to settle");
+
+  const service = new SubagentProcessService({
+    workspaceRoot: f.workspace,
+    harnessRoot: harness,
+    env: {},
+    pollMs: 50
+  });
+  try {
+    const result = await service.stop({ taskId: TASK_ID, runId: RUN_ID, callId });
+    assert.equal(result?.status, "succeeded", "an already-finished call keeps its terminal status");
+  } finally {
+    service.close();
+  }
+  const messages = await callbacks(f, callId);
+  assert.equal(messages.length, 1, "stopping a finished call does not add or replace its callback");
+  assert.equal(messages[0].payload.status, "succeeded");
+});
+
+test(
+  "a delegated launcher refuses a missing model environment instead of reading the work site",
+  { timeout: 30_000 },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "p46-subagent-launch-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const site = join(root, "site");
+    await mkdir(site, { recursive: true });
+    const provider = await startLocalProvider({ handle: () => ({ text: "work site config was used" }) });
+    t.after(() => provider.close());
+    await writeFile(
+      join(site, "config.json"),
+      JSON.stringify({
+        api: "openai-completions",
+        baseUrl: provider.baseUrl,
+        apiKey: "site-config-key",
+        model: "site-config-model"
+      })
+    );
+    const child = spawn(
+      process.execPath,
+      [join(harness, "scripts", "start-pi.mjs"), "--print", "--mode", "json"],
+      {
+        cwd: site,
+        env: isolatedPiEnvironment({
+          HOME: root,
+          TMPDIR: root,
+          ATRIA_HOME: join(root, "home"),
+          COWORK_CONFIG_ROOT: site,
+          COWORK_HARNESS_ROOT: harness,
+          COWORK_WORKSPACE: join(root, "workspace"),
+          COWORK_TASK_ID: "launcher-task",
+          COWORK_RUN_ID: "launcher-run",
+          COWORK_AGENT_ROLE: "executor",
+          COWORK_AGENT_ID: "subagent_x",
+          COWORK_SUBAGENT_CALL_ID: "launcher-call",
+          COWORK_SUBAGENT_TOKEN: "launcher-token",
+          COWORK_SUBAGENT_RESULT: join(root, "result.json"),
+          PI_CODING_AGENT_DIR: join(root, "pi"),
+          PI_OFFLINE: "1"
+        }),
+        stdio: ["ignore", "pipe", "pipe"]
+      }
+    );
+    let output = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => (output += chunk));
+    child.stderr.setEncoding("utf8").on("data", (chunk) => (output += chunk));
+    const outcome = await Promise.race([
+      once(child, "close").then(([code]) => code),
+      delay(20_000).then(() => "timeout")
+    ]);
+    if (outcome === "timeout") {
+      child.kill("SIGKILL");
+      assert.fail(`the launcher kept running without model environment: ${output}`);
+    }
+    assert.notEqual(outcome, 0, `the launcher must refuse to start: ${output}`);
+    assert.match(output, /COWORK_API_BASE/, "the error names the missing environment variable");
+    assert.equal(
+      provider.requests.length,
+      0,
+      "a config.json inside the work site must never supply model settings"
+    );
+  }
+);

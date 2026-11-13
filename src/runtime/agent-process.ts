@@ -173,6 +173,7 @@ export class AgentProcessHost {
     const stdout = await open(stdoutPath, "a");
     const stderr = await open(stderrPath, "a");
     let child: ChildProcess;
+    let spawnFailure: Promise<Error>;
     try {
       child = spawn(
         process.execPath,
@@ -196,13 +197,24 @@ export class AgentProcessHost {
           stdio: ["pipe", stdout.fd, stderr.fd]
         }
       );
+      // A spawn failure is reported asynchronously on `error` and leaves no
+      // pid. Attach the listener before the next await (closing the parent's
+      // file handles yields to the event loop): an unhandled `error` event
+      // would crash the backend, and the launch would never be settled.
+      spawnFailure = new Promise<Error>((resolve) => child.once("error", resolve));
     } finally {
       // The child owns its copies; the parent closes its own handles.
       await stdout.close();
       await stderr.close();
     }
     const pid = child.pid;
-    if (!pid) throw new Error("Agent process did not start");
+    if (!pid) {
+      const failure = await Promise.race([
+        spawnFailure,
+        pause(2_000).then(() => new Error("no process was created"))
+      ]);
+      throw new Error(`Agent process did not start: ${failure.message}`);
+    }
     const identity = await readProcessIdentity(pid);
     const record: AgentProcessRecord = {
       version: 1,
@@ -226,13 +238,12 @@ export class AgentProcessHost {
     await this.writeRecord(record);
     this.children.set(recordKey(record), child);
     child.stdin?.on("error", () => {
-      /* the close event settles; a closed stdin is not a launch failure */
+      /* a closed stdin is not a launch failure; close settles the process */
     });
     child.stdin?.end(input.prompt);
-    child.once("error", () => {
-      // close owns the single settlement; a spawn error has no separate path.
-    });
-    child.once("exit", () => {
+    // `close` also fires after an asynchronous spawn error, so one settlement
+    // path covers normal exits and process-level errors.
+    child.once("close", () => {
       this.children.delete(recordKey(record));
       void this.settle(record);
     });
@@ -255,8 +266,7 @@ export class AgentProcessHost {
         adopted.push(record);
         continue;
       }
-      const ours = record.host === hostname();
-      const live = ours && (await verifyProcessIdentity({ pid: record.pid, startedAt: record.startedAt }));
+      const live = await this.owns(record);
       if (!live) {
         await this.settle(record);
         continue;
@@ -267,8 +277,28 @@ export class AgentProcessHost {
     return adopted;
   }
 
+  /**
+   * Whether the recorded pid is still the process this system launched.
+   *
+   * A pid alone is not an identity: every delegated agent is a detached group
+   * leader, so a recycled pid can belong to a sibling's process group. Only a
+   * matching host and OS start time authorises a signal or an adoption.
+   */
+  async owns(record: AgentProcessRecord): Promise<boolean> {
+    if (record.host !== hostname()) return false;
+    if (!Number.isSafeInteger(record.pid) || record.pid <= 0) return false;
+    return verifyProcessIdentity({ pid: record.pid, startedAt: record.startedAt });
+  }
+
   /** Stop one process group and let its exit settle the record. */
   async stop(record: AgentProcessRecord): Promise<void> {
+    // Signalling is the destructive step: never send one to a pid that no
+    // longer matches the identity written at launch. A mismatch means the
+    // process already ended, so settle from its durable records instead.
+    if (!(await this.owns(record))) {
+      await this.settle(record);
+      return;
+    }
     if (!processGroupIsAlive(record.pid)) {
       await this.settle(record);
       return;
@@ -417,6 +447,8 @@ async function readRecord(path: string): Promise<AgentProcessRecord | undefined>
     if (
       value.version !== 1 ||
       typeof value.pid !== "number" ||
+      !Number.isSafeInteger(value.pid) ||
+      value.pid <= 0 ||
       typeof value.taskId !== "string" ||
       typeof value.runId !== "string" ||
       typeof value.agentId !== "string" ||
@@ -433,6 +465,7 @@ async function readRecord(path: string): Promise<AgentProcessRecord | undefined>
 }
 
 function signalGroup(pid: number, signal: NodeJS.Signals): void {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return;
   try {
     if (process.platform !== "win32") process.kill(-pid, signal);
     else process.kill(pid, signal);

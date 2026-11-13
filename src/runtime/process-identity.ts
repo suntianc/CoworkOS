@@ -20,6 +20,7 @@ export interface ProcessIdentity {
 
 /** Whether a process group still has members. Only meaningful for this host. */
 export function processGroupIsAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   if (process.platform === "win32") return processIsAlive(pid);
   try {
     process.kill(-pid, 0);

@@ -496,18 +496,23 @@ async function resolvePiEntry(harnessRoot) {
  * new-capability defaults off, and hands the process to the same extension.
  */
 async function startDelegatedAgent() {
+  // The backend owns this process's connection and passes it down. A work site
+  // is project code, so a config.json inside it can never supply model settings.
+  const missing = ["COWORK_API_BASE", "COWORK_API_KEY", "COWORK_MODEL"].filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    console.error(`CoworkOS 子代理启动缺少模型环境变量：${missing.join("、")}。`);
+    process.exit(1);
+  }
   const harnessRoot = resolve(process.env.COWORK_HARNESS_ROOT ?? process.cwd());
   const executable = await resolvePiEntry(harnessRoot);
   if (!executable) {
     console.error("CoworkOS Agent 运行时未安装完整，请运行 npm ci 或重新安装 CLI。");
     process.exit(1);
   }
-  const { readHostCoworkConfig } = await import("../dist/src/runtime/config.js");
-  const launchConfig = readHostCoworkConfig(process.cwd());
-  const baseUrl = process.env.COWORK_API_BASE ?? launchConfig.baseUrl ?? launchConfig.apiBase ?? "";
-  const model = process.env.COWORK_MODEL ?? launchConfig.model ?? "glm-5.3";
+  const baseUrl = process.env.COWORK_API_BASE;
+  const model = process.env.COWORK_MODEL;
   const thinkingLevel = normalizeReasoningEffort(
-    process.env.COWORK_REASONING_EFFORT ?? configuredReasoningEffort(runtimeSettingsEnv(launchConfig)),
+    process.env.COWORK_REASONING_EFFORT ?? configuredReasoningEffort(),
     "COWORK_REASONING_EFFORT"
   );
   const providerId = coworkProviderId(baseUrl, process.env.COWORK_CONNECTION_ID ?? "");

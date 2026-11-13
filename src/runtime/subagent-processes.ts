@@ -75,7 +75,6 @@ export class SubagentProcessService {
   private readonly host: AgentProcessHost;
   private readonly workspaceRoot: string;
   private readonly leaseMs: number;
-  private readonly cancelled = new Set<string>();
 
   constructor(private readonly options: SubagentProcessServiceOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -156,7 +155,14 @@ export class SubagentProcessService {
     }
   }
 
-  /** Stop one delegated process group and record it as cancelled. */
+  /**
+   * Stop one delegated process group and record it as cancelled.
+   *
+   * The durable queue is the authority: a call that already reached a terminal
+   * state keeps that outcome and is never rewritten by a late stop request. A
+   * process whose pid no longer matches its launch record is already gone, so
+   * it is settled from its records without any signal being sent.
+   */
   async stop(input: {
     taskId: string;
     runId: string;
@@ -164,8 +170,11 @@ export class SubagentProcessService {
   }): Promise<SubagentProcessResult | undefined> {
     const record = await this.findRecord(input);
     if (!record) return undefined;
-    this.cancelled.add(record.callId);
-    await this.markQueueCancelled(input.taskId, input.runId, record.callId);
+    const settled = settledResult(record);
+    if (settled) return settled;
+    const item = await this.findQueueItem(input.taskId, input.runId, input.callId);
+    if (item && isTerminal(item.status)) return this.findSettled(record);
+    if (await this.host.owns(record)) await this.markQueueCancelled(input.taskId, input.runId, record.callId);
     await this.host.stop(record);
     return this.findSettled(record);
   }
@@ -309,7 +318,7 @@ export class SubagentProcessService {
         join(this.workspaceRoot, record.taskId, "runs", record.runId, "queue.json")
       ).list()
     ).find((candidate) => candidate.stepId === record.callId);
-    if (this.cancelled.has(record.callId) || item?.status === "cancelled")
+    if (item?.status === "cancelled")
       return { ...base, status: "cancelled", response: "", error: "Subagent was cancelled by the backend" };
     if (!result || result.token !== record.token || typeof result.termination !== "string")
       return {
@@ -448,6 +457,11 @@ export class SubagentProcessService {
     await scheduler.cancel(callId).catch(() => undefined);
   }
 
+  private async findQueueItem(taskId: string, runId: string, callId: string): Promise<WorkItem | undefined> {
+    const scheduler = new DurableScheduler(join(this.workspaceRoot, taskId, "runs", runId, "queue.json"));
+    return (await scheduler.list()).find((candidate) => candidate.stepId === callId);
+  }
+
   private async findRecord(record: {
     taskId: string;
     runId: string;
@@ -471,6 +485,18 @@ function delegatedPrompt(task: string): string {
 
 function isTerminal(status: WorkItem["status"]): boolean {
   return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+/** The recorded outcome of a process this backend already settled. */
+function settledResult(record: AgentProcessRecord): SubagentProcessResult | undefined {
+  if (!record.settledAt || !record.outcome) return undefined;
+  return {
+    taskId: record.taskId,
+    runId: record.runId,
+    callId: record.callId,
+    agentId: record.agentId,
+    ...record.outcome
+  };
 }
 
 async function readResult(path: string): Promise<AgentResultRecord | undefined> {
