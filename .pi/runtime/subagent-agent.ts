@@ -24,6 +24,7 @@ import {
 import { loadConfig } from "./helpers.ts";
 import { registerCoworkProvider } from "./provider.ts";
 import { MainCompactionRetry } from "./main-compaction-retry.ts";
+import { registerSubagentInbox } from "./subagent-inbox.ts";
 import { registerSubagentTools } from "./tools/subagent.ts";
 
 /**
@@ -172,6 +173,10 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
       submittedReview = review;
     }
   });
+
+  // Main's guidance and a peer's message reach this process through its own
+  // durable Inbox; nothing about that channel is Main-specific.
+  registerSubagentInbox(pi, { workspaceRoot, taskId, runId, agentId });
 
   // `agent_end` is the last hook Pi awaits before a --print host may dispose the
   // session, so the record is durable before the process can exit.

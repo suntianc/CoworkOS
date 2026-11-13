@@ -50,7 +50,7 @@ Pi 的 `before_agent_start` 在首轮请求前装配工具，`context` 在后续
 
 QuickJS 保存当前 Pi 会话的脚本 state，经受限 dispatcher 逐次调用已启用的原生/浏览器工具，原工具继续负责权限、参数及 Task 归属。切会话/shutdown 清空 VM 并关闭浏览器，图片和已接受下载留在 Task；持久工具选择只恢复可用组。接口和边界见 [视觉观察](visual-observation.md)、[Browser Use](browser-use.md) 与 [CUA 脚本](cua-scripting.md)。
 
-持久 Inbox、定时停泊和 Main 恢复已存在：有回调或定时唤醒时，Dashboard 运行服务按期检查并重新拉起没有存活 Main 的 Task。外部事件经持久 Inbox 交付给 Main，是否继续由 Main 决定。
+持久 Inbox 是 Main 与子代理共用的送达方式：后端把回调、外部事件、追加消息、提问与同伴消息写入目标进程自己的 Inbox；子代理进程内的扩展在安全回合边界读取，空闲时由文件监听唤醒，不经标准输入、不轮询。消息在进入进程的 Pi 会话上下文后才记为已消费，后端重启前后都能送达且每条只读一次。定时停泊和 Main 恢复沿用现有规则：有回调或定时唤醒时，Dashboard 运行服务按期检查并重新拉起没有存活 Main 的 Task；是否继续由 Main 决定。
 
 ## 会话与界面的一致性
 

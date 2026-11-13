@@ -1,15 +1,14 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
-import { id } from "../../../dist/src/domain/types.js";
 import { agentDisplayName } from "../../../dist/src/runtime/agent-identity.js";
 import {
   configuredSubagentMaxQuestions,
   configuredSubagentQuestionTimeout,
   runtimeSettingsEnv
 } from "../../../dist/src/runtime/runtime-settings.js";
-import { SubagentQuestionStore } from "../../../dist/src/runtime/subagent-questions.js";
-import { DurableScheduler, InboxStore } from "../../../dist/src/runtime/scheduler.js";
+import { askMain } from "../../../dist/src/runtime/subagent-questions.js";
+import { DurableScheduler } from "../../../dist/src/runtime/scheduler.js";
 import { parseReviewConclusion, type ReviewConclusion } from "../../../dist/src/runtime/subagent-review.js";
 import { sendPeerMessage, type PeerMessageResult } from "../../../dist/src/runtime/subagent-peer-message.js";
 import {
@@ -66,20 +65,28 @@ export function registerSubagentTools(pi: ExtensionAPI, context: SubagentToolCon
       { additionalProperties: false }
     ),
     async execute(_toolCallId, params, signal): Promise<RuntimeToolResult> {
-      const question = params.question.trim();
-      const assumption = params.assumption.trim();
-      if (!question) throw new Error("ask_main requires question");
-      if (!assumption)
-        throw new Error("ask_main requires the assumption you will follow if the question goes unanswered");
-      const timeoutMs = configuredSubagentQuestionTimeout(runtimeEnv);
-      const maxQuestions = configuredSubagentMaxQuestions(runtimeEnv);
-      const store = new SubagentQuestionStore(context.workspaceRoot);
-      if (asked >= maxQuestions) {
+      const outcome = await askMain({
+        workspaceRoot: context.workspaceRoot,
+        taskId: context.taskId,
+        runId: context.runId,
+        callId: context.callId,
+        agentId: context.agentId,
+        agentName: agentDisplayName(context.agentId),
+        question: params.question,
+        assumption: params.assumption,
+        timeoutMs: configuredSubagentQuestionTimeout(runtimeEnv),
+        maxQuestions: configuredSubagentMaxQuestions(runtimeEnv),
+        asked,
+        isCancelled: async () => signal?.aborted === true || (await callCancelled(context)),
+        cancellationWatchPaths: [
+          join(context.workspaceRoot, context.taskId, "runs", context.runId, "queue.json")
+        ]
+      });
+      if (outcome.status === "refused") {
         const payload = {
           status: "refused",
-          reason: `this attempt has already used its ${maxQuestions} question(s)`,
-          instruction:
-            "Decide for yourself, state the assumption you made in your final summary, and continue."
+          reason: outcome.reason,
+          instruction: outcome.instruction
         };
         return {
           content: [{ type: "text", text: JSON.stringify(payload) }],
@@ -88,65 +95,21 @@ export function registerSubagentTools(pi: ExtensionAPI, context: SubagentToolCon
         };
       }
       asked += 1;
-      const questionId = id("question");
-      const name = agentDisplayName(context.agentId);
-      await store.create({
-        questionId,
-        taskId: context.taskId,
-        runId: context.runId,
-        callId: context.callId,
-        agentId: context.agentId,
-        agentName: name,
-        question,
-        assumption
-      });
-      // Main reads its own durable Inbox; the question outranks an ordinary
-      // result because a blocked collaborator loses its whole remaining wait.
-      await new InboxStore(
-        join(
-          context.workspaceRoot,
-          context.taskId,
-          "runs",
-          context.runId,
-          "agents",
-          "main",
-          "inbox-store.json"
-        )
-      ).enqueue({
-        messageId: `subagent-question-${questionId}`,
-        recipientAgentId: "main",
-        kind: "subagent_question",
-        callId: context.callId,
-        eventId: id("event"),
-        priority: 50,
-        state: "ready",
-        payload: {
-          type: "subagent.question",
-          questionId,
-          callId: context.callId,
-          agentId: context.agentId,
-          name,
-          question,
-          assumption,
-          timeoutMs,
-          instruction: `Answer with send_subagent_message({ callId: "${context.callId}", questionId: "${questionId}", message: "<your answer>" }). ${name} is blocked until you answer or the wait expires.`
-        },
-        createdAt: new Date().toISOString()
-      });
-      const settled = await store.waitForAnswer(context.taskId, questionId, {
-        timeoutMs,
-        isCancelled: async () => signal?.aborted === true || (await callCancelled(context))
-      });
-      if (settled.status === "answered") {
-        const payload = { status: "answered", questionId, question, answer: settled.question.answer };
+      if (outcome.status === "answered") {
+        const payload = {
+          status: "answered",
+          questionId: outcome.question.questionId,
+          question: outcome.question.question,
+          answer: outcome.question.answer
+        };
         return { content: [{ type: "text", text: JSON.stringify(payload) }], details: payload };
       }
-      if (settled.status === "cancelled") throw new Error("Subagent was cancelled while waiting for Main");
+      if (outcome.status === "cancelled") throw new Error("Subagent was cancelled while waiting for Main");
       const payload = {
         status: "timeout",
-        questionId,
-        question,
-        assumption,
+        questionId: outcome.question.questionId,
+        question: outcome.question.question,
+        assumption: outcome.question.assumption,
         instruction:
           "Main did not answer in time. Continue under the assumption you declared and say so in your final summary."
       };
@@ -165,9 +128,11 @@ export function registerSubagentTools(pi: ExtensionAPI, context: SubagentToolCon
         message: Type.String({
           description: "A short question, correction or finding. Include a file or artifact path when useful."
         }),
-        priority: Type.Number({
-          description: "Optional delivery priority; use a higher value only for time-sensitive guidance."
-        })
+        priority: Type.Optional(
+          Type.Number({
+            description: "Optional delivery priority; use a higher value only for time-sensitive guidance."
+          })
+        )
       },
       { additionalProperties: false }
     ),

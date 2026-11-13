@@ -359,7 +359,7 @@ async function main(): Promise<void> {
     assert.equal((await questions.list("question-task", "pending")).length, 1);
 
     // waitForAnswer returns as soon as Main answers.
-    const waiting = questions.waitForAnswer("question-task", "question-1", { timeoutMs: 5_000, pollMs: 100 });
+    const waiting = questions.waitForAnswer("question-task", "question-1", { timeoutMs: 5_000 });
     await questions.answer("question-task", "question-1", "configs/eval.py");
     const settled = await waiting;
     assert.equal(settled.status, "answered");
@@ -371,19 +371,17 @@ async function main(): Promise<void> {
     // A timeout expires the question so it stops counting as outstanding work.
     await questions.create({ questionId: "question-2", ...questionInput });
     const expired = await questions.waitForAnswer("question-task", "question-2", {
-      timeoutMs: 0,
-      pollMs: 50
+      timeoutMs: 0
     });
     assert.equal(expired.status, "expired");
     assert.equal((await questions.list("question-task", "pending")).length, 0);
     // An answer arriving after the Subagent gave up leaves the record expired.
     assert.equal((await questions.answer("question-task", "question-2", "太晚了")).status, "expired");
 
-    // Cancellation is polled, because a blocking tool never receives the signal.
+    // Cancellation is checked explicitly, because a blocking tool never receives the signal.
     await questions.create({ questionId: "question-3", ...questionInput });
     const cancelledWait = await questions.waitForAnswer("question-task", "question-3", {
       timeoutMs: 60_000,
-      pollMs: 50,
       isCancelled: () => true
     });
     assert.equal(cancelledWait.status, "cancelled");
