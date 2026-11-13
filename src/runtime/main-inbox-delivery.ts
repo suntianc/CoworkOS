@@ -428,10 +428,36 @@ export class MainInboxDelivery {
               : message.kind === "subagent_question"
                 ? "subagent_question_received"
                 : "subagent_callback_received",
-        summary: JSON.stringify(message.payload).slice(0, 240)
+        // The event's body already reached the model as the delivered message.
+        // Repeating it in the runtime state line would put one Inbox message
+        // into the same request twice; the reference is what the line adds.
+        ...(runtimeEventReference(message, payload) ?? {})
       }
     });
   }
+}
+
+/**
+ * How the runtime state line names an event without restating its content.
+ *
+ * The model already reads the message itself; the `Last runtime event` line is
+ * context about which event was last recorded, so it carries only the identity
+ * it can be correlated with.
+ */
+function runtimeEventReference(
+  message: InboxMessage,
+  payload: Record<string, unknown> | undefined
+): { summary: string } | undefined {
+  const candidate = [
+    message.callId,
+    payload?.callId,
+    payload?.requestId,
+    payload?.jobId,
+    payload?.questionId,
+    payload?.eventId,
+    message.messageId
+  ].find((value): value is string => typeof value === "string" && value.length > 0);
+  return candidate ? { summary: `id: ${candidate}` } : undefined;
 }
 
 function isHumanAnswerMessage(message: InboxMessage): boolean {

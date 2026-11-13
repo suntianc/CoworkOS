@@ -673,7 +673,9 @@ async function registerMainExtension(pi: ExtensionAPI) {
       if (!task.goal?.trim()) await store.updateTask(taskId, { goal: normalizedGoal });
       updateRuntime({
         runtimeGoal: normalizedGoal,
-        runtimeLastEvent: { type: "user_goal_observed", summary: normalizedGoal.slice(0, 240) }
+        // The goal itself lives in `runtimeGoal` and in the user's message;
+        // repeating it in the event line would show it twice in one request.
+        runtimeLastEvent: { type: "user_goal_observed", summary: "goal recorded" }
       });
     }
     try {
