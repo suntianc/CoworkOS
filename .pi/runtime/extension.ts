@@ -67,12 +67,7 @@ import { SubagentQuestionStore } from "../../dist/src/runtime/subagent-questions
 import { assessTaskCompletion, isFinalAssistantMessage } from "../../dist/src/runtime/task-completion.js";
 import { JsonlEventStore } from "../../dist/src/storage/event-store.js";
 import { listJobs } from "../../dist/src/tools/jobs.js";
-import {
-  atriaInstallRoot,
-  configuredProtectedPaths,
-  DEFAULT_PROTECTED_PATHS,
-  guessedProtection
-} from "../../dist/src/tools/protected-paths.js";
+import { DEFAULT_PROTECTED_PATHS, guessedProtection } from "../../dist/src/tools/protected-paths.js";
 import { LocalWorkspaceStore } from "../../dist/src/workspace/workspace-store.js";
 import { capabilityProvider } from "../../dist/src/runtime/capability-provider.js";
 import { discoverSkills } from "../../dist/src/runtime/skill-registry.js";
@@ -103,6 +98,7 @@ import { registerWebSearchTools } from "./tools/web-search.ts";
 import { registerSearchTools } from "./tools/file-search.ts";
 import { registerImageTools } from "./tools/images.ts";
 import { registerSubagentAgent } from "./subagent-agent.ts";
+import { blockedToolCall, taskProtectedPaths } from "./protected-call.ts";
 import { registerCoworkProvider } from "./provider.ts";
 
 /**
@@ -341,20 +337,11 @@ async function registerMainExtension(pi: ExtensionAPI) {
 
   // The guard covers Main as well as Subagents. Main is a participant in the
   // optimization loop, not its referee, so it must not edit evaluation code,
-  // this harness or version-control metadata either. Subagent writes are
-  // checked inside the file tools; Main uses Pi's native tools, so the same
-  // rule is applied here at the call boundary.
+  // this harness or version-control metadata either.
   // Rebuilt per call rather than once at startup: a grant made mid-session —
   // the user answering which paths are the scorer — has to take effect on the
   // next write, not on the next process.
-  const currentGuard = async () => {
-    const granted = await new LocalWorkspaceStore(workspaceRoot)
-      .readTask(taskId)
-      .then((task) => task.capabilities?.evalPaths ?? [])
-      // eslint-disable-next-line no-restricted-syntax -- 任务记录读取失败时不授予任何 eval 路径，默认保护规则仍然生效
-      .catch(() => [] as string[]);
-    return configuredProtectedPaths(projectDirectory, process.env, [atriaInstallRoot()], granted);
-  };
+  const currentGuard = () => taskProtectedPaths(workspaceRoot, taskId, projectDirectory);
 
   // Main's own jobs, kept beside its Run rather than in the Subagent tree so
   // one Task's long commands stay separable from its delegations'.
@@ -455,25 +442,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
   };
 
   pi.on("tool_call", async (event) => {
-    const paths: unknown[] = [];
-    if (event.toolName === "write" || event.toolName === "edit")
-      paths.push(
-        (event.input as { path?: unknown; file_path?: unknown }).path ??
-          (event.input as { file_path?: unknown }).file_path
-      );
-    if (paths.length === 0) return undefined;
-    const guard = await currentGuard();
-    for (const candidate of paths) {
-      if (typeof candidate !== "string" || !candidate) continue;
-      const pattern = guard.match(resolve(projectDirectory, candidate));
-      if (!pattern) continue;
-      void appendGuardEvent(candidate, pattern, event.toolName);
-      return {
-        block: true,
-        reason: `${candidate} is read-only for agents (protected by "${pattern}"). Evaluation code, the CoworkOS runtime and version-control metadata stay outside the optimization loop so results remain trustworthy. Change what is being measured instead, or ask the user to change what is protected.`
-      };
-    }
-    return undefined;
+    const refused = blockedToolCall(event.toolName, event.input, await currentGuard(), projectDirectory);
+    if (!refused) return undefined;
+    void appendGuardEvent(refused.path, refused.pattern, event.toolName);
+    return { block: true, reason: refused.reason };
   });
 
   const prepareMainTurnSections = async () => {
