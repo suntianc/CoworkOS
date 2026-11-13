@@ -472,12 +472,13 @@ export class AgentProcessHost {
           `${agentProcessRecordPathFor(record)}.settle`,
           async () => {
             const current = await readRecord(agentProcessRecordPathFor(record));
-            // The path can already describe a newer process for the same Run;
-            // projecting an old exit from it would settle the wrong one.
-            const same = current === undefined || sameProcess(current, record);
-            if (same && current?.settledAt) return;
+            // The path now describes a newer process for the same Run. This
+            // exit belongs to a process that was replaced: projecting it would
+            // settle the Run the new process still owns, so it is dropped.
+            if (current !== undefined && !sameProcess(current, record)) return;
+            if (current?.settledAt) return;
             try {
-              await this.onExit?.(same && current ? current : record);
+              await this.onExit?.(current ?? record);
             } catch (error) {
               // Settlement failures are logged, not fatal: the record stays
               // unsettled so the next adoption retries.
@@ -515,6 +516,9 @@ export class AgentProcessHost {
         await this.settle(record);
       })();
     }, this.pollMs);
+    // An observer must never be the reason a host (the CLI recovery loop, a
+    // test) stays alive; the process it watches is detached and outlives it.
+    watcher.unref();
     this.watchers.set(key, watcher);
   }
 

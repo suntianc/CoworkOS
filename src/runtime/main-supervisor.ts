@@ -388,7 +388,12 @@ export async function spawnMainProcess(input: {
   });
   const live = await host.adopt({ taskId: input.taskId, runId: input.runId });
   const running = live.find((record) => record.role === "main");
-  if (running) return running;
+  if (running) {
+    // Reuse is a decision, not a takeover: this host keeps no observer for a
+    // process it did not start.
+    host.close();
+    return running;
+  }
   const task = await new LocalWorkspaceStore(input.workspaceRoot)
     .readTask(input.taskId)
     // eslint-disable-next-line no-restricted-syntax -- 任务记录缺失时按安装目录启动，启动器自己会按默认值补全项目目录

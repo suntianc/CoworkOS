@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join, resolve } from "node:path";
+import { hostname } from "node:os";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
@@ -72,7 +73,7 @@ function alive(pid) {
 }
 
 /** A real Dashboard, a recorded local provider and the HTTP helpers. */
-async function fixture(t, { handle, idleTimeoutMs } = {}) {
+async function fixture(t, { handle, idleTimeoutMs, env = {} } = {}) {
   const requests = [];
   const provider = createServer(async (request, response) => {
     if (request.method !== "POST") {
@@ -88,7 +89,7 @@ async function fixture(t, { handle, idleTimeoutMs } = {}) {
   const dashboard = await startDashboard({
     modelEndpoint: `http://127.0.0.1:${provider.address().port}`,
     model: "resident-fixture",
-    env: idleTimeoutMs === undefined ? {} : { [IDLE_ENV]: String(idleTimeoutMs) }
+    env: { ...env, ...(idleTimeoutMs === undefined ? {} : { [IDLE_ENV]: String(idleTimeoutMs) }) }
   });
   t.after(async () => {
     await dashboard.stop();
@@ -224,10 +225,17 @@ test(
     assert.equal(alive(record.pid), true);
 
     // No turn, no subagent: the resident process exits and keeps its state.
-    await waitFor(() => !alive(record.pid), "the idle Main to exit", 30_000);
-    const idle = await f.detail("resident-idle");
+    // The backend reports it gone only once the exit is projected, so wait for
+    // that observation rather than for the pid alone.
+    const idle = await waitFor(
+      async () => {
+        const value = await f.detail("resident-idle");
+        return !value.runtime.mainRunning && !alive(record.pid) ? value : undefined;
+      },
+      "the idle Main to exit",
+      30_000
+    );
     assert.equal(idle.runtime.active, false);
-    assert.equal(idle.runtime.mainRunning, false);
     assert.equal(idle.task.status, "completed", "the Task keeps the state its last turn recorded");
     assert.equal(idle.task.activeRunId, first.runId);
     assert.ok(
@@ -758,6 +766,181 @@ test(
     await f.api("/api/tasks/resident-undeletable/action", { action: "cancel" });
     await waitFor(() => !alive(record.pid), "the closed Main to exit", 30_000);
     release();
+  }
+);
+
+/** Hold a process record's settlement lock so no observer can finish it yet. */
+async function holdSettlementLock(recordPath) {
+  const lockPath = `${recordPath}.settle.lock`;
+  await mkdir(lockPath, { recursive: true });
+  await writeFile(
+    join(lockPath, "owner.json"),
+    JSON.stringify({
+      token: `held-${process.pid}`,
+      pid: process.pid,
+      host: hostname(),
+      acquiredAt: new Date().toISOString()
+    })
+  );
+  return () => rm(lockPath, { recursive: true, force: true }).catch(() => {});
+}
+
+/** A process record for a Main that already died, to keep the sweep busy. */
+async function writeDeadMainRecord(workspaceRoot, taskId, runId) {
+  const { agentProcessRecordPath } = await import("../dist/src/runtime/agent-process.js");
+  const recordPath = agentProcessRecordPath(workspaceRoot, taskId, runId, "main", "main");
+  await mkdir(join(recordPath, ".."), { recursive: true });
+  await writeFile(
+    recordPath,
+    JSON.stringify({
+      version: 1,
+      taskId,
+      runId,
+      callId: runId,
+      agentId: "main",
+      role: "main",
+      pid: 2 ** 31 - 1,
+      host: hostname(),
+      startedAt: "gone",
+      token: "dead",
+      launchedAt: new Date().toISOString(),
+      workingDirectory: workspaceRoot,
+      sessionDirectory: join(workspaceRoot, taskId, "sessions", "main", "pi"),
+      resultPath: join(recordPath, "..", "process-result.json"),
+      stdoutPath: join(recordPath, "..", "agent-output.log"),
+      stderrPath: join(recordPath, "..", "agent-stderr.log")
+    })
+  );
+  return recordPath;
+}
+
+test("closing is not ordered behind the startup adoption sweep", { timeout: 180_000 }, async (t) => {
+  let heldStarted = false;
+  let release;
+  const held = new Promise((done) => {
+    release = done;
+  });
+  const f = await fixture(t, {
+    handle: async ({ response, requests }) => {
+      if (!heldStarted) {
+        heldStarted = true;
+        await held;
+        return complete(response, "released");
+      }
+      return complete(response, `answer ${requests.length}`);
+    }
+  });
+  await f.createTask("z-close-window", "Close before adoption");
+  const run = await f.api("/api/tasks/z-close-window/run", { prompt: "CLOSE_WINDOW_INPUT" });
+  await waitFor(() => heldStarted, "the in-flight request", 60_000);
+  const record = await f.mainRecord("z-close-window");
+  const { DurableScheduler } = await import("../dist/src/runtime/scheduler.js");
+  const scheduler = new DurableScheduler(
+    join(f.dashboard.workspaceRoot, "z-close-window", "runs", run.runId, "queue.json")
+  );
+  await scheduler.enqueue({
+    stepId: "close-window-delegation",
+    taskId: "z-close-window",
+    runId: run.runId,
+    agentId: "subagent_5",
+    importance: "normal",
+    payload: { task: "open until the session closes", projectDirectory: f.dashboard.workspaceRoot },
+    maxAttempts: 1
+  });
+
+  // A newer task with a dead Main whose settlement is locked keeps the
+  // startup sweep on it, so the target cannot be taken over by the sweep.
+  const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
+  const store = new LocalWorkspaceStore(f.dashboard.workspaceRoot);
+  await store.createTask("a-blocker", { goal: "blocker" });
+  await store.createRun("a-blocker", "main-blocker");
+  await store.updateTask("a-blocker", { activeRunId: "main-blocker" });
+  const blockerRecord = await writeDeadMainRecord(f.dashboard.workspaceRoot, "a-blocker", "main-blocker");
+  const releaseBlocker = await holdSettlementLock(blockerRecord);
+  t.after(releaseBlocker);
+  // The sweep takes the most recently updated Task first.
+  await store.updateTask("a-blocker", { goal: "blocker is newest" });
+
+  await f.dashboard.restart();
+  // No wait for a sweep: closing is the first management call.
+  await f.api("/api/tasks/z-close-window/action", { action: "cancel" });
+  const closed = await waitFor(
+    async () => {
+      const value = await f.detail("z-close-window");
+      return value.task.status === "cancelled" ? value : undefined;
+    },
+    "the session to close",
+    60_000
+  );
+  assert.equal(closed.runtime.mainRunning, false);
+  await waitFor(() => !alive(record.pid), "the closed Main to exit", 30_000);
+  assert.equal(
+    (await scheduler.list()).find((item) => item.stepId === "close-window-delegation").status,
+    "cancelled"
+  );
+  await releaseBlocker();
+  release();
+});
+
+test(
+  "an interrupt a dead Main never consumed does not abort the next Main's turn",
+  { timeout: 180_000 },
+  async (t) => {
+    let heldStarted = false;
+    const f = await fixture(t, {
+      handle: async ({ response, requests }) => {
+        if (!heldStarted) {
+          heldStarted = true;
+          response.writeHead(200, { "content-type": "text/event-stream" });
+          stream(response, { role: "assistant", content: "PARTIAL" });
+          return;
+        }
+        return complete(response, `answer ${requests.length}`);
+      }
+    });
+    await f.createTask("resident-stale-interrupt", "Stale interrupt");
+    const run = await f.api("/api/tasks/resident-stale-interrupt/run", { prompt: "STALE_INTERRUPT_INPUT" });
+    await waitFor(() => heldStarted, "the in-flight request", 60_000);
+    const record = await f.mainRecord("resident-stale-interrupt");
+    // Hold the settlement so the interrupt is written while the exit is still
+    // being projected; then let the projection run.
+    const { agentProcessRecordPath } = await import("../dist/src/runtime/agent-process.js");
+    const releaseSettlement = await holdSettlementLock(
+      agentProcessRecordPath(f.dashboard.workspaceRoot, "resident-stale-interrupt", run.runId, "main", "main")
+    );
+    killMain(record);
+    const inboxPath = join(
+      f.dashboard.workspaceRoot,
+      "resident-stale-interrupt",
+      "runs",
+      run.runId,
+      "agents",
+      "main",
+      "inbox-store.json"
+    );
+    const messages = JSON.parse(await readFile(inboxPath, "utf8"));
+    messages.push({
+      messageId: "stale-interrupt",
+      recipientAgentId: "main",
+      kind: "human_command",
+      eventId: "stale-interrupt-event",
+      priority: 200,
+      state: "ready",
+      payload: { type: "main.interrupt" },
+      createdAt: new Date().toISOString()
+    });
+    await writeFile(inboxPath, JSON.stringify(messages, null, 2));
+    await releaseSettlement();
+
+    await waitFor(
+      async () => (await f.detail("resident-stale-interrupt")).task.status === "failed",
+      "the death to settle",
+      60_000
+    );
+    const settled = JSON.parse(await readFile(inboxPath, "utf8")).find(
+      (message) => message.messageId === "stale-interrupt"
+    );
+    assert.equal(settled.state, "consumed", "the dead turn's interrupt is discarded");
   }
 );
 

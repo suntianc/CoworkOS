@@ -347,3 +347,54 @@ function capacityFixture(limit) {
   };
   return service;
 }
+
+test("a startup adoption failure is reported instead of silently skipped", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-main-adoption-failure-"));
+  const workspaceRoot = join(root, WORKSPACE);
+  const store = new LocalWorkspaceStore(workspaceRoot);
+  await store.createTask("broken", { goal: "fixture broken" });
+  await store.createTask("fine", { goal: "fixture fine" });
+  const reported = [];
+  const original = console.error;
+  console.error = (...args) => {
+    reported.push(args.map((value) => String(value)).join(" "));
+  };
+  t.after(() => {
+    console.error = original;
+  });
+  const service = createDashboardRunService({
+    projectRoot: root,
+    dashboardUrl: "http://127.0.0.1:1",
+    coordinator: { waitForSubagents: async () => ({ pending: [], callbackPending: [] }) },
+    locateTask: async (taskId) => {
+      if (taskId === "broken") throw new Error("isolated adoption failure");
+      return {
+        workspaceRoot,
+        store,
+        task: await store.readTask(taskId),
+        projectId: "project-a",
+        projectName: "Fixture",
+        projectDirectory: workspaceRoot
+      };
+    },
+    resolveMainModel: singleConnectionMainModel(),
+    normalizeModel: (value) => (typeof value === "string" ? value : undefined),
+    appendRunEvent: async () => {},
+    readJsonFile,
+    mainGuardian: { workspaceRoots: async () => [workspaceRoot], modelConfigured: () => true }
+  });
+  t.after(async () => {
+    await service.stop();
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  });
+  const result = await service.adoptExistingMains();
+  assert.equal(result.adopted, 0);
+  assert.ok(
+    reported.some((line) => line.includes("main adoption failed") && line.includes("broken")),
+    `the failed takeover is reported: ${JSON.stringify(reported)}`
+  );
+  assert.ok(
+    reported.some((line) => line.includes("isolated adoption failure")),
+    "the report names the cause"
+  );
+});

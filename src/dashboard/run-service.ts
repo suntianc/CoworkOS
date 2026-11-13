@@ -49,7 +49,7 @@ import { SubagentQuestionStore } from "../runtime/subagent-questions.js";
 import { assessTaskCompletion, isFinalAssistantMessage } from "../runtime/task-completion.js";
 import { mainRunFailure, MainRunOutput } from "./main-run-outcome.js";
 import { readHeartbeat } from "../runtime/main-heartbeat.js";
-import { processIsAlive } from "../runtime/process-identity.js";
+import { processIsAlive, verifyProcessIdentity } from "../runtime/process-identity.js";
 import { hostname } from "node:os";
 import { projectExecutionIsAlive } from "../workspace/project-execution.js";
 import { ProjectCatalogError } from "../workspace/project-catalog.js";
@@ -304,6 +304,52 @@ export function createDashboardRunService({
   }
 
   /**
+   * Whether the process a durable record names is still the same process.
+   *
+   * A bare pid is not an identity: this host recycles numbers, and a recycled
+   * pid would look like a live Main whose Inbox nobody reads. A record without
+   * a readable start time (a host where `ps` failed at launch) falls back to
+   * the pid, which is the most that record can support.
+   */
+  async function residentProcessAlive(record: AgentProcessRecord): Promise<boolean> {
+    if (!record.startedAt) return processIsAlive(record.pid);
+    return verifyProcessIdentity({ pid: record.pid, startedAt: record.startedAt });
+  }
+
+  /**
+   * Drop interrupt commands a dead process never consumed.
+   *
+   * An interrupt is about the turn that was in flight. Once that process is
+   * gone, the message would otherwise abort the first turn of the Main that
+   * replaces it, which nobody asked for.
+   */
+  async function discardPendingInterrupts(
+    location: TaskLocation,
+    taskId: string,
+    runId: string
+  ): Promise<void> {
+    const inbox = new InboxStore(
+      join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
+    );
+    // eslint-disable-next-line no-restricted-syntax -- 清理只是尽力而为；Inbox 读不到时下一条消息仍会按正常路径处理
+    const messages = await inbox.list("main").catch(() => []);
+    for (const message of messages) {
+      if (message.state === "consumed") continue;
+      if ((message.payload as { type?: unknown } | undefined)?.type !== "main.interrupt") continue;
+      try {
+        if (message.state === "ready")
+          await inbox.leaseMessage("main", message.messageId, 60_000, "run-exit-cleanup");
+        await inbox.consume(message.messageId);
+      } catch (error) {
+        // Another reader may have consumed it between the list and the lease.
+        console.error(
+          `[cowork] discarding a stale interrupt failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  }
+
+  /**
    * What one resident Main's exit means for its Task and Run.
    *
    * The process — not the turn — ends the Run. A replaced process leaves the
@@ -321,6 +367,7 @@ export function createDashboardRunService({
       const replacing = resident?.replacing === true;
       const observed = resident?.observed === true;
       if (observed) resident.output.finish();
+      await discardPendingInterrupts(location, taskId, runId);
       const settledTask = await location.store.readTask(taskId);
       if (replacing) return;
       if (cancellations.has(taskId) || settledTask.status === "cancelled") return;
@@ -514,7 +561,16 @@ export function createDashboardRunService({
 
   /** End the resident Main serving a Task, waiting for its Run to settle. */
   async function stopResidentMain(taskId: string, options: { replacing?: boolean } = {}): Promise<void> {
-    const resident = residentMains.get(taskId);
+    const resident =
+      residentMains.get(taskId) ??
+      (await residentFor(taskId).catch((error) => {
+        // A close that lands before the startup sweep must still reach the
+        // process; a lookup failure is reported and leaves nothing to stop.
+        console.error(
+          `[cowork] resolving the Main for ${taskId} failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+        return undefined;
+      }));
     if (!resident) return;
     resident.replacing = options.replacing === true;
     await resident.host
@@ -598,26 +654,48 @@ export function createDashboardRunService({
   async function adoptExistingMains(): Promise<{ adopted: number }> {
     const result = { adopted: 0 };
     if (stopping) return result;
-    const roots =
-      (await mainGuardian
-        ?.workspaceRoots()
-        // eslint-disable-next-line no-restricted-syntax -- 工作区列表读不到时本次不接管任何会话，下一次启动或消息仍会走到接管路径
-        .catch(() => [])) ?? [];
-    for (const workspaceRoot of roots) {
+    const report = (taskId: string | undefined, error: unknown) => {
+      console.error(
+        `[cowork] main adoption failed${taskId ? ` for ${taskId}` : ""}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    };
+    const roots = await mainGuardian?.workspaceRoots().catch((error) => {
+      report(undefined, error);
+      return [] as string[];
+    });
+    for (const workspaceRoot of roots ?? []) {
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stopping 由 stop() 在接管等待期间置位，TS 看不到这次闭包写入
       if (stopping) break;
-      const tasks = await new LocalWorkspaceStore(workspaceRoot)
-        .listTasks()
-        // eslint-disable-next-line no-restricted-syntax -- 单个工作区的任务列表读不到时跳过它，不影响其他工作区的接管
-        .catch(() => []);
+      const tasks = await new LocalWorkspaceStore(workspaceRoot).listTasks().catch((error) => {
+        report(workspaceRoot, error);
+        return [];
+      });
       for (const task of tasks) {
-        // eslint-disable-next-line no-restricted-syntax -- 单个 Task 的记录损坏不能阻断其余会话的接管
-        const location = await locateTask(task.taskId).catch(() => undefined);
+        const location = await locateTask(task.taskId).catch((error) => {
+          report(task.taskId, error);
+          return undefined;
+        });
         if (!location) continue;
         const before = residentMains.get(task.taskId);
-        // eslint-disable-next-line no-restricted-syntax -- 接管失败只影响这一个会话，下一个周期或消息仍会重试
-        const adopted = await adoptResidentMain(task.taskId, location).catch(() => undefined);
-        if (adopted && adopted !== before) result.adopted += 1;
+        try {
+          const adopted = await adoptResidentMain(task.taskId, location);
+          if (adopted && adopted !== before) result.adopted += 1;
+        } catch (error) {
+          // The failure is reported and left on the task's run log; the next
+          // management call still adopts on demand.
+          report(task.taskId, error);
+          if (location.task.activeRunId)
+            await appendRunEvent(
+              location.workspaceRoot,
+              task.taskId,
+              location.task.activeRunId,
+              "main.adoption_failed",
+              { error: error instanceof Error ? error.message : String(error) }
+              // eslint-disable-next-line no-restricted-syntax -- 诊断事件写失败不能中断其余会话的接管
+            ).catch(() => {});
+        }
       }
     }
     return result;
@@ -668,11 +746,11 @@ export function createDashboardRunService({
     if (residentMain(resident.taskId) !== resident) return undefined;
     if (resident.runId !== (task.activeRunId ?? resident.runId)) return undefined;
     if (task.status === "cancelled" || task.status === "failed") return undefined;
-    if (!resident.observed && !processIsAlive(resident.record.pid)) {
-      // The record names the launcher this process was started as; when it is
-      // gone the adoption path settles the exit instead of a message being
-      // queued behind a dead reader. The heartbeat is only the turn state: a
-      // process that just started has not written one yet.
+    if (!resident.observed && !(await residentProcessAlive(resident.record))) {
+      // The record names the launcher this process was started as; when that
+      // identity is gone the adoption path settles the exit instead of a
+      // message being queued behind a dead reader. The heartbeat is only the
+      // turn state: a process that just started has not written one yet.
       return undefined;
     }
     if (input.requestedModel && normalizeModel(input.requestedModel) !== (task.model || "")) return undefined;
@@ -794,7 +872,7 @@ export function createDashboardRunService({
     // already has. Only a request that needs a different process (an edit, a
     // retry, another model) falls through, and that one replaces it.
     let resident = await residentFor(taskId);
-    if (resident && !resident.observed && !processIsAlive(resident.record.pid)) {
+    if (resident && !resident.observed && !(await residentProcessAlive(resident.record))) {
       // The entry may predate a crash: its process is gone but the exit has
       // not been projected yet. Drop it and look again, so a Main the recovery
       // supervisor started for the same session is adopted instead of a
@@ -1809,13 +1887,24 @@ export function createDashboardRunService({
       humanWakeups.delete(taskId);
       try {
         const location = await locateTask(taskId);
+        // Closing is the destructive management action: it must reach a Main
+        // the startup sweep has not taken over yet (or could not), so adoption
+        // is resolved here instead of trusting the in-memory map.
+        const resident = await adoptResidentMain(taskId, location).catch((error) => {
+          console.error(
+            `[cowork] resolving the Main to close for ${taskId} failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+          return undefined;
+        });
         if (location.task.status === "completed") {
-          const runId = activeRunIds.get(taskId);
+          const runId = resident?.runId ?? activeRunIds.get(taskId);
           // A finished Task whose resident Main is idle keeps its completed
           // outcome; closing only ends that process. A turn still producing
           // the final response is a provisional completion, so cancelling it
           // takes the ordinary terminal path below.
-          if (runId && residentMain(taskId) && (await taskTurnActive(taskId)) !== true) {
+          if (resident && (await taskTurnActive(taskId)) !== true) {
             await stopResidentMain(taskId);
             return (await locateTask(taskId)).task;
           }

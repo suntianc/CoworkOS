@@ -11,6 +11,7 @@ import { readJsonFile } from "../dist/src/dashboard/event-stream.js";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { singleConnectionMainModel } from "./role-model-fixture.mjs";
+import { reapRecordedMains } from "./fixtures/pi-process-fixture.mjs";
 
 function deferred() {
   let resolve;
@@ -75,7 +76,10 @@ async function fixture(t) {
   });
   t.after(async () => {
     await service.stop();
-    await rm(root, { recursive: true, force: true });
+    // The backend leaves a resident Main running by design; this fixture owns
+    // the fake ones it started.
+    await reapRecordedMains(workspaceRoot);
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
   const inbox = (runId) =>
     new InboxStore(join(workspaceRoot, "task", "runs", runId, "agents", "main", "inbox-store.json"));

@@ -128,3 +128,39 @@ export function spawnPiRpc({ command, args, cwd, env, label = "p46" }) {
   };
   return { child, events, send, waitFor, stop, getStderr: () => stderr };
 }
+
+/**
+ * End the Main processes a test started through a run service.
+ *
+ * A resident Main is not a child whose life the backend owns, so a stopped
+ * backend leaves it running on purpose. A test that builds the run service
+ * itself must therefore reap what it spawned, by the process record's host and
+ * OS start time, or the test process would keep its handles (and the machine
+ * its processes) after the assertions are done.
+ */
+export async function reapRecordedMains(workspaceRoot) {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const { hostname } = await import("node:os");
+  const { join } = await import("node:path");
+  const expectedHost = hostname();
+  for (const task of await readdir(workspaceRoot, { withFileTypes: true }).catch(() => [])) {
+    if (!task.isDirectory()) continue;
+    const runs = await readdir(join(workspaceRoot, task.name, "runs")).catch(() => []);
+    for (const runId of runs) {
+      const record = await readFile(
+        join(workspaceRoot, task.name, "runs", runId, "agents", "main", "process.json"),
+        "utf8"
+      )
+        .then((value) => JSON.parse(value))
+        .catch(() => undefined);
+      if (!record?.pid || record.host !== expectedHost || !record.startedAt) continue;
+      const { verifyProcessIdentity } = await import("../../dist/src/runtime/process-identity.js");
+      if (!(await verifyProcessIdentity({ pid: record.pid, startedAt: record.startedAt }))) continue;
+      try {
+        process.kill(-record.pid, "SIGKILL");
+      } catch {
+        /* the group already exited */
+      }
+    }
+  }
+}
