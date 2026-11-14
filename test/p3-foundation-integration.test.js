@@ -146,11 +146,12 @@ async function createProject(backend, name, projectId) {
 }
 
 /** A second backend with its own data root, reading the authority through its scoped credential. */
-async function startSecondaryBackend(t, authority, config = {}) {
+async function startSecondaryBackend(t, authority, config = {}, options = {}) {
   const instance = await readBackendInstance(backendPaths(join(authority.root, "home")));
   assert.ok(instance.value?.token, "the authority published its local credential");
   const dashboard = await startDashboard({
     defaultProject: false,
+    ...options,
     config: {
       projectData: { authority: { url: authority.base, token: instance.value.token } },
       ...config
@@ -273,7 +274,10 @@ for (const engine of PROJECT_DATA_ENGINES) {
       const secondaryModel = await provider(t, "secondary");
       const authority = await startProjectDataDashboard(t, engine, {
         postgres,
-        config: { mainCapacity: { resident: 1, continuation: 1 } }
+        config: { mainCapacity: { resident: 1, continuation: 1 } },
+        // A resident Main holds its external slot between turns; the idle exit
+        // is what frees it for the next demand, as spec rule 10 describes.
+        env: { COWORK_MAIN_IDLE_TIMEOUT_MS: "1200" }
       });
       const request = client(authority);
       await saveConnection(request, {
@@ -282,9 +286,12 @@ for (const engine of PROJECT_DATA_ENGINES) {
         model: "fixture-model",
         apiKey: "fixture-host-key"
       });
-      const secondary = await startSecondaryBackend(t, authority, {
-        mainCapacity: { resident: 1, continuation: 1 }
-      });
+      const secondary = await startSecondaryBackend(
+        t,
+        authority,
+        { mainCapacity: { resident: 1, continuation: 1 } },
+        { env: { COWORK_MAIN_IDLE_TIMEOUT_MS: "1200" } }
+      );
       await saveConnection(secondary.request, {
         profileName: "执行主机",
         baseUrl: secondaryModel.base,
@@ -517,8 +524,18 @@ for (const engine of PROJECT_DATA_ENGINES) {
         s1.sessionId
       );
 
-      // Every Run record and the fake model agree on how many demands ran.
-      const finalSessions = await listSessions(request, a.projectId);
+      // A Run ends when its resident process exits (idle timeout, a close or a
+      // restart): only then does the session record the Run's state and clear
+      // its active pointer.
+      let finalSessions;
+      await waitFor(async () => {
+        const sessions = await listSessions(request, a.projectId);
+        // The view's activeRunId is derived from the Task; a Run's own row is
+        // settled when its resident process exits, so that row is the fact.
+        if (sessions.some((session) => session.runs.some((run) => run.state === "running"))) return undefined;
+        finalSessions = sessions;
+        return true;
+      }, "the idle resident Mains to settle their Runs");
       const sessionOne = finalSessions.find((session) => session.sessionId === s1.sessionId);
       assert.deepEqual(sessionOne.runs.map((run) => run.state).sort(), ["completed", "completed"]);
       assert.equal(sessionOne.activeRunId, null);
@@ -538,7 +555,10 @@ for (const engine of PROJECT_DATA_ENGINES) {
       const projectModel = await provider(t, "project");
       const authority = await startProjectDataDashboard(t, engine, {
         postgres,
-        config: { mainCapacity: { resident: 1, continuation: 1 } }
+        config: { mainCapacity: { resident: 1, continuation: 1 } },
+        // A resident Main holds its external slot between turns; the idle exit
+        // is what frees it for the next demand, as spec rule 10 describes.
+        env: { COWORK_MAIN_IDLE_TIMEOUT_MS: "1200" }
       });
       const request = client(authority);
       const hostSaved = await saveConnection(request, {
@@ -645,7 +665,13 @@ for (const engine of PROJECT_DATA_ENGINES) {
       await settle(request, externalTwo.taskId, "completed");
       await settle(request, continuation.taskId, "completed");
       hostModel.release("queue-one");
-      const drained = await capacity(request);
+      let drained;
+      await waitFor(async () => {
+        const view = await capacity(request);
+        if (view.body.running.length > 0) return undefined;
+        drained = view;
+        return true;
+      }, "the idle resident Mains to release their slots");
       assert.deepEqual(drained.body.running, []);
       assert.deepEqual(drained.body.queued, []);
       const queuedRequest = projectModel.tagged("queue-two")[0];
@@ -725,7 +751,12 @@ for (const engine of PROJECT_DATA_ENGINES) {
       const projectRequestsBefore = projectModel.requests.length;
 
       // Restart the authority: nothing was in flight, so the reconciliation is
-      // "no phantom slot, no dropped fact, no replayed demand".
+      // "no phantom slot, no dropped fact, no replayed demand". An idle resident
+      // Main exits on the idle timeout and releases its slot first.
+      await waitFor(
+        async () => (await capacity(request)).body.running.length === 0,
+        "the idle resident Mains to release their slots before the restart"
+      );
       await authority.restart();
       const afterRestart = await capacity(request);
       assert.equal(afterRestart.status, 200, JSON.stringify(afterRestart.body));
@@ -781,7 +812,10 @@ for (const engine of PROJECT_DATA_ENGINES) {
       );
       const resumedSelection = await selectionFor(authority, modelSession.taskId, resumed.body.runId);
       assert.equal(resumedSelection.source, "project");
-      assert.equal((await capacity(request)).body.running.length, 0);
+      await waitFor(
+        async () => (await capacity(request)).body.running.length === 0,
+        "the idle resident Main to release its slot"
+      );
       assert.deepEqual(hostModel.failures, []);
       assert.deepEqual(projectModel.failures, []);
       t.diagnostic(
