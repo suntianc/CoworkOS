@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { atomicWrite } from "../storage/atomic-file.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { now } from "../domain/types.js";
+import { agentWakeEndpoint } from "./agent-wake.js";
 import {
   processGroupIsAlive,
   processIsAlive,
@@ -106,6 +107,8 @@ export interface AgentProcessRecord {
   resultPath: string;
   stdoutPath: string;
   stderrPath: string;
+  /** The local endpoint this process listens on for Inbox wake notifications. */
+  wakeEndpoint?: string;
   leaseToken?: string;
   /** OS exit facts, recorded when this backend observed the exit itself. */
   exitCode?: number | null;
@@ -206,7 +209,8 @@ export class AgentProcessHost {
     );
     const stdoutPath = join(directory, "agent-output.log");
     const stderrPath = join(directory, "agent-stderr.log");
-    const env = this.launchEnv(input, token);
+    const endpoint = agentWakeEndpoint(directory, token);
+    const env = this.launchEnv(input, token, endpoint);
     await mkdir(directory, { recursive: true });
     const resident = input.mode === "resident";
     const stdout = resident ? undefined : await open(stdoutPath, "a");
@@ -293,6 +297,7 @@ export class AgentProcessHost {
       resultPath: input.resultPath,
       stdoutPath,
       stderrPath,
+      wakeEndpoint: endpoint,
       ...(input.leaseToken ? { leaseToken: input.leaseToken } : {})
     };
     await this.writeRecord(record);
@@ -549,7 +554,7 @@ export class AgentProcessHost {
     ];
   }
 
-  private launchEnv(input: AgentProcessLaunch, token: string): NodeJS.ProcessEnv {
+  private launchEnv(input: AgentProcessLaunch, token: string, wakeEndpoint: string): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...this.baseEnv,
@@ -560,6 +565,9 @@ export class AgentProcessHost {
       COWORK_TASK_ID: input.taskId,
       COWORK_RUN_ID: input.runId,
       COWORK_CLI_SESSION: "0",
+      // The receiver binds exactly the endpoint the record names, so a writer
+      // reading the record and the process listening never disagree.
+      COWORK_WAKE_ENDPOINT: wakeEndpoint,
       // Only a delegated process takes the launcher's role branch; Main keeps
       // its own launch path and its own project directory.
       ...(input.role === "main" ? {} : { COWORK_AGENT_ROLE: input.role, COWORK_AGENT_ID: input.agentId }),

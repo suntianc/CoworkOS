@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { id, now } from "../domain/types.js";
 import { atomicWrite } from "../storage/atomic-file.js";
 import { withFileLock } from "../storage/file-lock.js";
+import { notifyAgentProcess, onProcessWake } from "./agent-wake.js";
 import { watchFiles } from "./file-watch.js";
 import { InboxStore } from "./scheduler.js";
 
@@ -138,6 +139,10 @@ export class SubagentQuestionStore {
       };
       if (!next.answer) throw new Error("subagent question answer must not be empty");
       await atomicWrite(path, json(next));
+      // The answer is the record the blocked process waits on. A file event for
+      // it can arrive late or not at all on a loaded host, so the writer also
+      // nudges that process directly; the record stays the truth.
+      notifyAgentProcess(this.agentDirectory(next.taskId, next.runId, next.agentId));
       return next;
     });
   }
@@ -221,6 +226,11 @@ export class SubagentQuestionStore {
       markChanged,
       { debounceMs: 20 }
     );
+    // A wake notification reaches this wait even when the OS never reports the
+    // write: the writer nudges this process, and every wake re-reads the
+    // question record rather than trusting the notification's content. A wake
+    // that lands before this subscription is seen by the first read below.
+    const stopProcessWake = onProcessWake(markChanged);
     try {
       for (;;) {
         const observed = version;
@@ -252,11 +262,17 @@ export class SubagentQuestionStore {
       }
     } finally {
       stopWatching();
+      stopProcessWake();
     }
   }
 
   private directory(taskId: string): string {
     return join(this.workspaceRoot, taskId, "subagent-questions");
+  }
+
+  /** The directory holding one delegated agent's process record. */
+  private agentDirectory(taskId: string, runId: string, agentId: string): string {
+    return join(this.workspaceRoot, taskId, "runs", runId, "agents", "subagents", agentId);
   }
 
   private path(taskId: string, questionId: string): string {
