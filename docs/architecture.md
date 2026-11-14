@@ -34,6 +34,16 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / tools
 
 项目台账与共享项目身份由 [项目数据服务](../src/workspace/project-data-service.ts) 持有：Dashboard 启动时按配置打开 SQLite 或 PostgreSQL 并执行版本化迁移，配置或连接失败会停止启动而不切换引擎。HTTP 路由、Main 工具与 `coworkos data backup/restore` 使用同一服务接口；SQL 方言、连接和事务在 [存储适配器](../src/storage/project-data/) 内封装，业务代码不按数据库分叉。Main 工具只经当前 Task 访问其项目，不能指定其他项目。需求看板是台账需求的独立投影：受控外部入口在同一事务里发布需求与看板条目，内部新需求只进台账；认领用条件更新产生唯一赢家，暂停保留归属，显式释放才回到待认领。同一服务还持有项目持久 Main 会话与运行归属；每个会话以本机一个 Task 作为历史容器，Pi 历史与执行目录留在实际执行后端，不进入共享记录。其他后端可通过 [认证远程客户端](../src/workspace/project-data-remote.ts) 访问同一权威服务，只登记自己的本机目录绑定，远端路径不进入执行目录。
 
+## Pi 依赖边界
+
+Pi 包的运行时导入（`@earendil-works/pi-*`，非 `import type`）只允许出现在持有 Pi 进程的区域：`.pi/`（扩展与工具）、`scripts/`（启动器）、模型配置、Main 会话文件读写与上下文压缩；其余模块只能用类型导入。允许区域是 [ESLint 规则](../eslint.config.mjs) 中的明确文件清单（`cowork/pi-import-boundary`），[依赖边界回归](../test/p46-pi-dependency-boundary.test.js) 校验清单与本节的路径一致。
+
+- 模型配置（连接探测、思考档位、模型参数与请求记录）：[main-request-retry](../src/runtime/main-request-retry.ts)、[model-cache](../src/runtime/model-cache.ts)、[model-connection](../src/runtime/model-connection.ts)、[model-levels](../src/runtime/model-levels.ts)、[model-profile](../src/runtime/model-profile.ts)、[model-provider](../src/runtime/model-provider.ts)、[model-request-recording](../src/runtime/model-request-recording.ts)。
+- Main 会话文件读写（后端在 Main 未运行时改写 Pi 会话文件，即会话消息编辑与分叉）：[conversation-fork](../src/runtime/conversation-fork.ts)、[main-message-edit](../src/runtime/main-message-edit.ts)。
+- 上下文压缩：[compaction-summary-guard](../src/runtime/compaction-summary-guard.ts)、[compaction-summary-policy](../src/runtime/compaction-summary-policy.ts)。这是临时例外，压缩重新设计后收回，届时从规则清单删除。
+
+包内深路径的运行时导入（如 `@earendil-works/pi-ai/api/...`）只允许出现在模型配置内：升级 Pi 时这些内部路径最容易失效。边界把一次 Pi 升级的排查范围收敛到清单内的模块，而不是全仓。
+
 ## Task、Run 和进程生命周期
 
 浏览器请求 → HTTP 路由 → Dashboard Run → AgentProcessHost → Pi 启动器 → Pi 扩展 → Coordinator。CLI 可以直接使用运行时服务；两种入口不各写一套业务状态机。
