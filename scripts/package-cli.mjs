@@ -32,7 +32,6 @@ try {
     ".pi/skills",
     "scripts/atria.mjs",
     "scripts/data-home.cjs",
-    "scripts/data-migration.cjs",
     "scripts/file-search.mjs",
     "scripts/file-search.d.mts",
     "scripts/search-tool-adapter.mjs",

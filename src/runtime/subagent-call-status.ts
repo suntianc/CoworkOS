@@ -31,7 +31,7 @@ export async function subagentCallStatuses(
     items.map(async (item) => {
       const callback = callbacks.get(item.stepId);
       const diagnostics = {
-        tracePath: `sessions/${item.agentId}/${input.runId}.jsonl`,
+        tracePath: `runs/${input.runId}/agents/subagents/${item.agentId}/agent-output.log`,
         resultPath: `runs/${input.runId}/agents/subagents/${item.agentId}/result.json`
       };
       // A synchronous call has no callback. Inspect only its canonical result

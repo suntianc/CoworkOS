@@ -44,7 +44,7 @@ const { createApplicationUpdateHost } = require("./update-host.cjs");
 const { prepareDesktopChange } = require("./update-lifecycle.cjs");
 const { selectApplicationIcon, refreshDockIcon } = require("./application-icon.cjs");
 const { isDashboardUrl, assertTrustedSender, externalNavigationUrl } = require("./trusted-content.cjs");
-const { desktopPaths, prepareDesktopData, showLegacyDataNotice } = require("./paths.cjs");
+const { desktopPaths, prepareDesktopData } = require("./paths.cjs");
 const { createRetryableStorage } = require("./retryable-storage.cjs");
 const { createSessionCredentialStore } = require("./session-credentials.cjs");
 const { createSessionTransport } = require("./session-transport.cjs");
@@ -66,7 +66,6 @@ const {
 const { createSettingsTargetGuard } = require("./settings-target.cjs");
 const { installBundledWeb } = require("./bundled-web.cjs");
 const { desktopProfile } = require("./profile.cjs");
-const { migrateLegacyDesktopData } = require("../scripts/data-migration.cjs");
 const {
   managedUpdateLaunch,
   recordManagedUpdateLaunch,
@@ -77,8 +76,7 @@ if (managedLaunch) process.env.COWORK_DESKTOP_DATA = managedLaunch.userData;
 
 const profile = desktopProfile({
   isPackaged: app.isPackaged,
-  appRoot: app.getAppPath(),
-  appData: app.getPath("appData")
+  appRoot: app.getAppPath()
 });
 const material = windowMaterial();
 const background = backgroundMode();
@@ -603,16 +601,6 @@ if (owner)
       });
       await language.load();
       language.register();
-      let legacySource;
-      if (profile.canMigrateLegacy) {
-        const migration = await migrateLegacyDesktopData({ source: profile.legacyUserData, home: userData });
-        if (migration.status === "available") {
-          legacySource = migration.source;
-          console.warn(
-            `旧版 CoworkOS 数据保留在 ${migration.source}；使用 coworkos data import --from <目录> 导入。`
-          );
-        }
-      }
       paths = desktopPaths(profile.appRoot, userData);
       await prepareDesktopData(paths, app.getVersion());
       await installBundledWeb({
@@ -649,16 +637,6 @@ if (owner)
       createWindow();
       await launchBackend();
       await confirmManagedUpdateLaunch(managedLaunch);
-      if (legacySource)
-        await showLegacyDataNotice(paths, legacySource, (source) =>
-          dialog.showMessageBox(mainWindow, {
-            type: "info",
-            title: "旧版数据已保留",
-            message: "旧版会话可以导入统一数据目录",
-            detail: `原始目录：${source}\n\n当前目录已有 CoworkOS 数据，因此未自动合并。退出相关旧版运行后，可使用 coworkos data import --from <原始目录> --kind desktop 导入；原始文件会保留。`,
-            buttons: ["知道了"]
-          })
-        );
     })
     .catch((error) => {
       dialog.showErrorBox("Formicand 无法启动", error.message);

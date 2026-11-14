@@ -511,8 +511,9 @@ export function createDashboardRunService({
       }
       const current = await prepareRunTransition(location, runId, assessment.ready ? "completed" : "waiting");
       if (!current) return;
-      if (assessment.ready || (await readSleep(taskWorkspace, taskId)))
-        await resetMainSupervisorBackoff(taskWorkspace, taskId);
+      // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏时按未停泊处理，结算不因一条读不出的记录中断
+      const parkedForWake = Boolean(await readSleep(taskWorkspace, taskId).catch(() => undefined));
+      if (assessment.ready || parkedForWake) await resetMainSupervisorBackoff(taskWorkspace, taskId);
       await event(assessment.ready ? "main.run_completed" : "main.run_waiting", {
         code,
         signal,
@@ -1793,7 +1794,8 @@ export function createDashboardRunService({
           residentMains.has(taskId) ||
           taskFinalizations.has(taskId) ||
           ["running", "paused", "waiting"].includes(location.task.status) ||
-          (await readSleep(location.workspaceRoot, taskId)) ||
+          // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏时按未停泊处理，读不出的记录不冒充活动中的会话
+          (await readSleep(location.workspaceRoot, taskId).catch(() => undefined)) ||
           (await projectExecutionIsAlive(location.workspaceRoot, taskId))
         )
           throw new ProjectCatalogError(`请先停止项目中的会话及后台工作，再${change}`, 409);

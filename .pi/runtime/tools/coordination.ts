@@ -749,7 +749,7 @@ async function waitForDispatchedCall(
   const callId = String(accepted.callId ?? "");
   const agentId = String(accepted.agentId ?? "");
   const diagnostics = {
-    tracePath: `sessions/${agentId}/${runId}.jsonl`,
+    tracePath: `runs/${runId}/agents/subagents/${agentId}/agent-output.log`,
     resultPath: `runs/${runId}/agents/subagents/${agentId}/result.json`
   };
   const terminal = (status: string | undefined) =>

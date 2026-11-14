@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 const require = createRequire(import.meta.url);
-const { desktopPaths, prepareDesktopData, showLegacyDataNotice } = require("../desktop/paths.cjs");
+const { desktopPaths, prepareDesktopData } = require("../desktop/paths.cjs");
 const { createModelSettings } = require("../desktop/model-settings.cjs");
 
 test("desktop upgrades preserve data outside installation, and future data versions refuse downgrade", async () => {
@@ -27,18 +27,6 @@ test("desktop upgrades preserve data outside installation, and future data versi
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-});
-
-test("legacy histories that need an explicit import are shown once for each original source", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "atria-legacy-notice-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const paths = desktopPaths("/install", root, {});
-  const shown = [];
-  const show = async (source) => shown.push(source);
-  assert.equal(await showLegacyDataNotice(paths, "/old/CoworkOS", show), true);
-  assert.equal(await showLegacyDataNotice(paths, "/old/CoworkOS", show), false);
-  assert.equal(await showLegacyDataNotice(paths, "/old/CoworkOS Dev", show), true);
-  assert.deepEqual(shown, ["/old/CoworkOS", "/old/CoworkOS Dev"]);
 });
 
 test("model settings expose status without credentials and fail closed without OS encryption", async () => {

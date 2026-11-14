@@ -83,28 +83,6 @@ test("upgrading an installed app retains backed up user files and rejects incomp
   assert.equal(JSON.parse(await readFile(join(home, "data-version.json"), "utf8")).lastOpenedWith, "0.1.3");
 });
 
-test("legacy data migration preserves the source after a failed attempt and a successful retry", async (t) => {
-  const { migrateLegacyDesktopData } = require("../scripts/data-migration.cjs");
-  const root = await mkdtemp(join(tmpdir(), "cowork-package-migrate-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const source = join(root, "legacy");
-  const home = join(root, "new-data");
-  await mkdir(join(source, "workspace", "task"), { recursive: true });
-  await mkdir(join(source, "runtime"));
-  await writeFile(join(source, "workspace", "task", "result.txt"), "original result");
-  await writeFile(join(source, "model-config.json"), '{"model":"legacy"}');
-  const catalog = join(source, "runtime", "workspaces.json");
-  await writeFile(catalog, '{"version":99}');
-  await assert.rejects(migrateLegacyDesktopData({ source, home }), /不兼容/);
-  assert.equal(await readFile(join(source, "workspace", "task", "result.txt"), "utf8"), "original result");
-  await writeFile(catalog, '{"version":1,"workspaces":[]}');
-  assert.equal((await migrateLegacyDesktopData({ source, home })).status, "migrated");
-  assert.equal(await readFile(join(home, "workspace", "task", "result.txt"), "utf8"), "original result");
-  assert.equal(await readFile(join(home, "model-config.json"), "utf8"), '{"model":"legacy"}');
-  assert.equal(await readFile(join(source, "workspace", "task", "result.txt"), "utf8"), "original result");
-  assert.equal((await migrateLegacyDesktopData({ source, home })).status, "completed");
-});
-
 test("packaged backend selects the accessory runtime and refuses a missing helper until restored", async (t) => {
   const { chmod, unlink } = await import("node:fs/promises");
   const { backendExecutable } = require("../desktop/backend-executable.cjs");

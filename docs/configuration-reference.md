@@ -222,9 +222,9 @@ external 服务的外部 Main 配额写在本机配置中；未配置时保持�
 
 各入口运行状态默认位于 `~/.atria/runtime`。项目设置保存 `projectName`、`projectId`、`projectDirectory`，首条消息才创建会话。项目工作目录与 `workspaceRoot` / `COWORK_WORKSPACE` 下的内部存储相互独立。
 
-显式旧 `.tmp` / `.tmp/pi-agent` 路径继续生效，源码入口不再隐式使用仓库 `.tmp`。App 正式版与开发版共用数据及单实例锁。`COWORK_DESKTOP_DATA` 和 `ATRIA_HOME` 显式覆盖会跳过旧桌面数据自动复制；空的默认桌面目录会复制对应旧配置，保留来源。
+显式旧 `.tmp` / `.tmp/pi-agent` 路径继续生效，源码入口不再隐式使用仓库 `.tmp`。App 正式版与开发版共用数据及单实例锁；`COWORK_DESKTOP_DATA` 和 `ATRIA_HOME` 显式覆盖仍可指向独立目录。
 
-`coworkos data paths` 显示实际路径。已有目录可用 `coworkos data import --from PATH --kind desktop --name old-app` 导入其他桌面数据，源码工作区用 `--kind workspace`。导入保留来源，拒绝重复名称，并在历史目录中登记独立工作区。详见 [持久数据布局](task-workspace-layout.md)。
+`coworkos data paths` 显示实际路径。
 
 ## 界面语言
 

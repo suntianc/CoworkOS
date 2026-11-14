@@ -67,6 +67,7 @@ App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，
     ├── sessions/main/<run>-requests.jsonl 模型请求、prompt、工具定义和响应
     ├── sessions/main/request-retry.json 最新 Main 模型请求的私有重试快照
     ├── sessions/main/pi/              Main 原生 Pi 会话
+    ├── sessions/<agentId>/pi/<callId> 委派进程各自的 Pi 会话（与 `sessions/main/pi` 同级）
     ├── runs/<runId>/                  Run 事件、队列、Inbox、结果、main-input.json 与 agents/subagents/<id>/agent-output.log
     ├── experiments/                   运行时实验记录
     └── .runtime/                      Task 锁与产物索引等
@@ -129,22 +130,12 @@ COWORK_UI_PORT=3881 npm run ui
 ├── composer-drafts.json     跨端口恢复的对话草稿/文本附件，仅指定前缀
 ├── computer-policy.json     桌面全局窗口授权策略；不保存临时会话/截图
 ├── data-version.json       格式/创建/最近打开版本
-├── logs/
-└── imports/<name>/         显式导入的旧版数据，独立工作区
+└── logs/
 ```
 
 开发 App 与正式 App 共用这个目录及单实例锁，因此不能同时打开两个默认桌面实例。`COWORK_DESKTOP_DATA` 可用于独立桌面测试目录，`COWORK_WORKSPACE`、`PI_CODING_AGENT_DIR` 和索引覆盖仍优先。
 
 所选项目和外部原文件可能位于用户目录之外；完整备份须同时覆盖真实 Task 存储根和相关项目文件。替换或删除 App 程序不删除该目录；清理工具或手动删除用户数据会影响留存。退出/重启/升级约定见 [Mac 指南](mac-release.md)。
-
-首次打开使用默认用户目录的新版桌面时，若统一目录尚无 CoworkOS 数据，会从该入口对应的旧 `~/Library/Application Support/Atria/` 或 `Atria Dev/` 暂存复制再提交。显式设置 `ATRIA_HOME` 或 `COWORK_DESKTOP_DATA` 时跳过自动复制，保持独立测试目录；需要的旧数据仍可显式导入。迁移保留旧目录、调整内部工作区索引与控制路径，失败可重试；不会合并或覆盖已有统一数据。另一旧桌面目录和源码 `.tmp/` 可在停止全部相关运行后显式导入：
-
-```sh
-coworkos data import --from "$HOME/Library/Application Support/Atria Dev" --kind desktop --name old-dev
-coworkos data import --from /path/to/checkout/.tmp --kind workspace --name old-source
-```
-
-导入结果位于 `~/.atria/imports/<name>/`，工作区会登记到统一历史索引；重启 App 即可查看。重复名称会拒绝覆盖。用户文档、原始消息和旧绝对路径文本保持原内容；外部项目原文件不会搬移。需要从导入的 CLI 原生会话续聊时，使用返回的 `workspaceRoot` 和 `piAgentDir` 设置 `COWORK_WORKSPACE`、`PI_CODING_AGENT_DIR`，再运行 `coworkos --resume`。未迁移的数据也可用旧目录的这些显式覆盖继续恢复，不必删除或移动原目录。
 
 新版开发与正式桌面显示 CoworkOS / CoworkOS Dev；客户端会话使用 `CoworkOS Client` 钥匙串身份，旧模型凭据迁移使用 `Atria`。旧开发版的 macOS 加密密钥可能因原身份不同而无法解密；密文和源目录保留，界面仍可打开并重新输入密钥。真实钥匙串迁移与跨版本签名身份兼容需独立原生验收。
 
@@ -185,7 +176,7 @@ Main 的 `read_attachment` 工具按格式读取，支持文字分页、PDF 页�
 
 ## 修改重发事务
 
-修改重发使用 `sessions/main/edit-transaction.json` 私有版本 1 journal，在改写版本索引之前保存原 Task、版本索引、Main context、原 exact-retry 槽和 cleared 标记。
+修改重发使用 `sessions/main/edit-transaction.json` 私有版本 1 journal，在改写版本索引之前保存原 Task、版本索引、Main context 与原 exact-retry 槽。
 
 `prepared` 阶段崩溃后，Dashboard 重新列举或定位 Task 时恢复这些原始字节，拒绝未启动的新输入，保留分支、Run 和失败输入证据。
 

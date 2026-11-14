@@ -537,19 +537,11 @@ test("identity projection preserves explicit user prompts, dynamic rules, system
   const projected = projectAtriaSystemMessage(input);
   assert.match(projected.sections.preamble, /CoworkOS Main/);
   assert.equal(projected.sections.docs, null);
-  const legacy = {
+  const unknownIdentity = {
     ...input,
-    sections: {
-      ...input.sections,
-      preamble: "You are Atria Main, the agent responsible for completing the user's tasks in Atria Cowork."
-    }
+    sections: { ...input.sections, preamble: "You are Main, an identity this build never writes." }
   };
-  assert.match(projectAtriaSystemMessage(legacy).sections.preamble, /CoworkOS Main/);
-  const customLegacy = {
-    ...legacy,
-    sections: { ...legacy.sections, preamble: legacy.sections.preamble + " User customization." }
-  };
-  assert.equal(projectAtriaSystemMessage(customLegacy), customLegacy);
+  assert.equal(projectAtriaSystemMessage(unknownIdentity), unknownIdentity);
   assert.equal(projected.sections.rules, "new rule");
   assert.equal(projected.toolsAdded, input.toolsAdded);
   assert.equal(input.sections.preamble, preamble);

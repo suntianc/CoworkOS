@@ -34,6 +34,46 @@ test("project reassignment and run startup are serialized and cannot change a ru
   assert.equal((await f.store.readTask("task")).projectDirectory, "/tmp/selected-project");
 });
 
+/** A corrupt park record: the file exists but holds nothing readable. */
+async function corruptSleep(workspaceRoot) {
+  const directory = join(workspaceRoot, "task", "agents", "main");
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "sleep.json"), "{ 损坏的停泊记录");
+}
+
+test("a corrupt park record does not abort run settlement", async (t) => {
+  const f = await fixture(t, {});
+  await corruptSleep(f.workspaceRoot);
+  await f.service.startMainRun("task", "继续本次隔离请求。", "new-run");
+  const task = await f.settle();
+  assert.equal(task.status, "waiting");
+  assert.equal(f.records.at(-1).type, "main.run_waiting");
+});
+
+test("a readable park record still refuses an idle project change", async (t) => {
+  const f = await fixture(t, {});
+  await writeSleep(f.workspaceRoot, "task", {
+    runId: "parked-run",
+    reason: "等新变化",
+    wakeAt: new Date(Date.now() + 60_000).toISOString(),
+    parkedAt: new Date().toISOString()
+  });
+  await assert.rejects(
+    f.service.withIdleProjectTasks(["task"], async () => "changed"),
+    /先停止项目中的会话及后台工作/
+  );
+});
+
+test("a corrupt park record does not refuse an idle project change", async (t) => {
+  const f = await fixture(t, {});
+  await corruptSleep(f.workspaceRoot);
+  assert.equal(
+    await f.service.withIdleProjectTasks(["task"], async () => "changed"),
+    "changed",
+    "a park nobody can read is not a reason to refuse the change"
+  );
+});
+
 test("a human resumption captured before message editing cannot launch into the replacement Run", async (t) => {
   const f = await fixture(t, {});
   await f.store.updateTask("task", { activeRunId: "replacement-run" });
