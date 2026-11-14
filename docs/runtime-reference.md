@@ -12,6 +12,8 @@ App/Web 的文字、附件和编辑草稿按项目或会话分别持久保存。
 
 Main 常驻：一个 Run 由同一个 Pi 进程服务，一轮结束后进程不退出，后续用户消息与回调经该进程的持久 Inbox 送达并开始下一轮。退出只在关闭会话、空闲超时（默认 30 分钟，`mainIdleTimeoutMs`）和无法继续的模型请求；有子代理在跑时不因空闲退出。空闲退出保留会话文件与任务状态，之后的消息或回调由后端重新拉起同一会话。后端重启不结束 Main，重新接管仍在运行的进程。
 
+常驻 Main 的外部名额按回合与委派占用：Main 有进行中的回合，或有未结束的子代理工作项（含尚未送达的回调）时，都占一个名额。回合结束且没有待办子代理时在边界释放名额、进程保留；下一条消息先重新准入再投递，不为腾名额杀空闲 Main。暂停的 Main 只要还有未结束的子代理工作项就继续占名额，恢复请求直接送达同一进程；待办工作清空后才释放名额，之后的恢复按新需求重新准入，名额满时进入队列，释放后由后端启动。
+
 暂停不是停止：请求写在 Task 记录里，Main 在当前工具调用或模型回复结束后、下一次工具调用或模型请求之前读取它并停下，进程与会话保留，已完成现场、候选与需求记录保留。暂停期间到达的回调与其他工作留在 Inbox，恢复后送达；该边界已经完成 Task 时保持 `completed`。继续从同一 Run、进程与 Pi 会话恢复，保留已完成的工具结果，不重复已完成步骤；暂停中且没有子代理在跑时按空闲计时。取消（关闭会话）从暂停状态按现有终止语义清理未完成委派与后台工作。
 
 编辑最近一条消息会使用原会话前缀和新输入重新执行；此前文件修改和外部操作不会撤回。失败请求的精确重放见[请求重试与上下文恢复](#请求重试与上下文恢复)。
@@ -109,15 +111,14 @@ call_subagent({
 
 ### 角色工具与审查结论
 
-子代理进程与 Main 加载同一个扩展，按角色声明工具表。Executor 得到 `read`、`bash`、`edit`、`write`、只读的 `browse_workspace`、`ask_main` 与 `send_peer_message`；Reviewer 得到 `read`、`bash`、`grep`、`find`、`ls`、`browse_workspace`、同样的两个通道工具与 `submit_review`，没有 `write`/`edit`。后端从被审候选的提交为 Reviewer 建一份 detach 的独立 checkout 作为它的项目目录；成功的审查保留这份现场，因为 Main 在进程结束后才绑定审查并核对候选是否漂移；没有产出结论的失败尝试立即清理，审查漂移时随漂移结论释放，需求合入后释放该需求的全部审查现场，记录本身保留 Reviewer 身份与现场路径。没有需求现场时按派单时刻的 HEAD 冻结候选并建同样的副本，项目不是 Git 仓库则在派单前拒绝。它运行的测试与写入的文件留在这份副本里，不进入候选提交、Executor 的现场或用户工作树。两个角色都没有 `call_subagent`、`send_subagent_message`、`cancel_subagent`、`get_subagent_status`、`wait_for_subagents`、`get_task_status`、`finish_task`、`askhuman`、`sleep_until`、`grant_capabilities`、`clear_context`、`enable_tools`、`project_ledger`、`project_development` 与 `publish_artifact`，因此子代理不能再派子代理或改变 Task 生命周期。角色说明沿用同一段文本；角色只决定工具，不扩大授权：电脑操控、浏览器与 CUA 等能力由 Main 的扩展注册，委派进程当前不提供。附件授权随工作项传递，只有被授权的上传 ID 才让委派进程注册 `read_attachment`。Main 与两个角色对受保护路径的 `write`、`edit` 与 `bash` 写入按同一规则拦截并返回同一段错误；`bash` 拦截跟随 `cd`、`pushd`/`popd`、`git -C` 与子 shell 的目录切换解析相对目标，目录无法确定时只要项目内存在受保护路径就保守拒绝。它尽力识别常见写法，不是沙箱：解释器内写入、引号内的命令替换、反引号、`xargs`、`find -delete`、`git clean`、目录级目标的 `git restore .` 与 `git checkout .`、`tar`/`unzip` 解包写入等仍可能绕过。委派进程与 Main 一样对 `cache_warming_decision` 返回 `stop`，不进行提示缓存保温。委派进程的上下文压缩与 Main 相同：Pi 原生压缩、同一工具回执投影与失败冷却。
-
+子代理进程与 Main 加载同一个扩展，按角色声明工具表。Executor 得到 `read`、`bash`、`edit`、`write`、只读的 `browse_workspace`、`ask_main` 与 `send_peer_message`；Reviewer 得到 `read`、`bash`、`grep`、`find`、`ls`、`browse_workspace`、同样的两个通道工具与 `submit_review`，没有 `write`/`edit`。两个角色都能用 `load_skill`：与 Main 同一实现、同一组技能目录（随产品提供的 `.pi/skills` 与项目自己的 `.pi/skills`），只加载指令，不取得新工具或权限。后端从被审候选的提交为 Reviewer 建一份 detach 的独立 checkout 作为它的项目目录；成功的审查保留这份现场，因为 Main 在进程结束后才绑定审查并核对候选是否漂移；没有产出结论的失败尝试立即清理，审查漂移时随漂移结论释放，需求合入后释放该需求的全部审查现场，记录本身保留 Reviewer 身份与现场路径。没有需求现场时按派单时刻的 HEAD 冻结候选并建同样的副本，项目不是 Git 仓库则在派单前拒绝。它运行的测试与写入的文件留在这份副本里，不进入候选提交、Executor 的现场或用户工作树。两个角色都没有 `call_subagent`、`send_subagent_message`、`cancel_subagent`、`get_subagent_status`、`wait_for_subagents`、`get_task_status`、`finish_task`、`askhuman`、`sleep_until`、`grant_capabilities`、`clear_context`、`enable_tools`、`project_ledger`、`project_development` 与 `publish_artifact`，因此子代理不能再派子代理或改变 Task 生命周期。角色说明沿用同一段文本；角色只决定工具，不扩大授权：电脑操控、浏览器与 CUA 等能力由 Main 的扩展注册，委派进程当前不提供。附件授权随工作项传递，只有被授权的上传 ID 才让委派进程注册 `read_attachment`。Main 与两个角色对受保护路径的 `write`、`edit` 与 `bash` 写入按同一规则拦截并返回同一段错误；`bash` 拦截跟随 `cd`、`pushd`/`popd`、`git -C` 与子 shell 的目录切换解析相对目标，目录无法确定时只要项目内存在受保护路径就保守拒绝。它尽力识别常见写法，不是沙箱：解释器内写入、引号内的命令替换、反引号、`xargs`、`find -delete`、`git clean`、目录级目标的 `git restore .` 与 `git checkout .`、`tar`/`unzip` 解包写入等仍可能绕过。委派进程与 Main 一样对 `cache_warming_decision` 返回 `stop`，不进行提示缓存保温。委派进程的上下文压缩与 Main 相同：Pi 原生压缩、同一工具回执投影与失败冷却。
 Reviewer 的结论只经 `submit_review({verdict, findings})` 提交：`verdict` 为 `pass` 或 `changes_requested`，每条 finding 含 `location`、`evidence` 与 `blocking`。`changes_requested` 至少给出一条 finding，`pass` 不能携带 blocking finding；不合法的提交作为工具错误返回，模型可改正后重试。结论写入该工作项结果记录的 `review` 字段并随回调送达 Main；Reviewer 没有提交结论就结束记为失败，后端读取结果记录时按同一格式复核。验证 [真实角色工具表与结论](../test/p46-subagent-roles-pi.test.js)。
 
 ### 子代理的持久收件箱与追加消息
 
 Main 发给运行中子代理的追加消息、对 `ask_main` 问题的回答与同伴消息都先写入该子代理自己的持久 Inbox（`runs/<runId>/agents/subagents/<id>/inbox-store.json`），由子代理进程内的扩展在安全回合边界读取，作为下一轮输入。消息不经标准输入，也不要求写入时后端仍在运行：后端重启或子代理在停机期间继续工作都不影响送达。
 
-扩展用文件监听唤醒空闲进程（例如 `ask_main` 阻塞等待时监听问题记录），不轮询。消息先租约给该进程，只有出现在它的 Pi 会话上下文中才记为已消费，并写入 `inbox.consumed` 事件；因此每条消息只读一次。进程在读取前退出时消息仍是持久的，由同一 Agent 的下一个进程重新投递。`ask_main` 的回答仍作为阻塞工具的结果返回，而不是普通追加消息——Pi 的 steer 队列只在当前回合的工具返回后排空，工具等待自己会死锁。
+扩展用文件监听唤醒空闲进程（例如 `ask_main` 阻塞等待时监听问题记录），不轮询；每个回合结束时扩展先重读整个收件箱再让回合继续，所以监听事件迟到、被合并或没能赶在进程结束前到达时，消息仍在该回合边界被读走，送达不依赖监听。消息先租约给该进程，只有出现在它的 Pi 会话上下文中才记为已消费，并写入 `inbox.consumed` 事件；因此每条消息只读一次。进程在读取前退出时消息仍是持久的，由同一 Agent 的下一个进程重新投递。`ask_main` 的回答仍作为阻塞工具的结果返回，而不是普通追加消息——Pi 的 steer 队列只在当前回合的工具返回后排空，工具等待自己会死锁。
 
 验证见 [真实子代理进程的送达、提问与取消](../test/p46-subagent-messages-pi.test.js)。
 

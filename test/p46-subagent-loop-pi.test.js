@@ -875,7 +875,12 @@ test("closing the session stops the delegated process it started", { timeout: 18
   void (async () => {
     while (watching) {
       const view = await f.request(`/api/tasks/${encodeURIComponent(f.taskId)}`).catch(() => undefined);
-      const state = `${view?.body.task.status}/${view?.body.runtime.active}/${view?.body.runtime.mainRunning}`;
+      // This loop observes the close; a read the backend cannot answer is a
+      // sample of its own, not a reason to crash the test with a rejection.
+      const body = view?.body?.task ? view.body : undefined;
+      const state = body
+        ? `${body.task.status}/${body.runtime.active}/${body.runtime.mainRunning}`
+        : "unreadable";
       if (seen.at(-1) !== state) seen.push(state);
       await delay(20);
     }
@@ -907,131 +912,127 @@ test("closing the session stops the delegated process it started", { timeout: 18
   releaseGate();
 });
 
-test(
-  "a dependent item the backend owns is never recovered in-process",
-  { timeout: 180_000 },
-  async (t) => {
-    let releaseFirst;
-    const firstGate = new Promise((done) => {
-      releaseFirst = done;
-    });
-    let firstStarted;
-    const firstReached = new Promise((done) => {
-      firstStarted = done;
-    });
-    const mainSteps = [];
-    const subagentSteps = new Map();
-    let calls = {};
-    let developmentId = "";
-    let failTest;
-    const scriptFailure = new Promise((_, reject) => {
-      failTest = reject;
-    });
-    const f = await fixture(t, {
-      taskId: "owned-dependency",
-      handle: async (body) => {
-        try {
-          const role = identityOf(body);
-          const step = role === "main" ? mainSteps.length : (subagentSteps.get(role) ?? 0);
-          if (role === "main") mainSteps.push(lastToolText(body));
-          else subagentSteps.set(role, step + 1);
-          if (role === "main") {
-            if (step === 0)
-              return {
-                name: "project_development",
-                arguments: {
-                  action: "create",
-                  requirementId: f.requirementId,
-                  goal: "报表页提供导出入口",
-                  completionCriteria: ["导出文件包含实现结果"],
-                  route: "direct"
-                }
-              };
-            if (step === 1) {
-              developmentId = toolJson(body).development.developmentId;
-              return {
-                name: "call_subagent",
-                arguments: {
-                  task: "执行者工作项 A：等待放行后写入 impl-a.txt。",
-                  mode: "async",
-                  role: "executor",
-                  developmentId
-                }
-              };
-            }
-            if (step === 2) {
-              calls.a = toolJson(body);
-              return {
-                name: "call_subagent",
-                arguments: {
-                  task: "执行者工作项 B：只在 A 完成后写入 impl-b.txt。",
-                  mode: "async",
-                  role: "executor",
-                  developmentId,
-                  dependsOn: [calls.a.callId]
-                }
-              };
-            }
-            if (step === 3) {
-              calls.b = toolJson(body);
-              // End the turn: from here Main's own settle loop keeps the turn
-              // open while it waits, and that loop is where an in-process
-              // recovery would claim the queued dependent item.
-              return { text: "已委派两个工作项，等待结果。" };
-            }
+test("a dependent item the backend owns is never recovered in-process", { timeout: 180_000 }, async (t) => {
+  let releaseFirst;
+  const firstGate = new Promise((done) => {
+    releaseFirst = done;
+  });
+  let firstStarted;
+  const firstReached = new Promise((done) => {
+    firstStarted = done;
+  });
+  const mainSteps = [];
+  const subagentSteps = new Map();
+  let calls = {};
+  let developmentId = "";
+  let failTest;
+  const scriptFailure = new Promise((_, reject) => {
+    failTest = reject;
+  });
+  const f = await fixture(t, {
+    taskId: "owned-dependency",
+    handle: async (body) => {
+      try {
+        const role = identityOf(body);
+        const step = role === "main" ? mainSteps.length : (subagentSteps.get(role) ?? 0);
+        if (role === "main") mainSteps.push(lastToolText(body));
+        else subagentSteps.set(role, step + 1);
+        if (role === "main") {
+          if (step === 0)
+            return {
+              name: "project_development",
+              arguments: {
+                action: "create",
+                requirementId: f.requirementId,
+                goal: "报表页提供导出入口",
+                completionCriteria: ["导出文件包含实现结果"],
+                route: "direct"
+              }
+            };
+          if (step === 1) {
+            developmentId = toolJson(body).development.developmentId;
+            return {
+              name: "call_subagent",
+              arguments: {
+                task: "执行者工作项 A：等待放行后写入 impl-a.txt。",
+                mode: "async",
+                role: "executor",
+                developmentId
+              }
+            };
+          }
+          if (step === 2) {
+            calls.a = toolJson(body);
+            return {
+              name: "call_subagent",
+              arguments: {
+                task: "执行者工作项 B：只在 A 完成后写入 impl-b.txt。",
+                mode: "async",
+                role: "executor",
+                developmentId,
+                dependsOn: [calls.a.callId]
+              }
+            };
+          }
+          if (step === 3) {
+            calls.b = toolJson(body);
+            // End the turn: from here Main's own settle loop keeps the turn
+            // open while it waits, and that loop is where an in-process
+            // recovery would claim the queued dependent item.
             return { text: "已委派两个工作项，等待结果。" };
           }
-          if (role === "A") {
-            if (step === 0) {
-              firstStarted();
-              await firstGate;
-              return { name: "write", arguments: { path: "impl-a.txt", content: "a\n" } };
-            }
-            return { text: "A 完成：impl-a.txt 已写入。" };
-          }
-          if (step === 0) return { name: "write", arguments: { path: "impl-b.txt", content: "b\n" } };
-          return { text: "B 完成：impl-b.txt 已写入。" };
-        } catch (error) {
-          failTest(error);
-          return { text: "依赖夹具失败。" };
+          return { text: "已委派两个工作项，等待结果。" };
         }
+        if (role === "A") {
+          if (step === 0) {
+            firstStarted();
+            await firstGate;
+            return { name: "write", arguments: { path: "impl-a.txt", content: "a\n" } };
+          }
+          return { text: "A 完成：impl-a.txt 已写入。" };
+        }
+        if (step === 0) return { name: "write", arguments: { path: "impl-b.txt", content: "b\n" } };
+        return { text: "B 完成：impl-b.txt 已写入。" };
+      } catch (error) {
+        failTest(error);
+        return { text: "依赖夹具失败。" };
       }
-    });
-    const run = await f.request(`/api/tasks/${encodeURIComponent(f.taskId)}/run`, {
-      prompt: "按依赖组织两个实现工作项。"
-    });
-    assert.equal(run.status, 202, JSON.stringify(run.body));
-    await Promise.race([firstReached, scriptFailure]);
-    // B waits on A. Main's own turn is open and its recovery loop runs while
-    // it waits, so an in-process recovery would claim B here.
-    await delay(1_500);
-    const waiting = (await queueItems(f, run.body.runId)).find((item) => item.stepId === calls.b.callId);
-    assert.equal(waiting.status, "queued", "the backend's dependent item stays queued, not leased");
-    assert.equal(
-      (await processRecords(f, run.body.runId)).filter((entry) => entry.callId === calls.b.callId).length,
-      0,
-      "no process exists for B before its prerequisite finishes"
-    );
-    assert.equal(
-      f.provider.requests.filter((entry) => userText(entry.body).includes("工作项 B")).length,
-      0,
-      "B is not started before its prerequisite"
-    );
+    }
+  });
+  const run = await f.request(`/api/tasks/${encodeURIComponent(f.taskId)}/run`, {
+    prompt: "按依赖组织两个实现工作项。"
+  });
+  assert.equal(run.status, 202, JSON.stringify(run.body));
+  await Promise.race([firstReached, scriptFailure]);
+  // B waits on A. Main's own turn is open and its recovery loop runs while
+  // it waits, so an in-process recovery would claim B here.
+  await delay(1_500);
+  const waiting = (await queueItems(f, run.body.runId)).find((item) => item.stepId === calls.b.callId);
+  assert.equal(waiting.status, "queued", "the backend's dependent item stays queued, not leased");
+  assert.equal(
+    (await processRecords(f, run.body.runId)).filter((entry) => entry.callId === calls.b.callId).length,
+    0,
+    "no process exists for B before its prerequisite finishes"
+  );
+  assert.equal(
+    f.provider.requests.filter((entry) => userText(entry.body).includes("工作项 B")).length,
+    0,
+    "B is not started before its prerequisite"
+  );
 
-    releaseFirst();
-    await Promise.race([settle(f.request, f.taskId), scriptFailure]);
-    assert.equal(await readFile(join(calls.b.workspace, "impl-b.txt"), "utf8"), "b\n");
-    // B ran as a real delegated process once A settled: the backend owns it.
-    const record = await waitFor(async () => {
-      const records = await processRecords(f, run.body.runId);
-      return records.find((entry) => entry.callId === calls.b.callId && entry.pid);
-    }, "a delegated process record for B");
-    assert.equal(alive(record.pid), false, "the delegated process ended after its work");
-    const finished = (await queueItems(f, run.body.runId)).find((item) => item.stepId === calls.b.callId);
-    assert.equal(finished.status, "completed");
-    await assertEverythingSettled(f, run.body.runId);
-  }
-);
+  releaseFirst();
+  await Promise.race([settle(f.request, f.taskId), scriptFailure]);
+  assert.equal(await readFile(join(calls.b.workspace, "impl-b.txt"), "utf8"), "b\n");
+  // B ran as a real delegated process once A settled: the backend owns it.
+  const record = await waitFor(async () => {
+    const records = await processRecords(f, run.body.runId);
+    return records.find((entry) => entry.callId === calls.b.callId && entry.pid);
+  }, "a delegated process record for B");
+  assert.equal(alive(record.pid), false, "the delegated process ended after its work");
+  const finished = (await queueItems(f, run.body.runId)).find((item) => item.stepId === calls.b.callId);
+  assert.equal(finished.status, "completed");
+  await assertEverythingSettled(f, run.body.runId);
+});
 
 test(
   "a delegation under an open experiment program records and settles its ledger row",
@@ -1105,7 +1106,9 @@ test(
       join(f.dashboard.workspaceRoot, f.taskId, "runs", run.body.runId, "agents", "main", "inbox-store.json"),
       "utf8"
     ).then((text) => JSON.parse(text));
-    const callback = inbox.find((message) => message.callId === calls.a.callId && message.kind === "callback");
+    const callback = inbox.find(
+      (message) => message.callId === calls.a.callId && message.kind === "callback"
+    );
     assert.ok(callback, "the delegated result reached Main's Inbox");
     assert.equal(callback.payload.experimentId, programs[0].experimentId);
     assert.equal(callback.payload.experimentRunId, row.runId);

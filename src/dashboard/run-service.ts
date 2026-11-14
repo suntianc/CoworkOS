@@ -116,6 +116,8 @@ export interface RunServicePorts {
    */
   subagents?: {
     cancel(input: { taskId: string; runId: string; callId: string; reason?: string }): Promise<unknown>;
+    /** Whether this Run still has delegated work in flight or undelivered. */
+    unfinishedWork?(input: { taskId: string; runId: string }): Promise<boolean>;
   };
   locateTask(taskId: string): Promise<TaskLocation>;
   /**
@@ -150,6 +152,13 @@ export interface RunServicePorts {
     admit(request: MainCapacityRequest): Promise<MainCapacityDecision>;
     bindProcess(requestId: string, pid: number): Promise<boolean>;
     release(requestId: string): Promise<void>;
+    /** The slot one Run still owns, so a resident Main between turns is not counted. */
+    requestFor(taskId: string, runId: string): Promise<string | undefined>;
+    /**
+     * Release the claim a turn boundary ran under, only while it is still the
+     * Run's current claim. Returns whether it was released.
+     */
+    releaseIfCurrent(taskId: string, runId: string, requestId: string): Promise<boolean>;
     /** The process exists: remove the queue row but keep the slot until it exits. */
     markStarted(requestId: string): Promise<void>;
     /** A cancelled Task gives up its waiting demand, if it has one. */
@@ -468,6 +477,12 @@ export function createDashboardRunService({
         } catch {
           /* preserve original failure */
         }
+        // This Run can never take another turn: its Session record is settled
+        // here, exactly as an idle or completed exit settles its own.
+        const failed = await location.store.readTask(taskId);
+        if (failed.activeRunId === runId && ["completed", "failed"].includes(failed.status))
+          // eslint-disable-next-line no-restricted-syntax -- 会话记录结算失败不能改变这次失败本身；后续读取仍会尝试
+          await onRunFinalized({ ...location, task: failed }, runId).catch(() => {});
         return;
       }
       // The process ended while a turn was in flight without reporting a
@@ -578,6 +593,61 @@ export function createDashboardRunService({
     return finalization;
   }
 
+  /**
+   * What a resident Main's finished turn means for its Run and its place.
+   *
+   * The extension writes the Task's boundary and heartbeat before Pi emits the
+   * event this backend observes, so the record already says whether the turn
+   * completed, settled into waiting, or stopped at a pause. A terminal Run is
+   * finalized here because its process may live for many more turns.
+   *
+   * The slot goes back to the queue only when this boundary still owns it and
+   * the Run has no delegated work outstanding: a turn admitted (or delegated
+   * work started) since the boundary keeps the place, and the release itself
+   * re-checks the claim under the ledger lock so a late settlement can never
+   * free a newer turn's slot.
+   */
+  async function settleResidentTurn(
+    resident: ResidentMain,
+    boundaryRequestId: string | undefined
+  ): Promise<void> {
+    // eslint-disable-next-line no-restricted-syntax -- 回合结束的记账失败只影响这一个回合；进程退出与下一次回合边界仍会结算
+    const task = await resident.location.store.readTask(resident.taskId).catch(() => undefined);
+    if (!task || task.activeRunId !== resident.runId) return;
+    if (task.status === "completed" || task.status === "failed")
+      // eslint-disable-next-line no-restricted-syntax -- 会话记录结算失败不能阻断名额释放；进程退出时仍会再结算一次
+      await onRunFinalized({ ...resident.location, task }, resident.runId).catch(() => {});
+    // A waiting Task still has delegated work to run; a running one has not
+    // written its own boundary yet. Every resting state is between turns.
+    if (!["completed", "paused", "failed", "cancelled"].includes(task.status)) return;
+    if (!boundaryRequestId || !mainCapacity) return;
+    // This process may already have taken another turn since the boundary: a
+    // delivery rebinds the claim, and an accepted turn that has not started is
+    // recorded as pending. Either means the place is in use again.
+    if (resident.requestId !== boundaryRequestId) return;
+    // A slot is held while delegated work is unfinished, whatever the turn is
+    // doing: a paused Main with a Subagent still running keeps its place.
+    const unfinished = subagents?.unfinishedWork
+      ? await subagents
+          .unfinishedWork({ taskId: resident.taskId, runId: resident.runId })
+          // eslint-disable-next-line no-restricted-syntax -- 读不到时按仍有未完成工作处理，保守保留名额
+          .catch(() => true)
+      : false;
+    if (unfinished) return;
+    // A turn that started after the boundary (or was accepted and has not
+    // written its first boundary yet) owns the claim now.
+    if (resident.turnActive || pendingTurns.has(resident.taskId)) return;
+    const released = await mainCapacity
+      .releaseIfCurrent(resident.taskId, resident.runId, boundaryRequestId)
+      .catch((error) => {
+        console.error(
+          `[cowork] external capacity release failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+        return false;
+      });
+    if (released) resident.requestId = undefined;
+  }
+
   /** End the resident Main serving a Task, waiting for its Run to settle. */
   async function stopResidentMain(taskId: string, options: { replacing?: boolean } = {}): Promise<void> {
     const resident =
@@ -649,6 +719,13 @@ export function createDashboardRunService({
     residentMains.set(taskId, resident);
     activeRunIds.set(taskId, record.runId);
     interjectionTargets.set(taskId, { runId: record.runId });
+    // The place this Run still owns belongs to the adopted process too: the
+    // next message must use it instead of admitting a second claim for it.
+    if (mainCapacity?.enabled()) {
+      // eslint-disable-next-line no-restricted-syntax -- 只读查询：读不到时按“没有名额”处理，下一条消息会重新准入
+      const owned = await mainCapacity.requestFor(taskId, record.runId).catch(() => undefined);
+      resident.requestId = owned;
+    }
     return resident;
   }
 
@@ -847,6 +924,14 @@ export function createDashboardRunService({
     // the extension records that boundary, this is what `runtime.active`
     // reports (paused work is not a turn starting).
     if (!staysPaused) pendingTurns.set(resident.taskId, Date.now());
+    // The accepted turn is the Task's current work: a reader that sees the
+    // resume answered must not still read the state this turn replaces, and an
+    // idle resident must not be mistaken for one with nothing to run.
+    if (!staysPaused && ["paused", "waiting", "completed"].includes(task.status))
+      await location.store.transitionTask(resident.taskId, "running", {
+        runId: resident.runId,
+        reason: "main_turn_delivered"
+      });
     await appendRunEvent(taskWorkspace, resident.taskId, resident.runId, "main.turn_delivered", {
       prompt: prompt.slice(0, 4_000),
       continuation,
@@ -863,6 +948,76 @@ export function createDashboardRunService({
       status: staysPaused ? "paused" : "running",
       model
     };
+  }
+
+  /** Whether this Task is the history container of a persistent Main session. */
+  async function sessionForTask(location: TaskLocation, submission?: MainLaunchSubmission): Promise<boolean> {
+    if (!mainSessions || !location.projectId) return false;
+    const owner = await mainSessions.resolve(location, {
+      ...(submission?.mainSessionId === undefined || submission.mainSessionId === null
+        ? {}
+        : { mainSessionId: submission.mainSessionId })
+    });
+    return Boolean(owner);
+  }
+
+  /**
+   * The external budget decision for one demand.
+   *
+   * A demand that already owns a slot, or one whose Task has no external
+   * Session, takes no decision here. Every other demand is either reserved,
+   * queued, or reported as the demand that already owns this Task, and the
+   * caller applies the decision before any Run or process is recorded.
+   */
+  async function admitExternal(input: {
+    location: TaskLocation;
+    runId: string;
+    prompt: string;
+    resume: boolean;
+    submission?: MainLaunchSubmission;
+    requestedModel?: string;
+    retryRequestId?: string;
+  }): Promise<{ sessionId: string; decision: MainCapacityDecision } | undefined> {
+    const { location, submission } = input;
+    if (!mainCapacity?.enabled() || !mainSessions || !location.projectId || submission?.admittedRequestId)
+      return undefined;
+    const owner = await mainSessions.resolve(location, {
+      ...(submission?.mainSessionId === undefined || submission.mainSessionId === null
+        ? {}
+        : { mainSessionId: submission.mainSessionId })
+    });
+    if (owner?.entryKind !== "external") return undefined;
+    const decision = await mainCapacity.admit({
+      projectId: location.projectId,
+      sessionId: owner.sessionId,
+      taskId: location.task.taskId,
+      kind: owner.kind,
+      ...(typeof submission?.requirementId === "string" ? { requirementId: submission.requirementId } : {}),
+      runId: input.runId,
+      resume: input.resume,
+      // Keep only the explicit choice: a queued demand resolves the host and
+      // project defaults when it actually gets a slot.
+      ...(input.requestedModel ? { model: input.requestedModel } : {}),
+      ...(input.retryRequestId ? { retryRequestId: input.retryRequestId } : {}),
+      prompt: input.prompt,
+      ...(submission
+        ? {
+            submission: {
+              ...(submission.body === undefined ? {} : { body: submission.body }),
+              // The explicit connection and thinking level are user choices, so
+              // a queued demand keeps them across the wait.
+              ...(submission.profileId ? { profileId: submission.profileId } : {}),
+              ...(submission.thinkingLevel ? { thinkingLevel: submission.thinkingLevel } : {}),
+              ...(submission.attachmentIds ? { attachmentIds: submission.attachmentIds } : {}),
+              ...(submission.textAttachments ? { textAttachments: submission.textAttachments } : {}),
+              ...(submission.source ? { source: submission.source } : {})
+            }
+          }
+        : {}),
+      origin: submission?.origin ?? "internal",
+      queueWhenFull: submission?.queueWhenFull === true
+    });
+    return { sessionId: owner.sessionId, decision };
   }
 
   async function launchMainRunWithAdmission(
@@ -895,7 +1050,8 @@ export function createDashboardRunService({
       throw new Error("该问题所属运行已变更，请刷新任务。");
     // A resident Main serving this Task takes the turn in the process it
     // already has. Only a request that needs a different process (an edit, a
-    // retry, another model) falls through, and that one replaces it.
+    // retry, another model, or the next Run of a Session) falls through, and
+    // that one replaces it.
     let resident = await residentFor(taskId);
     if (resident && !resident.observed && !(await residentProcessAlive(resident.record))) {
       // The entry may predate a crash: its process is gone but the exit has
@@ -907,30 +1063,123 @@ export function createDashboardRunService({
       await stopResidentMain(taskId, { replacing: true });
       resident = await residentFor(taskId);
     }
+    // A demand for the next Run of a Session replaces the idle process only
+    // once it owns a slot: a queued demand must not end an idle Main.
+    let replaceResident = false;
     if (resident) {
       // A retry or a request for another Run while a Main still serves this
       // Task is the same duplicate the launch check always refused: the Run
       // it names has already started.
       if (retryRequestId || (requestedRunId !== undefined && requestedRunId !== resident.runId))
         throw new Error("Task already has an active Main run");
-      if (!submission?.edit) {
-        const delivered = await deliverResidentTurn({
-          resident,
-          task,
-          location,
-          prompt,
-          continuation: resume && !prompt.trim(),
-          ...(submission ? { submission } : {}),
-          ...(requestedModel ? { requestedModel } : {}),
-          messageId: readQueuedUserTurn(prompt)?.messageId ?? randomUUID()
-        });
-        if (delivered) return delivered;
+      const settled = !["running", "waiting", "paused"].includes(task.status);
+      // A Session holds one Run at a time. Its next requirement opens a new Run,
+      // and this process wrote the records of the Run it started with. A plain
+      // conversation keeps its Run, so its idle process takes the next message.
+      const session = await sessionForTask(location, submission);
+      const nextSessionRun =
+        session &&
+        settled &&
+        requestedRunId === undefined &&
+        !submission?.edit &&
+        typeof submission?.requirementId === "string";
+      if (nextSessionRun) replaceResident = true;
+      else {
+        // A second demand for a Session whose turn is producing an answer is a
+        // duplicate start, not input to that turn: the interjection path is how
+        // a person adds input. A Main waiting for delegated work can still take
+        // a change at its next boundary. A wake, an answer or a resume names the
+        // Run it continues, so none of them is refused here.
+        if (
+          session &&
+          task.status === "running" &&
+          requestedRunId === undefined &&
+          !submission?.edit &&
+          prompt.trim()
+        ) {
+          const coordination = await coordinator
+            .waitForSubagents({ taskId, runId: resident.runId, workspaceRoot: taskWorkspace, timeoutMs: 0 })
+            // eslint-disable-next-line no-restricted-syntax -- 读不到协作队列时按“没有待办工作”处理：拒绝请求比让它插进一个无法确认的回合更安全
+            .catch(() => undefined);
+          if (!coordination?.pending.length && !coordination?.callbackPending.length)
+            throw new Error("Task already has an active Main run");
+        }
+        const continuationTurn = resume === true && !prompt.trim();
+        if (!submission?.edit) {
+          // A turn takes the place its Run already owns; a resident between
+          // turns (paused, or released after its last turn) is admitted first,
+          // so an idle process never keeps a place it is not using.
+          let place = resident.requestId;
+          if (!place && mainCapacity?.enabled())
+            place = await mainCapacity.requestFor(taskId, resident.runId);
+          if (!place && !(!continuationTurn && task.pause)) {
+            const admitted = await admitExternal({
+              location,
+              runId: resident.runId,
+              prompt,
+              resume: resume === true || Boolean(task.activeRunId),
+              ...(submission ? { submission } : {}),
+              ...(requestedModel ? { requestedModel } : {}),
+              ...(retryRequestId ? { retryRequestId } : {})
+            });
+            if (admitted) {
+              if (admitted.decision.state === "queued")
+                return {
+                  taskId,
+                  runId: resident.runId,
+                  status: "queued",
+                  model: task.model || "",
+                  sessionId: admitted.sessionId,
+                  queuePosition: admitted.decision.position
+                };
+              if (admitted.decision.state === "duplicate")
+                return {
+                  taskId,
+                  runId: admitted.decision.runId ?? resident.runId,
+                  status: "duplicate",
+                  model: task.model || "",
+                  sessionId: admitted.sessionId,
+                  ...(admitted.decision.position === undefined
+                    ? {}
+                    : { queuePosition: admitted.decision.position })
+                };
+              place = admitted.decision.requestId;
+              admission.requestId = place;
+            }
+          }
+          const delivered = await deliverResidentTurn({
+            resident,
+            task,
+            location,
+            prompt,
+            continuation: continuationTurn,
+            ...(submission ? { submission } : {}),
+            ...(requestedModel ? { requestedModel } : {}),
+            messageId: readQueuedUserTurn(prompt)?.messageId ?? randomUUID()
+          });
+          if (delivered) {
+            const requestId = place ?? admission.requestId;
+            resident.requestId = requestId;
+            if (requestId && mainCapacity)
+              await mainCapacity
+                .bindProcess(requestId, resident.record.pid)
+                .catch((error) =>
+                  console.error(
+                    `[cowork] external capacity process record failed: ${
+                      error instanceof Error ? error.message : String(error)
+                    }`
+                  )
+                );
+            return delivered;
+          }
+        }
+        // An edit, another model or a process that is already gone replaces it.
+        await stopResidentMain(taskId, { replacing: true });
       }
-      // An edit, another model or a process that is already gone replaces it.
-      await stopResidentMain(taskId, { replacing: true });
     }
     const existing = activeRuns.get(taskId);
-    if (existing && !existing.killed) throw new Error("Task already has an active Main run");
+    if (existing && !existing.killed && !replaceResident)
+      throw new Error("Task already has an active Main run");
     // Completing a request ends a run, not the conversation's Pi session.
     const continueSession = resume || Boolean(task.activeRunId);
     const continuation = resume && !prompt.trim();
@@ -1048,66 +1297,36 @@ export function createDashboardRunService({
     // refusal already applied. A queued demand records no Run and starts no
     // process, so "waiting for a slot" never looks like a running Main.
     let capacitySessionId: string | undefined;
-    if (mainCapacity?.enabled() && mainSessions && location.projectId && !submission?.admittedRequestId) {
-      const owner = await mainSessions.resolve(location, {
-        ...(submission?.mainSessionId === undefined || submission.mainSessionId === null
-          ? {}
-          : { mainSessionId: submission.mainSessionId })
-      });
-      if (owner?.entryKind === "external") {
-        capacitySessionId = owner.sessionId;
-        const decision = await mainCapacity.admit({
-          projectId: location.projectId,
-          sessionId: owner.sessionId,
+    const capacity = await admitExternal({
+      location,
+      runId,
+      prompt,
+      resume: continueSession,
+      ...(submission ? { submission } : {}),
+      ...(requestedModel ? { requestedModel } : {}),
+      ...(retryRequestId ? { retryRequestId } : {})
+    });
+    if (capacity) {
+      capacitySessionId = capacity.sessionId;
+      if (capacity.decision.state === "queued")
+        return {
           taskId,
-          kind: owner.kind,
-          ...(typeof submission?.requirementId === "string"
-            ? { requirementId: submission.requirementId }
-            : {}),
           runId,
-          resume: continueSession,
-          // Keep only the explicit choice: a queued demand resolves the host
-          // and project defaults when it actually gets a slot.
-          ...(requestedModel ? { model: requestedModel } : {}),
-          ...(retryRequestId ? { retryRequestId } : {}),
-          prompt,
-          ...(submission
-            ? {
-                submission: {
-                  ...(submission.body === undefined ? {} : { body: submission.body }),
-                  // The explicit connection and thinking level are user choices,
-                  // so a queued demand keeps them across the wait.
-                  ...(submission.profileId ? { profileId: submission.profileId } : {}),
-                  ...(submission.thinkingLevel ? { thinkingLevel: submission.thinkingLevel } : {}),
-                  ...(submission.attachmentIds ? { attachmentIds: submission.attachmentIds } : {}),
-                  ...(submission.textAttachments ? { textAttachments: submission.textAttachments } : {}),
-                  ...(submission.source ? { source: submission.source } : {})
-                }
-              }
-            : {}),
-          origin: submission?.origin ?? "internal",
-          queueWhenFull: submission?.queueWhenFull === true
-        });
-        if (decision.state === "queued")
-          return {
-            taskId,
-            runId,
-            status: "queued",
-            model: configuredSelection.model,
-            sessionId: owner.sessionId,
-            queuePosition: decision.position
-          };
-        if (decision.state === "duplicate")
-          return {
-            taskId,
-            runId: decision.runId ?? runId,
-            status: "duplicate",
-            model: configuredSelection.model,
-            sessionId: owner.sessionId,
-            ...(decision.position === undefined ? {} : { queuePosition: decision.position })
-          };
-        admission.requestId = decision.requestId;
-      }
+          status: "queued",
+          model: configuredSelection.model,
+          sessionId: capacity.sessionId,
+          queuePosition: capacity.decision.position
+        };
+      if (capacity.decision.state === "duplicate")
+        return {
+          taskId,
+          runId: capacity.decision.runId ?? runId,
+          status: "duplicate",
+          model: configuredSelection.model,
+          sessionId: capacity.sessionId,
+          ...(capacity.decision.position === undefined ? {} : { queuePosition: capacity.decision.position })
+        };
+      admission.requestId = capacity.decision.requestId;
     }
     // The connection, model and reasoning profile are fixed here, at the moment
     // this demand owns a slot: a host/project default changed while it waited
@@ -1120,6 +1339,11 @@ export function createDashboardRunService({
     const baseUrl = selection.baseUrl;
     const apiKey = selection.apiKey;
     if (!baseUrl || !apiKey) throw new Error("模型 API 未配置：请填写 config.json 或 .cowork/config.json");
+    // This demand owns its place and its model: the settled resident that
+    // served the previous Run can be replaced now without stranding the demand
+    // in the queue behind an idle process, and without ending a process for a
+    // demand that never runs.
+    if (replaceResident) await stopResidentMain(taskId, { replacing: true });
     // Every check that can refuse this request has passed and the Run id it will
     // launch is fixed. Ownership is recorded only now, so a refused request
     // cannot rewrite a Run another process owns.
@@ -1259,12 +1483,21 @@ export function createDashboardRunService({
     const runOutput = new MainRunOutput((type) => {
       const current = residentMains.get(taskId);
       if (!current || current.runId !== runId) return;
-      if (type === "agent_start") current.turnActive = true;
-      else if (type === "agent_settled") {
+      if (type === "agent_start") {
+        current.turnActive = true;
+        // The accepted turn is running: its first boundary is what will settle
+        // it, so the acceptance no longer marks a place that must be kept.
+        pendingTurns.delete(taskId);
+      } else if (type === "agent_settled") {
         // A failed request ends this process; the Run stays "working" until
         // the exit settles it as failed, so a page cannot read it as idle.
         if (runOutput.message?.stopReason === "error") return;
         current.turnActive = false;
+        // The process outlives its turn, so its Run and its place in the queue
+        // are settled at this boundary rather than at the exit. The claim is
+        // taken now; the settlement runs after any launch that is already in
+        // flight, on the same queue that admits turns.
+        void serialize(taskId, () => settleResidentTurn(current, current.requestId));
       }
     });
     // Concurrent appendFile calls can reorder stream chunks. Preserve arrival
@@ -1359,6 +1592,11 @@ export function createDashboardRunService({
         await mainCapacity.release(admission.requestId).catch(() => {});
       activeRunIds.delete(taskId);
       interjectionTargets.delete(taskId);
+      pendingTurns.delete(taskId);
+      // This launch registered the resident entry before spawning; a process
+      // that never existed must not leave an entry claiming the Task's Main.
+      if (residentMains.get(taskId)?.runId === runId) residentMains.delete(taskId);
+      onRunExit(taskId);
       if (submission?.edit) await finishMessageEditTransaction(taskWorkspace, taskId);
       return { taskId, runId, status: "running", model };
     }
@@ -2054,7 +2292,14 @@ export function createDashboardRunService({
         humanWakeups.delete(taskId);
         return { status: "delivered" };
       }
-      if ((await adoptResidentMain(taskId, location)) || activeRuns.has(taskId)) {
+      // A turn that is still producing, or still waiting on the question, takes
+      // the answer in the process it owns. A settled Run's answer is a new
+      // demand: it goes through admission and the queue like any other, so the
+      // resident process is never the reason a full budget is bypassed.
+      if (
+        ["running", "waiting"].includes(location.task.status) &&
+        ((await adoptResidentMain(taskId, location)) || activeRuns.has(taskId))
+      ) {
         humanWakeups.add(taskId);
         return { status: "resuming" };
       }
@@ -2083,6 +2328,20 @@ export function createDashboardRunService({
         origin: "internal",
         queueWhenFull: true
       });
+      // The answers are this demand's own input. Their Inbox copies are the
+      // delivery receipt for a waiting tool, not a second instruction the next
+      // turn must read again, so they are consumed with the accepted demand.
+      for (const message of answers) {
+        try {
+          if (message.state === "ready")
+            await inbox.leaseMessage("main", message.messageId, 60_000, "run-service");
+          await inbox.consume(message.messageId);
+        } catch (error) {
+          console.error(
+            `[cowork] consuming a durable answer failed: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
       return { status: resumed.status === "queued" ? "queued" : "running" };
     })()
       .catch((error) => ({ status: "error", error: error instanceof Error ? error.message : String(error) }))
@@ -2133,9 +2392,12 @@ export function createDashboardRunService({
     }
     const pendingAt = pendingTurns.get(taskId);
     if (pendingAt === undefined) return false;
-    // A turn accepted for delivery has not written its first boundary yet; the
-    // process that will write it must still be there, or the launch failed.
-    if (resident) return residentProcessAlive(resident.record);
+    // A turn accepted for delivery has not written its first boundary yet.
+    // Until this Run is settled it stays in flight even when the process has
+    // already exited: the exit's settlement is what finishes it, and reporting
+    // "no turn" in that window lets a reader decide the Task settled while its
+    // status is still `running`.
+    if (resident) return !resident.settled;
     return activeRuns.has(taskId);
   }
 

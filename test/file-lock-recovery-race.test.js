@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -573,5 +573,34 @@ test(
     assert.equal(published.entered, true);
     assert.equal(published.error, undefined);
     await assert.rejects(readFile(ownerPath), { code: "ENOENT" });
+  }
+);
+
+test(
+  "a lock directory left without an owner record is reclaimed once its grace has passed",
+  { timeout: 15000 },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "atria-lock-ownerless-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const target = join(root, "inbox-store.json");
+    const lockPath = `${target}.lock`;
+    // A claimant killed between `mkdir` and its owner write leaves exactly this.
+    await mkdir(lockPath);
+    // Inside the grace the directory may still be a live claimant's window, so
+    // another reader must not take it.
+    await assert.rejects(
+      withFileLock(target, async () => "stolen", { timeoutMs: 200, retryMs: 20 }),
+      /timed out acquiring file lock/
+    );
+    assert.equal((await stat(lockPath)).isDirectory(), true, "the fresh lock is left alone");
+    // Past the grace nobody can still be writing the owner record: the next
+    // reader reclaims the directory instead of waiting out the stale TTL.
+    const aged = new Date(Date.now() - 10_000);
+    await utimes(lockPath, aged, aged);
+    assert.equal(
+      await withFileLock(target, async () => "acquired", { timeoutMs: 2_000, retryMs: 20 }),
+      "acquired"
+    );
+    await assert.rejects(readFile(`${lockPath}/owner.json`), { code: "ENOENT" });
   }
 );

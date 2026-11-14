@@ -327,6 +327,24 @@ export function createMainCapacityLedger({
       });
     },
 
+    /**
+     * Release one claim the Run still owns, named by its request id.
+     *
+     * The check and the removal are one store write: a slot admitted after the
+     * observed claim (another request id, possibly another turn's) is kept, so
+     * a late boundary settlement cannot free a turn that started since.
+     */
+    releaseIfCurrent(taskId: string, runId: string, requestId: string): Promise<boolean> {
+      return store.update((state) => {
+        const index = state.slots.findIndex(
+          (slot) => slot.requestId === requestId && slot.taskId === taskId && slot.runId === runId
+        );
+        if (index < 0) return false;
+        state.slots.splice(index, 1);
+        return true;
+      });
+    },
+
     /** The start callback returned: the demand is now a running slot. */
     completeStart(requestId: string): Promise<void> {
       return store.update((state) => {

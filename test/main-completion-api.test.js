@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { finalAnswerIndex } from "../web/assets/conversation.js";
 import { HumanRequestStore } from "../dist/src/runtime/human.js";
+import { SubagentQuestionStore } from "../dist/src/runtime/subagent-questions.js";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
 import { endAgentProcesses } from "./dashboard-fixture.mjs";
 
@@ -492,23 +493,31 @@ for (const mode of ["wait tool", "premature answer"]) {
       assert.notEqual(detail.task.status, "completed");
       assert.equal(detail.runtime.active, true);
       if (mode === "wait tool") {
+        // A callback that settles while Main is inside a tool must not be
+        // injected into that turn: it stays in the Inbox until the tool reads
+        // it. Both facts are durable, so assert them on the Inbox record and on
+        // the event order rather than on how far the tool had got when the page
+        // happened to be read.
+        const inbox = new InboxStore(
+          join(f.workspaceRoot, "task", "runs", detail.task.activeRunId, "agents", "main", "inbox-store.json")
+        );
         assert.ok(
-          detail.coordination.callbackPending.length > 0,
-          "queued callback must remain pending while Main is inside a tool"
+          (await inbox.list("main")).some((message) => message.kind === "callback"),
+          "the settled result is durable in the Inbox while the tool runs"
+        );
+        const events = detail.runtimeEvents.map(({ payload }) => payload);
+        const waitEnd = events.findIndex(
+          (event) => event.type === "tool_execution_end" && event.toolName === "wait_for_subagents"
         );
         assert.equal(
-          mainRequests.length,
-          2,
-          JSON.stringify(
-            detail.runtimeEvents
-              .map(({ payload }) => payload)
-              .filter((event) =>
-                ["tool_execution_start", "tool_execution_end", "agent_end"].includes(event.type)
-              )
-              .map((event) => ({ type: event.type, tool: event.toolName, result: event.result })),
-            null,
-            2
-          )
+          events.some(
+            (event, index) =>
+              (waitEnd < 0 || index < waitEnd) &&
+              event.type === "message_end" &&
+              event.message?.customType === "cowork-callback"
+          ),
+          false,
+          "a callback settled inside a tool is not delivered into the running turn"
         );
       }
       subagents[1]({ text: "Evidence B verified." });
@@ -815,14 +824,17 @@ test(
       { COWORK_SUBAGENT_QUESTION_TIMEOUT_MS: "600000" }
     );
     await f.start();
-    const questionDir = join(f.workspaceRoot, "task", "subagent-questions");
+    // Wait for the pending question itself, not merely for a file in its
+    // directory: the store's temp file during an atomic write is not a question
+    // yet, and the complete action's reason depends on reading a pending one.
+    const questions = new SubagentQuestionStore(f.workspaceRoot);
     await until(
       async () => {
-        const files = await readdir(questionDir).catch(() => []);
-        return files.length ? files : null;
+        const pending = await questions.list("task", "pending");
+        return pending.length ? pending : null;
       },
       Boolean,
-      "a raised question on disk",
+      "a pending question in the store",
       60_000
     );
 

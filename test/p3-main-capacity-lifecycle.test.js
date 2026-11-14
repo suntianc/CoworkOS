@@ -146,15 +146,23 @@ async function settle(request, taskId, status, timeout = 30_000) {
   return (await taskDetail(request, taskId)).body;
 }
 
-/** The processes this test owns: their argv names the Task or Task directory. */
+/**
+ * The process groups this test owns: their argv names the Task or directory.
+ *
+ * A Main launch runs a launcher and its bootstrap in one detached group, so
+ * both pids name the Task. Both callers terminate the group, and only the
+ * leader's pid is that group id; returning the bootstrap too would make the
+ * second `kill(-pid)` fail with `ESRCH` after the first one ended the group.
+ */
 async function ownProcesses(root, marker) {
-  const { stdout } = await run("ps", ["-ax", "-o", "pid=,command="], { maxBuffer: 8 * 1024 * 1024 });
+  const { stdout } = await run("ps", ["-ax", "-o", "pid=,pgid=,command="], { maxBuffer: 8 * 1024 * 1024 });
   return stdout
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.includes(root) && line.includes(marker))
-    .map((line) => Number(line.split(/\s+/)[0]))
-    .filter((pid) => Number.isInteger(pid) && pid > 0);
+    .map((line) => line.split(/\s+/))
+    .filter(([pid, pgid]) => /^\d+$/.test(pid) && pid === pgid && Number(pid) > 0)
+    .map(([pid]) => Number(pid));
 }
 
 /** Run a CLI child with a bound; a timeout stops the group this test started. */
@@ -1092,11 +1100,16 @@ test(
     );
     local.release("blocker-again");
     await settle(request, blockerSession.taskId, "completed");
-    await waitFor(
-      async () =>
-        (await capacity(request)).body.running.some((entry) => entry.taskId === answerSession.taskId),
-      "the queued wake did not start after the slot was released"
-    );
+    // The wake starts and its turn may settle again before a poll sees it in
+    // `running`, so the observation is that the demand reached the model and
+    // left the queue — the slot it took is released with its turn.
+    await waitFor(async () => {
+      const view = await capacity(request);
+      const reached = local.requests.some((entry) =>
+        JSON.stringify(entry.body.messages ?? []).includes("An external event has arrived for this Task.")
+      );
+      return reached && view.body.queued.length === 0;
+    }, "the queued wake did not start after the slot was released");
     await settle(request, answerSession.taskId, "completed");
     assert.deepEqual((await capacity(request)).body.queued, []);
     assert.deepEqual(local.failures, []);

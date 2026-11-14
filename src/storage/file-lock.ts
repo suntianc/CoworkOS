@@ -73,6 +73,16 @@ async function ownerWasCancelled(lockPath: string, owner: LockOwner): Promise<bo
   }
 }
 
+/**
+ * How long a lock directory may stay ownerless before it counts as abandoned.
+ *
+ * A claimant writes its owner record immediately after `mkdir` claims the
+ * directory; the gap is two awaited file operations. A claimant killed in that
+ * gap leaves a directory nobody owns, and waiting the stale TTL for it would
+ * make every reader of that file time out on a lock nobody holds.
+ */
+const OWNERLESS_GRACE_MS = 3_000;
+
 /** Only the successful claimant can remove an abandoned directory generation. */
 async function recoverAbandonedLock(lockPath: string, ownerPath: string, staleMs: number): Promise<void> {
   const observed = await readOwner(ownerPath);
@@ -91,7 +101,8 @@ async function recoverAbandonedLock(lockPath: string, ownerPath: string, staleMs
     return;
   const observedStat = await stat(lockPath);
   const abandoned = local && observed.owner !== undefined && (!pidIsAlive(observed.owner.pid) || cancelled);
-  if (!abandoned && Date.now() - observedStat.mtimeMs < staleMs) return;
+  const ownerless = observed.owner === undefined && Date.now() - observedStat.mtimeMs >= OWNERLESS_GRACE_MS;
+  if (!abandoned && !ownerless && Date.now() - observedStat.mtimeMs < staleMs) return;
   const claimPath = `${lockPath}/.dead-owner-recovery`;
   const claimToken = randomUUID();
   try {

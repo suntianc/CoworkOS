@@ -207,7 +207,7 @@ Main 失败请求重放由 [私有请求槽](../src/storage/main-request-store.t
 
 子代理进程的角色工具表由 [角色策略](../src/runtime/subagent-roles.ts) 决定：[角色工具](../.pi/runtime/tools/subagent.ts) 只注册通道与结论工具，Pi 内置的读写/命令/检索工具在 `session_start` 按角色激活，Reviewer 因此没有写文件工具、但有在自己的候选副本里运行验证的 `bash`；该副本由 [审查现场](../src/workspace/review-site.ts) 从被审候选提交创建为 detached checkout，并在进程结束后由 [后端结算](../src/runtime/subagent-processes.ts) 清理。受保护路径由 [共用拦截](../src/tools/protected-call.ts) 在工具调用边界对 Main 与子代理执行同一条规则，[Main 扩展](../.pi/runtime/extension.ts) 与 [委派进程](../.pi/runtime/subagent-agent.ts) 都只调用它。[审查结论格式](../src/runtime/subagent-review.ts) 同时由提交工具与后端结算校验，未提交结论的 Reviewer 结束记为失败。验证 [真实角色工具表与审查结论](../test/p46-subagent-roles-pi.test.js) 与 [子代理路径保护与 Reviewer 命令](../test/p46-subagent-guards-pi.test.js)。
 
-子代理进程通过通用 [收件箱读取](../src/runtime/agent-inbox-delivery.ts) 读取自己的持久 Inbox，由 [文件监听](../src/runtime/file-watch.ts) 唤醒而不轮询；消息进入该进程的会话上下文后才记为已消费，因此后端重启前后都能送达且每条只读一次。验证 [真实子代理消息送达、提问与取消](../test/p46-subagent-messages-pi.test.js) 与 [确认与重投](../test/p46-subagent-inbox-delivery.test.js)。
+子代理进程通过通用 [收件箱读取](../src/runtime/agent-inbox-delivery.ts) 读取自己的持久 Inbox，每个回合边界重读一次、空闲时由 [文件监听](../src/runtime/file-watch.ts) 唤醒而不轮询；消息进入该进程的会话上下文后才记为已消费，因此后端重启前后都能送达且每条只读一次。验证 [真实子代理消息送达、提问与取消](../test/p46-subagent-messages-pi.test.js) 与 [确认与重投](../test/p46-subagent-inbox-delivery.test.js)。
 
 通用工作区探索由 [workspace-explore 技能](../.pi/skills/workspace-explore/SKILL.md) 和 [Main 委派引导](../.pi/prompts/cowork-main.md) 定义，沿用现有异步 `call_subagent`（含角色、依赖与需求现场参数）、等待与回调，不新增第二套调度器。[真实 Pi 探索回归](../test/workspace-explore-pi.test.js) 验证 Main/子智能体按需加载、异步执行、项目读取、回调和读取内容归档；调用倾向与探索质量需真实模型另行验收。使用与权限边界见 [运行时参考](runtime-reference.md)。
 

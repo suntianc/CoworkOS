@@ -260,7 +260,10 @@ for (const engine of PROJECT_DATA_ENGINES) {
       assert.deepEqual((await capacity(request)).body.settings, { resident: 2, continuation: 1 });
 
       // Freeing one regular slot starts exactly the waiting demand, in order.
+      // The next demand's model work is held again so the slot it takes stays
+      // observable: a slot returns to the queue when its turn settles.
       local.release();
+      local.hold();
       const cancelled = await cancel(request, other.body.session.taskId);
       assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
       await waitFor(async () => {
@@ -270,6 +273,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
       const advanced = await capacity(request);
       assert.equal(advanced.body.queued.length, 0);
       assert.ok(externalRegular(advanced.body).length >= 1);
+      local.release();
 
       await settle(request, first.body.session.taskId, "completed");
       await settle(request, second.body.session.taskId, "completed");
@@ -359,7 +363,10 @@ test(
 
     // Watch the budget while work moves: regular never exceeds two, continuation
     // never exceeds its reserved one, and the queued demand is never a running one.
+    // The queued demand's own model work is held again so the slot it takes
+    // stays observable: a slot returns to the queue when its turn settles.
     local.release();
+    local.hold();
     const cancelled = await cancel(request, sessions.one.taskId);
     assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
     const observed = { regular: 0, continuation: 0 };
@@ -378,6 +385,7 @@ test(
       );
     }, "the queued demand did not start after a completion and a cancellation");
     assert.ok(observed.regular >= 1 && observed.regular <= 2, JSON.stringify(observed));
+    local.release();
     await settle(request, sessions.two.taskId, "completed");
     await settle(request, sessions.three.taskId, "completed");
     await waitFor(
