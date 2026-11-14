@@ -12,6 +12,18 @@ import { clearSleep } from "./main-sleep.js";
 import { subagentCallStatuses, type SubagentCallStatus } from "./subagent-call-status.js";
 
 /**
+ * Items this Run still has to hear about.
+ *
+ * A terminal row whose callback has not been queued yet is not settled for
+ * Main: the outcome exists, but the record Main reads it from does not.
+ */
+function unsettled<T extends { status: string; callbackPending?: boolean }>(items: readonly T[]): T[] {
+  return items.filter(
+    (item) => !["completed", "failed", "cancelled"].includes(item.status) || item.callbackPending === true
+  );
+}
+
+/**
  * Main's view of delegated work.
  *
  * Delegated execution belongs to the backend: it registers a work item in the
@@ -118,7 +130,7 @@ export class CoordinatorRuntime {
       const scheduler = new DurableScheduler(queuePath);
       items = (await scheduler.list()).filter((item) => !requested || requested.has(item.stepId));
       inboxMessages = await inbox.list("main");
-      const pending = items.filter((item) => !["completed", "failed", "cancelled"].includes(item.status));
+      const pending = unsettled(items);
       const callbackPending = waitingCallbacks();
       if (
         pending.length === 0 &&
@@ -160,7 +172,7 @@ export class CoordinatorRuntime {
         throw error;
       }
     }
-    const pending = items.filter((item) => !["completed", "failed", "cancelled"].includes(item.status));
+    const pending = unsettled(items);
     const callbackPending = waitingCallbacks().filter((message) => !claimedCallbacks.has(message.messageId));
     const responseByCall = new Map<
       string,

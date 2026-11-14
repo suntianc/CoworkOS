@@ -241,7 +241,13 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
       .list()
       // eslint-disable-next-line no-restricted-syntax -- 队列读不出来时按没有未完成项处理；进程记录仍会让它被跟踪
       .catch(() => []);
-    if (items.some((item) => !["completed", "failed", "cancelled"].includes(item.status))) return true;
+    // A terminal row whose callback is not queued yet still needs this backend.
+    if (
+      items.some(
+        (item) => !["completed", "failed", "cancelled"].includes(item.status) || item.callbackPending === true
+      )
+    )
+      return true;
     const agents = await readdir(
       join(run.workspaceRoot, run.taskId, "runs", run.runId, "agents", "subagents"),
       { withFileTypes: true }

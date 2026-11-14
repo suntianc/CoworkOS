@@ -187,13 +187,14 @@ export class SubagentProcessService {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const failedItem = await scheduler
-          .fail(claimed.stepId, claimed.lease.token, message)
-          // eslint-disable-next-line no-restricted-syntax -- 队列写入失败时仍要把启动失败通知 Main；租约到期后由 reclaimExpired 接管，不能因此丢掉这次失败
+          .fail(claimed.stepId, claimed.lease.token, message, 0, { callbackPending: true })
+          // eslint-disable-next-line no-restricted-syntax -- 队列写入失败时租约仍在，reclaimExpired 到期后由下一次维护重新结算这次启动失败
           .catch(() => undefined);
-        const retryScheduled = failedItem?.status === "queued";
+        const retryScheduled = failedItem?.status !== "failed";
         if (!retryScheduled) {
           const role: AgentProcessRole = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
           results.push(await this.projectFailure(input, claimed, role, message));
+          await scheduler.clearCallbackPending(claimed.stepId);
         }
       }
     }
@@ -215,7 +216,7 @@ export class SubagentProcessService {
     reason: string
   ): Promise<SubagentProcessResult | undefined> {
     const scheduler = new DurableScheduler(this.queuePath({ taskId: item.taskId, runId: item.runId }));
-    await scheduler.failUnstarted(item.stepId, reason);
+    await scheduler.failUnstarted(item.stepId, reason, { callbackPending: true });
     const role: AgentProcessRole = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
     await new JsonlEventStore(join(this.workspaceRoot, item.taskId, "runs", item.runId, "run_events.jsonl"))
       .append({
@@ -230,7 +231,9 @@ export class SubagentProcessService {
       })
       // eslint-disable-next-line no-restricted-syntax -- 诊断事件写失败不能阻止给 Main 的失败回调，队列行已经带着原因
       .catch(() => undefined);
-    return await this.projectFailure({ taskId: item.taskId, runId: item.runId }, item, role, reason);
+    const failure = await this.projectFailure({ taskId: item.taskId, runId: item.runId }, item, role, reason);
+    await scheduler.clearCallbackPending(item.stepId);
+    return failure;
   }
 
   /** Renew the leases of running processes so a second backend cannot claim them. */
@@ -474,9 +477,8 @@ export class SubagentProcessService {
     const result = await this.findSettled(record);
     const runRoot = join(this.workspaceRoot, record.taskId, "runs", record.runId);
     const scheduler = new DurableScheduler(join(runRoot, "queue.json"));
-    const payload =
-      ((await scheduler.list()).find((item) => item.stepId === record.callId)?.payload as
-        WorkPayload | undefined) ?? {};
+    const current = (await scheduler.list()).find((item) => item.stepId === record.callId);
+    const payload = (current?.payload as WorkPayload | undefined) ?? {};
     // A retryable failure is still in flight, so it is not an outcome Main may
     // act on; the callback follows the terminal attempt like an in-process call.
     const publishOutcome = async (): Promise<{ messageId: string; queued: boolean }> => {
@@ -520,18 +522,35 @@ export class SubagentProcessService {
         ...(result.error ? { error: result.error } : {})
       });
     };
-    // The queue row is the durable "this call is over" fact every reader polls,
-    // so its terminal write comes last: a callback that is not yet queued must
-    // not be readable as an outcome, or Main completes between the two writes
-    // and the callback arrives for a closed Task.
+    // A terminal row and its callback are one consistent pair for readers: the
+    // outcome becomes durable first, marked `callbackPending`, then the callback
+    // is queued, then the mark is cleared. `callbackPending` is what keeps Main
+    // from treating the call as settled until its callback exists, so the row
+    // can be written before the callback without the old race. A settlement
+    // interrupted between the steps is completed by the next attempt below.
+    if (current && isTerminal(current.status) && current.callbackPending === true) {
+      const callback = await publishOutcome();
+      await scheduler.clearCallbackPending(record.callId);
+      await this.host.markSettled(record, {
+        status: result.status,
+        response: result.response,
+        outputFiles: result.outputFiles,
+        diagnostics: result.diagnostics,
+        ...(result.error ? { error: result.error } : {})
+      });
+      await this.options.onSettled?.(result);
+      return result;
+    }
     let retryScheduled = false;
     let callback: { messageId: string; queued: boolean } | undefined;
     if (result.status === "cancelled") {
+      await scheduler.cancel(record.callId, { callbackPending: true });
       callback = await publishOutcome();
-      await this.markQueueCancelled(record.taskId, record.runId, record.callId);
+      await scheduler.clearCallbackPending(record.callId);
     } else if (result.status === "succeeded") {
+      await this.completeQueue(scheduler, record.callId, record.leaseToken, { callbackPending: true });
       callback = await publishOutcome();
-      await this.completeQueue(scheduler, record.callId, record.leaseToken);
+      await scheduler.clearCallbackPending(record.callId);
     } else {
       const outcome = await this.failQueue(
         scheduler,
@@ -799,21 +818,24 @@ export class SubagentProcessService {
   private async completeQueue(
     scheduler: DurableScheduler,
     callId: string,
-    token: string | undefined
+    token: string | undefined,
+    options: { callbackPending?: boolean } = {}
   ): Promise<void> {
     if (!token) return;
     const item = (await scheduler.list()).find((candidate) => candidate.stepId === callId);
     if (!item || isTerminal(item.status)) return;
-    // eslint-disable-next-line no-restricted-syntax -- 终态已由结果记录与回调表达；队列写入失败时租约到期会由 reclaimExpired 复核，不能让回调因排队长写失败而丢失
-    await scheduler.complete(callId, token).catch(() => undefined);
+    // The write failure propagates: the callback must not be published for a
+    // row that is still in flight. The lease expiry re-runs the settlement.
+    await scheduler.complete(callId, token, options);
   }
 
   /**
-   * Record a failed attempt, publishing its outcome first when it is terminal.
+   * Record a failed attempt and publish its outcome when it is terminal.
    *
-   * The pre-terminal hook runs only when the queue will not retry: it publishes
-   * the callback while the row still reads as in flight, so a reader that sees
-   * the terminal row also finds that call's callback.
+   * A retryable attempt is requeued and reports no outcome. A terminal attempt
+   * becomes durable first with `callbackPending`, then the callback is queued
+   * and the mark cleared, so a reader that sees the callback also sees the
+   * settled row and Main waits for both.
    */
   private async failQueue(
     scheduler: DurableScheduler,
@@ -837,17 +859,14 @@ export class SubagentProcessService {
       await scheduler.fail(record.callId, record.leaseToken!, error, RETRY_DELAY_MS).catch(() => undefined);
       return "retry";
     }
-    await beforeTerminal?.();
     const updated = ownsLease
-      ? await scheduler
-          .fail(record.callId, record.leaseToken!, error)
-          // eslint-disable-next-line no-restricted-syntax -- 失败本身才是结果；队列写入失败时租约到期重试，回调已经记录了这次失败
-          .catch(() => undefined)
-      : await scheduler
-          .failUnstarted(record.callId, error)
-          // eslint-disable-next-line no-restricted-syntax -- 同上：队列写入失败不改变这次失败结果，未结算的项仍会被后续恢复看到
-          .catch(() => undefined);
-    return updated?.status === "queued" ? "retry" : "terminal";
+      ? await scheduler.fail(record.callId, record.leaseToken!, error, 0, { callbackPending: true })
+      : await scheduler.failUnstarted(record.callId, error, { callbackPending: true });
+    // A concurrent claim may still have requeued it; then there is no outcome.
+    if (updated.status === "queued") return "retry";
+    await beforeTerminal?.();
+    await scheduler.clearCallbackPending(record.callId);
+    return "terminal";
   }
 
   private async markQueueCancelled(taskId: string, runId: string, callId: string): Promise<void> {

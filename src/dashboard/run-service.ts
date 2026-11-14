@@ -1578,6 +1578,11 @@ export function createDashboardRunService({
         await mainCapacity.release(admission.requestId).catch(() => {});
       activeRunIds.delete(taskId);
       interjectionTargets.delete(taskId);
+      pendingTurns.delete(taskId);
+      // This launch registered the resident entry before spawning; a process
+      // that never existed must not leave an entry claiming the Task's Main.
+      if (residentMains.get(taskId)?.runId === runId) residentMains.delete(taskId);
+      onRunExit(taskId);
       if (submission?.edit) await finishMessageEditTransaction(taskWorkspace, taskId);
       return { taskId, runId, status: "running", model };
     }
@@ -2372,9 +2377,12 @@ export function createDashboardRunService({
     }
     const pendingAt = pendingTurns.get(taskId);
     if (pendingAt === undefined) return false;
-    // A turn accepted for delivery has not written its first boundary yet; the
-    // process that will write it must still be there, or the launch failed.
-    if (resident) return residentProcessAlive(resident.record);
+    // A turn accepted for delivery has not written its first boundary yet.
+    // Until this Run is settled it stays in flight even when the process has
+    // already exited: the exit's settlement is what finishes it, and reporting
+    // "no turn" in that window lets a reader decide the Task settled while its
+    // status is still `running`.
+    if (resident) return !resident.settled;
     return activeRuns.has(taskId);
   }
 

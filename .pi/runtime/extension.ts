@@ -290,8 +290,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
         // An externally budgeted Run resumes a durable answer through the
         // backend, which first admits the turn it opens to that budget; a Run
         // outside the budget still opens the turn here as it always did.
-        holdAnswers:
-          Boolean(process.env.COWORK_MAIN_CAPACITY_GRANTED) && (sessionContext?.isIdle() ?? true),
+        holdAnswers: process.env.COWORK_MAIN_CAPACITY_MANAGED === "1" && (sessionContext?.isIdle() ?? true),
         // Only the startup read before the first turn needs the batch: after
         // that, each message is steered into the turn already in flight.
         batchStart: !firstTurnStarted && (sessionContext?.isIdle() ?? true),

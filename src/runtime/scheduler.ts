@@ -18,6 +18,15 @@ export interface WorkItem {
   maxAttempts?: number;
   /** The earliest time this queued retry may be claimed; absent means now. */
   notBefore?: string;
+  /**
+   * A terminal outcome recorded before its callback reached Main's Inbox.
+   *
+   * The outcome must be durable before the callback (a reader that sees the
+   * callback must also see the settled row), while Main must not treat the call
+   * as settled until the callback is there. This flag is the durable "settled,
+   * callback on its way" state; it is cleared once the callback is queued.
+   */
+  callbackPending?: boolean;
   createdAt: string;
   updatedAt: string;
   lease?: { workerId: string; token: string; expiresAt: string };
@@ -108,8 +117,12 @@ export class DurableScheduler {
     });
   }
 
-  async complete(stepId: string, token: string): Promise<WorkItem> {
-    return this.finish(stepId, token, "completed");
+  async complete(
+    stepId: string,
+    token: string,
+    options: { callbackPending?: boolean } = {}
+  ): Promise<WorkItem> {
+    return this.finish(stepId, token, "completed", undefined, options);
   }
 
   /**
@@ -119,7 +132,13 @@ export class DurableScheduler {
    * caller can schedule the next start instead of leaving the item leased until
    * the lease expires.
    */
-  async fail(stepId: string, token: string, error: string, retryAfterMs = 0): Promise<WorkItem> {
+  async fail(
+    stepId: string,
+    token: string,
+    error: string,
+    retryAfterMs = 0,
+    options: { callbackPending?: boolean } = {}
+  ): Promise<WorkItem> {
     return this.withLock(async () => {
       const items = await this.readItems();
       const item = items.find((candidate) => candidate.stepId === stepId);
@@ -133,6 +152,7 @@ export class DurableScheduler {
       item.status = retry ? "queued" : "failed";
       item.notBefore =
         retry && retryAfterMs > 0 ? new Date(Date.now() + retryAfterMs).toISOString() : undefined;
+      item.callbackPending = !retry && options.callbackPending === true ? true : undefined;
       item.updatedAt = now();
       await this.writeItems(items);
       return item;
@@ -147,7 +167,11 @@ export class DurableScheduler {
    * match. Without this the refusal would be dropped and the same item would be
    * re-driven on every pass while the Task waits for it forever.
    */
-  async failUnstarted(stepId: string, error: string): Promise<WorkItem> {
+  async failUnstarted(
+    stepId: string,
+    error: string,
+    options: { callbackPending?: boolean } = {}
+  ): Promise<WorkItem> {
     return this.withLock(async () => {
       const items = await this.readItems();
       const item = items.find((candidate) => candidate.stepId === stepId);
@@ -161,13 +185,14 @@ export class DurableScheduler {
       item.status = "failed";
       item.error = error;
       item.lease = undefined;
+      item.callbackPending = options.callbackPending === true ? true : undefined;
       item.updatedAt = now();
       await this.writeItems(items);
       return item;
     });
   }
 
-  async cancel(stepId: string): Promise<WorkItem> {
+  async cancel(stepId: string, options: { callbackPending?: boolean } = {}): Promise<WorkItem> {
     return this.withLock(async () => {
       const items = await this.readItems();
       const item = items.find((candidate) => candidate.stepId === stepId);
@@ -175,9 +200,22 @@ export class DurableScheduler {
       if (item.status === "completed" || item.status === "failed" || item.status === "cancelled") return item;
       item.status = "cancelled";
       item.lease = undefined;
+      item.callbackPending = options.callbackPending === true ? true : undefined;
       item.updatedAt = now();
       await this.writeItems(items);
       return item;
+    });
+  }
+
+  /** The terminal row's callback is durable: the call is settled for readers. */
+  async clearCallbackPending(stepId: string): Promise<void> {
+    await this.withLock(async () => {
+      const items = await this.readItems();
+      const item = items.find((candidate) => candidate.stepId === stepId);
+      if (!item || item.callbackPending === undefined) return;
+      item.callbackPending = undefined;
+      item.updatedAt = now();
+      await this.writeItems(items);
     });
   }
 
@@ -189,7 +227,8 @@ export class DurableScheduler {
     stepId: string,
     token: string,
     status: "completed" | "failed",
-    error?: string
+    error?: string,
+    options: { callbackPending?: boolean } = {}
   ): Promise<WorkItem> {
     return this.withLock(async () => {
       const items = await this.readItems();
@@ -201,6 +240,7 @@ export class DurableScheduler {
       item.status = status;
       item.error = error;
       item.lease = undefined;
+      item.callbackPending = options.callbackPending === true ? true : undefined;
       item.updatedAt = now();
       await this.writeItems(items);
       return item;
