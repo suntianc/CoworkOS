@@ -34,6 +34,16 @@ The [project data service](../../src/workspace/project-data-service.ts) owns the
 
 Importing `createDashboardApplication()` opens no port and installs no signal handlers. `src/cli/dashboard.ts` owns listening and shutdown signals. Tests explicitly compose and stop reusable services.
 
+## Pi dependency boundary
+
+A runtime import of a Pi package (`@earendil-works/pi-*`, not `import type`) is allowed only in the areas that own a Pi process: `.pi/` (extensions and tools), `scripts/` (launcher), model configuration, Main session file read/write, and context compaction; every other module may only use type imports. The areas are the explicit file list of the [ESLint rule](../../eslint.config.mjs) (`cowork/pi-import-boundary`); the [boundary regression](../../test/p46-pi-dependency-boundary.test.js) keeps that list identical to this section.
+
+- Model configuration (connection probing, thinking levels, model parameters and request recording): [main-request-retry](../../src/runtime/main-request-retry.ts), [model-cache](../../src/runtime/model-cache.ts), [model-connection](../../src/runtime/model-connection.ts), [model-levels](../../src/runtime/model-levels.ts), [model-profile](../../src/runtime/model-profile.ts), [model-provider](../../src/runtime/model-provider.ts), [model-request-recording](../../src/runtime/model-request-recording.ts).
+- Main session file read/write (the backend rewrites Pi session files while Main is not running, that is message editing and forks): [conversation-fork](../../src/runtime/conversation-fork.ts), [main-message-edit](../../src/runtime/main-message-edit.ts).
+- Context compaction: [compaction-summary-guard](../../src/runtime/compaction-summary-guard.ts), [compaction-summary-policy](../../src/runtime/compaction-summary-policy.ts). This is a temporary exception, withdrawn when compaction is redesigned; remove it from the rule list then.
+
+Runtime imports of package-internal subpaths (such as `@earendil-works/pi-ai/api/...`) are allowed only in model configuration, because a Pi upgrade most easily invalidates those internal paths. The boundary narrows a Pi upgrade to a check of the listed modules instead of the whole tree.
+
 ## Task, Run and process lifetime
 
 A browser request flows through HTTP routes → Dashboard Run → AgentProcessHost → Pi launcher → Pi extension → Coordinator. CLI can use runtime services directly. These entrypoints share business semantics.
