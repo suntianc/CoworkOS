@@ -33,6 +33,7 @@ import { MainCompactionRetry } from "./main-compaction-retry.ts";
 import { registerSubagentInbox } from "./subagent-inbox.ts";
 import { blockedToolCall, taskProtectedPaths } from "./protected-call.ts";
 import { registerSubagentTools } from "./tools/subagent.ts";
+import { registerLoadSkillTool } from "./tools/workspace.ts";
 import { SubagentQuestionStore } from "../../dist/src/runtime/subagent-questions.js";
 
 /**
@@ -255,6 +256,13 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
       submittedReview = review;
     }
   });
+
+  // The same loader over the same catalog as Main: a published skill that tells
+  // a Subagent to load itself returns the instructions, directory and bundled
+  // script paths Main would get, and grants nothing beyond read-only loading.
+  registerLoadSkillTool(pi, () => [
+    ...new Set([join(harnessRoot, ".pi", "skills"), join(workingDirectory, ".pi", "skills")])
+  ]);
 
   // Main's guidance and a peer's message reach this process through its own
   // durable Inbox; nothing about that channel is Main-specific.
