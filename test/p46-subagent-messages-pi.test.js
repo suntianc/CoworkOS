@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
 import { DurableScheduler } from "../dist/src/runtime/scheduler.js";
 import { SubagentProcessService } from "../dist/src/runtime/subagent-processes.js";
+import { sendPeerMessage } from "../dist/src/runtime/subagent-peer-message.js";
 import { SubagentQuestionStore } from "../dist/src/runtime/subagent-questions.js";
 import { JsonlEventStore } from "../dist/src/storage/event-store.js";
 import { isolatedPiEnvironment, startLocalProvider } from "./fixtures/pi-process-fixture.mjs";
@@ -20,8 +21,9 @@ import { isolatedPiEnvironment, startLocalProvider } from "./fixtures/pi-process
  * launches it. Main's guidance is produced by the same runtime call Main's
  * `send_subagent_message` tool makes; a question is answered through the same
  * durable record that tool writes; a peer message goes through the sender's
- * real `send_peer_message` tool. What the model actually received is read from
- * the recorded provider requests, not from the extension's own bookkeeping.
+ * real `send_peer_message` tool, or the same durable writer when the case is
+ * about the receiver's read. What the model actually received is read from the
+ * recorded provider requests, not from the extension's own bookkeeping.
  */
 
 const harness = resolve(".");
@@ -81,6 +83,11 @@ function requestsWith(provider, marker) {
 
 function requestText(request) {
   return JSON.stringify(request.messages);
+}
+
+/** The requests the receiver itself was sent, not the sender's copy of its own message. */
+function receiverRequests(provider, marker, receiverMarker) {
+  return requestsWith(provider, receiverMarker).filter((request) => requestText(request).includes(marker));
 }
 
 async function recordedProcesses(f) {
@@ -262,15 +269,14 @@ test(
       message: "MAIN_GUIDANCE_MARKER: keep the existing export name."
     });
     assert.equal(sent.status, "queued");
-    // The turn is still in flight, so the running process takes the message
-    // now and Pi holds it until the next safe boundary. Releasing after that
-    // makes the assertion about ordering, not about who won a race.
-    await waitFor(
-      async () =>
-        (await inboxMessages(f, "subagent_1")).find(
-          (message) => message.messageId === sent.messageId && message.state === "leased"
-        ),
-      "the running Executor to take the guidance"
+    // The message is durable before the turn ends, and the turn is released at
+    // once: the next turn is the first safe boundary that can carry it, so this
+    // is about ordering, not about how soon the OS reports the write. A
+    // directory event that arrives late only makes the process read it sooner.
+    assert.equal(
+      requestText(f.provider.requests[0]).includes("MAIN_GUIDANCE_MARKER"),
+      false,
+      "the request already in flight when the message was written does not carry it"
     );
     held.release();
 
@@ -290,11 +296,6 @@ test(
       requestText(request).includes("MAIN_GUIDANCE_MARKER")
     );
     assert.equal(occurrences.length, 1, "a durable message is read once, not once per turn");
-    assert.equal(
-      requestText(f.provider.requests[0]).includes("MAIN_GUIDANCE_MARKER"),
-      false,
-      "the request already in flight when the message was written does not carry it"
-    );
     assert.ok(f.provider.requests.length >= 2, "the message was read on a later turn");
 
     const receipts = (await runEvents(f)).filter(
@@ -314,7 +315,9 @@ test(
   { timeout: 120_000 },
   async (t) => {
     const f = await fixture(t, {
-      env: { COWORK_SUBAGENT_QUESTION_TIMEOUT_MS: "1500" },
+      // The answer arrives when the OS reports the write, which on a loaded
+      // host takes about a second; the budget only has to outlive one wake.
+      env: { COWORK_SUBAGENT_QUESTION_TIMEOUT_MS: "6000" },
       handle: (_body, requests) => {
         if (requests.length === 1)
           return {
@@ -482,13 +485,8 @@ test(
 
     receiverHeld.release();
     const afterRestart = await waitFor(
-      () => requestsWith(f.provider, "PEER_MARKER")[0],
+      () => receiverRequests(f.provider, "PEER_MARKER", "RECEIVER_TASK_MARKER")[0],
       "the peer message in the receiver's next request"
-    );
-    assert.equal(
-      requestsWith(f.provider, "PEER_MARKER").length,
-      1,
-      "the peer message is read once, including across the restart"
     );
     assert.ok(requestText(afterRestart).includes("the new column is nullable."));
 
@@ -502,8 +500,98 @@ test(
     const receiverCallback = await waitForCallback(f, "call-message-receiver");
     assert.equal(receiverCallback.payload.status, "succeeded", JSON.stringify(receiverCallback.payload));
     assert.match(receiverCallback.payload.response, /RECEIVER_DONE/);
+    assert.equal(
+      receiverRequests(f.provider, "PEER_MARKER", "RECEIVER_TASK_MARKER").length,
+      1,
+      "the peer message is read once, including across the restart"
+    );
     const queued = (await runEvents(f)).filter((event) => event.type === "peer_message.queued");
     assert.equal(queued.length, 1, "the peer message is recorded once when it is queued");
+  }
+);
+
+test(
+  "a peer message written during a turn is read once at the next turn",
+  { timeout: 120_000 },
+  async (t) => {
+    const receiverHeld = gate();
+    const f = await fixture(t, {
+      handle: (_body, requests) => {
+        const turns = requests.filter((request) => requestText(request).includes("BOUNDARY_RECEIVER_TASK"));
+        if (turns.length === 1) return receiverHeld.opened.then(() => ({ text: "BOUNDARY_RECEIVER_DONE" }));
+        return { text: "BOUNDARY_RECEIVER_DONE" };
+      }
+    });
+    // The peer's call is leased durably before the backend starts, so no sender
+    // process runs: this case is about the receiver's read, and the message is
+    // written by the same durable writer the sender's tool uses.
+    await queueCall(f, {
+      callId: "call-message-boundary-peer",
+      agentId: "subagent_6",
+      task: "BOUNDARY_SENDER_TASK: hand the schema change to the peer"
+    });
+    await queueCall(f, {
+      callId: "call-message-boundary",
+      agentId: "subagent_7",
+      task: "BOUNDARY_RECEIVER_TASK: wait for the peer's schema note"
+    });
+    const scheduler = new DurableScheduler(join(f.runRoot, "queue.json"));
+    assert.ok(
+      await scheduler.claim("p46-boundary-peer", 120_000, "call-message-boundary-peer"),
+      "the peer call is leased"
+    );
+    startBackend(f);
+    await waitFor(
+      () => requestsWith(f.provider, "BOUNDARY_RECEIVER_TASK").length === 1,
+      "the receiver's first request"
+    );
+    const sent = await sendPeerMessage({
+      taskId: TASK_ID,
+      runId: RUN_ID,
+      workspaceRoot: f.workspace,
+      senderCallId: "call-message-boundary-peer",
+      targetCallId: "call-message-boundary",
+      message: "BOUNDARY_PEER_MARKER: the schema change is additive."
+    });
+    assert.equal(sent.status, "queued");
+    const firstTurn = requestsWith(f.provider, "BOUNDARY_RECEIVER_TASK")[0];
+    assert.equal(
+      requestText(firstTurn).includes("BOUNDARY_PEER_MARKER"),
+      false,
+      "the request already in flight when the message was written does not carry it"
+    );
+
+    // The message is durable before the turn ends, and the turn ends at once:
+    // the gap is shorter than a directory event takes to arrive, so the turn
+    // boundary is what has to read it, not the file-watch wake-up.
+    receiverHeld.release();
+    const nextTurn = await waitFor(
+      () =>
+        requestsWith(f.provider, "BOUNDARY_RECEIVER_TASK").find((request) =>
+          requestText(request).includes("BOUNDARY_PEER_MARKER")
+        ),
+      "the peer message in the receiver's next turn"
+    );
+    assert.ok(requestText(nextTurn).includes("the schema change is additive."));
+    await waitFor(
+      async () =>
+        (await inboxMessages(f, "subagent_7")).find(
+          (message) => message.messageId === sent.messageId && message.state === "consumed"
+        ),
+      "the receiver to consume the peer message"
+    );
+    const callback = await waitForCallback(f, "call-message-boundary");
+    assert.equal(callback.payload.status, "succeeded", JSON.stringify(callback.payload));
+    assert.match(callback.payload.response, /BOUNDARY_RECEIVER_DONE/);
+    assert.equal(
+      receiverRequests(f.provider, "BOUNDARY_PEER_MARKER", "BOUNDARY_RECEIVER_TASK").length,
+      1,
+      "the peer message is read once"
+    );
+    const receipts = (await runEvents(f)).filter(
+      (event) => event.type === "inbox.consumed" && event.payload?.messageId === sent.messageId
+    );
+    assert.equal(receipts.length, 1, "consumption is recorded once");
   }
 );
 
