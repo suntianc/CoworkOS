@@ -851,7 +851,14 @@ export class SubagentProcessService {
       Boolean(record.leaseToken) && item?.status === "leased" && item.lease?.token === record.leaseToken;
     // A lease this attempt does not hold belongs to another owner.
     if (item?.status === "leased" && !ownsLease) return "foreign";
-    if (item && ownsLease && item.attempts < (item.maxAttempts ?? 1)) {
+    if (!item) {
+      // A record adopted without a queue row (a call whose row was never
+      // written or is already gone): there is no row to disagree with, so the
+      // outcome is published and the record settles.
+      await beforeTerminal?.();
+      return "terminal";
+    }
+    if (ownsLease && item.attempts < (item.maxAttempts ?? 1)) {
       // Requeue the retry now with the time it may start, instead of leaving
       // the item leased until the lease expires. A failed queue write leaves
       // that lease in place and reclaimExpired still schedules the attempt.
