@@ -825,7 +825,10 @@ export function createDashboardApplication(
     dashboardUrl,
     uiRoot,
     webSearchSettings: createWebSearchSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
-    modelSettings: createModelSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
+    modelSettings: createModelSettings(projectRoot, runtimeConfig, async () => {
+      for (const taskId of activeRuns.keys()) if (await runs.taskTurnActive(taskId)) return true;
+      return false;
+    }),
     globalTaskPayload,
     locateTask,
     projectTasks: workspaces.projectTasks,

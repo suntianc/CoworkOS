@@ -482,7 +482,7 @@ export class SubagentProcessService {
       callback = await publishOutcome();
       await this.completeQueue(scheduler, record.callId, record.leaseToken);
     } else {
-      retryScheduled = await this.failQueue(
+      const outcome = await this.failQueue(
         scheduler,
         record,
         result.error ?? "Subagent process failed",
@@ -490,6 +490,19 @@ export class SubagentProcessService {
           callback = await publishOutcome();
         }
       );
+      // Another owner holds the call: its settlement is the outcome, so this
+      // attempt records no failure event and no failure callback for it.
+      if (outcome === "foreign") {
+        await this.host.markSettled(record, {
+          status: result.status,
+          response: result.response,
+          outputFiles: result.outputFiles,
+          diagnostics: result.diagnostics,
+          ...(result.error ? { error: result.error } : {})
+        });
+        return result;
+      }
+      retryScheduled = outcome === "retry";
     }
 
     const events = new JsonlEventStore(join(runRoot, "run_events.jsonl"));
@@ -748,17 +761,27 @@ export class SubagentProcessService {
     record: AgentProcessRecord,
     error: string,
     beforeTerminal?: () => Promise<void>
-  ): Promise<boolean> {
-    if (!record.leaseToken) return false;
+  ): Promise<"retry" | "foreign" | "terminal"> {
     const item = (await scheduler.list()).find((candidate) => candidate.stepId === record.callId);
-    if (!item || isTerminal(item.status)) return false;
-    const willRetry = item.attempts < (item.maxAttempts ?? 1);
-    if (!willRetry) await beforeTerminal?.();
-    const updated = await scheduler
-      .fail(record.callId, record.leaseToken, error)
-      // eslint-disable-next-line no-restricted-syntax -- 失败本身才是结果；队列写入失败时租约到期重试，回调已经记录了这次失败
-      .catch(() => undefined);
-    return updated?.status === "queued";
+    // A terminal item was settled by someone else: this attempt is not the
+    // outcome, and a second callback would report work twice.
+    if (item && isTerminal(item.status)) return "foreign";
+    const ownsLease =
+      Boolean(record.leaseToken) && item?.status === "leased" && item.lease?.token === record.leaseToken;
+    // A lease this attempt does not hold belongs to another owner.
+    if (item?.status === "leased" && !ownsLease) return "foreign";
+    if (item && ownsLease && item.attempts < (item.maxAttempts ?? 1)) return "retry";
+    await beforeTerminal?.();
+    const updated = ownsLease
+      ? await scheduler
+          .fail(record.callId, record.leaseToken!, error)
+          // eslint-disable-next-line no-restricted-syntax -- 失败本身才是结果；队列写入失败时租约到期重试，回调已经记录了这次失败
+          .catch(() => undefined)
+      : await scheduler
+          .failUnstarted(record.callId, error)
+          // eslint-disable-next-line no-restricted-syntax -- 同上：队列写入失败不改变这次失败结果，未结算的项仍会被后续恢复看到
+          .catch(() => undefined);
+    return updated?.status === "queued" ? "retry" : "terminal";
   }
 
   private async markQueueCancelled(taskId: string, runId: string, callId: string): Promise<void> {

@@ -823,6 +823,24 @@ async function registerMainExtension(pi: ExtensionAPI) {
               pause: { ...task.pause, pausedAt: new Date().toISOString() }
             });
           await taskStore.transitionTask(taskId, "paused", { runId: mainRunId, reason: "ui_pause" });
+          // The Turn stopped at this boundary; the Run keeps the pause on
+          // record even though a resident process stays alive for the resume.
+          try {
+            await new JsonlEventStore(
+              join(workspaceRoot, taskId, "runs", mainRunId, "run_events.jsonl")
+            ).append({
+              eventId: `pause-${randomUUID()}`,
+              type: "main.run_paused",
+              taskId,
+              runId: mainRunId,
+              agentId: "main",
+              occurredAt: new Date().toISOString(),
+              payload: { reason: "ui_pause", requestedAt: task.pause.requestedAt }
+            });
+            // eslint-disable-next-line no-restricted-syntax -- 暂停已写入 Task；事件只是记录，写不进去不影响暂停
+          } catch {
+            /* the Task's pause is the durable fact */
+          }
           await updateRuntime({
             runtimePhase: "waiting",
             runtimeLastEvent: { type: "main_turn_settled", summary: "paused" }
