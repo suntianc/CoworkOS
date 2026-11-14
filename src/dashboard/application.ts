@@ -323,55 +323,6 @@ export function createDashboardApplication(
     locateTask
   );
   const uploads = new InputStore(join(dirname(globalIndexPath), "uploads"));
-  const runs = createDashboardRunService({
-    onRunFinalized: async (location, runId) => {
-      if (!location.projectId) return;
-      // A Run keeps the session that owned it after it settles.
-      try {
-        await mainSessions.settle(
-          location.projectId,
-          location.task.taskId,
-          runId,
-          location.task.status === "failed" ? "failed" : "completed"
-        );
-      } catch (error) {
-        console.error(
-          `[cowork] session run settlement failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    },
-    uploads,
-    projectRoot,
-    dashboardUrl,
-    runCredential: access.runCredential(),
-    coordinator,
-    locateTask,
-    mainSessions: {
-      resolve: (location, input) => mainSessions.resolve(location, input)
-    },
-    mainCapacity,
-    mainGuardian: {
-      workspaceRoots: knownWorkspaceRoots,
-      // A host with no Main connection has nothing to launch, and a connection
-      // added later is seen on the next cycle.
-      modelConfigured: () => Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
-    },
-    withTaskProjectLock: workspaces.withTaskProjectLock,
-    resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
-    endpointLimits: async (selection) =>
-      (
-        await cachedCatalog({
-          ...runtimeConfig,
-          baseUrl: selection.baseUrl,
-          apiKey: selection.apiKey,
-          model: selection.model
-        })
-      ).find((entry) => entry.id === selection.model)?.limits,
-    onRunExit: (taskId) => computer.finishTask(taskId),
-    normalizeModel,
-    appendRunEvent,
-    readJsonFile
-  });
   /**
    * Delegated execution for every workspace root this backend serves.
    *
@@ -401,6 +352,56 @@ export function createDashboardApplication(
     configPath: () => coworkConfigPath(projectRoot),
     piAgentDir: () => data.piAgentDir,
     ...(process.env.COWORK_SUBAGENT_POLL_MS ? { pollMs: Number(process.env.COWORK_SUBAGENT_POLL_MS) } : {})
+  });
+  const runs = createDashboardRunService({
+    onRunFinalized: async (location, runId) => {
+      if (!location.projectId) return;
+      // A Run keeps the session that owned it after it settles.
+      try {
+        await mainSessions.settle(
+          location.projectId,
+          location.task.taskId,
+          runId,
+          location.task.status === "failed" ? "failed" : "completed"
+        );
+      } catch (error) {
+        console.error(
+          `[cowork] session run settlement failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    },
+    uploads,
+    projectRoot,
+    dashboardUrl,
+    runCredential: access.runCredential(),
+    coordinator,
+    subagents,
+    locateTask,
+    mainSessions: {
+      resolve: (location, input) => mainSessions.resolve(location, input)
+    },
+    mainCapacity,
+    mainGuardian: {
+      workspaceRoots: knownWorkspaceRoots,
+      // A host with no Main connection has nothing to launch, and a connection
+      // added later is seen on the next cycle.
+      modelConfigured: () => Boolean(runtimeValue("COWORK_API_BASE") && runtimeValue("COWORK_API_KEY"))
+    },
+    withTaskProjectLock: workspaces.withTaskProjectLock,
+    resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
+    endpointLimits: async (selection) =>
+      (
+        await cachedCatalog({
+          ...runtimeConfig,
+          baseUrl: selection.baseUrl,
+          apiKey: selection.apiKey,
+          model: selection.model
+        })
+      ).find((entry) => entry.id === selection.model)?.limits,
+    onRunExit: (taskId) => computer.finishTask(taskId),
+    normalizeModel,
+    appendRunEvent,
+    readJsonFile
   });
   const { activeRuns, startMainRun, pendingHumanAnswers, resumeHumanAnswers } = runs;
   const launchMainRun = createMainRunLauncher({ locateTask, mainSessions, startMainRun });

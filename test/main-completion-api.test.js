@@ -12,12 +12,21 @@ import { finalAnswerIndex } from "../web/assets/conversation.js";
 import { HumanRequestStore } from "../dist/src/runtime/human.js";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
 
-async function until(read, condition, label) {
+/**
+ * Poll until the condition holds.
+ *
+ * The default budget covers an in-process turn. A check that also waits for a
+ * delegated work item passes a larger one: that item is a real Pi process, and
+ * its startup is not bounded by this harness.
+ */
+async function until(read, condition, label, timeoutMs = 10_000) {
+  const untilMs = Date.now() + timeoutMs;
   let last;
-  for (let i = 0; i < 300; i++) {
+  for (;;) {
     const value = await read();
     last = value;
     if (condition(value)) return value;
+    if (Date.now() >= untilMs) break;
     await delay(20);
   }
   assert.fail(
@@ -817,7 +826,8 @@ test(
         return files.length ? files : null;
       },
       Boolean,
-      "a raised question on disk"
+      "a raised question on disk",
+      60_000
     );
 
     // The user clicking "complete" must not close a Task somebody is blocked on.

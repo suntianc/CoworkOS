@@ -108,6 +108,16 @@ export interface RunServicePorts {
   dashboardUrl: string;
   runCredential: string;
   coordinator: CoordinatorRuntime;
+  /**
+   * The backend that owns delegated processes.
+   *
+   * Closing a session must end the Subagents it started, and their processes
+   * are not the coordinator's any more: the same owner that launched them is
+   * the one that stops them.
+   */
+  subagents?: {
+    cancel(input: { taskId: string; runId: string; callId: string; reason?: string }): Promise<unknown>;
+  };
   locateTask(taskId: string): Promise<TaskLocation>;
   /**
    * Resolve the execution host's connection for one admitted Run.
@@ -179,6 +189,7 @@ export function createDashboardRunService({
   dashboardUrl,
   runCredential,
   coordinator,
+  subagents,
   locateTask,
   resolveMainModel,
   endpointLimits = async () => undefined,
@@ -1960,6 +1971,13 @@ export function createDashboardRunService({
             );
         });
         await attempt(() => clearSleep(location.workspaceRoot, taskId));
+        // End the session before its delegated work settles: the settlement
+        // callback is durable, and a Main still watching its Inbox would start
+        // a turn from it and reopen the Task that was just closed.
+        await attempt(() => stopResidentMain(taskId));
+        await attempt(async () => {
+          await taskFinalizations.get(taskId);
+        });
         await attempt(async () => {
           if (location.task.activeRunId) {
             const coordination = await coordinator.waitForSubagents({
@@ -1970,21 +1988,26 @@ export function createDashboardRunService({
             });
             const results = await Promise.allSettled(
               coordination.pending.map((call) =>
-                coordinator.cancelSubagent({
-                  taskId,
-                  runId: location.task.activeRunId!,
-                  workspaceRoot: location.workspaceRoot,
-                  callId: call,
-                  reason: "User stopped the task"
-                })
+                subagents
+                  ? subagents.cancel({
+                      taskId,
+                      runId: location.task.activeRunId!,
+                      callId: call,
+                      reason: "User stopped the task"
+                    })
+                  : coordinator.cancelSubagent({
+                      taskId,
+                      runId: location.task.activeRunId!,
+                      workspaceRoot: location.workspaceRoot,
+                      callId: call,
+                      reason: "User stopped the task"
+                    })
               )
             );
             const rejected = results.find((result) => result.status === "rejected");
             if (rejected?.status === "rejected") throw rejected.reason;
           }
         });
-        await attempt(() => stopResidentMain(taskId));
-        await attempt(async () => taskFinalizations.get(taskId));
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- failed 由 attempt 的 catch 回调置位，TS 在读取处看不到这次闭包写入
         if (failed) throw failure;
         return (await locateTask(taskId)).task;

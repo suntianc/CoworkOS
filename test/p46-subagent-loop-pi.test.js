@@ -795,6 +795,118 @@ test(
   }
 );
 
+test("closing the session stops the delegated process it started", { timeout: 180_000 }, async (t) => {
+  let releaseGate;
+  const gate = new Promise((done) => {
+    releaseGate = done;
+  });
+  let gateStarted;
+  const started = new Promise((done) => {
+    gateStarted = done;
+  });
+  const mainSteps = [];
+  let delegate = {};
+  let developmentId = "";
+  let failTest;
+  const scriptFailure = new Promise((_, reject) => {
+    failTest = reject;
+  });
+  const f = await fixture(t, {
+    taskId: "cancel-task",
+    handle: async (body) => {
+      try {
+        const role = identityOf(body);
+        if (role === "main") {
+          const step = mainSteps.length;
+          mainSteps.push(lastToolText(body));
+          if (step === 0)
+            return {
+              name: "project_development",
+              arguments: {
+                action: "create",
+                requirementId: f.requirementId,
+                goal: "报表页提供导出入口",
+                completionCriteria: ["导出文件包含实现结果"],
+                route: "direct"
+              }
+            };
+          if (step === 1) {
+            developmentId = toolJson(body).development.developmentId;
+            return {
+              name: "call_subagent",
+              arguments: {
+                task: "执行者工作项 A：等待放行后写入 impl.txt。",
+                mode: "async",
+                role: "executor",
+                developmentId
+              }
+            };
+          }
+          if (step === 2) {
+            delegate = toolJson(body);
+            return { text: "已委派，等待结果。" };
+          }
+          return { text: "已委派，等待结果。" };
+        }
+        gateStarted();
+        await gate;
+        return { name: "write", arguments: { path: "impl.txt", content: "never\n" } };
+      } catch (error) {
+        failTest(error);
+        return { text: "取消夹具失败。" };
+      }
+    }
+  });
+  const run = await f.request(`/api/tasks/${encodeURIComponent(f.taskId)}/run`, {
+    prompt: "委派一个长任务。"
+  });
+  assert.equal(run.status, 202, JSON.stringify(run.body));
+  await Promise.race([started, scriptFailure]);
+  // The delegated process is alive and its record names it, so the close has
+  // a real process group to end.
+  const record = await waitFor(async () => {
+    const records = await processRecords(f, run.body.runId);
+    return records.find((entry) => entry.callId === delegate.callId && entry.pid && !entry.settledAt);
+  }, "the delegated process record");
+  assert.equal(alive(record.pid), true);
+
+  const seen = [];
+  let watching = true;
+  void (async () => {
+    while (watching) {
+      const view = await f.request(`/api/tasks/${encodeURIComponent(f.taskId)}`).catch(() => undefined);
+      const state = `${view?.body.task.status}/${view?.body.runtime.active}/${view?.body.runtime.mainRunning}`;
+      if (seen.at(-1) !== state) seen.push(state);
+      await delay(20);
+    }
+  })();
+  const closed = await f.request(`/api/tasks/${encodeURIComponent(f.taskId)}/action`, {
+    action: "cancel"
+  });
+  assert.equal(closed.status, 200, JSON.stringify(closed.body));
+  const item = await waitFor(async () => {
+    const found = (await queueItems(f, run.body.runId)).find((entry) => entry.stepId === delegate.callId);
+    return found?.status === "cancelled" ? found : undefined;
+  }, "the delegated item to be cancelled");
+  assert.equal(item.status, "cancelled");
+  await waitFor(() => !alive(record.pid), "the delegated process group to end", 30_000);
+  await waitFor(
+    async () => {
+      const detail = await f.request(`/api/tasks/${encodeURIComponent(f.taskId)}`);
+      return !detail.body.runtime.mainRunning;
+    },
+    "the Main process to end with the session",
+    30_000
+  );
+  watching = false;
+  await delay(100);
+  const detail = await f.request(`/api/tasks/${encodeURIComponent(f.taskId)}`);
+  // A late settlement callback must not reopen the session that was closed.
+  assert.equal(detail.body.task.status, "cancelled", JSON.stringify(seen));
+  assert.equal(detail.body.runtime.mainRunning, false);
+  releaseGate();
+});
+
 test(
   "the CLI worker takes no work while the serving backend owns the workspace",
   { timeout: 120_000 },

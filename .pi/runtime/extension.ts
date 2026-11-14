@@ -925,10 +925,16 @@ async function registerMainExtension(pi: ExtensionAPI) {
         );
       }, mainTimeoutMs);
     }
-    await new LocalWorkspaceStore(workspaceRoot).transitionTask(taskId, "running", {
-      runId: mainRunId,
-      reason: "main_turn_started"
-    });
+    // A closed Task is not reopened by a message that arrived while it was
+    // closing: a late Subagent callback must not turn a cancelled session back
+    // into a running one. An explicit new run transitions it first.
+    const taskStore = new LocalWorkspaceStore(workspaceRoot);
+    const startedTask = await taskStore.readTask(taskId);
+    if (startedTask.status !== "cancelled")
+      await taskStore.transitionTask(taskId, "running", {
+        runId: mainRunId,
+        reason: "main_turn_started"
+      });
     await updateRuntime({
       runtimePhase: "active",
       runtimeRouting: { strategy: "undecided", reason: "Main turn started" },
