@@ -21,6 +21,12 @@ export interface SubagentInboxOptions {
  * example inside a blocking ask_main) a file watch is what notices a new
  * message, so nothing polls.
  *
+ * The file watch is a wake-up, not the delivery guarantee: a directory event
+ * can arrive after this one-shot process has settled, and the OS may coalesce
+ * several writes into one event. Every turn boundary therefore re-reads the
+ * whole Inbox, which is the last point the agent loop looks for queued input
+ * before it decides to continue.
+ *
  * Consumption is recorded only after the message appears in this session's
  * context, so a process that dies before its next request redelivers it. A
  * message that arrives before the first turn is appended as context; after this
@@ -92,6 +98,16 @@ export function registerSubagentInbox(pi: ExtensionAPI, options: SubagentInboxOp
   pi.on("agent_start", () => {
     turnStarted = true;
     void deliver().catch(reportDeliveryError);
+  });
+
+  pi.on("turn_end", async () => {
+    // Read the Inbox at every turn boundary, not only on a directory event.
+    // The loop pulls Pi's steering queue right after this hook, so a message
+    // read here joins the next turn; a write the OS reports late, coalesces
+    // with another entry, or never reports before this one-shot process ends
+    // would otherwise be missed even though it is durable. The watch stays as
+    // the wake for a process that is not between turns (a blocking ask_main).
+    await deliver().catch(reportDeliveryError);
   });
 
   pi.on("agent_end", () => {
