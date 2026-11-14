@@ -214,7 +214,15 @@ export function createDashboardApplication(
       const location = await locateTask(taskId).catch(() => undefined);
       if (!location) return undefined;
       const beat = await readHeartbeat(location.workspaceRoot, taskId);
-      return beat ? { pid: beat.pid, host: beat.host, runId: beat.runId } : undefined;
+      return beat
+        ? {
+            pid: beat.pid,
+            host: beat.host,
+            runId: beat.runId,
+            updatedAt: beat.updatedAt,
+            ...(beat.turnActive === undefined ? {} : { turnActive: beat.turnActive })
+          }
+        : undefined;
     }
   });
   /**
@@ -863,6 +871,7 @@ export function createDashboardApplication(
     },
     activeRuns,
     mainProcessRunning: runs.mainProcessRunning,
+    mainTurnActive: runs.taskTurnActive,
     ensureMainProcess: runs.ensureMainProcess,
     cancelTask: runs.cancelTask,
     queuedMessageAction: runs.queuedMessageAction,

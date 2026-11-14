@@ -16,10 +16,7 @@ import {
 } from "./agent-process.js";
 import { enqueueMainCallback, formatSubagentSummary } from "./subagent-callback.js";
 import { parseReviewConclusion, type ReviewConclusion } from "./subagent-review.js";
-import {
-  settleDelegatedExperiment,
-  type DelegatedExperimentRef
-} from "./experiment-settlement.js";
+import { settleDelegatedExperiment, type DelegatedExperimentRef } from "./experiment-settlement.js";
 
 /**
  * The backend side of delegated agent processes.
@@ -101,10 +98,21 @@ interface WorkPayload {
 /** The roles this service launches and settles; Main belongs to the run service. */
 const DELEGATED_ROLES = ["executor", "reviewer"] as const;
 
+/**
+ * How long a retryable delegated failure waits before its next attempt.
+ *
+ * The queue records this as the item's next allowed time, so the retry starts
+ * from a timer at that moment (not from polling) and the same failure is not
+ * repeated back to back.
+ */
+const RETRY_DELAY_MS = 1_000;
+
 export class SubagentProcessService {
   private readonly host: AgentProcessHost;
   private readonly workspaceRoot: string;
   private readonly leaseMs: number;
+  /** One due timer per Run: the retry the queue scheduled next. */
+  private readonly retryTimers = new Map<string, { due: number; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(private readonly options: SubagentProcessServiceOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -189,6 +197,7 @@ export class SubagentProcessService {
         }
       }
     }
+    await this.armQueueRetry(input);
     return results;
   }
 
@@ -273,7 +282,50 @@ export class SubagentProcessService {
   }
 
   close(): void {
+    for (const { timer } of this.retryTimers.values()) clearTimeout(timer);
+    this.retryTimers.clear();
     this.host.close();
+  }
+
+  /**
+   * Start the retry the queue scheduled, at the time the queue allows it.
+   *
+   * The maintenance pass also reaches every runnable item; this timer is what
+   * starts a retry at its own due time even when nothing else calls in, so the
+   * retry is not left to a polling cadence.
+   */
+  private async armQueueRetry(input: { taskId: string; runId: string }): Promise<void> {
+    const key = `${input.taskId}\0${input.runId}`;
+    const items = await new DurableScheduler(this.queuePath(input)).list();
+    let due: number | undefined;
+    for (const item of items) {
+      if (item.status !== "queued" || typeof item.notBefore !== "string") continue;
+      const at = Date.parse(item.notBefore);
+      if (Number.isFinite(at) && (due === undefined || at < due)) due = at;
+    }
+    const armed = this.retryTimers.get(key);
+    if (due === undefined) {
+      if (armed) clearTimeout(armed.timer);
+      this.retryTimers.delete(key);
+      return;
+    }
+    // The same (or a later) due time is already armed: keep that timer rather
+    // than restarting it on every maintenance pass.
+    if (armed && armed.due <= due) return;
+    if (armed) clearTimeout(armed.timer);
+    const timer = setTimeout(
+      () => {
+        this.retryTimers.delete(key);
+        void this.startQueued(input).catch((error) =>
+          console.error(
+            `[cowork] starting a due subagent retry failed: ${error instanceof Error ? error.message : String(error)}`
+          )
+        );
+      },
+      Math.max(0, due - Date.now())
+    );
+    timer.unref();
+    this.retryTimers.set(key, { due, timer });
   }
 
   private async launch(item: WorkItem, payload: WorkPayload, leaseToken: string): Promise<void> {
@@ -424,8 +476,7 @@ export class SubagentProcessService {
     const scheduler = new DurableScheduler(join(runRoot, "queue.json"));
     const payload =
       ((await scheduler.list()).find((item) => item.stepId === record.callId)?.payload as
-        | WorkPayload
-        | undefined) ?? {};
+        WorkPayload | undefined) ?? {};
     // A retryable failure is still in flight, so it is not an outcome Main may
     // act on; the callback follows the terminal attempt like an in-process call.
     const publishOutcome = async (): Promise<{ messageId: string; queued: boolean }> => {
@@ -503,6 +554,14 @@ export class SubagentProcessService {
         return result;
       }
       retryScheduled = outcome === "retry";
+      // The failed attempt has no process left to observe; the due timer is
+      // what starts its retry when the queue allows it.
+      if (retryScheduled)
+        await this.armQueueRetry({ taskId: record.taskId, runId: record.runId }).catch((error) =>
+          console.error(
+            `[cowork] scheduling a subagent retry failed: ${error instanceof Error ? error.message : String(error)}`
+          )
+        );
     }
 
     const events = new JsonlEventStore(join(runRoot, "run_events.jsonl"));
@@ -770,7 +829,14 @@ export class SubagentProcessService {
       Boolean(record.leaseToken) && item?.status === "leased" && item.lease?.token === record.leaseToken;
     // A lease this attempt does not hold belongs to another owner.
     if (item?.status === "leased" && !ownsLease) return "foreign";
-    if (item && ownsLease && item.attempts < (item.maxAttempts ?? 1)) return "retry";
+    if (item && ownsLease && item.attempts < (item.maxAttempts ?? 1)) {
+      // Requeue the retry now with the time it may start, instead of leaving
+      // the item leased until the lease expires. A failed queue write leaves
+      // that lease in place and reclaimExpired still schedules the attempt.
+      // eslint-disable-next-line no-restricted-syntax -- 队列写入失败时租约仍在，reclaimExpired 到期后会再次安排这次重试
+      await scheduler.fail(record.callId, record.leaseToken!, error, RETRY_DELAY_MS).catch(() => undefined);
+      return "retry";
+    }
     await beforeTerminal?.();
     const updated = ownsLease
       ? await scheduler

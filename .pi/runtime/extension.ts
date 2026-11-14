@@ -29,6 +29,8 @@ import { MainInboxDelivery, type MainControlType } from "../../dist/src/runtime/
 import {
   MAIN_CONTINUATION_TYPE,
   isMainContinuationMessage,
+  mainInputPath,
+  readMainInput,
   registerMainContinuation
 } from "../../dist/src/runtime/main-continuation.js";
 import { readSleep } from "../../dist/src/runtime/main-sleep.js";
@@ -222,12 +224,31 @@ async function registerMainExtension(pi: ExtensionAPI) {
   // resident Main has no such prompt: its Inbox is what starts the first turn.
   let awaitingInitialPrompt = process.env.COWORK_INITIAL_PROMPT === "1" && !resident;
   /**
+   * Whether this process's first turn was accepted before a pause request.
+   *
+   * A pause stops new turns from starting, but it does not cancel the turn the
+   * Run was already launched with: that turn ends at the next boundary, where
+   * the pause becomes the Task's state. A message accepted while the Task was
+   * paused is newer than the request and stays in the Inbox.
+   */
+  let startupTurnBeforePause = false;
+  const startupTurnAcceptedBeforePause = async (): Promise<boolean> => {
+    // eslint-disable-next-line no-restricted-syntax -- 任务读不到时按暂停生效处理：宁可让消息等下一次唤醒，也不越过暂停开始回合
+    const task = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId).catch(() => undefined);
+    const requestedAt = Date.parse(task?.pause?.requestedAt ?? "");
+    if (!task?.pause || !Number.isFinite(requestedAt)) return false;
+    // eslint-disable-next-line no-restricted-syntax -- 输入记录缺失时无法证明这一轮早于暂停，按暂停生效处理
+    const input = await readMainInput(mainInputPath(workspaceRoot, taskId, mainRunId)).catch(() => undefined);
+    if (!input) return false;
+    return input.submittedAt < requestedAt;
+  };
+  /**
    * Whether the Inbox already holds the message that starts this process's
    * first turn. Only a message the startup delivery will actually send counts:
    * a paused Main reads only commands, and follow-ups wait for a later turn.
    */
   const startupTurnPending = async (): Promise<boolean> => {
-    const paused = await pausedNow();
+    const paused = !startupTurnBeforePause && (await pausedNow());
     for (const message of await inboxDelivery.pending()) {
       if (message.state !== "ready") continue;
       const payload = message.payload as { type?: string; delivery?: string; initial?: boolean } | undefined;
@@ -275,7 +296,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
       },
       {
         includeFollowUps,
-        paused: replaying || (await pausedNow()),
+        paused: replaying || (!(startupTurnBeforePause && !firstTurnStarted) && (await pausedNow())),
+        // A serving backend resumes a durable answer so the turn it opens is
+        // admitted to the external budget; an idle resident must not start it.
+        holdAnswers: subagentBackendConfigured() && (sessionContext?.isIdle() ?? true),
         // Only the startup read before the first turn needs the batch: after
         // that, each message is steered into the turn already in flight.
         batchStart: !firstTurnStarted && (sessionContext?.isIdle() ?? true),
@@ -813,7 +837,11 @@ async function registerMainExtension(pi: ExtensionAPI) {
         // service settles that Run from the exit, so this boundary records
         // nothing. A one-turn host has no backend to project that exit: its
         // failed turn is still settled here, as it always was.
-        if (resident && lastMainMessage && (lastMainMessage as { stopReason?: string }).stopReason === "error")
+        if (
+          resident &&
+          lastMainMessage &&
+          (lastMainMessage as { stopReason?: string }).stopReason === "error"
+        )
           return;
         if (task.pause && task.status === "running") {
           // Record when the turn stopped before the Task reports itself paused:
@@ -1331,6 +1359,11 @@ async function registerMainExtension(pi: ExtensionAPI) {
       mainContext = mainContextPaths(workspaceRoot, taskId);
       await ensureMainContext(mainContext);
       if (!requestRetry?.isReplaying) await inboxDelivery.acknowledge(ctx.sessionManager.getEntries());
+      // A pause that arrived after this Run's first turn was accepted stops the
+      // next turn, not the accepted one. Decide that before any delivery: the
+      // record of the accepted input is older than the pause request, while
+      // work that arrived while paused is newer and stays queued.
+      if (resident && !firstTurnStarted) startupTurnBeforePause = await startupTurnAcceptedBeforePause();
       void recoverSubagents(ctx);
       const pollMainInbox = async (): Promise<void> => {
         if (inboxDeliveryActive) return;

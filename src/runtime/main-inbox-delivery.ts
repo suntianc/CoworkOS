@@ -73,6 +73,15 @@ export interface MainInboxDeliveryOptions {
   /** Run a process-level command; `true` means it was handled and consumed. */
   onControl?: (type: MainControlType, message: InboxMessage) => Promise<boolean>;
   /**
+   * Keep durable human answers queued instead of opening a turn.
+   *
+   * A Run that is idle is resumed by the backend, which is what admits the
+   * answer to the external budget; an answer the interrupt-free Inbox delivered
+   * on its own would start that turn beside the budget. While a turn is running
+   * the answer is still steered into it, which is what a waiting tool reads.
+   */
+  holdAnswers?: boolean;
+  /**
    * Hand everything ready in this pass to Pi before any turn starts.
    *
    * A resident Main's startup read uses this: the person's turn is appended
@@ -161,7 +170,13 @@ export class MainInboxDelivery {
 
   deliver(
     send: MainInboxSend,
-    { includeFollowUps = true, paused = false, onControl, batchStart = false }: MainInboxDeliveryOptions = {}
+    {
+      includeFollowUps = true,
+      paused = false,
+      holdAnswers = false,
+      onControl,
+      batchStart = false
+    }: MainInboxDeliveryOptions = {}
   ): Promise<void> {
     const delivery = this.delivery.then(async () => {
       await this.inbox.recoverAbandonedWaitCallbacks();
@@ -206,7 +221,7 @@ export class MainInboxDelivery {
         // A startup batch has exactly one trigger. Any other command would
         // start a turn of its own, so it waits for the next pass.
         if (trigger && control && candidate.messageId !== trigger.messageId) continue;
-        if (this.humanAnswerWaits && isHumanAnswerMessage(candidate)) continue;
+        if ((this.humanAnswerWaits || holdAnswers) && isHumanAnswerMessage(candidate)) continue;
         const message = await this.inbox.leaseMessage("main", candidate.messageId, 60_000, this.consumerId);
         if (message?.state !== "leased" || message.lease?.consumerId !== this.consumerId) continue;
         // A tool can start waiting while the asynchronous lease is acquired.

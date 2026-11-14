@@ -200,7 +200,6 @@ test(
   { timeout: 60_000 },
   async (t) => {
     const root = await mkdtemp(join(tmpdir(), "atria-p46-legacy-"));
-    t.after(() => rm(root, { recursive: true, force: true }));
     const workspace = join(root, "workspace");
     const taskId = "legacy-task";
     const taskRoot = join(workspace, taskId);
@@ -259,6 +258,9 @@ test(
       model: "legacy-fixture"
     });
     t.after(() => dashboard.stop());
+    // Remove the tree only after the fixture stopped the resident Main: the
+    // record its cleanup reads lives under this root.
+    t.after(() => rm(root, { recursive: true, force: true }));
     const list = await fetch(`${dashboard.base}/api/tasks`);
     assert.equal(list.status, 200);
     assert.ok((await list.json()).tasks.some((task) => task.taskId === taskId));

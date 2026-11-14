@@ -16,6 +16,8 @@ export interface WorkItem {
   status: WorkStatus;
   attempts: number;
   maxAttempts?: number;
+  /** The earliest time this queued retry may be claimed; absent means now. */
+  notBefore?: string;
   createdAt: string;
   updatedAt: string;
   lease?: { workerId: string; token: string; expiresAt: string };
@@ -61,7 +63,14 @@ export class DurableScheduler {
       const at = Date.now();
       this.reclaimExpiredInMemory(items, at);
       const candidate = items
-        .filter((item) => item.status === "queued" && (!stepId || item.stepId === stepId))
+        .filter(
+          (item) =>
+            item.status === "queued" &&
+            (!stepId || item.stepId === stepId) &&
+            // A retry waits for its scheduled time; claiming it early would
+            // repeat the attempt that just failed before its backoff ended.
+            (!item.notBefore || Date.parse(item.notBefore) <= at)
+        )
         .sort(
           (a, b) => priority[a.importance] - priority[b.importance] || a.createdAt.localeCompare(b.createdAt)
         )[0];
@@ -73,6 +82,7 @@ export class DurableScheduler {
       const token = id("lease");
       candidate.status = "leased";
       candidate.attempts += 1;
+      candidate.notBefore = undefined;
       candidate.lease = { workerId, token, expiresAt: new Date(at + leaseMs).toISOString() };
       candidate.updatedAt = now();
       await this.writeItems(items);
@@ -109,7 +119,14 @@ export class DurableScheduler {
     return this.finish(stepId, token, "completed");
   }
 
-  async fail(stepId: string, token: string, error: string): Promise<WorkItem> {
+  /**
+   * Record a failed attempt.
+   *
+   * A retryable attempt is requeued at once with its next allowed time, so the
+   * caller can schedule the next start instead of leaving the item leased until
+   * the lease expires.
+   */
+  async fail(stepId: string, token: string, error: string, retryAfterMs = 0): Promise<WorkItem> {
     return this.withLock(async () => {
       const items = await this.readItems();
       const item = items.find((candidate) => candidate.stepId === stepId);
@@ -117,9 +134,12 @@ export class DurableScheduler {
       if (item.status === "failed" || item.status === "completed" || item.status === "cancelled") return item;
       if (item.status !== "leased" || item.lease?.token !== token)
         throw new Error(`lease mismatch for step: ${stepId}`);
+      const retry = item.attempts < (item.maxAttempts ?? 1);
       item.error = error;
       item.lease = undefined;
-      item.status = item.attempts < (item.maxAttempts ?? 1) ? "queued" : "failed";
+      item.status = retry ? "queued" : "failed";
+      item.notBefore =
+        retry && retryAfterMs > 0 ? new Date(Date.now() + retryAfterMs).toISOString() : undefined;
       item.updatedAt = now();
       await this.writeItems(items);
       return item;
