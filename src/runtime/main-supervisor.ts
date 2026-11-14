@@ -386,7 +386,9 @@ export async function spawnMainProcess(input: {
     // The Run is projected by whichever backend adopts the exit.
     onExit: () => {}
   });
-  const live = await host.adopt({ taskId: input.taskId, runId: input.runId });
+  // The supervisor decides about Main only; delegated processes in the same
+  // run directory belong to the backend that launched them.
+  const live = await host.adopt({ taskId: input.taskId, runId: input.runId, roles: ["main"] });
   const running = live.find((record) => record.role === "main");
   if (running) {
     // Reuse is a decision, not a takeover: this host keeps no observer for a
