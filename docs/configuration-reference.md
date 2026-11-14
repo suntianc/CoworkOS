@@ -258,4 +258,4 @@ App 将外观偏好保存在用户数据目录的 `appearance.json`，Web 按浏
 
 超时单位为毫秒。`mainTimeoutMs` 是一轮模型工作的截止时间；`mainIdleTimeoutMs` 是常驻 Main 在没有进行中的回合、也没有在跑的子代理时保留进程的时长，到时保留会话与任务状态退出，之后的消息或回调会重新拉起 Main。`maxAttempts` 是委派预算，独立于模型请求重试。长任务与重试行为见 [运行时参考](runtime-reference.md#请求重试与上下文恢复)。
 
-实现：[配置读取](../src/runtime/config.ts)、[运行设置](../src/runtime/runtime-settings.ts)、[连接参数](../src/runtime/model-profile.ts)。回归：[CLI 配置](../test/cli-onboarding.test.js)、[模型协议](../test/model-protocol.test.js)。
+实现：[配置读取](../src/runtime/config.ts)、[运行设置](../src/runtime/runtime-settings.ts)、[连接参数](../src/runtime/model-profile.ts)。回归：[CLI 配置](../test/cli-onboarding.test.js)、[模型协议](../test/model-connection.test.js)。

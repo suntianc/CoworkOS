@@ -8,118 +8,120 @@ import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { createBuiltinTools } from "../dist/src/tools/builtin.js";
-import { TraceRecorder } from "../dist/src/storage/trace-recorder.js";
 
-test("Dashboard discovers final files and preserves binary downloads, ranges and bounded Unicode previews", { timeout: 20000 }, async () => {
-  const root = await mkdtemp(join(tmpdir(), "atria-artifact-api-"));
-  let child;
-  try {
-    const workspaceRoot = join(root, "workspace");
-    const store = new LocalWorkspaceStore(workspaceRoot);
-    await store.createTask("task", { goal: "artifact API regression" });
-    const artifacts = join(workspaceRoot, "task", "artifacts");
-    const candidate = join(workspaceRoot, "task", "agents", "main", "deliverables");
-    await mkdir(candidate, { recursive: true });
-    await writeFile(join(candidate, "candidate.md"), "not a final file");
-    await writeFile(join(artifacts, "报告 说明.md"), "# 已验收\n");
-    await writeFile(join(artifacts, "long.txt"), "中".repeat(100000));
-    await writeFile(join(artifacts, "result.json"), '{"purpose":"user requested JSON"}');
-    const binary = Buffer.from([80, 75, 3, 4, 255, 0, 128, 33]);
-    await writeFile(join(artifacts, "演示 文稿.pptx"), binary);
-    await writeFile(join(artifacts, "preview.pdf"), Buffer.from("%PDF-1.7\nfixture"));
-    await writeFile(join(artifacts, "preview.png"), Buffer.from([137, 80, 78, 71, 0, 255]));
-    await writeFile(join(root, "secret.txt"), "outside");
-    await symlink(join(root, "secret.txt"), join(artifacts, "escape.txt"));
-    const config = join(root, "config.json");
-    await writeFile(config, "{}");
-    const probe = createServer(); probe.listen(0, "127.0.0.1"); await once(probe, "listening");
-    const port = probe.address().port; await new Promise((done) => probe.close(done));
-    child = spawn(process.execPath, ["dist/src/cli/dashboard.js"], { cwd: resolve("."), stdio: "ignore", env: {
-      ...process.env, COWORK_WORKSPACE: workspaceRoot, COWORK_GLOBAL_INDEX: join(root, "global.json"), COWORK_CONFIG: config,
-      COWORK_UI_PORT: String(port), COWORK_API_BASE: "", COWORK_API_KEY: ""
-    } });
-    const base = `http://127.0.0.1:${port}`;
-    for (let attempt = 0; attempt < 200; attempt++) {
-      try { if ((await fetch(`${base}/api/tasks`)).ok) break; } catch { /* wait for listener */ }
-      if (child.exitCode !== null) throw new Error("dashboard exited before listening");
-      await delay(20);
+test(
+  "Dashboard discovers final files and preserves binary downloads, ranges and bounded Unicode previews",
+  { timeout: 20000 },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "atria-artifact-api-"));
+    let child;
+    try {
+      const workspaceRoot = join(root, "workspace");
+      const store = new LocalWorkspaceStore(workspaceRoot);
+      await store.createTask("task", { goal: "artifact API regression" });
+      const artifacts = join(workspaceRoot, "task", "artifacts");
+      const candidate = join(workspaceRoot, "task", "agents", "main", "deliverables");
+      await mkdir(candidate, { recursive: true });
+      await writeFile(join(candidate, "candidate.md"), "not a final file");
+      await writeFile(join(artifacts, "报告 说明.md"), "# 已验收\n");
+      await writeFile(join(artifacts, "long.txt"), "中".repeat(100000));
+      await writeFile(join(artifacts, "result.json"), '{"purpose":"user requested JSON"}');
+      const binary = Buffer.from([80, 75, 3, 4, 255, 0, 128, 33]);
+      await writeFile(join(artifacts, "演示 文稿.pptx"), binary);
+      await writeFile(join(artifacts, "preview.pdf"), Buffer.from("%PDF-1.7\nfixture"));
+      await writeFile(join(artifacts, "preview.png"), Buffer.from([137, 80, 78, 71, 0, 255]));
+      await writeFile(join(root, "secret.txt"), "outside");
+      await symlink(join(root, "secret.txt"), join(artifacts, "escape.txt"));
+      const config = join(root, "config.json");
+      await writeFile(config, "{}");
+      const probe = createServer();
+      probe.listen(0, "127.0.0.1");
+      await once(probe, "listening");
+      const port = probe.address().port;
+      await new Promise((done) => probe.close(done));
+      child = spawn(process.execPath, ["dist/src/cli/dashboard.js"], {
+        cwd: resolve("."),
+        stdio: "ignore",
+        env: {
+          ...process.env,
+          COWORK_WORKSPACE: workspaceRoot,
+          COWORK_GLOBAL_INDEX: join(root, "global.json"),
+          COWORK_CONFIG: config,
+          COWORK_UI_PORT: String(port),
+          COWORK_API_BASE: "",
+          COWORK_API_KEY: ""
+        }
+      });
+      const base = `http://127.0.0.1:${port}`;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        try {
+          if ((await fetch(`${base}/api/tasks`)).ok) break;
+        } catch {
+          /* wait for listener */
+        }
+        if (child.exitCode !== null) throw new Error("dashboard exited before listening");
+        await delay(20);
+      }
+      const fileUrl = (name, extra = "") =>
+        `${base}/api/tasks/task/artifact?path=${encodeURIComponent(name)}${extra}`;
+      let detail = await (await fetch(`${base}/api/tasks/task`)).json();
+      assert.equal(detail.artifacts.length, 6);
+      assert.equal(
+        detail.artifacts.some((entry) => /candidate|escape/.test(entry.relativePath)),
+        false
+      );
+      assert.ok(
+        detail.artifacts.some((entry) => entry.relativePath === "result.json"),
+        "final JSON files must not be filtered as logs"
+      );
+      let preview = await (await fetch(fileUrl("报告 说明.md"))).json();
+      assert.equal(preview.previewKind, "text");
+      assert.equal(preview.content, "# 已验收\n");
+      const oldVersion = preview.version;
+      await writeFile(join(artifacts, "报告 说明.md"), "# 新版\n");
+      detail = await (await fetch(`${base}/api/tasks/task`)).json();
+      preview = await (await fetch(fileUrl("报告 说明.md"))).json();
+      assert.notEqual(preview.version, oldVersion);
+      assert.equal(preview.content, "# 新版\n");
+      const long = await (await fetch(fileUrl("long.txt"))).json();
+      assert.equal(long.truncated, true);
+      assert.ok(Buffer.byteLength(long.content) <= 256 * 1024);
+      assert.equal(long.content.includes("\uFFFD"), false);
+      const binaryPreview = await (await fetch(fileUrl("演示 文稿.pptx"))).json();
+      assert.equal(binaryPreview.previewKind, "download");
+      assert.equal(binaryPreview.content, undefined);
+      const download = await fetch(fileUrl("演示 文稿.pptx", "&download=1"));
+      assert.match(download.headers.get("content-disposition"), /^attachment; filename\*=UTF-8''/);
+      assert.deepEqual(Buffer.from(await download.arrayBuffer()), binary);
+      assert.equal((await (await fetch(fileUrl("preview.pdf"))).json()).previewKind, "pdf");
+      assert.equal((await (await fetch(fileUrl("preview.png"))).json()).previewKind, "image");
+      const range = await fetch(fileUrl("演示 文稿.pptx", "&raw=1"), { headers: { range: "bytes=2-5" } });
+      assert.equal(range.status, 206);
+      assert.equal(range.headers.get("content-range"), "bytes 2-5/8");
+      assert.deepEqual(Buffer.from(await range.arrayBuffer()), binary.subarray(2, 6));
+      const changedRange = await fetch(fileUrl("演示 文稿.pptx", "&raw=1"), {
+        headers: { range: "bytes=2-5", "if-range": '"old-revision"' }
+      });
+      assert.equal(changedRange.status, 200);
+      assert.deepEqual(Buffer.from(await changedRange.arrayBuffer()), binary);
+      const invalidRange = await fetch(fileUrl("preview.pdf", "&raw=1"), {
+        headers: { range: "bytes=999-" }
+      });
+      assert.equal(invalidRange.status, 416);
+      for (const path of [
+        "../secret.txt",
+        "escape.txt",
+        "/etc/passwd",
+        "agents/main/deliverables/candidate.md"
+      ]) {
+        assert.equal((await fetch(fileUrl(path))).status, 400);
+      }
+    } finally {
+      if (child && child.exitCode === null) {
+        child.kill("SIGTERM");
+        await once(child, "exit");
+      }
+      await rm(root, { recursive: true, force: true });
     }
-    const fileUrl = (name, extra = "") => `${base}/api/tasks/task/artifact?path=${encodeURIComponent(name)}${extra}`;
-    let detail = await (await fetch(`${base}/api/tasks/task`)).json();
-    assert.equal(detail.artifacts.length, 6);
-    assert.equal(detail.artifacts.some((entry) => /candidate|escape/.test(entry.relativePath)), false);
-    assert.ok(detail.artifacts.some((entry) => entry.relativePath === "result.json"), "final JSON files must not be filtered as logs");
-    let preview = await (await fetch(fileUrl("报告 说明.md"))).json();
-    assert.equal(preview.previewKind, "text"); assert.equal(preview.content, "# 已验收\n");
-    const oldVersion = preview.version;
-    await writeFile(join(artifacts, "报告 说明.md"), "# 新版\n");
-    detail = await (await fetch(`${base}/api/tasks/task`)).json();
-    preview = await (await fetch(fileUrl("报告 说明.md"))).json();
-    assert.notEqual(preview.version, oldVersion); assert.equal(preview.content, "# 新版\n");
-    const long = await (await fetch(fileUrl("long.txt"))).json();
-    assert.equal(long.truncated, true); assert.ok(Buffer.byteLength(long.content) <= 256 * 1024); assert.equal(long.content.includes("\uFFFD"), false);
-    const binaryPreview = await (await fetch(fileUrl("演示 文稿.pptx"))).json();
-    assert.equal(binaryPreview.previewKind, "download"); assert.equal(binaryPreview.content, undefined);
-    const download = await fetch(fileUrl("演示 文稿.pptx", "&download=1"));
-    assert.match(download.headers.get("content-disposition"), /^attachment; filename\*=UTF-8''/);
-    assert.deepEqual(Buffer.from(await download.arrayBuffer()), binary);
-    assert.equal((await (await fetch(fileUrl("preview.pdf"))).json()).previewKind, "pdf");
-    assert.equal((await (await fetch(fileUrl("preview.png"))).json()).previewKind, "image");
-    const range = await fetch(fileUrl("演示 文稿.pptx", "&raw=1"), { headers: { range: "bytes=2-5" } });
-    assert.equal(range.status, 206); assert.equal(range.headers.get("content-range"), "bytes 2-5/8");
-    assert.deepEqual(Buffer.from(await range.arrayBuffer()), binary.subarray(2, 6));
-    const changedRange = await fetch(fileUrl("演示 文稿.pptx", "&raw=1"), { headers: { range: "bytes=2-5", "if-range": '"old-revision"' } });
-    assert.equal(changedRange.status, 200);
-    assert.deepEqual(Buffer.from(await changedRange.arrayBuffer()), binary);
-    const invalidRange = await fetch(fileUrl("preview.pdf", "&raw=1"), { headers: { range: "bytes=999-" } });
-    assert.equal(invalidRange.status, 416);
-    for (const path of ["../secret.txt", "escape.txt", "/etc/passwd", "agents/main/deliverables/candidate.md"]) {
-      assert.equal((await fetch(fileUrl(path))).status, 400);
-    }
-  } finally {
-    if (child && child.exitCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
-    await rm(root, { recursive: true, force: true });
   }
-});
-
-test("Main file tools route artifacts to the Task; Subagents retain their own workspace", async () => {
-  const root = await mkdtemp(join(tmpdir(), "atria-main-files-"));
-  try {
-    const artifactDirectory = join(root, "artifacts");
-    const main = join(root, "agents", "main");
-    const sub = join(root, "agents", "subagents", "one");
-    await mkdir(main, { recursive: true }); await mkdir(sub, { recursive: true });
-    const tools = createBuiltinTools({ rootDirectory: main, workspaceDirectory: root, artifactDirectory });
-    const written = await tools.get("write_file").execute({ path: "./artifacts/报告.md", content: "verified" });
-    assert.equal(written.path, "artifacts/报告.md");
-    assert.equal(await readFile(join(artifactDirectory, "报告.md"), "utf8"), "verified");
-    await tools.get("apply_patch").execute({ path: "artifacts/报告.md", oldText: "verified", newText: "revised" });
-    assert.equal((await tools.get("read_file").execute({ path: "artifacts/报告.md" })).content, "revised");
-    await assert.rejects(() => tools.get("write_file").execute({ path: "artifacts/../context/state.json", content: "bad" }), /framework-managed/);
-    await symlink(main, join(artifactDirectory, "link"));
-    await assert.rejects(() => tools.get("write_file").execute({ path: "artifacts/link/secret.txt", content: "bad" }), /symbolic links/);
-    const subTools = createBuiltinTools({ rootDirectory: sub, workspaceDirectory: root });
-    await subTools.get("write_file").execute({ path: "artifacts/local.md", content: "candidate" });
-    assert.equal(await readFile(join(sub, "artifacts/local.md"), "utf8"), "candidate");
-    await assert.rejects(() => readFile(join(artifactDirectory, "local.md")), /ENOENT/);
-  } finally { await rm(root, { recursive: true, force: true }); }
-});
-
-test("trace storage keeps deltas and final evidence without mutating live model events", async () => {
-  const root = await mkdtemp(join(tmpdir(), "atria-trace-deltas-"));
-  try {
-    const tracePath = join(root, "trace.jsonl"); const recorder = new TraceRecorder(tracePath);
-    const message = { role: "assistant", content: [{ type: "text", text: "evidence".repeat(4000) }] };
-    const update = { type: "message_update", message, assistantMessageEvent: { type: "text_delta", delta: "evidence", contentIndex: 0, partial: message } };
-    const before = JSON.stringify(update);
-    for (let i = 0; i < 20; i++) await recorder.record({ traceId: `delta-${i}`, kind: "runtime", taskId: "task", runId: "run", payload: update });
-    await recorder.record({ traceId: "final", kind: "runtime", taskId: "task", runId: "run", payload: { type: "message_end", message } });
-    const raw = await readFile(tracePath, "utf8"); const records = raw.trim().split("\n").map(JSON.parse);
-    assert.equal(JSON.stringify(update), before);
-    assert.equal(records.length, 21); assert.equal(records[0].payload.assistantMessageEvent.delta, "evidence");
-    assert.equal(records[0].payload.message, undefined); assert.equal(records[0].payload.assistantMessageEvent.partial, undefined);
-    assert.deepEqual(records.at(-1).payload.message, message);
-    assert.ok(raw.length < 45000, "trace growth must be proportional to deltas plus final evidence");
-  } finally { await rm(root, { recursive: true, force: true }); }
-});
+);

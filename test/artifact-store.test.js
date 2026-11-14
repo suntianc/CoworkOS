@@ -23,7 +23,7 @@ import {
   publishTaskArtifact,
   resolveTaskArtifact
 } from "../dist/src/workspace/artifact-store.js";
-import { browseWorkspace } from "../dist/src/tools/builtin.js";
+import { browseWorkspace } from "../dist/src/tools/workspace-browse.js";
 
 async function fixture(t) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "atria-artifact-store-"));

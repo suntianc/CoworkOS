@@ -44,11 +44,6 @@ import {
   configuredModelApi,
   configuredThinkingFormat,
   configuredReasoningEffort,
-  configuredSubagentMaxQuestions,
-  configuredSubagentMaxTokens,
-  configuredSubagentMaxTurns,
-  configuredSubagentQuestionTimeout,
-  configuredSubagentTimeout,
   configuredSupportsReasoningEffort,
   configuredSupportsPromptCacheKey,
   configuredSupportsImages,
@@ -75,10 +70,7 @@ import { DEFAULT_PROTECTED_PATHS, guessedProtection } from "../../dist/src/tools
 import { LocalWorkspaceStore } from "../../dist/src/workspace/workspace-store.js";
 import { capabilityProvider } from "../../dist/src/runtime/capability-provider.js";
 import { discoverSkills } from "../../dist/src/runtime/skill-registry.js";
-import {
-  attachmentCapabilityProvider,
-  attachmentGrants
-} from "../../dist/src/workspace/attachment-capabilities.js";
+import { attachmentCapabilityProvider } from "../../dist/src/workspace/attachment-capabilities.js";
 import { mainCompactionPreviousSummary, withMainCompactionContext } from "./main-compaction.ts";
 import { MainCompactionRetry } from "./main-compaction-retry.ts";
 import { projectCompactionMessages } from "../../dist/src/runtime/compaction-input.js";
@@ -90,7 +82,6 @@ import { registerProjectLedgerTool } from "./tools/project-ledger.ts";
 import { registerProjectDevelopmentTool } from "./tools/project-development.ts";
 import { registerWorkspaceTools } from "./tools/workspace.ts";
 import { registerComputerTools } from "./tools/computer-use.ts";
-import { businessCommandEnvironment } from "../../dist/src/runtime/command-environment.js";
 import { registerBrowserTools } from "./tools/browser-use.ts";
 import { createCuaDispatcher } from "./tools/cua-dispatch.ts";
 import { registerCuaScriptTools } from "./tools/cua-script.ts";
@@ -102,7 +93,6 @@ import { registerWebSearchTools } from "./tools/web-search.ts";
 import { registerSearchTools } from "./tools/file-search.ts";
 import { registerImageTools } from "./tools/images.ts";
 import { registerSubagentAgent } from "./subagent-agent.ts";
-import { subagentBackendConfigured } from "../../dist/src/runtime/subagent-client.js";
 import { blockedToolCall, taskProtectedPaths } from "./protected-call.ts";
 import { registerCoworkProvider } from "./provider.ts";
 
@@ -297,9 +287,11 @@ async function registerMainExtension(pi: ExtensionAPI) {
       {
         includeFollowUps,
         paused: replaying || (!(startupTurnBeforePause && !firstTurnStarted) && (await pausedNow())),
-        // A serving backend resumes a durable answer so the turn it opens is
-        // admitted to the external budget; an idle resident must not start it.
-        holdAnswers: subagentBackendConfigured() && (sessionContext?.isIdle() ?? true),
+        // An externally budgeted Run resumes a durable answer through the
+        // backend, which first admits the turn it opens to that budget; a Run
+        // outside the budget still opens the turn here as it always did.
+        holdAnswers:
+          Boolean(process.env.COWORK_MAIN_CAPACITY_GRANTED) && (sessionContext?.isIdle() ?? true),
         // Only the startup read before the first turn needs the batch: after
         // that, each message is steered into the turn already in flight.
         batchStart: !firstTurnStarted && (sessionContext?.isIdle() ?? true),
@@ -314,13 +306,11 @@ async function registerMainExtension(pi: ExtensionAPI) {
   const mainMaxTurns = configuredMainMaxTurns(runtimeEnv);
   const mainTimeoutMs = configuredMainTimeout(runtimeEnv);
   let mainTurns = 0;
-  let active = 0;
   let recentContext: unknown[] = [];
   let mainContext: ReturnType<typeof mainContextPaths> | undefined;
   const compactionRetry = new MainCompactionRetry();
   let pendingContextClear: { reason: string } | undefined;
   let inboxDeliveryActive = false;
-  let recoveryActive = false;
   let stopInboxWatch: StopWatching | undefined;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let idleCheck: Promise<void> | undefined;
@@ -392,7 +382,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
     idleCheck ??= (async () => {
       // Re-arm first: a check that finds work simply leaves the next one set.
       touchMainActivity();
-      if (active > 0 || recoveryActive || inboxDelivery.queuedCount) return;
+      if (inboxDelivery.queuedCount) return;
       if (sessionContext?.hasPendingMessages()) return;
       const pending = await coordinator
         .waitForSubagents({ taskId, runId: mainRunId, workspaceRoot, timeoutMs: 0 })
@@ -419,19 +409,6 @@ async function registerMainExtension(pi: ExtensionAPI) {
     return idleCheck;
   };
 
-  const openExperimentRun = async (input: { callId: string; agentId: string; objective: string }) => {
-    try {
-      return await experimentStore.openRun({
-        taskId,
-        callId: input.callId,
-        agentId: input.agentId,
-        objective: input.objective
-      });
-      // eslint-disable-next-line no-restricted-syntax -- 实验台账是旁路记录，打开失败时本次委派照常进行，只是不记指标
-    } catch {
-      return undefined;
-    }
-  };
   /**
    * Record a refused write to a protected path.
    *
@@ -455,59 +432,6 @@ async function registerMainExtension(pi: ExtensionAPI) {
       /* diagnostics only */
     }
   };
-  const recoverSubagents = async (ctx: ExtensionContext) => {
-    if (recoveryActive || !baseUrl || !apiKey) return;
-    // With a serving backend, delegated work belongs to it: an in-process
-    // recovery would claim a work item the backend owns and project a second
-    // result for it. The backend starts queued items and settles them itself.
-    if (subagentBackendConfigured()) return;
-    recoveryActive = true;
-    try {
-      const commandEnv = await businessCommandEnvironment(runtimeEnv);
-      const results = await coordinator.recoverRun({
-        taskId,
-        runId: mainRunId,
-        workspaceRoot,
-        commandEnv,
-        baseUrl,
-        apiKey,
-        model: modelId,
-        thinkingLevel: currentThinkingLevel(),
-        api: configuredModelApi(runtimeEnv),
-        thinkingFormat: configuredThinkingFormat(runtimeEnv),
-        supportsReasoningEffort,
-        supportsPromptCacheKey: configuredSupportsPromptCacheKey(runtimeEnv),
-        supportsImages,
-        maxTurns: configuredSubagentMaxTurns(runtimeEnv),
-        maxTokens: configuredSubagentMaxTokens(runtimeEnv),
-        contextWindow: configuredContextWindow(runtimeEnv),
-        timeoutMs: configuredSubagentTimeout(runtimeEnv),
-        questionTimeoutMs: configuredSubagentQuestionTimeout(runtimeEnv),
-        maxQuestions: configuredSubagentMaxQuestions(runtimeEnv),
-        skillRoots: baseSkillRoots,
-        capabilityProvider: capabilityProviders
-      });
-      if (results.length) {
-        try {
-          ctx.ui.notify(`Recovered ${results.length} pending Subagent call(s)`, "info");
-          // eslint-disable-next-line no-restricted-syntax -- 恢复可能比启动它的 Main 上下文存活更久，通知失败不影响已恢复的委派
-        } catch {
-          // Recovery may outlive the Main context that started it.
-        }
-      }
-      await deliverCallbacks();
-    } catch (error) {
-      try {
-        ctx.ui.notify(`Subagent recovery failed: ${errorMessage(error)}`, "warning");
-        // eslint-disable-next-line no-restricted-syntax -- 恢复失败已尝试用 warning 上报，通知本身失败时持久化调用仍可被下一个 Main 接手
-      } catch {
-        // Durable calls and callbacks remain available to the next Main.
-      }
-    } finally {
-      recoveryActive = false;
-    }
-  };
-
   // The guard covers Main as well as Subagents. Main is a participant in the
   // optimization loop, not its referee, so it must not edit evaluation code,
   // this harness or version-control metadata either.
@@ -743,7 +667,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
         await inboxDelivery.acknowledge(messages);
         if (process.env.COWORK_MAIN_RETRY_REQUEST_ID) freshRetryContext = true;
       }
-      await updateRuntime({ runtimePendingDelegations: active + inboxDelivery.queuedCount });
+      await updateRuntime({ runtimePendingDelegations: inboxDelivery.queuedCount });
       // Refresh between model requests, including changes made during a turn.
       await capabilityTools.refresh();
       currentSkillsSection = skillsSection(await mainSkills(sdkSkills ?? []));
@@ -881,7 +805,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
             timeoutMs: 0
           });
           let assessment = assessTaskCompletion({
-            pendingCalls: Math.max(active, pending.pending.length) + Number(recoveryActive),
+            pendingCalls: pending.pending.length,
             pendingJobs: await pollJobs(),
             pendingCallbacks: Math.max(inboxDelivery.queuedCount, pending.callbackPending.length),
             pendingHumanRequests: (await humanStore.list(taskId, "pending")).length,
@@ -1036,29 +960,15 @@ async function registerMainExtension(pi: ExtensionAPI) {
           workspaceRoot,
           timeoutMs: 0
         });
-        if (
-          runningJobs ||
-          active ||
-          recoveryActive ||
-          pending.pending.length ||
-          pending.callbackPending.length
-        ) {
-          const signature = JSON.stringify([
-            runningJobs,
-            active,
-            recoveryActive,
-            pending.pending,
-            pending.callbackPending
-          ]);
+        if (runningJobs || pending.pending.length || pending.callbackPending.length) {
+          const signature = JSON.stringify([runningJobs, pending.pending, pending.callbackPending]);
           if (signature !== waitingFor) {
             waitingFor = signature;
             updateRuntime({
               runtimePhase: "waiting",
-              runtimePendingDelegations:
-                Math.max(active, pending.pending.length) + pending.callbackPending.length
+              runtimePendingDelegations: pending.pending.length + pending.callbackPending.length
             });
           }
-          if (!active && pending.calls.some((call) => call.status === "queued")) void recoverSubagents(ctx);
           await new Promise((resolve) => setTimeout(resolve, 250));
           continue;
         }
@@ -1145,14 +1055,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
   const toolContext = {
     baseSkillRoots,
     capabilityProvider: capabilityProviders,
-    delegationGrants: (attachments?: unknown) => attachmentGrants(join(workspaceRoot, taskId), attachments),
     refreshCapabilities: () => capabilityTools.refresh(),
-    get active() {
-      return active;
-    },
-    set active(value) {
-      active = value;
-    },
     get apiKey() {
       return apiKey;
     },
@@ -1198,9 +1101,6 @@ async function registerMainExtension(pi: ExtensionAPI) {
     get observedJobs() {
       return observedJobs;
     },
-    get openExperimentRun() {
-      return openExperimentRun;
-    },
     get pendingContextClear() {
       return pendingContextClear;
     },
@@ -1221,12 +1121,6 @@ async function registerMainExtension(pi: ExtensionAPI) {
     },
     set recentContext(value) {
       recentContext = value;
-    },
-    get recoveryActive() {
-      return recoveryActive;
-    },
-    set recoveryActive(value) {
-      recoveryActive = value;
     },
     get refuseWithoutLongRunning() {
       return refuseWithoutLongRunning;
@@ -1294,7 +1188,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
     description: "Show Cowork workspace and active Coordinator jobs",
     handler: async (_args, ctx) =>
       ctx.ui.notify(
-        `workspace=${workspaceRoot}; task=${taskId}; mainTurns=${mainTurns}/${mainMaxTurns}; active=${active}`,
+        `workspace=${workspaceRoot}; task=${taskId}; mainTurns=${mainTurns}/${mainMaxTurns}`,
         "info"
       )
   });
@@ -1364,7 +1258,6 @@ async function registerMainExtension(pi: ExtensionAPI) {
       // record of the accepted input is older than the pause request, while
       // work that arrived while paused is newer and stays queued.
       if (resident && !firstTurnStarted) startupTurnBeforePause = await startupTurnAcceptedBeforePause();
-      void recoverSubagents(ctx);
       const pollMainInbox = async (): Promise<void> => {
         if (inboxDeliveryActive) return;
         inboxDeliveryActive = true;

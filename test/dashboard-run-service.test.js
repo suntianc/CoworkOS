@@ -86,7 +86,8 @@ async function fixture(
     running = false,
     gate = false,
     onRunEvent,
-    coordinator
+    coordinator,
+    subagents
   }
 ) {
   const root = await mkdtemp(join(tmpdir(), "atria-run-outcome-"));
@@ -116,6 +117,7 @@ async function fixture(
     coordinator: coordinator ?? {
       waitForSubagents: async () => ({ pending: [], callbackPending: [] })
     },
+    ...(subagents ? { subagents } : {}),
     locateTask: async () => ({ workspaceRoot, store, task: await store.readTask("task") }),
     resolveMainModel: singleConnectionMainModel(),
     normalizeModel: (value) => (typeof value === "string" ? value : undefined),
@@ -276,8 +278,10 @@ test("cancellation still reaps its process when the cancellation event cannot be
   const f = await fixture(t, {
     running: true,
     coordinator: {
-      waitForSubagents: async () => ({ pending: ["cleanup-error", "other-call"], callbackPending: [] }),
-      cancelSubagent: async ({ callId }) => {
+      waitForSubagents: async () => ({ pending: ["cleanup-error", "other-call"], callbackPending: [] })
+    },
+    subagents: {
+      cancel: async ({ callId }) => {
         cancelled.push(callId);
         if (callId === "cleanup-error") throw new Error("isolated subagent cancellation failure");
       }

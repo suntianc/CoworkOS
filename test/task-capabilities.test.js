@@ -4,14 +4,20 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { createBuiltinTools } from "../dist/src/tools/builtin.js";
 import { resolveCapabilities } from "../dist/src/runtime/task-capabilities.js";
 import { jobStatus, killJob, listJobs, startJob } from "../dist/src/tools/jobs.js";
-import { DEFAULT_COMMAND_TIMEOUT_MS, configuredCommandTimeout } from "../dist/src/runtime/runtime-settings.js";
+import {
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  configuredCommandTimeout
+} from "../dist/src/runtime/runtime-settings.js";
 
 test("the default is the sandbox: nothing is granted unless something says so", () => {
   const resolved = resolveCapabilities(undefined, {});
-  assert.equal(resolved.projectWrite, false, "an ordinary task must not hold permission over the user's code");
+  assert.equal(
+    resolved.projectWrite,
+    false,
+    "an ordinary task must not hold permission over the user's code"
+  );
   assert.equal(resolved.shell, false);
   assert.equal(resolved.longRunning, false);
   assert.deepEqual(resolved.evalPaths, []);
@@ -20,7 +26,10 @@ test("the default is the sandbox: nothing is granted unless something says so", 
 });
 
 test("a Task grant is what widens capabilities", () => {
-  const resolved = resolveCapabilities({ projectWrite: true, shell: true, longRunning: true, evalPaths: ["src/eval/"], maxAttempts: 1 }, {});
+  const resolved = resolveCapabilities(
+    { projectWrite: true, shell: true, longRunning: true, evalPaths: ["src/eval/"], maxAttempts: 1 },
+    {}
+  );
   assert.equal(resolved.projectWrite, true);
   assert.equal(resolved.shell, true);
   assert.equal(resolved.longRunning, true);
@@ -32,12 +41,19 @@ test("a Task grant is what widens capabilities", () => {
 test("a grant cannot narrow what the operator protected", () => {
   // The grant widens what an agent may write, so it must not be a way to
   // unprotect the scorer the operator named.
-  const resolved = resolveCapabilities({ projectWrite: true, evalPaths: ["src/eval/"] }, { COWORK_EVAL_PATHS: "golden/" });
+  const resolved = resolveCapabilities(
+    { projectWrite: true, evalPaths: ["src/eval/"] },
+    { COWORK_EVAL_PATHS: "golden/" }
+  );
   assert.deepEqual(resolved.evalPaths.sort(), ["golden/", "src/eval/"]);
 });
 
 test("the environment preset covers a run configured ahead of time", () => {
-  const preset = resolveCapabilities(undefined, { COWORK_PROJECT_WRITE: "1", COWORK_EVAL_PATHS: "eval/", COWORK_MAX_ATTEMPTS: "1" });
+  const preset = resolveCapabilities(undefined, {
+    COWORK_PROJECT_WRITE: "1",
+    COWORK_EVAL_PATHS: "eval/",
+    COWORK_MAX_ATTEMPTS: "1"
+  });
   assert.equal(preset.projectWrite, true);
   assert.equal(preset.shell, true, "a shell is what makes project edits usable");
   assert.equal(preset.longRunning, true);
@@ -53,7 +69,9 @@ test("a malformed grant on disk narrows to the sandbox rather than being trusted
   await store.createTask("t", { goal: "x" });
 
   // Values that are not booleans must not read as true.
-  await store.updateTask("t", { capabilities: { projectWrite: "yes", shell: 1, evalPaths: "eval/", maxAttempts: -5 } });
+  await store.updateTask("t", {
+    capabilities: { projectWrite: "yes", shell: 1, evalPaths: "eval/", maxAttempts: -5 }
+  });
   const task = await store.readTask("t");
   assert.equal(task.capabilities.projectWrite, false);
   assert.equal(task.capabilities.shell, false);
@@ -67,7 +85,16 @@ test("a grant survives a round trip and records who made it", async (t) => {
   const store = new LocalWorkspaceStore(root);
   await store.createTask("t", { goal: "optimize" });
   await store.updateTask("t", {
-    capabilities: { projectWrite: true, shell: true, longRunning: true, evalPaths: ["eval/", "data/test.jsonl"], maxAttempts: 1, grantedBy: "user", grantedAt: "2026-09-15T00:00:00.000Z", reason: "优化数据合成 pipeline" }
+    capabilities: {
+      projectWrite: true,
+      shell: true,
+      longRunning: true,
+      evalPaths: ["eval/", "data/test.jsonl"],
+      maxAttempts: 1,
+      grantedBy: "user",
+      grantedAt: "2026-09-15T00:00:00.000Z",
+      reason: "优化数据合成 pipeline"
+    }
   });
   const task = await store.readTask("t");
   assert.equal(task.capabilities.projectWrite, true);
@@ -76,24 +103,15 @@ test("a grant survives a round trip and records who made it", async (t) => {
   assert.equal(task.capabilities.reason, "优化数据合成 pipeline");
 });
 
-test("job tools appear only when the Task expects long work", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "atria-jobtools-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const sandboxed = createBuiltinTools({ rootDirectory: root });
-  for (const name of ["start_job", "check_job", "kill_job"]) {
-    assert.equal(sandboxed.has(name), false, `${name} must not exist without the grant`);
-  }
-  const granted = createBuiltinTools({ rootDirectory: root, capabilities: resolveCapabilities({ longRunning: true }, {}) });
-  for (const name of ["start_job", "check_job", "kill_job"]) {
-    assert.ok(granted.has(name), `${name} must be available when long work is expected`);
-  }
-});
-
 test("a job reports progress, completion and its output", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-job-run-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const { jobId } = await startJob({ command: "echo first; sleep 0.4; echo second", cwd: root, directory: join(root, "logs") });
+  const { jobId } = await startJob({
+    command: "echo first; sleep 0.4; echo second",
+    cwd: root,
+    directory: join(root, "logs")
+  });
   const early = await jobStatus({ directory: join(root, "logs"), jobId });
   assert.equal(early.state, "running", "a long job returns immediately instead of holding the agent");
 
@@ -107,7 +125,10 @@ test("a job reports progress, completion and its output", async (t) => {
   // however long the caller happened to wait. A `sleep 0.4` job measures ~410ms
   // here, so the floor only has to rule out zero and the 900ms poll above; a
   // tighter bound would be comparing wall clocks with single-digit margin.
-  assert.ok(done.elapsedMs >= 350 && done.elapsedMs < 900, `elapsedMs should reflect the job's own runtime, got ${done.elapsedMs}`);
+  assert.ok(
+    done.elapsedMs >= 350 && done.elapsedMs < 900,
+    `elapsedMs should reflect the job's own runtime, got ${done.elapsedMs}`
+  );
   // The log is on disk, so a restarted agent can still read what happened.
   assert.match(await readFile(done.logPath, "utf8"), /second/);
 });
@@ -118,7 +139,11 @@ test("quiet time is reported so the model can judge a wedged job", async (t) => 
 
   // A job that printed once and then went silent: exactly the case a fixed
   // deadline cannot distinguish from healthy slow work.
-  const { jobId } = await startJob({ command: "echo started; sleep 30", cwd: root, directory: join(root, "logs") });
+  const { jobId } = await startJob({
+    command: "echo started; sleep 30",
+    cwd: root,
+    directory: join(root, "logs")
+  });
   await new Promise((resolve) => setTimeout(resolve, 700));
   const status = await jobStatus({ directory: join(root, "logs"), jobId });
   assert.equal(status.state, "running");
@@ -136,7 +161,11 @@ test("killing a job takes its children with it", async (t) => {
 
   // The work worth killing is usually a child of the shell, so the signal has
   // to reach the whole group rather than the shell alone.
-  const { jobId } = await startJob({ command: "sleep 45 & echo child=$!; wait", cwd: root, directory: join(root, "logs") });
+  const { jobId } = await startJob({
+    command: "sleep 45 & echo child=$!; wait",
+    cwd: root,
+    directory: join(root, "logs")
+  });
   await new Promise((resolve) => setTimeout(resolve, 400));
   const before = await jobStatus({ directory: join(root, "logs"), jobId });
   const pid = Number(/child=(\d+)/.exec(before.tail)?.[1]);
@@ -145,12 +174,19 @@ test("killing a job takes its children with it", async (t) => {
   await killJob({ directory: join(root, "logs"), jobId });
   await new Promise((resolve) => setTimeout(resolve, 300));
   let childAlive = true;
-  try { process.kill(pid, 0); } catch { childAlive = false; }
+  try {
+    process.kill(pid, 0);
+  } catch {
+    childAlive = false;
+  }
   assert.equal(childAlive, false, "a killed job must not leave the real work running");
 });
 
 test("an unknown job is an error, not a silent empty status", async () => {
-  await assert.rejects(() => jobStatus({ directory: "/tmp/atria-nonexistent", jobId: "job-1" }), /unknown job/);
+  await assert.rejects(
+    () => jobStatus({ directory: "/tmp/atria-nonexistent", jobId: "job-1" }),
+    /unknown job/
+  );
   await assert.rejects(() => killJob({ directory: "/tmp/atria-nonexistent", jobId: "job-1" }), /unknown job/);
 });
 

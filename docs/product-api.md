@@ -279,11 +279,11 @@ POST bodies carry `action`; actions that bind or verify a work item (`attach_rev
 - `attach_reviewer` (`reviewId`, `callId`) reads that call from the Task queue, requires a Reviewer, verifies the item's own `work-items/<callId>` checkout and refuses a session with the author's agent. A review belongs to the Reviewer bound first: the same call is an idempotent retry, another call is refused with `review_reviewer_bound` and must use its own review record. A leased work item whose own checkout is not prepared yet is a retryable 409 `review_site_unavailable` and does not invalidate the review. Once the site is readable, a HEAD, tree or tracked-file change marks the review `drifted` and returns 409 `review_drifted`.
 - `record_finding` (`reviewId`, `title`, `detail`, `checks`, optional `location`/`rawFailure`) appends the Reviewer's finding with the frozen candidate commit and its `source` Reviewer session.
 - `rule_finding` (`reviewId`, `findingId`, `decision` `fix`/`dismiss`, `basis`, and `category` `false_positive`/`out_of_scope`/`other` for a dismissal) records Main's ruling; a dismissal keeps the finding and its reason. Findings stay rulable after the review becomes `failed` or `drifted` — those states close the verdict, not the finding lifecycle. A `passed` review refuses further rulings, and a closed review refuses new findings.
-- `record_rework` (`reviewId`, `findingIds`, `fromCallId`, `continuationCallId`) verifies from the durable queue that the continuation reused the original agent, checkpoint history and checkout, and is refused with `review_rework_not_continuation`, `review_rework_identity` or `review_rework_site` otherwise. It is allowed on `in_review`, `failed` and `drifted` reviews.
+- `record_rework` (`reviewId`, `findingIds`, `fromCallId`, `continuationCallId`) verifies from the durable queue that the continuation reused the original agent, Pi session history and checkout, and is refused with `review_rework_not_continuation`, `review_rework_identity` or `review_rework_site` otherwise. It is allowed on `in_review`, `failed` and `drifted` reviews.
 - `complete` (`reviewId`, `verdict` `passed`/`failed`, `summary`, `checks`) re-checks the Reviewer's checkout against the candidate; a passed review needs a check receipt and no fix-ruled finding. A passed review settles fix-ruled findings along its explicit `previousReviewId` chain: each finding gets `fixedCommit` from the first linked review created after its rework (or ruling) evidence, and `verifiedByReviewId` from this pass. Findings outside that chain stay untouched, so an unrelated open finding still blocks delivery until Main rules it.
 - `delivery` (`developmentId`) returns `{ developmentId, eligible, channel?, candidate?, approved?, reviewId?, kind?, independentReview, reasons }`. A `self` plan qualifies on its own only while its captured candidate still matches the current integration commit and tree, no review has been started (`review_started`), and the checks are present. Otherwise the latest review must have passed, its candidate must still be the current integration commit and tree, and every finding across the development must be dismissed or fixed. `self_check_stale`, `candidate_changed`, `findings_open`, `review_drifted` and the other `reasons` explain a refusal. `query`/`get` read reviews back; the `GET` above also returns `plan` and `qualification` for a named development.
 
-`continueCallId` on `call_subagent` is the original-context rework contract: it must name a finished Executor work item in this Run, reuses that item's agent id, checkpoint history and checkout, and appends the rework instruction as the next turn of the same session instead of creating a fresh Agent or repeating completed work. A running item, a Reviewer, or an item that already has a continuation in flight is refused.
+`continueCallId` on `call_subagent` is the original-context rework contract: it must name a finished Executor work item in this Run, reuses that item's agent id, Pi session history and checkout, and appends the rework instruction as the next turn of the same session instead of creating a fresh Agent or repeating completed work. A running item, a Reviewer, or an item that already has a continuation in flight is refused.
 
 ## Project merge entry
 
@@ -422,7 +422,7 @@ Create a Task:
 Start or continue Main:
 
 ```json
-{ "prompt": "Read the current task and continue from the last checkpoint" }
+{ "prompt": "Read the current task and continue from its saved session" }
 ```
 
 The response is accepted asynchronously:

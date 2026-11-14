@@ -16,7 +16,7 @@ import {
   ASK_MAIN_TOOL_DESCRIPTION,
   SEND_PEER_MESSAGE_TOOL_DESCRIPTION
 } from "../../../dist/src/runtime/subagent-guidance.js";
-import { browseWorkspace } from "../../../dist/src/tools/builtin.js";
+import { browseWorkspace } from "../../../dist/src/tools/workspace-browse.js";
 import { loadConfig } from "../helpers.ts";
 import type { RuntimeToolResult } from "../helpers.ts";
 import type { SubagentRole } from "../../../dist/src/runtime/subagent-roles.js";

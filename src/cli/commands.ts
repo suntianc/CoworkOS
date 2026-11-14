@@ -73,19 +73,13 @@ const commands: Record<string, Command> = {
       }
     }
   },
-  single: {
-    usage: "coworkos single PROMPT [--task ID] [--run ID] [--resume] [--workspace PATH]",
-    options: { ...workspace, ...model, task: identifier, run: identifier, resume: boolean }
-  },
   worker: {
-    usage: "coworkos worker --task ID --run ID [--once] [--max-attempts N] [--lease-ms N] [--poll-ms N]",
+    usage: "coworkos worker --task ID --run ID [--once] [--lease-ms N] [--poll-ms N]",
     options: {
       ...workspace,
-      ...model,
       task: identifier,
       run: identifier,
       once: boolean,
-      "max-attempts": positive,
       "lease-ms": milliseconds,
       "poll-ms": milliseconds
     }
@@ -235,8 +229,6 @@ function validateOperands(
     if (action === "cancel" || options.answer) noExtra(options.request ? 0 : 1);
     if (action !== "cancel" && !options.answer && operands.length < (options.request ? 1 : 2))
       throw new Error("human reply requires an answer.");
-  } else if (command === "single") {
-    if (!operands.length) throw new Error("single requires a prompt.");
   } else {
     noExtra();
     if (command === "worker") requireOptions("task", "run");

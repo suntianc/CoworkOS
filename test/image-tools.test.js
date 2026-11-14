@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBuiltinTools } from "../dist/src/tools/builtin.js";
+import { createImageTools } from "../dist/src/tools/read-image.js";
 
 export const pixel = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -22,11 +22,11 @@ test("image paths reject outside symlinks in both work and task scopes", async (
   await symlink(outside, join(task, "linked-directory"));
   await writeFile(join(work, "pixel.png"), pixel);
   await writeFile(join(task, "pixel.png"), pixel);
-  const tool = createBuiltinTools({
+  const tool = createImageTools({
     rootDirectory: work,
-    workspaceDirectory: task,
+    taskDirectory: task,
     supportsImages: true
-  }).get("read_image");
+  }).read_image;
   await assert.rejects(tool.execute({ path: "linked.png" }), /escapes/);
   await assert.rejects(tool.execute({ path: "linked-directory/dummy.png", scope: "task" }), /escapes/);
   assert.equal((await tool.execute({ path: "pixel.png" })).content[1].type, "image");
@@ -41,7 +41,11 @@ test("cancelled image reads stop before loading pixels", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-image-cancel-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "pixel.png"), pixel);
-  const tool = createBuiltinTools({ rootDirectory: root, supportsImages: true }).get("read_image");
+  const tool = createImageTools({
+    rootDirectory: root,
+    taskDirectory: root,
+    supportsImages: true
+  }).read_image;
   const cancelled = new AbortController();
   cancelled.abort();
   await assert.rejects(tool.execute({ path: "pixel.png" }, cancelled.signal), { name: "AbortError" });
@@ -51,7 +55,11 @@ test("native comparison keeps per-image evidence and validates every image befor
   const root = await mkdtemp(join(tmpdir(), "atria-image-comparison-boundary-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "pixel.png"), pixel);
-  const tool = createBuiltinTools({ rootDirectory: root, supportsImages: true }).get("read_image");
+  const tool = createImageTools({
+    rootDirectory: root,
+    taskDirectory: root,
+    supportsImages: true
+  }).read_image;
   const result = await tool.execute({ paths: ["pixel.png", "pixel.png"] });
   assert.equal(result.content.filter((part) => part.type === "image").length, 2);
   assert.equal(result.content[0].text, "Image 1: pixel.png");
@@ -79,7 +87,11 @@ test("image selection accepts matching aliases and empty alternatives without du
   const root = await mkdtemp(join(tmpdir(), "atria-image-selection-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "pixel.png"), pixel);
-  const tool = createBuiltinTools({ rootDirectory: root, supportsImages: true }).get("read_image");
+  const tool = createImageTools({
+    rootDirectory: root,
+    taskDirectory: root,
+    supportsImages: true
+  }).read_image;
   for (const args of [
     { path: "pixel.png", paths: ["pixel.png"] },
     { path: "pixel.png", paths: [""] },
@@ -103,7 +115,11 @@ test("image selection rejects conflicting aliases, incomplete comparisons and ma
   const root = await mkdtemp(join(tmpdir(), "atria-image-selection-invalid-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "pixel.png"), pixel);
-  const tool = createBuiltinTools({ rootDirectory: root, supportsImages: true }).get("read_image");
+  const tool = createImageTools({
+    rootDirectory: root,
+    taskDirectory: root,
+    supportsImages: true
+  }).read_image;
   for (const args of [
     {},
     { path: "", paths: [""] },
@@ -122,27 +138,27 @@ test("image tools accept the retired goal and review arguments without a visual-
   const root = await mkdtemp(join(tmpdir(), "atria-image-legacy-arguments-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "pixel.png"), pixel);
-  const tools = createBuiltinTools({ rootDirectory: root, supportsImages: true });
+  const tools = createImageTools({ rootDirectory: root, taskDirectory: root, supportsImages: true });
   // The removed vision connection used these descriptions to route a second
   // model; the tool now returns pixels to the current connection.
   for (const name of ["read_image", "read_images", "crop_image"]) {
-    const { description } = tools.get(name);
+    const { description } = tools[name];
     assert.doesNotMatch(description, /visual qa|vision|second model/i, `${name} still promises an analysis`);
   }
-  const single = await tools.get("read_image").execute({
+  const single = await tools.read_image.execute({
     path: "pixel.png",
     goal: "find the submit button",
     review: true
   });
   assert.equal(single.content.filter((part) => part.type === "image").length, 1);
   assert.equal(single.details.mode, "direct");
-  const batch = await tools.get("read_image").execute({
+  const batch = await tools.read_image.execute({
     paths: ["pixel.png"],
     goal: "compare the two states",
     review: false
   });
   assert.equal(batch.details.images.length, 1);
-  const cropped = await tools.get("crop_image").execute({
+  const cropped = await tools.crop_image.execute({
     path: "pixel.png",
     region: { x: 0, y: 0, width: 1, height: 1 },
     goal: "zoom in"
@@ -150,9 +166,7 @@ test("image tools accept the retired goal and review arguments without a visual-
   assert.equal(cropped.content.filter((part) => part.type === "image").length, 1);
   // Acceptance is not permission: review=true still requires one image.
   await assert.rejects(
-    tools
-      .get("read_images")
-      .execute({ images: [{ path: "pixel.png" }, { path: "pixel.png" }], review: true }),
+    tools.read_images.execute({ images: [{ path: "pixel.png" }, { path: "pixel.png" }], review: true }),
     /single image/
   );
 });

@@ -9,7 +9,7 @@ async function imports(filePath, source) {
 }
 
 test("shared modules cannot import a CLI entrypoint or dashboard orchestration", async () => {
-  for (const file of ["src/runtime/worker.ts", "src/runtime/skill-registry.ts"]) {
+  for (const file of ["src/runtime/subagent-processes.ts", "src/runtime/skill-registry.ts"]) {
     for (const target of ["../cli/cowork.js", "../dashboard/application.js"]) {
       assert.equal((await imports(file, `import { example } from "${target}";`)).length, 1);
     }
@@ -19,7 +19,8 @@ test("shared modules cannot import a CLI entrypoint or dashboard orchestration",
     1
   );
   assert.equal(
-    (await imports("src/runtime/worker.ts", 'import { example } from "../domain/types.js";')).length,
+    (await imports("src/runtime/subagent-processes.ts", 'import { example } from "../domain/types.js";'))
+      .length,
     0
   );
   assert.equal(

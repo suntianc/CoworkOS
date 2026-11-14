@@ -133,7 +133,6 @@ npm run verify
 | `npm run test:browser`                                    | Chromium / Electron 用户流程；原生场景有各自环境要求                                                  | UI、HTTP/UI 集成、草稿、导航、协作变更                      |
 | `npm run desktop:pack` 后 `npm run test:desktop`          | 搬移后的真实打包 App、设置、Pi/本地模型、退出/重启/模拟升级                                           | 桌面宿主、运行生命周期、打包变更                            |
 | `npm run test:release -- --list` / `npm run test:release` | 五环节发版用例，记录版本、日志、跳过与人工项                                                          | 候选发布验收；原生/包阶段显式加入                           |
-| `npm run smoke:coding` / `npm run smoke:multi-subagent`   | 实际 endpoint 和多智能体；消耗模型额度                                                                | 模型能力与真实服务验收，先配置连接                          |
 
 普通 Node 回归排除单独的原生桌面/CUA 验收入口，并打印原因；可选引擎仍可能报告 TAP skip。详细前提、报告和显式原生命令见 [本地测试指南](testing-local-run.md)。本地协议夹具验证真实 Pi 的协议/生命周期，不证明实际模型能力；浏览器通过也不证明干净机器安装。检查范围以 [package.json](../package.json) 和执行器为准。
 
@@ -172,7 +171,7 @@ npm run verify
 | ------------------------------ | -------------------------------------------------------------------- |
 | 保存失败 / 409                 | revision、外部修改与并发提交；保留草稿后重读或按提示恢复，不自动覆盖 |
 | Agent 看不到附件或工具         | 上传记录、工具组启用状态、首轮 `before_agent_start` 和后续 `context` |
-| 任务等待、停止不完整、恢复重复 | Task/Run 事件、Inbox 消费、问答/委派/jobs、进程结束和 checkpoint     |
+| 任务等待、停止不完整、恢复重复 | Task/Run 事件、Inbox 消费、问答/委派/jobs 和进程结束                 |
 | 重启后草稿/附件消失            | 工作区、全局索引、桌面用户目录与草稿镜像；先记录路径                 |
 | 模型启动失败                   | endpoint、协议、模型、参数、环境覆盖和脱敏错误；不输出完整配置       |
 | UI 异步回包覆盖新会话          | 捕获的 Task/草稿身份、导航 token、迟到请求和同 Task 串行化           |

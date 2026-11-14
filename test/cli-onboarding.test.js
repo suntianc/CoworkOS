@@ -163,7 +163,7 @@ test(
     assert.ok(!main.stdout.includes(f.env.COWORK_API_KEY));
     assert.ok(provider.requests.some(({ body }) => namesFor(body).includes("call_subagent")));
     assert.ok(
-      provider.requests.some(({ body }) => namesFor(body).includes("read_file")),
+      provider.requests.some(({ body }) => JSON.stringify(body).includes("You are a CoworkOS Subagent")),
       "a real delegated session must reach the model"
     );
     for (const { path, body } of provider.requests) {

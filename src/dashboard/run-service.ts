@@ -2209,24 +2209,21 @@ export function createDashboardRunService({
               workspaceRoot: location.workspaceRoot,
               timeoutMs: 0
             });
-            const results = await Promise.allSettled(
-              coordination.pending.map((call) =>
-                subagents
-                  ? subagents.cancel({
+            // Delegated processes belong to the backend that launched them;
+            // without one there is no process this host could stop, so the
+            // durable queue row is the only thing left to settle.
+            const results = subagents
+              ? await Promise.allSettled(
+                  coordination.pending.map((call) =>
+                    subagents.cancel({
                       taskId,
                       runId: location.task.activeRunId!,
                       callId: call,
                       reason: "User stopped the task"
                     })
-                  : coordinator.cancelSubagent({
-                      taskId,
-                      runId: location.task.activeRunId!,
-                      workspaceRoot: location.workspaceRoot,
-                      callId: call,
-                      reason: "User stopped the task"
-                    })
-              )
-            );
+                  )
+                )
+              : [];
             const rejected = results.find((result) => result.status === "rejected");
             if (rejected?.status === "rejected") throw rejected.reason;
           }

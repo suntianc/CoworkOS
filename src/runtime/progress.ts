@@ -1,7 +1,5 @@
 import { lstat, open, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { Type } from "typebox";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { listTaskArtifacts } from "../workspace/artifact-store.js";
 import { agentDisplayName } from "./agent-identity.js";
 
@@ -58,30 +56,6 @@ export interface SubagentStatusSnapshot {
     callbackPending: number;
   };
   agents: SubagentProgress[];
-}
-
-/** Expose durable Coordinator state as a small read-only Main tool. */
-export function createSubagentStatusTool(input: {
-  workspaceRoot: string;
-  taskId: string;
-  runId: string;
-}): AgentTool {
-  return {
-    name: "get_subagent_status",
-    label: "get_subagent_status",
-    description:
-      "Return compact structured progress for Subagents in this Task Run: task, mode, status, latest event, last trace activity, candidate outputFiles, diagnostic paths, accepted artifacts and pending callbacks. outputFiles remain in the agent workspace; use browse_workspace to inspect them before promoting final files to Task artifacts/. This is read-only.",
-    parameters: Type.Object({ agentId: Type.Optional(Type.String()) }),
-    execute: async (_toolCallId, params) => {
-      const value = params as { agentId?: unknown };
-      const snapshot = await readSubagentProgress({
-        ...input,
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- params 来自模型工具调用，声明类型比运行期窄，缺失 params 时不能直接读 agentId
-        agentId: typeof value?.agentId === "string" ? value.agentId : undefined
-      });
-      return { content: [{ type: "text", text: JSON.stringify(snapshot) }], details: snapshot };
-    }
-  };
 }
 
 /** Read durable progress and candidate files directly from their agent workspaces. */

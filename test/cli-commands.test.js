@@ -48,7 +48,6 @@ test("public CLI command help is discoverable and works without configuration or
     ["task", "--help"],
     ["task", "create", "-h"],
     ["human", "reply", "--help"],
-    ["single", "--help"],
     ["worker", "-h"],
     ["main-supervisor", "--help"],
     ["main-worker", "--help"],
@@ -62,7 +61,7 @@ test("public CLI command help is discoverable and works without configuration or
     assert.equal(result.stderr, "");
   }
   const top = await f.run(["--help"], missing);
-  for (const command of ["create", "complete", "single", "main-supervisor"])
+  for (const command of ["create", "complete", "worker", "main-supervisor"])
     assert.ok(top.stdout.includes(command), `${command} must be discoverable`);
   for (const path of [f.workspace, f.env.ATRIA_HOME, f.env.PI_CODING_AGENT_DIR])
     await assert.rejects(stat(path), { code: "ENOENT" }, "help must not create user data");
@@ -76,8 +75,6 @@ test("invalid CLI flags, missing values, numeric limits and operands are rejecte
     ["task", "list", "--goal", "unused"],
     ["task", "status", "sample", "extra"],
     ["task", "create", ".."],
-    ["single", "fixture prompt", "--max-tokens", "65537"],
-    ["single", "fixture prompt", "--max-turns", "nope"],
     ["worker", "--task", "sample", "--run", "run", "--once=maybe"],
     ["main-worker", "--task", "sample", "--poll-ms", "bad"],
     ["main-worker", "--task", "sample", "--unknown"],

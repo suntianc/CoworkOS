@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CheckpointStore, DurableScheduler, InboxStore } from "../src/runtime/scheduler.js";
-import { emptyCompaction, readAgentCheckpoint } from "../src/runtime/agent-checkpoint.js";
+import { DurableScheduler, InboxStore } from "../src/runtime/scheduler.js";
 import {
   ensureMainContext,
   mainContextPaths,
@@ -102,30 +101,6 @@ async function main(): Promise<void> {
       undefined
     );
 
-    const checkpoints = new CheckpointStore(join(root, "checkpoints.json"));
-    await checkpoints.save({
-      runId: "r",
-      sequence: 2,
-      state: { value: 2 },
-      savedAt: new Date().toISOString()
-    });
-    await checkpoints.save({
-      runId: "r",
-      sequence: 1,
-      state: { value: 1 },
-      savedAt: new Date().toISOString()
-    });
-    assert.equal((await checkpoints.load("r"))?.sequence, 2);
-    const checkpoint = readAgentCheckpoint({
-      version: 1,
-      status: "running",
-      prompt: "continue",
-      messages: [],
-      compaction: emptyCompaction()
-    });
-    assert.equal(checkpoint?.status, "running");
-    assert.equal(readAgentCheckpoint({ version: 2 }), undefined);
-
     const mainContext = mainContextPaths(root, "task");
     await ensureMainContext(mainContext);
     assert.match(await readFile(mainContext.memory, "utf8"), /## Goal/);
@@ -204,14 +179,7 @@ async function main(): Promise<void> {
       (queuedMessages[0]?.payload as { message?: string } | undefined)?.message,
       "Prioritize the error path."
     );
-    const cancelled = await coordinator.cancelSubagent({
-      taskId: "task",
-      runId: "run",
-      workspaceRoot: coordinatorRoot,
-      callId: "call-1",
-      reason: "no longer needed"
-    });
-    assert.equal(cancelled.status, "cancelled");
+    await coordinatorQueue.cancel("call-1");
     assert.equal((await coordinatorQueue.list())[0]?.status, "cancelled");
     await coordinatorQueue.enqueue({
       stepId: "call-pending",

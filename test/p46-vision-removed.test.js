@@ -12,7 +12,7 @@ import { Readable } from "node:stream";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { InputStore, inputPrompt } from "../dist/src/workspace/input-store.js";
-import { createBuiltinTools } from "../dist/src/tools/builtin.js";
+import { createImageTools } from "../dist/src/tools/read-image.js";
 
 const pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const pixelBytes = Buffer.from(pixel, "base64");
@@ -84,23 +84,19 @@ test("a text-only read_image refuses pixels without contacting any other model",
   const root = await mkdtemp(join(tmpdir(), "atria-p46-images-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "pixel.png"), pixelBytes);
-  const tool = createBuiltinTools({ rootDirectory: root }).get("read_image");
+  const tool = createImageTools({ rootDirectory: root, taskDirectory: root }).read_image;
   await assert.rejects(tool.execute({ path: "pixel.png" }), /当前模型不支持图片/);
   await assert.rejects(
-    createBuiltinTools({ rootDirectory: root })
-      .get("read_images")
-      .execute({
-        images: [{ path: "pixel.png" }]
-      }),
+    createImageTools({ rootDirectory: root, taskDirectory: root }).read_images.execute({
+      images: [{ path: "pixel.png" }]
+    }),
     /当前模型不支持图片/
   );
   await assert.rejects(
-    createBuiltinTools({ rootDirectory: root })
-      .get("crop_image")
-      .execute({
-        path: "pixel.png",
-        region: { x: 0, y: 0, width: 1, height: 1 }
-      }),
+    createImageTools({ rootDirectory: root, taskDirectory: root }).crop_image.execute({
+      path: "pixel.png",
+      region: { x: 0, y: 0, width: 1, height: 1 }
+    }),
     /当前模型不支持图片/
   );
 });

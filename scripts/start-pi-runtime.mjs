@@ -61,6 +61,8 @@ export async function startPi({ uiCompatibility } = {}) {
   let projectExecution;
   let projectExecutionTimer;
   let capacityExecution;
+  /** The CLI host's delegated-process backend; absent when a Dashboard serves the Run. */
+  let subagentHost;
   try {
     const harnessRoot = resolve(process.env.COWORK_HARNESS_ROOT ?? process.cwd());
     const executable = await resolvePiEntry(harnessRoot);
@@ -412,6 +414,20 @@ export async function startPi({ uiCompatibility } = {}) {
         version: JSON.parse(await readFile(resolve(harnessRoot, "package.json"), "utf8")).version
       });
     }
+    // A run with no Dashboard still delegates through a backend. This host is
+    // it: it owns the workspace's delegated processes and answers Main over a
+    // loopback route, so the same owner that launches a Subagent settles it.
+    const providesSubagentHost =
+      !process.env.COWORK_DASHBOARD_URL && !process.env.COWORK_SUBAGENT_BACKEND_URL;
+    if (providesSubagentHost) {
+      const { openSubagentHost } = await import("../dist/src/cli/subagent-host.js");
+      subagentHost = await openSubagentHost({
+        workspaceRoot,
+        projectRoot: harnessRoot,
+        configPath: launchConfigPath,
+        piAgentDir: agentDir
+      });
+    }
     const childEnv = {
       ...process.env,
       ...runtimeEnv,
@@ -438,13 +454,25 @@ export async function startPi({ uiCompatibility } = {}) {
       COWORK_WORKSPACE: workspaceRoot,
       COWORK_TASK_ID: taskId,
       COWORK_CLI_SESSION: cliLaunch ? "1" : "0",
+      // A one-shot prompt is this process's initial turn. Callbacks already in
+      // the Inbox must join that turn instead of opening their own before Pi
+      // submits the prompt.
+      ...(userFlags.has("--print") || userFlags.has("-p") ? { COWORK_INITIAL_PROMPT: "1" } : {}),
       COWORK_CLI_TASK_EXPLICIT: explicitTaskId ? "1" : "0",
       PI_CODING_AGENT_DIR: agentDir,
       PI_OFFLINE: "1",
       // Application MCP servers are owned by the Dashboard, so the agent reaches
       // their tools over HTTP. Absent for a run with no Dashboard, which simply
       // means no application-specific tools.
-      ...(process.env.COWORK_DASHBOARD_URL ? { COWORK_DASHBOARD_URL: process.env.COWORK_DASHBOARD_URL } : {})
+      ...(process.env.COWORK_DASHBOARD_URL ? { COWORK_DASHBOARD_URL: process.env.COWORK_DASHBOARD_URL } : {}),
+      ...(subagentHost
+        ? {
+            COWORK_SUBAGENT_BACKEND_URL: subagentHost.url,
+            COWORK_SUBAGENT_BACKEND_TOKEN: subagentHost.token
+          }
+        : providesSubagentHost
+          ? { COWORK_SUBAGENT_UNAVAILABLE: "workspace_owned" }
+          : {})
     };
     process.exitCode = await runCliProcess({
       bootstrap: uiCompatibility
@@ -457,6 +485,14 @@ export async function startPi({ uiCompatibility } = {}) {
       uiCompatibility: Boolean(uiCompatibility)
     });
   } finally {
+    // The delegated processes outlive this host; only its observation does not.
+    await subagentHost?.close().catch((error) => {
+      // The delegated processes are independent of this host; report the
+      // cleanup failure instead of hiding it behind the launcher's exit code.
+      console.error(
+        `[cowork] subagent host shutdown failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    });
     clearInterval(projectExecutionTimer);
     // eslint-disable-next-line no-restricted-syntax -- CLI 退出的 finally 里释放执行权，失败时进程已结束、状态由下次启动校正
     await projectExecution?.release().catch(() => {});

@@ -24,13 +24,6 @@ export interface WorkItem {
   error?: string;
 }
 
-export interface Checkpoint {
-  runId: string;
-  sequence: number;
-  state: unknown;
-  savedAt: string;
-}
-
 const priority: Record<Importance, number> = { critical: 0, high: 1, normal: 2, background: 3 };
 
 /** Durable JSON-file scheduler for the first single-process P2 runtime. */
@@ -263,57 +256,6 @@ export class DurableScheduler {
       changed.push(item);
     }
     return changed;
-  }
-}
-
-export class CheckpointStore {
-  private mutex: Promise<void> = Promise.resolve();
-  constructor(private readonly filePath: string) {}
-
-  async save(checkpoint: Checkpoint): Promise<void> {
-    await this.withLock(async () => {
-      const records = await this.read();
-      const previous = records[checkpoint.runId];
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 该 run 首次保存时文件里没有记录，Record 索引在运行期返回 undefined
-      if (previous && previous.sequence >= checkpoint.sequence) return;
-      records[checkpoint.runId] = checkpoint;
-      await this.write(records);
-    });
-  }
-
-  async load(runId: string): Promise<Checkpoint | undefined> {
-    return this.withLock(async () => (await this.read())[runId]);
-  }
-
-  private async read(): Promise<Record<string, Checkpoint>> {
-    try {
-      return JSON.parse(await readFile(this.filePath, "utf8")) as Record<string, Checkpoint>;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw error;
-    }
-  }
-  private async write(records: Record<string, Checkpoint>): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.tmp-${process.pid}-${Date.now()}`;
-    await writeFile(temporary, `${JSON.stringify(records, null, 2)}\n`, "utf8");
-    await rename(temporary, this.filePath);
-  }
-  private async withLock<T>(fn: () => Promise<T>): Promise<T> {
-    const previous = this.mutex;
-    let release!: () => void;
-    this.mutex = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    try {
-      // The owner is this host's process: a Main that was killed between
-      // taking the lock and releasing it must not stall the next reader for the
-      // whole timeout. Recovery only reclaims an owner whose pid is gone.
-      return await withFileLock(this.filePath, fn, { recoverDeadOwner: true });
-    } finally {
-      release();
-    }
   }
 }
 

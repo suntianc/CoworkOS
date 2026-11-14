@@ -9,11 +9,9 @@ import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { proxyEnvironment, createHttpTransport } from "../dist/src/runtime/http-transport.js";
-import { PiSession } from "../dist/src/runtime/pi-session.js";
 import { testModelConnection } from "../dist/src/runtime/model-connection.js";
 import { availableModelIds } from "../dist/src/runtime/model-catalog.js";
 import { runtimeSettingsEnv } from "../dist/src/runtime/runtime-settings.js";
-import { TraceRecorder } from "../dist/src/storage/trace-recorder.js";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 
 const proxyKeys = ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"];
@@ -98,7 +96,7 @@ test("proxy settings honor either environment spelling, validate config and alwa
 });
 
 for (const api of ["openai-completions", "openai-responses"]) {
-  test(`${api}: session, recorded request and connection check use the same environment proxy`, async (t) => {
+  test(`${api}: the connection check and catalog reads use the environment proxy`, async (t) => {
     environment(t);
     const provider = await modelProtocolFixture(api, () => ({ text: "Proxy evidence received" }));
     t.after(() => provider.close());
@@ -108,7 +106,6 @@ for (const api of ["openai-completions", "openai-responses"]) {
     const baseUrl = `http://model.fixture.test:${port}/v1`;
     const root = await mkdtemp(join(tmpdir(), "atria-proxy-"));
     t.after(() => rm(root, { recursive: true, force: true }));
-    const recorder = new TraceRecorder(join(root, "trace.jsonl"));
     const connection = {
       api,
       baseUrl,
@@ -116,19 +113,9 @@ for (const api of ["openai-completions", "openai-responses"]) {
       model: "protocol-fixture",
       supportsReasoningEffort: false
     };
-    const result = await new PiSession({
-      ...connection,
-      thinkingLevel: "off",
-      tools: new Map(),
-      maxErrorRetries: 0,
-      trace: { recorder, taskId: "task", runId: "run", agentId: "main" }
-    }).run("Check the local proxy fixture");
-    assert.equal(result.termination, "completed");
-    assert.match(JSON.stringify(result.assistant.content), /Proxy evidence/);
-    assert.ok(proxy.targets.length);
-    assert.match(await readFile(recorder.modelRequestPath, "utf8"), /model_request/);
     await testModelConnection(connection);
-    assert.equal(provider.requests.length, 2);
+    assert.equal(provider.requests.length, 1);
+    assert.ok(proxy.targets.length, "the request closed its proxy tunnel");
     assert.ok(proxy.targets.length >= 2, "each request owner closes its proxy tunnel");
     assert.deepEqual(await availableModelIds({ ...connection, model: "selected-model" }), [
       "selected-model",
