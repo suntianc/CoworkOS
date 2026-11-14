@@ -100,6 +100,8 @@ test("public root, start, npm and thin version queries work without SDK/dist/con
     ["--help", "--version"]
   ])
     assert.match((await run("atria.mjs", args)).stdout, /CoworkOS — local/);
+  // The in-process single-agent entry no longer exists, so help must not list it.
+  assert.doesNotMatch((await run("atria.mjs", ["--help"])).stdout, /coworkos single/);
   assert.deepEqual((await readdir(root)).sort(), ["config.json", "package.json", "scripts"]);
   const npm = await exec(process.platform === "win32" ? "npm.cmd" : "npm", ["start", "--", "--version"], {
     cwd: root,

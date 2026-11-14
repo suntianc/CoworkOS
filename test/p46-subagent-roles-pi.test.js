@@ -94,7 +94,10 @@ function lastToolText(body) {
  * One delegated call through the real backend path: a durable queue item, the
  * process service that launches it, and Main's callback once it settles.
  */
-async function delegatedCall(t, { role, agentId, callId, handle, task = "执行本轮任务", grants, prepare }) {
+async function delegatedCall(
+  t,
+  { role, agentId, callId, handle, task = "执行本轮任务", grants, prepare, env = {} }
+) {
   const root = await mkdtemp(join(tmpdir(), "p46-role-"));
   const workspace = join(root, "workspace");
   const site = join(root, "work-site");
@@ -154,7 +157,8 @@ async function delegatedCall(t, { role, agentId, callId, handle, task = "执行�
       COWORK_MODEL_API: "openai-completions",
       COWORK_REASONING_EFFORT: "off",
       PI_CODING_AGENT_DIR: join(root, "pi"),
-      PI_OFFLINE: "1"
+      PI_OFFLINE: "1",
+      ...env
     }),
     pollMs: 50
   });
@@ -480,8 +484,73 @@ test(
 /** A real Task upload the capability provider can validate against. */
 async function receiveInput(workspace, name, body) {
   const store = new InputStore(join(workspace, TASK_ID, "inputs"));
-  return await store.receive(name, Readable.from([Buffer.from(body, "utf8")]));
+  const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body, "utf8");
+  return await store.receive(name, Readable.from([bytes]));
 }
+
+test(
+  "a granted Executor sends an uploaded image to its model, and an ungranted one cannot read it",
+  { timeout: 180_000 },
+  async (t) => {
+    const pixel = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64"
+    );
+    let uploadId = "";
+    const granted = await delegatedCall(t, {
+      agentId: "subagent_image_granted",
+      callId: "call-image-granted",
+      env: { COWORK_SUPPORTS_IMAGES: "1" },
+      prepare: async ({ workspace }) => {
+        const file = await receiveInput(workspace, "pixel.png", pixel);
+        uploadId = file.uploadId;
+        return { grants: [{ provider: "attachments", scope: [file.uploadId] }] };
+      },
+      handle: (body, requests) => {
+        if (requests.length === 1) {
+          assert.equal(
+            toolNames(body).includes("read_attachment"),
+            true,
+            "a granted attachment registers the image reader"
+          );
+          return { name: "read_attachment", arguments: { id: uploadId } };
+        }
+        if (requests.length === 2) {
+          const sent = JSON.stringify(body.messages);
+          assert.match(sent, /data:image\/png;base64,/, "the uploaded pixels reach the model request");
+          assert.ok(
+            sent.includes(pixel.toString("base64").slice(0, 32)),
+            "the request carries the uploaded image bytes, not a placeholder"
+          );
+          return { text: "图片已读取。" };
+        }
+        return { text: "图片已读取。" };
+      }
+    });
+    assert.equal(granted.callback.payload.status, "succeeded", JSON.stringify(granted.callback.payload));
+
+    const ungranted = await delegatedCall(t, {
+      agentId: "subagent_image_ungranted",
+      callId: "call-image-ungranted",
+      env: { COWORK_SUPPORTS_IMAGES: "1" },
+      handle: (body, requests) => {
+        assert.equal(
+          toolNames(body).includes("read_attachment"),
+          false,
+          "a work item without a grant registers no attachment reader"
+        );
+        if (requests.length === 1) return { name: "read_attachment", arguments: { id: "upload_missing" } };
+        if (requests.length === 2) {
+          assert.doesNotMatch(JSON.stringify(body.messages), /data:image\//);
+          assert.match(lastToolText(body), /not found|unknown|不存在|未注册|unavailable/i);
+          return { text: "附件读取被拒。" };
+        }
+        return { text: "附件读取被拒。" };
+      }
+    });
+    assert.equal(ungranted.callback.payload.status, "succeeded", JSON.stringify(ungranted.callback.payload));
+  }
+);
 
 test(
   "a granted attachment registers read_attachment, and an ungranted work item registers nothing",

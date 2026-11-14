@@ -222,7 +222,7 @@ The three window access buttons live in the [Computer Use controller](../../web/
 
 The execution host handles system permission requests and local confirmation. [Local access](../../src/dashboard/local-access.ts) gives Main an in-memory business credential, and the [shared UI](../../web/assets/controllers/computer-use.js) shows the selected backend's permission state. Check [native host capabilities and headless tasks](../../test/os-native-host-capabilities.test.js); actual system permissions have separate acceptance evidence.
 
-Background jobs and Main delegation obtain their command environment through [session verification](../../src/runtime/command-environment.ts). Foreground commands, test commands and background jobs share the context without persisting credentials. Check [native host capabilities](../../test/os-native-host-capabilities.test.js).
+Background jobs and Main delegation obtain their command environment through [session verification](../../src/runtime/command-environment.ts). Commands (including test commands and background jobs) take their environment from that context without persisting credentials. Check [native host capabilities](../../test/os-native-host-capabilities.test.js).
 
 CUA outcome evidence reuses Main memory, compaction and session recovery. The [CUA skill](../../.pi/skills/cua/SKILL.md) records confirmed/unknown milestones; [real Pi recovery tests](../../test/cua-progress-recovery-pi.test.js) check actual Chromium submission counts and file hashes across compaction/restart. See [SDK guarantees](../../test/cua-script-guarantees.test.js), [advanced browser behavior](../../test/browser-advanced.test.js), and the [outcome guide](../cua-progress.md) (Chinese).
 

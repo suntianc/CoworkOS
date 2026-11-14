@@ -17,7 +17,7 @@ export function clamp(value: unknown, min: number, max: number, fallback: number
 /**
  * Model work is unlimited by default. A non-zero value is still available
  * for deployments that need a hard budget; zero deliberately disables the
- * PiSession wall-clock abort rather than meaning "one millisecond".
+ * Pi host wall-clock abort rather than meaning "one millisecond".
  */
 export function textFromMessage(message: { content?: unknown }): string {
   if (typeof message.content === "string") return message.content;

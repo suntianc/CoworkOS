@@ -69,8 +69,6 @@ Web/App 支持行内 `\(...\)`、`$...$` 与独立公式 `\[...\]`、`$$...$$`�
 
 Browser/CUA 对象属于当前 Pi 会话，退出或切换时清理。恢复工具组不会恢复浏览器页面或脚本对象，普通子智能体也不自动继承它们。操作与权限见 [Browser Use](browser-use.md)、[Computer Use](computer-use.md) 和 [CUA 脚本](cua-scripting.md)。
 
-前台命令的取消、超时或输出超限会结束受管进程组；命令结束时也会清理未登记的残余进程。自行创建新会话或进程组的后代不在此范围，Windows 只管理直接命令进程。跨工具调用继续运行的命令使用 `start_job`，通过 `check_job` 查看。停止 Main 当前轮次不会自动取消已委派子智能体，需显式 `cancel_subagent`。
-
 Main 与委派子代理都用 Pi 原生的 `bash` / 文件工具，`cwd` 默认是所选项目目录（子代理是它自己的工作现场）；没有第二套 `run_command` / `run_tests` 工具，也没有程序化工具工厂。跨工具调用继续运行的命令使用 `start_job`，通过 `check_job` 查看。停止 Main 当前轮次不会自动取消已委派子智能体，需显式 `cancel_subagent`。
 
 ## 显式委派附件

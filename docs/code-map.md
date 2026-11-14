@@ -237,7 +237,7 @@ CUA 业务确认复用 Main memory/会话压缩和恢复机制，由 [CUA skill]
 
 系统权限申请和本机确认由执行主机处理；[本地访问](../src/dashboard/local-access.ts) 给 Main 进程提供内存中的业务凭据，[共用界面](../web/assets/controllers/computer-use.js) 展示所选后端的权限状态。验证 [原生主机能力与无图形任务](../test/os-native-host-capabilities.test.js)，真实系统权限另行验收。
 
-后台 job 和 Main 委派经 [会话核验](../src/runtime/command-environment.ts) 取得命令环境。前台命令、测试命令及后台 job 共用上下文，不持久化凭据。回归见 [原生主机能力](../test/os-native-host-capabilities.test.js)。
+后台 job 和 Main 委派经 [会话核验](../src/runtime/command-environment.ts) 取得命令环境。命令（含测试命令和后台 job）通过同一上下文取得环境变量，不持久化凭据。回归见 [原生主机能力](../test/os-native-host-capabilities.test.js)。
 
 ### CLI、桌面与分发
 

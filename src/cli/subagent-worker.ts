@@ -53,17 +53,20 @@ export class SubagentWorker {
       return;
     }
     const settled: SubagentProcessResult[] = [];
-    const service = new SubagentDispatchService({
-      workspaceRoot: options.workspaceRoot,
-      harnessRoot: resolve(options.harnessRoot ?? process.env.COWORK_HARNESS_ROOT ?? "."),
-      env: () => ({ env: options.env }),
-      onSettled: (result) => {
-        settled.push(result);
-      },
-      ...(options.pollMs === undefined ? {} : { pollMs }),
-      ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs })
-    });
+    let service: SubagentDispatchService | undefined;
     try {
+      // Construction is inside the try too: the owner record was taken above,
+      // and every exit from here must release it.
+      service = new SubagentDispatchService({
+        workspaceRoot: options.workspaceRoot,
+        harnessRoot: resolve(options.harnessRoot ?? process.env.COWORK_HARNESS_ROOT ?? "."),
+        env: () => ({ env: options.env }),
+        onSettled: (result) => {
+          settled.push(result);
+        },
+        ...(options.pollMs === undefined ? {} : { pollMs }),
+        ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs })
+      });
       if (options.taskId && options.runId)
         await service.adopt({ taskId: options.taskId, runId: options.runId });
       while (!this.isStopped() && !options.signal?.aborted) {
@@ -90,7 +93,7 @@ export class SubagentWorker {
       }
     } finally {
       // This host is going away; the processes are not. Drop observers only.
-      service.close();
+      service?.close();
       await releaseSubagentOwnership(options.workspaceRoot);
     }
   }

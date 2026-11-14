@@ -12,7 +12,7 @@ import { clearSleep } from "./main-sleep.js";
 import { subagentCallStatuses, type SubagentCallStatus } from "./subagent-call-status.js";
 
 /**
- * Main's view of duplicated work.
+ * Main's view of delegated work.
  *
  * Delegated execution belongs to the backend: it registers a work item in the
  * Run's durable queue, launches the process and settles it. This class only

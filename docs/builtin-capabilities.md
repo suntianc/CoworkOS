@@ -2,7 +2,7 @@
 
 中文 | [English](en/builtin-capabilities.md)
 
-这个分支保留 CoworkOS 的完整编排链路：Main、Coordinator Runtime、Subagent、Jobs、人工问答、工作区、检查点和会话恢复。通用文件与附件工具、图像读取、搜索、Computer Use 继续提供。
+这个分支保留 CoworkOS 的完整编排链路：Main、Coordinator Runtime、Subagent、Jobs、人工问答、工作区与会话恢复。通用文件与附件工具、图像读取、搜索、Computer Use 继续提供。
 
 已移除的产品能力包括：
 

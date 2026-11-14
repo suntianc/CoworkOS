@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
+import { createSubagentClient } from "../dist/src/runtime/subagent-client.js";
 
 /**
  * A CLI run with no Dashboard still delegates through a backend.
@@ -137,3 +138,30 @@ test(
     assert.equal(await readFile(join(project, "marker.txt"), "utf8"), "delegated\n");
   }
 );
+
+test("a CLI run that yielded to a live app backend says where to run instead", () => {
+  const names = [
+    "COWORK_DASHBOARD_URL",
+    "COWORK_API_TOKEN",
+    "COWORK_SUBAGENT_BACKEND_URL",
+    "COWORK_SUBAGENT_BACKEND_TOKEN",
+    "COWORK_SUBAGENT_UNAVAILABLE"
+  ];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) delete process.env[name];
+    process.env.COWORK_SUBAGENT_UNAVAILABLE = "workspace_owned";
+    assert.throws(
+      () => createSubagentClient({ taskId: "owned-task" }),
+      /工作区由正在运行的应用后端管理.*请在应用中运行.*关闭应用后重试/
+    );
+    delete process.env.COWORK_SUBAGENT_UNAVAILABLE;
+    assert.throws(() => createSubagentClient({ taskId: "owned-task" }), /没有本地服务地址/);
+  } finally {
+    for (const name of names) {
+      const value = previous[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});

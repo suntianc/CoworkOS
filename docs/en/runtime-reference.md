@@ -69,8 +69,6 @@ Terminal and App Main share the Cowork extension and capability rules; a delegat
 
 Browser/CUA objects belong to the current Pi session and are cleared on exit or session change. Restoring groups does not restore pages or script objects. Ordinary subagents do not inherit them automatically. See [Browser Use](../browser-use.md), [Computer Use](../computer-use.md) and [CUA scripting](../cua-scripting.md).
 
-Cancellation, timeout or excess output ends a managed foreground command's process group. Completion also cleans up unregistered descendants. Descendants that create their own session or process group are outside this scope; Windows manages only the direct command process. Use `start_job` and `check_job` for work that spans tool calls. Stopping Main's turn does not automatically cancel delegated subagents; use `cancel_subagent` explicitly.
-
 Main and delegated agents both use Pi's native `bash` and file tools. The default working directory is the selected project (a delegated agent uses its own work site). There is no second `run_command` / `run_tests` tool and no programmatic tool factory. Work that must outlive one tool call uses `start_job` and `check_job`. Stopping Main's current turn does not cancel delegated agents; use `cancel_subagent` explicitly.
 
 ## Delegated attachments

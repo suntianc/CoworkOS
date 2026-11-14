@@ -417,7 +417,9 @@ export async function startPi({ uiCompatibility } = {}) {
     // A run with no Dashboard still delegates through a backend. This host is
     // it: it owns the workspace's delegated processes and answers Main over a
     // loopback route, so the same owner that launches a Subagent settles it.
-    if (!process.env.COWORK_DASHBOARD_URL && !process.env.COWORK_SUBAGENT_BACKEND_URL) {
+    const providesSubagentHost =
+      !process.env.COWORK_DASHBOARD_URL && !process.env.COWORK_SUBAGENT_BACKEND_URL;
+    if (providesSubagentHost) {
       const { openSubagentHost } = await import("../dist/src/cli/subagent-host.js");
       subagentHost = await openSubagentHost({
         workspaceRoot,
@@ -468,7 +470,9 @@ export async function startPi({ uiCompatibility } = {}) {
             COWORK_SUBAGENT_BACKEND_URL: subagentHost.url,
             COWORK_SUBAGENT_BACKEND_TOKEN: subagentHost.token
           }
-        : {})
+        : providesSubagentHost
+          ? { COWORK_SUBAGENT_UNAVAILABLE: "workspace_owned" }
+          : {})
     };
     process.exitCode = await runCliProcess({
       bootstrap: uiCompatibility

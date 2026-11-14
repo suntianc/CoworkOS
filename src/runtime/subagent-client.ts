@@ -45,7 +45,13 @@ export function createSubagentClient(options: {
 }): SubagentClient {
   const address = backendAddress(process.env);
   const dashboardUrl = options.dashboardUrl ?? address.url;
-  if (!dashboardUrl) throw new Error("子代理派单不可用：本次运行没有本地服务地址");
+  if (!dashboardUrl) {
+    // The CLI host only yields the workspace to a live backend; without a
+    // route to that backend, the person needs to know where to run instead.
+    if (process.env.COWORK_SUBAGENT_UNAVAILABLE === "workspace_owned")
+      throw new Error("子代理派单不可用：工作区由正在运行的应用后端管理，请在应用中运行，或关闭应用后重试");
+    throw new Error("子代理派单不可用：本次运行没有本地服务地址");
+  }
   const origin = loopback(dashboardUrl);
   if (!TASK_ID.test(options.taskId)) throw new Error("子代理派单不可用：当前会话 ID 不合法");
   const token = options.token ?? address.token;
