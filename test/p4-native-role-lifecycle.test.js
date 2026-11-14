@@ -569,6 +569,7 @@ test(
     const project = join(root, "project");
     const workspace = join(root, "workspace");
     await mkdir(project, { recursive: true });
+    await makeRepository(project);
     await mkdir(workspace, { recursive: true });
     const taskId = "role-models";
     const runId = "role-models-run";
@@ -735,12 +736,13 @@ test(
       .map((event) => event.payload.modelSelection);
     assert.equal(selections.length, 6, JSON.stringify(selections));
     assert.ok(selections.every((snapshot) => snapshot.role === "executor" || snapshot.role === "reviewer"));
-    // The Reviewer had no binding: its record says it kept Main's connection.
+    // The Reviewer had no binding: its record says it kept the connection Main
+    // was launched with (the environment is where a CLI Main got it).
     assert.deepEqual(
       selections
         .filter((snapshot) => snapshot.role === "reviewer")
         .map((snapshot) => [snapshot.source, snapshot.model]),
-      [["active", "main-model"]]
+      [["environment", "main-model"]]
     );
     assert.ok(
       selections.some(
@@ -760,6 +762,7 @@ test(
     const project = join(root, "project");
     const workspace = join(root, "workspace");
     await mkdir(project, { recursive: true });
+    await makeRepository(project);
     await mkdir(workspace, { recursive: true });
     const taskId = "role-start";
     const runId = "role-start-run";
@@ -974,6 +977,7 @@ test(
     const project = join(root, "project");
     const workspace = join(root, "workspace");
     await mkdir(project, { recursive: true });
+    await makeRepository(project);
     await mkdir(workspace, { recursive: true });
     const taskId = "role-recovery";
     const runId = "role-recovery-run";
@@ -1128,6 +1132,10 @@ test(
     // their expiry so the next Main may reclaim them, then break the Reviewer
     // binding's connection before anything restarts.
     await first.kill();
+    // A delegated process is not Main's child any more: A keeps running after
+    // that Main dies, so let its in-flight request finish and be settled by the
+    // backend that adopts it.
+    release();
     await clearLocks(root);
     await expireLeases(workspace, taskId, runId);
     await writeHostConfig(root, {
@@ -1354,70 +1362,3 @@ test(
     assert.equal(main.output.includes("Async callback delivery deferred"), false);
   }
 );
-
-test("recovery settles an item it cannot even re-enter instead of leaving it queued", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "atria-p4-refused-recovery-"));
-  const workspace = join(root, "workspace");
-  await mkdir(workspace, { recursive: true });
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const taskId = "refused-recovery";
-  const runId = "refused-recovery-run";
-  const store = new LocalWorkspaceStore(workspace);
-  await store.createTask(taskId, { goal: "恢复拒绝", projectDirectory: join(root, "project") });
-  await store.createRun(taskId, runId);
-  const runPath = join(workspace, taskId, "runs", runId);
-  const agentId = "subagent_1";
-  await new DurableScheduler(join(runPath, "queue.json")).enqueue({
-    stepId: "call-refused",
-    taskId,
-    runId,
-    agentId,
-    importance: "normal",
-    payload: {
-      task: "执行者工作项 A：恢复时已无法重新进入。",
-      delegation: { role: "executor" },
-      mode: "async"
-    }
-  });
-  // The per-agent checkpoint is unreadable, so the runtime cannot even re-enter
-  // the attempt; the refusal must still land on the durable item.
-  const checkpoint = join(runPath, "agents", "subagents", agentId, "checkpoint.json");
-  await mkdir(join(runPath, "agents", "subagents", agentId), { recursive: true });
-  await writeFile(checkpoint, "{not json");
-
-  const coordinator = new CoordinatorRuntime();
-  const recovered = await coordinator.recoverRun({
-    taskId,
-    runId,
-    workspaceRoot: workspace,
-    baseUrl: "http://127.0.0.1:1",
-    apiKey: "unused",
-    model: "unused"
-  });
-  assert.equal(recovered.length, 1);
-  assert.equal(recovered[0].status, "failed");
-  assert.ok(recovered[0].error);
-
-  const item = (await readQueue(workspace, taskId, runId)).find((entry) => entry.stepId === "call-refused");
-  assert.equal(item.status, "failed", "a refused recovery is terminal, not left queued");
-  assert.ok(item.error.length > 0, "the durable item keeps the reason");
-  const inbox = JSON.parse(
-    await readFile(join(runPath, "agents", "main", "inbox-store.json"), "utf8")
-  ).filter((message) => message.kind === "callback" && message.callId === "call-refused");
-  assert.equal(inbox.length, 1, "the reason reaches Main through one callback");
-
-  // A second pass has nothing to re-drive and adds no duplicate callback.
-  const again = await coordinator.recoverRun({
-    taskId,
-    runId,
-    workspaceRoot: workspace,
-    baseUrl: "http://127.0.0.1:1",
-    apiKey: "unused",
-    model: "unused"
-  });
-  assert.deepEqual(again, []);
-  const inboxAgain = JSON.parse(
-    await readFile(join(runPath, "agents", "main", "inbox-store.json"), "utf8")
-  ).filter((message) => message.kind === "callback" && message.callId === "call-refused");
-  assert.equal(inboxAgain.length, 1);
-});

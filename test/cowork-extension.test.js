@@ -9,11 +9,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
 import { DurableScheduler, InboxStore } from "../dist/src/runtime/scheduler.js";
-import { ExperimentProgramStore } from "../dist/src/runtime/experiment-program-store.js";
-import { mainContextPaths, readMainContextState } from "../dist/src/runtime/main-context.js";
 import { SubagentQuestionStore } from "../dist/src/runtime/subagent-questions.js";
+import { startSubagentBackend } from "./fixtures/subagent-backend-fixture.mjs";
 
 const extensionPath = resolve(".pi/extensions/cowork.ts");
 const requirePi = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
@@ -115,7 +113,7 @@ test("restored selections retain core discovery without exposing ungranted compu
   assert.ok(selected.includes("read"));
 });
 
-test("call_subagent keeps task/mode required and tasks stay one-shot", async () => {
+test("call_subagent keeps task/mode required and dispatches one work item per call", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-extension-"));
   const previous = {
     COWORK_API_BASE: process.env.COWORK_API_BASE,
@@ -123,14 +121,13 @@ test("call_subagent keeps task/mode required and tasks stay one-shot", async () 
     COWORK_CONFIG: process.env.COWORK_CONFIG,
     COWORK_WORKSPACE: process.env.COWORK_WORKSPACE,
     COWORK_TASK_ID: process.env.COWORK_TASK_ID,
-    COWORK_RUN_ID: process.env.COWORK_RUN_ID
+    COWORK_RUN_ID: process.env.COWORK_RUN_ID,
+    COWORK_SUBAGENT_BACKEND_URL: process.env.COWORK_SUBAGENT_BACKEND_URL,
+    COWORK_SUBAGENT_BACKEND_TOKEN: process.env.COWORK_SUBAGENT_BACKEND_TOKEN
   };
   const taskId = "extension-task";
   const runId = "main-extension";
-  const dispatches = [];
-  let asyncResolve;
-  let asyncFinished = false;
-  const originalDispatch = CoordinatorRuntime.prototype.dispatch;
+  const backend = await startSubagentBackend({ workspaceRoot: root, taskId, runId });
   try {
     process.env.COWORK_API_BASE = "https://example.test";
     process.env.COWORK_API_KEY = "test-key";
@@ -139,22 +136,11 @@ test("call_subagent keeps task/mode required and tasks stay one-shot", async () 
     process.env.COWORK_WORKSPACE = root;
     process.env.COWORK_TASK_ID = taskId;
     process.env.COWORK_RUN_ID = runId;
+    process.env.COWORK_SUBAGENT_BACKEND_URL = backend.url;
+    process.env.COWORK_SUBAGENT_BACKEND_TOKEN = backend.token;
     const workspace = new LocalWorkspaceStore(root);
     await workspace.createTask(taskId, { goal: "extension regression" });
     await workspace.createRun(taskId, runId);
-    CoordinatorRuntime.prototype.dispatch = function (input) {
-      dispatches.push(input);
-      input.onQueued?.();
-      if (input.mode === "async") {
-        return new Promise((resolvePromise) => {
-          asyncResolve = (value) => {
-            asyncFinished = true;
-            resolvePromise(value);
-          };
-        });
-      }
-      return Promise.resolve(resultFromDispatch(input));
-    };
 
     const pi = fakePi();
     const extension = await loadExtension();
@@ -217,16 +203,19 @@ test("call_subagent keeps task/mode required and tasks stay one-shot", async () 
     );
     assert.equal(tool.parameters.additionalProperties, false);
 
-    let status;
     const ctx = {
       sessionManager: SessionManager.inMemory(root),
-      ui: {
-        setStatus(_key, value) {
-          status = value;
-        },
-        notify() {}
-      }
+      ui: { setStatus() {}, notify() {} }
     };
+    await assert.rejects(
+      () => tool.execute("missing-task", { mode: "async" }, undefined, undefined, ctx),
+      /requires task/
+    );
+    await assert.rejects(
+      () => tool.execute("bad-mode", { task: "anything", mode: "later" }, undefined, undefined, ctx),
+      /mode must be sync or async/
+    );
+
     const keywordTask =
       "调研 Cowork harness；长期关注 research papers、monitor Virtual Agent/watch program，并执行 experiment benchmark 记录 ledger";
     const asyncOutput = await tool.execute(
@@ -240,328 +229,29 @@ test("call_subagent keeps task/mode required and tasks stay one-shot", async () 
     const accepted = JSON.parse(asyncOutput.content[0].text);
     assert.equal(accepted.mode, "async");
     assert.equal(accepted.name, "Ara");
-    assert.equal(accepted.kind, undefined);
-    assert.equal(accepted.lifecycle, undefined);
-    assert.equal(accepted.programId, undefined);
-    assert.equal(accepted.monitorId, undefined);
-    assert.equal(asyncFinished, false, "async must return before dispatch settles");
+    assert.equal(accepted.role, "executor");
+    assert.equal(backend.requests.length, 1, "async returns after registering one work item");
+    assert.equal(backend.requests[0].task, keywordTask);
+    assert.equal(backend.requests[0].mode, "async");
+    assert.equal(backend.requests[0].role, "executor");
 
-    const asyncCall = dispatches[0];
-    assert.deepEqual(
-      asyncCall.delegation,
-      { role: "executor" },
-      "an ordinary delegation defaults to the executor role"
+    const sync = await tool.execute(
+      "tool-sync",
+      { task: "同步执行 experiment benchmark 并研究监控结果", mode: "sync" },
+      undefined,
+      undefined,
+      ctx
     );
-    const inbox = new InboxStore(join(root, taskId, "runs", runId, "agents", "main", "inbox-store.json"));
-    await inbox.enqueue({
-      messageId: `callback-${asyncCall.callId}-succeeded`,
-      recipientAgentId: "main",
-      kind: "callback",
-      callId: asyncCall.callId,
-      eventId: "event-callback",
-      priority: 1,
-      state: "ready",
-      payload: { callId: asyncCall.callId, status: "succeeded", response: "callback delivered" },
-      createdAt: new Date().toISOString()
-    });
-    const sent = [];
-    pi.sendMessage = (message, options) => {
-      sent.push({ ...message, options });
-    };
-    asyncResolve(resultFromDispatch(asyncCall));
-    await waitUntil(() => status === "" && sent.length === 1);
-    assert.equal(
-      (await inbox.list("main"))[0].state,
-      "leased",
-      "queuing must not count as Main receiving the callback"
-    );
-    assert.equal(
-      sent[0].options.deliverAs,
-      "steer",
-      "callbacks must arrive before the next inference, not after the final answer"
-    );
-    const prematureFinish = await pi.tools.get("finish_task").execute("finish-early", {});
-    assert.equal(prematureFinish.details.completed, false);
-    assert.equal(prematureFinish.details.reason, "pending_callbacks");
-    await pi.handlers.get("context")({ messages: [{ role: "custom", ...sent[0] }] }, ctx);
-    await waitUntil(async () => {
-      const state = await readMainContextState(mainContextPaths(root, taskId));
-      return status === "" && state.runtimePendingDelegations === 0;
-    });
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0].details.callId, asyncCall.callId);
-    assert.equal((await inbox.list("main"))[0].state, "consumed");
-
-    const syncTask = "同步执行 experiment benchmark 并研究监控结果";
-    const sync = await tool.execute("tool-sync", { task: syncTask, mode: "sync" }, undefined, undefined, ctx);
     assert.equal(sync.details.status, "succeeded");
-    assert.equal(sync.details.name, "Norma");
-    await waitUntil(async () => {
-      const state = await readMainContextState(mainContextPaths(root, taskId));
-      return (
-        state.runtimeLastEvent?.type === "subagent_completed" &&
-        state.runtimeLastEvent.summary.includes(sync.details.callId)
-      );
-    });
-    assert.equal(dispatches.length, 2);
+    assert.equal(backend.requests.length, 2);
+    assert.equal(backend.requests[1].mode, "sync");
     assert.deepEqual(
-      dispatches.map((call) => call.mode),
-      ["async", "sync"]
-    );
-    assert.deepEqual(
-      dispatches.map((call) => call.task),
-      [keywordTask, syncTask]
-    );
-    // Task wording must not create a persistent program. The experiment ledger
-    // is not one of those: it is Runtime bookkeeping that every Task gets, with
-    // no lifecycle for Main to operate and no effect on delegation semantics.
-    // What it must not do is change how a call was routed.
-    const ledgers = await new ExperimentProgramStore(root).listPrograms(taskId);
-    assert.equal(ledgers.length, 1, "bookkeeping is one ledger per Task, not one per keyword");
-    assert.equal(ledgers[0].decisionOwner, "main");
-    assert.equal(ledgers[0].nextAction, undefined, "the ledger records without directing Main");
-    assert.deepEqual(
-      dispatches.map((call) => call.mode),
+      backend.requests.map((call) => call.mode),
       ["async", "sync"],
-      "recording must not alter routing"
+      "one dispatch per call and none rewritten"
     );
   } finally {
-    CoordinatorRuntime.prototype.dispatch = originalDispatch;
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    await removeAfterAsyncWrites(root);
-  }
-});
-
-test("Main waits for a recovered call's terminal callback to be persisted before finishing", async () => {
-  const root = await mkdtemp(join(tmpdir(), "atria-recovery-completion-"));
-  const taskId = "recovery-task";
-  const runId = "main-recovery";
-  await writeFile(join(root, "config.json"), "{}\n");
-  const env = {
-    COWORK_API_BASE: "https://example.test",
-    COWORK_API_KEY: "test-key",
-    COWORK_CONFIG: join(root, "config.json"),
-    COWORK_WORKSPACE: root,
-    COWORK_TASK_ID: taskId,
-    COWORK_RUN_ID: runId
-  };
-  const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
-  const originalRecover = CoordinatorRuntime.prototype.recoverRun;
-  const controller = new AbortController();
-  let releaseRecovery;
-  const recoveryGate = new Promise((resolvePromise) => {
-    releaseRecovery = resolvePromise;
-  });
-  let ending;
-  let recovery;
-  try {
-    Object.assign(process.env, env);
-    const workspace = new LocalWorkspaceStore(root);
-    await workspace.createTask(taskId, { goal: "Handle a recovered failure" });
-    await workspace.createRun(taskId, runId);
-    await workspace.updateTask(taskId, { completion: { policy: "explicit" } });
-    const scheduler = new DurableScheduler(join(root, taskId, "runs", runId, "queue.json"));
-    const inbox = new InboxStore(join(root, taskId, "runs", runId, "agents", "main", "inbox-store.json"));
-    await scheduler.enqueue({
-      stepId: "retry",
-      taskId,
-      runId,
-      agentId: "subagent_1",
-      importance: "normal",
-      payload: { task: "Retry evidence collection" },
-      maxAttempts: 1
-    });
-    let terminal = false;
-    CoordinatorRuntime.prototype.recoverRun = function () {
-      recovery = (async () => {
-        const item = await scheduler.claim("recovery", 60000, "retry");
-        await scheduler.fail("retry", item.lease.token, "Retry exhausted");
-        terminal = true;
-        // A failed queue entry becomes terminal before its callback is written.
-        await recoveryGate;
-        await inbox.enqueue({
-          messageId: "callback-retry-failed",
-          recipientAgentId: "main",
-          kind: "callback",
-          callId: "retry",
-          eventId: "retry-failed",
-          priority: 1,
-          state: "ready",
-          createdAt: new Date().toISOString(),
-          payload: { callId: "retry", status: "failed", response: "Retry exhausted" }
-        });
-        return [];
-      })();
-      return recovery;
-    };
-    const pi = fakePi();
-    const sent = [];
-    pi.sendMessage = (message) => {
-      sent.push(message);
-    };
-    (await loadExtension())(pi);
-    const ctx = {
-      sessionManager: SessionManager.inMemory(root),
-      signal: controller.signal,
-      hasPendingMessages: () => false,
-      isIdle: () => true,
-      ui: { notify() {} }
-    };
-    let settled = false;
-    ending = pi.handlers
-      .get("agent_end")({ messages: [{ role: "assistant", stopReason: "stop" }] }, ctx)
-      .then(() => {
-        settled = true;
-      });
-    await waitUntil(() => terminal);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 350));
-    assert.equal(settled, false, "Main must stay alive while recovery is still recording its callback");
-    const early = await pi.tools.get("finish_task").execute("finish-early", {});
-    assert.equal(early.details.completed, false);
-    assert.equal(early.details.reason, "pending_subagents");
-    releaseRecovery();
-    await ending;
-    await waitUntil(() => sent.length === 1);
-    assert.equal(sent[0].customType, "cowork-callback");
-    await pi.handlers.get("context")({ messages: [{ role: "custom", ...sent[0] }] }, ctx);
-    const finished = await pi.tools.get("finish_task").execute("finish", {});
-    assert.equal(finished.details.completed, true);
-  } finally {
-    controller.abort();
-    releaseRecovery();
-    await recovery;
-    await ending;
-    CoordinatorRuntime.prototype.recoverRun = originalRecover;
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    await removeAfterAsyncWrites(root);
-  }
-});
-
-test("Main answers a Subagent question through send_subagent_message and cannot finish while one is open", async () => {
-  const root = await mkdtemp(join(tmpdir(), "atria-subagent-question-"));
-  const taskId = "question-task";
-  const runId = "main-question";
-  await writeFile(join(root, "config.json"), "{}\n");
-  const env = {
-    COWORK_API_BASE: "https://example.test",
-    COWORK_API_KEY: "test-key",
-    COWORK_CONFIG: join(root, "config.json"),
-    COWORK_WORKSPACE: root,
-    COWORK_TASK_ID: taskId,
-    COWORK_RUN_ID: runId
-  };
-  const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
-  const originalSendMessage = CoordinatorRuntime.prototype.sendMessage;
-  const steered = [];
-  try {
-    Object.assign(process.env, env);
-    const workspace = new LocalWorkspaceStore(root);
-    await workspace.createTask(taskId, { goal: "Answer a collaborator" });
-    await workspace.createRun(taskId, runId);
-    // Ordinary guidance still goes through the Coordinator; the question path
-    // must not be routed there while the question is answerable.
-    CoordinatorRuntime.prototype.sendMessage = async function (input) {
-      steered.push(input);
-      return { messageId: "message-1", callId: input.callId, agentId: "subagent_1", status: "queued" };
-    };
-    const questions = new SubagentQuestionStore(root);
-    const raised = await questions.create({
-      questionId: "question-1",
-      taskId,
-      runId,
-      callId: "call-1",
-      agentId: "subagent_1",
-      agentName: "Ada",
-      question: "哪个评测脚本是权威的？",
-      assumption: "用 scripts/eval.py"
-    });
-    const pi = fakePi();
-    (await loadExtension())(pi);
-    const send = pi.tools.get("send_subagent_message");
-
-    // A pending question blocks completion: the collaborator is waiting on Main.
-    const early = await pi.tools.get("finish_task").execute("finish-early", {});
-    assert.equal(early.details.completed, false);
-    assert.equal(early.details.reason, "pending_subagent_questions");
-
-    // An answer aimed at the wrong call is a real mistake, not something to deliver.
-    await assert.rejects(
-      send.execute("answer-wrong", { callId: "call-9", questionId: "question-1", message: "x" }),
-      /belongs to call call-1/
-    );
-    await assert.rejects(
-      send.execute("answer-missing", { callId: "call-1", questionId: "question-404", message: "x" }),
-      /unknown question/
-    );
-
-    const answered = await send.execute("answer", {
-      callId: "call-1",
-      questionId: raised.questionId,
-      message: "configs/eval.py 是权威的"
-    });
-    assert.equal(answered.details.status, "answered");
-    assert.equal(answered.details.name, "Ada");
-    assert.equal(
-      steered.length,
-      0,
-      "answering a live question must unblock it directly, not queue ordinary guidance"
-    );
-    assert.equal((await questions.read(taskId, raised.questionId)).answer, "configs/eval.py 是权威的");
-    const finished = await pi.tools.get("finish_task").execute("finish", {});
-    assert.equal(finished.details.completed, true);
-
-    // A decision arriving after the Subagent gave up waiting is still worth
-    // having while that Agent is running: it lands as ordinary guidance.
-    const expired = await questions.create({
-      questionId: "question-2",
-      taskId,
-      runId,
-      callId: "call-1",
-      agentId: "subagent_1",
-      agentName: "Ada",
-      question: "还要继续吗？",
-      assumption: "继续"
-    });
-    await questions.expire(taskId, expired.questionId);
-    const scheduler = new DurableScheduler(join(root, taskId, "runs", runId, "queue.json"));
-    await scheduler.enqueue({
-      stepId: "call-1",
-      taskId,
-      runId,
-      agentId: "subagent_1",
-      importance: "normal",
-      payload: { task: "x" },
-      maxAttempts: 1
-    });
-    const late = await send.execute("answer-late", {
-      callId: "call-1",
-      questionId: expired.questionId,
-      message: "停下来"
-    });
-    assert.equal(steered.length, 1, "a late answer must still reach a Subagent that is still working");
-    assert.equal(steered[0].message, "停下来");
-    assert.match(late.details.note, /already expired/);
-
-    // Once that Agent is gone there is nobody to steer. Main gets told what
-    // assumption the work was done under, instead of an exception it cannot act on.
-    await scheduler.cancel("call-1");
-    const tooLate = await send.execute("answer-too-late", {
-      callId: "call-1",
-      questionId: expired.questionId,
-      message: "还是停下来"
-    });
-    assert.equal(steered.length, 1, "a finished Subagent must not be steered");
-    assert.equal(tooLate.details.delivered, "not_delivered");
-    assert.match(tooLate.details.note, /already finished/);
-    assert.match(tooLate.details.note, /继续/, "Main must be told which assumption the result rests on");
-  } finally {
-    CoordinatorRuntime.prototype.sendMessage = originalSendMessage;
+    await backend.close();
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;

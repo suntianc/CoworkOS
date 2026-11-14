@@ -2,7 +2,7 @@
 
 中文 | [English](en/cli-ui-adapter.md)
 
-CoworkOS 使用 `@earendil-works/pi-coding-agent@1.5.2`，保留原始依赖、许可和恢复格式。产品名称不代表模型训练来源。原始请求归档、JSONL、checkpoint、SDK RPC 和用户指定的提示词继续记录实际内容；产品会话导出仅在副本中投影已知默认身份。
+CoworkOS 使用 `@earendil-works/pi-coding-agent@1.5.2`，保留原始依赖、许可和恢复格式。产品名称不代表模型训练来源。原始请求归档、JSONL、SDK RPC 和用户指定的提示词继续记录实际内容；产品会话导出仅在副本中投影已知默认身份。
 
 公开 `coworkos --version/-v`、`coworkos start --version/-v` 和 `npm start -- --version` 返回 CoworkOS 产品版本，无需配置、SDK、已编译 runtime 或可写用户目录。根版本查询不接受额外参数；start 同时含 help/version 时显示 help，其他执行参数与独立 version 混用会报错。选项值及 `--` 后正文不被当成查询。普通运行的扩展参数仍交 SDK 验证。
 

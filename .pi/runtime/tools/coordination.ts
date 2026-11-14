@@ -1,40 +1,18 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { randomUUID } from "node:crypto";
 import { metricSeries } from "../../../dist/src/domain/experiment.js";
-import { agentDisplayName, reserveSubagentIdentity } from "../../../dist/src/runtime/agent-identity.js";
 import { clearSleep, readSleep, writeSleep } from "../../../dist/src/runtime/main-sleep.js";
 import { readSubagentProgress } from "../../../dist/src/runtime/progress.js";
-import {
-  configuredHumanAnswerTimeout,
-  configuredMaxAttempts,
-  configuredSubagentMaxQuestions,
-  configuredModelApi,
-  configuredThinkingFormat,
-  configuredSupportsPromptCacheKey,
-  configuredSubagentMaxTokens,
-  configuredContextWindow,
-  configuredSubagentMaxTurns,
-  configuredSubagentQuestionTimeout,
-  configuredSubagentTimeout
-} from "../../../dist/src/runtime/runtime-settings.js";
+import { configuredHumanAnswerTimeout } from "../../../dist/src/runtime/runtime-settings.js";
 import { assessTaskCompletion } from "../../../dist/src/runtime/task-completion.js";
 import { LocalWorkspaceStore } from "../../../dist/src/workspace/workspace-store.js";
-import { businessCommandEnvironment } from "../../../dist/src/runtime/command-environment.js";
-import type { DelegatedModelRequest } from "../../../dist/src/runtime/role-models.js";
-import { createProjectDevelopmentClient } from "../../../dist/src/runtime/project-development-client.js";
-import { DurableScheduler } from "../../../dist/src/runtime/scheduler.js";
 import { formatSubagentSummary } from "../../../dist/src/runtime/subagent-callback.js";
-import {
-  createSubagentClient,
-  subagentBackendConfigured
-} from "../../../dist/src/runtime/subagent-client.js";
+import { createSubagentClient } from "../../../dist/src/runtime/subagent-client.js";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { CoworkToolContext } from "../extension.ts";
 import type { RuntimeToolResult } from "../helpers.ts";
 
-import { errorMessage } from "../helpers.ts";
 import { delegationRenderers } from "../cli-ui.ts";
 
 /** coordination tools depend only on explicit runtime ports. */
@@ -346,316 +324,65 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       const requestedReview = typeof params.reviewId === "string" ? params.reviewId.trim() : "";
       if (requestedReview && !continueCallId)
         throw new Error("reviewId 只能与 continueCallId 一起使用：发现由返修续接回答");
-      // With a backend, Main asks for a work item and the backend owns the
-      // process: registration, dependencies, checkout, role connection and
-      // settlement all happen there. A CLI run with no local service keeps its
-      // own in-process execution, which #06 removes together with that host.
-      if (subagentBackendConfigured()) {
-        const accepted = await createSubagentClient({ taskId: context.taskId }).dispatch({
-          task: goal,
-          mode: params.mode,
-          role,
-          ...(dependsOn.length > 0 ? { dependsOn } : {}),
-          ...(typeof params.developmentId === "string" && params.developmentId.trim()
-            ? { developmentId: params.developmentId.trim() }
-            : {}),
-          ...(continueCallId ? { continueCallId } : {}),
-          ...(requestedReview ? { reviewId: requestedReview } : {}),
-          ...(params.attachments === undefined ? {} : { attachments: params.attachments }),
-          ...(typeof params.profileId === "string" && params.profileId.trim()
-            ? { profileId: params.profileId.trim() }
-            : {}),
-          ...(typeof params.model === "string" && params.model.trim() ? { model: params.model.trim() } : {}),
-          thinkingLevel: context.currentThinkingLevel()
-        });
-        const callId = String(accepted.callId ?? "");
-        const acceptedPayload = {
-          callId,
-          runId: accepted.runId,
-          agentId: accepted.agentId,
-          name: accepted.name,
-          role,
-          ...(accepted.developmentId
-            ? { developmentId: accepted.developmentId, workspace: accepted.workspace }
-            : {}),
-          ...(accepted.continuedFrom ? { continuedFrom: accepted.continuedFrom } : {}),
-          ...(Array.isArray(accepted.dependsOn) ? { dependsOn: accepted.dependsOn } : {})
-        };
-        if (params.mode === "async") {
-          context.updateRuntime({
-            runtimeRouting: { strategy: "async", reason: goal.slice(0, 240) },
-            runtimeLastEvent: { type: "subagent_accepted", summary: `${callId}: ${goal.slice(0, 180)}` }
-          });
-          const payload = { accepted: true, mode: "async", ...acceptedPayload };
-          return { content: [{ type: "text", text: JSON.stringify(payload) }], details: payload };
-        }
-        const settled = await waitForDispatchedCall(context, accepted);
-        context.updateRuntime({
-          runtimeRouting: { strategy: "sync", reason: goal.slice(0, 240) },
-          runtimeLastEvent: { type: "subagent_completed", summary: `${callId}: ${settled.status}` }
-        });
-        const payload = {
-          ...acceptedPayload,
-          status: settled.status,
-          response: settled.response,
-          artifacts: [],
-          outputFiles: settled.outputFiles,
-          diagnostics: settled.diagnostics,
-          error: settled.error
-        };
-        return {
-          content: [{ type: "text", text: JSON.stringify(payload) }],
-          details: { ...payload, _coworkInboxMessages: settled.claimedCallbacks ?? [] }
-        };
-      }
-      // The durable queue is the only source of a work item's identity. One
-      // read serves both the dependency check and an explicit continuation.
-      const queue =
-        dependsOn.length > 0 || continueCallId
-          ? new DurableScheduler(
-              join(context.workspaceRoot, context.taskId, "runs", context.mainRunId, "queue.json")
-            )
-          : undefined;
-      const queuedItems = queue ? await queue.list() : [];
-      if (dependsOn.length > 0) {
-        // Refuse an unusable dependency before this call owns a name or an
-        // experiment row: a refusal here must leave no durable trace behind.
-        const known = new Set(queuedItems.map((item) => item.stepId));
-        const unknown = dependsOn.filter((stepId) => !known.has(stepId));
-        if (unknown.length > 0)
-          throw new Error(
-            `dependsOn 引用了本 Run 中不存在的工作项：${unknown.join("、")}；只能依赖已委派的 callId`
-          );
-      }
-      const explicitProfileId = typeof params.profileId === "string" ? params.profileId.trim() : "";
-      const explicitModel = typeof params.model === "string" ? params.model.trim() : "";
-      // The requirement checkout is read from this backend's own record: an
-      // arbitrary path from the model is never accepted as a working root.
-      const requestedDevelopment =
-        typeof params.developmentId === "string" ? params.developmentId.trim() : "";
-      const terminalCall = (status: string) =>
-        status === "completed" || status === "failed" || status === "cancelled";
-      // A rework continues the original Executor: same agent, same checkpoint
-      // history and same checkout. Main names the finished call; it cannot
-      // choose a different identity or site for the continuation.
-      let continued:
-        | {
-            agentId: string;
-            workItemSite: { developmentDirectory: string; directory: string; branch: string };
-            developmentId: string;
-          }
-        | undefined;
-      if (continueCallId) {
-        if (role !== "executor")
-          throw new Error("continueCallId 只能续接 Executor 工作项，Reviewer 不能以原上下文返修");
-        const original = queuedItems.find((item) => item.stepId === continueCallId);
-        if (!original) throw new Error(`continueCallId 引用了本 Run 中不存在的工作项：${continueCallId}`);
-        const payload = (original.payload ?? {}) as {
-          delegation?: { role?: string };
-          workItemSite?: { developmentDirectory: string; directory: string; branch: string };
-          developmentId?: string;
-        };
-        if ((payload.delegation?.role ?? "executor") !== "executor")
-          throw new Error(`工作项 ${continueCallId} 不是 Executor，不能以原上下文返修`);
-        if (!terminalCall(original.status))
-          throw new Error(
-            `工作项 ${continueCallId} 还没有结束（${original.status}）；不能重复执行正在运行的工作项`
-          );
-        const inFlight = queuedItems.find(
-          (item) =>
-            (item.payload as { continuation?: { fromCallId?: string } } | undefined)?.continuation
-              ?.fromCallId === continueCallId && !terminalCall(item.status)
-        );
-        if (inFlight)
-          throw new Error(`工作项 ${continueCallId} 已有一个续接工作项在运行（${inFlight.stepId}）`);
-        if (requestedDevelopment && payload.developmentId !== requestedDevelopment)
-          throw new Error(`工作项 ${continueCallId} 不属于需求 ${requestedDevelopment}`);
-        if (!payload.workItemSite?.directory || !payload.developmentId)
-          throw new Error(`工作项 ${continueCallId} 没有可续接的独立需求现场`);
-        continued = {
-          agentId: original.agentId,
-          workItemSite: payload.workItemSite,
-          developmentId: payload.developmentId
-        };
-      }
-      const developmentWorkspace =
-        !continued && requestedDevelopment
-          ? await developmentWorkspaceDirectory(context, requestedDevelopment)
-          : undefined;
-      const capabilityGrants = await context.delegationGrants(params.attachments);
-      const commandEnv = await businessCommandEnvironment(context.runtimeEnv, signal);
-      const { agentId, name } = continued
-        ? { agentId: continued.agentId, name: agentDisplayName(continued.agentId) }
-        : await reserveSubagentIdentity(context.taskWorkspace);
-      const callId = `call-${randomUUID()}`;
-      // A bound item gets its own checkout beside the integration site, forked
-      // at its actual start; the item never writes the integration site itself.
-      // A continuation reuses the authoring item's checkout exactly as it was.
-      const workItemSite = continued
-        ? continued.workItemSite
-        : developmentWorkspace
-          ? {
-              developmentDirectory: developmentWorkspace.directory,
-              directory: join(dirname(developmentWorkspace.directory), "work-items", callId),
-              branch: `coworkos/work/${callId}`
-            }
-          : undefined;
-      const effectiveDevelopment = continued?.developmentId ?? requestedDevelopment;
-      // An open experiment absorbs this delegation automatically. Attribution
-      // follows the program Main opened, never the wording of the task, so a
-      // Task with no open program still records nothing.
-      const experimentRef = await context.openExperimentRun({ callId, agentId, objective: goal });
-      // A role binding is resolved on this host when the item starts, so only
-      // the non-sensitive request travels with the work item.
-      const projectId = await projectIdForTask(context);
-      const delegation = {
-        role,
-        ...(projectId ? { projectId } : {}),
-        ...(explicitProfileId ? { profileId: explicitProfileId } : {}),
-        ...(explicitModel ? { model: explicitModel } : {})
-      } satisfies DelegatedModelRequest;
-      let markQueued!: () => void;
-      const queued = new Promise<void>((resolve) => {
-        markQueued = resolve;
-      });
-      const run = context.coordinator.dispatch({
-        taskId: context.taskId,
-        runId: context.mainRunId,
-        callId,
-        agentId,
+      // Main asks for a work item and the backend owns the process:
+      // registration, dependencies, checkout, role connection and settlement
+      // all happen there. There is no in-process execution to fall back to.
+      const accepted = await createSubagentClient({ taskId: context.taskId }).dispatch({
         task: goal,
         mode: params.mode,
-        workspaceRoot: context.workspaceRoot,
-        commandEnv,
-        projectDirectory: workItemSite?.directory ?? context.projectDirectory,
-        delegation,
-        ...(workItemSite ? { workItemSite, developmentId: effectiveDevelopment } : {}),
-        ...(continued
-          ? {
-              continuation: {
-                fromCallId: continueCallId,
-                ...(requestedReview ? { reviewId: requestedReview } : {})
-              }
-            }
-          : {}),
+        role,
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
-        baseUrl: context.baseUrl,
-        apiKey: context.apiKey,
-        model: context.modelId,
-        thinkingLevel: context.currentThinkingLevel(),
-        api: configuredModelApi(context.runtimeEnv),
-        thinkingFormat: configuredThinkingFormat(context.runtimeEnv),
-        supportsReasoningEffort: context.supportsReasoningEffort,
-        supportsPromptCacheKey: configuredSupportsPromptCacheKey(context.runtimeEnv),
-        supportsImages: context.supportsImages,
-        context: context.recentContext,
-        maxTurns: configuredSubagentMaxTurns(context.runtimeEnv),
-        maxTokens: configuredSubagentMaxTokens(context.runtimeEnv),
-        contextWindow: configuredContextWindow(context.runtimeEnv),
-        timeoutMs: configuredSubagentTimeout(context.runtimeEnv),
-        maxAttempts: configuredMaxAttempts(context.runtimeEnv),
-        questionTimeoutMs: configuredSubagentQuestionTimeout(context.runtimeEnv),
-        maxQuestions: configuredSubagentMaxQuestions(context.runtimeEnv),
-        web: context.web,
-        ...context.skillScopeNow(),
-        capabilityGrants,
-        capabilityProvider: context.capabilityProvider,
-        onQueued: markQueued,
-        experimentRef,
-        callbackMetadata: experimentRef
+        ...(typeof params.developmentId === "string" && params.developmentId.trim()
+          ? { developmentId: params.developmentId.trim() }
+          : {}),
+        ...(continueCallId ? { continueCallId } : {}),
+        ...(requestedReview ? { reviewId: requestedReview } : {}),
+        ...(params.attachments === undefined ? {} : { attachments: params.attachments }),
+        ...(typeof params.profileId === "string" && params.profileId.trim()
+          ? { profileId: params.profileId.trim() }
+          : {}),
+        ...(typeof params.model === "string" && params.model.trim() ? { model: params.model.trim() } : {}),
+        thinkingLevel: context.currentThinkingLevel()
       });
+      const callId = String(accepted.callId ?? "");
+      const acceptedPayload = {
+        callId,
+        runId: accepted.runId,
+        agentId: accepted.agentId,
+        name: accepted.name,
+        role,
+        ...(accepted.developmentId
+          ? { developmentId: accepted.developmentId, workspace: accepted.workspace }
+          : {}),
+        ...(accepted.continuedFrom ? { continuedFrom: accepted.continuedFrom } : {}),
+        ...(Array.isArray(accepted.dependsOn) ? { dependsOn: accepted.dependsOn } : {})
+      };
       if (params.mode === "async") {
-        context.active += 1;
-        ctx.ui.setStatus("cowork", `子任务运行中（${context.active}）`);
-        let acceptedDurably = false;
-        queued.then(() => {
-          acceptedDurably = true;
-        });
-        void run
-          .then(
-            () =>
-              context.deliverCallbacks().catch((error) => {
-                try {
-                  ctx.ui.notify(`Async callback delivery deferred: ${errorMessage(error)}`, "warning");
-                  // eslint-disable-next-line no-restricted-syntax -- notify 在 Main 已停止时会抛错；回调已留在 Inbox 并释放租约，下一次 Main 会重新投递，警告显示失败不能变成未处理拒绝
-                } catch {
-                  // Main may have stopped while the Subagent was still running.
-                  // Delivery releases its Inbox lease, so the next Main can recover it.
-                }
-              }),
-            (error) => {
-              // A start refusal is reported by this call's own tool result; the
-              // callback path never began, so delivery wording would misattribute it.
-              if (!acceptedDurably) return;
-              try {
-                ctx.ui.notify(`Subagent start failed: ${errorMessage(error)}`, "warning");
-                // eslint-disable-next-line no-restricted-syntax -- 启动失败已由工具结果和队列记录表达；Main 退出后 notify 会抛错，这条 UI 警告不能反过来拒绝脱钩的投递链
-              } catch {
-                /* the Main that started it may already be gone */
-              }
-            }
-          )
-          .finally(() => {
-            context.active -= 1;
-            context.updateRuntime({
-              runtimePendingDelegations: context.active + context.inboxDelivery.queuedCount
-            });
-            try {
-              ctx.ui.setStatus("cowork", context.active ? `子任务运行中（${context.active}）` : "");
-              // eslint-disable-next-line no-restricted-syntax -- 清理阶段的 setStatus 在 UI 已释放时会抛错；active 计数和 runtime 状态已在前面更新，状态刷新失败不能拒绝脱钩的清理 promise
-            } catch {
-              // A disposed UI must not reject this detached cleanup promise.
-            }
-          });
-        await Promise.race([queued, run]);
         context.updateRuntime({
-          runtimePendingDelegations: context.active,
           runtimeRouting: { strategy: "async", reason: goal.slice(0, 240) },
           runtimeLastEvent: { type: "subagent_accepted", summary: `${callId}: ${goal.slice(0, 180)}` }
         });
-        const payload = {
-          accepted: true,
-          mode: "async",
-          callId,
-          runId: context.mainRunId,
-          agentId,
-          name,
-          role,
-          ...(workItemSite ? { developmentId: effectiveDevelopment, workspace: workItemSite.directory } : {}),
-          ...(continued ? { continuedFrom: continueCallId } : {}),
-          ...(dependsOn.length > 0 ? { dependsOn } : {})
-        };
+        const payload = { accepted: true, mode: "async", ...acceptedPayload };
         return { content: [{ type: "text", text: JSON.stringify(payload) }], details: payload };
       }
-      try {
-        const result = await run;
-        context.updateRuntime({
-          runtimeRouting: { strategy: "sync", reason: goal.slice(0, 240) },
-          runtimeLastEvent: { type: "subagent_completed", summary: `${result.callId}: ${result.status}` }
-        });
-        const payload = {
-          callId: result.callId,
-          runId: result.runId,
-          agentId: result.agentId,
-          name,
-          role,
-          ...(workItemSite ? { developmentId: effectiveDevelopment, workspace: workItemSite.directory } : {}),
-          ...(continued ? { continuedFrom: continueCallId } : {}),
-          ...(dependsOn.length > 0 ? { dependsOn } : {}),
-          status: result.status,
-          response: result.response,
-          artifacts: result.artifacts.map((artifact) => artifact.relativePath),
-          outputFiles: result.outputFiles ?? [],
-          diagnostics: result.diagnostics,
-          error: result.error
-        };
-        return { content: [{ type: "text", text: JSON.stringify(payload) }], details: payload };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ ok: false, error: errorMessage(error) }) }],
-          details: { ok: false, error: errorMessage(error) }
-        };
-      }
+      const settled = await waitForDispatchedCall(context, accepted);
+      context.updateRuntime({
+        runtimeRouting: { strategy: "sync", reason: goal.slice(0, 240) },
+        runtimeLastEvent: { type: "subagent_completed", summary: `${callId}: ${settled.status}` }
+      });
+      const payload = {
+        ...acceptedPayload,
+        status: settled.status,
+        response: settled.response,
+        artifacts: [],
+        outputFiles: settled.outputFiles,
+        diagnostics: settled.diagnostics,
+        error: settled.error
+      };
+      return {
+        content: [{ type: "text", text: JSON.stringify(payload) }],
+        details: { ...payload, _coworkInboxMessages: settled.claimedCallbacks ?? [] }
+      };
     }
   });
 
@@ -797,18 +524,10 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     async execute(_toolCallId, params): Promise<RuntimeToolResult> {
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancel_subagent 的 callId 由模型以 JSON 参数传入，运行期可能缺失；空串会落到找不到 call 的分支，不能把 undefined 传给存储查询
       const callId = String(params.callId ?? "");
-      const result = subagentBackendConfigured()
-        ? await createSubagentClient({ taskId: context.taskId }).cancel({
-            callId,
-            ...(typeof params.reason === "string" ? { reason: params.reason } : {})
-          })
-        : await context.coordinator.cancelSubagent({
-            taskId: context.taskId,
-            runId: context.mainRunId,
-            workspaceRoot: context.workspaceRoot,
-            callId,
-            reason: typeof params.reason === "string" ? params.reason : undefined
-          });
+      const result = await createSubagentClient({ taskId: context.taskId }).cancel({
+        callId,
+        ...(typeof params.reason === "string" ? { reason: params.reason } : {})
+      });
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     }
   });
@@ -968,7 +687,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       // finish_task is Main stating the objective is done — exactly what
       // supersedes it. Only the automatic path is blocked while parked.
       const assessment = assessTaskCompletion({
-        pendingCalls: Math.max(context.active, coordination.pending.length) + Number(context.recoveryActive),
+        pendingCalls: coordination.pending.length,
         pendingJobs: await context.pollJobs(),
         pendingCallbacks: Math.max(context.inboxDelivery.queuedCount, coordination.callbackPending.length),
         pendingHumanRequests: (await context.humanStore.list(context.taskId, "pending")).length,
@@ -1112,35 +831,4 @@ async function readResultRecord(
   } catch {
     return undefined;
   }
-}
-
-/** The project this conversation belongs to, used only for a role's project override. */
-async function projectIdForTask(context: CoworkToolContext): Promise<string | undefined> {
-  return (await new LocalWorkspaceStore(context.workspaceRoot).readTask(context.taskId)).projectId;
-}
-
-/**
- * The isolated checkout this backend recorded for one development.
- *
- * Read back through the same Task-scoped service the development tool uses, so
- * the directory is this backend's own workspace row instead of a path the model
- * named. A workspace that is not ready is refused here rather than handed to a
- * delegate as a working tree.
- */
-async function developmentWorkspaceDirectory(
-  context: CoworkToolContext,
-  developmentId: string
-): Promise<{ directory: string }> {
-  const dashboardUrl = process.env.COWORK_DASHBOARD_URL;
-  if (!dashboardUrl) throw new Error("需求现场不可用：本次运行没有本地服务地址");
-  const request = createProjectDevelopmentClient({ dashboardUrl, taskId: context.taskId });
-  const body = await request({ action: "get", developmentId });
-  const workspace = (body.development as { workspace?: { directory?: unknown; state?: unknown } } | undefined)
-    ?.workspace;
-  const directory = typeof workspace?.directory === "string" ? workspace.directory : "";
-  if (!directory || workspace?.state !== "ready")
-    throw new Error(
-      `需求现场尚未就绪（${developmentId}）；先调用 project_development ensure_workspace 恢复现场后再委派`
-    );
-  return { directory };
 }

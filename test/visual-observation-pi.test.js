@@ -7,7 +7,6 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { PNG } from "pngjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
-import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
 import { createImageArchive } from "../dist/src/tools/image-archive.js";
 import { cropPng } from "../dist/src/tools/image-crop.js";
 
@@ -58,9 +57,9 @@ function replySequence(scope) {
   };
 }
 
-for (const main of [false, true])
+for (const main of [true])
   test(
-    `real ${main ? "Main extension" : "delegated PiSession"}: crop → reference reread → multiple images → archive history`,
+    `real Main extension: crop → reference reread → multiple images → archive history`,
     { timeout: 45000 },
     async (t) => {
       const root = await mkdtemp(join(tmpdir(), "atria-visual-tools-pi-"));
@@ -120,20 +119,6 @@ for (const main of [false, true])
         pending.child.stdin.end();
         const { stdout, stderr } = await pending;
         assert.ok(stdout.includes("visual comparison completed."), stderr);
-      } else {
-        const result = await new CoordinatorRuntime().dispatch({
-          taskId: "visual-task",
-          runId: "visual-run",
-          callId: "visual-call",
-          agentId: "visual-agent",
-          task: "Crop and compare frame.png",
-          mode: "sync",
-          workspaceRoot: workspace,
-          ...connection,
-          thinkingLevel: "off",
-          timeoutMs: 15000
-        });
-        assert.equal(result.status, "succeeded");
       }
       const names = provider.requests[0].body.tools.map((tool) => tool.function.name);
       for (const name of ["read_image", "crop_image", "read_images", "list_images"])
@@ -153,9 +138,9 @@ for (const main of [false, true])
     }
   );
 
-for (const main of [false, true])
+for (const main of [true])
   test(
-    `real ${main ? "Main" : "delegated"} Pi accepts empty/null unused image sources and rejects genuinely conflicting sources`,
+    "real Main Pi accepts empty/null unused image sources and rejects genuinely conflicting sources",
     { timeout: 45000 },
     async (t) => {
       const root = await mkdtemp(join(tmpdir(), "atria-visual-source-pi-"));
@@ -256,20 +241,6 @@ for (const main of [false, true])
         pending.child.stdin.end();
         const { stdout, stderr } = await pending;
         assert.ok(stdout.includes("IMAGE_SOURCE_COMPATIBILITY_VERIFIED"), stderr);
-      } else {
-        const result = await new CoordinatorRuntime().dispatch({
-          taskId: "visual-task",
-          runId: "visual-source-run",
-          callId: "visual-source-call",
-          agentId: "visual-agent",
-          task: "Inspect images using exactly one meaningful source.",
-          mode: "sync",
-          workspaceRoot: workspace,
-          ...connection,
-          thinkingLevel: "off",
-          timeoutMs: 15000
-        });
-        assert.equal(result.status, "succeeded");
       }
       assert.equal(provider.requests.length, 10);
       assert.match(results[0], /Image loaded/, "empty path + valid imageRef failed to crop");

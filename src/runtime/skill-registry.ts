@@ -13,7 +13,7 @@ export interface SkillMetadata {
 /**
  * Lightweight Agent Skills discovery for Cowork's custom Subagent runtime.
  * Pi coding-agent already discovers project skills for Main; this registry
- * gives the lower-level PiSession the same progressive-disclosure contract
+ * gives a delegated agent the same progressive-disclosure contract
  * without copying full skill instructions into every prompt.
  */
 export async function discoverSkills(roots: string[]): Promise<SkillMetadata[]> {

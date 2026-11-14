@@ -22,6 +22,7 @@ import {
   claimSubagentOwnership,
   readLiveSubagentOwner,
   releaseSubagentOwnership,
+  type SubagentOwnerKind,
   type SubagentOwnership
 } from "../runtime/subagent-owner.js";
 import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
@@ -39,6 +40,13 @@ import type { TaskLocation } from "./workspace-directory.js";
 export interface SubagentBackendPorts {
   projectRoot: string;
   dashboardUrl: string;
+  /**
+   * Who this process is in the workspace's single-owner record.
+   *
+   * The Dashboard is the product backend and may replace a CLI host's claim. A
+   * CLI host claims as a worker, so a Dashboard that starts later takes over.
+   */
+  ownerKind?: SubagentOwnerKind;
   locateTask(taskId: string): Promise<TaskLocation>;
   workspaceRoots(): Promise<string[]>;
   /** This host's saved configuration; read again at every start boundary. */
@@ -154,7 +162,7 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
         return false;
       }
     }
-    const claimed = await claimSubagentOwnership(workspaceRoot, "dashboard");
+    const claimed = await claimSubagentOwnership(workspaceRoot, ports.ownerKind ?? "dashboard");
     ownership.set(workspaceRoot, claimed);
     if (claimed.owned) refusalCheckedAt.delete(workspaceRoot);
     else refusalCheckedAt.set(workspaceRoot, Date.now());

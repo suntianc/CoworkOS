@@ -21,12 +21,12 @@
   "rules": [
     {
       "stage": "cases",
-      "node": "^(science-removal|machine-learning-skill-pi|publish-artifact-pi|automation-pi|main-recovery-pi|input-files-pi|image-input-session|live-ui)\\.test\\.js$",
+      "node": "^(science-removal|machine-learning-skill-pi|publish-artifact-pi|automation-pi|main-recovery-pi|input-files-pi|image-tools-pi|live-ui)\\.test\\.js$",
       "browser": "^(human-interactions|message-delivery|conversation-integrity|request-recovery)\\.spec\\.js$"
     },
     {
       "stage": "cli",
-      "node": "^(cli-onboarding|cli-commands|agent-smoke-cli|reasoning-launcher|main-run-env)\\.test\\.js$",
+      "node": "^(cli-onboarding|cli-commands|reasoning-launcher|main-run-env)\\.test\\.js$",
       "browser": "(?!)"
     },
     {
@@ -91,7 +91,7 @@
       ],
       "files": [
         "test/cli-onboarding.test.js",
-        "test/agent-smoke-cli.test.js"
+        "test/cli-commands.test.js"
       ],
       "note": "已有命令/初始化回归；最终 tgz 的独立安装和真实 PTY 仍单列。"
     },

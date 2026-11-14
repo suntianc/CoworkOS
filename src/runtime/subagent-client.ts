@@ -13,9 +13,17 @@ export interface SubagentClient {
 const TASK_ID = /^[A-Za-z0-9._-]+$/;
 const TIMEOUT_MS = 30_000;
 
-/** Whether this run asks a backend to dispatch; a CLI run with no service keeps its own path. */
-export function subagentBackendConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.COWORK_DASHBOARD_URL && env.COWORK_API_TOKEN);
+/**
+ * The address a Main process uses to reach the backend that serves its Run.
+ *
+ * A Dashboard passes its own origin and host credential. A CLI run is served by
+ * the backend the CLI host assembles in its own process, which publishes these
+ * two names instead so its unrelated Dashboard tools stay unconfigured.
+ */
+function backendAddress(env: NodeJS.ProcessEnv): { url?: string; token?: string } {
+  if (env.COWORK_SUBAGENT_BACKEND_URL)
+    return { url: env.COWORK_SUBAGENT_BACKEND_URL, token: env.COWORK_SUBAGENT_BACKEND_TOKEN };
+  return { url: env.COWORK_DASHBOARD_URL, token: env.COWORK_API_TOKEN };
 }
 
 function loopback(dashboardUrl: string): string {
@@ -35,11 +43,12 @@ export function createSubagentClient(options: {
   taskId: string;
   token?: string;
 }): SubagentClient {
-  const dashboardUrl = options.dashboardUrl ?? process.env.COWORK_DASHBOARD_URL;
+  const address = backendAddress(process.env);
+  const dashboardUrl = options.dashboardUrl ?? address.url;
   if (!dashboardUrl) throw new Error("子代理派单不可用：本次运行没有本地服务地址");
   const origin = loopback(dashboardUrl);
   if (!TASK_ID.test(options.taskId)) throw new Error("子代理派单不可用：当前会话 ID 不合法");
-  const token = options.token ?? process.env.COWORK_API_TOKEN;
+  const token = options.token ?? address.token;
   if (!token) throw new Error("子代理派单不可用：本次运行没有本地服务凭据");
   const base = `${origin}/api/tasks/${encodeURIComponent(options.taskId)}/subagents`;
 

@@ -10,7 +10,6 @@ import { PNG } from "pngjs";
 import { createImageTools } from "../dist/src/tools/read-image.js";
 import { createImageArchive } from "../dist/src/tools/image-archive.js";
 import { cropPng } from "../dist/src/tools/image-crop.js";
-import { createBuiltinTools } from "../dist/src/tools/builtin.js";
 
 function frame(width = 8, height = 6) {
   const image = new PNG({ width, height });
@@ -103,10 +102,10 @@ test("read/crop/multi-image/history tools share immutable Task images and preser
   const history = await tools.list_images.execute({});
   assert.equal(history.details.images.length, 2);
   assert.ok(history.details.images.some((item) => item.source.kind === "derived"));
-  const builtin = createBuiltinTools({ rootDirectory: work, workspaceDirectory: task, supportsImages: true });
-  for (const name of ["read_image", "crop_image", "read_images", "list_images"]) assert.ok(builtin.has(name));
+  const builtin = createImageTools({ rootDirectory: work, taskDirectory: task, supportsImages: true });
+  for (const name of ["read_image", "crop_image", "read_images", "list_images"]) assert.ok(name in builtin);
   assert.equal(
-    (await builtin.get("read_image").execute({ imageRef: first.details.imageRef })).details.imageRef,
+    (await builtin.read_image.execute({ imageRef: first.details.imageRef })).details.imageRef,
     first.details.imageRef
   );
 });

@@ -2,7 +2,7 @@
 
 [中文](../cli-ui-adapter.md) | English
 
-CoworkOS uses the original `@earendil-works/pi-coding-agent@1.5.2`, retaining licenses and recovery formats. Product roles do not assert model training provenance. Raw requests, JSONL, checkpoints, native SDK RPC and user prompts preserve their actual contents; product exports project only known defaults in copies.
+CoworkOS uses the original `@earendil-works/pi-coding-agent@1.5.2`, retaining licenses and recovery formats. Product roles do not assert model training provenance. Raw requests, JSONL, native SDK RPC and user prompts preserve their actual contents; product exports project only known defaults in copies.
 
 Public root/start/npm version queries return the CoworkOS version without configuration, SDK, compiled runtime or writable profiles. Root version accepts no extra arguments; start help takes priority over version, while other execution arguments combined with a version query are rejected. Option values and text after `--` remain ordinary inputs. Extension execution flags still use SDK validation.
 
