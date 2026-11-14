@@ -8,7 +8,7 @@ import {
   runtimeSettingsEnv
 } from "../../../dist/src/runtime/runtime-settings.js";
 import { askMain } from "../../../dist/src/runtime/subagent-questions.js";
-import { DurableScheduler } from "../../../dist/src/runtime/scheduler.js";
+import { readFile } from "node:fs/promises";
 import { parseReviewConclusion, type ReviewConclusion } from "../../../dist/src/runtime/subagent-review.js";
 import { sendPeerMessage, type PeerMessageResult } from "../../../dist/src/runtime/subagent-peer-message.js";
 import { JsonlEventStore } from "../../../dist/src/storage/event-store.js";
@@ -277,10 +277,21 @@ export function registerSubagentTools(pi: ExtensionAPI, context: SubagentToolCon
   });
 }
 
-/** Whether the backend cancelled this call while the question was waiting. */
+/**
+ * Whether the backend cancelled this call while the question was waiting.
+ *
+ * This is a read-only probe on a file the backend replaces atomically, so it
+ * does not take the scheduler's write lock: a blocked question must not hold
+ * the lock the backend needs to settle the call it is asking about.
+ */
 async function callCancelled(context: SubagentToolContext): Promise<boolean> {
-  const items = await new DurableScheduler(
-    join(context.workspaceRoot, context.taskId, "runs", context.runId, "queue.json")
-  ).list();
-  return items.find((item) => item.stepId === context.callId)?.status === "cancelled";
+  try {
+    const items = JSON.parse(
+      await readFile(join(context.workspaceRoot, context.taskId, "runs", context.runId, "queue.json"), "utf8")
+    ) as Array<{ stepId?: string; status?: string }>;
+    return items.find((item) => item.stepId === context.callId)?.status === "cancelled";
+    // eslint-disable-next-line no-restricted-syntax -- 队列读不到或正在替换时按未取消继续等待，真正的取消与本次等待超时仍会结束阻塞
+  } catch {
+    return false;
+  }
 }

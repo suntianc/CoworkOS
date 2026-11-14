@@ -253,7 +253,11 @@ export class SubagentProcessService {
     if (item && isTerminal(item.status)) return this.findSettled(record);
     if (await this.host.owns(record)) await this.markQueueCancelled(input.taskId, input.runId, record.callId);
     await this.host.stop(record);
-    return this.findSettled(record);
+    // Stopping settled the record: its durable outcome is the answer, and
+    // reading it here avoids taking the queue lock again on a path that just
+    // contended for it.
+    const afterStop = settledResult((await this.findRecord(record)) ?? record);
+    return afterStop ?? (await this.findSettled(record));
   }
 
   /** Whether any process this Run launched is still running. */
@@ -400,8 +404,7 @@ export class SubagentProcessService {
   }
 
   private async settle(record: AgentProcessRecord): Promise<void> {
-    const result = await this.findSettled(record);
-    await this.projectOutcome(record);
+    const result = await this.projectOutcome(record);
     // A Reviewer's checkout is the evidence its review was recorded against:
     // Main binds the review and checks the candidate's drift after the call is
     // over, so a successful review keeps the site. One that never produced a
@@ -409,7 +412,7 @@ export class SubagentProcessService {
     if (result.status !== "succeeded") await this.cleanupReviewSite(record);
   }
 
-  private async projectOutcome(record: AgentProcessRecord): Promise<void> {
+  private async projectOutcome(record: AgentProcessRecord): Promise<SubagentProcessResult> {
     const result = await this.findSettled(record);
     const runRoot = join(this.workspaceRoot, record.taskId, "runs", record.runId);
     const scheduler = new DurableScheduler(join(runRoot, "queue.json"));
@@ -489,6 +492,7 @@ export class SubagentProcessService {
       ...(result.error ? { error: result.error } : {})
     });
     await this.options.onSettled?.(result);
+    return result;
   }
 
   /** Remove the Reviewer checkout and its marker after the process settled. */
