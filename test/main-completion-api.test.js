@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { finalAnswerIndex } from "../web/assets/conversation.js";
 import { HumanRequestStore } from "../dist/src/runtime/human.js";
+import { SubagentQuestionStore } from "../dist/src/runtime/subagent-questions.js";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
 import { endAgentProcesses } from "./dashboard-fixture.mjs";
 
@@ -835,14 +836,17 @@ test(
       { COWORK_SUBAGENT_QUESTION_TIMEOUT_MS: "600000" }
     );
     await f.start();
-    const questionDir = join(f.workspaceRoot, "task", "subagent-questions");
+    // Wait for the pending question itself, not merely for a file in its
+    // directory: the store's temp file during an atomic write is not a question
+    // yet, and the complete action's reason depends on reading a pending one.
+    const questions = new SubagentQuestionStore(f.workspaceRoot);
     await until(
       async () => {
-        const files = await readdir(questionDir).catch(() => []);
-        return files.length ? files : null;
+        const pending = await questions.list("task", "pending");
+        return pending.length ? pending : null;
       },
       Boolean,
-      "a raised question on disk",
+      "a pending question in the store",
       60_000
     );
 
