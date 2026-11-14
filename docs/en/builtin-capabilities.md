@@ -2,7 +2,7 @@
 
 [中文](../builtin-capabilities.md) | English
 
-This branch retains the complete CoworkOS orchestration chain: Main, Coordinator Runtime, Subagents, Jobs, human questions, workspaces, checkpoints and session recovery. Generic files and attachments, image inspection, search and Computer Use remain available.
+This branch retains the complete CoworkOS orchestration chain: Main, Coordinator Runtime, Subagents, Jobs, human questions, workspaces and session recovery. Generic files and attachments, image inspection, search and Computer Use remain available.
 
 Removed capabilities:
 

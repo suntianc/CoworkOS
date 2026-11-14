@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { browseWorkspace } from "../dist/src/tools/builtin.js";
+import { browseWorkspace } from "../dist/src/tools/workspace-browse.js";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "atria-browse-boundary-"));

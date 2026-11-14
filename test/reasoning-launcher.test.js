@@ -8,9 +8,9 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
 import { MainInboxDelivery } from "../dist/src/runtime/main-inbox-delivery.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+import { startSubagentBackend } from "./fixtures/subagent-backend-fixture.mjs";
 
 const runFile = promisify(execFile);
 const launcherPath = resolve("scripts/start-pi.mjs");
@@ -170,7 +170,7 @@ function fakePi(initialThinkingLevel = "off") {
   };
 }
 
-test("Cowork provider, recovered calls and new delegations use the active Main effort", async (t) => {
+test("Cowork provider and new delegations use the active Main effort", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-reasoning-extension-"));
   const keys = [
     "ATRIA_HOME",
@@ -187,8 +187,11 @@ test("Cowork provider, recovered calls and new delegations use the active Main e
   ];
   const previousEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   const previousArgv = process.argv;
-  const recoveries = [];
-  const dispatches = [];
+  const backend = await startSubagentBackend({
+    workspaceRoot: root,
+    taskId: "reasoning",
+    runId: "main"
+  });
   const pendingDeliveries = new Set();
   const deliver = MainInboxDelivery.prototype.deliver;
   t.mock.method(MainInboxDelivery.prototype, "deliver", function (...args) {
@@ -198,15 +201,6 @@ test("Cowork provider, recovered calls and new delegations use the active Main e
     return pending;
   });
   t.mock.method(globalThis, "setInterval", () => ({ unref() {} }));
-  t.mock.method(CoordinatorRuntime.prototype, "recoverRun", async (input) => {
-    recoveries.push(input);
-    return [];
-  });
-  t.mock.method(CoordinatorRuntime.prototype, "dispatch", async (input) => {
-    dispatches.push(input);
-    input.onQueued?.();
-    return { ...input, status: "succeeded", response: "Complete", artifacts: [] };
-  });
   try {
     for (const key of keys) delete process.env[key];
     await writeFile(join(root, "config.json"), "{}\n");
@@ -219,7 +213,9 @@ test("Cowork provider, recovered calls and new delegations use the active Main e
       COWORK_API_KEY: "test-key",
       COWORK_WORKSPACE: root,
       COWORK_TASK_ID: "reasoning",
-      COWORK_RUN_ID: "main"
+      COWORK_RUN_ID: "main",
+      COWORK_SUBAGENT_BACKEND_URL: backend.url,
+      COWORK_SUBAGENT_BACKEND_TOKEN: backend.token
     });
     process.argv = [process.execPath, "pi"];
     await new LocalWorkspaceStore(root).createTask("reasoning", { goal: "Reasoning regression" });
@@ -234,16 +230,13 @@ test("Cowork provider, recovered calls and new delegations use the active Main e
     await pi.handlers.get("session_start")({ reason: "startup" }, ctx);
     assert.equal(pi.getThinkingLevel(), "high", "direct extension startup must replace a legacy off default");
     assert.equal(pi.providers.get("cowork-glm").models[0].compat.supportsReasoningEffort, true);
-    assert.equal(recoveries[0].thinkingLevel, "high");
-    assert.equal(recoveries[0].supportsReasoningEffort, true);
 
     for (const level of ["low", "max", "off"]) {
       pi.setThinkingLevel(level);
       await pi.tools
         .get("call_subagent")
         .execute(`call-${level}`, { task: "Bounded subtask", mode: "sync" }, undefined, undefined, ctx);
-      assert.equal(dispatches.at(-1).thinkingLevel, level);
-      assert.equal(dispatches.at(-1).supportsReasoningEffort, true);
+      assert.equal(backend.requests.at(-1).thinkingLevel, level);
     }
     await pi.handlers.get("context")({ messages: [] }, ctx);
 
@@ -254,9 +247,8 @@ test("Cowork provider, recovered calls and new delegations use the active Main e
     await explicit.handlers.get("session_start")({ reason: "startup" }, ctx);
     assert.deepEqual(explicit.selected, [], "session_start must not overwrite native CLI --thinking off");
     assert.equal(explicit.providers.get("cowork-glm").models[0].compat.supportsReasoningEffort, false);
-    assert.equal(recoveries.at(-1).thinkingLevel, "off");
-    assert.equal(recoveries.at(-1).supportsReasoningEffort, false);
   } finally {
+    await backend.close();
     // Startup recovery queues Inbox delivery asynchronously. Drain both fake
     // sessions before removing their workspace; heartbeat writes can also be
     // finishing as the harness shuts down.

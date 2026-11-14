@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { basename, join, resolve } from "node:path";
 import { readInputDocument } from "../../../dist/src/workspace/input-reader.js";
 import { publishTaskArtifact } from "../../../dist/src/workspace/artifact-store.js";
-import { browseWorkspace } from "../../../dist/src/tools/builtin.js";
+import { browseWorkspace } from "../../../dist/src/tools/workspace-browse.js";
 import { discoverSkills, createLoadSkillTool } from "../../../dist/src/runtime/skill-registry.js";
 import type { CoworkToolContext } from "../extension.ts";
 import type { RuntimeToolResult } from "../helpers.ts";

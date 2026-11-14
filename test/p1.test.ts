@@ -1,49 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBuiltinTools } from "../src/tools/builtin.js";
 import { createWebTools } from "../src/tools/web-tools.js";
-import { TraceRecorder } from "../src/storage/trace-recorder.js";
+import { browseWorkspace } from "../src/tools/workspace-browse.js";
 import { createLoadSkillTool, discoverSkills, skillCatalogPrompt } from "../src/runtime/skill-registry.js";
 
 async function main(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "cowork-p1-"));
   try {
-    await writeFile(join(root, "sample.txt"), "hello");
-    const tools = createBuiltinTools({ rootDirectory: root });
-    assert.deepEqual(await tools.get("read_file")?.execute({ path: "sample.txt" }), {
-      path: "sample.txt",
-      content: "hello"
-    });
-    await tools.get("apply_patch")?.execute({ path: "sample.txt", oldText: "hello", newText: "hello world" });
-    assert.equal(await readFile(join(root, "sample.txt"), "utf8"), "hello world");
-    await tools.get("write_file")?.execute({ path: "deliverables/report.md", content: "# report\n" });
-    assert.equal(await readFile(join(root, "deliverables", "report.md"), "utf8"), "# report\n");
-    await tools
-      .get("write_file")
-      ?.execute({ path: "context/memory.md", content: "## Goal\nKeep the task state concise.\n" });
-    assert.equal(
-      await readFile(join(root, "context", "memory.md"), "utf8"),
-      "## Goal\nKeep the task state concise.\n"
-    );
-    await assert.rejects(
-      () => tools.get("write_file")!.execute({ path: "context/messages.json", content: "[]" }),
-      /framework-managed/
-    );
-    await assert.rejects(
-      () =>
-        tools
-          .get("apply_patch")!
-          .execute({ path: "context/state.json", oldText: "version", newText: "broken" }),
-      /framework-managed/
-    );
-    await assert.rejects(() => tools.get("read_file")!.execute({ path: "../escape" }), /escapes workspace/);
-    const command = await tools
-      .get("run_command")
-      ?.execute({ command: "node", args: ["-e", "console.log(42)"] });
-    assert.equal((command as { exitCode: number }).exitCode, 0);
-
     const skillRoot = join(root, ".pi", "skills", "demo");
     await mkdir(skillRoot, { recursive: true });
     await writeFile(
@@ -100,29 +65,18 @@ async function main(): Promise<void> {
     try {
       await mkdir(join(shared, "agents", "subagents", "s1"), { recursive: true });
       await writeFile(join(shared, "agents", "subagents", "s1", "progress.md"), "tests are green\n");
-      const scoped = createBuiltinTools({ rootDirectory: root, workspaceDirectory: shared });
-      const tree = await scoped.get("browse_workspace")?.execute({ mode: "tree", depth: 4 });
+      const browse = (input: unknown) => browseWorkspace({ workspaceDirectory: shared }, input);
+      const tree = await browse({ mode: "tree", depth: 4 });
       assert.match(JSON.stringify(tree), /agents\/subagents\/s1\/progress\.md/);
-      const search = await scoped.get("browse_workspace")?.execute({ mode: "search", query: "green" });
+      const search = await browse({ mode: "search", query: "green" });
       assert.match(JSON.stringify(search), /progress\.md/);
-      await assert.rejects(() => scoped.get("read_file")!.execute({ path: "../" }), /escapes workspace/);
+      // The read-only view never leaves the Task workspace, even through a link.
+      await assert.rejects(() => browse({ mode: "tree", path: "../" }), /escapes workspace/);
     } finally {
       await rm(shared, { recursive: true, force: true });
     }
 
-    const tracePath = join(root, "trace.jsonl");
-    const recorder = new TraceRecorder(tracePath);
-    await recorder.record({
-      traceId: "trace_1",
-      kind: "runtime",
-      taskId: "task",
-      runId: "run",
-      payload: { apiKey: "secret", ok: true }
-    });
-    const trace = await readFile(tracePath, "utf8");
-    assert.match(trace, /\[REDACTED\]/);
-    assert.doesNotMatch(trace, /secret/);
-    console.log("P1 tool/trace tests passed");
+    console.log("P1 tool/web tests passed");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { DurableScheduler, InboxStore } from "../dist/src/runtime/scheduler.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
+import { SubagentDispatchService } from "../dist/src/runtime/subagent-dispatch.js";
 import { createSubagentBackend } from "../dist/src/dashboard/subagent-backend.js";
 import { claimSubagentOwnership } from "../dist/src/runtime/subagent-owner.js";
 import { LocalAccess } from "../dist/src/dashboard/local-access.js";
@@ -134,7 +134,7 @@ test(
 );
 
 test(
-  "recovery leaves a work item claimed by another owner to that owner",
+  "backend maintenance leaves a work item claimed by another owner to that owner",
   { timeout: 60_000 },
   async (t) => {
     const root = await mkdtemp(join(tmpdir(), "p46-recovery-race-"));
@@ -159,7 +159,7 @@ test(
     const original = DurableScheduler.prototype.claim;
     let raced = false;
     DurableScheduler.prototype.claim = async function claim(workerId, leaseMs, stepId) {
-      if (!raced && stepId === "call-race" && workerId.startsWith("coordinator-")) {
+      if (!raced && stepId === "call-race" && workerId.startsWith("subagent-process-")) {
         raced = true;
         await original.call(this, "backend-owner", 60_000, stepId);
         return undefined;
@@ -170,20 +170,18 @@ test(
       DurableScheduler.prototype.claim = original;
     });
 
-    const coordinator = new CoordinatorRuntime();
-    const recovered = await coordinator.recoverRun({
-      taskId: "task",
-      runId: "run",
-      workspaceRoot: root,
-      baseUrl: "http://127.0.0.1:1",
-      apiKey: "unused",
-      model: "unused"
-    });
-    assert.deepEqual(recovered, [], "a lost claim is not this pass's outcome");
+    const service = new SubagentDispatchService({ workspaceRoot: root, harnessRoot: harness });
+    await service.maintain({ taskId: "task", runId: "run" });
+    service.close();
     const item = (await scheduler.list()).find((entry) => entry.stepId === "call-race");
     assert.equal(item.status, "leased", "the other owner keeps its lease");
     const events = await readFile(join(runRoot, "run_events.jsonl"), "utf8")
-      .then((text) => text.split("\n").filter(Boolean).map((line) => JSON.parse(line)))
+      .then((text) =>
+        text
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      )
       .catch(() => []);
     assert.equal(
       events.some((event) => event.type === "run.failed" && event.callId === "call-race"),
@@ -222,7 +220,13 @@ test(
     );
     t.after(() => owner.kill("SIGKILL"));
     await once(owner, "spawn");
-    await waitFor(async () => (await readFile(`${root}/.runtime/subagent-owner.json`, "utf8").catch(() => "")).includes("dashboard"), "the other owner's claim");
+    await waitFor(
+      async () =>
+        (await readFile(`${root}/.runtime/subagent-owner.json`, "utf8").catch(() => "")).includes(
+          "dashboard"
+        ),
+      "the other owner's claim"
+    );
 
     const backend = createSubagentBackend({
       projectRoot: harness,

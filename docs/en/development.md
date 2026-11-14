@@ -133,7 +133,6 @@ After changing code covered by those rules, run `npx eslint src web desktop scri
 | `npm run test:browser`                                    | Chromium/Electron user flows; native branches have prerequisites                                                                                                     | UI, HTTP/UI integration, drafts, navigation, collaboration                                 |
 | `npm run desktop:pack` then `npm run test:desktop`        | Relocated packaged App, settings, real Pi/local model, exit/restart/simulated upgrade                                                                                | Desktop host/lifetime/package changes                                                      |
 | `npm run test:release -- --list` / `npm run test:release` | Five release sections with version/logs/skips/manual items                                                                                                           | Release candidate; explicitly enable native/package stages                                 |
-| `npm run smoke:coding` / `npm run smoke:multi-subagent`   | Actual endpoint and delegation; consumes model quota                                                                                                                 | Real service/capability acceptance after configuring a connection                          |
 
 Ordinary Node regression defers explicit native desktop/CUA entrypoints and prints reasons. Optional engines may still produce TAP skips. See [local testing](testing-local-run.md) for prerequisites/reports/native commands. Local fixtures validate Pi protocol/lifecycle, not real model capability. Browser passing does not establish clean-machine installation. [package.json](../../package.json) and runners own exact scope.
 
@@ -173,7 +172,7 @@ UI state and DOM stay separate; drafts and async request ownership live in their
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | Save failure/409                               | Revision, external edits and concurrent writes; preserve the draft before rereading or recovering |
 | Agent lacks attachments/tools                  | Upload records, enabled tool groups, first `before_agent_start` and later `context`               |
-| Waiting/stop/recovery errors                   | Task/Run events, inbox, questions/workers/jobs, process exit, checkpoints                         |
+| Waiting/stop/recovery errors                   | Task/Run events, inbox, questions/workers/jobs and process exit                                   |
 | Draft/attachment missing after restart         | Workspace/global index, desktop data and draft mirror                                             |
 | Model launch failure                           | Endpoint/protocol/model/parameters/env and redacted errors; never full config                     |
 | Late UI response replaces another conversation | Captured Task/draft identity, navigation token and serialization                                  |

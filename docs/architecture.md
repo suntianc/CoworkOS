@@ -18,17 +18,17 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / tools
 
 运行时的子智能体也可以使用工具和工作区。共享服务不导入可执行 CLI；`runtime/` 不导入 Dashboard。GUI 不导入 HTTP 或 CLI。ESLint 和 [架构回归](../test/architecture-boundaries.test.js) 约束这些方向。
 
-| 层                           | 负责的状态与行为                                                | 入口                                                                                                                                         | 边界                                                      |
-| ---------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| CLI                          | 参数、诊断、启动与信号                                          | [启动器](../scripts/atria.mjs)、[CLI](../src/cli/cowork.ts)、[Dashboard 入口](../src/cli/dashboard.ts)                                       | 可执行入口，不承载 HTTP 共享实现                          |
-| 页面装配/控制器              | 当前导航、展示、草稿、SSE 与用户交互                            | [app](../web/app.js)、[controllers](../web/assets/controllers/)、[UI](../web/assets/ui/)                                                     | 服务决定 Task/Run 结果；UI 保留异步请求归属               |
-| Dashboard                    | 本机服务装配、HTTP/SSE、会话运行的进程所有权                    | [application](../src/dashboard/application.ts)、[routes](../src/dashboard/routes.ts)、[Run](../src/dashboard/run-service.ts)                 | 路由校验和映射；Run 不写 HTTP 响应；路由不创建进程        |
-| Runtime                      | Pi 会话、委派、Inbox、checkpoint、恢复、完成判定                | [Coordinator](../src/runtime/coordinator-runtime.ts)、[RunService](../src/runtime/run-service.ts)、[PiSession](../src/runtime/pi-session.ts) | 不知道 HTTP/DOM；完成判定覆盖未结束委派、jobs、问答与消息 |
-| ProcessHost                  | 子进程组、重复启动保护、任务停止、限时关闭                      | [ProcessHost](../src/runtime/process-host.ts)                                                                                                | 不裁决对话业务状态                                        |
-| Pi 接入                      | Pi hook、工具注册与上下文装配                                   | [薄入口](../.pi/extensions/cowork.ts)、[runtime](../.pi/runtime/extension.ts)、[tools](../.pi/runtime/tools/)                                | 新领域工具进入对应模块；Pi 上游源码不在此修改             |
-| GUI / Security               | 窗口授权、观察/动作、串行队列、取消、审计、执行权限             | [ComputerUse](../src/gui/computer-use.ts)、[权限](../src/security/execution-permissions.ts)                                                  | 授权由可信宿主授予；模型决策不在此层                      |
-| Workspace / Storage / Domain | Task/Run 数据、输入/产出物、索引、持久事件、trace、文件锁与类型 | [工作区](../src/workspace/)、[存储](../src/storage/)、[领域](../src/domain/)                                                                 | 格式兼容、路径归属与迁移显式维护                          |
-| Desktop                      | 原生窗口、可信 IPC、加密客户端凭据、用户数据目录、退出保存      | [main](../desktop/main.cjs)、[preload](../desktop/preload.cjs)、[backend](../desktop/backend.cjs)                                            | renderer 无 Node 权限；产出物查看窗口无可信桥             |
+| 层                           | 负责的状态与行为                                                | 入口                                                                                                                                                                                                    | 边界                                                      |
+| ---------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| CLI                          | 参数、诊断、启动与信号                                          | [启动器](../scripts/atria.mjs)、[CLI](../src/cli/cowork.ts)、[Dashboard 入口](../src/cli/dashboard.ts)                                                                                                  | 可执行入口，不承载 HTTP 共享实现                          |
+| 页面装配/控制器              | 当前导航、展示、草稿、SSE 与用户交互                            | [app](../web/app.js)、[controllers](../web/assets/controllers/)、[UI](../web/assets/ui/)                                                                                                                | 服务决定 Task/Run 结果；UI 保留异步请求归属               |
+| Dashboard                    | 本机服务装配、HTTP/SSE、会话运行的进程所有权                    | [application](../src/dashboard/application.ts)、[routes](../src/dashboard/routes.ts)、[Run](../src/dashboard/run-service.ts)                                                                            | 路由校验和映射；Run 不写 HTTP 响应；路由不创建进程        |
+| Runtime                      | Pi 进程、委派、Inbox、恢复、完成判定                            | [Coordinator](../src/runtime/coordinator-runtime.ts)、[子代理后端](../src/dashboard/subagent-backend.ts)、[进程模型](../src/runtime/agent-process.ts)、[进程结算](../src/runtime/subagent-processes.ts) | 不知道 HTTP/DOM；完成判定覆盖未结束委派、jobs、问答与消息 |
+| ProcessHost                  | 子进程组、重复启动保护、任务停止、限时关闭                      | [ProcessHost](../src/runtime/process-host.ts)                                                                                                                                                           | 不裁决对话业务状态                                        |
+| Pi 接入                      | Pi hook、工具注册与上下文装配                                   | [薄入口](../.pi/extensions/cowork.ts)、[runtime](../.pi/runtime/extension.ts)、[tools](../.pi/runtime/tools/)                                                                                           | 新领域工具进入对应模块；Pi 上游源码不在此修改             |
+| GUI / Security               | 窗口授权、观察/动作、串行队列、取消、审计、执行权限             | [ComputerUse](../src/gui/computer-use.ts)、[权限](../src/security/execution-permissions.ts)                                                                                                             | 授权由可信宿主授予；模型决策不在此层                      |
+| Workspace / Storage / Domain | Task/Run 数据、输入/产出物、索引、持久事件、trace、文件锁与类型 | [工作区](../src/workspace/)、[存储](../src/storage/)、[领域](../src/domain/)                                                                                                                            | 格式兼容、路径归属与迁移显式维护                          |
+| Desktop                      | 原生窗口、可信 IPC、加密客户端凭据、用户数据目录、退出保存      | [main](../desktop/main.cjs)、[preload](../desktop/preload.cjs)、[backend](../desktop/backend.cjs)                                                                                                       | renderer 无 Node 权限；产出物查看窗口无可信桥             |
 
 `createDashboardApplication()` 的导入不会监听端口或注册信号。启动与关闭信号在 `src/cli/dashboard.ts`。可复用服务必须能由测试显式装配和停止。
 
@@ -38,7 +38,7 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / tools
 
 浏览器请求 → HTTP 路由 → Dashboard Run → AgentProcessHost → Pi 启动器 → Pi 扩展 → Coordinator。CLI 可以直接使用运行时服务；两种入口不各写一套业务状态机。
 
-Dashboard Run 管理 Main 进程和同 Task 的启动/停止串行化；运行时 RunService 管理实际 Pi 会话的 Task/Run、事件与 checkpoint。状态和输出落盘后才宣布完成；不能以最后一条文本代替完成判定。
+Dashboard Run 管理 Main 进程和同 Task 的启动/停止串行化；运行时服务管理 Main 进程的 Task/Run、事件与恢复状态，会话与压缩由 Pi 自己保存。状态和输出落盘后才宣布完成；不能以最后一条文本代替完成判定。
 
 Main 是常驻进程：一个 Run 由同一个 Pi 进程服务，一轮结束后进程不退出，后续用户消息与回调经它自己的持久 Inbox 送达并开始下一轮；进程按启动时记录的本机与启动时间标识，后端重启或更新后重新接管仍在运行的 Main，关闭会话（连同该会话在跑的子代理）、空闲超时与无法继续的模型请求才结束它。暂停在步骤边界停住且保留进程，取消只中断当前回合；空闲退出保留会话文件与任务状态，下一条消息或回调重新拉起同一会话。Main 进程是否在运行与是否有回合在进行是两件事，分别由后端记录与进程心跳报告。
 

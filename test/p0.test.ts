@@ -13,7 +13,6 @@ import {
   configuredWorkspaceRoot,
   runtimeSettingsEnv
 } from "../src/runtime/runtime-settings.js";
-import { hasCompletedAssistantResponse, unresolvedToolCallIds } from "../src/runtime/pi-session.js";
 import { assessTaskCompletion } from "../src/runtime/task-completion.js";
 
 async function main(): Promise<void> {
@@ -48,19 +47,6 @@ async function main(): Promise<void> {
     configuredWorkspaceRoot({}, { ATRIA_HOME: "/fixture/atria" }, "/repo"),
     "/fixture/atria/workspace"
   );
-  const completeAssistant = {
-    role: "assistant",
-    stopReason: "stop",
-    content: [{ type: "text", text: "done" }]
-  } as any;
-  const pendingAssistant = {
-    role: "assistant",
-    stopReason: "toolUse",
-    content: [{ type: "toolCall", id: "call-1", name: "write_file", arguments: {} }]
-  } as any;
-  assert.deepEqual(unresolvedToolCallIds([pendingAssistant]), ["call-1"]);
-  assert.equal(hasCompletedAssistantResponse([completeAssistant]), true);
-  assert.equal(hasCompletedAssistantResponse([pendingAssistant]), false);
   assert.deepEqual(assessTaskCompletion({ hasFinalAnswer: true }), { ready: true, reason: "ready" });
   assert.deepEqual(assessTaskCompletion({ hasFinalAnswer: false }), {
     ready: false,

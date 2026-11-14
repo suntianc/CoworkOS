@@ -10,8 +10,6 @@
     "build": "npm run build:base",
     "build:computer-use": "node scripts/build-computer-use.mjs",
     "test": "npm run build:full && node scripts/test.mjs",
-    "smoke:coding": "npm run build:cli && if [ -x .tools/node-v22.19.0-linux-x64/bin/node ]; then .tools/node-v22.19.0-linux-x64/bin/node dist/src/cli/coding-smoke.js; else node dist/src/cli/coding-smoke.js; fi",
-    "smoke:multi-subagent": "npm run build:cli && if [ -x .tools/node-v22.19.0-linux-x64/bin/node ]; then .tools/node-v22.19.0-linux-x64/bin/node dist/src/cli/multi-subagent-smoke.js; else node dist/src/cli/multi-subagent-smoke.js; fi",
     "ui": "npm run build && if [ -x .tools/node-v22.19.0-linux-x64/bin/node ]; then .tools/node-v22.19.0-linux-x64/bin/node dist/src/cli/dashboard.js; else node dist/src/cli/dashboard.js; fi",
     "desktop": "npm run build && node scripts/desktop-dev.mjs",
     "main-worker": "node scripts/atria.mjs main-worker",

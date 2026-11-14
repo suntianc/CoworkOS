@@ -134,7 +134,6 @@ Usage:
   coworkos task list|create|status|cancel|resume|complete ...
   coworkos human list|reply|answer|cancel ...
   coworkos main-supervisor ...   Inspect recovery; --spawn permits launching Main
-  coworkos single PROMPT ...    Run the lower-level single-agent interface
   coworkos worker ...           Process delegated work
   coworkos main-worker ...      Internal wake worker
   coworkos COMMAND --help        Show command options without changing user data

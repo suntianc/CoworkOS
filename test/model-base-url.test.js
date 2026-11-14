@@ -3,12 +3,11 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import { testModelConnection } from "../dist/src/runtime/model-connection.js";
-import { PiSession } from "../dist/src/runtime/pi-session.js";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 
 for (const path of ["/api/paas/v4", "/api/coding/paas/v4"]) {
   for (const suffix of ["", "/"]) {
-    test(`Zhipu ${path}${suffix}: connection probe and real Pi keep the API path`, async (t) => {
+    test(`Zhipu ${path}${suffix}: the connection probe keeps the API path`, async (t) => {
       // Keep the real SDK and HTTP exchange; redirect only the fixture hostname.
       for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]) {
         const previous = process.env[key];
@@ -62,32 +61,6 @@ for (const path of ["/api/paas/v4", "/api/coding/paas/v4"]) {
         supportsPromptCacheKey: false
       };
       assert.equal((await testModelConnection(options)).ok, true);
-      let executed = 0;
-      const result = await new PiSession({
-        ...options,
-        thinkingLevel: "off",
-        maxErrorRetries: 0,
-        maxTurns: 3,
-        timeoutMs: 5000,
-        tools: new Map([
-          [
-            "verify_endpoint",
-            {
-              parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-              execute: async ({ value }) => {
-                assert.equal(value, "round-trip");
-                executed++;
-                return { receipt: "verified" };
-              }
-            }
-          ]
-        ])
-      }).run("Verify the endpoint with a tool call.");
-      assert.equal(result.termination, "completed");
-      assert.equal(result.lastStopReason, "stop");
-      assert.equal(executed, 1);
-      assert.equal(requests.length, 3);
-      assert.ok(JSON.stringify(requests[2].body.messages).includes("verified"));
     });
   }
 }

@@ -1,35 +1,15 @@
-import { configuredWebTools } from "../runtime/web-search-config.js";
 import { applyProxyEnvironment } from "../runtime/http-transport.js";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { id } from "../domain/types.js";
-import { createBuiltinTools } from "../tools/builtin.js";
-import { RunService } from "../runtime/run-service.js";
-import { CoordinatorWorker } from "../runtime/worker.js";
+import { SubagentWorker } from "./subagent-worker.js";
 import { LocalWorkspaceStore } from "../workspace/workspace-store.js";
 import { businessCommandEnvironment } from "../runtime/command-environment.js";
 import { InboxStore } from "../runtime/scheduler.js";
 import { MainSupervisor, MainSupervisorLoop, spawnMainProcess } from "../runtime/main-supervisor.js";
 import { atriaInstallRoot } from "../tools/protected-paths.js";
 import { HumanRequestStore } from "../runtime/human.js";
-import {
-  configuredMainMaxTokens,
-  configuredContextWindow,
-  configuredMainMaxTurns,
-  configuredMainTimeout,
-  configuredModelApi,
-  configuredThinkingFormat,
-  configuredReasoningEffort,
-  configuredSupportsReasoningEffort,
-  configuredSupportsPromptCacheKey,
-  configuredSupportsImages,
-  normalizeReasoningEffort,
-  configuredSubagentMaxTokens,
-  configuredSubagentMaxTurns,
-  configuredSubagentTimeout,
-  configuredWorkspaceRoot,
-  runtimeSettingsEnv
-} from "../runtime/runtime-settings.js";
+import { configuredWorkspaceRoot } from "../runtime/runtime-settings.js";
 import { readHostCoworkConfig } from "../runtime/config.js";
 import { cliHelp, parseCliCommand } from "./commands.js";
 
@@ -52,19 +32,6 @@ async function main() {
   errorApiKey = apiKey;
   const baseUrl = process.env.COWORK_API_BASE ?? config.baseUrl;
   const model = process.env.COWORK_MODEL ?? config.model ?? "glm-5.3";
-  const web = configuredWebTools(config);
-  const runtimeEnv = runtimeSettingsEnv(config);
-  const reasoningOptions = () => ({
-    contextWindow: configuredContextWindow(runtimeEnv),
-    supportsImages: configuredSupportsImages(runtimeEnv),
-    thinkingLevel: normalizeReasoningEffort(
-      parsed.options["reasoning-effort"] ?? parsed.options.thinking ?? configuredReasoningEffort(runtimeEnv),
-      "--reasoning-effort / --thinking"
-    ),
-    api: configuredModelApi(runtimeEnv),
-    thinkingFormat: configuredThinkingFormat(runtimeEnv),
-    supportsReasoningEffort: configuredSupportsReasoningEffort(runtimeEnv)
-  });
   const workspaceRoot = configuredWorkspaceRoot(config, {
     ...process.env,
     ...(parsed.options.workspace || parsed.options["workspace-root"]
@@ -215,53 +182,12 @@ async function main() {
   const taskId = parsed.options.task ?? `cli-task-${Date.now()}`;
   const runId = parsed.options.run ?? id("run");
 
-  if (command === "single") {
-    const prompt = parsed.positionals.join(" ");
-    if (!prompt) fail("single 命令需要一个 prompt");
-    const commandEnv = await businessCommandEnvironment(process.env);
-    const result = await new RunService(workspaceRoot).runPi({
-      taskId,
-      runId,
-      prompt,
-      baseUrl,
-      apiKey,
-      model,
-      ...reasoningOptions(),
-      maxTurns: numberOption(parsed.options["max-turns"], configuredMainMaxTurns(runtimeEnv)),
-      maxTokens: numberOption(parsed.options["max-tokens"], configuredMainMaxTokens(runtimeEnv)),
-      timeoutMs: nonNegativeNumberOption(parsed.options.timeout, configuredMainTimeout(runtimeEnv)),
-      resume: parsed.options.resume === "true" ? true : undefined,
-      tools: (workingDirectory, workspaceDirectory, artifactDirectory) =>
-        createBuiltinTools({
-          rootDirectory: workingDirectory,
-          workspaceDirectory,
-          artifactDirectory,
-          commandEnv,
-          web,
-          supportsImages: configuredSupportsImages(runtimeEnv)
-        })
-    });
-    printResult({
-      command,
-      taskId,
-      runId,
-      taskStatus: result.taskStatus,
-      completion: result.completion,
-      workingDirectory: result.workingDirectory,
-      response: result.assistant?.content,
-      artifacts: result.artifacts.map((artifact) => artifact.relativePath),
-      diagnostics: result.diagnostics
-    });
-    process.exit(0);
-  }
-
   if (command === "worker") {
     const workerTask = parsed.options.task;
     const workerRun = parsed.options.run;
     if (!workerTask || !workerRun) fail("worker 命令需要 --task 和 --run");
     const controller = new AbortController();
-    const commandEnv = await businessCommandEnvironment(process.env);
-    const worker = new CoordinatorWorker();
+    const worker = new SubagentWorker();
     const stop = () => {
       worker.stop();
       controller.abort();
@@ -272,19 +198,32 @@ async function main() {
       taskId: workerTask,
       runId: workerRun,
       workspaceRoot,
-      commandEnv,
-      baseUrl,
-      apiKey,
-      model,
-      ...reasoningOptions(),
-      maxTurns: numberOption(parsed.options["max-turns"], configuredSubagentMaxTurns(runtimeEnv)),
-      maxTokens: numberOption(parsed.options["max-tokens"], configuredSubagentMaxTokens(runtimeEnv)),
-      timeoutMs: nonNegativeNumberOption(parsed.options.timeout, configuredSubagentTimeout(runtimeEnv)),
-      maxAttempts: numberOption(parsed.options["max-attempts"], 3),
-      leaseMs: numberOption(parsed.options["lease-ms"], 60_000),
-      pollMs: numberOption(parsed.options["poll-ms"], 2_000),
+      harnessRoot: process.env.COWORK_HARNESS_ROOT,
+      env: {
+        COWORK_API_BASE: baseUrl,
+        COWORK_API_KEY: apiKey,
+        COWORK_WORKSPACE: workspaceRoot,
+        ...(model ? { COWORK_MODEL: model } : {}),
+        ...(process.env.COWORK_MODEL_API ? { COWORK_MODEL_API: process.env.COWORK_MODEL_API } : {}),
+        ...(process.env.COWORK_CONNECTION_ID
+          ? { COWORK_CONNECTION_ID: process.env.COWORK_CONNECTION_ID }
+          : {}),
+        ...(process.env.COWORK_REASONING_EFFORT
+          ? { COWORK_REASONING_EFFORT: process.env.COWORK_REASONING_EFFORT }
+          : {}),
+        ...(process.env.COWORK_THINKING_FORMAT
+          ? { COWORK_THINKING_FORMAT: process.env.COWORK_THINKING_FORMAT }
+          : {}),
+        ...(process.env.COWORK_SUPPORTS_REASONING_EFFORT
+          ? { COWORK_SUPPORTS_REASONING_EFFORT: process.env.COWORK_SUPPORTS_REASONING_EFFORT }
+          : {}),
+        ...(process.env.COWORK_SUPPORTS_PROMPT_CACHE_KEY
+          ? { COWORK_SUPPORTS_PROMPT_CACHE_KEY: process.env.COWORK_SUPPORTS_PROMPT_CACHE_KEY }
+          : {})
+      },
+      ...(parsed.options["lease-ms"] ? { leaseMs: numberOption(parsed.options["lease-ms"], 60_000) } : {}),
+      ...(parsed.options["poll-ms"] ? { pollMs: numberOption(parsed.options["poll-ms"], 2_000) } : {}),
       once: parsed.options.once === "true",
-      web,
       signal: controller.signal,
       onCycle: async (results) => {
         if (results.length > 0)

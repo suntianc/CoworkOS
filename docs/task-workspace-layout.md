@@ -68,7 +68,7 @@ App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，
     ├── sessions/<agent>/<run>-requests.jsonl 模型请求、prompt、工具定义和响应
     ├── sessions/main/request-retry.json 最新 Main 模型请求的私有重试快照
     ├── sessions/main/pi/              Main 原生 Pi 会话
-    ├── runs/<runId>/                  Run 事件、队列、Inbox、checkpoint、结果、main-input.json
+    ├── runs/<runId>/                  Run 事件、队列、Inbox、结果、main-input.json
     ├── experiments/                   运行时实验记录
     └── .runtime/                      Task 锁与产物索引等
 ```
@@ -174,7 +174,7 @@ node scripts/migrate-artifacts.mjs --workspace /path/to/workspace --task <task-i
 
 `artifacts` 仅引用现有 `.runtime/artifacts.json` 的注册元数据，不包含文件字节，也不为导出执行扫描或迁移。未能核对会话文件与 workspace 的绑定时，不猜测 Task 关联。凭据字段与所选配置及执行主机凭据存储（`credentials.json`）中的模型和搜索凭据脱敏，包括环境变量覆盖；其他正文和路径仍保留。新建和强制覆盖的导出文件均使用 600 权限，覆盖时先限制权限再写入会话内容。各分支的记录须有唯一 ID、有效父引用，且父引用不能形成循环；异常记录在导出前拒绝，源文件和已有输出保留。HTML 展示当前分支，另附全部分支的审计数据；用户内容始终转义为文本。
 
-该格式用于阅读、分享和审计，不作为 Pi 恢复输入。内部 JSONL、checkpoint 和请求归档保持原格式，旧会话迁移只发生在导出临时副本中。导出不能替代完整备份：恢复仍需原生会话、工作区和外部项目文件；旧历史未保存的事实无法补回。原生 RPC `export_html` 仍属于引擎兼容接口，产品导出使用 `/coworkos-export`。
+该格式用于阅读、分享和审计，不作为 Pi 恢复输入。内部 JSONL 和请求归档保持原格式，旧会话迁移只发生在导出临时副本中。导出不能替代完整备份：恢复仍需原生会话、工作区和外部项目文件；旧历史未保存的事实无法补回。原生 RPC `export_html` 仍属于引擎兼容接口，产品导出使用 `/coworkos-export`。
 
 ## 用户上传的输入文件
 

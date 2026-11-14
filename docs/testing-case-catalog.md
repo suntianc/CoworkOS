@@ -60,7 +60,7 @@
 | PROC-04 | command 超时、Main/Subagent 超时、用户延长预算     | 各层预算独立生效，不把参数值误当耗时；取消信号传递到真实执行进程       |
 | PROC-05 | 反复启停 100 次、端口冲突、父进程退出              | 无句柄/PID 泄漏；启动失败可解释；服务只清理自己拥有的进程              |
 
-现有锚点：`test/process-host.test.js`、`command-timeout.test.js`、`desktop-backend.test.js`、`pi-session-termination.test.js`。
+现有锚点：`test/process-host.test.js`、`test/dashboard-run-service.test.js`、`desktop-backend.test.js`、`main-restart-recovery.test.js`。
 
 ### 5 流式事件与会话投影
 
@@ -83,15 +83,14 @@
 | COORD-06 | send_subagent_message、get/wait 状态、运行中补充、停止后消息、跨 Task Agent ID                    | 指令送到正确 Agent 并持久；等待不死锁；终止/未知目标错误准确；不会串到另一 Task |
 | COORD-07 | mode auto/sync/async、父子 callId、partial/failure callback、interruptOnCallback、cancel_subagent | 自动路由遵守策略；回调类型/打断语义准确；取消只影响目标；调用树与持久事件能还原 |
 
-现有锚点：`coordination-callback-lifecycle.test.js`、`main-inbox-delivery.test.js`、`subagent-question-loop.test.js`、`input-files-pi.test.js`、`main-task-paths-pi.test.js`。
+现有锚点：`p46-subagent-loop-pi.test.js`、`main-inbox-delivery.test.js`、`p46-subagent-messages-pi.test.js`、`input-files-pi.test.js`、`main-task-paths-pi.test.js`。
 
-### 7 持久队列和 checkpoint
+### 7 持久队列与租约
 
 | ID       | 检查场景                                                        | 通过标准                                                                   |
 | -------- | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | SCHED-01 | 两 Worker 竞争 claim、租约续期/过期、旧 token ack               | 同一有效租约只有一执行者；旧 token 无权提交；租约过期可恢复                |
 | SCHED-02 | 两实例并发 enqueue、重复 stepId、重启                           | 无丢项；重复 ID 语义明确；顺序/重要性符合合同                              |
-| SCHED-03 | checkpoint sequence 倒序、写失败、未来格式                      | 不回退到旧 sequence，不产生半写状态；未知版本安全拒绝                      |
 | SCHED-04 | 副作用成功到收据前崩溃、完成事件到 ack 前崩溃                   | 已知操作可去重；未知副作用明确不确定，不静默重放                           |
 | SCHED-05 | Worker 无心跳、重启多次、预算耗尽、残留锁                       | 队列收敛到可解释状态；不永久 running；恢复不抢占合法活跃租约               |
 | SCHED-06 | importance 优先级、required/independent、截止时间、高优事件洪峰 | 调度顺序与完成依赖合同一致；过期工作不无界执行；低优工作按明确公平策略处理 |
@@ -106,7 +105,7 @@
 | HUMAN-02 | 重复提交、回答过程中取消、旧问题按钮、新问题 ID | 不重复执行/串答；已关闭问题拒绝；状态可解释              |
 | HUMAN-04 | waiting 无回答、预算到期、会话切走              | 不替用户默认作答，不错误 completed；后台问答可被重新找到 |
 
-现有锚点：`human-questions.test.js`、`human-question-tool.test.js`、`subagent-question-loop.test.js`、`e2e/human-interactions.spec.js`。
+现有锚点：`human-questions.test.js`、`human-question-tool.test.js`、`p46-subagent-messages-pi.test.js`、`e2e/human-interactions.spec.js`。
 
 ### 9 上下文与压缩
 
@@ -114,11 +113,11 @@
 | ---------- | ---------------------------------------------------- | -------------------------------------------------------------- |
 | CONTEXT-01 | 首轮 before_agent_start、后续 context                | 首个模型请求有正确工具；后续请求刷新上下文；顺序符合真实 Pi    |
 | CONTEXT-02 | 长会话压缩、工具调用未结束、系统指令/图像/已完成结果 | 保留权限、目标和有效工具关系；会话可继续，图像不变成文本       |
-| CONTEXT-03 | 压缩请求认证失败、摘要写失败、checkpoint 失败        | 原会话可恢复；失败不提交半份摘要，不丢成功结果                 |
+| CONTEXT-03 | 压缩请求认证失败、摘要生成或提交失败                 | 原会话可恢复；失败不提交半份摘要，不丢成功结果                 |
 | CONTEXT-04 | 补充指令、clear_context、两 Task 同时更新            | 最新补充持久可重读，上下文文件使用正确绝对路径，无跨 Task 污染 |
 | CONTEXT-05 | 长任务重启继续、超上下文、未知工具结果、重复 tool ID | 准确续接剩余步骤；错误可诊断；不会误判工具已完成               |
 
-现有锚点：`pi-session-context.test.js`、`pi-session-termination.test.js`、`cowork-extension.test.js`、`main-recovery-pi.test.js`。
+现有锚点：`main-compaction-pi.test.js`、`main-recovery-pi.test.js`、`cowork-extension.test.js`、`main-request-recording-pi.test.js`。
 
 ### 10 停泊和定时唤醒
 
@@ -255,7 +254,7 @@
 | CLI-06 | doctor 普通/连接测试，缺 Node/编译/模型/可选依赖，外部项目空格路径                       | 普通检查零模型请求；连接测试预算明确；错误不打印密钥；可选依赖缺失不阻断基础 CLI                                            |
 | CLI-07 | task create/list/status/cancel/resume/complete、worker/human 子命令，缺模型配置、非法 ID | 无需模型的命令零请求且可用；状态/退出码准确；task resume 与恢复 Main 会话的区别明确；所有实际公开 help 入口有参数与错误回归 |
 
-现有锚点：`scripts/atria.mjs`、`scripts/package-cli.mjs`、`test/cli-onboarding.test.js`、`test/agent-smoke-cli.test.js`。恢复身份和业务配置碰撞需用隔离目录及实际安装的 CLI 验证。
+现有锚点：`scripts/atria.mjs`、`scripts/package-cli.mjs`、`test/cli-onboarding.test.js`、`test/cli-commands.test.js`。恢复身份和业务配置碰撞需用隔离目录及实际安装的 CLI 验证。
 
 ### 2 终端交互与发行包
 

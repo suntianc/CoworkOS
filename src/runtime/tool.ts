@@ -1,4 +1,4 @@
-/** Minimal runtime tool contract shared by PiSession and built-in tools. */
+/** Minimal runtime tool contract shared by capability providers and skills. */
 export interface RuntimeTool {
   /** Only explicitly independent reads may overlap; other tools stay ordered. */
   executionMode?: "sequential" | "parallel";

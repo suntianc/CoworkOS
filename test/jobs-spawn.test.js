@@ -8,10 +8,8 @@ import { test } from "node:test";
 
 const execFileAsync = promisify(execFile);
 const jobsUrl = new URL("../dist/src/tools/jobs.js", import.meta.url).href;
-const builtinUrl = new URL("../dist/src/tools/builtin.js", import.meta.url).href;
-const capabilitiesUrl = new URL("../dist/src/runtime/task-capabilities.js", import.meta.url).href;
 
-for (const failure of ["missing-cwd", "missing-executable", "invalid-command", "subagent-tool"]) {
+for (const failure of ["missing-cwd", "missing-executable", "invalid-command"]) {
   test(`job startup failure is recoverable in the same process: ${failure}`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "atria-spawn-error-"));
     t.after(() => rm(root, { recursive: true, force: true }));
@@ -22,8 +20,6 @@ for (const failure of ["missing-cwd", "missing-executable", "invalid-command", "
       import { readFile } from "node:fs/promises";
       import { join } from "node:path";
       import { startJob, jobStatus, listJobs } from ${JSON.stringify(jobsUrl)};
-      import { createBuiltinTools } from ${JSON.stringify(builtinUrl)};
-      import { resolveCapabilities } from ${JSON.stringify(capabilitiesUrl)};
       const [root, failure] = process.argv.slice(1);
       const directory = join(root, "logs", "jobs");
       const options = { directory, cwd: root, command: "echo unused" };
@@ -33,13 +29,7 @@ for (const failure of ["missing-cwd", "missing-executable", "invalid-command", "
         options.command = join(root, "missing-executable");
       }
       if (failure === "invalid-command") options.command = "bad\\0command";
-      const tools = createBuiltinTools({
-        rootDirectory: root,
-        capabilities: resolveCapabilities({ longRunning: true }, {})
-      });
-      const launch = failure === "subagent-tool"
-        ? () => tools.get("start_job").execute({ command: "echo unused", cwd: "missing" })
-        : () => startJob(options);
+      const launch = () => startJob(options);
       await assert.rejects(launch, (error) => {
         assert.match(error.message, /Failed to start job job-1/);
         assert.equal(error.cause.code, failure === "invalid-command" ? "ERR_INVALID_ARG_VALUE" : "ENOENT");
@@ -53,7 +43,7 @@ for (const failure of ["missing-cwd", "missing-executable", "invalid-command", "
       const record = JSON.parse(await readFile(join(directory, "job-1.json"), "utf8"));
       assert.ok(record.finishedAt);
       assert.equal(record.pid, undefined);
-      const next = await tools.get("start_job").execute({ command: "echo recovered" });
+      const next = await startJob({ directory, cwd: root, command: "echo recovered", shell: true });
       assert.equal(next.jobId, "job-2", "preserve the failed attempt instead of overwriting it");
       const deadline = Date.now() + 10000;
       let done;
