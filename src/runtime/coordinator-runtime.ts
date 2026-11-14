@@ -46,10 +46,9 @@ import {
   normalizeReasoningEffort,
   type PiThinkingLevel
 } from "./runtime-settings.js";
-import { ExperimentProgramStore } from "./experiment-program-store.js";
+import { settleDelegatedExperiment } from "./experiment-settlement.js";
 import { askMain, SubagentQuestionStore } from "./subagent-questions.js";
 import { formatAgentInboxMessage } from "./agent-inbox-delivery.js";
-import { readRunMetrics } from "./experiment-metrics.js";
 import type { ExperimentRunStatus } from "../domain/experiment.js";
 import { subagentRecoverySummary } from "./subagent-recovery-summary.js";
 import { subagentCallStatuses, type SubagentCallStatus } from "./subagent-call-status.js";
@@ -533,7 +532,11 @@ export class CoordinatorRuntime {
     // on that item instead of being dropped by an all-or-nothing settle.
     const settled = await Promise.all(
       pending.map(
-        async (item): Promise<{ result: SubagentDispatchResult } | { refused: SubagentDispatchResult }> => {
+        async (
+          item
+        ): Promise<
+          { result: SubagentDispatchResult } | { refused: SubagentDispatchResult } | { skipped: true }
+        > => {
           const inputForItem: SubagentDispatchInput = {
             taskId: input.taskId,
             runId: input.runId,
@@ -597,12 +600,18 @@ export class CoordinatorRuntime {
           try {
             return { result: await this.dispatch(inputForItem) };
           } catch (error) {
-            return { refused: await this.settleRefusedRecovery(inputForItem, error) };
+            const refused = await this.settleRefusedRecovery(inputForItem, error);
+            // Another owner claimed the item between the listing and this
+            // attempt. Its settlement is the outcome, so this pass reports
+            // nothing about it and writes no failure.
+            return refused ? { refused } : { skipped: true };
           }
         }
       )
     );
-    return settled.map((entry) => ("result" in entry ? entry.result : entry.refused));
+    return settled.flatMap((entry) =>
+      "result" in entry ? [entry.result] : "refused" in entry ? [entry.refused] : []
+    );
   }
 
   /**
@@ -616,7 +625,7 @@ export class CoordinatorRuntime {
   private async settleRefusedRecovery(
     input: SubagentDispatchInput,
     error: unknown
-  ): Promise<SubagentDispatchResult> {
+  ): Promise<SubagentDispatchResult | undefined> {
     const message = error instanceof Error ? error.message : String(error);
     const callId = input.callId ?? id("call");
     const call = { ...makeCall(input, callId), resolvedMode: "async" as const };
@@ -626,7 +635,11 @@ export class CoordinatorRuntime {
     };
     const runPath = join(input.workspaceRoot, input.taskId, "runs", input.runId);
     const scheduler = new DurableScheduler(join(runPath, "queue.json"));
-    await scheduler.failUnstarted(callId, message);
+    const failed = await scheduler.failUnstarted(callId, message);
+    // The lease moved to another owner while this attempt was listed as
+    // queued. That owner settles it; recording our failure here would hide its
+    // result and report work as failed that may still succeed.
+    if (failed.status !== "failed") return undefined;
     const events = new JsonlEventStore(join(runPath, "run_events.jsonl"));
     const response = formatSubagentSummary({
       status: "failed",
@@ -1144,6 +1157,15 @@ export class CoordinatorRuntime {
       if (heartbeat) clearInterval(heartbeat);
       clearInterval(messagePoller);
       const message = error instanceof Error ? error.message : String(error);
+      // No lease was taken, so this attempt never owned the item. If another
+      // owner holds it now, its settlement is the outcome: writing this
+      // attempt's failure would hide a run that is still going and report a
+      // false failure callback for it.
+      if (!leaseToken) {
+        // eslint-disable-next-line no-restricted-syntax -- 队列读不出来时按本尝试仍可结算处理，下面的失败投影会在队列写入时再次暴露同一错误
+        const current = (await scheduler.list().catch(() => [])).find((item) => item.stepId === callId);
+        if (current?.status === "leased") throw error;
+      }
       const termination = error instanceof SubagentTerminationError ? error.termination : undefined;
       const cancelled =
         input.signal?.aborted ||
@@ -1475,54 +1497,19 @@ export class CoordinatorRuntime {
     outputFiles: string[],
     error?: string
   ): Promise<void> {
-    const ref = input.experimentRef;
-    if (!ref) return;
-    const taskDirectory = join(input.workspaceRoot, input.taskId);
-    try {
-      const measured =
-        status === "succeeded" || status === "partial"
-          ? await readRunMetrics({ workingDirectory, taskDirectory, outputFiles })
-          : {};
-      const store = new ExperimentProgramStore(input.workspaceRoot);
-      // A delegation that succeeded with nothing measurable and nothing to show
-      // was ordinary work, not an iteration. Keeping its row would bury the
-      // rounds that matter under reading and summarizing, so drop it — the Run
-      // event log still records that the delegation happened.
-      if (status === "succeeded" && !measured.metrics && !measured.problem && outputFiles.length === 0) {
-        await store.discardRun(input.taskId, ref.experimentId, ref.experimentRunId);
-        return;
-      }
-      await store.completeRun({
-        taskId: input.taskId,
-        experimentId: ref.experimentId,
-        runId: ref.experimentRunId,
-        status,
-        summary,
-        artifacts: outputFiles,
-        metrics: measured.metrics,
-        metricsSource: measured.source,
-        metricsOrigin: measured.metrics ? "file" : undefined,
-        // The run may label its own variant in the metrics file. Runtime reads
-        // that label rather than asking Main to declare one.
-        variantRef: measured.ref,
-        // A metrics file that exists but cannot be parsed is surfaced, not dropped:
-        // the run must not read back as one that simply reported no measurement.
-        error: [error, measured.problem].filter(Boolean).join("; ") || undefined
-      });
-    } catch (ledgerError) {
-      const reason = ledgerError instanceof Error ? ledgerError.message : String(ledgerError);
-      await this.append(
-        new JsonlEventStore(join(taskDirectory, "runs", input.runId, "run_events.jsonl")),
-        event(input, input.callId ?? "", "experiment.settle_failed", input.agentId, {
-          experimentId: ref.experimentId,
-          experimentRunId: ref.experimentRunId,
-          error: reason
-        })
-        // eslint-disable-next-line no-restricted-syntax -- 记录结算失败本身就是诊断路径，事件再写不进去只能放弃，否则已捕获的账本错误会变成未处理拒绝
-      ).catch(() => {
-        /* diagnostics only */
-      });
-    }
+    await settleDelegatedExperiment({
+      workspaceRoot: input.workspaceRoot,
+      taskId: input.taskId,
+      runId: input.runId,
+      callId: input.callId ?? "",
+      agentId: input.agentId,
+      ref: input.experimentRef,
+      status,
+      workingDirectory,
+      summary,
+      outputFiles,
+      ...(error === undefined ? {} : { error })
+    });
   }
 
   private async writeMainCallback(

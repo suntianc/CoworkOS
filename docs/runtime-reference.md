@@ -99,9 +99,11 @@ call_subagent({
 
 `call_subagent` 只向后端登记工作项：后端把登记写进该 Run 的持久队列（`queue.json`）并答复 `callId`，依赖满足后由后端启动独立的子代理 Pi 进程，进程结束时把结论写回队列、运行事件与 Main 的回调。`mode: "sync"` 表示派单后等待该工作项的结束记录（结果记录与回调）并作为工具结果返回；`mode: "async"` 在登记落盘后立即返回，结果经回调送达。`wait_for_subagents`、`get_subagent_status` 与 `get_task_status` 读同一份队列、回调与结果记录，不依赖后端内存。
 
-每个工作区根只有一个属主启动与结算委派进程：Dashboard 运行时 CLI worker 不接管（`coworkos worker` 报告属主后退出）。属主启动时从持久记录接管仍在运行的子代理，并在停机期间结束的子代理上补发回调；结算由进程记录上的文件锁去重，所以同一工作项不会产生两份回调。中止启动的拒单在任何持久写入之前完成，不留下无人结算的工作项；已入队后启动失败按该工作项自己的失败结算。
+每个工作区根只有一个属主启动与结算委派进程：Dashboard 运行时 CLI worker 不接管（`coworkos worker` 报告属主后退出），配置了本地服务的 Main 也不再自己用进程内协调器恢复这些工作项，跨重启接管、启动排队项和结算都由属主完成。属主启动时从持久记录接管仍在运行的子代理，并在停机期间结束的子代理上补发回调；结算由进程记录上的文件锁去重，所以同一工作项不会产生两份回调。中止启动的拒单在任何持久写入之前完成，不留下无人结算的工作项；已入队后启动失败按该工作项自己的失败结算。
 
 前端（Dashboard）在派单时确定工作项的现场与候选：`developmentId` 取本后端就绪的需求现场；Reviewer 的 `reviewSite` 固定为需求当前冻结候选的提交（没有独立审查时按派单那一刻的提交冻结），因此冻结之后 Executor 现场再前进也不会移动 Reviewer 的审查对象。工作项现场、会话目录与结论都在持久记录里，返修续接同一个 Executor 的 Pi 会话文件（`sessions/<agentId>/pi/<原 callId>`）与现场，追加一轮。附件授权随工作项传递：被授权的上传 ID 在派单时校验，委派进程只在有授权时注册 `read_attachment`，未授权不注册。
+
+打开的实验程序会自动吸收每次委派：后端在派单时登记该轮（callId、agentId、目标），工作项结算时读取它自己现场（或 deliverables）里的 `metrics.json` 写入这一轮；既无度量也无产出的成功轮次不留行。账本引用随结果回调交给 Main，与进程内路径同形。
 
 后端重启不影响这些记录：Main 的本地凭据与后端实例一起保存在数据根，被接管的 Main 继续用同一凭据访问新的后端进程；子代理进程与 Main 一样不随后端退出。运行在 CLI（没有本地服务）时 `call_subagent` 仍走进程内执行，这是 #06 删除该循环前保留的唯一路径。
 
@@ -117,7 +119,7 @@ call_subagent({
 
 ### 角色工具与审查结论
 
-子代理进程与 Main 加载同一个扩展，按角色声明工具表。Executor 得到 `read`、`bash`、`edit`、`write`、只读的 `browse_workspace`、`ask_main` 与 `send_peer_message`；Reviewer 得到 `read`、`bash`、`grep`、`find`、`ls`、`browse_workspace`、同样的两个通道工具与 `submit_review`，没有 `write`/`edit`。后端从被审候选的提交为 Reviewer 建一份 detach 的独立 checkout 作为它的项目目录；成功的审查保留这份现场，因为 Main 在进程结束后才绑定审查并核对候选是否漂移，没有产出结论的失败尝试才清理。没有需求现场时按派单时刻的 HEAD 冻结候选并建同样的副本，项目不是 Git 仓库则在派单前拒绝。它运行的测试与写入的文件留在这份副本里，不进入候选提交、Executor 的现场或用户工作树。两个角色都没有 `call_subagent`、`send_subagent_message`、`cancel_subagent`、`get_subagent_status`、`wait_for_subagents`、`get_task_status`、`finish_task`、`askhuman`、`sleep_until`、`grant_capabilities`、`clear_context`、`enable_tools`、`project_ledger`、`project_development` 与 `publish_artifact`，因此子代理不能再派子代理或改变 Task 生命周期。角色说明沿用同一段文本；角色只决定工具，不扩大授权：电脑操控、浏览器与 CUA 等能力由 Main 的扩展注册，委派进程当前不提供。附件授权随工作项传递，只有被授权的上传 ID 才让委派进程注册 `read_attachment`。Main 与两个角色对受保护路径的 `write`、`edit` 与 `bash` 写入按同一规则拦截并返回同一段错误；`bash` 拦截跟随 `cd`、`pushd`/`popd`、`git -C` 与子 shell 的目录切换解析相对目标，目录无法确定时只要项目内存在受保护路径就保守拒绝。它尽力识别常见写法，不是沙箱：解释器内写入、引号内的命令替换、反引号、`xargs`、`find -delete`、`git clean` 等仍可能绕过。委派进程与 Main 一样对 `cache_warming_decision` 返回 `stop`，不进行提示缓存保温。委派进程的上下文压缩与 Main 相同：Pi 原生压缩、同一工具回执投影与失败冷却。
+子代理进程与 Main 加载同一个扩展，按角色声明工具表。Executor 得到 `read`、`bash`、`edit`、`write`、只读的 `browse_workspace`、`ask_main` 与 `send_peer_message`；Reviewer 得到 `read`、`bash`、`grep`、`find`、`ls`、`browse_workspace`、同样的两个通道工具与 `submit_review`，没有 `write`/`edit`。后端从被审候选的提交为 Reviewer 建一份 detach 的独立 checkout 作为它的项目目录；成功的审查保留这份现场，因为 Main 在进程结束后才绑定审查并核对候选是否漂移；没有产出结论的失败尝试立即清理，审查漂移时随漂移结论释放，需求合入后释放该需求的全部审查现场，记录本身保留 Reviewer 身份与现场路径。没有需求现场时按派单时刻的 HEAD 冻结候选并建同样的副本，项目不是 Git 仓库则在派单前拒绝。它运行的测试与写入的文件留在这份副本里，不进入候选提交、Executor 的现场或用户工作树。两个角色都没有 `call_subagent`、`send_subagent_message`、`cancel_subagent`、`get_subagent_status`、`wait_for_subagents`、`get_task_status`、`finish_task`、`askhuman`、`sleep_until`、`grant_capabilities`、`clear_context`、`enable_tools`、`project_ledger`、`project_development` 与 `publish_artifact`，因此子代理不能再派子代理或改变 Task 生命周期。角色说明沿用同一段文本；角色只决定工具，不扩大授权：电脑操控、浏览器与 CUA 等能力由 Main 的扩展注册，委派进程当前不提供。附件授权随工作项传递，只有被授权的上传 ID 才让委派进程注册 `read_attachment`。Main 与两个角色对受保护路径的 `write`、`edit` 与 `bash` 写入按同一规则拦截并返回同一段错误；`bash` 拦截跟随 `cd`、`pushd`/`popd`、`git -C` 与子 shell 的目录切换解析相对目标，目录无法确定时只要项目内存在受保护路径就保守拒绝。它尽力识别常见写法，不是沙箱：解释器内写入、引号内的命令替换、反引号、`xargs`、`find -delete`、`git clean` 等仍可能绕过。委派进程与 Main 一样对 `cache_warming_decision` 返回 `stop`，不进行提示缓存保温。委派进程的上下文压缩与 Main 相同：Pi 原生压缩、同一工具回执投影与失败冷却。
 
 Reviewer 的结论只经 `submit_review({verdict, findings})` 提交：`verdict` 为 `pass` 或 `changes_requested`，每条 finding 含 `location`、`evidence` 与 `blocking`。`changes_requested` 至少给出一条 finding，`pass` 不能携带 blocking finding；不合法的提交作为工具错误返回，模型可改正后重试。结论写入该工作项结果记录的 `review` 字段并随回调送达 Main；Reviewer 没有提交结论就结束记为失败，后端读取结果记录时按同一格式复核。验证 [真实角色工具表与结论](../test/p46-subagent-roles-pi.test.js)。
 

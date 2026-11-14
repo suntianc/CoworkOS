@@ -20,6 +20,7 @@ import {
 } from "../runtime/subagent-dispatch.js";
 import {
   claimSubagentOwnership,
+  readLiveSubagentOwner,
   releaseSubagentOwnership,
   type SubagentOwnership
 } from "../runtime/subagent-owner.js";
@@ -52,6 +53,13 @@ export interface SubagentBackendPorts {
   }): Promise<{ repository: string; commit: string } | undefined>;
   /** Grants for the upload IDs Main named. */
   grants(input: { taskId: string; attachments: unknown }): Promise<CapabilityGrant[]>;
+  /** The experiment-ledger row a delegation records, when an open program absorbs it. */
+  experiment?(input: {
+    taskId: string;
+    callId: string;
+    agentId: string;
+    objective: string;
+  }): Promise<{ experimentId: string; experimentRunId: string } | undefined>;
   /** Where this host keeps its configuration file and Pi profile. */
   configPath?(): string | undefined;
   piAgentDir?(): string | undefined;
@@ -59,6 +67,8 @@ export interface SubagentBackendPorts {
   leaseMs?: number;
   /** How often the whole workspace is re-scanned for work nobody is watching. */
   sweepMs?: number;
+  /** How long a refused ownership claim is trusted before it is re-examined. */
+  refusalRecheckMs?: number;
 }
 
 export interface SubagentBackend {
@@ -83,6 +93,11 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
   const services = new Map<string, SubagentDispatchService>();
   const tracked = new Map<string, TrackedRun>();
   const ownership = new Map<string, SubagentOwnership>();
+  // A refusal is re-examined on this cadence: the owner it lost to can die, and
+  // a backend that refused once must then take the root rather than serve it
+  // half-owned until a restart.
+  const refusalCheckedAt = new Map<string, number>();
+  const refusalRecheckMs = Math.max(0, ports.refusalRecheckMs ?? 5_000);
   let timer: ReturnType<typeof setInterval> | undefined;
   let sweeping = false;
   let stopping = false;
@@ -98,6 +113,7 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
       development: (input) => ports.development(input),
       frozenCandidate: (input) => ports.frozenCandidate(input),
       grants: (input) => ports.grants(input),
+      ...(ports.experiment ? { experiment: (input) => ports.experiment!(input) } : {}),
       // A settled item can be the prerequisite that unblocks another one.
       // Waiting for the next sweep would delay that start by a full cycle, so
       // the run is re-evaluated as soon as its queue row is terminal.
@@ -125,9 +141,21 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
   };
 
   async function claim(workspaceRoot: string): Promise<boolean> {
-    const claimed =
-      ownership.get(workspaceRoot) ?? (await claimSubagentOwnership(workspaceRoot, "dashboard"));
+    const cached = ownership.get(workspaceRoot);
+    if (cached?.owned) return true;
+    if (cached) {
+      if (Date.now() - (refusalCheckedAt.get(workspaceRoot) ?? 0) < refusalRecheckMs) return false;
+      // Still the same live owner: keep refusing without claiming each cycle.
+      const live = await readLiveSubagentOwner(workspaceRoot);
+      if (live && live.pid === cached.owner?.pid) {
+        refusalCheckedAt.set(workspaceRoot, Date.now());
+        return false;
+      }
+    }
+    const claimed = await claimSubagentOwnership(workspaceRoot, "dashboard");
     ownership.set(workspaceRoot, claimed);
+    if (claimed.owned) refusalCheckedAt.delete(workspaceRoot);
+    else refusalCheckedAt.set(workspaceRoot, Date.now());
     return claimed.owned;
   }
 

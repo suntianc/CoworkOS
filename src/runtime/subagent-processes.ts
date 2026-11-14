@@ -16,6 +16,10 @@ import {
 } from "./agent-process.js";
 import { enqueueMainCallback, formatSubagentSummary } from "./subagent-callback.js";
 import { parseReviewConclusion, type ReviewConclusion } from "./subagent-review.js";
+import {
+  settleDelegatedExperiment,
+  type DelegatedExperimentRef
+} from "./experiment-settlement.js";
 
 /**
  * The backend side of delegated agent processes.
@@ -90,6 +94,8 @@ interface WorkPayload {
   continuation?: { fromCallId: string; reviewId?: string; sessionCallId?: string };
   /** Capability grants this work item was dispatched with. */
   capabilityGrants?: unknown[];
+  /** The experiment-ledger row this delegation opened when it was dispatched. */
+  experimentRef?: DelegatedExperimentRef;
 }
 
 /** The roles this service launches and settles; Main belongs to the run service. */
@@ -416,37 +422,77 @@ export class SubagentProcessService {
     const result = await this.findSettled(record);
     const runRoot = join(this.workspaceRoot, record.taskId, "runs", record.runId);
     const scheduler = new DurableScheduler(join(runRoot, "queue.json"));
-    let retryScheduled = false;
-    if (result.status === "cancelled")
-      await this.markQueueCancelled(record.taskId, record.runId, record.callId);
-    else if (result.status === "succeeded")
-      await this.completeQueue(scheduler, record.callId, record.leaseToken);
-    else retryScheduled = await this.failQueue(scheduler, record, result.error ?? "Subagent process failed");
-
-    const events = new JsonlEventStore(join(runRoot, "run_events.jsonl"));
+    const payload =
+      ((await scheduler.list()).find((item) => item.stepId === record.callId)?.payload as
+        | WorkPayload
+        | undefined) ?? {};
     // A retryable failure is still in flight, so it is not an outcome Main may
     // act on; the callback follows the terminal attempt like an in-process call.
-    const callback = retryScheduled
-      ? undefined
-      : await enqueueMainCallback({
-          workspaceRoot: this.workspaceRoot,
-          taskId: record.taskId,
-          runId: record.runId,
-          callId: record.callId,
-          agentId: record.agentId,
+    const publishOutcome = async (): Promise<{ messageId: string; queued: boolean }> => {
+      // The ledger row settles at the same terminal boundary as the callback: a
+      // retryable failure is not an outcome, so the row stays open for its retry.
+      await settleDelegatedExperiment({
+        workspaceRoot: this.workspaceRoot,
+        taskId: record.taskId,
+        runId: record.runId,
+        callId: record.callId,
+        agentId: record.agentId,
+        ref: payload.experimentRef,
+        status: result.status,
+        workingDirectory: record.workingDirectory,
+        summary: result.response,
+        outputFiles: result.outputFiles,
+        ...(result.error === undefined ? {} : { error: result.error })
+      });
+      return await enqueueMainCallback({
+        workspaceRoot: this.workspaceRoot,
+        taskId: record.taskId,
+        runId: record.runId,
+        callId: record.callId,
+        agentId: record.agentId,
+        status: result.status,
+        // The ledger reference rides with the callback exactly as the
+        // in-process path wrote it, so Main reads one shape either way.
+        callbackMetadata: {
+          ...(payload.experimentRef ?? {}),
+          ...(result.review ? { review: result.review } : {})
+        },
+        response: formatSubagentSummary({
           status: result.status,
-          callbackMetadata: result.review ? { review: result.review } : undefined,
-          response: formatSubagentSummary({
-            status: result.status,
-            rawResponse: result.response,
-            outputFiles: result.outputFiles,
-            diagnostics: result.diagnostics,
-            ...(result.error ? { error: result.error } : {})
-          }),
+          rawResponse: result.response,
           outputFiles: result.outputFiles,
           diagnostics: result.diagnostics,
           ...(result.error ? { error: result.error } : {})
-        });
+        }),
+        outputFiles: result.outputFiles,
+        diagnostics: result.diagnostics,
+        ...(result.error ? { error: result.error } : {})
+      });
+    };
+    // The queue row is the durable "this call is over" fact every reader polls,
+    // so its terminal write comes last: a callback that is not yet queued must
+    // not be readable as an outcome, or Main completes between the two writes
+    // and the callback arrives for a closed Task.
+    let retryScheduled = false;
+    let callback: { messageId: string; queued: boolean } | undefined;
+    if (result.status === "cancelled") {
+      callback = await publishOutcome();
+      await this.markQueueCancelled(record.taskId, record.runId, record.callId);
+    } else if (result.status === "succeeded") {
+      callback = await publishOutcome();
+      await this.completeQueue(scheduler, record.callId, record.leaseToken);
+    } else {
+      retryScheduled = await this.failQueue(
+        scheduler,
+        record,
+        result.error ?? "Subagent process failed",
+        async () => {
+          callback = await publishOutcome();
+        }
+      );
+    }
+
+    const events = new JsonlEventStore(join(runRoot, "run_events.jsonl"));
     // A retry the queue scheduled is not an outcome Main may act on yet, but
     // the Run still records that this attempt is being replaced.
     if (retryScheduled)
@@ -610,6 +656,7 @@ export class SubagentProcessService {
         )
       )
     };
+    const payload = (item.payload ?? {}) as WorkPayload;
     const result: SubagentProcessResult = {
       ...input,
       callId: item.stepId,
@@ -620,6 +667,21 @@ export class SubagentProcessService {
       diagnostics,
       error: message
     };
+    // A work item that never started still had a ledger row opened for it; its
+    // failure is the row's outcome.
+    await settleDelegatedExperiment({
+      workspaceRoot: this.workspaceRoot,
+      taskId: item.taskId,
+      runId: item.runId,
+      callId: item.stepId,
+      agentId: item.agentId,
+      ref: payload.experimentRef,
+      status: "failed",
+      workingDirectory: payload.projectDirectory ?? "",
+      summary: "",
+      outputFiles: [],
+      error: message
+    });
     await new JsonlEventStore(join(this.workspaceRoot, item.taskId, "runs", item.runId, "run_events.jsonl"))
       .append({
         eventId: id("event"),
@@ -647,6 +709,7 @@ export class SubagentProcessService {
       callId: item.stepId,
       agentId: item.agentId,
       status: "failed",
+      ...(payload.experimentRef ? { callbackMetadata: { ...payload.experimentRef } } : {}),
       response: formatSubagentSummary({
         status: "failed",
         rawResponse: "",
@@ -673,15 +736,24 @@ export class SubagentProcessService {
     await scheduler.complete(callId, token).catch(() => undefined);
   }
 
-  /** Returns whether the queue will retry the item, so the callback waits. */
+  /**
+   * Record a failed attempt, publishing its outcome first when it is terminal.
+   *
+   * The pre-terminal hook runs only when the queue will not retry: it publishes
+   * the callback while the row still reads as in flight, so a reader that sees
+   * the terminal row also finds that call's callback.
+   */
   private async failQueue(
     scheduler: DurableScheduler,
     record: AgentProcessRecord,
-    error: string
+    error: string,
+    beforeTerminal?: () => Promise<void>
   ): Promise<boolean> {
     if (!record.leaseToken) return false;
     const item = (await scheduler.list()).find((candidate) => candidate.stepId === record.callId);
     if (!item || isTerminal(item.status)) return false;
+    const willRetry = item.attempts < (item.maxAttempts ?? 1);
+    if (!willRetry) await beforeTerminal?.();
     const updated = await scheduler
       .fail(record.callId, record.leaseToken, error)
       // eslint-disable-next-line no-restricted-syntax -- 失败本身才是结果；队列写入失败时租约到期重试，回调已经记录了这次失败

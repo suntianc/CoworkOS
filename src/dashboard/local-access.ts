@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { atomicWriteSync } from "../storage/atomic-file.js";
 import { mkdir, open, rename } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
@@ -149,8 +150,9 @@ export class LocalAccess {
       // No credential has been published for this data root yet.
     }
     const token = `run_${randomBytes(32).toString("hex")}`;
-    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    writeFileSync(path, `${token}\n`, { mode: 0o600 });
+    // Atomic and 0600: a tear here would make the next load regenerate the
+    // token and strand every Main adopted from the previous backend.
+    atomicWriteSync(path, `${token}\n`, { mode: 0o600 });
     return token;
   }
 

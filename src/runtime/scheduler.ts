@@ -140,6 +140,11 @@ export class DurableScheduler {
       const item = items.find((candidate) => candidate.stepId === stepId);
       if (!item) throw new Error(`unknown step: ${stepId}`);
       if (item.status === "completed" || item.status === "failed" || item.status === "cancelled") return item;
+      // A lease means another owner is already executing this item. Its own
+      // settlement is the outcome; a caller that failed to start it must not
+      // overwrite a run it never held — that would hide the real result and
+      // report a failure for work that later succeeds.
+      if (item.status === "leased" || item.lease) return item;
       item.status = "failed";
       item.error = error;
       item.lease = undefined;

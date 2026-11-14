@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { after, before, test } from "node:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -776,6 +776,9 @@ test(
     assert.equal(third.state, "drifted");
     assert.equal(records.body.qualification.eligible, false);
     assert.ok(records.body.qualification.reasons.includes("review_drifted"));
+    // A drifted review can no longer support a verdict, so its checkout is
+    // released instead of staying on disk as evidence nobody may use.
+    assert.equal(existsSync(calls.d.workspace), false, "drift releases the Reviewer checkout");
 
     // The Reviewer session is a real, separate work item; its checkout is not
     // the dependency integration site or the user's repository.

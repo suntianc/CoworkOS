@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { after, before, test } from "node:test";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -327,6 +328,13 @@ for (const engine of PROJECT_DATA_ENGINES) {
       assert.equal(remoteMerged.combinedBase, baseline);
       assert.ok(remoteMerged.receipt, "a merged operation carries an idempotent receipt");
       assert.equal(remoteMerged.receipt.requirementId, remoteDevelopment.requirementId);
+      // The requirement landed: the Reviewer's checkout is released instead of
+      // accumulating one worktree per review for the life of the project.
+      assert.equal(
+        existsSync(reviewerSite),
+        false,
+        "a merged requirement releases its Reviewer checkouts"
+      );
 
       assert.equal(staleResult.state, "check_failed", JSON.stringify(staleResult));
       assert.ok(staleResult.reasons.includes("candidate_changed"), JSON.stringify(staleResult.reasons));
