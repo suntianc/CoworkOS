@@ -100,6 +100,7 @@ import { registerWebSearchTools } from "./tools/web-search.ts";
 import { registerSearchTools } from "./tools/file-search.ts";
 import { registerImageTools } from "./tools/images.ts";
 import { registerSubagentAgent } from "./subagent-agent.ts";
+import { subagentBackendConfigured } from "../../dist/src/runtime/subagent-client.js";
 import { blockedToolCall, taskProtectedPaths } from "./protected-call.ts";
 import { registerCoworkProvider } from "./provider.ts";
 
@@ -432,6 +433,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
   };
   const recoverSubagents = async (ctx: ExtensionContext) => {
     if (recoveryActive || !baseUrl || !apiKey) return;
+    // With a serving backend, delegated work belongs to it: an in-process
+    // recovery would claim a work item the backend owns and project a second
+    // result for it. The backend starts queued items and settles them itself.
+    if (subagentBackendConfigured()) return;
     recoveryActive = true;
     try {
       const commandEnv = await businessCommandEnvironment(runtimeEnv);
@@ -804,9 +809,12 @@ async function registerMainExtension(pi: ExtensionAPI) {
         // A resident Main stays alive when a pause stops the turn: the pause
         // is recorded here, at the boundary it stopped at, and the process
         // waits with its Inbox untouched until the resume command arrives.
-        // A failed model request ends this process; the Run service settles
-        // that Run as failed from the exit, so this boundary records nothing.
-        if (lastMainMessage && (lastMainMessage as { stopReason?: string }).stopReason === "error") return;
+        // A resident Main's failed model request ends its process, and the Run
+        // service settles that Run from the exit, so this boundary records
+        // nothing. A one-turn host has no backend to project that exit: its
+        // failed turn is still settled here, as it always was.
+        if (resident && lastMainMessage && (lastMainMessage as { stopReason?: string }).stopReason === "error")
+          return;
         if (task.pause && task.status === "running") {
           // Record when the turn stopped before the Task reports itself paused:
           // a reader that sees `paused` must already find the boundary time.
@@ -815,6 +823,24 @@ async function registerMainExtension(pi: ExtensionAPI) {
               pause: { ...task.pause, pausedAt: new Date().toISOString() }
             });
           await taskStore.transitionTask(taskId, "paused", { runId: mainRunId, reason: "ui_pause" });
+          // The Turn stopped at this boundary; the Run keeps the pause on
+          // record even though a resident process stays alive for the resume.
+          try {
+            await new JsonlEventStore(
+              join(workspaceRoot, taskId, "runs", mainRunId, "run_events.jsonl")
+            ).append({
+              eventId: `pause-${randomUUID()}`,
+              type: "main.run_paused",
+              taskId,
+              runId: mainRunId,
+              agentId: "main",
+              occurredAt: new Date().toISOString(),
+              payload: { reason: "ui_pause", requestedAt: task.pause.requestedAt }
+            });
+            // eslint-disable-next-line no-restricted-syntax -- 暂停已写入 Task；事件只是记录，写不进去不影响暂停
+          } catch {
+            /* the Task's pause is the durable fact */
+          }
           await updateRuntime({
             runtimePhase: "waiting",
             runtimeLastEvent: { type: "main_turn_settled", summary: "paused" }
@@ -925,10 +951,16 @@ async function registerMainExtension(pi: ExtensionAPI) {
         );
       }, mainTimeoutMs);
     }
-    await new LocalWorkspaceStore(workspaceRoot).transitionTask(taskId, "running", {
-      runId: mainRunId,
-      reason: "main_turn_started"
-    });
+    // A closed Task is not reopened by a message that arrived while it was
+    // closing: a late Subagent callback must not turn a cancelled session back
+    // into a running one. An explicit new run transitions it first.
+    const taskStore = new LocalWorkspaceStore(workspaceRoot);
+    const startedTask = await taskStore.readTask(taskId);
+    if (startedTask.status !== "cancelled")
+      await taskStore.transitionTask(taskId, "running", {
+        runId: mainRunId,
+        reason: "main_turn_started"
+      });
     await updateRuntime({
       runtimePhase: "active",
       runtimeRouting: { strategy: "undecided", reason: "Main turn started" },

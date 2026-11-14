@@ -11,13 +11,23 @@ import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { finalAnswerIndex } from "../web/assets/conversation.js";
 import { HumanRequestStore } from "../dist/src/runtime/human.js";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
+import { endAgentProcesses } from "./dashboard-fixture.mjs";
 
-async function until(read, condition, label) {
+/**
+ * Poll until the condition holds.
+ *
+ * The default budget covers an in-process turn. A check that also waits for a
+ * delegated work item passes a larger one: that item is a real Pi process, and
+ * its startup is not bounded by this harness.
+ */
+async function until(read, condition, label, timeoutMs = 10_000) {
+  const untilMs = Date.now() + timeoutMs;
   let last;
-  for (let i = 0; i < 300; i++) {
+  for (;;) {
     const value = await read();
     last = value;
     if (condition(value)) return value;
+    if (Date.now() >= untilMs) break;
     await delay(20);
   }
   assert.fail(
@@ -82,6 +92,9 @@ async function fixture(t, handle, maxTurns = 20, env = {}) {
       child.kill("SIGTERM");
       await once(child, "exit");
     }
+    // A resident Main (and a delegated process) outlives the backend that
+    // started it; this fixture is what finally ends them.
+    await endAgentProcesses(workspaceRoot);
     model.closeAllConnections();
     await new Promise((done) => model.close(done));
     await removeAfterAsyncWrites(root);
@@ -363,16 +376,20 @@ test("an answer given after the process stopped still resumes the run", { timeou
       reply({ text: "已根据回答继续并完成。" });
     },
     20,
-    { COWORK_HUMAN_ANSWER_TIMEOUT_MS: "800" }
+    // A resident Main stays after its turn; the durable answer path is the one
+    // a person takes once that process is gone (an idle exit, a restart, a
+    // machine that slept), so the fixture lets the process idle out here.
+    { COWORK_HUMAN_ANSWER_TIMEOUT_MS: "800", COWORK_MAIN_IDLE_TIMEOUT_MS: "800" }
   );
   const run = await f.start();
 
-  // Let the wait expire and the turn settle: from here on, nothing is blocked
-  // on the question, exactly as after a restart.
+  // Let the wait expire and the turn settle, then let the idle process exit:
+  // from here on nothing is blocked on the question and nobody is reading the
+  // Inbox, exactly as after a restart.
   let detail = await until(
     f.detail,
-    (value) => !value.runtime.active && value.humanRequests?.length,
-    "settled question"
+    (value) => !value.runtime.active && !value.runtime.mainRunning && value.humanRequests?.length,
+    "settled question after the Main exited"
   );
   assert.equal(detail.humanRequests[0].status, "unanswered");
   assert.equal(requests, 2, "the turn continued on the recommended option rather than stalling");
@@ -817,7 +834,8 @@ test(
         return files.length ? files : null;
       },
       Boolean,
-      "a raised question on disk"
+      "a raised question on disk",
+      60_000
     );
 
     // The user clicking "complete" must not close a Task somebody is blocked on.
@@ -843,15 +861,22 @@ test(
     // steers the turn in progress rather than queueing behind it — the same path
     // a Subagent callback takes.
     const turns = [];
-    const f = await fixture(t, async (body, reply) => {
-      turns.push(JSON.stringify(body.messages));
-      if (turns.length === 1) {
-        // Long enough to interject into.
-        for (let step = 0; step < 12; step += 1) await delay(60);
-        return reply({ text: "第一轮结束。" });
-      }
-      reply({ text: "已按你的补充调整。" });
-    });
+    const f = await fixture(
+      t,
+      async (body, reply) => {
+        turns.push(JSON.stringify(body.messages));
+        if (turns.length === 1) {
+          // Long enough to interject into.
+          for (let step = 0; step < 12; step += 1) await delay(60);
+          return reply({ text: "第一轮结束。" });
+        }
+        reply({ text: "已按你的补充调整。" });
+      },
+      20,
+      // A resident Main serves the conversation between turns; this test also
+      // covers the case where that process has idled out.
+      { COWORK_MAIN_IDLE_TIMEOUT_MS: "4000" }
+    );
     await f.start();
 
     await until(f.detail, (value) => value.runtime?.active === true, "a running turn");
@@ -875,8 +900,26 @@ test(
     // Recorded, so the transcript can show it where the person said it.
     assert.ok((detail.events ?? []).some((event) => event.type === "user.interjected"));
 
-    // With no run in flight there is nothing to steer, and the caller is told to
-    // send an ordinary message instead of the request silently doing nothing.
+    // The resident Main is still the conversation: an insertion between turns
+    // opens the next one instead of being refused, and it reaches the model.
+    const betweenTurns = turns.length;
+    const inserted = await fetch(`${f.base}/api/tasks/task/interject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "空闲时再补一句" })
+    });
+    assert.equal(inserted.status, 202, await inserted.text());
+    await until(
+      f.detail,
+      (value) => !value.runtime.active && value.task.status === "completed" && turns.length > betweenTurns,
+      "the inserted message to open the next turn"
+    );
+    assert.match(turns.at(-1), /空闲时再补一句/);
+
+    // Once the process has idled out there is nothing to steer, and the caller
+    // is told to send an ordinary message instead of the request silently
+    // doing nothing.
+    await until(f.detail, (value) => !value.runtime?.mainRunning, "the idle Main to exit");
     const response = await fetch(`${f.base}/api/tasks/task/interject`, {
       method: "POST",
       headers: { "content-type": "application/json" },

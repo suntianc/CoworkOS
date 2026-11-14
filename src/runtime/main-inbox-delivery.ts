@@ -339,7 +339,14 @@ export class MainInboxDelivery {
       const message = entry.type === "message" ? entry.message : entry;
       if (!message) continue;
       const user = message;
-      if (user.role === "toolResult" && user.toolName === "wait_for_subagents" && !user.isError) {
+      // A synchronous delegation returns the settled call as its tool result,
+      // so the callback that carried the same result is acknowledged with it;
+      // leaving it queued would show the model the outcome a second time.
+      if (
+        user.role === "toolResult" &&
+        (user.toolName === "wait_for_subagents" || user.toolName === "call_subagent") &&
+        !user.isError
+      ) {
         const receipts = user.details?._coworkInboxMessages;
         for (const receipt of Array.isArray(receipts) ? receipts : []) {
           if (

@@ -52,6 +52,8 @@ import type { createModelSettings } from "./model-settings.js";
 import type { createDashboardRunService, RunServicePorts } from "./run-service.js";
 import { ProjectCloneError, type ProjectCloneService } from "./project-clone-service.js";
 import { handleProjectCloneRequest } from "./project-clone-routes.js";
+import { handleSubagentRequest } from "./subagent-routes.js";
+import type { SubagentBackend } from "./subagent-backend.js";
 import type { createWorkspaceDirectory } from "./workspace-directory.js";
 import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
 
@@ -71,6 +73,8 @@ export interface DashboardRoutePorts {
   mainSessions?: ReturnType<typeof createMainSessionService>;
   /** Requirement development records and their isolated Git checkouts. */
   developments?: ProjectDevelopmentService;
+  /** Delegated work items and the processes that run them. */
+  subagents?: SubagentBackend;
   /** Git clones behind the add-project dialog; absent in partial handlers. */
   projectClones?: ProjectCloneService;
   mainCapacity?: MainCapacityService;
@@ -363,6 +367,11 @@ export function createDashboardHandler(
               : undefined;
           }
         }))
+      )
+        return;
+      if (
+        ports.subagents &&
+        (await handleSubagentRequest(request, response, url, { backend: ports.subagents }))
       )
         return;
       if (

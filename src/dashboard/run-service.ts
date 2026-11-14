@@ -108,6 +108,16 @@ export interface RunServicePorts {
   dashboardUrl: string;
   runCredential: string;
   coordinator: CoordinatorRuntime;
+  /**
+   * The backend that owns delegated processes.
+   *
+   * Closing a session must end the Subagents it started, and their processes
+   * are not the coordinator's any more: the same owner that launched them is
+   * the one that stops them.
+   */
+  subagents?: {
+    cancel(input: { taskId: string; runId: string; callId: string; reason?: string }): Promise<unknown>;
+  };
   locateTask(taskId: string): Promise<TaskLocation>;
   /**
    * Resolve the execution host's connection for one admitted Run.
@@ -179,6 +189,7 @@ export function createDashboardRunService({
   dashboardUrl,
   runCredential,
   coordinator,
+  subagents,
   locateTask,
   resolveMainModel,
   endpointLimits = async () => undefined,
@@ -615,7 +626,10 @@ export function createDashboardRunService({
     // `adopt` watches a live process and settles a dead record through the one
     // deduplicated settlement path, so a record found after a restart is
     // projected exactly once.
-    const live = await host.adopt({ taskId, runId: task.activeRunId });
+    // This host manages Main only: a delegated process in the same run
+    // directory is the subagent backend's, and settling it here would finalize
+    // the Task on a Subagent's exit.
+    const live = await host.adopt({ taskId, runId: task.activeRunId, roles: ["main"] });
     const record = live.find((candidate) => candidate.role === "main");
     if (!record) return undefined;
     const resident: ResidentMain = {
@@ -1527,10 +1541,17 @@ export function createDashboardRunService({
           };
         }
         await taskFinalizations.get(taskId);
-        // An edit rewrites the Pi session under the running Main. The process
-        // is stopped first — an idle one or one blocked on a durable question —
-        // and relaunched on the edited version. That is what keeps editing
+        // An edit rewrites the session behind a Main. A turn that is still
+        // producing an answer is not editable: stopping it to rewrite its
+        // transcript would discard work the person never cancelled. An idle
+        // process — or one parked on a durable question — is stopped and
+        // relaunched on the edited version, which is what keeps editing
         // possible now that the process outlives its turns.
+        if (
+          (await taskTurnActive(taskId)) &&
+          (await new HumanRequestStore(location.workspaceRoot).list(taskId, "pending")).length === 0
+        )
+          throw new MainMessageEditConflict("当前回合仍在运行，请先停止或等待它结束后再修改重发。");
         if (location.task.activeRunId !== request.runId)
           throw new MainMessageEditConflict("请先停止当前运行并等待停止完成，再修改重发。");
         // An edit stops the process that owns the session, whether this
@@ -1771,9 +1792,19 @@ export function createDashboardRunService({
         const location = await locateTask(taskId);
         // eslint-disable-next-line no-restricted-syntax -- 接管失败只表示这里不认识该进程，后续的活进程检查仍会读心跳与执行记录
         const resident = await adoptResidentMain(taskId, location).catch(() => undefined);
+        // A resident Main between turns is not activity: stop it so the folder
+        // change can fork the session, exactly as an edit does. A turn that is
+        // still producing an answer keeps the refusal.
+        if (resident) {
+          if (await taskTurnActive(taskId))
+            throw new ProjectCatalogError(`请先停止项目中的会话及后台工作，再${change}`, 409);
+          await stopResidentMain(taskId, { replacing: true });
+        }
         if (
           activeRuns.has(taskId) ||
-          resident !== undefined ||
+          // The adopted resident was stopped above; a record this backend did
+          // not stop is still an owner.
+          residentMains.has(taskId) ||
           taskFinalizations.has(taskId) ||
           ["running", "paused", "waiting"].includes(location.task.status) ||
           (await readSleep(location.workspaceRoot, taskId)) ||
@@ -1957,6 +1988,13 @@ export function createDashboardRunService({
             );
         });
         await attempt(() => clearSleep(location.workspaceRoot, taskId));
+        // End the session before its delegated work settles: the settlement
+        // callback is durable, and a Main still watching its Inbox would start
+        // a turn from it and reopen the Task that was just closed.
+        await attempt(() => stopResidentMain(taskId));
+        await attempt(async () => {
+          await taskFinalizations.get(taskId);
+        });
         await attempt(async () => {
           if (location.task.activeRunId) {
             const coordination = await coordinator.waitForSubagents({
@@ -1967,21 +2005,26 @@ export function createDashboardRunService({
             });
             const results = await Promise.allSettled(
               coordination.pending.map((call) =>
-                coordinator.cancelSubagent({
-                  taskId,
-                  runId: location.task.activeRunId!,
-                  workspaceRoot: location.workspaceRoot,
-                  callId: call,
-                  reason: "User stopped the task"
-                })
+                subagents
+                  ? subagents.cancel({
+                      taskId,
+                      runId: location.task.activeRunId!,
+                      callId: call,
+                      reason: "User stopped the task"
+                    })
+                  : coordinator.cancelSubagent({
+                      taskId,
+                      runId: location.task.activeRunId!,
+                      workspaceRoot: location.workspaceRoot,
+                      callId: call,
+                      reason: "User stopped the task"
+                    })
               )
             );
             const rejected = results.find((result) => result.status === "rejected");
             if (rejected?.status === "rejected") throw rejected.reason;
           }
         });
-        await attempt(() => stopResidentMain(taskId));
-        await attempt(async () => taskFinalizations.get(taskId));
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- failed 由 attempt 的 catch 回调置位，TS 在读取处看不到这次闭包写入
         if (failed) throw failure;
         return (await locateTask(taskId)).task;

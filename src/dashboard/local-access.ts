@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { atomicWriteSync } from "../storage/atomic-file.js";
 import { mkdir, open, rename } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
@@ -30,6 +31,9 @@ export type LocalPrincipal =
   { kind: "host"; principalId: "host" } | { kind: "session"; principalId: string; sessionId: string };
 
 export const HOST_PRINCIPAL: LocalPrincipal = { kind: "host", principalId: "host" };
+
+/** The credential a launched Main presents; shared by every process of one data root. */
+const RUN_TOKEN_FILE = "run-credential";
 
 export interface LocalSessionSummary {
   sessionId: string;
@@ -104,7 +108,14 @@ export class LocalAccess {
   readonly sessionsPath: string;
   private readonly directory: string;
   private readonly sessions = new Map<string, SessionRecord>();
-  private readonly runToken = `run_${randomBytes(32).toString("hex")}`;
+  /**
+   * The credential a launched Main presents to this backend.
+   *
+   * It is kept in the data root: a Main outlives the backend that started it,
+   * and a restart must not leave the adopted process holding a credential the
+   * new process no longer accepts.
+   */
+  private readonly runToken: string;
   private readonly runSessionId = `run_${randomBytes(9).toString("hex")}`;
   private persisting: Promise<void> = Promise.resolve();
 
@@ -124,7 +135,25 @@ export class LocalAccess {
   ) {
     this.directory = directory;
     this.sessionsPath = join(directory, SESSION_FILE);
+    this.runToken = this.loadRunToken();
     this.load();
+  }
+
+  /** Read this data root's run credential, or publish a new one for this and later backends. */
+  private loadRunToken(): string {
+    const path = join(this.directory, RUN_TOKEN_FILE);
+    try {
+      const existing = readFileSync(path, "utf8").trim();
+      if (/^run_[a-f0-9]{64}$/.test(existing)) return existing;
+      // eslint-disable-next-line no-restricted-syntax -- 记录存在但无法识别时按没有记录处理，下面原子地发布一个新的运行凭据
+    } catch {
+      // No credential has been published for this data root yet.
+    }
+    const token = `run_${randomBytes(32).toString("hex")}`;
+    // Atomic and 0600: a tear here would make the next load regenerate the
+    // token and strand every Main adopted from the previous backend.
+    atomicWriteSync(path, `${token}\n`, { mode: 0o600 });
+    return token;
   }
 
   private load(): void {

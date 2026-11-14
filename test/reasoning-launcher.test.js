@@ -226,7 +226,11 @@ test("Cowork provider, recovered calls and new delegations use the active Main e
     const extension = await loadExtension();
     const pi = fakePi("off");
     extension(pi);
-    const ctx = { sessionManager: SessionManager.inMemory(), ui: { setStatus() {}, notify() {} } };
+    const ctx = {
+      sessionManager: SessionManager.inMemory(),
+      ui: { setStatus() {}, notify() {} },
+      isIdle: () => true
+    };
     await pi.handlers.get("session_start")({ reason: "startup" }, ctx);
     assert.equal(pi.getThinkingLevel(), "high", "direct extension startup must replace a legacy off default");
     assert.equal(pi.providers.get("cowork-glm").models[0].compat.supportsReasoningEffort, true);

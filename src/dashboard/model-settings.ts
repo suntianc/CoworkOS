@@ -32,7 +32,7 @@ import {
 export function createModelSettings(
   root: string,
   config: CoworkConfig,
-  active: () => boolean,
+  active: () => Promise<boolean>,
   options: { credentialsPath?: string } = {}
 ) {
   const path = coworkConfigPath(root);
@@ -162,7 +162,9 @@ export function createModelSettings(
       };
     },
     async save(value: Record<string, unknown>) {
-      if (active()) throw new Error("请先停止运行中的任务，再修改模型连接");
+      // Only a turn that is producing an answer holds the connection; a
+      // resident Main between turns reads the next connection when it starts.
+      if (await active()) throw new Error("请先停止运行中的任务，再修改模型连接");
       if (status().managedByEnvironment) throw new Error("当前连接由启动环境管理，请在启动配置中修改");
       await withFileLock(path, async () => {
         store.reload();

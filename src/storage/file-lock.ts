@@ -8,7 +8,17 @@ export interface FileLockOptions {
   staleMs?: number;
   timeoutMs?: number;
   heartbeatMs?: number;
-  /** Reclaim a dead, verified local owner; active owners never expire in this mode. */
+  /**
+   * Reclaim a dead, verified local owner; active owners never expire in this
+   * mode.
+   *
+   * Defaults to on: these locks guard files under a local data root, and their
+   * holders are local processes — a backend, a Main or a delegated agent — any
+   * of which can be killed between taking the lock and releasing it. Waiting
+   * out the stale TTL for such a holder stalls every reader of the file (a
+   * task detail read waits on the task record and the queue), so recovery is
+   * the default and a caller must opt out to keep the old behaviour.
+   */
   recoverDeadOwner?: boolean;
 }
 
@@ -164,6 +174,7 @@ export async function withFileLock<T>(
   const retryMs = options.retryMs ?? 25;
   const staleMs = options.staleMs ?? 5 * 60_000;
   const timeoutMs = options.timeoutMs ?? 30_000;
+  const recoverDeadOwner = options.recoverDeadOwner ?? true;
   const started = Date.now();
   const token = randomUUID();
   const ownsPublishedLock = async (): Promise<boolean> => {
@@ -180,12 +191,12 @@ export async function withFileLock<T>(
         JSON.stringify({
           token,
           pid: process.pid,
-          ...(options.recoverDeadOwner ? { host: hostname() } : {}),
+          ...(recoverDeadOwner ? { host: hostname() } : {}),
           acquiredAt: new Date().toISOString()
         }) + "\n",
-        { encoding: "utf8", flag: options.recoverDeadOwner ? "wx" : "w" }
+        { encoding: "utf8", flag: recoverDeadOwner ? "wx" : "w" }
       );
-      if (options.recoverDeadOwner) {
+      if (recoverDeadOwner) {
         let verified = false;
         // A recovery attempt may have observed an unpublished owner before we
         // wrote it. Wait for that claim to settle, then verify ownership again.
@@ -217,7 +228,7 @@ export async function withFileLock<T>(
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       if (Date.now() - started >= timeoutMs) throw new Error(`timed out acquiring file lock: ${targetPath}`);
       try {
-        if (options.recoverDeadOwner) await recoverAbandonedLock(lockPath, ownerPath, staleMs);
+        if (recoverDeadOwner) await recoverAbandonedLock(lockPath, ownerPath, staleMs);
         else {
           const details = await stat(lockPath);
           if (Date.now() - details.mtimeMs >= staleMs) await rm(lockPath, { recursive: true, force: true });

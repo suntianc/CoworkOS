@@ -235,13 +235,18 @@ test(
     assert.equal(callback.payload.status, "succeeded", JSON.stringify(callback.payload));
     assert.equal(provider.requests.length, 3, "the review made exactly its own turns");
 
-    // The write never entered the candidate commit, and the checkout is gone
-    // once the review process ended.
+    // The write never entered the candidate commit. Its own checkout is kept:
+    // Main binds the review and checks the candidate for drift after the call
+    // is over, so a successful review's site is its evidence. An attempt that
+    // ended without a conclusion is the one that gets removed (see the adopted
+    // dead review process case below).
     await assert.rejects(() => git(repository, ["show", `${candidate}:reviewer-note.txt`]));
     assert.equal(await git(executorDirectory, ["status", "--porcelain"]), "");
-    await waitFor(
-      () => Promise.resolve(!existsSync(reviewerDirectory)),
-      "the Reviewer checkout to be removed"
+    assert.equal(existsSync(join(reviewerDirectory, "reviewer-note.txt")), true);
+    assert.equal(
+      await git(reviewerDirectory, ["rev-parse", "HEAD"]),
+      candidate,
+      "the kept site is still the candidate the review examined"
     );
   }
 );
@@ -312,10 +317,12 @@ test(
     assert.equal(callback.payload.status, "succeeded", JSON.stringify(callback.payload));
     assert.notEqual(process.workingDirectory, repository);
     assert.equal(await git(repository, ["status", "--porcelain"]), "?? user-untracked.txt");
-    await waitFor(
-      () => Promise.resolve(!existsSync(process.workingDirectory)),
-      "the derived Reviewer checkout to be removed"
+    assert.equal(
+      existsSync(join(process.workingDirectory, "reviewer-note.txt")),
+      true,
+      "a successful review keeps its checkout as the evidence its record names"
     );
+    assert.equal(await git(process.workingDirectory, ["rev-parse", "HEAD"]), candidate);
   }
 );
 

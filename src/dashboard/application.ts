@@ -57,6 +57,9 @@ import { MainCapacityStore, mainCapacityStatePath } from "../storage/main-capaci
 import { withFileLock } from "../storage/file-lock.js";
 import { ProjectDataRuntime } from "../workspace/project-data-service.js";
 import { createProjectDevelopmentService } from "./project-development-service.js";
+import { createSubagentBackend } from "./subagent-backend.js";
+import { ExperimentProgramStore } from "../runtime/experiment-program-store.js";
+import { attachmentGrants } from "../workspace/attachment-capabilities.js";
 import { ComputerUse } from "../gui/computer-use.js";
 import type { ComputerDriver } from "../gui/computer-use.js";
 import { MacComputerDriver } from "../gui/macos-driver.js";
@@ -321,6 +324,45 @@ export function createDashboardApplication(
     locateTask
   );
   const uploads = new InputStore(join(dirname(globalIndexPath), "uploads"));
+  /**
+   * Delegated execution for every workspace root this backend serves.
+   *
+   * Main requests work through its own Task; the backend registers the item in
+   * that Run's durable queue, launches it, and settles it. It is one owner per
+   * root, so a CLI worker does not take the same work item at the same time.
+   */
+  const subagents = createSubagentBackend({
+    projectRoot,
+    dashboardUrl,
+    locateTask,
+    workspaceRoots: knownWorkspaceRoots,
+    config: () => runtimeConfig,
+    resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
+    development: async ({ taskId, developmentId }) => {
+      const site = await developments.dispatchSiteForTask(taskId, developmentId);
+      return { directory: site.directory };
+    },
+    frozenCandidate: async ({ taskId, developmentId }) => {
+      const site = await developments.dispatchSiteForTask(taskId, developmentId);
+      return site.candidate;
+    },
+    grants: async ({ taskId, attachments }) => {
+      const location = await locateTask(taskId);
+      return await attachmentGrants(join(location.workspaceRoot, taskId), attachments);
+    },
+    experiment: async ({ taskId, callId, agentId, objective }) => {
+      const location = await locateTask(taskId);
+      return await new ExperimentProgramStore(location.workspaceRoot).openRun({
+        taskId,
+        callId,
+        agentId,
+        objective
+      });
+    },
+    configPath: () => coworkConfigPath(projectRoot),
+    piAgentDir: () => data.piAgentDir,
+    ...(process.env.COWORK_SUBAGENT_POLL_MS ? { pollMs: Number(process.env.COWORK_SUBAGENT_POLL_MS) } : {})
+  });
   const runs = createDashboardRunService({
     onRunFinalized: async (location, runId) => {
       if (!location.projectId) return;
@@ -343,6 +385,7 @@ export function createDashboardApplication(
     dashboardUrl,
     runCredential: access.runCredential(),
     coordinator,
+    subagents,
     locateTask,
     mainSessions: {
       resolve: (location, input) => mainSessions.resolve(location, input)
@@ -782,7 +825,10 @@ export function createDashboardApplication(
     dashboardUrl,
     uiRoot,
     webSearchSettings: createWebSearchSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
-    modelSettings: createModelSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
+    modelSettings: createModelSettings(projectRoot, runtimeConfig, async () => {
+      for (const taskId of activeRuns.keys()) if (await runs.taskTurnActive(taskId)) return true;
+      return false;
+    }),
     globalTaskPayload,
     locateTask,
     projectTasks: workspaces.projectTasks,
@@ -824,6 +870,7 @@ export function createDashboardApplication(
     interjectionTarget: runs.interjectionTarget,
     resumeHumanAnswers,
     coordinator,
+    subagents,
     taskDetails,
     taskListItem,
     appendRunEvent
@@ -834,6 +881,9 @@ export function createDashboardApplication(
   // call can be asked about them: close, pause, interrupt and insertion all
   // read the adopted state, not the next message.
   server.once("listening", () => void runs.adoptExistingMains());
+  // Delegated processes a previous backend launched outlive it; take them over
+  // before any request can ask about their work item.
+  server.once("listening", () => void subagents.start());
   server.once("listening", () => runs.startMainGuardian());
 
   return {
@@ -845,6 +895,7 @@ export function createDashboardApplication(
     /** Resolves when the project data service is migrated and reachable. */
     ready: projectData.ready,
     async stop() {
+      await subagents.stop();
       await developments.stopDeliveryRecovery();
       await computerApproval.close();
       await catalogEvents.close();

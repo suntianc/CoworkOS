@@ -151,7 +151,10 @@ for (const engine of PROJECT_DATA_ENGINES) {
         postgres,
         modelEndpoint: local.base,
         model: "fixture-model",
-        config: { mainCapacity: { resident: 2, continuation: 1 } }
+        config: { mainCapacity: { resident: 2, continuation: 1 } },
+        // A resident Main holds its external slot between turns; the idle exit
+        // is what frees it, as spec rule 10 describes.
+        env: { COWORK_MAIN_IDLE_TIMEOUT_MS: "1200" }
       });
       const request = client(dashboard);
       const a = await createProject(request, dashboard, `cap-${engine}-a`);
@@ -274,6 +277,12 @@ for (const engine of PROJECT_DATA_ENGINES) {
       await settle(request, internal.body.session.taskId, "completed");
 
       // Saved sessions are still there, so a quota below them is refused too.
+      // The running Mains exit on the idle timeout first, so the refusal names
+      // the saved sessions rather than the slots they held.
+      await waitFor(
+        async () => (await capacity(request)).body.running.length === 0,
+        "the idle resident Mains to release their slots"
+      );
       const reducedSessions = await setCapacity(request, { resident: 1 });
       assert.equal(reducedSessions.status, 409, JSON.stringify(reducedSessions.body));
       assert.match(reducedSessions.body.error, /已有 2 个外部常规会话/);
@@ -310,7 +319,8 @@ test(
       modelEndpoint: local.base,
       model: "fixture-model",
       defaultProject: false,
-      config: { mainCapacity: { resident: 2, continuation: 1 } }
+      config: { mainCapacity: { resident: 2, continuation: 1 } },
+      env: { COWORK_MAIN_IDLE_TIMEOUT_MS: "1200" }
     });
     t.after(() => dashboard.stop());
     const request = client(dashboard);
@@ -370,6 +380,10 @@ test(
     assert.ok(observed.regular >= 1 && observed.regular <= 2, JSON.stringify(observed));
     await settle(request, sessions.two.taskId, "completed");
     await settle(request, sessions.three.taskId, "completed");
+    await waitFor(
+      async () => (await capacity(request)).body.running.length === 0,
+      "the idle resident Mains to release their slots"
+    );
     const final = await capacity(request);
     assert.deepEqual(final.body.running, []);
     assert.deepEqual(final.body.queued, []);

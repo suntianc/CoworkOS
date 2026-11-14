@@ -1,4 +1,4 @@
-import { open, readFile } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { TaskRecord } from "../domain/types.js";
 import { agentDisplayName } from "./agent-identity.js";
@@ -168,15 +168,27 @@ export async function readTaskActivity(input: {
     timeOfString(input.task.createdAt) ??
     nowMs;
   const queue = await readJson<WorkItemRecord[]>(join(runRoot, "queue.json"), []);
+  const subagentMembers = await Promise.all(
+    queue
+      .filter((item) => typeof item.agentId === "string" && item.agentId !== "main")
+      .map(async (item) => {
+        const agentId = item.agentId as string;
+        // A delegated work item runs as its own Pi process and writes that
+        // process's event stream beside its record; an in-process attempt wrote
+        // a trace under sessions/. Read whichever this attempt actually left.
+        const processLog = join(runRoot, "agents", "subagents", agentId, "agent-output.log");
+        const legacyTrace = join(taskRoot, "sessions", agentId, `${runId}.jsonl`);
+        const path = (await stat(processLog)
+          // eslint-disable-next-line no-restricted-syntax -- 该工作项还没有进程日志时读旧的进程内 trace，两种记录都读不到就是没有采样
+          .catch(() => undefined))
+          ? processLog
+          : legacyTrace;
+        return { agentId, path, work: item };
+      })
+  );
   const members: Array<{ agentId: string; path: string; work?: WorkItemRecord }> = [
     { agentId: "main", path: join(runRoot, "runtime-output.log") },
-    ...queue
-      .filter((item) => typeof item.agentId === "string" && item.agentId !== "main")
-      .map((item) => ({
-        agentId: item.agentId as string,
-        path: join(taskRoot, "sessions", item.agentId as string, `${runId}.jsonl`),
-        work: item
-      }))
+    ...subagentMembers
   ];
   const read = await Promise.all(members.map((member) => readTrace(member.path, startedMs)));
   const lastProgressMs = read.reduce<number | undefined>(

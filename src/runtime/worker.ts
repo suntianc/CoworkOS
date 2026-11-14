@@ -4,6 +4,7 @@ import {
   type SubagentDispatchResult
 } from "./coordinator-runtime.js";
 import { SubagentProcessService, type SubagentProcessResult } from "./subagent-processes.js";
+import { claimSubagentOwnership, releaseSubagentOwnership } from "./subagent-owner.js";
 import { resolve } from "node:path";
 
 export interface WorkerOptions extends CoordinatorRecoveryInput {
@@ -47,6 +48,17 @@ export class CoordinatorWorker {
     // existing contract for callers that only drive the coordinator.
     // Only a caller that drives the coordinator directly omits Task/Run.
     if (!input.taskId || !input.runId || !input.workspaceRoot) return this.runRecovery(input, pollMs);
+    // One owner per workspace root: while the serving Dashboard dispatches and
+    // settles delegated work, this worker must not start or settle it a second
+    // time. It yields the whole root rather than a single Run, so the two never
+    // split one item's launch from its settlement.
+    const ownership = await claimSubagentOwnership(input.workspaceRoot, "worker");
+    if (!ownership.owned) {
+      console.error(
+        `[cowork] delegated work for ${input.workspaceRoot} is owned by the running backend (pid ${ownership.owner?.pid}); this worker takes no work`
+      );
+      return;
+    }
     const settled: SubagentProcessResult[] = [];
     const service = new SubagentProcessService({
       workspaceRoot: input.workspaceRoot,
@@ -80,6 +92,7 @@ export class CoordinatorWorker {
     } finally {
       // This backend is going away; the processes are not. Drop observers only.
       service.close();
+      await releaseSubagentOwnership(input.workspaceRoot);
     }
   }
 

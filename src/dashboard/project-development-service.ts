@@ -56,6 +56,7 @@ import {
   resolveDevelopmentBaseline
 } from "../workspace/development-workspace.js";
 import { DeliveryOutbox, type DeliveryIntent } from "../workspace/delivery-outbox.js";
+import { releaseReviewSite } from "../workspace/review-site.js";
 import {
   isAncestor,
   mergeCandidate,
@@ -414,6 +415,56 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       state: "drifted",
       drift: reason
     });
+    // A drift ends this review's verdict; its checkout can no longer support
+    // any conclusion about the candidate.
+    await releaseReviewerSite(review);
+  }
+
+  /**
+   * Release a Reviewer's checkout once its review is closed.
+   *
+   * The site is evidence only while the review is open: Main binds the review
+   * and checks the candidate for drift after the Reviewer's process ends. When
+   * the review reaches a verdict — passed, failed or drifted — that check has
+   * already run and the recorded findings, checks and rulings are the facts
+   * that outlive it. The worktree would otherwise accumulate one copy per
+   * review for the life of the requirement.
+   */
+  async function releaseReviewerSite(review: DevelopmentReview): Promise<void> {
+    const reviewer = review.reviewer;
+    if (!reviewer?.workspace) return;
+    await releaseSite(review, reviewer.workspace);
+  }
+
+  /**
+   * Release every Reviewer checkout of a requirement that has just landed.
+   *
+   * A merged requirement is the end of its review cycle: the verdicts,
+   * findings, rulings and delivery records are the durable facts, and the
+   * checkouts would otherwise stay on disk for the life of the project.
+   */
+  async function releaseDevelopmentReviewSites(projectId: string, developmentId: string): Promise<void> {
+    try {
+      const service = await gateway();
+      for (const review of await service.queryReviews(projectId, developmentId))
+        await releaseReviewerSite(review);
+      // eslint-disable-next-line no-restricted-syntax -- 合入后的现场清理是收尾簿记：交付与审查记录已经落盘，清理失败不能让合入结果失败
+    } catch {
+      /* bookkeeping only */
+    }
+  }
+
+  async function releaseSite(review: DevelopmentReview, directory: string): Promise<void> {
+    try {
+      await releaseReviewSite({
+        repository: review.candidate.workspace,
+        commit: review.candidate.commit,
+        directory
+      });
+      // eslint-disable-next-line no-restricted-syntax -- 清理审查现场是收尾簿记：审查结论已经落盘，清理失败不能让已完成的审查失败；残留现场下次清理或 git worktree prune 回收
+    } catch {
+      /* bookkeeping only */
+    }
   }
 
   async function requireCall(taskId: string | undefined, callIdValue: unknown): Promise<WorkItemCallFact> {
@@ -582,7 +633,10 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     if (!site) throw conflict("审查工作项现场尚未准备完成；稍后重试绑定", "review_site_unavailable");
     const reason = driftReason(site, review.candidate);
     if (reason) {
+      // The review cannot bind this checkout, so it is not evidence for any
+      // verdict: record the drift first, then release the site.
       await markDrifted(projectId, review, reason);
+      await releaseSite(review, derived);
       throw conflict(reason, "review_drifted");
     }
     return service.updateReview(projectId, reviewId, {
@@ -1588,7 +1642,11 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
             break;
           throw error;
         }
-        remember(await executeMerge(projectId, config, claimed));
+        const merged = await executeMerge(projectId, config, claimed);
+        remember(merged);
+        // The requirement landed: its review checkouts are no longer evidence
+        // any reader needs.
+        if (merged.state === "merged") await releaseDevelopmentReviewSites(projectId, merged.developmentId);
       }
       return processed;
     });
@@ -1923,6 +1981,29 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       const found = await taskProject(taskId);
       await replayBeforeRead(found.projectId, options);
       return (await gateway()).getDevelopment(found.projectId, developmentId, backendId);
+    },
+
+    /**
+     * What a delegated work item needs from one requirement.
+     *
+     * Only a ready checkout this backend owns can be forked. A Reviewer also
+     * needs the candidate its review froze: reading the checkout's HEAD at
+     * start instead would let a commit made after the freeze move the site
+     * under the review.
+     */
+    async dispatchSiteForTask(taskId: string, developmentId: string) {
+      const found = await taskProject(taskId);
+      const record = await (await gateway()).getDevelopment(found.projectId, developmentId, ports.backendId);
+      if (!record.workspace || record.workspace.state !== "ready")
+        throw conflict("开发记录没有就绪的本机现场；先 ensure_workspace", "review_workspace_not_ready");
+      const reviews = await (await gateway()).queryReviews(found.projectId, developmentId);
+      const frozen = reviews.filter((review) => review.state === "in_review").at(-1);
+      return {
+        directory: record.workspace.directory,
+        ...(frozen
+          ? { candidate: { repository: record.workspace.directory, commit: frozen.candidate.commit } }
+          : {})
+      };
     },
 
     async find(

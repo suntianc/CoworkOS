@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { after, before, test } from "node:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -646,7 +646,7 @@ test(
               "the first call starts from a fresh transcript"
             );
             return {
-              name: "write_file",
+              name: "write",
               arguments: { path: "export.txt", content: "header\nbody\n" }
             };
           }
@@ -657,36 +657,60 @@ test(
             assert.match(assistantText(body), /A 完成：已写入 export\.txt/);
             assert.equal(body.messages.filter((message) => message.role === "user").length, 2);
             return {
-              name: "write_file",
+              name: "write",
               arguments: { path: "export.txt", content: "header\nbody\ntotal\n" }
             };
           }
           return { text: "A 完成返修：已补合计行。" };
         }
         if (role === "b") {
+          // A Reviewer holds no write/edit tool by design; its own checkout is
+          // written through the shell it does hold.
           if (step === 0)
             return {
-              name: "write_file",
-              arguments: { path: "evidence/failure.log", content: FAILURE_LOG }
+              name: "bash",
+              arguments: {
+                command: `mkdir -p evidence && printf '%s' '${FAILURE_LOG}' > evidence/failure.log`
+              }
             };
           if (step === 1)
             return {
-              name: "run_command",
+              name: "bash",
               arguments: { command: 'test "$(tail -1 export.txt)" = total' }
             };
+          if (step === 2)
+            return {
+              name: "submit_review",
+              arguments: {
+                verdict: "changes_requested",
+                findings: [
+                  {
+                    location: "export.txt:3",
+                    evidence: "tail -1 export.txt 输出 body；完成标准要求最后一行为 total。",
+                    blocking: true
+                  }
+                ]
+              }
+            };
           return {
-            text: "候选违反完成标准：export.txt 末行为 body，应为 total；失败原件见 work/failure.log。"
+            text: "候选违反完成标准：export.txt 末行为 body，应为 total；失败原件见 evidence/failure.log。"
           };
         }
         if (role === "c") {
           if (step === 0)
             return {
-              name: "run_command",
+              name: "bash",
               arguments: { command: 'test "$(tail -1 export.txt)" = total && echo REVIEW_OK' }
+            };
+          if (step === 1)
+            return {
+              name: "submit_review",
+              arguments: { verdict: "pass", findings: [] }
             };
           return { text: "复审通过：export.txt 末行为 total，原发现已修复。" };
         }
         // Reviewer D examines the combined version; it writes nothing.
+        if (step === 0) return { name: "submit_review", arguments: { verdict: "pass", findings: [] } };
         return { text: "组合版本核对通过。" };
       } catch (error) {
         failures.push(error.stack ?? error.message);
@@ -752,6 +776,9 @@ test(
     assert.equal(third.state, "drifted");
     assert.equal(records.body.qualification.eligible, false);
     assert.ok(records.body.qualification.reasons.includes("review_drifted"));
+    // A drifted review can no longer support a verdict, so its checkout is
+    // released instead of staying on disk as evidence nobody may use.
+    assert.equal(existsSync(calls.d.workspace), false, "drift releases the Reviewer checkout");
 
     // The Reviewer session is a real, separate work item; its checkout is not
     // the dependency integration site or the user's repository.

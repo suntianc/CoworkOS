@@ -24,6 +24,12 @@ import { businessCommandEnvironment } from "../../../dist/src/runtime/command-en
 import type { DelegatedModelRequest } from "../../../dist/src/runtime/role-models.js";
 import { createProjectDevelopmentClient } from "../../../dist/src/runtime/project-development-client.js";
 import { DurableScheduler } from "../../../dist/src/runtime/scheduler.js";
+import { formatSubagentSummary } from "../../../dist/src/runtime/subagent-callback.js";
+import {
+  createSubagentClient,
+  subagentBackendConfigured
+} from "../../../dist/src/runtime/subagent-client.js";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { CoworkToolContext } from "../extension.ts";
 import type { RuntimeToolResult } from "../helpers.ts";
@@ -340,6 +346,68 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       const requestedReview = typeof params.reviewId === "string" ? params.reviewId.trim() : "";
       if (requestedReview && !continueCallId)
         throw new Error("reviewId 只能与 continueCallId 一起使用：发现由返修续接回答");
+      // With a backend, Main asks for a work item and the backend owns the
+      // process: registration, dependencies, checkout, role connection and
+      // settlement all happen there. A CLI run with no local service keeps its
+      // own in-process execution, which #06 removes together with that host.
+      if (subagentBackendConfigured()) {
+        const accepted = await createSubagentClient({ taskId: context.taskId }).dispatch({
+          task: goal,
+          mode: params.mode,
+          role,
+          ...(dependsOn.length > 0 ? { dependsOn } : {}),
+          ...(typeof params.developmentId === "string" && params.developmentId.trim()
+            ? { developmentId: params.developmentId.trim() }
+            : {}),
+          ...(continueCallId ? { continueCallId } : {}),
+          ...(requestedReview ? { reviewId: requestedReview } : {}),
+          ...(params.attachments === undefined ? {} : { attachments: params.attachments }),
+          ...(typeof params.profileId === "string" && params.profileId.trim()
+            ? { profileId: params.profileId.trim() }
+            : {}),
+          ...(typeof params.model === "string" && params.model.trim() ? { model: params.model.trim() } : {}),
+          thinkingLevel: context.currentThinkingLevel()
+        });
+        const callId = String(accepted.callId ?? "");
+        const acceptedPayload = {
+          callId,
+          runId: accepted.runId,
+          agentId: accepted.agentId,
+          name: accepted.name,
+          role,
+          ...(accepted.developmentId
+            ? { developmentId: accepted.developmentId, workspace: accepted.workspace }
+            : {}),
+          ...(accepted.continuedFrom ? { continuedFrom: accepted.continuedFrom } : {}),
+          ...(Array.isArray(accepted.dependsOn) ? { dependsOn: accepted.dependsOn } : {})
+        };
+        if (params.mode === "async") {
+          context.updateRuntime({
+            runtimeRouting: { strategy: "async", reason: goal.slice(0, 240) },
+            runtimeLastEvent: { type: "subagent_accepted", summary: `${callId}: ${goal.slice(0, 180)}` }
+          });
+          const payload = { accepted: true, mode: "async", ...acceptedPayload };
+          return { content: [{ type: "text", text: JSON.stringify(payload) }], details: payload };
+        }
+        const settled = await waitForDispatchedCall(context, accepted);
+        context.updateRuntime({
+          runtimeRouting: { strategy: "sync", reason: goal.slice(0, 240) },
+          runtimeLastEvent: { type: "subagent_completed", summary: `${callId}: ${settled.status}` }
+        });
+        const payload = {
+          ...acceptedPayload,
+          status: settled.status,
+          response: settled.response,
+          artifacts: [],
+          outputFiles: settled.outputFiles,
+          diagnostics: settled.diagnostics,
+          error: settled.error
+        };
+        return {
+          content: [{ type: "text", text: JSON.stringify(payload) }],
+          details: { ...payload, _coworkInboxMessages: settled.claimedCallbacks ?? [] }
+        };
+      }
       // The durable queue is the only source of a work item's identity. One
       // read serves both the dependency check and an explicit continuation.
       const queue =
@@ -729,13 +797,18 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
     async execute(_toolCallId, params): Promise<RuntimeToolResult> {
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancel_subagent 的 callId 由模型以 JSON 参数传入，运行期可能缺失；空串会落到找不到 call 的分支，不能把 undefined 传给存储查询
       const callId = String(params.callId ?? "");
-      const result = await context.coordinator.cancelSubagent({
-        taskId: context.taskId,
-        runId: context.mainRunId,
-        workspaceRoot: context.workspaceRoot,
-        callId,
-        reason: typeof params.reason === "string" ? params.reason : undefined
-      });
+      const result = subagentBackendConfigured()
+        ? await createSubagentClient({ taskId: context.taskId }).cancel({
+            callId,
+            ...(typeof params.reason === "string" ? { reason: params.reason } : {})
+          })
+        : await context.coordinator.cancelSubagent({
+            taskId: context.taskId,
+            runId: context.mainRunId,
+            workspaceRoot: context.workspaceRoot,
+            callId,
+            reason: typeof params.reason === "string" ? params.reason : undefined
+          });
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     }
   });
@@ -932,6 +1005,113 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     }
   });
+}
+
+/**
+ * Wait for the backend to settle one dispatched call.
+ *
+ * The wait reads the same durable queue, callback and result record every other
+ * status tool reads, so a backend restart in the middle changes nothing about
+ * this wait: the process is adopted by the next backend and settles there.
+ */
+async function waitForDispatchedCall(
+  context: CoworkToolContext,
+  accepted: Record<string, unknown>
+): Promise<{
+  status: "succeeded" | "failed" | "timed_out" | "cancelled";
+  response: string;
+  outputFiles: string[];
+  diagnostics: { tracePath: string; resultPath: string };
+  error?: string;
+  claimedCallbacks?: Array<{ taskId: string; runId: string; messageId: string }>;
+}> {
+  const taskId = context.taskId;
+  const runId = String(accepted.runId ?? context.mainRunId);
+  const callId = String(accepted.callId ?? "");
+  const agentId = String(accepted.agentId ?? "");
+  const diagnostics = {
+    tracePath: `sessions/${agentId}/${runId}.jsonl`,
+    resultPath: `runs/${runId}/agents/subagents/${agentId}/result.json`
+  };
+  const terminal = (status: string | undefined) =>
+    status === "completed" || status === "failed" || status === "cancelled";
+  // Wait for the queue to reach a terminal state first; the callback is written
+  // by the settling backend and is claimed in the read that follows.
+  for (;;) {
+    const state = await context.coordinator.waitForSubagents({
+      taskId,
+      runId,
+      workspaceRoot: context.workspaceRoot,
+      callIds: [callId],
+      timeoutMs: 5_000,
+      waitForCallbackConsumption: false,
+      includeCallDetails: false
+    });
+    if (terminal(state.calls.find((call) => call.callId === callId)?.status)) break;
+    if (state.calls.length === 0 && state.pending.length === 0) break;
+  }
+  const waited = await context.coordinator.waitForSubagents({
+    taskId,
+    runId,
+    workspaceRoot: context.workspaceRoot,
+    callIds: [callId],
+    timeoutMs: 0,
+    waitForCallbackConsumption: false,
+    consumeCompletedCallbacks: true,
+    isCallbackQueued: (messageId) => context.inboxDelivery.isQueued(messageId)
+  });
+  const call = waited.calls.find((candidate) => candidate.callId === callId);
+  const status =
+    call?.status === "completed"
+      ? ("succeeded" as const)
+      : call?.status === "cancelled"
+        ? ("cancelled" as const)
+        : call?.status === "timed_out"
+          ? ("timed_out" as const)
+          : ("failed" as const);
+  const result = await readResultRecord(join(context.workspaceRoot, taskId, diagnostics.resultPath));
+  const outputFiles = call?.outputFiles ?? result?.outputFiles ?? [];
+  const error = call?.error ?? result?.error;
+  const response =
+    call?.response ??
+    formatSubagentSummary({
+      status,
+      rawResponse: result?.response ?? "",
+      outputFiles,
+      diagnostics,
+      ...(error ? { error } : {})
+    });
+  return {
+    status,
+    response,
+    outputFiles,
+    diagnostics,
+    ...(error ? { error } : {}),
+    ...(waited.claimedCallbacks ? { claimedCallbacks: waited.claimedCallbacks } : {})
+  };
+}
+
+/** The result record a delegated process writes before it exits. */
+async function readResultRecord(
+  path: string
+): Promise<{ response?: string; outputFiles?: string[]; error?: string } | undefined> {
+  try {
+    const value = JSON.parse(await readFile(path, "utf8")) as {
+      response?: unknown;
+      outputFiles?: unknown;
+      error?: unknown;
+    };
+    return {
+      response: typeof value.response === "string" ? value.response : undefined,
+      outputFiles: Array.isArray(value.outputFiles)
+        ? value.outputFiles.filter((entry): entry is string => typeof entry === "string")
+        : undefined,
+      error: typeof value.error === "string" ? value.error : undefined
+    };
+    // eslint-disable-next-line no-restricted-syntax -- 结果记录尚未写出或损坏时按没有结果处理，等待结果里的状态与错误已经是结论
+  } catch {
+    return undefined;
+  }
 }
 
 /** The project this conversation belongs to, used only for a role's project override. */

@@ -326,8 +326,21 @@ export class AgentProcessHost {
    * that ended while no backend was watching is settled from its durable
    * records, so Main still receives the callback it was owed.
    */
-  async adopt(input: { taskId: string; runId: string }): Promise<AgentProcessRecord[]> {
-    const records = await this.records(input.taskId, input.runId);
+  async adopt(input: {
+    taskId: string;
+    runId: string;
+    /**
+     * The roles this host manages.
+     *
+     * Main and delegated processes share one run directory, so a host that
+     * adopts without saying which it owns would settle another host's live
+     * process, or project a Subagent's exit as if Main had ended.
+     */
+    roles?: readonly AgentProcessRole[];
+  }): Promise<AgentProcessRecord[]> {
+    const records = (await this.records(input.taskId, input.runId)).filter(
+      (record) => !input.roles || input.roles.includes(record.role)
+    );
     const adopted: AgentProcessRecord[] = [];
     for (const record of records) {
       if (record.settledAt) continue;

@@ -286,7 +286,13 @@ test("AC2: a pending delegated call keeps the idle Main alive", { timeout: 180_0
     runId: run.runId,
     agentId: "subagent_1",
     importance: "normal",
-    payload: { task: "hold this delegation", projectDirectory: f.dashboard.workspaceRoot },
+    payload: {
+      task: "hold this delegation",
+      projectDirectory: f.dashboard.workspaceRoot,
+      // The backend starts any runnable item; this one waits on a prerequisite
+      // that never exists so it stays outstanding for the idle-timeout check.
+      dependsOn: ["pending-prerequisite"]
+    },
     maxAttempts: 1
   });
   // Longer than two idle windows: the process must not leave while work is
@@ -401,7 +407,13 @@ test(
       runId: run.runId,
       agentId: "subagent_2",
       importance: "normal",
-      payload: { task: "keep running", projectDirectory: f.dashboard.workspaceRoot },
+      payload: {
+        task: "keep running",
+        projectDirectory: f.dashboard.workspaceRoot,
+        // Outstanding but not runnable: the backend must not settle it, so the
+        // interrupt's effect on delegated work is what this case observes.
+        dependsOn: ["kept-prerequisite"]
+      },
       maxAttempts: 1
     });
     await f.api("/api/tasks/resident-interrupt/action", { action: "interrupt" });
@@ -478,7 +490,11 @@ test(
       runId,
       agentId: "subagent_3",
       importance: "normal",
-      payload: { task: "open until the session closes", projectDirectory: f.dashboard.workspaceRoot },
+      payload: {
+        task: "open until the session closes",
+        projectDirectory: f.dashboard.workspaceRoot,
+        dependsOn: ["close-window-prerequisite"]
+      },
       maxAttempts: 1
     });
     await f.api("/api/tasks/resident-restart/action", { action: "cancel" });
@@ -765,7 +781,11 @@ test(
       runId: run.runId,
       agentId: "subagent_4",
       importance: "normal",
-      payload: { task: "open until the session closes", projectDirectory: f.dashboard.workspaceRoot },
+      payload: {
+        task: "open until the session closes",
+        projectDirectory: f.dashboard.workspaceRoot,
+        dependsOn: ["adopted-close-prerequisite"]
+      },
       maxAttempts: 1
     });
 
@@ -907,7 +927,13 @@ test("closing is not ordered behind the startup adoption sweep", { timeout: 180_
     runId: run.runId,
     agentId: "subagent_5",
     importance: "normal",
-    payload: { task: "open until the session closes", projectDirectory: f.dashboard.workspaceRoot },
+    payload: {
+      task: "open until the session closes",
+      projectDirectory: f.dashboard.workspaceRoot,
+      // The backend now starts any runnable item, so this one waits on a
+      // prerequisite that never exists: it stays queued until the close.
+      dependsOn: ["close-window-prerequisite"]
+    },
     maxAttempts: 1
   });
 
