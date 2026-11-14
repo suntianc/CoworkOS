@@ -250,8 +250,37 @@ test(
     assert.match(system, /send_peer_message/, "the peer-message guidance reaches the model");
     assert.doesNotMatch(system, /submit_review/, "review submission belongs to the Reviewer");
     assert.doesNotMatch(system, /<docs>/, "the harness documentation pointer is not delegated work");
+    // A delegated process does the same kind of work Main does, so it discovers
+    // the same bundled catalog even though it runs outside the install root.
+    assert.match(system, /<available_skills>/, "the process is given a skill catalog");
+    assert.match(system, /<name>workspace-explore<\/name>/, "a bundled skill is in that catalog");
+    assert.ok(
+      system.includes(resolve(".pi", "skills")),
+      "the catalog points at the install's bundled skill directory"
+    );
+    assert.doesNotMatch(system, /\brun_command\b/, "the catalog and role text name only tools it holds");
   }
 );
+
+test("the prompt and skill text name only tools a Subagent actually holds", async () => {
+  // `run_command` was the old second shell tool. Neither role holds one, so a
+  // prompt or skill that tells a delegated process to call it sends it after a
+  // tool that does not exist.
+  const directories = [join(".pi", "prompts"), join(".pi", "skills")];
+  const files = [];
+  for (const directory of directories) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isDirectory()) files.push(join(directory, entry.name, "SKILL.md"));
+      else if (entry.name.endsWith(".md")) files.push(join(directory, entry.name));
+    }
+  }
+  assert.ok(files.length > 10, "the scan covers the prompts and every bundled skill");
+  for (const path of files) {
+    const text = await readFile(path, "utf8").catch(() => undefined);
+    if (text === undefined) continue;
+    assert.doesNotMatch(text, /\brun_command\b/, `${path} names a tool no process holds`);
+  }
+});
 
 test(
   "a Reviewer process has a shell but no write tool, declares the conclusion tool, and still has no Main-only tool",

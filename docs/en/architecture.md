@@ -34,6 +34,16 @@ The [project data service](../../src/workspace/project-data-service.ts) owns the
 
 Importing `createDashboardApplication()` opens no port and installs no signal handlers. `src/cli/dashboard.ts` owns listening and shutdown signals. Tests explicitly compose and stop reusable services.
 
+## Pi dependency boundary
+
+A runtime import of a Pi package (`@earendil-works/pi-*`, not `import type`) is allowed only in the areas that own a Pi process: `.pi/` (extensions and tools), `scripts/` (launcher), model configuration, Main session file read/write, and context compaction; every other module may only use type imports. The areas are the explicit file list of the [ESLint rule](../../eslint.config.mjs) (`cowork/pi-import-boundary`); the [boundary regression](../../test/p46-pi-dependency-boundary.test.js) keeps that list identical to this section.
+
+- Model configuration (connection probing, thinking levels, model parameters and request recording): [main-request-retry](../../src/runtime/main-request-retry.ts), [model-cache](../../src/runtime/model-cache.ts), [model-connection](../../src/runtime/model-connection.ts), [model-levels](../../src/runtime/model-levels.ts), [model-profile](../../src/runtime/model-profile.ts), [model-provider](../../src/runtime/model-provider.ts), [model-request-recording](../../src/runtime/model-request-recording.ts).
+- Main session file read/write (the backend rewrites Pi session files while Main is not running, that is message editing and forks): [conversation-fork](../../src/runtime/conversation-fork.ts), [main-message-edit](../../src/runtime/main-message-edit.ts).
+- Context compaction: [compaction-summary-guard](../../src/runtime/compaction-summary-guard.ts), [compaction-summary-policy](../../src/runtime/compaction-summary-policy.ts). This is a temporary exception, withdrawn when compaction is redesigned; remove it from the rule list then.
+
+Runtime imports of package-internal subpaths (such as `@earendil-works/pi-ai/api/...`) are allowed only in model configuration, because a Pi upgrade most easily invalidates those internal paths. The boundary narrows a Pi upgrade to a check of the listed modules instead of the whole tree.
+
 ## Task, Run and process lifetime
 
 A browser request flows through HTTP routes → Dashboard Run → AgentProcessHost → Pi launcher → Pi extension → Coordinator. CLI can use runtime services directly. These entrypoints share business semantics.
@@ -50,7 +60,7 @@ Desktop and Web read and save model and search settings through the selected exe
 
 Pi `before_agent_start` registers tools before the first request; `context` refreshes context between later requests. Tests must cover real Pi hook order and subprocess termination.
 
-The durable Inbox is the delivery channel Main and delegated processes share: the backend writes callbacks, external events, guidance, questions and peer messages into the target process's own Inbox, and the process's extension re-reads the whole Inbox at every safe turn boundary. `main.interrupt` and `main.resume` travel the same channel as process commands, consumed without entering the model context. An idle delegated process is woken by a file watch, never over standard input and never by polling; a watch event can arrive late or be coalesced, so delivery does not depend on it arriving in time. A message counts as consumed only once it is in the process's Pi session context, so it survives backend restarts and is read exactly once. Timed parks and Main recovery keep their rules: the Dashboard Run service checks periodically and starts a Main again for a Task with callbacks or a due wake when no Main is alive, and Main decides whether to continue.
+The durable Inbox is the delivery channel Main and delegated processes share: the backend writes callbacks, external events, guidance, questions and peer messages into the target process's own Inbox, and the process's extension re-reads the whole Inbox at every safe turn boundary. `main.interrupt` and `main.resume` travel the same channel as process commands, consumed without entering the model context. An idle process is woken by the writer that produced the message: the endpoint is registered in the durable process record, the writer sends one "new work" nudge after its durable write, and the receiver re-reads the whole Inbox without trusting the notification, while a writer whose endpoint is unreachable skips silently; the file watch remains a fallback. Nothing goes over standard input and nothing polls. A watch event or a nudge can arrive late or not at all, so delivery does not depend on either arriving in time. A message counts as consumed only once it is in the process's Pi session context, so it survives backend restarts and is read exactly once. Timed parks and Main recovery keep their rules: the Dashboard Run service checks periodically and starts a Main again for a Task with callbacks or a due wake when no Main is alive, and Main decides whether to continue.
 
 Visual observations share the Task image archive. Dashboard/desktop owns native ComputerUse policy, exclusive sessions and current action credentials; Main/Pi owns its ephemeral Chromium context.
 

@@ -17,6 +17,7 @@ import {
 } from "../dist/src/runtime/runtime-settings.js";
 import { ensurePiRetryDefaults } from "../dist/src/runtime/model-retry.js";
 import { resolveModelRole, roleConnectionEnv } from "../dist/src/runtime/role-models.js";
+import { bundledSkillRoot } from "../dist/src/runtime/skill-registry.js";
 import { resolveCliSession } from "./cli-session.mjs";
 import { ensureCliBranding, ensureCliStartupSettings } from "./cli-branding.mjs";
 import { installSearchToolAdapters } from "./search-tool-adapter.mjs";
@@ -392,7 +393,7 @@ export async function startPi({ uiCompatibility } = {}) {
       ...(publicTui && !userArgs.some((arg) => arg === "--tui-mode" || arg.startsWith("--tui-mode="))
         ? ["--tui-mode", "regular"]
         : []),
-      ...(projectDirectory !== harnessRoot ? ["--skill", resolve(harnessRoot, ".pi", "skills")] : []),
+      ...(projectDirectory !== harnessRoot ? ["--skill", bundledSkillRoot(harnessRoot)] : []),
       ...userArgs
     ];
     if (
@@ -567,6 +568,10 @@ async function startDelegatedAgent() {
     model,
     "--thinking",
     thinkingLevel,
+    // A delegated process does the same kind of work Main does, so it gets the
+    // same published skills in its system prompt; without this its catalog is
+    // missing every bundled skill because it runs outside the install root.
+    ...(process.cwd() === harnessRoot ? [] : ["--skill", bundledSkillRoot(harnessRoot)]),
     ...process.argv.slice(2)
   ];
   process.exitCode = await runCliProcess({

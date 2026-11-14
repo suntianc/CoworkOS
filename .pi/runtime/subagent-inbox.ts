@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { AgentInboxDelivery, formatAgentInboxMessage } from "../../dist/src/runtime/agent-inbox-delivery.js";
+import { onProcessWake, startAgentWake, stopAgentWake } from "../../dist/src/runtime/agent-wake.js";
 import { watchFiles, type StopWatching } from "../../dist/src/runtime/file-watch.js";
 
 export interface SubagentInboxOptions {
@@ -17,15 +18,17 @@ export interface SubagentInboxOptions {
  * it is injected, so it survives a backend restart and reaches the process it
  * was addressed to. Pi's steering queue decides the safe boundary: the message
  * is queued while a model request is in flight and read with the next turn's
- * context, never in the middle of one. While no model request is running (for
- * example inside a blocking ask_main) a file watch is what notices a new
- * message, so nothing polls.
+ * context, never in the middle of one.
  *
- * The file watch is a wake-up, not the delivery guarantee: a directory event
- * can arrive after this one-shot process has settled, and the OS may coalesce
- * several writes into one event. Every turn boundary therefore re-reads the
- * whole Inbox, which is the last point the agent loop looks for queued input
- * before it decides to continue.
+ * Nothing here tells the process that a message arrived: the writer's own
+ * `InboxStore` write nudges this process through its registered wake endpoint,
+ * and a blocking wait such as `ask_main` subscribes to the same nudge. The
+ * directory watch is kept beside it as a second, best-effort wake. Both are
+ * wake-ups, not the delivery guarantee: a directory event can arrive after this
+ * one-shot process has settled, and the OS may coalesce several writes into one
+ * event. Every turn boundary therefore re-reads the whole Inbox, which is the
+ * last point the agent loop looks for queued input before it decides to
+ * continue.
  *
  * Consumption is recorded only after the message appears in this session's
  * context, so a process that dies before its next request redelivers it. A
@@ -47,6 +50,8 @@ export function registerSubagentInbox(pi: ExtensionAPI, options: SubagentInboxOp
   // Pi's --print host owns the initial prompt.
   let turnStarted = false;
   let stopWatching: StopWatching | undefined;
+  /** Unsubscribe functions for this process's wake channel, one per session. */
+  const wakeSubscriptions: Array<() => void> = [];
 
   const reportDeliveryError = (error: unknown) => {
     process.stderr.write(
@@ -92,6 +97,14 @@ export function registerSubagentInbox(pi: ExtensionAPI, options: SubagentInboxOp
       reportDeliveryError(error);
       return undefined;
     });
+    // The channel is bound once per process and is the wake a directory event
+    // the OS reports late, coalesces or never delivers cannot take away. Each
+    // session only re-subscribes, because a second listener on one endpoint
+    // would unlink the first. A process launched without one keeps the watch
+    // and its turn boundaries.
+    await startAgentWake().catch(reportDeliveryError);
+    for (const unsubscribe of wakeSubscriptions.splice(0)) unsubscribe();
+    wakeSubscriptions.push(onProcessWake(() => void deliver().catch(reportDeliveryError)));
     await deliver().catch(reportDeliveryError);
   });
 
@@ -121,6 +134,8 @@ export function registerSubagentInbox(pi: ExtensionAPI, options: SubagentInboxOp
   pi.on("session_shutdown", async () => {
     stopWatching?.();
     stopWatching = undefined;
+    for (const unsubscribe of wakeSubscriptions.splice(0)) unsubscribe();
+    await stopAgentWake();
     // A message handed to Pi but never read before the process ends becomes
     // readable for this agent's next process now, not after the lease expires.
     await inbox.releaseUnconfirmed().catch(reportDeliveryError);

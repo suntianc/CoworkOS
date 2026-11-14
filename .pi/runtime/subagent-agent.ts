@@ -16,6 +16,7 @@ import { ASK_MAIN_GUIDANCE, SEND_PEER_MESSAGE_GUIDANCE } from "../../dist/src/ru
 import type { ReviewConclusion } from "../../dist/src/runtime/subagent-review.js";
 import { subagentToolNames, type SubagentRole } from "../../dist/src/runtime/subagent-roles.js";
 import { capabilityProvider, parseCapabilityGrants } from "../../dist/src/runtime/capability-provider.js";
+import { bundledSkillRoot } from "../../dist/src/runtime/skill-registry.js";
 import { attachmentCapabilityProvider } from "../../dist/src/workspace/attachment-capabilities.js";
 import {
   configuredContextWindow,
@@ -260,9 +261,7 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
   // The same loader over the same catalog as Main: a published skill that tells
   // a Subagent to load itself returns the instructions, directory and bundled
   // script paths Main would get, and grants nothing beyond read-only loading.
-  registerLoadSkillTool(pi, () => [
-    ...new Set([join(harnessRoot, ".pi", "skills"), join(workingDirectory, ".pi", "skills")])
-  ]);
+  registerLoadSkillTool(pi, () => [bundledSkillRoot(harnessRoot), join(workingDirectory, ".pi", "skills")]);
 
   // Main's guidance and a peer's message reach this process through its own
   // durable Inbox; nothing about that channel is Main-specific.

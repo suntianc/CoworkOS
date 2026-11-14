@@ -29,7 +29,6 @@ const titles = {
   edit: ui("编辑文件"),
   apply_patch: ui("修改文件"),
   bash: ui("运行命令"),
-  run_command: ui("运行命令"),
   exec_command: ui("运行命令"),
   run_tests: ui("运行测试"),
   start_job: ui("启动后台任务"),
@@ -48,7 +47,7 @@ const titles = {
   load_skill: ui("读取操作指南")
 };
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-const commands = new Set(["bash", "run_command", "exec_command", "run_tests", "start_job"]);
+const commands = new Set(["bash", "exec_command", "run_tests", "start_job"]);
 const reads = new Set(["read", "read_file"]);
 const searches = new Set(["grep", "search", "search_files", "web_search", "find"]);
 const parse = (value) => {

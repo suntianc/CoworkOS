@@ -23,6 +23,7 @@ import {
   updateMainContextRuntime
 } from "../../dist/src/runtime/main-context.js";
 import { HEARTBEAT_STALE_MS, writeHeartbeat } from "../../dist/src/runtime/main-heartbeat.js";
+import { onProcessWake, startAgentWake, stopAgentWake } from "../../dist/src/runtime/agent-wake.js";
 import { watchFiles, type StopWatching } from "../../dist/src/runtime/file-watch.js";
 import { MainInboxDelivery, type MainControlType } from "../../dist/src/runtime/main-inbox-delivery.js";
 import {
@@ -68,7 +69,7 @@ import { listJobs } from "../../dist/src/tools/jobs.js";
 import { DEFAULT_PROTECTED_PATHS, guessedProtection } from "../../dist/src/tools/protected-paths.js";
 import { LocalWorkspaceStore } from "../../dist/src/workspace/workspace-store.js";
 import { capabilityProvider } from "../../dist/src/runtime/capability-provider.js";
-import { discoverSkills } from "../../dist/src/runtime/skill-registry.js";
+import { discoverSkills, skillRoots } from "../../dist/src/runtime/skill-registry.js";
 import { attachmentCapabilityProvider } from "../../dist/src/workspace/attachment-capabilities.js";
 import { mainCompactionPreviousSummary, withMainCompactionContext } from "./main-compaction.ts";
 import { MainCompactionRetry } from "./main-compaction-retry.ts";
@@ -148,9 +149,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
     ].filter((value): value is string => Boolean(value))
   });
   let projectDefaultIdentity = true;
-  const baseSkillRoots = [
-    ...new Set([join(harnessRoot, ".pi", "skills"), join(projectDirectory, ".pi", "skills")])
-  ];
+  const baseSkillRoots = skillRoots(harnessRoot, projectDirectory);
   /**
    * Skill roots for this turn.
    *
@@ -309,7 +308,12 @@ async function registerMainExtension(pi: ExtensionAPI) {
   const compactionRetry = new MainCompactionRetry();
   let pendingContextClear: { reason: string } | undefined;
   let inboxDeliveryActive = false;
+  // Every wake counts, so one that arrives while a delivery pass is running
+  // repeats that pass instead of being dropped.
+  let inboxWakeCount = 0;
   let stopInboxWatch: StopWatching | undefined;
+  /** Unsubscribe functions for this process's wake channel, one per session. */
+  const wakeSubscriptions: Array<() => void> = [];
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let idleCheck: Promise<void> | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
@@ -1156,6 +1160,8 @@ async function registerMainExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     stopInboxWatch?.();
     stopInboxWatch = undefined;
+    for (const unsubscribe of wakeSubscriptions.splice(0)) unsubscribe();
+    await stopAgentWake();
     stopMainIdleTimer();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = undefined;
@@ -1247,14 +1253,40 @@ async function registerMainExtension(pi: ExtensionAPI) {
       // work that arrived while paused is newer and stays queued.
       if (resident && !firstTurnStarted) startupTurnBeforePause = await startupTurnAcceptedBeforePause();
       const pollMainInbox = async (): Promise<void> => {
+        inboxWakeCount += 1;
+        // The running pass may have read the Inbox before this wake's write,
+        // so it repeats once it is done rather than dropping the wake.
         if (inboxDeliveryActive) return;
         inboxDeliveryActive = true;
         try {
-          await deliverCallbacks();
+          for (;;) {
+            const observed = inboxWakeCount;
+            await deliverCallbacks();
+            if (inboxWakeCount === observed) return;
+          }
         } finally {
           inboxDeliveryActive = false;
         }
       };
+      // A backend, a Subagent or a peer writes this Inbox and then nudges the
+      // process that owns it. That nudge is what an OS directory event the host
+      // reports late, coalesces or never delivers cannot take away; the watch
+      // below stays as the second, best-effort wake.
+      // The channel is bound once per process; each session only re-subscribes,
+      // because a second listener on one endpoint would unlink the first.
+      await startAgentWake().catch((error: unknown) =>
+        ctx.ui.notify(`Main Inbox wake channel failed: ${errorMessage(error)}`, "warning")
+      );
+      for (const unsubscribe of wakeSubscriptions.splice(0)) unsubscribe();
+      wakeSubscriptions.push(
+        onProcessWake(() => {
+          // eslint-disable-next-line no-restricted-syntax -- Pi 可能在子任务结束前销毁 Main，发送失败会释放 Inbox 租约并由下一次启动重新投递
+          void pollMainInbox().catch(() => {
+            // The next wake re-reads the same durable Inbox.
+          });
+          touchMainActivity();
+        })
+      );
       // The launch queued the turn that starts this process. Record it before
       // delivering, so a backend that reads the durable turn record between
       // process start and the first agent_start does not see an idle Main while
@@ -1266,9 +1298,11 @@ async function registerMainExtension(pi: ExtensionAPI) {
       }
       await pollMainInbox();
       // External events and callbacks are written to Main's Inbox by other
-      // services. A file watch is what notices one while this process is idle,
-      // so delivery needs neither stdin nor polling; if Main is offline, the
-      // same messages remain durable for the next startup.
+      // services. The writer's own notification is what reaches this process
+      // while it is idle; the directory watch beside it is the fallback for a
+      // queue the OS reports late or coalesces. Neither stdin nor polling is
+      // involved, and if Main is offline the same messages stay durable for the
+      // next startup.
       stopInboxWatch?.();
       stopInboxWatch = await watchFiles([inboxDelivery.inboxPath], () => {
         // eslint-disable-next-line no-restricted-syntax -- Pi 可能在子任务结束前销毁 Main，发送失败会释放 Inbox 租约并由下一次启动重新投递

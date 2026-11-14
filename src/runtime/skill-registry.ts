@@ -1,7 +1,23 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { parseSkillFrontmatter } from "./skill-frontmatter.js";
 import type { RuntimeTool } from "./tool.js";
+
+/**
+ * The skill catalog bundled with this install.
+ *
+ * Main discovers it from its launch directory and a delegated process from the
+ * harness root; both read the same directory, so the path is composed here once
+ * instead of in each launcher and extension.
+ */
+export function bundledSkillRoot(harnessRoot: string): string {
+  return join(harnessRoot, ".pi", "skills");
+}
+
+/** The skill catalogs Main and a delegated process both discover. */
+export function skillRoots(harnessRoot: string, projectDirectory: string): string[] {
+  return [...new Set([bundledSkillRoot(harnessRoot), join(projectDirectory, ".pi", "skills")])];
+}
 
 export interface SkillMetadata {
   name: string;
@@ -116,9 +132,9 @@ interface ParsedSkill {
 
 async function parseSkill(path: string): Promise<ParsedSkill | undefined> {
   try {
-    // Match Pi's YAML grammar (including multiline descriptions and inferred
-    // names), rather than silently dropping SDK-selected skills on rediscovery.
-    const { frontmatter } = parseFrontmatter(await readFile(path, "utf8"));
+    // Skills written for Pi use a plain YAML mapping; the local reader covers
+    // the scalar forms skills use, so discovery does not import a Pi package.
+    const { frontmatter } = parseSkillFrontmatter(await readFile(path, "utf8"));
     if (frontmatter["disable-model-invocation"] === true) return undefined;
     const name =
       typeof frontmatter.name === "string" && frontmatter.name.trim()
