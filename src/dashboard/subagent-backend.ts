@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { CoworkConfig } from "../runtime/config.js";
 import type { CapabilityGrant } from "../runtime/capability-provider.js";
@@ -10,7 +10,7 @@ import type {
 } from "../runtime/role-models.js";
 import type { PiThinkingLevel } from "../runtime/runtime-settings.js";
 import { modelRoleSnapshot, resolveDelegatedModelRole, roleConnectionEnv } from "../runtime/role-models.js";
-import { DurableScheduler } from "../runtime/scheduler.js";
+import { hasUnfinishedSubagentWork } from "../runtime/subagent-work.js";
 import {
   SubagentDispatchService,
   type SubagentCancelAccepted,
@@ -85,6 +85,8 @@ export interface SubagentBackend {
   dispatch(request: SubagentDispatchRequest): Promise<SubagentDispatchAccepted>;
   cancel(request: SubagentCancelRequest): Promise<SubagentCancelAccepted>;
   running(input: { taskId: string; runId: string }): Promise<boolean>;
+  /** Whether this Run still has delegated work in flight or undelivered. */
+  unfinishedWork(input: { taskId: string; runId: string }): Promise<boolean>;
   ownership(workspaceRoot: string): SubagentOwnership | undefined;
   stop(): Promise<void>;
 }
@@ -235,41 +237,7 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
   }
 
   async function hasUnfinishedWork(run: TrackedRun): Promise<boolean> {
-    const items = await new DurableScheduler(
-      join(run.workspaceRoot, run.taskId, "runs", run.runId, "queue.json")
-    )
-      .list()
-      // eslint-disable-next-line no-restricted-syntax -- 队列读不出来时按没有未完成项处理；进程记录仍会让它被跟踪
-      .catch(() => []);
-    // A terminal row whose callback is not queued yet still needs this backend.
-    if (
-      items.some(
-        (item) => !["completed", "failed", "cancelled"].includes(item.status) || item.callbackPending === true
-      )
-    )
-      return true;
-    const agents = await readdir(
-      join(run.workspaceRoot, run.taskId, "runs", run.runId, "agents", "subagents"),
-      { withFileTypes: true }
-      // eslint-disable-next-line no-restricted-syntax -- 没有子代理目录的 Run 就没有进程记录，按没有未结算进程处理
-    ).catch(() => []);
-    for (const entry of agents) {
-      if (!entry.isDirectory()) continue;
-      const unsettled = await readUnsettled(
-        join(
-          run.workspaceRoot,
-          run.taskId,
-          "runs",
-          run.runId,
-          "agents",
-          "subagents",
-          entry.name,
-          "process.json"
-        )
-      );
-      if (unsettled) return true;
-    }
-    return false;
+    return hasUnfinishedSubagentWork(run);
   }
 
   return {
@@ -346,6 +314,15 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
       return await serviceFor(location.workspaceRoot).running(input);
     },
 
+    async unfinishedWork(input) {
+      const location = await ports.locateTask(input.taskId);
+      return hasUnfinishedSubagentWork({
+        workspaceRoot: location.workspaceRoot,
+        taskId: input.taskId,
+        runId: input.runId
+      });
+    },
+
     ownership(workspaceRoot) {
       return ownership.get(workspaceRoot);
     },
@@ -363,16 +340,6 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
       tracked.clear();
     }
   };
-}
-
-async function readUnsettled(path: string): Promise<boolean> {
-  try {
-    const value = JSON.parse(await readFile(path, "utf8")) as { settledAt?: string };
-    return !value.settledAt;
-    // eslint-disable-next-line no-restricted-syntax -- 记录不存在或损坏时没有可接管的进程，队列行才是那份结论
-  } catch {
-    return false;
-  }
 }
 
 /**

@@ -41,6 +41,8 @@ export interface MainCapacityServicePorts {
   >;
   /** The local Task snapshot, for reconciling a dispatch interrupted by a restart. */
   taskState(taskId: string): Promise<{ status: string; activeRunId?: string } | undefined>;
+  /** Whether this Run still has delegated work in flight or undelivered. */
+  unfinishedWork(taskId: string, runId: string): Promise<boolean>;
   host?: string;
   tickMs?: number;
   /** Base backoff for a recoverable dispatch failure (tests use a small one). */
@@ -269,7 +271,13 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
     if (!task) return false;
     // Only a Task that recorded a resting state has nothing left to run; a Task
     // that has not started yet owns its place until its first boundary.
-    return ["completed", "paused", "failed", "cancelled"].includes(task.status);
+    if (!["completed", "paused", "failed", "cancelled"].includes(task.status)) return false;
+    // A slot is held while the Run has delegated work outstanding, whatever the
+    // turn is doing: a Main parked at a pause with a Subagent still running
+    // keeps its place, so the resume does not have to queue for one.
+    // eslint-disable-next-line no-restricted-syntax -- 读不到就按仍有未完成工作处理，保留名额
+    if (await ports.unfinishedWork(slot.taskId, slot.runId).catch(() => true)) return false;
+    return true;
   }
 
   /**
@@ -548,10 +556,17 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
       return state.slots.find((slot) => slot.taskId === taskId && slot.runId === runId)?.requestId;
     },
 
-    /** Release the slot one Run still owns, if any. */
-    async releaseRun(taskId: string, runId: string): Promise<void> {
-      const requestId = await this.requestFor(taskId, runId);
-      if (requestId) await this.release(requestId);
+    /**
+     * Release the claim one Run still owns, if it is still the named claim.
+     *
+     * A boundary settlement names the request id its turn ran under. A turn
+     * admitted since then owns a different (or the same, re-bound) claim; the
+     * ledger check keeps it, so a late release cannot free a live turn.
+     */
+    async releaseIfCurrent(taskId: string, runId: string, requestId: string): Promise<boolean> {
+      if (!(await ledger.releaseIfCurrent(taskId, runId, requestId))) return false;
+      if (!stopping) void dispatch().catch(log);
+      return true;
     },
 
     async release(requestId: string): Promise<void> {

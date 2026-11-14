@@ -6,6 +6,7 @@ import { JsonlEventStore } from "../storage/event-store.js";
 import { git } from "../workspace/development-workspace.js";
 import { prepareReviewSite, releaseReviewSite, type ReviewSite } from "../workspace/review-site.js";
 import { DurableScheduler, type WorkItem } from "./scheduler.js";
+import { isTerminalWorkStatus } from "./subagent-work.js";
 import { prepareWorkItemSite, type WorkItemSite } from "../workspace/work-item-workspace.js";
 import {
   AgentProcessHost,
@@ -152,7 +153,9 @@ export class SubagentProcessService {
     const records = await this.delegatedRecords(input);
     const active = new Set(records.filter((record) => !record.settledAt).map((record) => record.callId));
     const statusOf = new Map(items.map((item) => [item.stepId, item.status]));
-    const terminal = new Set(items.filter((item) => isTerminal(item.status)).map((item) => item.stepId));
+    const terminal = new Set(
+      items.filter((item) => isTerminalWorkStatus(item.status)).map((item) => item.stepId)
+    );
     const results: SubagentProcessResult[] = [];
     const workerId = `subagent-process-${process.pid}`;
     for (const item of items) {
@@ -268,7 +271,7 @@ export class SubagentProcessService {
     const settled = settledResult(record);
     if (settled) return settled;
     const item = await this.findQueueItem(input.taskId, input.runId, input.callId);
-    if (item && isTerminal(item.status)) return this.findSettled(record);
+    if (item && isTerminalWorkStatus(item.status)) return this.findSettled(record);
     if (await this.host.owns(record)) await this.markQueueCancelled(input.taskId, input.runId, record.callId);
     await this.host.stop(record);
     // Stopping settled the record: its durable outcome is the answer, and
@@ -528,7 +531,7 @@ export class SubagentProcessService {
     // from treating the call as settled until its callback exists, so the row
     // can be written before the callback without the old race. A settlement
     // interrupted between the steps is completed by the next attempt below.
-    if (current && isTerminal(current.status) && current.callbackPending === true) {
+    if (current && isTerminalWorkStatus(current.status) && current.callbackPending === true) {
       const callback = await publishOutcome();
       await scheduler.clearCallbackPending(record.callId);
       await this.host.markSettled(record, {
@@ -823,7 +826,7 @@ export class SubagentProcessService {
   ): Promise<void> {
     if (!token) return;
     const item = (await scheduler.list()).find((candidate) => candidate.stepId === callId);
-    if (!item || isTerminal(item.status)) return;
+    if (!item || isTerminalWorkStatus(item.status)) return;
     // The write failure propagates: the callback must not be published for a
     // row that is still in flight. The lease expiry re-runs the settlement.
     await scheduler.complete(callId, token, options);
@@ -846,7 +849,7 @@ export class SubagentProcessService {
     const item = (await scheduler.list()).find((candidate) => candidate.stepId === record.callId);
     // A terminal item was settled by someone else: this attempt is not the
     // outcome, and a second callback would report work twice.
-    if (item && isTerminal(item.status)) return "foreign";
+    if (item && isTerminalWorkStatus(item.status)) return "foreign";
     const ownsLease =
       Boolean(record.leaseToken) && item?.status === "leased" && item.lease?.token === record.leaseToken;
     // A lease this attempt does not hold belongs to another owner.
@@ -879,7 +882,7 @@ export class SubagentProcessService {
   private async markQueueCancelled(taskId: string, runId: string, callId: string): Promise<void> {
     const scheduler = new DurableScheduler(join(this.workspaceRoot, taskId, "runs", runId, "queue.json"));
     const item = (await scheduler.list()).find((candidate) => candidate.stepId === callId);
-    if (!item || isTerminal(item.status)) return;
+    if (!item || isTerminalWorkStatus(item.status)) return;
     // eslint-disable-next-line no-restricted-syntax -- 取消已由进程组与回调表达；队列写入失败时下一次取消或租约回收会补上终态
     await scheduler.cancel(callId).catch(() => undefined);
   }
@@ -953,10 +956,6 @@ function delegatedPrompt(task: string): string {
     `Main 分配的任务：${task}`,
     "完成后请返回完整结论；如果创建了 deliverables/ 文件，请列出路径。证据直接写在总结中；不要返回‘正在处理’之类的过程叙述，也不要声称没有执行过的操作。"
   ].join("\n");
-}
-
-function isTerminal(status: WorkItem["status"]): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 /** The recorded outcome of a process this backend already settled. */

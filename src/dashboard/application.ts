@@ -52,6 +52,7 @@ import { EventLedger } from "./event-ledger.js";
 import { createWorkspaceDirectory } from "./workspace-directory.js";
 import { createMainSessionService } from "./main-session-service.js";
 import { createMainCapacityService } from "./main-capacity-service.js";
+import { hasUnfinishedSubagentWork } from "../runtime/subagent-work.js";
 import { createMainRunLauncher } from "./main-run-launch.js";
 import { MainCapacityStore, mainCapacityStatePath } from "../storage/main-capacity-store.js";
 import { withFileLock } from "../storage/file-lock.js";
@@ -208,6 +209,12 @@ export function createDashboardApplication(
         status: location.task.status,
         ...(location.task.activeRunId ? { activeRunId: location.task.activeRunId } : {})
       };
+    },
+    unfinishedWork: async (taskId, runId) => {
+      // eslint-disable-next-line no-restricted-syntax -- 任务定位失败时没有可读的工作项，按没有未完成工作处理；名额清扫仍会看心跳与任务快照
+      const location = await locateTask(taskId).catch(() => undefined);
+      if (!location) return false;
+      return hasUnfinishedSubagentWork({ workspaceRoot: location.workspaceRoot, taskId, runId });
     },
     heartbeat: async (taskId) => {
       // eslint-disable-next-line no-restricted-syntax -- 心跳只在任务仍可定位时读取，定位失败视为没有心跳

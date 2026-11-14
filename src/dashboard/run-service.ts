@@ -117,6 +117,8 @@ export interface RunServicePorts {
    */
   subagents?: {
     cancel(input: { taskId: string; runId: string; callId: string; reason?: string }): Promise<unknown>;
+    /** Whether this Run still has delegated work in flight or undelivered. */
+    unfinishedWork?(input: { taskId: string; runId: string }): Promise<boolean>;
   };
   locateTask(taskId: string): Promise<TaskLocation>;
   /**
@@ -153,8 +155,11 @@ export interface RunServicePorts {
     release(requestId: string): Promise<void>;
     /** The slot one Run still owns, so a resident Main between turns is not counted. */
     requestFor(taskId: string, runId: string): Promise<string | undefined>;
-    /** Give back the place a Run still owns, when it has one. */
-    releaseRun(taskId: string, runId: string): Promise<void>;
+    /**
+     * Release the claim a turn boundary ran under, only while it is still the
+     * Run's current claim. Returns whether it was released.
+     */
+    releaseIfCurrent(taskId: string, runId: string, requestId: string): Promise<boolean>;
     /** The process exists: remove the queue row but keep the slot until it exits. */
     markStarted(requestId: string): Promise<void>;
     /** A cancelled Task gives up its waiting demand, if it has one. */
@@ -589,33 +594,23 @@ export function createDashboardRunService({
   }
 
   /**
-   * Give back the place a resident Main holds while it has no turn to run.
-   *
-   * The process stays and is re-admitted before its next turn, so an idle Main
-   * neither occupies the budget nor has to be killed to free it.
-   */
-  async function releaseResidentSlot(resident: ResidentMain): Promise<void> {
-    resident.requestId = undefined;
-    if (!mainCapacity) return;
-    await mainCapacity
-      .releaseRun(resident.taskId, resident.runId)
-      .catch((error) =>
-        console.error(
-          `[cowork] external capacity release failed: ${error instanceof Error ? error.message : String(error)}`
-        )
-      );
-  }
-
-  /**
    * What a resident Main's finished turn means for its Run and its place.
    *
    * The extension writes the Task's boundary and heartbeat before Pi emits the
    * event this backend observes, so the record already says whether the turn
    * completed, settled into waiting, or stopped at a pause. A terminal Run is
-   * finalized here because its process may live for many more turns, and the
-   * slot goes back to the queue once the Main has nothing left to run.
+   * finalized here because its process may live for many more turns.
+   *
+   * The slot goes back to the queue only when this boundary still owns it and
+   * the Run has no delegated work outstanding: a turn admitted (or delegated
+   * work started) since the boundary keeps the place, and the release itself
+   * re-checks the claim under the ledger lock so a late settlement can never
+   * free a newer turn's slot.
    */
-  async function settleResidentTurn(resident: ResidentMain): Promise<void> {
+  async function settleResidentTurn(
+    resident: ResidentMain,
+    boundaryRequestId: string | undefined
+  ): Promise<void> {
     // eslint-disable-next-line no-restricted-syntax -- 回合结束的记账失败只影响这一个回合；进程退出与下一次回合边界仍会结算
     const task = await resident.location.store.readTask(resident.taskId).catch(() => undefined);
     if (!task || task.activeRunId !== resident.runId) return;
@@ -625,7 +620,32 @@ export function createDashboardRunService({
     // A waiting Task still has delegated work to run; a running one has not
     // written its own boundary yet. Every resting state is between turns.
     if (!["completed", "paused", "failed", "cancelled"].includes(task.status)) return;
-    await releaseResidentSlot(resident);
+    if (!boundaryRequestId || !mainCapacity) return;
+    // This process may already have taken another turn since the boundary: a
+    // delivery rebinds the claim, and an accepted turn that has not started is
+    // recorded as pending. Either means the place is in use again.
+    if (resident.requestId !== boundaryRequestId) return;
+    // A slot is held while delegated work is unfinished, whatever the turn is
+    // doing: a paused Main with a Subagent still running keeps its place.
+    const unfinished = subagents?.unfinishedWork
+      ? await subagents
+          .unfinishedWork({ taskId: resident.taskId, runId: resident.runId })
+          // eslint-disable-next-line no-restricted-syntax -- 读不到时按仍有未完成工作处理，保守保留名额
+          .catch(() => true)
+      : false;
+    if (unfinished) return;
+    // A turn that started after the boundary (or was accepted and has not
+    // written its first boundary yet) owns the claim now.
+    if (resident.turnActive || pendingTurns.has(resident.taskId)) return;
+    const released = await mainCapacity
+      .releaseIfCurrent(resident.taskId, resident.runId, boundaryRequestId)
+      .catch((error) => {
+        console.error(
+          `[cowork] external capacity release failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+        return false;
+      });
+    if (released) resident.requestId = undefined;
   }
 
   /** End the resident Main serving a Task, waiting for its Run to settle. */
@@ -905,8 +925,9 @@ export function createDashboardRunService({
     // reports (paused work is not a turn starting).
     if (!staysPaused) pendingTurns.set(resident.taskId, Date.now());
     // The accepted turn is the Task's current work: a reader that sees the
-    // resume answered must not still read the pause this turn replaces.
-    if (!staysPaused && (task.status === "paused" || task.status === "waiting"))
+    // resume answered must not still read the state this turn replaces, and an
+    // idle resident must not be mistaken for one with nothing to run.
+    if (!staysPaused && ["paused", "waiting", "completed"].includes(task.status))
       await location.store.transitionTask(resident.taskId, "running", {
         runId: resident.runId,
         reason: "main_turn_delivered"
@@ -1475,15 +1496,21 @@ export function createDashboardRunService({
     const runOutput = new MainRunOutput((type) => {
       const current = residentMains.get(taskId);
       if (!current || current.runId !== runId) return;
-      if (type === "agent_start") current.turnActive = true;
-      else if (type === "agent_settled") {
+      if (type === "agent_start") {
+        current.turnActive = true;
+        // The accepted turn is running: its first boundary is what will settle
+        // it, so the acceptance no longer marks a place that must be kept.
+        pendingTurns.delete(taskId);
+      } else if (type === "agent_settled") {
         // A failed request ends this process; the Run stays "working" until
         // the exit settles it as failed, so a page cannot read it as idle.
         if (runOutput.message?.stopReason === "error") return;
         current.turnActive = false;
         // The process outlives its turn, so its Run and its place in the queue
-        // are settled at this boundary rather than at the exit.
-        void settleResidentTurn(current);
+        // are settled at this boundary rather than at the exit. The claim is
+        // taken now; the settlement runs after any launch that is already in
+        // flight, on the same queue that admits turns.
+        void serialize(taskId, () => settleResidentTurn(current, current.requestId));
       }
     });
     // Concurrent appendFile calls can reorder stream chunks. Preserve arrival
