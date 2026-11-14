@@ -105,7 +105,7 @@ export async function readSubagentProgress(input: {
           .map((artifact) => artifact.relativePath);
         const outputFiles = await listAgentOutputFiles({ ...input, agentId: item.agentId });
         const diagnostics = {
-          tracePath: `sessions/${item.agentId}/${input.runId}.jsonl`,
+          tracePath: `runs/${input.runId}/agents/subagents/${item.agentId}/agent-output.log`,
           resultPath: `runs/${input.runId}/agents/subagents/${item.agentId}/result.json`
         };
         const callbackPending = inbox.some(
@@ -116,7 +116,7 @@ export async function readSubagentProgress(input: {
           join(runRoot, "agents", "subagents", item.agentId, "inbox-store.json")
         );
         const trace = await readTraceSummary(
-          join(input.workspaceRoot, input.taskId, "sessions", item.agentId, `${input.runId}.jsonl`)
+          join(runRoot, "agents", "subagents", item.agentId, "agent-output.log")
         );
         const terminal = ["completed", "failed", "timed_out", "cancelled"].includes(item.status);
         const elapsedMs = item.createdAt

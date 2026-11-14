@@ -518,10 +518,6 @@ for (const mode of ["wait tool", "premature answer"]) {
       assert.deepEqual(detail.coordination.pending, []);
       assert.deepEqual(detail.coordination.callbackPending, []);
       const events = detail.runtimeEvents.map((event) => event.payload);
-      assert.equal(
-        events.some((event) => event.message?.customType === "cowork-completion-check"),
-        false
-      );
       const names = detail.coordination.calls.map((call) => call.name);
       assert.equal(new Set(names).size, 2);
       assert.ok(names.every((name) => name && !/智能体|\d/.test(name)));
@@ -606,10 +602,6 @@ for (const [name, args] of [
       assert.equal(requests.length, 2, "a complete answer must not start another model request");
       assert.equal(detail.task.status, "completed");
       assert.equal(detail.task.completion.signal, "natural_stop");
-      assert.equal(
-        detail.runtimeEvents.some(({ payload }) => payload.message?.customType === "cowork-completion-check"),
-        false
-      );
       assert.equal(finalAnswerIndex(detail.messages, detail), detail.messages.length - 1);
     }
   );
@@ -648,10 +640,6 @@ test(
     assert.ok(["waiting", "failed"].includes(detail.task.status), JSON.stringify(detail.task));
     assert.notEqual(detail.task.completion.signal, "finish_task");
     assert.equal(finalAnswerIndex(detail.messages, detail), -1);
-    assert.equal(
-      detail.runtimeEvents.some(({ payload }) => payload.message?.customType === "cowork-completion-check"),
-      false
-    );
     assert.equal(
       detail.events.some((event) => event.type === "main.run_completed"),
       false

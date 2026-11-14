@@ -19,8 +19,9 @@ import type { ProtectedPaths } from "./protected-paths.js";
  * This is best-effort recognition of common shell forms, not a sandbox. Known
  * gaps include writes from inside an interpreter, command substitution inside
  * quotes, backticks, `xargs`, `find -delete`, `git clean` and `curl -O` (the URL
- * is not the written file). Keeping the paths away from the agent still needs
- * permissions and convention.
+ * is not the written file), a directory target such as `git restore .` or
+ * `git checkout .`, and archives unpacked by `tar` or `unzip`. Keeping the paths
+ * away from the agent still needs permissions and convention.
  */
 
 export interface ProtectedCallRefusal {

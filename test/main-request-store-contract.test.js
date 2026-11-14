@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-request-store.js";
 import { MainRequestRetry, mainRequestEnvironment } from "../dist/src/runtime/main-request-retry.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
-import { readModelRequestRetry } from "../dist/src/runtime/model-request-retry.js";
 import { installedPiVersion } from "./pi-version-fixture.mjs";
 
 const storeModule = new URL("../dist/src/storage/main-request-store.js", import.meta.url).href;
@@ -266,36 +265,11 @@ test(
   }
 );
 
-test("legacy bytes stay read-only and clearing the active slot survives a process restart", async (t) => {
+test("clearing the active slot survives a process restart", async (t) => {
   const f = await storage(t);
-  const legacyPath = join(dirname(f.store.filePath), "retry-request.json");
-  await mkdir(dirname(legacyPath), { recursive: true });
-  const original =
-    JSON.stringify(
-      {
-        version: 1,
-        taskId: "task",
-        runId: "legacy-run",
-        requestId: "legacy-request",
-        state: "failed",
-        model: f.model,
-        endpoint: f.input.endpoint,
-        body: f.input.body,
-        context: { messages: [] },
-        systemPrompt: "Legacy system",
-        tools: []
-      },
-      null,
-      2
-    ) + "\n";
-  await writeFile(legacyPath, original);
-  assert.equal((await f.store.legacyPending()).requestId, "legacy-request");
   await f.store.begin(f.input);
   await f.store.settle(f.input.requestId, "failed");
-  assert.equal(await readFile(legacyPath, "utf8"), original);
   await f.store.clear();
-  assert.equal(await readFile(legacyPath, "utf8"), original);
-  assert.equal((await readModelRequestRetry(legacyPath)).requestId, "legacy-request");
   const { stdout } = await promisify(execFile)(
     process.execPath,
     [
@@ -304,14 +278,13 @@ test("legacy bytes stay read-only and clearing the active slot survives a proces
       `
       import { MainRequestStore } from ${JSON.stringify(storeModule)};
       const store = new MainRequestStore(process.argv[1], "task");
-      console.log(JSON.stringify({ pending: Boolean(await store.pending()), legacy: Boolean(await store.legacyPending()) }));
+      console.log(JSON.stringify({ pending: Boolean(await store.pending()) }));
     `,
       f.store.filePath
     ],
     { cwd: f.root, env: childEnvironment, timeout: 5000 }
   );
-  assert.deepEqual(JSON.parse(stdout), { pending: false, legacy: false });
-  assert.equal(await readFile(legacyPath, "utf8"), original);
+  assert.deepEqual(JSON.parse(stdout), { pending: false });
   await assert.rejects(readFile(f.store.filePath), { code: "ENOENT" });
 });
 
@@ -337,33 +310,10 @@ test("an older Main snapshot without execution scope remains readable but prepar
   assert.equal(await readFile(f.store.filePath, "utf8"), original);
 });
 
-test("a snapshot written before Pi versions were recorded stays readable and rebuilds on retry", async (t) => {
-  const f = await storage(t);
-  await f.store.begin({ ...f.input, piVersion: undefined });
-  await f.store.settle(f.input.requestId, "failed");
-  const reloaded = new MainRequestStore(f.store.filePath, "task");
-  assert.equal((await reloaded.read()).piVersion, undefined);
-  const retry = new MainRequestRetry(
-    reloaded,
-    "retry-run",
-    () => mainRequestEnvironment(f.root, "task", f.environment.projectDirectory),
-    f.input.requestId
-  );
-  const prepared = await retry.prepare(f.model, f.context);
-  assert.equal(prepared.replay, undefined, "an unversioned archive must not be replayed");
-  assert.deepEqual(retry.replaySkipped, { reason: "pi_version_missing" });
-  const preserved = await reloaded.pending();
-  assert.equal(
-    preserved.requestId,
-    f.input.requestId,
-    "the archive stays recoverable until the retry claims it"
-  );
-  assert.equal(preserved.body, f.input.body);
-});
-
 test("malformed version annotations report a damaged snapshot instead of throwing", async (t) => {
   for (const [name, patch] of [
     ["a non-string Pi version", { piVersion: 123 }],
+    ["a missing Pi version", { piVersion: undefined }],
     ["a null replay reason", { replaySkipped: null }],
     ["an unknown replay reason", { replaySkipped: { reason: "unknown" } }]
   ]) {

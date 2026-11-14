@@ -1,10 +1,8 @@
 /**
- * Prompt text a delegated Subagent shares between the in-process dispatcher and
- * the delegated Pi extension.
+ * Prompt text for a role a delegated process runs.
  *
- * The extension runs the same role in a separate process, so its role text must
- * be the one Main's dispatcher already gives the model instead of a second copy
- * that drifts. Tool names are the ones the model actually sees on both paths.
+ * One copy serves the wording Main writes and the tool names the model sees, so
+ * the prompt and the tool table cannot drift apart.
  */
 
 /** The upward question channel, when the Subagent may reach Main. */

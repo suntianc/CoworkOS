@@ -64,11 +64,10 @@ App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，
     │       ├── work/
     │       ├── deliverables/          待 Main 验收的候选文件
     │       └── logs/
-    ├── sessions/<agent>/<run>.jsonl    Trace
-    ├── sessions/<agent>/<run>-requests.jsonl 模型请求、prompt、工具定义和响应
+    ├── sessions/main/<run>-requests.jsonl 模型请求、prompt、工具定义和响应
     ├── sessions/main/request-retry.json 最新 Main 模型请求的私有重试快照
     ├── sessions/main/pi/              Main 原生 Pi 会话
-    ├── runs/<runId>/                  Run 事件、队列、Inbox、结果、main-input.json
+    ├── runs/<runId>/                  Run 事件、队列、Inbox、结果、main-input.json 与 agents/subagents/<id>/agent-output.log
     ├── experiments/                   运行时实验记录
     └── .runtime/                      Task 锁与产物索引等
 ```
@@ -89,11 +88,11 @@ Task 初始化会创建 `agents/main/work/`，在 Main 首次模型请求前即�
 
 新版本将历史正文和活动单独写入私有 `sessions/main/message-versions/<versionId>.json`（权限 600）；版本索引只保存历史文件名、当前对应消息、分组、预览和活动数量。旧版内联历史仍可读取，下次编辑时迁移到独立文件；备份应同时包含这些历史文件。项目目录变更会复制当前选定 Pi 分支到新 CWD，再原子更新版本索引中的 session 指针，版本 ID 和旧记录不变。
 
-`sessions/main/request-retry.json` 是唯一主动写入的版本 1 私有恢复槽，保存实际序列化 body、发送 endpoint、原模型/上下文和会话 ID、Task/Run/request 身份、执行环境、写入时的 Pi 版本（`piVersion`）、body SHA-256 与整槽校验和，状态为 pending/failed/completed。它保留原始用户正文、附件像素和成功工具结果，权限为 600；认证 headers 与配置密钥不保存。重放关联使用 `retryOf`，跨进程文件锁保护保存、结算及请求身份比对。版本不一致或旧快照没有 `piVersion` 时不重放；重试写下的新快照用 `replaySkipped` 记录原因（`pi_version_mismatch` 或 `pi_version_missing`）与旧版本。
+`sessions/main/request-retry.json` 是唯一主动写入的版本 1 私有恢复槽，保存实际序列化 body、发送 endpoint、原模型/上下文和会话 ID、Task/Run/request 身份、执行环境、写入时的 Pi 版本（`piVersion`）、body SHA-256 与整槽校验和，状态为 pending/failed/completed。它保留原始用户正文、附件像素和成功工具结果，权限为 600；认证 headers 与配置密钥不保存。重放关联使用 `retryOf`，跨进程文件锁保护保存、结算及请求身份比对。版本不一致时不重放；重试写下的新快照用 `replaySkipped` 记录 `pi_version_mismatch` 与旧版本。缺少 `piVersion` 的快照按损坏记录处理。
 
-新输入清除活动槽，并写入 `request-retry.json.cleared` 标记；旧 `retry-request.json` 仅作只读兼容归档，标记防止清除后复活。
+新输入清除活动槽。
 
-新增 `executionScope` 保持版本 1 可读兼容，独立保存 canonical 实际工作目录和 Task 存储根。启动和发送时校验归属，改变归属时拒绝精确重放且不生成替代请求。旧版本 1 档案没有此字段时可读取/备份，但精确重试被拒绝，原档案不会被改写。
+`executionScope` 独立保存 canonical 实际工作目录和 Task 存储根。启动和发送时校验归属，改变归属时拒绝精确重放且不生成替代请求；快照缺少该记录时同样拒绝精确重试，原档案不会被改写。
 
 ## 产出物与预览
 

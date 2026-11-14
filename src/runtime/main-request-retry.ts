@@ -18,7 +18,6 @@ import {
   mainRequestExecutionScope,
   type MainRequestExecutionScope
 } from "./main-request-execution-scope.js";
-import { retiredSectionReplayRefusal, retiredSectionsWithText } from "./retired-system-sections.js";
 import { currentPiVersion } from "./pi-version.js";
 
 export interface MainRequestExecutionEnvironment extends MainRequestEnvironment {
@@ -32,10 +31,9 @@ export class MainRequestConflictError extends Error {
 
 /**
  * An archived wire body is exact only for the Pi release that serialized it, so
- * a different or unrecorded version rebuilds the context instead of replaying.
+ * a different version rebuilds the context instead of replaying.
  */
 function replaySkipReason(archived: MainRequestSnapshot, current: string): MainRequestReplaySkip | undefined {
-  if (!archived.piVersion) return { reason: "pi_version_missing" };
   if (archived.piVersion === current) return undefined;
   return { reason: "pi_version_mismatch", archivedPiVersion: archived.piVersion };
 }
@@ -113,12 +111,6 @@ export class MainRequestRetry {
       this.deferredContext ||=
         JSON.stringify(input(context.messages)) !== JSON.stringify(input(this.replay.context.messages));
       const archived = normalizeContext(this.replay.context);
-      // An archive written before user memory and project experience were
-      // removed still holds their rendered text. Refuse the exact replay
-      // instead of resending it; the caller sends a new message, which rebuilds
-      // the context without those sections.
-      const retired = retiredSectionsWithText(archived.messages);
-      if (retired.length) throw new MainRequestConflictError(retiredSectionReplayRefusal(retired));
       return {
         model: this.replay.model,
         context: archived,
@@ -145,9 +137,9 @@ export class MainRequestRetry {
       throw new MainRequestSnapshotError(
         "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
       );
-    // A version mismatch (or an archive from before versions were recorded)
-    // leaves this retry on the ordinary path: Pi rebuilds the context from the
-    // live session, and the new snapshot states why the archive was not resent.
+    // A version mismatch leaves this retry on the ordinary path: Pi rebuilds
+    // the context from the live session, and the new snapshot states why the
+    // archive was not resent.
     this.replaySkip = replaySkipReason(this.archived, currentPiVersion());
     if (this.replaySkip) return;
     this.replay = this.archived;

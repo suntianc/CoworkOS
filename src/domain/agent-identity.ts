@@ -1,9 +1,6 @@
-// The SDK's default preamble per supported release line. Old snapshots keep
-// projecting after an upgrade; new requests recognize the now-current template.
-const engineIdentities = [
-  "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.",
-  "You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code."
-];
+// The SDK's default preamble for the release line this product ships on.
+const engineIdentity =
+  "You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.";
 /** Product roles describe responsibility, never a model's training provenance. */
 export function atriaRoleIdentity(role: "Agent" | "Main" | "Subagent"): string {
   if (role === "Main")
@@ -22,49 +19,25 @@ const docsPathLine = (label: string, suffix = "") =>
 /** One SDK default <docs> template: the header, then every known bullet, in order. */
 const docsPattern = (header: string, bullets: string[]) =>
   new RegExp(`^${[escapePattern(header), ...bullets].join("\n")}$`);
-// Each entry is one SDK release line's complete default <docs> template; only
-// the three filesystem paths vary. A user-edited section never matches.
-const engineDocsPatterns = [
-  // 0.87.x
-  docsPattern(
-    "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):",
-    [
-      docsPathLine("- Main documentation: "),
-      docsPathLine("- Additional docs: "),
-      docsPathLine("- Examples: ", " (extensions, custom tools, SDK)"),
-      escapePattern(
-        "- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory"
-      ),
-      escapePattern(
-        "- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)"
-      ),
-      escapePattern(
-        "- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing"
-      ),
-      escapePattern(
-        "- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)"
-      )
-    ]
-  ),
-  // 1.5.x
-  docsPattern(
-    "Pi documentation (read only when the user asks about the harness itself, its SDK, extensions, themes, skills, or TUI):",
-    [
-      docsPathLine("- Main documentation: "),
-      docsPathLine("- Additional docs: "),
-      docsPathLine("- Examples: ", " (extensions, custom tools, SDK)"),
-      escapePattern(
-        "- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory"
-      ),
-      escapePattern(
-        "- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)"
-      ),
-      escapePattern(
-        "- Before implementing harness changes, read the relevant docs and examples in full, following related cross-references."
-      )
-    ]
-  )
-];
+// Only the three filesystem paths vary in the default template; a user-edited
+// section never matches.
+const engineDocsPattern = docsPattern(
+  "Pi documentation (read only when the user asks about the harness itself, its SDK, extensions, themes, skills, or TUI):",
+  [
+    docsPathLine("- Main documentation: "),
+    docsPathLine("- Additional docs: "),
+    docsPathLine("- Examples: ", " (extensions, custom tools, SDK)"),
+    escapePattern(
+      "- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory"
+    ),
+    escapePattern(
+      "- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)"
+    ),
+    escapePattern(
+      "- Before implementing harness changes, read the relevant docs and examples in full, following related cross-references."
+    )
+  ]
+);
 
 /** Project SDK defaults at the request/export boundary; preserve custom prompts and tool patches. */
 export function projectAtriaSystemMessage<T>(value: T): T {
@@ -81,15 +54,11 @@ export function projectAtriaSystemMessage<T>(value: T): T {
   )
     return value;
   const sections = { ...(message.sections as Record<string, unknown>) };
-  const enginePreamble = engineIdentities.find((identity) => sections.preamble === identity);
-  if (
-    enginePreamble === undefined &&
-    sections.preamble !== atriaIdentity &&
-    sections.preamble !== legacyIdentity
-  )
+  const enginePreamble = sections.preamble === engineIdentity;
+  if (!enginePreamble && sections.preamble !== atriaIdentity && sections.preamble !== legacyIdentity)
     return value;
   let changed = false;
-  if (enginePreamble !== undefined || sections.preamble === legacyIdentity) {
+  if (enginePreamble || sections.preamble === legacyIdentity) {
     sections.preamble = atriaIdentity;
     changed = true;
   }
@@ -97,7 +66,7 @@ export function projectAtriaSystemMessage<T>(value: T): T {
     typeof sections.docs === "string"
       ? sections.docs.replace(/^<docs>\n([\s\S]*)\n<\/docs>$/, "$1")
       : undefined;
-  if (docs !== undefined && engineDocsPatterns.some((pattern) => pattern.test(docs))) {
+  if (docs !== undefined && engineDocsPattern.test(docs)) {
     sections.docs = null;
     changed = true;
   }

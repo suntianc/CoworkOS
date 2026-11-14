@@ -326,7 +326,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         throw new Error("reviewId 只能与 continueCallId 一起使用：发现由返修续接回答");
       // Main asks for a work item and the backend owns the process:
       // registration, dependencies, checkout, role connection and settlement
-      // all happen there. There is no in-process execution to fall back to.
+      // all happen there.
       const accepted = await createSubagentClient({ taskId: context.taskId }).dispatch({
         task: goal,
         mode: params.mode,

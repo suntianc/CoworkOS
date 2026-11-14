@@ -20,8 +20,7 @@ import { singleConnectionMainModel } from "./role-model-fixture.mjs";
  *
  * A park belongs to the Run that recorded it, but the Task may have moved on:
  * only the Task's current Run has a Main to read anything. And a pending
- * decision from a feature this product no longer ships is not a person
- * deciding — it cannot be answered, so it must not stop the Task either.
+ * question belongs to the person: resuming would decide it without them.
  */
 
 const inboxPath = (root, taskId, runId) =>
@@ -109,9 +108,6 @@ test("a due park on the active Run still wakes once and leaves no duplicate", as
   assert.equal((await queuedWakes(root, "task", runId)).length, 1);
 });
 
-/** A decision id shaped exactly like the ones the retired goal tool recorded. */
-const RETIRED_DECISION = "human-goal_5f1d4c3b2a1908070605040302010f0e";
-
 async function serviceFixture(t, { tasks = [] } = {}) {
   const root = await mkdtemp(join(tmpdir(), "atria-wake-service-"));
   const workspaceRoot = join(root, "workspace");
@@ -144,15 +140,6 @@ async function serviceFixture(t, { tasks = [] } = {}) {
       createdAt: now(),
       payload: { status: "succeeded", response: "round finished" }
     });
-    if (task.decision)
-      await human.create(
-        {
-          taskId: task.taskId,
-          runId,
-          question: "Which release should this goal target?"
-        },
-        task.decision
-      );
   }
 
   const records = [];
@@ -186,19 +173,6 @@ async function serviceFixture(t, { tasks = [] } = {}) {
   return { root, workspaceRoot, store, human, service, records, spawned };
 }
 
-test("a leftover decision from the retired goal tool does not block a Main launch", async (t) => {
-  const f = await serviceFixture(t, { tasks: [{ taskId: "legacy", decision: RETIRED_DECISION }] });
-
-  const started = await f.service.startMainRun("legacy", "继续这个会话。", "main-legacy");
-  assert.equal(started.status, "running");
-  assert.equal(f.spawned("legacy").length, 1, "the Task's Main starts despite the leftover decision");
-  assert.equal(
-    (await f.human.list("legacy", "pending")).length,
-    1,
-    "the leftover stays on disk; it is ignored, not rewritten"
-  );
-});
-
 test("an ordinary pending question still blocks a Main launch", async (t) => {
   const f = await serviceFixture(t, { tasks: [{ taskId: "asked" }] });
   await f.human.create({ taskId: "asked", runId: "main-asked", question: "Which paths are the scorer?" });
@@ -210,18 +184,11 @@ test("an ordinary pending question still blocks a Main launch", async (t) => {
   assert.equal(f.spawned("asked").length, 0);
 });
 
-test("the guardian resumes past a leftover decision but still waits on an ordinary question", async (t) => {
-  const f = await serviceFixture(t, {
-    tasks: [{ taskId: "legacy", decision: RETIRED_DECISION }, { taskId: "asked" }]
-  });
+test("the guardian waits on a pending question instead of resuming the Task", async (t) => {
+  const f = await serviceFixture(t, { tasks: [{ taskId: "asked" }] });
   await f.human.create({ taskId: "asked", runId: "main-asked", question: "Which paths are the scorer?" });
 
   const [cycle] = await f.service.runMainGuardianCycle();
-  const decisionFor = (taskId) => cycle.decisions.find((decision) => decision.taskId === taskId);
-  assert.equal(decisionFor("legacy").action, "resumed");
-  assert.equal(decisionFor("asked").reason, "awaiting_human");
-  assert.deepEqual(
-    f.spawned().map((record) => record.taskId),
-    ["legacy"]
-  );
+  assert.equal(cycle.decisions.find((decision) => decision.taskId === "asked").reason, "awaiting_human");
+  assert.deepEqual(f.spawned(), []);
 });

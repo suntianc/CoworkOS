@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import { atriaHome } from "../../scripts/data-home.cjs";
 import { readCoworkConfig } from "../runtime/config.js";
+import { processIsAlive } from "../runtime/process-identity.js";
 import { applyProxyEnvironment } from "../runtime/http-transport.js";
 import { withFileLock } from "../storage/file-lock.js";
 import {
@@ -16,7 +17,6 @@ import {
   ensureBackendIdentity,
   inspectBackend,
   probeBackend,
-  processIsAlive,
   readBackendInstance,
   readBackendStarting,
   removeBackendInstance,

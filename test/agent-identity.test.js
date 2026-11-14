@@ -130,7 +130,6 @@ test("current and historical compactions project only exported copies of their s
   assert.equal(data.events[2].data.systemMessage.content, "Keep user-selected Pi identity");
   assert.equal(data.messages[0].content, "Pi is my requested topic");
   assert.deepEqual(entries, before);
-  assert.doesNotMatch(sessionExportHtml(data), /expert coding assistant operating inside pi/);
   assert.match(sessionExportHtml(data), /Keep user-selected Pi identity/);
 });
 

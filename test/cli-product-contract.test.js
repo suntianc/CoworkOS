@@ -523,12 +523,11 @@ test("owned slash commands intercept the submission boundary and generate only l
 });
 
 test("identity projection preserves explicit user prompts, dynamic rules, system metadata and original entries", async () => {
-  const preamble =
-    "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.";
   const { buildSystemPromptSections } = await import(
     new URL("./core/system-prompt.js", import.meta.resolve("@earendil-works/pi-coding-agent"))
   );
-  const docs = buildSystemPromptSections({ cwd: "/fixture", contextFiles: [], skills: [] }).docs;
+  // The installed SDK's own defaults, so the projection tracks the release line.
+  const { preamble, docs } = buildSystemPromptSections({ cwd: "/fixture", contextFiles: [], skills: [] });
   const input = {
     role: "system",
     sections: { preamble, docs, tools: "new tool", rules: "new rule" },

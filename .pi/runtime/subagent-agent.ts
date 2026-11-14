@@ -326,9 +326,8 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
 /**
  * The role half of a delegated process's system prompt.
  *
- * The wording is the in-process dispatcher's, so the same role reads the same
- * way on either execution path; only the workspace facts and the tool set the
- * role actually holds are added here.
+ * Only the workspace facts and the tool set the role actually holds are added
+ * here; the role text itself is shared with the delegation tools.
  */
 function subagentRolePrompt(input: {
   role: SubagentRole;

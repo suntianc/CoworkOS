@@ -109,7 +109,7 @@ call_subagent({
 
 ### 角色工具与审查结论
 
-子代理进程与 Main 加载同一个扩展，按角色声明工具表。Executor 得到 `read`、`bash`、`edit`、`write`、只读的 `browse_workspace`、`ask_main` 与 `send_peer_message`；Reviewer 得到 `read`、`bash`、`grep`、`find`、`ls`、`browse_workspace`、同样的两个通道工具与 `submit_review`，没有 `write`/`edit`。后端从被审候选的提交为 Reviewer 建一份 detach 的独立 checkout 作为它的项目目录；成功的审查保留这份现场，因为 Main 在进程结束后才绑定审查并核对候选是否漂移；没有产出结论的失败尝试立即清理，审查漂移时随漂移结论释放，需求合入后释放该需求的全部审查现场，记录本身保留 Reviewer 身份与现场路径。没有需求现场时按派单时刻的 HEAD 冻结候选并建同样的副本，项目不是 Git 仓库则在派单前拒绝。它运行的测试与写入的文件留在这份副本里，不进入候选提交、Executor 的现场或用户工作树。两个角色都没有 `call_subagent`、`send_subagent_message`、`cancel_subagent`、`get_subagent_status`、`wait_for_subagents`、`get_task_status`、`finish_task`、`askhuman`、`sleep_until`、`grant_capabilities`、`clear_context`、`enable_tools`、`project_ledger`、`project_development` 与 `publish_artifact`，因此子代理不能再派子代理或改变 Task 生命周期。角色说明沿用同一段文本；角色只决定工具，不扩大授权：电脑操控、浏览器与 CUA 等能力由 Main 的扩展注册，委派进程当前不提供。附件授权随工作项传递，只有被授权的上传 ID 才让委派进程注册 `read_attachment`。Main 与两个角色对受保护路径的 `write`、`edit` 与 `bash` 写入按同一规则拦截并返回同一段错误；`bash` 拦截跟随 `cd`、`pushd`/`popd`、`git -C` 与子 shell 的目录切换解析相对目标，目录无法确定时只要项目内存在受保护路径就保守拒绝。它尽力识别常见写法，不是沙箱：解释器内写入、引号内的命令替换、反引号、`xargs`、`find -delete`、`git clean` 等仍可能绕过。委派进程与 Main 一样对 `cache_warming_decision` 返回 `stop`，不进行提示缓存保温。委派进程的上下文压缩与 Main 相同：Pi 原生压缩、同一工具回执投影与失败冷却。
+子代理进程与 Main 加载同一个扩展，按角色声明工具表。Executor 得到 `read`、`bash`、`edit`、`write`、只读的 `browse_workspace`、`ask_main` 与 `send_peer_message`；Reviewer 得到 `read`、`bash`、`grep`、`find`、`ls`、`browse_workspace`、同样的两个通道工具与 `submit_review`，没有 `write`/`edit`。后端从被审候选的提交为 Reviewer 建一份 detach 的独立 checkout 作为它的项目目录；成功的审查保留这份现场，因为 Main 在进程结束后才绑定审查并核对候选是否漂移；没有产出结论的失败尝试立即清理，审查漂移时随漂移结论释放，需求合入后释放该需求的全部审查现场，记录本身保留 Reviewer 身份与现场路径。没有需求现场时按派单时刻的 HEAD 冻结候选并建同样的副本，项目不是 Git 仓库则在派单前拒绝。它运行的测试与写入的文件留在这份副本里，不进入候选提交、Executor 的现场或用户工作树。两个角色都没有 `call_subagent`、`send_subagent_message`、`cancel_subagent`、`get_subagent_status`、`wait_for_subagents`、`get_task_status`、`finish_task`、`askhuman`、`sleep_until`、`grant_capabilities`、`clear_context`、`enable_tools`、`project_ledger`、`project_development` 与 `publish_artifact`，因此子代理不能再派子代理或改变 Task 生命周期。角色说明沿用同一段文本；角色只决定工具，不扩大授权：电脑操控、浏览器与 CUA 等能力由 Main 的扩展注册，委派进程当前不提供。附件授权随工作项传递，只有被授权的上传 ID 才让委派进程注册 `read_attachment`。Main 与两个角色对受保护路径的 `write`、`edit` 与 `bash` 写入按同一规则拦截并返回同一段错误；`bash` 拦截跟随 `cd`、`pushd`/`popd`、`git -C` 与子 shell 的目录切换解析相对目标，目录无法确定时只要项目内存在受保护路径就保守拒绝。它尽力识别常见写法，不是沙箱：解释器内写入、引号内的命令替换、反引号、`xargs`、`find -delete`、`git clean`、目录级目标的 `git restore .` 与 `git checkout .`、`tar`/`unzip` 解包写入等仍可能绕过。委派进程与 Main 一样对 `cache_warming_decision` 返回 `stop`，不进行提示缓存保温。委派进程的上下文压缩与 Main 相同：Pi 原生压缩、同一工具回执投影与失败冷却。
 
 Reviewer 的结论只经 `submit_review({verdict, findings})` 提交：`verdict` 为 `pass` 或 `changes_requested`，每条 finding 含 `location`、`evidence` 与 `blocking`。`changes_requested` 至少给出一条 finding，`pass` 不能携带 blocking finding；不合法的提交作为工具错误返回，模型可改正后重试。结论写入该工作项结果记录的 `review` 字段并随回调送达 Main；Reviewer 没有提交结论就结束记为失败，后端读取结果记录时按同一格式复核。验证 [真实角色工具表与结论](../test/p46-subagent-roles-pi.test.js)。
 
@@ -152,7 +152,7 @@ Main 与子智能体默认最多自动重试 5 次，不含首次请求。Main �
 
 App/Web 的“重试”重发失败请求保存的序列化正文，包括系统消息、模型、工具定义、附件和生成参数，不追加“继续”指令。成功的工具结果沿用。重放期间的新回调先排队，成功后再处理；未进入原正文的输入和文档变更不会被视为已经读取。
 
-私有快照在请求发送前保存，记录写入时的 Pi 版本，并校验 Task 存储根与工作目录。设置或来源变化、快照损坏、旧快照缺少归属时，拒绝精确重放并保留记录；升级前归档的请求若仍含已移除的用户记忆或项目经验段落，同样拒绝重放，改由发送新消息重建上下文。版本与当前运行时不一致、或快照没有版本（升级前写下）时不重放，按原请求身份继续该轮并由 Pi 从会话重建上下文，新快照写明原因。没有快照的旧会话只能按已存上下文继续。取消优先于恢复，旧重试操作不能复活已取消运行。格式与备份边界见[数据布局](task-workspace-layout.md)。
+私有快照在请求发送前保存，记录写入时的 Pi 版本，并校验 Task 存储根与工作目录。设置或来源变化、快照损坏、快照缺少执行归属时，拒绝精确重放并保留记录。版本与当前运行时不一致时不重放，按原请求身份继续该轮并由 Pi 从会话重建上下文，新快照写明原因。没有快照的旧会话只能按已存上下文继续。取消优先于恢复，旧重试操作不能复活已取消运行。格式与备份边界见[数据布局](task-workspace-layout.md)。
 
 Headless Run 恢复时读取该 Run 的 Pi 会话与运行记录；若最后已是完整结束文本且没有未完成工具调用，只完成落盘，不重新请求模型。已成功的 Run ID 不能复用；新增工作使用新 Run。生命周期命令本身不等于启动模型执行。
 
@@ -227,7 +227,7 @@ Task/Worker 命令在执行前验证选项。以 `-` 开头的任务或回答文
 
 `sleep_until(reason, wakeInSeconds)` 把当前 Task 记为等待：Task 跨进程重启保持打开，到期后由 Main 守护把一条持久 Inbox 唤醒消息写入 Task 当前活动 Run 的收件箱，并在写入后清除停泊记录。停泊后 Task 可能已经换了 Run，只有当前 Run 的 Main 会读取收件箱，所以唤醒不写回停泊时那个 Run。`wakeInSeconds` 最小 60 秒；没有到期时间的停泊会被拒绝，因为已经没有别的调度器能唤醒它。结束一轮不等于停泊：没有停泊记录且没有未了结工作的 Task 按完成处理。
 
-`COWORK_DISABLE_MAIN_GUARDIAN=1` 关闭守护；`COWORK_MAIN_GUARDIAN_INTERVAL_MS` 默认为 60000。守护只读取 Task、Inbox、人工问题和停泊记录；有未消费回调、没有存活 Main、且没有等待人回答的 Task 会被重新拉起。已删除的长期目标工具留下的待处理决定无法再被回答，不算等待人回答，也不阻塞 Main 启动。
+`COWORK_DISABLE_MAIN_GUARDIAN=1` 关闭守护；`COWORK_MAIN_GUARDIAN_INTERVAL_MS` 默认为 60000。守护只读取 Task、Inbox、人工问题和停泊记录；有未消费回调、没有存活 Main、且没有等待人回答的 Task 会被重新拉起。
 
 ## 通用工具接口
 

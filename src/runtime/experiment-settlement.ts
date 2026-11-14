@@ -10,7 +10,7 @@ import { ExperimentProgramStore } from "./experiment-program-store.js";
  *
  * Only the two identifiers travel with the work item: metrics are read from the
  * run's own output when it settles, so a recovered or process-based attempt
- * records the same numbers an in-process one did.
+ * records the same numbers a delegated attempt does.
  */
 export interface DelegatedExperimentRef {
   experimentId: string;

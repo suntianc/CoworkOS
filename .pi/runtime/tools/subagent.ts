@@ -43,8 +43,8 @@ export interface SubagentToolContext {
 
 export function registerSubagentTools(pi: ExtensionAPI, context: SubagentToolContext): void {
   const runtimeEnv = runtimeSettingsEnv(loadConfig());
-  // Bounds a Subagent that would rather ask than decide; per attempt, like the
-  // in-process dispatcher, so a rework turn starts with a fresh budget.
+  // Bounds a Subagent that would rather ask than decide; per attempt, so a
+  // rework turn starts with a fresh budget.
   let asked = 0;
   // The question lifecycle is a Run fact every reader agrees on: Main's tools,
   // the status view and completion gating read these events, not this process.

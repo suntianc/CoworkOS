@@ -262,10 +262,6 @@ function numberOption(value: string | undefined, fallback: number): number {
   return value === undefined ? fallback : Number(value);
 }
 
-function nonNegativeNumberOption(value: string | undefined, fallback: number): number {
-  return numberOption(value, fallback);
-}
-
 function printResult(result: unknown): void {
   console.log(JSON.stringify(result, null, 2));
 }

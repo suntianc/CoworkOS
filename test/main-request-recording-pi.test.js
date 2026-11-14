@@ -107,7 +107,7 @@ for (const [api, compact] of [
             assert.match(saved.payload.systemPrompt, /You are CoworkOS Main/);
             assert.doesNotMatch(
               saved.payload.systemPrompt,
-              /expert coding assistant operating inside pi|Pi documentation \(read only/
+              /coding assistant running inside pi|Pi documentation \(read only/
             );
             if (mainReceived.length === 1)
               assert.ok(

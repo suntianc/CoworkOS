@@ -93,7 +93,7 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 Main 的项目上下文只来自需求台账：项目与需求、完成标准和交付记录由 [项目数据服务](../src/workspace/project-data-service.ts) 与 [Main 工具](../.pi/runtime/tools/project-ledger.ts) 提供，工具的装配在 [Pi 扩展](../.pi/runtime/extension.ts)。每个 Task 的 Main 上下文目录（[main-context](../src/runtime/main-context.ts)）只保存这个 Task 自己的 `memory.md` 与运行快照，不是跨 Task 的用户记忆。
 
-用户记忆、自动学习与项目经验已在 P4.6 剔除：源码、HTTP 接口、Pi 工具、界面入口与专门测试均已删除，磁盘上的旧文件不再读取。升级前建立的 Main 会话在每轮请求里剥离这三个系统提示段落（[退役段落](../src/runtime/retired-system-sections.ts)），仍含这些段落的请求归档拒绝精确重放。回归见 [剔除回归](../test/p46-memory-removed.test.js) 与[浏览器](../e2e/p46-memory-removed.spec.js)。
+用户记忆、自动学习与项目经验已在 P4.6 剔除：源码、HTTP 接口、Pi 工具、界面入口与专门测试均已删除，系统提示不再包含这些段落，磁盘上的残留文件不再读取。回归见 [剔除回归](../test/p46-memory-removed.test.js) 与[浏览器](../e2e/p46-memory-removed.spec.js)。
 
 ### 联网搜索
 
@@ -193,7 +193,7 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 无新消息的 Main 续执行由 [续执行协议与输入落盘](../src/runtime/main-continuation.ts)、[会话恢复](../scripts/main-session.mjs) 和 [Pi 扩展](../.pi/runtime/extension.ts) 处理；先验证 [输入恢复](../test/main-continuation.test.js)、[真实 Pi 恢复](../test/main-recovery-pi.test.js) 和 [浏览器重试](../e2e/request-recovery.spec.js)，同步 [恢复说明](runtime-reference.md#请求重试与上下文恢复)。
 
-Main 失败请求重放由 [私有请求槽](../src/storage/main-request-store.ts)、[重试生命周期](../src/runtime/main-request-retry.ts) 和 provider 边界的 [归档装饰器](../src/runtime/model-request-recording.ts) 负责。保存完整 wire body、原模型/上下文和请求关联；[Pi 版本](../src/runtime/pi-version.ts) 从实际解析到的包读取并随快照保存，版本不一致或旧快照没有版本时不再重放，改为从会话重建上下文并在重试记录中写明原因；摘要请求不占槽，重放时暂停新回调确认，之后处理迟到/已保存输入；未实际读取的文档变更不确认已读。恢复可选工具不扩大授权，成功后继续正常工具循环。
+Main 失败请求重放由 [私有请求槽](../src/storage/main-request-store.ts)、[重试生命周期](../src/runtime/main-request-retry.ts) 和 provider 边界的 [归档装饰器](../src/runtime/model-request-recording.ts) 负责。保存完整 wire body、原模型/上下文和请求关联；[Pi 版本](../src/runtime/pi-version.ts) 从实际解析到的包读取并随快照保存，版本不一致时不再重放，改为从会话重建上下文并在重试记录中写明原因，缺少版本的快照按损坏记录处理；摘要请求不占槽，重放时暂停新回调确认，之后处理迟到/已保存输入；未实际读取的文档变更不确认已读。恢复可选工具不扩大授权，成功后继续正常工具循环。
 
 回归见 [双协议重启/设置与完整性](../test/main-request-retry.test.js)、[快照版本](../test/p46-snapshot-pi-version.test.js)、[真实 Pi 完整请求比较](../test/main-recovery-pi.test.js) 和 [流式中断/浏览器重试](../e2e/request-recovery.spec.js)，同步 [恢复参考](runtime-reference.md#请求重试与上下文恢复)、[API](product-api.md) 与 [数据布局](task-workspace-layout.md)。
 

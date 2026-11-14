@@ -1,7 +1,6 @@
 import { resetMainSupervisorBackoff } from "../../dist/src/runtime/main-supervisor.js";
 import { configuredWebTools } from "../../dist/src/runtime/web-search-config.js";
 import { queuedUserTurn, readQueuedUserTurn } from "../../dist/src/runtime/queued-user-turn.js";
-import { withoutRetiredSections } from "../../dist/src/runtime/retired-system-sections.js";
 import {
   formatSkillsForPrompt,
   type ExtensionAPI,
@@ -595,16 +594,12 @@ async function registerMainExtension(pi: ExtensionAPI) {
         ctx.ui.notify(`Main current context refresh failed: ${errorMessage(error)}`, "warning");
       }
     }
-    // Sessions started before the memory/experience removal keep the retired
-    // sections in their persisted system message; strip them from every request
-    // so resuming such a session never sends that text to a model again.
     const skillSection = currentSkillsSection;
     const scoped = messages.map((message) => {
-      const stripped = withoutRetiredSections(message);
-      if (stripped.role !== "system") return stripped;
+      if (message.role !== "system") return message;
       const withSkills = skillSection
-        ? { ...stripped, sections: { ...stripped.sections, skills: skillSection } }
-        : stripped;
+        ? { ...message, sections: { ...message.sections, skills: skillSection } }
+        : message;
       return projectDefaultIdentity ? projectAtriaSystemMessage(withSkills) : withSkills;
     });
     return { messages: scoped };
@@ -613,13 +608,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
   // Keep a bounded copy of the user-facing Main transcript. It is passed to
   // Coordinator automatically, so Main only needs to provide `task`.
   pi.on("context", async (event, ctx) => {
-    // Retain old audit records, but never replay retired completion reminders
-    // into the model when an existing conversation is continued.
-    const messages = event.messages.filter(
-      (message) =>
-        !isMainContinuationMessage(message) &&
-        ("customType" in message ? message.customType : undefined) !== "cowork-completion-check"
-    );
+    const messages = event.messages.filter((message) => !isMainContinuationMessage(message));
     recentContext = messages.slice(-8);
     const firstUser = messages.find((message) => message.role === "user");
     const goal = firstUser ? textFromMessage(firstUser).trim() : "";

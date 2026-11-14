@@ -16,10 +16,7 @@ import {
 } from "./agent-process.js";
 import { enqueueMainCallback, formatSubagentSummary } from "./subagent-callback.js";
 import { parseReviewConclusion, type ReviewConclusion } from "./subagent-review.js";
-import {
-  settleDelegatedExperiment,
-  type DelegatedExperimentRef
-} from "./experiment-settlement.js";
+import { settleDelegatedExperiment, type DelegatedExperimentRef } from "./experiment-settlement.js";
 
 /**
  * The backend side of delegated agent processes.
@@ -424,10 +421,9 @@ export class SubagentProcessService {
     const scheduler = new DurableScheduler(join(runRoot, "queue.json"));
     const payload =
       ((await scheduler.list()).find((item) => item.stepId === record.callId)?.payload as
-        | WorkPayload
-        | undefined) ?? {};
+        WorkPayload | undefined) ?? {};
     // A retryable failure is still in flight, so it is not an outcome Main may
-    // act on; the callback follows the terminal attempt like an in-process call.
+    // act on; the callback follows the terminal attempt.
     const publishOutcome = async (): Promise<{ messageId: string; queued: boolean }> => {
       // The ledger row settles at the same terminal boundary as the callback: a
       // retryable failure is not an outcome, so the row stays open for its retry.
@@ -451,8 +447,8 @@ export class SubagentProcessService {
         callId: record.callId,
         agentId: record.agentId,
         status: result.status,
-        // The ledger reference rides with the callback exactly as the
-        // in-process path wrote it, so Main reads one shape either way.
+        // The ledger reference rides with the callback so Main reads one
+        // shape from any delegation path.
         callbackMetadata: {
           ...(payload.experimentRef ?? {}),
           ...(result.review ? { review: result.review } : {})

@@ -435,7 +435,6 @@ for (const stage of ["prepared", "input", "task", "launch_ready"]) {
     await saveAcceptedMainMessage(f.root, "task", { ...old, taskId: "task", runId: "old-run" });
     const retry = join(f.root, "task", "sessions", "main", "request-retry.json");
     await writeFile(retry, "OLD_EXACT_RETRY_BYTES");
-    await writeFile(`${retry}.cleared`, "OLD_CLEARED_BYTES");
     const context = mainContextPaths(f.root, "task");
     const beforeContext = await readFile(context.state, "utf8");
     const original = await readFile(f.session.getSessionFile(), "utf8");
@@ -482,7 +481,6 @@ for (const stage of ["prepared", "input", "task", "launch_ready"]) {
       if (["task", "launch_ready"].includes(${JSON.stringify(stage)})) {
         const store = new LocalWorkspaceStore(root);
         await rm(${JSON.stringify(retry)}, { force: true });
-        await rm(${JSON.stringify(`${retry}.cleared`)}, { force: true });
         await store.transitionTask("task", "running", { runId: "new-run" });
         await store.updateTask("task", { activeRunId: "new-run", goal: "edited goal", model: "new-model" });
         await store.createRun("task", "new-run");
@@ -524,7 +522,6 @@ for (const stage of ["prepared", "input", "task", "launch_ready"]) {
       assert.equal(restored.goal, "old-goal");
       assert.equal(restored.model, "old-model");
       assert.equal(await readFile(retry, "utf8"), "OLD_EXACT_RETRY_BYTES");
-      assert.equal(await readFile(`${retry}.cleared`, "utf8"), "OLD_CLEARED_BYTES");
       assert.equal(await readFile(context.state, "utf8"), beforeContext);
       assert.equal(
         (await latestEditableMessage(f.root, "task", "old-run")).target.messageId,
