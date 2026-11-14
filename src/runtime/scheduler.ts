@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { id, now, type Importance, type InboxMessage } from "../domain/types.js";
 import { withFileLock } from "../storage/file-lock.js";
+import { notifyAgentProcess } from "./agent-wake.js";
 import { verifyProcessIdentity, type ProcessIdentity } from "./process-identity.js";
 
 export type WorkStatus = "queued" | "leased" | "completed" | "failed" | "cancelled";
@@ -314,6 +315,7 @@ export class InboxStore {
       if (existing) return existing;
       messages.push(message);
       await this.write(messages);
+      this.wakeOwner();
       return message;
     });
   }
@@ -454,6 +456,7 @@ export class InboxStore {
       if (message.state !== "ready" || payload.delivery !== "followUp") return undefined;
       payload.delivery = "steer";
       await this.write(messages);
+      this.wakeOwner();
       return message;
     });
   }
@@ -522,6 +525,17 @@ export class InboxStore {
       throw error;
     }
   }
+  /**
+   * Tell the process that reads this Inbox that work is ready.
+   *
+   * The write is already durable; this is only the wake-up, so a process that
+   * has ended, never registered a channel or cannot be reached misses the
+   * nudge and still finds the message in its Inbox at its next boundary.
+   */
+  private wakeOwner(): void {
+    notifyAgentProcess(dirname(this.filePath));
+  }
+
   private async write(messages: InboxMessage[]): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
     const temporary = `${this.filePath}.tmp-${process.pid}-${Date.now()}`;

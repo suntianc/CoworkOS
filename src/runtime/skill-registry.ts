@@ -3,6 +3,22 @@ import { basename, dirname, join, resolve } from "node:path";
 import { parseSkillFrontmatter } from "./skill-frontmatter.js";
 import type { RuntimeTool } from "./tool.js";
 
+/**
+ * The skill catalog bundled with this install.
+ *
+ * Main discovers it from its launch directory and a delegated process from the
+ * harness root; both read the same directory, so the path is composed here once
+ * instead of in each launcher and extension.
+ */
+export function bundledSkillRoot(harnessRoot: string): string {
+  return join(harnessRoot, ".pi", "skills");
+}
+
+/** The skill catalogs Main and a delegated process both discover. */
+export function skillRoots(harnessRoot: string, projectDirectory: string): string[] {
+  return [...new Set([bundledSkillRoot(harnessRoot), join(projectDirectory, ".pi", "skills")])];
+}
+
 export interface SkillMetadata {
   name: string;
   description: string;

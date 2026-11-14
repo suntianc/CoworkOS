@@ -27,7 +27,7 @@ export function atriaInstallRoot(): string {
  * The guard is enforced in the file tools, not requested in a prompt, and it
  * applies to Main as much as to a Subagent — both are participants in the loop.
  *
- * It is NOT a sandbox. `run_command` spawns real processes, and a process can
+ * It is NOT a sandbox. `bash` spawns real processes, and a process can
  * write wherever the OS lets it. This stops a tool call from casually editing
  * the referee; keeping a determined one out needs filesystem permissions (read
  * -only mode bits, or a directory the Agent's user cannot write).
