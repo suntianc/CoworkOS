@@ -34,9 +34,15 @@ export interface MainCapacityServicePorts {
   projects(): Promise<MainCapacityProject[]>;
   sessions(projectId: string): Promise<MainSessionRecord[]>;
   /** The Main heartbeat of one local Task, when one is running. */
-  heartbeat(taskId: string): Promise<{ pid: number; host: string; runId: string } | undefined>;
+  heartbeat(
+    taskId: string
+  ): Promise<
+    { pid: number; host: string; runId: string; turnActive?: boolean; updatedAt: string } | undefined
+  >;
   /** The local Task snapshot, for reconciling a dispatch interrupted by a restart. */
   taskState(taskId: string): Promise<{ status: string; activeRunId?: string } | undefined>;
+  /** Whether this Run still has delegated work in flight or undelivered. */
+  unfinishedWork(taskId: string, runId: string): Promise<boolean>;
   host?: string;
   tickMs?: number;
   /** Base backoff for a recoverable dispatch failure (tests use a small one). */
@@ -231,6 +237,50 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
   }
 
   /**
+   * Whether a live slot is held by a Main that is between turns.
+   *
+   * A slot is only occupied by a turn in flight or by work the Main is still
+   * waiting for, so a settled turn with nothing pending frees it while the
+   * process stays. The heartbeat is written at every turn boundary, so only a
+   * record newer than the slot itself can say the turn it admitted is over; a
+   * Task waiting for delegated work keeps its place.
+   */
+  async function slotIdle(
+    slot: {
+      taskId: string;
+      runId: string;
+      host: string;
+      startedAt: string;
+    },
+    /** Startup: no launch of this process is in flight, so a claim is a leftover. */
+    atStartup = false
+  ): Promise<boolean> {
+    if (slot.host !== host) return false;
+    // eslint-disable-next-line no-restricted-syntax -- 心跳是这里唯一的回合证据；读不到时按仍在工作处理，不释放名额
+    const beat = await ports.heartbeat(slot.taskId).catch(() => undefined);
+    if (!beat || beat.runId !== slot.runId || beat.turnActive !== false) return false;
+    // During normal operation a claim made after the last boundary may be a
+    // turn this backend just admitted and Pi has not started yet: only a
+    // boundary newer than the claim says the turn it admitted is over.
+    if (!atStartup) {
+      const recordedAt = Date.parse(beat.updatedAt);
+      if (!Number.isFinite(recordedAt) || recordedAt < Date.parse(slot.startedAt)) return false;
+    }
+    // eslint-disable-next-line no-restricted-syntax -- 任务快照是第二项证据；读不到时按仍在工作处理
+    const task = await ports.taskState(slot.taskId).catch(() => undefined);
+    if (!task) return false;
+    // Only a Task that recorded a resting state has nothing left to run; a Task
+    // that has not started yet owns its place until its first boundary.
+    if (!["completed", "paused", "failed", "cancelled"].includes(task.status)) return false;
+    // A slot is held while the Run has delegated work outstanding, whatever the
+    // turn is doing: a Main parked at a pause with a Subagent still running
+    // keeps its place, so the resume does not have to queue for one.
+    // eslint-disable-next-line no-restricted-syntax -- 读不到就按仍有未完成工作处理，保留名额
+    if (await ports.unfinishedWork(slot.taskId, slot.runId).catch(() => true)) return false;
+    return true;
+  }
+
+  /**
    * Reconcile this backend's own claims against its records.
    *
    * Only a process this host started may keep a slot: another host's pid is
@@ -241,7 +291,14 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
   async function reconcile(ignoreFreshReservations = false): Promise<void> {
     const state = await ledger.state();
     for (const slot of state.slots) {
-      if (await slotAlive(slot, ignoreFreshReservations)) continue;
+      if (await slotAlive(slot, ignoreFreshReservations)) {
+        // The process stays between turns; the place it held goes back to the
+        // queue, so a resident Main is never counted as running work.
+        if (await slotIdle(slot, ignoreFreshReservations)) {
+          if (await ledger.release(slot.requestId)) await dispatch();
+        }
+        continue;
+      }
       // Re-validate against the current record under the store lock: a child
       // may have registered between this snapshot and the reclaim below, and
       // must keep its slot.
@@ -485,6 +542,31 @@ export function createMainCapacityService(ports: MainCapacityServicePorts) {
 
     admit(request: MainCapacityRequest): Promise<MainCapacityDecision> {
       return ledger.admit(request);
+    },
+
+    /**
+     * The slot one Run currently owns, when this ledger still records one.
+     *
+     * The resident process may outlive the turn that held the slot, so a saved
+     * request id is a hint: this read is what says whether a new demand must be
+     * admitted again or is already covered by the Run's place.
+     */
+    async requestFor(taskId: string, runId: string): Promise<string | undefined> {
+      const state = await ledger.state();
+      return state.slots.find((slot) => slot.taskId === taskId && slot.runId === runId)?.requestId;
+    },
+
+    /**
+     * Release the claim one Run still owns, if it is still the named claim.
+     *
+     * A boundary settlement names the request id its turn ran under. A turn
+     * admitted since then owns a different (or the same, re-bound) claim; the
+     * ledger check keeps it, so a late release cannot free a live turn.
+     */
+    async releaseIfCurrent(taskId: string, runId: string, requestId: string): Promise<boolean> {
+      if (!(await ledger.releaseIfCurrent(taskId, runId, requestId))) return false;
+      if (!stopping) void dispatch().catch(log);
+      return true;
     },
 
     async release(requestId: string): Promise<void> {

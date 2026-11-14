@@ -52,6 +52,9 @@ export async function startPi({ uiCompatibility } = {}) {
         throw new Error("外部 Main 名额已释放，未启动");
       // Children of this Main must not inherit the grant and claim the slot.
       delete process.env.COWORK_MAIN_CAPACITY_GRANTED;
+      // The budget owns this Run for its whole life: an answer that arrives
+      // between turns is resumed through the backend, which admits the turn.
+      process.env.COWORK_MAIN_CAPACITY_MANAGED = "1";
       capacityAlreadyGranted = true;
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));

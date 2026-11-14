@@ -122,6 +122,8 @@ export interface DashboardRoutePorts {
   activeRuns: RunService["activeRuns"];
   /** Whether a Main process exists, including one adopted after a restart. */
   mainProcessRunning?: RunService["mainProcessRunning"];
+  /** Whether a Main turn is running right now, resident process or not. */
+  mainTurnActive?: RunService["taskTurnActive"];
   /** Resolve a Main this backend has not met yet before a destructive change. */
   ensureMainProcess?: RunService["ensureMainProcess"];
   cancelTask: RunService["cancelTask"];
@@ -166,6 +168,9 @@ export function createDashboardHandler(
       : ports.mainProcessRunning
         ? ports.mainProcessRunning(taskId)
         : activeRuns.has(taskId);
+  /** A turn is producing right now; an idle resident Main is not. */
+  const mainTurnActive = async (taskId: string) =>
+    ports.mainTurnActive ? await ports.mainTurnActive(taskId) : mainRunning(taskId);
   /**
    * Publish the catalog object this route just committed.
    *
@@ -941,7 +946,9 @@ export function createDashboardHandler(
           payload: body.payload ?? {}
         });
         let wake;
-        if (body.wake === true && !(await mainRunning(taskId)) && !result.duplicate) {
+        // A wake opens a turn only when none is producing: a resident Main
+        // between turns is exactly the state a wake is for.
+        if (body.wake === true && !(await mainTurnActive(taskId)) && !result.duplicate) {
           try {
             wake = await startMainRun(
               taskId,

@@ -6,6 +6,7 @@ import { JsonlEventStore } from "../storage/event-store.js";
 import { git } from "../workspace/development-workspace.js";
 import { prepareReviewSite, releaseReviewSite, type ReviewSite } from "../workspace/review-site.js";
 import { DurableScheduler, type WorkItem } from "./scheduler.js";
+import { isTerminalWorkStatus } from "./subagent-work.js";
 import { prepareWorkItemSite, type WorkItemSite } from "../workspace/work-item-workspace.js";
 import {
   AgentProcessHost,
@@ -16,10 +17,7 @@ import {
 } from "./agent-process.js";
 import { enqueueMainCallback, formatSubagentSummary } from "./subagent-callback.js";
 import { parseReviewConclusion, type ReviewConclusion } from "./subagent-review.js";
-import {
-  settleDelegatedExperiment,
-  type DelegatedExperimentRef
-} from "./experiment-settlement.js";
+import { settleDelegatedExperiment, type DelegatedExperimentRef } from "./experiment-settlement.js";
 
 /**
  * The backend side of delegated agent processes.
@@ -101,10 +99,21 @@ interface WorkPayload {
 /** The roles this service launches and settles; Main belongs to the run service. */
 const DELEGATED_ROLES = ["executor", "reviewer"] as const;
 
+/**
+ * How long a retryable delegated failure waits before its next attempt.
+ *
+ * The queue records this as the item's next allowed time, so the retry starts
+ * from a timer at that moment (not from polling) and the same failure is not
+ * repeated back to back.
+ */
+const RETRY_DELAY_MS = 1_000;
+
 export class SubagentProcessService {
   private readonly host: AgentProcessHost;
   private readonly workspaceRoot: string;
   private readonly leaseMs: number;
+  /** One due timer per Run: the retry the queue scheduled next. */
+  private readonly retryTimers = new Map<string, { due: number; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(private readonly options: SubagentProcessServiceOptions) {
     this.workspaceRoot = options.workspaceRoot;
@@ -144,7 +153,9 @@ export class SubagentProcessService {
     const records = await this.delegatedRecords(input);
     const active = new Set(records.filter((record) => !record.settledAt).map((record) => record.callId));
     const statusOf = new Map(items.map((item) => [item.stepId, item.status]));
-    const terminal = new Set(items.filter((item) => isTerminal(item.status)).map((item) => item.stepId));
+    const terminal = new Set(
+      items.filter((item) => isTerminalWorkStatus(item.status)).map((item) => item.stepId)
+    );
     const results: SubagentProcessResult[] = [];
     const workerId = `subagent-process-${process.pid}`;
     for (const item of items) {
@@ -179,16 +190,18 @@ export class SubagentProcessService {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const failedItem = await scheduler
-          .fail(claimed.stepId, claimed.lease.token, message)
-          // eslint-disable-next-line no-restricted-syntax -- 队列写入失败时仍要把启动失败通知 Main；租约到期后由 reclaimExpired 接管，不能因此丢掉这次失败
+          .fail(claimed.stepId, claimed.lease.token, message, 0, { callbackPending: true })
+          // eslint-disable-next-line no-restricted-syntax -- 队列写入失败时租约仍在，reclaimExpired 到期后由下一次维护重新结算这次启动失败
           .catch(() => undefined);
-        const retryScheduled = failedItem?.status === "queued";
+        const retryScheduled = failedItem?.status !== "failed";
         if (!retryScheduled) {
           const role: AgentProcessRole = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
           results.push(await this.projectFailure(input, claimed, role, message));
+          await scheduler.clearCallbackPending(claimed.stepId);
         }
       }
     }
+    await this.armQueueRetry(input);
     return results;
   }
 
@@ -206,7 +219,7 @@ export class SubagentProcessService {
     reason: string
   ): Promise<SubagentProcessResult | undefined> {
     const scheduler = new DurableScheduler(this.queuePath({ taskId: item.taskId, runId: item.runId }));
-    await scheduler.failUnstarted(item.stepId, reason);
+    await scheduler.failUnstarted(item.stepId, reason, { callbackPending: true });
     const role: AgentProcessRole = payload.delegation?.role === "reviewer" ? "reviewer" : "executor";
     await new JsonlEventStore(join(this.workspaceRoot, item.taskId, "runs", item.runId, "run_events.jsonl"))
       .append({
@@ -221,7 +234,9 @@ export class SubagentProcessService {
       })
       // eslint-disable-next-line no-restricted-syntax -- 诊断事件写失败不能阻止给 Main 的失败回调，队列行已经带着原因
       .catch(() => undefined);
-    return await this.projectFailure({ taskId: item.taskId, runId: item.runId }, item, role, reason);
+    const failure = await this.projectFailure({ taskId: item.taskId, runId: item.runId }, item, role, reason);
+    await scheduler.clearCallbackPending(item.stepId);
+    return failure;
   }
 
   /** Renew the leases of running processes so a second backend cannot claim them. */
@@ -256,7 +271,7 @@ export class SubagentProcessService {
     const settled = settledResult(record);
     if (settled) return settled;
     const item = await this.findQueueItem(input.taskId, input.runId, input.callId);
-    if (item && isTerminal(item.status)) return this.findSettled(record);
+    if (item && isTerminalWorkStatus(item.status)) return this.findSettled(record);
     if (await this.host.owns(record)) await this.markQueueCancelled(input.taskId, input.runId, record.callId);
     await this.host.stop(record);
     // Stopping settled the record: its durable outcome is the answer, and
@@ -273,7 +288,50 @@ export class SubagentProcessService {
   }
 
   close(): void {
+    for (const { timer } of this.retryTimers.values()) clearTimeout(timer);
+    this.retryTimers.clear();
     this.host.close();
+  }
+
+  /**
+   * Start the retry the queue scheduled, at the time the queue allows it.
+   *
+   * The maintenance pass also reaches every runnable item; this timer is what
+   * starts a retry at its own due time even when nothing else calls in, so the
+   * retry is not left to a polling cadence.
+   */
+  private async armQueueRetry(input: { taskId: string; runId: string }): Promise<void> {
+    const key = `${input.taskId}\0${input.runId}`;
+    const items = await new DurableScheduler(this.queuePath(input)).list();
+    let due: number | undefined;
+    for (const item of items) {
+      if (item.status !== "queued" || typeof item.notBefore !== "string") continue;
+      const at = Date.parse(item.notBefore);
+      if (Number.isFinite(at) && (due === undefined || at < due)) due = at;
+    }
+    const armed = this.retryTimers.get(key);
+    if (due === undefined) {
+      if (armed) clearTimeout(armed.timer);
+      this.retryTimers.delete(key);
+      return;
+    }
+    // The same (or a later) due time is already armed: keep that timer rather
+    // than restarting it on every maintenance pass.
+    if (armed && armed.due <= due) return;
+    if (armed) clearTimeout(armed.timer);
+    const timer = setTimeout(
+      () => {
+        this.retryTimers.delete(key);
+        void this.startQueued(input).catch((error) =>
+          console.error(
+            `[cowork] starting a due subagent retry failed: ${error instanceof Error ? error.message : String(error)}`
+          )
+        );
+      },
+      Math.max(0, due - Date.now())
+    );
+    timer.unref();
+    this.retryTimers.set(key, { due, timer });
   }
 
   private async launch(item: WorkItem, payload: WorkPayload, leaseToken: string): Promise<void> {
@@ -422,10 +480,8 @@ export class SubagentProcessService {
     const result = await this.findSettled(record);
     const runRoot = join(this.workspaceRoot, record.taskId, "runs", record.runId);
     const scheduler = new DurableScheduler(join(runRoot, "queue.json"));
-    const payload =
-      ((await scheduler.list()).find((item) => item.stepId === record.callId)?.payload as
-        | WorkPayload
-        | undefined) ?? {};
+    const current = (await scheduler.list()).find((item) => item.stepId === record.callId);
+    const payload = (current?.payload as WorkPayload | undefined) ?? {};
     // A retryable failure is still in flight, so it is not an outcome Main may
     // act on; the callback follows the terminal attempt like an in-process call.
     const publishOutcome = async (): Promise<{ messageId: string; queued: boolean }> => {
@@ -469,18 +525,35 @@ export class SubagentProcessService {
         ...(result.error ? { error: result.error } : {})
       });
     };
-    // The queue row is the durable "this call is over" fact every reader polls,
-    // so its terminal write comes last: a callback that is not yet queued must
-    // not be readable as an outcome, or Main completes between the two writes
-    // and the callback arrives for a closed Task.
+    // A terminal row and its callback are one consistent pair for readers: the
+    // outcome becomes durable first, marked `callbackPending`, then the callback
+    // is queued, then the mark is cleared. `callbackPending` is what keeps Main
+    // from treating the call as settled until its callback exists, so the row
+    // can be written before the callback without the old race. A settlement
+    // interrupted between the steps is completed by the next attempt below.
+    if (current && isTerminalWorkStatus(current.status) && current.callbackPending === true) {
+      const callback = await publishOutcome();
+      await scheduler.clearCallbackPending(record.callId);
+      await this.host.markSettled(record, {
+        status: result.status,
+        response: result.response,
+        outputFiles: result.outputFiles,
+        diagnostics: result.diagnostics,
+        ...(result.error ? { error: result.error } : {})
+      });
+      await this.options.onSettled?.(result);
+      return result;
+    }
     let retryScheduled = false;
     let callback: { messageId: string; queued: boolean } | undefined;
     if (result.status === "cancelled") {
+      await scheduler.cancel(record.callId, { callbackPending: true });
       callback = await publishOutcome();
-      await this.markQueueCancelled(record.taskId, record.runId, record.callId);
+      await scheduler.clearCallbackPending(record.callId);
     } else if (result.status === "succeeded") {
+      await this.completeQueue(scheduler, record.callId, record.leaseToken, { callbackPending: true });
       callback = await publishOutcome();
-      await this.completeQueue(scheduler, record.callId, record.leaseToken);
+      await scheduler.clearCallbackPending(record.callId);
     } else {
       const outcome = await this.failQueue(
         scheduler,
@@ -503,6 +576,14 @@ export class SubagentProcessService {
         return result;
       }
       retryScheduled = outcome === "retry";
+      // The failed attempt has no process left to observe; the due timer is
+      // what starts its retry when the queue allows it.
+      if (retryScheduled)
+        await this.armQueueRetry({ taskId: record.taskId, runId: record.runId }).catch((error) =>
+          console.error(
+            `[cowork] scheduling a subagent retry failed: ${error instanceof Error ? error.message : String(error)}`
+          )
+        );
     }
 
     const events = new JsonlEventStore(join(runRoot, "run_events.jsonl"));
@@ -740,21 +821,24 @@ export class SubagentProcessService {
   private async completeQueue(
     scheduler: DurableScheduler,
     callId: string,
-    token: string | undefined
+    token: string | undefined,
+    options: { callbackPending?: boolean } = {}
   ): Promise<void> {
     if (!token) return;
     const item = (await scheduler.list()).find((candidate) => candidate.stepId === callId);
-    if (!item || isTerminal(item.status)) return;
-    // eslint-disable-next-line no-restricted-syntax -- 终态已由结果记录与回调表达；队列写入失败时租约到期会由 reclaimExpired 复核，不能让回调因排队长写失败而丢失
-    await scheduler.complete(callId, token).catch(() => undefined);
+    if (!item || isTerminalWorkStatus(item.status)) return;
+    // The write failure propagates: the callback must not be published for a
+    // row that is still in flight. The lease expiry re-runs the settlement.
+    await scheduler.complete(callId, token, options);
   }
 
   /**
-   * Record a failed attempt, publishing its outcome first when it is terminal.
+   * Record a failed attempt and publish its outcome when it is terminal.
    *
-   * The pre-terminal hook runs only when the queue will not retry: it publishes
-   * the callback while the row still reads as in flight, so a reader that sees
-   * the terminal row also finds that call's callback.
+   * A retryable attempt is requeued and reports no outcome. A terminal attempt
+   * becomes durable first with `callbackPending`, then the callback is queued
+   * and the mark cleared, so a reader that sees the callback also sees the
+   * settled row and Main waits for both.
    */
   private async failQueue(
     scheduler: DurableScheduler,
@@ -765,29 +849,40 @@ export class SubagentProcessService {
     const item = (await scheduler.list()).find((candidate) => candidate.stepId === record.callId);
     // A terminal item was settled by someone else: this attempt is not the
     // outcome, and a second callback would report work twice.
-    if (item && isTerminal(item.status)) return "foreign";
+    if (item && isTerminalWorkStatus(item.status)) return "foreign";
     const ownsLease =
       Boolean(record.leaseToken) && item?.status === "leased" && item.lease?.token === record.leaseToken;
     // A lease this attempt does not hold belongs to another owner.
     if (item?.status === "leased" && !ownsLease) return "foreign";
-    if (item && ownsLease && item.attempts < (item.maxAttempts ?? 1)) return "retry";
-    await beforeTerminal?.();
+    if (!item) {
+      // A record adopted without a queue row (a call whose row was never
+      // written or is already gone): there is no row to disagree with, so the
+      // outcome is published and the record settles.
+      await beforeTerminal?.();
+      return "terminal";
+    }
+    if (ownsLease && item.attempts < (item.maxAttempts ?? 1)) {
+      // Requeue the retry now with the time it may start, instead of leaving
+      // the item leased until the lease expires. A failed queue write leaves
+      // that lease in place and reclaimExpired still schedules the attempt.
+      // eslint-disable-next-line no-restricted-syntax -- 队列写入失败时租约仍在，reclaimExpired 到期后会再次安排这次重试
+      await scheduler.fail(record.callId, record.leaseToken!, error, RETRY_DELAY_MS).catch(() => undefined);
+      return "retry";
+    }
     const updated = ownsLease
-      ? await scheduler
-          .fail(record.callId, record.leaseToken!, error)
-          // eslint-disable-next-line no-restricted-syntax -- 失败本身才是结果；队列写入失败时租约到期重试，回调已经记录了这次失败
-          .catch(() => undefined)
-      : await scheduler
-          .failUnstarted(record.callId, error)
-          // eslint-disable-next-line no-restricted-syntax -- 同上：队列写入失败不改变这次失败结果，未结算的项仍会被后续恢复看到
-          .catch(() => undefined);
-    return updated?.status === "queued" ? "retry" : "terminal";
+      ? await scheduler.fail(record.callId, record.leaseToken!, error, 0, { callbackPending: true })
+      : await scheduler.failUnstarted(record.callId, error, { callbackPending: true });
+    // A concurrent claim may still have requeued it; then there is no outcome.
+    if (updated.status === "queued") return "retry";
+    await beforeTerminal?.();
+    await scheduler.clearCallbackPending(record.callId);
+    return "terminal";
   }
 
   private async markQueueCancelled(taskId: string, runId: string, callId: string): Promise<void> {
     const scheduler = new DurableScheduler(join(this.workspaceRoot, taskId, "runs", runId, "queue.json"));
     const item = (await scheduler.list()).find((candidate) => candidate.stepId === callId);
-    if (!item || isTerminal(item.status)) return;
+    if (!item || isTerminalWorkStatus(item.status)) return;
     // eslint-disable-next-line no-restricted-syntax -- 取消已由进程组与回调表达；队列写入失败时下一次取消或租约回收会补上终态
     await scheduler.cancel(callId).catch(() => undefined);
   }
@@ -861,10 +956,6 @@ function delegatedPrompt(task: string): string {
     `Main 分配的任务：${task}`,
     "完成后请返回完整结论；如果创建了 deliverables/ 文件，请列出路径。证据直接写在总结中；不要返回‘正在处理’之类的过程叙述，也不要声称没有执行过的操作。"
   ].join("\n");
-}
-
-function isTerminal(status: WorkItem["status"]): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 /** The recorded outcome of a process this backend already settled. */

@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { id, now } from "../domain/types.js";
 import { atomicWrite } from "../storage/atomic-file.js";
@@ -82,7 +82,12 @@ export class SubagentQuestionStore {
       throw new Error("subagent question requires the assumption it will follow if unanswered");
     await mkdir(this.directory(question.taskId), { recursive: true });
     try {
-      await writeFile(this.path(question.taskId, question.questionId), json(question), { flag: "wx" });
+      // Atomic and exclusive: a reader that sees the file finds the whole
+      // pending question, so a "pending" check (the complete action, a
+      // completion assessment) cannot miss a question that is being written.
+      await atomicWrite(this.path(question.taskId, question.questionId), json(question), {
+        exclusive: true
+      });
       return question;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
