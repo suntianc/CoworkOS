@@ -8,6 +8,35 @@ import { discoverSkills, createLoadSkillTool } from "../../../dist/src/runtime/s
 import type { CoworkToolContext } from "../extension.ts";
 import type { RuntimeToolResult } from "../helpers.ts";
 
+/**
+ * The skill loader Main and every delegated process share.
+ *
+ * One implementation over one catalog: a published skill that tells a
+ * Subagent to load itself resolves the same instructions and the same bundled
+ * script paths Main would get.
+ */
+export function registerLoadSkillTool(pi: ExtensionAPI, skillRootsNow: () => string[]) {
+  pi.registerTool({
+    name: "load_skill",
+    label: "Load Skill",
+    description:
+      "Load a matching bundled/project skill by its catalog name. Returns its full instructions, actual absolute directory and existing bundled script paths.",
+    promptSnippet: "Load specialized instructions and resolve their bundled script paths",
+    promptGuidelines: [
+      "Prefer load_skill for the harness's bundled skills. Use the returned directory and scripts paths verbatim; do not infer a skill location from a home directory, another machine or an old conversation.",
+      "Resolve referenced relative paths against the returned directory. If a skill command reports MODULE_NOT_FOUND or ENOENT, reload the skill and verify its returned paths before retrying."
+    ],
+    parameters: Type.Object({
+      name: Type.String({ description: "Exact skill name from the available skill catalog." })
+    }),
+    async execute(_toolCallId, params): Promise<RuntimeToolResult> {
+      const tool = createLoadSkillTool(await discoverSkills(skillRootsNow()));
+      const result = await tool.execute(params);
+      return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+    }
+  });
+}
+
 /** workspace tools depend only on explicit runtime ports. */
 export function registerWorkspaceTools(pi: ExtensionAPI, context: CoworkToolContext) {
   pi.registerTool({
@@ -82,26 +111,7 @@ export function registerWorkspaceTools(pi: ExtensionAPI, context: CoworkToolCont
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     }
   });
-  pi.registerTool({
-    name: "load_skill",
-    label: "Load Skill",
-    description:
-      "Load a matching bundled/project skill by its catalog name. Returns its full instructions, actual absolute directory and existing bundled script paths.",
-    promptSnippet: "Load specialized instructions and resolve their bundled script paths",
-    promptGuidelines: [
-      "Prefer load_skill for the harness's bundled skills. Use the returned directory and scripts paths verbatim; do not infer a skill location from a home directory, another machine or an old conversation.",
-      "Resolve referenced relative paths against the returned directory. If a skill command reports MODULE_NOT_FOUND or ENOENT, reload the skill and verify its returned paths before retrying."
-    ],
-    parameters: Type.Object({
-      name: Type.String({ description: "Exact skill name from the available skill catalog." })
-    }),
-    async execute(_toolCallId, params): Promise<RuntimeToolResult> {
-      const scope = context.skillScopeNow();
-      const tool = createLoadSkillTool(await discoverSkills(scope.skillRoots));
-      const result = await tool.execute(params);
-      return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
-    }
-  });
+  registerLoadSkillTool(pi, () => context.skillScopeNow().skillRoots);
   const memoryPath = join(context.taskWorkspace, "agents", "main", "context", "memory.md");
   pi.registerTool({
     name: "clear_context",

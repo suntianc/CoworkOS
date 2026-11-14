@@ -22,6 +22,13 @@ const EXECUTOR_FILE_TOOLS = ["read", "bash", "edit", "write"] as const;
 const REVIEWER_FILE_TOOLS = ["read", "bash", "grep", "find", "ls"] as const;
 /** Shared Task workspace, read-only, for evidence outside the work site. */
 const SHARED_WORKSPACE_TOOLS = ["browse_workspace"] as const;
+/**
+ * Bundled and project skills, read-only.
+ *
+ * A published skill tells a Subagent to load itself, so both roles hold the
+ * same loader Main uses over the same catalog.
+ */
+const SKILL_TOOLS = ["load_skill"] as const;
 /** The channels a delegated process may use. */
 const CHANNEL_TOOLS = ["ask_main", "send_peer_message"] as const;
 
@@ -29,8 +36,8 @@ const CHANNEL_TOOLS = ["ask_main", "send_peer_message"] as const;
 export function subagentToolNames(role: SubagentRole, grants: readonly CapabilityGrant[] = []): string[] {
   const base =
     role === "reviewer"
-      ? [...REVIEWER_FILE_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS, "submit_review"]
-      : [...EXECUTOR_FILE_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS];
+      ? [...REVIEWER_FILE_TOOLS, ...SKILL_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS, "submit_review"]
+      : [...EXECUTOR_FILE_TOOLS, ...SKILL_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS];
   return [...base, ...capabilityToolNames(grants)];
 }
 

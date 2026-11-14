@@ -45,7 +45,16 @@ const MAIN_ONLY_TOOLS = [
   "publish_artifact"
 ];
 
-const EXECUTOR_TOOLS = ["ask_main", "bash", "browse_workspace", "edit", "read", "send_peer_message", "write"];
+const EXECUTOR_TOOLS = [
+  "ask_main",
+  "bash",
+  "browse_workspace",
+  "edit",
+  "load_skill",
+  "read",
+  "send_peer_message",
+  "write"
+];
 
 const REVIEWER_TOOLS = [
   "ask_main",
@@ -53,6 +62,7 @@ const REVIEWER_TOOLS = [
   "browse_workspace",
   "find",
   "grep",
+  "load_skill",
   "ls",
   "read",
   "send_peer_message",
@@ -226,7 +236,7 @@ test(
     const declared = new Set(toolNames(request));
     for (const name of MAIN_ONLY_TOOLS)
       assert.equal(declared.has(name), false, `${name} is Main's and must not reach a Subagent`);
-    for (const name of ["read", "bash", "edit", "write", "ask_main", "send_peer_message"])
+    for (const name of ["read", "bash", "edit", "write", "ask_main", "send_peer_message", "load_skill"])
       assert.equal(declared.has(name), true, `the Executor needs ${name}`);
 
     const system = request.messages.find((message) => message.role === "system").content;
@@ -280,6 +290,11 @@ test(
       "the Reviewer submits its conclusion through its own tool"
     );
     assert.equal(declared.has("read"), true, "the Reviewer examines the candidate through read-only tools");
+    assert.equal(
+      declared.has("load_skill"),
+      true,
+      "a Reviewer loads the published skills it is told to follow"
+    );
 
     const system = request.messages.find((message) => message.role === "system").content;
     assert.match(system, /independent Reviewer/, "the role line is the in-process Reviewer line");

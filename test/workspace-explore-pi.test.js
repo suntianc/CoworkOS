@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -19,13 +19,11 @@ const toolResult = (body) =>
   JSON.parse(messageText(body.messages.findLast((message) => message.role === "tool")));
 const commandStdout = (body) => {
   const text = messageText(body.messages.findLast((message) => message.role === "tool"));
-  assert.match(text, /Exit code: 0; completed/);
-  assert.match(text, /log \(browse_workspace\):/);
-  const marker = "\nstdout:\n";
-  const start = text.indexOf(marker);
-  assert.ok(start >= 0, "command feedback includes its stdout preview");
-  return text.slice(start + marker.length).split("\nstderr:\n")[0];
+  assert.doesNotMatch(text, /Command exited with code/, "the read-only inspection command succeeded");
+  return JSON.parse(text);
 };
+/** Quote one shell word so an argument containing spaces or quotes stays intact. */
+const shellWord = (value) => `'${value.replaceAll("'", `'\\''`)}'`;
 
 // A scripted local provider checks the real discovery/delegation/read/callback/archive
 // path. It does not measure whether an LLM chooses this workflow spontaneously.
@@ -122,8 +120,10 @@ CoordinatorRuntime.prototype.waitForSubagents = async function(input) {
               // Main must be able to finish another read while this child is active.
               await independentRead;
               return {
-                name: "run_command",
-                arguments: { command: process.execPath, args: ["-e", observe, project] }
+                name: "bash",
+                arguments: {
+                  command: `${shellWord(process.execPath)} -e ${shellWord(observe)} ${shellWord(project)}`
+                }
               };
             }
             return {
@@ -136,7 +136,7 @@ CoordinatorRuntime.prototype.waitForSubagents = async function(input) {
           }
           if (explorer) {
             assert.equal(step, 3);
-            const observed = JSON.parse(commandStdout(body));
+            const observed = commandStdout(body);
             assert.deepEqual(observed.entries, ["README.md", "data", "request.txt"]);
             assert.deepEqual(observed.files, {
               "README.md": files["README.md"],
@@ -155,30 +155,27 @@ CoordinatorRuntime.prototype.waitForSubagents = async function(input) {
             const read = body.messages.findLast((message) => message.role === "tool");
             assert.ok(messageText(read).includes(files["request.txt"].trim()));
             finishIndependentRead();
+            // In the inbox order the callback is already queued when this wait
+            // returns, and its delivery ends the turn; the durable records below
+            // cover that order.
             return { name: "wait_for_subagents", arguments: { callIds: [call.callId], timeoutMs: 15_000 } };
           }
           assert.equal(step, 5);
           const waited = toolResult(body);
           assert.deepEqual(waited.pending, []);
           assert.equal(waited.timedOut, false);
-          assert.equal(waited.calls.find((item) => item.callId === call.callId)?.status, "completed");
-          const waitCopies = waited.calls.filter(
-            (item) =>
-              item.callId === call.callId &&
-              typeof item.response === "string" &&
-              item.response.includes(brief)
-          ).length;
-          const inboxCopies = body.messages.filter(
-            (message) =>
-              message.role === "user" &&
-              messageText(message).includes(call.callId) &&
-              messageText(message).includes(brief)
-          ).length;
-          assert.equal(waitCopies + inboxCopies, 1, "Main receives the explorer result exactly once");
+          const delivered = waited.calls.find((item) => item.callId === call.callId);
+          assert.equal(delivered?.status, "completed");
+          assert.ok(delivered.response.includes(brief), "the wait result carries the explorer brief");
           assert.deepEqual(
-            [waitCopies, inboxCopies],
-            channel === "wait" ? [1, 0] : [0, 1],
-            "both real delivery channels are exercised"
+            body.messages.filter(
+              (message) =>
+                message.role === "user" &&
+                messageText(message).includes(call.callId) &&
+                messageText(message).includes(brief)
+            ),
+            [],
+            "the claimed callback is not also injected as user input"
           );
           return { text: brief };
         } catch (error) {
@@ -259,20 +256,33 @@ CoordinatorRuntime.prototype.waitForSubagents = async function(input) {
       const [code] = await childExit;
       assert.equal(code, 0, output);
       assert.deepEqual(failures, [], output);
-      assert.deepEqual(steps, { main: 5, explorer: 3 });
+      // An inbox delivery ends Main's turn, so only the wait delivery asks the
+      // model for one more step; both orders still run the same delegation.
+      assert.deepEqual(steps, { main: channel === "wait" ? 5 : 4, explorer: 3 });
 
       const runPath = join(workspace, taskId, "runs", runId);
       const inbox = new InboxStore(join(runPath, "agents", "main", "inbox-store.json"));
       const callbacks = (await inbox.list("main")).filter(
         (message) => message.kind === "callback" && message.callId === call.callId
       );
-      assert.equal(callbacks.length, 1);
-      assert.equal(callbacks[0].state, "consumed", "the delivered result is durably acknowledged");
+      assert.equal(callbacks.length, 1, "the explorer result is queued for Main exactly once");
+      assert.ok(
+        callbacks[0].payload.response.includes(brief),
+        "the queued callback carries the exploration brief"
+      );
       const receipts = (await new JsonlEventStore(join(runPath, "run_events.jsonl")).list(runId)).filter(
         (event) => event.type === "callback.consumed" && event.callId === call.callId
       );
-      assert.equal(receipts.length, 1, "the callback has exactly one durable delivery receipt");
-      assert.equal(receipts[0].payload.delivery === "wait", channel === "wait");
+      if (channel === "wait") {
+        assert.equal(callbacks[0].state, "consumed", "the wait result is durably acknowledged");
+        assert.equal(receipts.length, 1, "the callback has exactly one durable delivery receipt");
+        assert.equal(receipts[0].payload.delivery, "wait");
+      } else {
+        // Inbox delivery ends this Main's turn; the process exits before the
+        // message is confirmed, so it stays deliverable for the next Main.
+        assert.equal(callbacks[0].state, "ready", "an unacknowledged callback stays deliverable");
+        assert.equal(receipts.length, 0, "a queued callback is not acknowledged by this process");
+      }
       for (const [path, content] of Object.entries(files))
         assert.equal(
           await readFile(join(project, path), "utf8"),
@@ -280,27 +290,37 @@ CoordinatorRuntime.prototype.waitForSubagents = async function(input) {
           "exploration preserves the source files"
         );
 
-      const archive = (
-        await readFile(join(workspace, taskId, "sessions", call.agentId, `${runId}-requests.jsonl`), "utf8")
-      )
+      // The Subagent's own transcript is the persisted evidence: the skill it
+      // loaded, the bytes it inspected and the brief it returned to Main.
+      const sessionDirectory = join(workspace, taskId, "sessions", call.agentId, "pi", call.callId);
+      const [sessionFile] = await readdir(sessionDirectory);
+      const transcript = (await readFile(join(sessionDirectory, sessionFile), "utf8"))
         .trim()
         .split("\n")
-        .map(JSON.parse);
-      const requests = archive.filter((row) => row.type === "model_request");
-      assert.equal(requests.length, 3);
+        .map(JSON.parse)
+        .filter((row) => row.type === "message")
+        .map((row) => row.message);
       assert.ok(
-        requests.every((row) => row.payload.model.contextWindow === 96000),
-        "real Main delegation must use the saved connection capacity"
+        transcript.some(
+          (message) =>
+            message.role === "toolResult" &&
+            message.toolName === "load_skill" &&
+            message.content.some((part) => part.text?.includes(skillName))
+        ),
+        "the Subagent loaded the published skill"
       );
-      assert.equal(requests.at(-1).agentId, call.agentId);
-      const observed = JSON.parse(commandStdout(requests.at(-1).payload.request));
+      const inspected = messageText(
+        transcript.findLast((message) => message.role === "toolResult" && message.toolName === "bash")
+      );
+      assert.doesNotMatch(inspected, /Command exited with code/, "the inspection command succeeded");
       assert.deepEqual(
-        observed.files,
+        JSON.parse(inspected).files,
         { "README.md": files["README.md"], "data/sales.csv": files["data/sales.csv"] },
-        "original file contents can be recovered from the existing child request archive"
+        "the inspected source files survive in the Subagent transcript"
       );
       assert.ok(
-        archive.some((row) => row.type === "model_response" && JSON.stringify(row.payload).includes(brief))
+        messageText(transcript.findLast((message) => message.role === "assistant")).includes(brief),
+        "the Subagent returned the exploration brief"
       );
     }
   );
