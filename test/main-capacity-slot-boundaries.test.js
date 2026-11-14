@@ -251,7 +251,12 @@ test("an admission between the boundary and its release keeps the newer claim", 
     state.slots = state.slots.map((slot) => ({ ...slot, requestId: "request-newer" }));
   });
   f.releaseUnfinished();
-  await waitFor(() => f.releases.length > 0, "the boundary to attempt its release");
+  // Wait until the boundary has acted: it either names its claim (the fixed
+  // path) or, on a release that is not bound to the boundary, drops the slot.
+  await waitFor(
+    async () => f.releases.length > 0 || (await f.slots()).length === 0,
+    "the boundary to act on its release decision"
+  );
   assert.deepEqual(f.releases, [boundaryClaim], "the boundary names the claim it ran under");
   assert.deepEqual(
     (await f.slots()).map((slot) => slot.requestId),
