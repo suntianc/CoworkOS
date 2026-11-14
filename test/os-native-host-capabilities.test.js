@@ -17,6 +17,7 @@ import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { killJob, listJobs } from "../dist/src/tools/jobs.js";
 import { installComputerUse } from "../web/assets/controllers/computer-use.js";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
+import { endAgentProcesses } from "./dashboard-fixture.mjs";
 
 const hostToken = "native-host-fixture-token";
 const require = createRequire(import.meta.url);
@@ -59,10 +60,22 @@ async function dashboardFixture(t, options = {}, envOverrides = {}) {
   await once(app.server, "listening");
   t.after(async () => {
     await app.stop();
+    // A resident Main (and a delegated process) outlives the backend that
+    // started it; end them before the tree is removed.
+    await endAgentProcesses(join(root, "workspace"));
     for (const key of Object.keys(process.env))
       if (/^(COWORK_|ATRIA_|PI_|ELECTRON_)/.test(key)) delete process.env[key];
     Object.assign(process.env, environment);
-    await rm(root, { recursive: true, force: true });
+    // A process settling as the tree is removed can write one last record.
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        await rm(root, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        if (error?.code !== "ENOTEMPTY" && error?.code !== "EBUSY") throw error;
+        await new Promise((done) => setTimeout(done, 50));
+      }
+    }
   });
   async function request(path, { token = hostToken, body, approval } = {}) {
     const response = await fetch(`${app.dashboardUrl}${path}`, {
@@ -123,7 +136,7 @@ test("client sessions can inspect and pause but cannot prompt or grant host perm
   assert.equal((await fixture.host(enable, hostToken, approved.body.approval.token)).status, 200);
 });
 
-test("a real Main delegation retains its backend business credential", { timeout: 60_000 }, async (t) => {
+test("a delegated process inherits no backend credential", { timeout: 60_000 }, async (t) => {
   let mainTurns = 0,
     delegateTurns = 0,
     probePath,
@@ -136,9 +149,14 @@ test("a real Main delegation retains its backend business credential", { timeout
         return mainTurns++ === 0
           ? { name: "call_subagent", arguments: { task: "Run the isolated credential probe", mode: "sync" } }
           : { text: "Main and delegate completed." };
-      assert.ok(names.includes("run_command"));
+      assert.ok(names.includes("bash"));
       return delegateTurns++ === 0
-        ? { name: "run_command", arguments: { command: process.execPath, args: [probePath, resultPath] } }
+        ? {
+            name: "bash",
+            arguments: {
+              command: `${JSON.stringify(process.execPath)} ${JSON.stringify(probePath)} ${JSON.stringify(resultPath)}`
+            }
+          }
         : { text: "Delegate completed." };
     } catch (error) {
       errors.push(error.message);
@@ -166,9 +184,12 @@ test("a real Main delegation retains its backend business credential", { timeout
     `
 import {writeFile} from "node:fs/promises";
 const token=process.env.COWORK_API_TOKEN;
-const headers={"x-atria-token":token};
-const response=await fetch(process.env.COWORK_DASHBOARD_URL+"/api/computer/status",{headers});
-await writeFile(process.argv[2],JSON.stringify({status:response.status,hostCredentialInherited:token===${JSON.stringify(hostToken)}}));
+const dashboard=process.env.COWORK_DASHBOARD_URL;
+await writeFile(process.argv[2],JSON.stringify({
+  runCredential: typeof token === "string" && token.length > 0,
+  dashboardUrl: Boolean(dashboard),
+  hostCredentialInherited: token===${JSON.stringify(hostToken)}
+}));
 `
   );
   assert.equal(
@@ -190,8 +211,12 @@ await writeFile(process.argv[2],JSON.stringify({status:response.status,hostCrede
   assert.deepEqual(errors, []);
   assert.equal(mainTurns, 2);
   assert.equal(delegateTurns, 2);
+  // A delegated process runs Pi's own tools, not Main's business command
+  // wrapper: it holds no Dashboard URL and no run credential, so nothing it
+  // executes can act on the backend as Main.
   assert.deepEqual(JSON.parse(await readFile(resultPath, "utf8")), {
-    status: 200,
+    runCredential: false,
+    dashboardUrl: false,
     hostCredentialInherited: false
   });
 });
@@ -705,8 +730,18 @@ test(
           assert.equal(JSON.parse(stopped.stdout).state, "stopped");
         }
       } finally {
+        // The task's resident Main outlives the backend that started it.
+        await endAgentProcesses(join(base, "workspace"));
         await model.close();
-        await rm(base, { recursive: true, force: true });
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          try {
+            await rm(base, { recursive: true, force: true });
+            break;
+          } catch (error) {
+            if (error?.code !== "ENOTEMPTY" && error?.code !== "EBUSY") throw error;
+            await new Promise((done) => setTimeout(done, 50));
+          }
+        }
       }
     });
     await writeFile(join(project, "input.txt"), "fixture input\n");
@@ -791,13 +826,24 @@ process.stdout.write("client exited");
     const restartedState = JSON.parse(restarted.stdout);
     backendPid = restartedState.pid;
     const priorIdentity = instance.backendId;
+    const priorInstanceToken = instance.token;
     instance = JSON.parse(await readFile(join(home, "runtime/backend-instance.json"), "utf8"));
     assert.equal(instance.backendId, priorIdentity);
     assert.notEqual(instance.pid, startedState.pid);
+    // The serving instance rotated: the host credential the previous process
+    // published no longer authorizes anything here.
+    assert.equal(
+      (await fetch(`${instance.url}/api/backend`, { headers: { "x-atria-token": priorInstanceToken } }))
+        .status,
+      401
+    );
+    // The run credential belongs to the data root, not to one backend process:
+    // a Main adopted after the restart keeps working with it, and it still
+    // grants no host action (the probe above recorded 403).
     assert.equal(
       (await fetch(`${instance.url}/api/computer/status`, { headers: { "x-atria-token": runCredential } }))
         .status,
-      401
+      200
     );
     assert.equal((await call("/api/computer/access")).policy.enabled, false);
   }

@@ -11,6 +11,7 @@ import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { finalAnswerIndex } from "../web/assets/conversation.js";
 import { HumanRequestStore } from "../dist/src/runtime/human.js";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
+import { endAgentProcesses } from "./dashboard-fixture.mjs";
 
 /**
  * Poll until the condition holds.
@@ -91,6 +92,9 @@ async function fixture(t, handle, maxTurns = 20, env = {}) {
       child.kill("SIGTERM");
       await once(child, "exit");
     }
+    // A resident Main (and a delegated process) outlives the backend that
+    // started it; this fixture is what finally ends them.
+    await endAgentProcesses(workspaceRoot);
     model.closeAllConnections();
     await new Promise((done) => model.close(done));
     await removeAfterAsyncWrites(root);

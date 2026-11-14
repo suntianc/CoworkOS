@@ -101,6 +101,8 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
   let timer: ReturnType<typeof setInterval> | undefined;
   let sweeping = false;
   let stopping = false;
+  /** Read through a function so a callback body does not narrow the flag to false. */
+  const isStopping = (): boolean => stopping;
 
   const serviceFor = (workspaceRoot: string): SubagentDispatchService => {
     const existing = services.get(workspaceRoot);
@@ -183,7 +185,7 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
    * Main waits for forever. Only runs with unfinished work are tracked.
    */
   async function discover(workspaceRoot: string): Promise<void> {
-    if (!(await claim(workspaceRoot))) return;
+    if (isStopping() || !(await claim(workspaceRoot))) return;
     // eslint-disable-next-line no-restricted-syntax -- 任务目录读不出来时这一轮没有可接管的 Run；下一次扫描会重试，不能中断其余工作区
     const tasks = await new LocalWorkspaceStore(workspaceRoot).listTasks().catch(() => []);
     for (const task of tasks) {
@@ -259,23 +261,31 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
   return {
     async start() {
       if (!stopping) {
-        const roots = await Promise.all(
+        // A startup scan that fails (a workspace root removed underneath it) is
+        // reported and retried by the periodic pass; it must not surface as an
+        // unhandled rejection in a fire-and-forget startup hook.
+        await Promise.all(
           (
             await ports
               .workspaceRoots()
               // eslint-disable-next-line no-restricted-syntax -- 工作区列表读不出来时这次启动跳过扫描，后续周期性扫描仍会接管
               .catch(() => [])
-          ).map(async (root) => {
-            await discover(root);
-            return root;
-          })
+          ).map((root) =>
+            discover(root).catch((error) =>
+              console.error(
+                `[cowork] subagent discovery failed for ${root}: ${
+                  error instanceof Error ? error.message : String(error)
+                }`
+              )
+            )
+          )
         );
-        void roots;
       }
       const interval = Math.max(100, ports.pollMs ?? 1_000);
       const sweepEvery = Math.max(1, Math.round((ports.sweepMs ?? 5_000) / interval));
       let cycles = 0;
       timer = setInterval(() => {
+        if (isStopping()) return;
         cycles += 1;
         void sweep();
         if (cycles % sweepEvery === 0)
@@ -283,9 +293,15 @@ export function createSubagentBackend(ports: SubagentBackendPorts): SubagentBack
             for (const root of await ports
               .workspaceRoots()
               // eslint-disable-next-line no-restricted-syntax -- 这一轮扫描跳过即可，下一次周期性扫描会重新读取工作区列表
-              .catch(() => []))
+              .catch(() => [])) {
+              if (isStopping()) return;
               await discover(root);
-          })();
+            }
+          })().catch((error) =>
+            console.error(
+              `[cowork] subagent discovery failed: ${error instanceof Error ? error.message : String(error)}`
+            )
+          );
       }, interval);
       timer.unref();
     },

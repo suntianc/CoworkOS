@@ -1541,10 +1541,17 @@ export function createDashboardRunService({
           };
         }
         await taskFinalizations.get(taskId);
-        // An edit rewrites the Pi session under the running Main. The process
-        // is stopped first — an idle one or one blocked on a durable question —
-        // and relaunched on the edited version. That is what keeps editing
+        // An edit rewrites the session behind a Main. A turn that is still
+        // producing an answer is not editable: stopping it to rewrite its
+        // transcript would discard work the person never cancelled. An idle
+        // process — or one parked on a durable question — is stopped and
+        // relaunched on the edited version, which is what keeps editing
         // possible now that the process outlives its turns.
+        if (
+          (await taskTurnActive(taskId)) &&
+          (await new HumanRequestStore(location.workspaceRoot).list(taskId, "pending")).length === 0
+        )
+          throw new MainMessageEditConflict("当前回合仍在运行，请先停止或等待它结束后再修改重发。");
         if (location.task.activeRunId !== request.runId)
           throw new MainMessageEditConflict("请先停止当前运行并等待停止完成，再修改重发。");
         // An edit stops the process that owns the session, whether this
@@ -1785,9 +1792,19 @@ export function createDashboardRunService({
         const location = await locateTask(taskId);
         // eslint-disable-next-line no-restricted-syntax -- 接管失败只表示这里不认识该进程，后续的活进程检查仍会读心跳与执行记录
         const resident = await adoptResidentMain(taskId, location).catch(() => undefined);
+        // A resident Main between turns is not activity: stop it so the folder
+        // change can fork the session, exactly as an edit does. A turn that is
+        // still producing an answer keeps the refusal.
+        if (resident) {
+          if (await taskTurnActive(taskId))
+            throw new ProjectCatalogError(`请先停止项目中的会话及后台工作，再${change}`, 409);
+          await stopResidentMain(taskId, { replacing: true });
+        }
         if (
           activeRuns.has(taskId) ||
-          resident !== undefined ||
+          // The adopted resident was stopped above; a record this backend did
+          // not stop is still an owner.
+          residentMains.has(taskId) ||
           taskFinalizations.has(taskId) ||
           ["running", "paused", "waiting"].includes(location.task.status) ||
           (await readSleep(location.workspaceRoot, taskId)) ||

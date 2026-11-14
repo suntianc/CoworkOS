@@ -407,6 +407,7 @@ test("Main waits for a recovered call's terminal callback to be persisted before
       sessionManager: SessionManager.inMemory(root),
       signal: controller.signal,
       hasPendingMessages: () => false,
+      isIdle: () => true,
       ui: { notify() {} }
     };
     let settled = false;

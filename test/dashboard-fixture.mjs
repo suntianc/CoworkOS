@@ -130,9 +130,10 @@ export async function startDashboard({
   const stop = () =>
     (stopping ??= (async () => {
       await stopChild();
-      // A resident Main outlives the backend it was started by. The fixture is
-      // what finally ends it, by the identity recorded at launch.
-      await endResidentMains(workspaceRoot);
+      // A resident Main and a delegated process outlive the backend that
+      // started them. The fixture is what finally ends them, by the identity
+      // recorded at launch.
+      await endAgentProcesses(workspaceRoot);
       // A process settling as the tree is removed can write one last record;
       // retry the removal instead of failing the test that already passed.
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
@@ -181,24 +182,36 @@ export async function startDashboard({
   }
 }
 
-/** End every resident Main this fixture left running, by its recorded process group. */
-async function endResidentMains(workspaceRoot) {
+/**
+ * End every agent process this fixture left running, by its recorded group.
+ *
+ * Both Main and each delegated work item run as their own process group, so a
+ * test that ends mid-run leaves processes whose ATRIA_HOME is under this run's
+ * temporary root; the runner reports those as leaked backends.
+ */
+export async function endAgentProcesses(workspaceRoot) {
   for (const task of await readdir(workspaceRoot, { withFileTypes: true }).catch(() => [])) {
     if (!task.isDirectory()) continue;
-    const runs = await readdir(join(workspaceRoot, task.name, "runs")).catch(() => []);
-    for (const runId of runs) {
-      const record = await readFile(
-        join(workspaceRoot, task.name, "runs", runId, "agents", "main", "process.json"),
-        "utf8"
-      )
-        .then((value) => JSON.parse(value))
-        .catch(() => undefined);
-      if (!record?.pid || record.host !== hostname()) continue;
-      if (!(await sameProcess(record.pid, record.startedAt))) continue;
-      try {
-        process.kill(-record.pid, "SIGKILL");
-      } catch {
-        /* the group already exited */
+    const agents = join(workspaceRoot, task.name, "runs");
+    for (const runId of await readdir(agents).catch(() => [])) {
+      const records = [join(agents, runId, "agents", "main", "process.json")];
+      const subagents = await readdir(join(agents, runId, "agents", "subagents"), {
+        withFileTypes: true
+      }).catch(() => []);
+      for (const entry of subagents)
+        if (entry.isDirectory())
+          records.push(join(agents, runId, "agents", "subagents", entry.name, "process.json"));
+      for (const path of records) {
+        const record = await readFile(path, "utf8")
+          .then((value) => JSON.parse(value))
+          .catch(() => undefined);
+        if (!record?.pid || record.host !== hostname()) continue;
+        if (!(await sameProcess(record.pid, record.startedAt))) continue;
+        try {
+          process.kill(-record.pid, "SIGKILL");
+        } catch {
+          /* the group already exited */
+        }
       }
     }
   }

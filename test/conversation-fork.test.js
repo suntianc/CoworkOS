@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { endAgentProcesses } from "./dashboard-fixture.mjs";
 import { test } from "node:test";
 
 const text = (message) =>
@@ -157,6 +158,8 @@ test(
     } finally {
       child?.kill();
       if (child?.exitCode === null) await once(child, "exit");
+      // A resident Main outlives the backend that started it.
+      if (workspaceRoot) await endAgentProcesses(workspaceRoot);
       model.close();
       await rm(root, { recursive: true, force: true });
     }

@@ -106,7 +106,8 @@ async function harness(t, capabilities) {
     isProjectTrusted: () => false,
     ui: { notify() {}, setStatus() {} },
     signal: new AbortController().signal,
-    hasPendingMessages: () => false
+    hasPendingMessages: () => false,
+    isIdle: () => true
   };
   const call = (name, args = {}) => pi.tools.get(name).execute(name, args, undefined, undefined, ctx);
   const details = async (name, args) => (await call(name, args)).details;

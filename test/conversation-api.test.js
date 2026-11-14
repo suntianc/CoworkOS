@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { endAgentProcesses } from "./dashboard-fixture.mjs";
 import { test } from "node:test";
 import { buildConversationExchanges } from "../web/assets/conversation.js";
 import { buildLiveActivity } from "../web/assets/activity.js";
@@ -85,6 +86,9 @@ test(
           COWORK_SUPPORTS_REASONING_EFFORT: "true",
           PI_CODING_AGENT_DIR: join(root, "pi-agent"),
           COWORK_DISABLE_MAIN_GUARDIAN: "1",
+          // The legacy CWD migration runs when the session is reopened by a new
+          // process; a resident Main would keep the old session in memory.
+          COWORK_MAIN_IDLE_TIMEOUT_MS: "800",
           COWORK_SERPER_API_KEY: "",
           SERPER_API_KEY: "",
           COWORK_WEB_TOOLS: "0"
@@ -163,6 +167,12 @@ test(
         "bundled skills remain available outside the harness directory"
       );
       assert.equal(detail.messages.at(-1).content.at(-1).text, "First request complete.");
+      // The process exits when idle, preserving the session and Task state; the
+      // next message starts a Main that reopens and migrates the session.
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        if (!(await get("/api/tasks/conversation")).runtime.mainRunning) break;
+        await delay(30);
+      }
       const firstEvents = detail.runtimeEvents.map((event) => event.eventId);
       // Older Dashboard runs recorded the harness CWD even for another project.
       const sessionDirectory = join(workspaceRoot, "conversation", "sessions", "main", "pi");
@@ -270,7 +280,9 @@ test(
       assert.equal(requests.length, 4);
       assert.equal(requests[3].reasoning_effort, "high");
       assert.equal(detail.statistics.usage.totalTokens, 500);
-      assert.equal(detail.statistics.runCount, 3);
+      // The message after the reopened session joins that resident Main, so the
+      // conversation is two Runs — one per Main process — not one per message.
+      assert.equal(detail.statistics.runCount, 2);
       assert.equal(requests[3].messages.filter((message) => message.role === "user").length, 3);
       assert.equal(
         (await readdir(sessionDirectory)).filter((path) => path.endsWith(".jsonl")).length,
@@ -282,6 +294,8 @@ test(
         child.kill("SIGTERM");
         await once(child, "exit");
       }
+      // A resident Main outlives the backend that started it.
+      await endAgentProcesses(workspaceRoot);
       model.closeAllConnections();
       await new Promise((done) => model.close(done));
       await rm(root, { recursive: true, force: true });
