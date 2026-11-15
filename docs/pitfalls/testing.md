@@ -128,3 +128,27 @@
 - **Confirm：** 失败时记录 `uptime`；同一提交上单独重跑失败用例，通过且本次改动不涉及对应界面，即可归为负载。仍需参考上一条对照基线。
 - **Avoid：** 开跑前 `uptime` 与 `ps -Ao pcpu,pid,command -r | head` 核对负载来源，偏高时先等或关闭占用；先排除 [遗留测试浏览器](#遗留的无头测试浏览器推高负载)。失败后只重跑该用例。
 - **Sources：** 2026-11-13 [P4.6 摘录](evidence/os-p46/retro.md#高负载下的动画帧用例第二轮)。
+
+## 改变进程生命周期的票只跑本票回归
+
+- **Trigger：** 一张票改变进程或运行的生命周期语义，例如让 Main 回合结束不退出、后端停止后保留代理进程待接管、把终态事件从进程退出挪到回合边界。
+- **What happens：** 本票回归集全绿，依赖旧语义的测试、夹具和界面断言在别处静默失效，到终审全量才暴露。P4.6 第三轮 #04 改成常驻 Main 后，终审连开三轮修复：停止与中断的旧断言、终态事件只在进程退出时写（重试成功后不显示最终回答）、每回合重读模型配置时丢失端点上限、测试只停后端留下常驻 Main。
+- **Confirm：** 用 rg 查依赖旧语义的调用方，例如 `stopBackend`、`run_completed`、`mainRunning`、进程 `exit` 监听，逐个判断它在新语义下是否仍成立。
+- **Avoid：** 派单时列出这些调用方并写进回归集；或该票集成后先跑一次全量，再派依赖它的票。
+- **Sources：** 2026-11-16 [P4.6 摘录](evidence/os-p46/retro.md#常驻-main-的波及面第三轮)。
+
+## 常驻 Main 让只停后端的测试留下进程
+
+- **Trigger：** 测试发起真实回合（Main 真的跑过一轮），收尾只调用 `stopBackend` / `dashboard.stop()` 而不先关闭会话。
+- **What happens：** 后端停止按设计保留代理进程以便重启后接管，常驻 Main（`start-pi.mjs --mode rpc`，`COWORK_MAIN_RESIDENT=1`）继续存活。`scripts/test.mjs` 的泄漏门因此判失败，即使 TAP 全部通过；常驻进程还可能通过 stdio 拖住测试进程直到空闲超时（约 30 分钟）。
+- **Confirm：** 输出中出现顶层 `Leaked backend <pid> (ATRIA_HOME=…)`；`ps axeww | grep COWORK_MAIN_RESIDENT=1` 可看到残留进程及其 `ATRIA_HOME`。`leaked-backends.test.js` 自身沙箱里带 `#` 前缀的泄漏行是预期输出，不算。
+- **Avoid：** 收尾先经产品取消路径关会话（`POST /api/tasks/<taskId>/action {action:"cancel"}`），再停后端，最后 `endAgentProcesses`；参考 `test/electron-connect.test.js`、`test/cua-script-pi.test.js`。不要放宽泄漏门。`scripts/desktop-smoke.mjs` 仍是同样形状，不在泄漏门内。
+- **Sources：** 2026-11-16 [P4.6 摘录](evidence/os-p46/retro.md#常驻-main-的波及面第三轮)。
+
+## 既有偶发反复卡住收尾门
+
+- **Trigger：** 对照基线后确认某个偶发失败是既有问题，但它在全量门（finish、终审）里经常出现。
+- **What happens：** finish 不能豁免失败的检查，只能重跑；高负载下既有偶发的失败率远高于单独运行时的基线（`markdown-links:6` 基线约 1/10，P4.6 第三轮 finish 三次全量中三次失败），每次重跑约 20 分钟。
+- **Confirm：** 连续两次全量门都被同一个既有偶发卡住。
+- **Avoid：** 不再寄望重跑，尽早开票修掉；修之前先写一个确定性复现（例如 `page.route` 扣住首份响应），修复前失败、修复后通过。#22 的实测根因与票面猜测不同，以复现为准。
+- **Sources：** 2026-11-16 [P4.6 摘录](evidence/os-p46/retro.md#finish-被既有偶发卡住第三轮)。

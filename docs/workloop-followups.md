@@ -94,6 +94,8 @@ rex.3 核对（2026-11-12）：同一合并树上已通过的命令不再重跑�
 
 P4.6 第二轮核对（2026-11-13）：终审已在 `74e723ad` 上跑过 `verify:full` 与 Playwright 全量，finish 在同一提交上仍运行了 24 条检查（含两项全量，约 30 分钟）；其中一条高负载偶发失败后再跑 finish，又运行了 16 分钟 Playwright 全量。终审的 validate 回执在终审工作树上，finish 没有复用。
 
+P4.6 第三轮核对（2026-11-16）：终审 r4 已在 `dd7e6e5a` 上跑过全量，finish 仍在同一提交上重跑 Playwright 全量（约 17–20 分钟），三次都被既有偶发 `markdown-links:6` 卡住；之后重跑时已通过的命令被正确跳过。
+
 ## WL-12 长检查前的环境预检
 
 P4.5 有 3 轮检查因 Docker 守护进程停止、锁屏和本机电脑操控授权而白跑。建议 integrate、finish 开跑前核对 Docker、`COWORK_PYTHON`、锁屏状态和机器负载，不满足时不开跑。来源：[P4.5 复盘 §4](p4.5-retrospective.md#4-长时间检查前先预检环境)。
@@ -115,3 +117,11 @@ rex.3 核对（2026-11-12）：`ticketScope` 仍把 `web/assets/app.js（含测�
 ## WL-15 合并请求回合未真正合并
 
 P4.6 第一轮 #05 收到 `send --merge-tip` 后，执行者没有执行合并就交回，集成时才出现冲突。建议 review 前检查集成 tip 是否为候选的祖先，不是时拒绝冻结并提示。当前绕行：发送合并请求后用 `git merge-base --is-ancestor <tip> HEAD` 核对再送审。来源：[P4.6 摘录](pitfalls/evidence/os-p46/retro.md#workloop-行为)。
+
+## WL-16 wait 提示与终审报告不一致
+
+P4.6 第三轮终审 r3 报告中 A8 的 Blocking 列为 yes，`wait` 却提示「next: finish — the final review's blocking findings are all waived」。按报告处理，开了修复票 #21。建议提示以报告 Findings 表为准，存在未豁免的阻断项时不提示 finish。来源：`os-p46-subagents/reviews/final-3-273c7604.md`。
+
+## WL-17 Rex 会话窗口上限
+
+每个执行、审查、终审回合各开一个 Rex 窗口，长 run 累积到 64 个时 `rex window new` 返回 409，终审无法启动。当前绕行：关闭已有审查文件的旧审查窗口（`rex window close -s <session> <window_id>...`），执行者窗口留给复盘。建议回合结束且结果落盘后自动关闭审查窗口。来源：P4.6 第三轮终审 r4 启动失败。

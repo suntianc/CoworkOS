@@ -23,3 +23,11 @@
 - **Confirm：** 用旧版 bundle `cli.js` 加 `--no-mcp --mode rpc` 启动，观察退出信息；`git diff <升级提交>^ <升级提交> | git apply -R --check -` 确认整体撤销可以干净应用。
 - **Avoid：** 按 [运行参考](../runtime-reference.md) 的回滚步骤撤销整个升级提交后 `npm ci`、构建、`npm run verify`。会话文件两个方向都能续用（`test/p46-session-compat-pi.test.js`）；之后再次升级不能只改 `package.json`。
 - **Sources：** 2026-11-13 [P4.6 摘录](evidence/os-p46/retro.md#pi-升级与回滚第二轮)。
+
+## 依赖文件事件送达消息或唤醒
+
+- **Trigger：** 让 Pi 进程靠文件监听（FSEvents / `fs.watch`）得知收件箱新消息或被唤醒。
+- **What happens：** 本机 `fseventsd` 长期约 100% CPU 时，文件事件迟到或丢失是常态，空闲的 Main 或子代理收不到消息，测试偶发超时。
+- **Confirm：** `ps -Ao pcpu,command -r | head` 看 `fseventsd` 占用；关闭文件监听（`COWORK_DISABLE_FILE_WATCH=1`）后相关真实进程测试仍应通过。
+- **Avoid：** 送达以回合边界重读收件箱（`turn_end`）和写入方直接唤醒（`src/runtime/agent-wake.ts`，`COWORK_WAKE_ENDPOINT`）为准，文件监听只作补充；不要新增只靠文件事件的路径。
+- **Sources：** 2026-11-16 [P4.6 摘录](evidence/os-p46/retro.md#文件事件不可靠第三轮)。
