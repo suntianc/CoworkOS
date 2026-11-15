@@ -244,11 +244,13 @@ for (const globalPolicy of [false, true, "run-exit"])
         let task;
         for (let index = 0; index < 600; index++) {
           task = (await (await fetch(`${base}/api/tasks/computer-agent`)).json()).task;
-          if (
-            (task.status === "completed" || task.status === "failed") &&
-            !dashboard.routePorts.activeRuns.has("computer-agent")
-          )
-            break;
+          // The Run's work ends at its turn boundary, so a successful run leaves
+          // the resident Main alive; the release is checked here as well, since
+          // it happens at that same boundary rather than at process exit.
+          const released =
+            globalPolicy !== "run-exit" ||
+            dashboard.routePorts.computer.current("computer-agent")?.state === "ended";
+          if ((task.status === "completed" || task.status === "failed") && released) break;
           await delay(100);
         }
         assert.equal(task.status, "completed");
@@ -328,6 +330,10 @@ for (const globalPolicy of [false, true, "run-exit"])
           0
         );
       } finally {
+        // A resident Main outlives the backend on purpose; closing this Task's
+        // session ends the process this test started and waits for its
+        // settlement, so the temporary root can be removed and the file exits.
+        await dashboard?.routePorts.cancelTask("computer-agent").catch(() => {});
         await dashboard?.stop();
         model.closeAllConnections();
         await new Promise((done) => model.close(done));

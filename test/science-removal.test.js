@@ -91,13 +91,14 @@ test(
         const step = ++steps[role];
         const last = JSON.stringify(body.messages.findLast((message) => message.role === "tool"));
         if (role === "delegate") {
-          assert.ok(body.tools.some((tool) => tool.function.name === "run_command"));
+          const tools = body.tools.map((tool) => tool.function.name);
+          assert.ok(tools.includes("bash"));
+          assert.ok(!tools.includes("run_command"), "the retired second shell tool is not offered");
           if (step === 1)
             return {
-              name: "run_command",
+              name: "bash",
               arguments: {
-                command: join(pythonEnvironment, "bin", "python"),
-                args: ["-c", "print(6 * 7)"]
+                command: `${join(pythonEnvironment, "bin", "python")} -c "print(6 * 7)"`
               }
             };
           assert.match(last, /42/);

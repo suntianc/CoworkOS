@@ -423,6 +423,8 @@ export function createDashboardApplication(
           model: selection.model
         })
       ).find((entry) => entry.id === selection.model)?.limits,
+    // The Run's work ended: release what it held, though its process lives on.
+    onRunSettled: (taskId) => computer.finishTask(taskId),
     onRunExit: (taskId) => computer.finishTask(taskId),
     normalizeModel,
     appendRunEvent,
