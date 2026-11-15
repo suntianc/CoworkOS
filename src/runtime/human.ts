@@ -41,18 +41,6 @@ export interface HumanRequest {
 }
 
 /**
- * A decision the retired long-term-goal tool recorded when it needed input.
- *
- * Nothing can advance or answer one any more. The request stores no source
- * field, so the reliable marker is the id that tool chose for its questions:
- * `human-goal_` followed by its revision hash. `create()` never produces that
- * prefix — its own ids are `human_<uuid>` — so it stays unique to legacy data.
- */
-export function isRetiredGoalDecision(request: Pick<HumanRequest, "requestId">): boolean {
-  return request.requestId.startsWith("human-goal_");
-}
-
-/**
  * Durable, deliberately small human-in-the-loop store. A request is a file so
  * a CLI, UI or another process can answer it without keeping the Main model
  * process alive. The answer is delivered through the ordinary Main Inbox by
@@ -104,17 +92,11 @@ export class HumanRequestStore {
   }
 
   /**
-   * Pending questions a person must still answer.
+   * Requests recorded for a Task, oldest first.
    *
-   * A decision recorded by the retired long-term-goal tool can never be
-   * answered: the tool that asked is gone. Left in `pending` it would refuse
-   * every Main launch and keep the guardian from restarting the Task, so
-   * launch sites ask for this list instead of `list(taskId, "pending")`.
+   * Launch and resume gates ask for `pending`: a pending question means the
+   * Task is the user's until they answer it.
    */
-  async listBlockingPending(taskId: string): Promise<HumanRequest[]> {
-    return (await this.list(taskId, "pending")).filter((request) => !isRetiredGoalDecision(request));
-  }
-
   async list(taskId: string, status?: HumanRequestStatus): Promise<HumanRequest[]> {
     const directory = join(this.workspaceRoot, safe(taskId), "human", "requests");
     let entries;

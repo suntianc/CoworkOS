@@ -35,8 +35,6 @@ const removedModules = [
   "/cli/coding-smoke.js",
   "/cli/multi-subagent-smoke.js"
 ];
-// The Dashboard's own run service keeps this name; only the runtime one is gone.
-const removedRuntimeRunService = /\/runtime\/run-service\.js$/;
 
 async function testFiles(directory) {
   const files = [];
@@ -88,7 +86,7 @@ test("every test and e2e import resolves to a file that exists", async () => {
         // and a leading slash is a URL served to a browser.
         if (!specifier.startsWith(".")) continue;
         const path = specifier.replace(/[?#].*$/, "");
-        if (removedModules.some((suffix) => path.endsWith(suffix)) || removedRuntimeRunService.test(path)) {
+        if (removedModules.some((suffix) => path.endsWith(suffix))) {
           problems.push(`${relative(".", file)} imports the removed module ${specifier}`);
           continue;
         }

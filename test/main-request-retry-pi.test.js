@@ -10,8 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-request-store.js";
-const modelRequestRetryPath = mainRequestPath;
-const readModelRequestRetry = (path) => new MainRequestStore(path, "retry-task").read();
+const readSnapshot = (path) => new MainRequestStore(path, "retry-task").read();
 
 async function fixture(t, api, handle) {
   const received = [];
@@ -22,9 +21,7 @@ async function fixture(t, api, handle) {
       return response.end(JSON.stringify({ data: [{ id: "original-model" }] }));
     }
     const raw = await readFixtureRequestBody(request);
-    const snapshot = await readModelRequestRetry(
-      modelRequestRetryPath(dashboard.workspaceRoot, "retry-task")
-    );
+    const snapshot = await readSnapshot(mainRequestPath(dashboard.workspaceRoot, "retry-task"));
     received.push({ raw, path: request.url, body: JSON.parse(raw), snapshot });
     await handle({ response, received, dashboard });
   });
@@ -148,7 +145,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
       assert.equal(failed.messages.filter((message) => message.role === "user").length, 1);
       assert.ok(failed.retryRequest.requestId);
       assert.equal(
-        (await stat(modelRequestRetryPath(f.dashboard.workspaceRoot, "retry-task"))).mode & 0o777,
+        (await stat(mainRequestPath(f.dashboard.workspaceRoot, "retry-task"))).mode & 0o777,
         0o600
       );
       assertPublicRetryDetail(failed, f.received[0]);
@@ -446,7 +443,7 @@ test(
     const f = await fixture(t, "openai-completions", ({ response }) => reject(response));
     await f.call({ prompt: "你好！" });
     const failed = await f.settle("failed");
-    const path = modelRequestRetryPath(f.dashboard.workspaceRoot, "retry-task");
+    const path = mainRequestPath(f.dashboard.workspaceRoot, "retry-task");
     await writeFile(path, "damaged original fixture");
     const detail = await f.detail();
     assert.equal(detail.retryRequestUnavailable, true);

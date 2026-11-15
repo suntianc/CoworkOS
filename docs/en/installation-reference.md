@@ -10,7 +10,7 @@ The product is now CoworkOS, with the same logo. `coworkos` is the primary comma
 
 Starting the CLI or running `coworkos doctor` refreshes legacy search adapters to the current runtime path. Only product-owned scripts are replaced; user-installed tools and symbolic links are preserved.
 
-The existing `~/.atria/` home, `ATRIA_*` environment variables, desktop bundle ID, system keychain identity and persisted format identifiers remain stable. Existing configuration and tasks need no migration; legacy `Atria` / `Atria Dev` data directories are still recognized. GitHub repository URLs and historical release assets retain their real addresses. New builds use the CoworkOS application name and `coworkos-cli` archive name (the Release archive retains its internal package name `atria-cowork-cli` for upgrade ownership; the npm registry package is `coworkos-app`), and can read legacy update assets.
+The existing `~/.atria/` home, `ATRIA_*` environment variables, desktop bundle ID, system keychain identity and persisted format identifiers remain stable. Existing configuration and tasks need no migration. GitHub repository URLs and historical release assets retain their real addresses. New builds use the CoworkOS application name and `coworkos-cli` archive name (the Release archive retains its internal package name `atria-cowork-cli` for upgrade ownership; the npm registry package is `coworkos-app`), and can read legacy update assets.
 
 An older App's update URL is stored in its binary. Current installed Apps use a local DMG for manual upgrades; existing user data stays in its data directory.
 

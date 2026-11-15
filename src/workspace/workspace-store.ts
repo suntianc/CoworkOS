@@ -75,7 +75,6 @@ export interface WorkspaceStore {
     details?: { runId?: string; error?: string; reason?: string; completion?: Partial<TaskCompletion> }
   ): Promise<TaskRecord>;
   agentWorkDir(taskId: string, runId: string, agentId: string): string;
-  sessionPath(taskId: string, runId: string, agentId: string, suffix?: string): string;
   prepareAgentWorkDir(taskId: string, runId: string, agentId: string): Promise<string>;
   publishArtifact(
     input: Omit<Artifact, "artifactId" | "sha256" | "size" | "createdAt"> & {
@@ -367,9 +366,7 @@ export class LocalWorkspaceStore implements WorkspaceStore {
     const taskPath = await this.createTask(taskId);
     const runPath = join(taskPath, "runs", segment(runId));
     for (const agent of ["main", "coordinator"]) {
-      await mkdir(join(taskPath, "sessions", agent), { recursive: true });
       await mkdir(join(runPath, "agents", agent), { recursive: true });
-      await appendFile(this.sessionPath(taskId, runId, agent), "", "utf8");
       await appendFile(join(runPath, "agents", agent, "inbox.jsonl"), "", "utf8");
     }
     await appendFile(join(runPath, "run_events.jsonl"), "", "utf8");
@@ -398,12 +395,6 @@ export class LocalWorkspaceStore implements WorkspaceStore {
     const workDir = this.agentWorkDir(taskId, runId, agentId);
     await mkdir(workDir, { recursive: true });
     return workDir;
-  }
-
-  sessionPath(taskId: string, runId: string, agentId: string, suffix = ""): string {
-    const safeAgent = segment(agentId);
-    const safeSuffix = suffix ? `-${segment(suffix)}` : "";
-    return join(this.root, segment(taskId), "sessions", safeAgent, `${segment(runId)}${safeSuffix}.jsonl`);
   }
 
   /** Explicitly publish a user file at its chosen path under Task/artifacts. */

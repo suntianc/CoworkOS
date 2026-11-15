@@ -38,9 +38,9 @@ export function formatSubagentSummary(input: {
 /**
  * Queue the callback Main reads when a delegated call reaches a terminal state.
  *
- * Every execution path — in-process or a supervised Pi process — writes this
- * same record into the same Inbox. Keeping the id deterministic makes retries,
- * adoption after a restart and a late duplicate process settle idempotent.
+ * The delegated process writes this record into Main's Inbox. Keeping the id
+ * deterministic makes retries, adoption after a restart and a late duplicate
+ * process settle idempotent.
  */
 export async function enqueueMainCallback(input: {
   workspaceRoot: string;

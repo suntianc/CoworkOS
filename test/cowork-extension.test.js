@@ -152,24 +152,10 @@ test("call_subagent keeps task/mode required and dispatches one work item per ca
       content: "Existing delegated evidence"
     };
     const context = await pi.handlers.get("context")(
-      {
-        messages: [
-          request,
-          {
-            role: "custom",
-            customType: "cowork-completion-check",
-            content: "Treat the previous reply as a progress update."
-          },
-          callback
-        ]
-      },
+      { messages: [request, callback] },
       { sessionManager: SessionManager.inMemory(root) }
     );
-    assert.deepEqual(
-      context.messages,
-      [request, callback],
-      "retired completion reminders must not be replayed from old conversations"
-    );
+    assert.deepEqual(context.messages, [request, callback], "existing evidence is replayed unchanged");
     assert.equal(
       (await workspace.readTask(taskId)).goal,
       "extension regression",

@@ -147,10 +147,6 @@ async function main(): Promise<void> {
     });
     assert.equal((await workspace.readTask("task_1")).completion?.signal, "none");
     assert.equal(workspace.agentWorkDir("task_1", "run_1", "sub_1").endsWith("agents/subagents/sub_1"), true);
-    assert.equal(
-      workspace.sessionPath("task_1", "run_1", "main").endsWith("task_1/sessions/main/run_1.jsonl"),
-      true
-    );
     const preparedWorkDir = await workspace.prepareAgentWorkDir("task_1", "run_1", "sub_1");
     assert.equal(preparedWorkDir.endsWith("task_1/agents/subagents/sub_1"), true);
     const artifact = await workspace.publishArtifact({

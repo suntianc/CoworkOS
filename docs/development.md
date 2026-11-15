@@ -41,7 +41,7 @@ COWORK_UI_PORT=3881 npm run ui
 
 Mac 开发版显示为 CoworkOS Dev (短后缀)，应用标识为 `org.atria.cowork.dev.runtime.<运行时哈希>`。每份不可变的 ad-hoc 开发运行时独立授权，避免不同 worktree 或运行时的签名共用同一条系统权限记录；同一运行时重复启动复用身份。
 
-数据与正式版、CLI、Web 共用 `~/.atria/`，两个默认桌面入口共享单实例锁。测试可设置 `COWORK_DESKTOP_DATA`，需要整套隔离时设置 `ATRIA_HOME`。旧目录的保留与导入见 [持久化说明](task-workspace-layout.md)。
+数据与正式版、CLI、Web 共用 `~/.atria/`，两个默认桌面入口共享单实例锁。测试可设置 `COWORK_DESKTOP_DATA`，需要整套隔离时设置 `ATRIA_HOME`。
 
 ```sh
 npm run desktop:install-dev # 安装固定的 ~/Applications/CoworkOS Dev.app

@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { id, now, type Importance, type InboxMessage } from "../domain/types.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { notifyAgentProcess } from "./agent-wake.js";
-import { verifyProcessIdentity, type ProcessIdentity } from "./process-identity.js";
+import { processIsAlive, verifyProcessIdentity, type ProcessIdentity } from "./process-identity.js";
 
 export type WorkStatus = "queued" | "leased" | "completed" | "failed" | "cancelled";
 
@@ -400,7 +400,7 @@ export class InboxStore {
       message.state = "leased";
       message.lease = {
         consumerId,
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        expiresAt: new Date(Date.now() + INBOX_MESSAGE_LEASE_MS).toISOString(),
         ...(owner ? { owner } : {})
       };
       await this.write(messages);
@@ -600,15 +600,6 @@ async function consumerOwnerIsAlive(
   if (owner?.startedAt) return verifyProcessIdentity(owner);
   const pid = owner?.pid ?? consumerOwnerPid(consumerId);
   return pid !== undefined && processIsAlive(pid);
-}
-
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
-  }
 }
 
 function waitOwner(message: InboxMessage): number | undefined {

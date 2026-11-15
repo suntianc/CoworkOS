@@ -62,7 +62,7 @@ async function fixture(t, piVersion) {
     executionScope,
     endpoint: "http://fixture.test/v1/chat/completions",
     body: archivedBody,
-    ...(piVersion === undefined ? {} : { piVersion })
+    piVersion
   });
   await store.settle("archived-request", "failed");
   const recorder = new ModelRequestRecorder(join(root, "archive.jsonl"), {
@@ -145,34 +145,29 @@ test("a snapshot from the same Pi version replays its archived body byte for byt
   assert.deepEqual(row.payload.request, JSON.parse(archivedBody));
 });
 
-for (const [name, archivedPiVersion, reason] of [
-  ["an archived body from another Pi version", "0.87.1", "pi_version_mismatch"],
-  ["an archive written before snapshots recorded a version", undefined, "pi_version_missing"]
-]) {
-  test(`${name} rebuilds the context and states why in the retry record`, async (t) => {
-    const f = await fixture(t, archivedPiVersion);
-    const result = await attempt(f);
-    assert.equal(result.stopReason, "stop");
-    assert.equal(f.sent.length, 1, "the rebuilt request must still reach the provider");
-    const rebuilt = JSON.parse(f.sent[0].raw);
-    const messages = JSON.stringify(rebuilt.messages);
-    assert.notEqual(f.sent[0].raw, archivedBody, "a stale archive must not be replayed");
-    assert.ok(!messages.includes("ARCHIVED_INPUT"), `the archived body was reused: ${messages}`);
-    assert.ok(messages.includes("LIVE_INPUT"), `the live context was not rebuilt: ${messages}`);
+test("an archived body from another Pi version rebuilds the context and states why", async (t) => {
+  const f = await fixture(t, "0.87.1");
+  const result = await attempt(f);
+  assert.equal(result.stopReason, "stop");
+  assert.equal(f.sent.length, 1, "the rebuilt request must still reach the provider");
+  const rebuilt = JSON.parse(f.sent[0].raw);
+  const messages = JSON.stringify(rebuilt.messages);
+  assert.notEqual(f.sent[0].raw, archivedBody, "a stale archive must not be replayed");
+  assert.ok(!messages.includes("ARCHIVED_INPUT"), `the archived body was reused: ${messages}`);
+  assert.ok(messages.includes("LIVE_INPUT"), `the live context was not rebuilt: ${messages}`);
 
-    const retried = await f.store.read();
-    assert.equal(retried.retryOf, "archived-request");
-    assert.equal(retried.piVersion, installedPiVersion);
-    assert.deepEqual(retried.replaySkipped, {
-      reason,
-      ...(archivedPiVersion === undefined ? {} : { archivedPiVersion })
-    });
-
-    const row = (await f.archiveRows()).find((entry) => entry.type === "model_request");
-    assert.equal(row.payload.retryOf, "archived-request");
-    assert.equal(row.payload.replaySkipped.reason, reason);
+  const retried = await f.store.read();
+  assert.equal(retried.retryOf, "archived-request");
+  assert.equal(retried.piVersion, installedPiVersion);
+  assert.deepEqual(retried.replaySkipped, {
+    reason: "pi_version_mismatch",
+    archivedPiVersion: "0.87.1"
   });
-}
+
+  const row = (await f.archiveRows()).find((entry) => entry.type === "model_request");
+  assert.equal(row.payload.retryOf, "archived-request");
+  assert.equal(row.payload.replaySkipped.reason, "pi_version_mismatch");
+});
 
 /** A real Dashboard whose first model request fails, as an App retry would find it. */
 async function dashboard(t) {

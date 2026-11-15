@@ -63,15 +63,13 @@ async function read(root: string, taskId: string): Promise<EditTransaction | und
 }
 function snapshotPaths(root: string, taskId: string) {
   const context = mainContextPaths(root, taskId);
-  const retry = mainRequestPath(root, taskId);
   return [
     join(root, taskId, "task.json"),
     join(root, taskId, "sessions", "main", "versions.json"),
     context.messages,
     context.memory,
     context.state,
-    retry,
-    `${retry}.cleared`
+    mainRequestPath(root, taskId)
   ];
 }
 export async function beginMessageEditTransaction(

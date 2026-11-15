@@ -483,7 +483,7 @@ export class SubagentProcessService {
     const current = (await scheduler.list()).find((item) => item.stepId === record.callId);
     const payload = (current?.payload as WorkPayload | undefined) ?? {};
     // A retryable failure is still in flight, so it is not an outcome Main may
-    // act on; the callback follows the terminal attempt like an in-process call.
+    // act on; the callback follows the terminal attempt.
     const publishOutcome = async (): Promise<{ messageId: string; queued: boolean }> => {
       // The ledger row settles at the same terminal boundary as the callback: a
       // retryable failure is not an outcome, so the row stays open for its retry.
@@ -507,8 +507,8 @@ export class SubagentProcessService {
         callId: record.callId,
         agentId: record.agentId,
         status: result.status,
-        // The ledger reference rides with the callback exactly as the
-        // in-process path wrote it, so Main reads one shape either way.
+        // The ledger reference rides with the callback so Main reads one
+        // shape from any delegation path.
         callbackMetadata: {
           ...(payload.experimentRef ?? {}),
           ...(result.review ? { review: result.review } : {})

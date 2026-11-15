@@ -20,8 +20,11 @@ function createBackendAuthorization({ appRoot, fetchImpl = fetch, sessionStore }
     if (typeof home !== "string" || !path.isAbsolute(home) || home.length > 4096 || home.includes("\0"))
       throw new Error("无效的后端数据目录");
     const entry = path.join(appRoot, "dist/src/dashboard/backend-instance.js");
-    const { backendPaths, readBackendInstance, readBackendIdentity, processIsAlive } = await import(
+    const { backendPaths, readBackendInstance, readBackendIdentity } = await import(
       pathToFileURL(entry).href
+    );
+    const { processIsAlive } = await import(
+      pathToFileURL(path.join(appRoot, "dist/src/runtime/process-identity.js")).href
     );
     const paths = backendPaths(home);
     const instance = (await readBackendInstance(paths)).value;

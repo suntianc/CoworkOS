@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { startDashboard } from "./dashboard-fixture.mjs";
@@ -263,7 +263,8 @@ async function traceFixture(t, { startedMs, activity, subagentActivity = [] }) {
       }
     ])}\n`
   );
-  await mkdir(join(storage, "task", "sessions", "subagent_1"), { recursive: true });
+  const subagentLog = join(runRoot, "agents", "subagents", "subagent_1", "agent-output.log");
+  await mkdir(dirname(subagentLog), { recursive: true });
   const subagentLines = subagentActivity.flatMap(([at, toolCalls]) => [
     ...Array.from({ length: toolCalls }, (_value, index) => ({
       type: "tool_execution_start",
@@ -274,7 +275,7 @@ async function traceFixture(t, { startedMs, activity, subagentActivity = [] }) {
     { type: "message_end", message: { role: "assistant", content: "subagent text" } }
   ]);
   await writeFile(
-    join(storage, "task", "sessions", "subagent_1", "run.jsonl"),
+    subagentLog,
     `${subagentLines
       .map((payload, index) => {
         const at = subagentActivity[0]?.[0] ?? startedMs;

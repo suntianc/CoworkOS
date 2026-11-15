@@ -32,21 +32,15 @@ export function sleepPath(workspaceRoot: string, taskId: string): string {
 export async function readSleep(workspaceRoot: string, taskId: string): Promise<MainSleep | undefined> {
   try {
     const value = JSON.parse(await readFile(sleepPath(workspaceRoot, taskId), "utf8")) as Partial<MainSleep>;
-    // A park without a due time could never be woken after the monitor
-    // scheduler was removed; treat it as old state rather than a live park.
     if (
       typeof value.runId !== "string" ||
+      typeof value.reason !== "string" ||
       typeof value.parkedAt !== "string" ||
       typeof value.wakeAt !== "string" ||
       !Number.isFinite(Date.parse(value.wakeAt))
     )
-      return undefined;
-    return {
-      runId: value.runId,
-      reason: typeof value.reason === "string" ? value.reason : "",
-      wakeAt: value.wakeAt,
-      parkedAt: value.parkedAt
-    };
+      throw new Error("停泊记录损坏，已保留原记录。");
+    return { runId: value.runId, reason: value.reason, wakeAt: value.wakeAt, parkedAt: value.parkedAt };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;

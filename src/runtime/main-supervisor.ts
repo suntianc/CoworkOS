@@ -126,9 +126,8 @@ export class MainSupervisor {
 
     // A Task parked on a question belongs to the user until they answer it.
     // Restarting past that would let the supervisor decide the question by
-    // resuming without it. A decision left by the retired goal tool is not
-    // such a question: nobody can answer it, so it must not hold the Task.
-    if ((await new HumanRequestStore(this.options.workspaceRoot).listBlockingPending(taskId)).length) {
+    // resuming without it.
+    if ((await new HumanRequestStore(this.options.workspaceRoot).list(taskId, "pending")).length) {
       return { taskId, action: "skipped", reason: "awaiting_human" };
     }
 

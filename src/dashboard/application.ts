@@ -681,14 +681,6 @@ export function createDashboardApplication(
         : undefined;
     const lastFailure = [...events].reverse().find((event) => event.type === "main.run_failed")?.payload as
       { failure?: { kind?: string } } | undefined;
-    const legacyRetry =
-      !retry && !active && ["failed", "waiting"].includes(task.status)
-        ? // eslint-disable-next-line no-restricted-syntax -- 旧版请求记录损坏同样置 damagedRetry，旧版读取只用于判断能否重试
-          await requestStore.legacyPending().catch(() => {
-            damagedRetry = true;
-            return undefined;
-          })
-        : undefined;
     const retryRequestUnavailable =
       !active &&
       ["failed", "waiting"].includes(task.status) &&
@@ -696,7 +688,6 @@ export function createDashboardApplication(
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- damagedRetry 在上面的 catch 回调里赋值，TS 在读取处看不到这次写入
       (damagedRetry ||
         (retry && (!retry.executionScope || !retry.endpoint)) ||
-        (legacyRetry?.taskId === taskId && legacyRetry.runId === runId) ||
         lastFailure?.failure?.kind === "model_request");
     const statistics = await readRunStatistics({ workspaceRoot: taskWorkspace, task, active });
     const humanRequests = await new HumanRequestStore(taskWorkspace).list(taskId);

@@ -139,7 +139,6 @@ Usage:
   coworkos COMMAND --help        Show command options without changing user data
   coworkos backend start|status|stop  Run the standalone backend independently of a client
   coworkos data paths           Show persistent data paths
-  coworkos data import --from PATH [--kind desktop|workspace] [--name NAME]
   coworkos --version
 
 Non-interactive setup:

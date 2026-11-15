@@ -41,7 +41,6 @@ module.exports = {
     "docs/cli-ui-adapter.md",
     "docs/en/cli-ui-adapter.md",
     "scripts/data-home.cjs",
-    "scripts/data-migration.cjs",
     "scripts/cli-session.mjs",
     "scripts/cli-session-export.mjs",
     "scripts/cli-session-picker.mjs",

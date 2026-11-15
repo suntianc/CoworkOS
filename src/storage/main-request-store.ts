@@ -7,7 +7,6 @@ import {
   validMainRequestExecutionScope,
   type MainRequestExecutionScope
 } from "../runtime/main-request-execution-scope.js";
-import { readModelRequestRetry } from "../runtime/model-request-retry.js";
 
 export type MainRequestModel = Model<"openai-completions" | "openai-responses">;
 export class MainRequestSnapshotError extends Error {
@@ -17,12 +16,11 @@ export class MainRequestSnapshotError extends Error {
 export interface MainRequestEnvironment {
   projectDirectory: string;
 }
-export type MainRequestReplaySkipReason = "pi_version_missing" | "pi_version_mismatch";
 /** Why a retry rebuilt the context instead of replaying the archived wire body. */
 export interface MainRequestReplaySkip {
-  reason: MainRequestReplaySkipReason;
-  /** Pi version that wrote the skipped archive; absent when it recorded none. */
-  archivedPiVersion?: string;
+  reason: "pi_version_mismatch";
+  /** Pi version that wrote the skipped archive. */
+  archivedPiVersion: string;
 }
 export interface MainRequestSnapshot {
   version: 1;
@@ -35,11 +33,12 @@ export interface MainRequestSnapshot {
   context: Context;
   sessionId?: string;
   environment: MainRequestEnvironment;
-  /** Older snapshots remain readable for audit, but exact replay fails closed. */
+  /** Ownership of the directories a replay may touch; without it a replay is refused. */
   executionScope?: MainRequestExecutionScope;
+  /** Model endpoint the archive was sent to; without it a replay is refused. */
   endpoint?: string;
-  /** Pi version that wrote this snapshot; earlier archives only replay there. */
-  piVersion?: string;
+  /** Pi version that wrote this snapshot; an archive only replays on that version. */
+  piVersion: string;
   replaySkipped?: MainRequestReplaySkip;
   body: string;
   bodySha256: string;
@@ -61,10 +60,11 @@ const validModel = (model: MainRequestModel | null | undefined) =>
   Array.isArray(model.input) &&
   Number.isFinite(model.maxTokens) &&
   Number.isFinite(model.contextWindow);
-const validReplaySkip = (skip: MainRequestReplaySkip | null) =>
-  skip !== null &&
-  ["pi_version_missing", "pi_version_mismatch"].includes(skip.reason) &&
-  (skip.archivedPiVersion === undefined || typeof skip.archivedPiVersion === "string");
+const validReplaySkip = (skip: unknown): skip is MainRequestReplaySkip => {
+  if (!skip || typeof skip !== "object") return false;
+  const value = skip as { reason?: unknown; archivedPiVersion?: unknown };
+  return value.reason === "pi_version_mismatch" && typeof value.archivedPiVersion === "string";
+};
 
 export function parseMainRequestModel(serialized: string): MainRequestModel {
   const model = JSON.parse(serialized) as MainRequestModel;
@@ -101,7 +101,7 @@ export class MainRequestStore {
       typeof snapshot.environment?.projectDirectory !== "string" ||
       (snapshot.executionScope !== undefined && !validMainRequestExecutionScope(snapshot.executionScope)) ||
       (snapshot.endpoint !== undefined && typeof snapshot.endpoint !== "string") ||
-      (snapshot.piVersion !== undefined && typeof snapshot.piVersion !== "string") ||
+      typeof snapshot.piVersion !== "string" ||
       (snapshot.replaySkipped !== undefined && !validReplaySkip(snapshot.replaySkipped)) ||
       typeof snapshot.body !== "string" ||
       snapshot.bodySha256 !== hash(snapshot.body) ||
@@ -152,18 +152,6 @@ export class MainRequestStore {
     );
   }
 
-  /** Read-only compatibility: old records never enter the active replay chain. */
-  async legacyPending() {
-    try {
-      await readFile(`${this.filePath}.cleared`, "utf8");
-      return undefined;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    const legacy = await readModelRequestRetry(join(dirname(this.filePath), "retry-request.json"));
-    return legacy?.state === "completed" ? undefined : legacy;
-  }
-
   async begin(
     input: Omit<MainRequestSnapshot, "version" | "taskId" | "state" | "bodySha256" | "checksum">,
     expected?: { runId: string; requestId: string }
@@ -204,15 +192,9 @@ export class MainRequestStore {
   }
 
   async clear(): Promise<void> {
-    await withFileLock(
-      this.filePath,
-      async () => {
-        // Retiring a user turn must not revive a leftover legacy snapshot after restart.
-        await writeFile(`${this.filePath}.cleared`, "1\n", { mode: 0o600 });
-        await rm(this.filePath, { force: true });
-      },
-      { recoverDeadOwner: true }
-    );
+    await withFileLock(this.filePath, async () => rm(this.filePath, { force: true }), {
+      recoverDeadOwner: true
+    });
   }
 
   private async write(snapshot: Omit<MainRequestSnapshot, "checksum">): Promise<void> {

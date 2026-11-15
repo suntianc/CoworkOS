@@ -26,7 +26,6 @@ import { listJobs } from "../tools/jobs.js";
 import { join, resolve } from "node:path";
 import { mainRunEnv } from "./main-run-env.js";
 import { MainRequestConflictError, mainRequestEnvironment } from "../runtime/main-request-retry.js";
-import { retiredSectionReplayRefusal, retiredSectionsWithText } from "../runtime/retired-system-sections.js";
 import {
   MainRequestStore,
   MainRequestSnapshotError,
@@ -527,8 +526,9 @@ export function createDashboardRunService({
       }
       const current = await prepareRunTransition(location, runId, assessment.ready ? "completed" : "waiting");
       if (!current) return;
-      if (assessment.ready || (await readSleep(taskWorkspace, taskId)))
-        await resetMainSupervisorBackoff(taskWorkspace, taskId);
+      // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏时按未停泊处理，结算不因一条读不出的记录中断
+      const parkedForWake = Boolean(await readSleep(taskWorkspace, taskId).catch(() => undefined));
+      if (assessment.ready || parkedForWake) await resetMainSupervisorBackoff(taskWorkspace, taskId);
       await event(assessment.ready ? "main.run_completed" : "main.run_waiting", {
         code,
         signal,
@@ -858,7 +858,7 @@ export function createDashboardRunService({
     if (!prompt.trim() && !continuation) throw new Error("prompt must not be empty");
     const taskWorkspace = location.workspaceRoot;
     // The same gates the launch path applies before a Main may take work.
-    if ((await new HumanRequestStore(taskWorkspace).listBlockingPending(resident.taskId)).length)
+    if ((await new HumanRequestStore(taskWorkspace).list(resident.taskId, "pending")).length)
       throw new Error("请先回答任务中待确认的问题，再继续运行。");
     const model = task.model || "";
     // A message that arrives while the Task is paused stays queued: the pause
@@ -1199,24 +1199,13 @@ export function createDashboardRunService({
             throw new MainRequestSnapshotError(
               "要重试的原请求已变化或已取消，已有内容仍保留。请刷新后重试。"
             );
-          if (!snapshot) {
-            const legacy = await requestStore.legacyPending();
-            if (legacy && legacy.taskId === taskId && legacy.runId === task.activeRunId)
-              throw new MainRequestSnapshotError(
-                "原请求缺少当前执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
-              );
-            return undefined;
-          }
+          if (!snapshot) return undefined;
           if (snapshot.runId !== task.activeRunId)
             throw new MainRequestSnapshotError("原请求所属运行已变化，已有内容仍保留。请刷新后重试。");
           if (!snapshot.executionScope || !snapshot.endpoint)
             throw new MainRequestSnapshotError(
               "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
             );
-          // Refuse before spawning: an archive written before user memory and
-          // project experience were removed would resend their text verbatim.
-          const retired = retiredSectionsWithText(snapshot.context.messages);
-          if (retired.length) throw new MainRequestConflictError(retiredSectionReplayRefusal(retired));
           if (
             (await realpath(resolve(task.projectDirectory ?? taskWorkspace))) !==
             snapshot.environment.projectDirectory
@@ -1293,9 +1282,7 @@ export function createDashboardRunService({
     if (edit?.rollback) submission?.onPrepared?.(edit.rollback);
     // Preparing an edit retires only questions from the replaced message's tail.
     // Ordinary continuation and unrelated pending decisions retain the same gate.
-    // A decision left by the retired goal tool is not such a question: nobody
-    // can answer it, so it must not refuse the launch.
-    if ((await new HumanRequestStore(taskWorkspace).listBlockingPending(taskId)).length)
+    if ((await new HumanRequestStore(taskWorkspace).list(taskId, "pending")).length)
       throw new Error("请先回答任务中待确认的问题，再继续运行。");
     const savedVersions = await readMessageVersions(taskWorkspace, taskId);
     const versions = savedVersions
@@ -2045,7 +2032,8 @@ export function createDashboardRunService({
           residentMains.has(taskId) ||
           taskFinalizations.has(taskId) ||
           ["running", "paused", "waiting"].includes(location.task.status) ||
-          (await readSleep(location.workspaceRoot, taskId)) ||
+          // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏时按未停泊处理，读不出的记录不冒充活动中的会话
+          (await readSleep(location.workspaceRoot, taskId).catch(() => undefined)) ||
           (await projectExecutionIsAlive(location.workspaceRoot, taskId))
         )
           throw new ProjectCatalogError(`请先停止项目中的会话及后台工作，再${change}`, 409);
@@ -2294,7 +2282,7 @@ export function createDashboardRunService({
         humanWakeups.delete(taskId);
         return { status: "cancelled" };
       }
-      const pending = await new HumanRequestStore(location.workspaceRoot).listBlockingPending(taskId);
+      const pending = await new HumanRequestStore(location.workspaceRoot).list(taskId, "pending");
       if (pending.length) {
         humanWakeups.delete(taskId);
         return { status: "waiting" };

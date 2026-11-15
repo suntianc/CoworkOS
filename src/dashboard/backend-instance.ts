@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { id } from "../domain/types.js";
+import { processIsAlive } from "../runtime/process-identity.js";
 
 /**
  * The persistent identity of one backend for one data root.
@@ -212,16 +213,6 @@ export async function removeBackendStarting(paths: BackendPaths, expectedToken?:
     if (current.value && current.value.token !== expectedToken) return;
   }
   await rm(paths.startingPath, { force: true });
-}
-
-export function processIsAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
 }
 
 export interface BackendProbe {

@@ -208,9 +208,9 @@ Interface details: [Product API](../product-api.md#external-main-capacity).
 
 Runtime state defaults to `~/.atria/runtime` in every entrypoint. Project settings save `projectName`, `projectId` and `projectDirectory`; the first message creates the conversation. Project working directories are separate from internal storage under `workspaceRoot` / `COWORK_WORKSPACE`.
 
-Explicit old `.tmp` / `.tmp/pi-agent` paths still work. Source entrypoints no longer select checkout `.tmp` implicitly. Release and development Apps share data and the instance lock. Explicit `COWORK_DESKTOP_DATA` and `ATRIA_HOME` overrides skip automatic legacy desktop copies; an empty default desktop home copies the corresponding legacy profile while preserving its source.
+Explicit old `.tmp` / `.tmp/pi-agent` paths still work. Source entrypoints no longer select checkout `.tmp` implicitly. Release and development Apps share data and the instance lock; explicit `COWORK_DESKTOP_DATA` and `ATRIA_HOME` overrides still select a separate directory.
 
-Run `coworkos data paths` to inspect selected paths. To import other desktop data into an existing home, use `coworkos data import --from PATH --kind desktop --name old-app`; source workspaces use `--kind workspace`. Imports preserve their source, reject duplicate names and register a separate workspace in the history catalog. See [persistent data layout](../task-workspace-layout.md) (Chinese).
+Run `coworkos data paths` to inspect selected paths.
 
 ## Interface language
 

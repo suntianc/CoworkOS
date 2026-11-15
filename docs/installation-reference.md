@@ -10,7 +10,7 @@
 
 首次启动或运行 `coworkos doctor` 时会刷新旧版搜索适配器的运行时路径；仅处理本产品标记的脚本，保留用户自行安装的工具和符号链接。
 
-现有的 `~/.atria/`、`ATRIA_*` 环境变量、桌面 bundle ID、系统钥匙串身份和持久格式标识保持不变，已有配置与任务无需迁移。旧版 `Atria` / `Atria Dev` 数据目录仍可识别。GitHub 仓库地址与历史版本附件保持原地址；新构建使用 CoworkOS 应用名及 `coworkos-cli` 附件名（Release 发行包内部包名保留 `atria-cowork-cli` 以兼容升级；npm registry 包名为 `coworkos-app`），并能读取旧版更新附件。
+现有的 `~/.atria/`、`ATRIA_*` 环境变量、桌面 bundle ID、系统钥匙串身份和持久格式标识保持不变，已有配置与任务无需迁移。GitHub 仓库地址与历史版本附件保持原地址；新构建使用 CoworkOS 应用名及 `coworkos-cli` 附件名（Release 发行包内部包名保留 `atria-cowork-cli` 以兼容升级；npm registry 包名为 `coworkos-app`），并能读取旧版更新附件。
 
 旧版 App 的更新地址保存在旧二进制中；当前安装版使用本地 DMG 手动升级，旧数据保留在用户目录。
 

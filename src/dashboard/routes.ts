@@ -999,7 +999,7 @@ export function createDashboardHandler(
         const tracePath =
           agentId === "main"
             ? join(taskWorkspace, taskId, "runs", runId, "runtime-output.log")
-            : join(taskWorkspace, taskId, "sessions", agentId, `${runId}.jsonl`);
+            : join(taskWorkspace, taskId, "runs", runId, "agents", "subagents", agentId, "agent-output.log");
         sendJson(response, 200, await readAgentTrajectory(tracePath));
         return;
       }

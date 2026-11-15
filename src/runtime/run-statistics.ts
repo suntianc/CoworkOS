@@ -379,7 +379,7 @@ export async function readRunStatistics(input: {
           ...[...members.values()].map((item) => ({
             agentId: item.agentId,
             callId: item.stepId,
-            path: join(taskRoot, "sessions", item.agentId, `${id}.jsonl`)
+            path: join(runRoot, "agents", "subagents", item.agentId, "agent-output.log")
           }))
         ].map(async (member) => ({
           agentId: member.agentId,

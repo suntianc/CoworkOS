@@ -1,6 +1,5 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
-const { createHash } = require("node:crypto");
 const { atriaDataPaths } = require("../scripts/data-home.cjs");
 
 /** Install resources are immutable; user data has one stable home across releases. */
@@ -35,25 +34,4 @@ async function prepareDesktopData(paths, version) {
   await fs.rename(temporary, marker);
 }
 
-async function showLegacyDataNotice(paths, source, show) {
-  const identity = createHash("sha256").update(source).digest("hex").slice(0, 16);
-  const marker = path.join(paths.userData, `.legacy-notice-${identity}.json`);
-  try {
-    await fs.lstat(marker);
-    return false;
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  await show(source);
-  try {
-    await fs.writeFile(marker, JSON.stringify({ source, shownAt: new Date().toISOString() }) + "\n", {
-      mode: 0o600,
-      flag: "wx"
-    });
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-  }
-  return true;
-}
-
-module.exports = { desktopPaths, prepareDesktopData, showLegacyDataNotice };
+module.exports = { desktopPaths, prepareDesktopData };

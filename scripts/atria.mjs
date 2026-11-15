@@ -2,7 +2,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -53,12 +52,11 @@ The backend keeps running after the client that started it exits. It never insta
   }
   if (topic === "data") {
     console.log(`Usage: coworkos data paths
-       coworkos data import --from PATH [--kind desktop|workspace] [--name NAME]
        coworkos data backup --to PATH
        coworkos data restore --from PATH
-  -h, --help  Show help without importing or changing user data
-Import copies legacy data and preserves its original directory. Backup writes one
-logical snapshot of the project ledger; restore replaces it from the same engine.`);
+  -h, --help  Show help without changing user data
+Backup writes one logical snapshot of the project ledger; restore replaces it from
+the same engine.`);
     return;
   }
   if (topic) {
@@ -229,42 +227,14 @@ function cliDataPaths(config = {}) {
 
 async function dataCommand() {
   const action = args.shift() || "paths";
-  const options = flags(
-    args,
-    action === "import"
-      ? ["--from", "--kind", "--name"]
-      : action === "backup"
-        ? ["--to"]
-        : action === "restore"
-          ? ["--from"]
-          : []
-  );
-  if (!["paths", "import", "backup", "restore"].includes(action))
-    throw new Error(
-      "Usage: coworkos data paths|import --from PATH [--kind desktop|workspace]|backup --to PATH|restore --from PATH"
-    );
-  if (action === "import" && typeof options["--from"] !== "string")
-    throw new Error("data import 需要 --from <旧数据目录>");
-  if (options["--kind"] && !["desktop", "workspace"].includes(options["--kind"]))
-    throw new Error("--kind requires desktop or workspace");
+  if (!["paths", "backup", "restore"].includes(action))
+    throw new Error("Usage: coworkos data paths|backup --to PATH|restore --from PATH");
+  const options = flags(args, action === "backup" ? ["--to"] : action === "restore" ? ["--from"] : []);
   const { readCoworkConfig } = await runtime();
   const config = readCoworkConfig(cwd);
   const paths = atriaDataPaths(process.env, config, cwd);
   if (action === "paths") {
-    const appData =
-      process.platform === "darwin"
-        ? join(homedir(), "Library", "Application Support")
-        : process.platform === "win32"
-          ? process.env.APPDATA || join(homedir(), "AppData", "Roaming")
-          : process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
-    const legacyCandidates = [
-      join(appData, "Atria"),
-      join(appData, "Atria Dev"),
-      join(appData, "CoworkOS"),
-      join(appData, "CoworkOS Dev"),
-      join(harness, ".tmp")
-    ].filter((path) => path !== paths.home && existsSync(path));
-    console.log(JSON.stringify({ ...paths, configPath, legacyCandidates }, null, 2));
+    console.log(JSON.stringify({ ...paths, configPath }, null, 2));
     return;
   }
   if (action === "backup" || action === "restore") {
@@ -291,18 +261,6 @@ async function dataCommand() {
     }
     return;
   }
-  const { importLegacyData } = await import("./data-migration.cjs");
-  const result = await importLegacyData({
-    source: options["--from"],
-    home: paths.home,
-    kind: options["--kind"] || "desktop",
-    ...(options["--name"] ? { name: options["--name"] } : {})
-  });
-  const { GlobalWorkspaceCatalog } = await import("../dist/src/workspace/global-catalog.js");
-  const catalog = new GlobalWorkspaceCatalog(paths.globalIndex);
-  for (const root of result.catalogRoots) await catalog.register(root);
-  console.log(JSON.stringify(result, null, 2));
-  console.log("原始目录已保留。重启 App 后导入会话会出现在历史列表；默认新会话仍使用统一 workspace。");
 }
 
 async function doctor() {

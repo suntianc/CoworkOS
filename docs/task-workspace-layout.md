@@ -64,11 +64,11 @@ App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，
     │       ├── work/
     │       ├── deliverables/          待 Main 验收的候选文件
     │       └── logs/
-    ├── sessions/<agent>/<run>.jsonl    Trace
-    ├── sessions/<agent>/<run>-requests.jsonl 模型请求、prompt、工具定义和响应
+    ├── sessions/main/<run>-requests.jsonl 模型请求、prompt、工具定义和响应
     ├── sessions/main/request-retry.json 最新 Main 模型请求的私有重试快照
     ├── sessions/main/pi/              Main 原生 Pi 会话
-    ├── runs/<runId>/                  Run 事件、队列、Inbox、结果、main-input.json
+    ├── sessions/<agentId>/pi/<callId> 委派进程各自的 Pi 会话（与 `sessions/main/pi` 同级）
+    ├── runs/<runId>/                  Run 事件、队列、Inbox、结果、main-input.json 与 agents/subagents/<id>/agent-output.log
     ├── experiments/                   运行时实验记录
     └── .runtime/                      Task 锁与产物索引等
 ```
@@ -89,11 +89,11 @@ Task 初始化会创建 `agents/main/work/`，在 Main 首次模型请求前即�
 
 新版本将历史正文和活动单独写入私有 `sessions/main/message-versions/<versionId>.json`（权限 600）；版本索引只保存历史文件名、当前对应消息、分组、预览和活动数量。旧版内联历史仍可读取，下次编辑时迁移到独立文件；备份应同时包含这些历史文件。项目目录变更会复制当前选定 Pi 分支到新 CWD，再原子更新版本索引中的 session 指针，版本 ID 和旧记录不变。
 
-`sessions/main/request-retry.json` 是唯一主动写入的版本 1 私有恢复槽，保存实际序列化 body、发送 endpoint、原模型/上下文和会话 ID、Task/Run/request 身份、执行环境、写入时的 Pi 版本（`piVersion`）、body SHA-256 与整槽校验和，状态为 pending/failed/completed。它保留原始用户正文、附件像素和成功工具结果，权限为 600；认证 headers 与配置密钥不保存。重放关联使用 `retryOf`，跨进程文件锁保护保存、结算及请求身份比对。版本不一致或旧快照没有 `piVersion` 时不重放；重试写下的新快照用 `replaySkipped` 记录原因（`pi_version_mismatch` 或 `pi_version_missing`）与旧版本。
+`sessions/main/request-retry.json` 是唯一主动写入的版本 1 私有恢复槽，保存实际序列化 body、发送 endpoint、原模型/上下文和会话 ID、Task/Run/request 身份、执行环境、写入时的 Pi 版本（`piVersion`）、body SHA-256 与整槽校验和，状态为 pending/failed/completed。它保留原始用户正文、附件像素和成功工具结果，权限为 600；认证 headers 与配置密钥不保存。重放关联使用 `retryOf`，跨进程文件锁保护保存、结算及请求身份比对。版本不一致时不重放；重试写下的新快照用 `replaySkipped` 记录 `pi_version_mismatch` 与旧版本。缺少 `piVersion` 的快照按损坏记录处理。
 
-新输入清除活动槽，并写入 `request-retry.json.cleared` 标记；旧 `retry-request.json` 仅作只读兼容归档，标记防止清除后复活。
+新输入清除活动槽。
 
-新增 `executionScope` 保持版本 1 可读兼容，独立保存 canonical 实际工作目录和 Task 存储根。启动和发送时校验归属，改变归属时拒绝精确重放且不生成替代请求。旧版本 1 档案没有此字段时可读取/备份，但精确重试被拒绝，原档案不会被改写。
+`executionScope` 独立保存 canonical 实际工作目录和 Task 存储根。启动和发送时校验归属，改变归属时拒绝精确重放且不生成替代请求；快照缺少该记录时同样拒绝精确重试，原档案不会被改写。
 
 ## 产出物与预览
 
@@ -130,22 +130,12 @@ COWORK_UI_PORT=3881 npm run ui
 ├── composer-drafts.json     跨端口恢复的对话草稿/文本附件，仅指定前缀
 ├── computer-policy.json     桌面全局窗口授权策略；不保存临时会话/截图
 ├── data-version.json       格式/创建/最近打开版本
-├── logs/
-└── imports/<name>/         显式导入的旧版数据，独立工作区
+└── logs/
 ```
 
 开发 App 与正式 App 共用这个目录及单实例锁，因此不能同时打开两个默认桌面实例。`COWORK_DESKTOP_DATA` 可用于独立桌面测试目录，`COWORK_WORKSPACE`、`PI_CODING_AGENT_DIR` 和索引覆盖仍优先。
 
 所选项目和外部原文件可能位于用户目录之外；完整备份须同时覆盖真实 Task 存储根和相关项目文件。替换或删除 App 程序不删除该目录；清理工具或手动删除用户数据会影响留存。退出/重启/升级约定见 [Mac 指南](mac-release.md)。
-
-首次打开使用默认用户目录的新版桌面时，若统一目录尚无 CoworkOS 数据，会从该入口对应的旧 `~/Library/Application Support/Atria/` 或 `Atria Dev/` 暂存复制再提交。显式设置 `ATRIA_HOME` 或 `COWORK_DESKTOP_DATA` 时跳过自动复制，保持独立测试目录；需要的旧数据仍可显式导入。迁移保留旧目录、调整内部工作区索引与控制路径，失败可重试；不会合并或覆盖已有统一数据。另一旧桌面目录和源码 `.tmp/` 可在停止全部相关运行后显式导入：
-
-```sh
-coworkos data import --from "$HOME/Library/Application Support/Atria Dev" --kind desktop --name old-dev
-coworkos data import --from /path/to/checkout/.tmp --kind workspace --name old-source
-```
-
-导入结果位于 `~/.atria/imports/<name>/`，工作区会登记到统一历史索引；重启 App 即可查看。重复名称会拒绝覆盖。用户文档、原始消息和旧绝对路径文本保持原内容；外部项目原文件不会搬移。需要从导入的 CLI 原生会话续聊时，使用返回的 `workspaceRoot` 和 `piAgentDir` 设置 `COWORK_WORKSPACE`、`PI_CODING_AGENT_DIR`，再运行 `coworkos --resume`。未迁移的数据也可用旧目录的这些显式覆盖继续恢复，不必删除或移动原目录。
 
 新版开发与正式桌面显示 CoworkOS / CoworkOS Dev；客户端会话使用 `CoworkOS Client` 钥匙串身份，旧模型凭据迁移使用 `Atria`。旧开发版的 macOS 加密密钥可能因原身份不同而无法解密；密文和源目录保留，界面仍可打开并重新输入密钥。真实钥匙串迁移与跨版本签名身份兼容需独立原生验收。
 
@@ -186,7 +176,7 @@ Main 的 `read_attachment` 工具按格式读取，支持文字分页、PDF 页�
 
 ## 修改重发事务
 
-修改重发使用 `sessions/main/edit-transaction.json` 私有版本 1 journal，在改写版本索引之前保存原 Task、版本索引、Main context、原 exact-retry 槽和 cleared 标记。
+修改重发使用 `sessions/main/edit-transaction.json` 私有版本 1 journal，在改写版本索引之前保存原 Task、版本索引、Main context 与原 exact-retry 槽。
 
 `prepared` 阶段崩溃后，Dashboard 重新列举或定位 Task 时恢复这些原始字节，拒绝未启动的新输入，保留分支、Run 和失败输入证据。
 

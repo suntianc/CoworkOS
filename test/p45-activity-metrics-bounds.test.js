@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createCatalogEvents } from "../dist/src/dashboard/catalog-events.js";
 import { EventLedger } from "../dist/src/dashboard/event-ledger.js";
@@ -64,7 +64,8 @@ async function runFixture(t, { startedMs, output }) {
       }
     ])}\n`
   );
-  await mkdir(join(storage, "task", "sessions", "subagent_1"), { recursive: true });
+  const subagentLog = join(runRoot, "agents", "subagents", "subagent_1", "agent-output.log");
+  await mkdir(dirname(subagentLog), { recursive: true });
   const subagent = [
     {
       eventId: "trace_0",
@@ -76,10 +77,7 @@ async function runFixture(t, { startedMs, output }) {
       payload: { type: "tool_execution_start", toolCallId: "sub-0", toolName: "read", args: {} }
     }
   ];
-  await writeFile(
-    join(storage, "task", "sessions", "subagent_1", "run.jsonl"),
-    `${subagent.map((line) => JSON.stringify(line)).join("\n")}\n`
-  );
+  await writeFile(subagentLog, `${subagent.map((line) => JSON.stringify(line)).join("\n")}\n`);
   return { root, storage, store, runRoot };
 }
 
@@ -289,7 +287,7 @@ test("a record past the line budget is dropped instead of buffered", { timeout: 
       `
         import { mkdir, mkdtemp, writeFile, appendFile } from "node:fs/promises";
         import { tmpdir } from "node:os";
-        import { join } from "node:path";
+        import { dirname, join } from "node:path";
         import { readTaskActivity } from ${moduleUrl};
         const storage = await mkdtemp(join(tmpdir(), "atria-activity-huge-workspace-"));
         const runRoot = join(storage, "task", "runs", "run");

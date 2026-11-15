@@ -35,9 +35,9 @@ async function fixture(t, queue = [{ stepId: "call-1", agentId: "subagent_1", st
   const root = await mkdtemp(join(tmpdir(), "atria-statistics-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const run = join(root, "task", "runs", "new");
-  const trace = join(root, "task", "sessions", "subagent_1", "new.jsonl");
+  const trace = join(run, "agents", "subagents", "subagent_1", "agent-output.log");
   await mkdir(run, { recursive: true });
-  await mkdir(join(root, "task", "sessions", "subagent_1"), { recursive: true });
+  await mkdir(join(run, "agents", "subagents", "subagent_1"), { recursive: true });
   await writeFile(join(run, "run.json"), JSON.stringify({ createdAt: time(10) }));
   await writeFile(join(run, "queue.json"), JSON.stringify(queue));
   await writeFile(
