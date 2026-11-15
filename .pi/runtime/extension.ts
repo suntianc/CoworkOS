@@ -726,6 +726,33 @@ async function registerMainExtension(pi: ExtensionAPI) {
     }
   });
 
+  /**
+   * Close the Run's interval in the durable event log at a settled turn.
+   *
+   * The Run service used to write this when the one-turn process exited. A
+   * resident Main ends its turn and keeps running, so its boundary is the only
+   * place the close is written: readers of the exchange (the conversation's
+   * final answer, Run duration and the pulse lanes) take the last of these
+   * events as the turn's outcome, and without it a settled turn stays "running"
+   * behind an earlier failure for the rest of the process's life.
+   */
+  const appendRunBoundary = async (type: string, payload: unknown): Promise<void> => {
+    try {
+      await new JsonlEventStore(join(workspaceRoot, taskId, "runs", mainRunId, "run_events.jsonl")).append({
+        eventId: `boundary-${randomUUID()}`,
+        type,
+        taskId,
+        runId: mainRunId,
+        agentId: "main",
+        occurredAt: new Date().toISOString(),
+        payload
+      });
+      // eslint-disable-next-line no-restricted-syntax -- Task 状态已落盘；事件只是同一边界的记录，写不进去由进程退出时的结算补上
+    } catch {
+      /* the Task state is the durable fact */
+    }
+  };
+
   pi.on("agent_settled", async (_event, ctx) => {
     try {
       sessionContext = ctx;
@@ -817,6 +844,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
                 signal: isFinalAssistantMessage(lastMainMessage) ? "natural_stop" : "interrupted"
               }
             });
+            await appendRunBoundary("main.run_waiting", {
+              coordination: pending,
+              reason: assessment.reason
+            });
             await updateRuntime({
               runtimePhase: "waiting",
               runtimePendingDelegations: pending.pending.length + pending.callbackPending.length,
@@ -830,6 +861,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
                 signal: task.completion?.signal === "finish_task" ? "finish_task" : "natural_stop",
                 verifiedAt: new Date().toISOString()
               }
+            });
+            await appendRunBoundary("main.run_completed", {
+              coordination: pending,
+              reason: "main_turn_settled"
             });
             await updateRuntime({
               runtimePhase: "completed",
