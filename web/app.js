@@ -858,13 +858,17 @@ async function applyCatalog(data, { poll = false } = {}) {
   initialConversationTaskId = null;
   if (linkedTaskId && !state.tasks.some((task) => task.taskId === linkedTaskId))
     showToast(ui("找不到链接中的会话，可能已被移除"));
-  // The composer is usable before this first catalog lands. Text or attachments
-  // typed in that window are a new conversation, not something the listed one
-  // may replace when it is restored.
-  if (!state.selected && !state.composingNew && composerHasDraft()) state.composingNew = true;
+  // The composer is usable before this first catalog lands. Text, attachments
+  // or an upload still running in it are a new conversation: neither picking
+  // the default conversation nor replacing one that disappeared may carry that
+  // draft away from the person who typed it.
+  const missingSelection = Boolean(
+    state.selected && !state.tasks.some((task) => task.taskId === state.selected)
+  );
+  if ((!state.selected || missingSelection) && !state.composingNew && composerHasUnsentContent())
+    state.composingNew = true;
   if (!state.selected && defaultTask && !state.composingNew) state.selected = defaultTask.taskId;
-  if (state.selected && !state.tasks.some((task) => task.taskId === state.selected))
-    state.selected = defaultTask?.taskId || null;
+  if (missingSelection) state.selected = state.composingNew ? null : defaultTask?.taskId || null;
   renderConversationList();
   if (state.selected) {
     const listed = state.tasks.find((task) => task.taskId === state.selected);
@@ -923,13 +927,17 @@ function adoptBackendIdentity(backendId) {
   // The backend's own draft namespace may name a different last conversation
   // than the page had before the session bound. A conversation link keeps its
   // choice; otherwise the stored slot is what "the last conversation" means.
+  const active = initialConversationTaskId || composerSession.activeTask;
   if (!initialConversationTaskId) {
-    const active = composerSession.activeTask;
     state.selected = active;
     state.composingNew = !active && composerSession.hasNewDraft;
     state.selectedProjectId = composerSession.activeProject ?? null;
-    composerSession.activate(active, { projectId: state.selectedProjectId });
   }
+  // Binding swapped the namespace and cleared the composer. Keep the composer
+  // attached to the conversation it shows (the link, or the stored slot), so
+  // typing before the first catalog lands in a draft instead of vanishing and a
+  // link the catalog later reports gone still holds what was typed into it.
+  composerSession.activate(active, { projectId: state.selectedProjectId });
 }
 
 /** Drop everything that belonged to the backend being left. */
@@ -2100,9 +2108,12 @@ function isTaskStopping(taskId = state.selected) {
   );
 }
 
-/** Unsent text or attachments the person put in the composer themselves. */
-function composerHasDraft() {
-  return Boolean($("#composer-input").value.trim() || state.attachments.length);
+/**
+ * What a catalog restore must not replace: text or attachments the person put
+ * in the composer, including an attachment whose upload is still running.
+ */
+function composerHasUnsentContent() {
+  return Boolean($("#composer-input").value.trim() || state.attachments.length || readingAttachments);
 }
 
 function updateSendButton() {
@@ -2113,7 +2124,7 @@ function updateSendButton() {
   // While working, new messages wait in the queue and can be promoted explicitly.
   const running = Boolean(state.detail?.task?.taskId === state.selected && state.detail?.runtime?.active);
   const stopping = isTaskStopping();
-  const hasDraft = composerHasDraft();
+  const hasDraft = Boolean($("#composer-input").value.trim() || state.attachments.length);
   const showStop = stopping || (running && !hasDraft);
   renderMessageQueue($("#queued-messages"), {
     taskId: state.selected,
