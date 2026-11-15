@@ -75,17 +75,23 @@ for (const pause of ["restart", "stop"]) {
         await dashboard.restart();
         await page.reload();
         await expect(page.locator("#human-questions")).toBeVisible();
-        // Recovery reattaches the saved turn; editing is only accepted once it settles.
+        // The resident Main outlives the backend and stays parked on the durable
+        // question, so the turn is still in flight after the restart and the
+        // edit retires that question instead of waiting for the turn to settle.
         await expect
           .poll(
             async () =>
               (await (await page.request.get(`${dashboard.base}/api/tasks/${taskId}`)).json()).runtime.active
           )
-          .toBe(false);
+          .toBe(true);
       } else {
         await page.locator(".conversation-item.active").click({ button: "right" });
         await page.locator('[data-session-action="stop"]').click();
         await expect(page.locator("#human-questions")).toBeHidden();
+        // Closing the session finishes in the background: this receipt is the
+        // client's own post-stop refresh, which is what clears the `stopping`
+        // flag the edit control waits on.
+        await expect(page.locator("#toast")).toContainText("会话已关闭，已保存的内容保留");
         await expect
           .poll(
             async () =>

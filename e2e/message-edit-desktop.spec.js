@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from "@playwright/test";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+import { endAgentProcesses } from "../test/dashboard-fixture.mjs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -116,6 +117,10 @@ test("native edit restores an attachment-only message and survives relaunch with
     await page.locator(".conversation-item.active").click({ button: "right" });
     await page.locator('[data-session-action="stop"]').click();
     await expect(page.locator("#human-questions")).toBeHidden();
+    // Closing the session finishes in the background: this receipt is the
+    // client's own post-stop refresh, which is what clears the `stopping` flag
+    // the edit control waits on.
+    await expect(page.locator("#toast")).toContainText("会话已关闭，已保存的内容保留");
     await expect
       .poll(() =>
         page.evaluate(async (id) => {
@@ -141,6 +146,9 @@ test("native edit restores an attachment-only message and survives relaunch with
     // The backend outlives the window by design; stop this test's own (#35), found
     // under the desktop data root (COWORK_DESKTOP_DATA), not ATRIA_HOME.
     await stopNativeBackend(root);
+    // A resident Main outlives its backend the same way, so this test ends the
+    // process groups it started, by the identity each recorded at launch.
+    await endAgentProcesses(join(root, "workspace"));
     const backendLog = await readFile(join(root, "logs", "dashboard.log"), "utf8").catch(() => "");
     await writeFile(testInfo.outputPath("native-backend.log"), backendLog);
     await provider.close();

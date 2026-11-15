@@ -221,6 +221,38 @@ test(
 );
 
 test(
+  "a settled turn records its terminal Run event while the process stays alive",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fixture(t, {
+      handle: ({ response, requests }) => complete(response, `answer ${requests.length}`)
+    });
+    await f.createTask("resident-run-event", "Terminal Run event");
+    const first = await f.api("/api/tasks/resident-run-event/run", { prompt: "FIRST_RUN_EVENT_INPUT" });
+    await f.settleTurn("resident-run-event");
+    // The conversation reads a settled exchange's final answer from this log,
+    // so a turn that ends while its process lives must close the Run's interval
+    // here — the exit that used to write it never happens for a resident Main.
+    const completed = await runEvents(f, "resident-run-event", first.runId, "main.run_completed");
+    assert.equal(completed.length, 1, JSON.stringify(completed));
+    assert.equal(alive((await f.mainRecord("resident-run-event")).pid), true, "the Main process still runs");
+
+    await f.api("/api/tasks/resident-run-event/run", { prompt: "SECOND_RUN_EVENT_INPUT" });
+    await f.settleTurn("resident-run-event");
+    assert.equal(
+      (await runEvents(f, "resident-run-event", first.runId, "main.run_completed")).length,
+      2,
+      "every settled turn closes its own interval"
+    );
+    assert.equal(
+      (await runEvents(f, "resident-run-event", first.runId, "main.run_stopped")).length,
+      0,
+      "the Run is not settled as exited while its Main still runs"
+    );
+  }
+);
+
+test(
   "AC2: idle timeout exits with state preserved, and the next message continues the same session",
   { timeout: 180_000 },
   async (t) => {

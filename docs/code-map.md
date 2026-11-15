@@ -167,9 +167,9 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 目录列表通过 [批次归属读取](../src/workspace/project-assignment.ts) 复用项目索引。复用限于本次读取，后续请求仍读取最新状态。[事件流](../src/dashboard/event-stream.ts) 增量读取账本与运行日志，详情从文件尾读取所需记录。读取预算与并发/恢复回归见 [性能验证](testing-local-run.md#性能回归)。
 
-最近主动用户消息的修改重发由 [Main 消息编辑](../src/runtime/main-message-edit.ts) 管理 Pi 前缀分支与历史版本，[Run 服务](../src/dashboard/run-service.ts) 串行校验身份、归属与启动；[编辑控制器](../web/assets/controllers/message-edit.js) 管理加宽的气泡内编辑、键盘与附件菜单，复用控件时刷新当前编辑归属，避免旧监听器忽略新的输入和发送；[对话视图](../web/assets/controllers/conversation-view.js) 展示紧凑气泡与铅笔入口，[Composer Session](../web/assets/controllers/composer-session.js) 分别保存消息编辑与底部草稿，沿用已有编辑存储格式恢复旧数据。
+最近主动用户消息的修改重发由 [Main 消息编辑](../src/runtime/main-message-edit.ts) 管理 Pi 前缀分支与历史版本，[Run 服务](../src/dashboard/run-service.ts) 串行校验身份、归属与启动；[编辑控制器](../web/assets/controllers/message-edit.js) 管理加宽的气泡内编辑、键盘与附件菜单，等待提问的回合停在持久问题上时可编辑（编辑会停掉该进程并在新分支重启），复用控件时刷新当前编辑归属，避免旧监听器忽略新的输入和发送；[对话视图](../web/assets/controllers/conversation-view.js) 展示紧凑气泡与铅笔入口，[Composer Session](../web/assets/controllers/composer-session.js) 分别保存消息编辑与底部草稿，沿用已有编辑存储格式恢复旧数据。
 
-相关回归：[SDK 分支](../test/main-message-edit.test.js)、[编辑交互](../test/message-edit-controller.test.js)、[真实 Pi 编辑](../test/main-message-edit-pi.test.js) 与 [浏览器编辑](../e2e/message-edit.spec.js)，包含等待提问时手动停止后修改重发。
+相关回归：[SDK 分支](../test/main-message-edit.test.js)、[编辑交互](../test/message-edit-controller.test.js)、[真实 Pi 编辑](../test/main-message-edit-pi.test.js) 与 [浏览器编辑](../e2e/message-edit.spec.js)，包含等待提问时重启或手动停止后修改重发。
 
 已提交的人工回复由 [对话视图](../web/assets/controllers/conversation-view.js) 展示为「回答问题」折叠按钮，复用活动区的展开状态保存；[人工交互验收](../e2e/human-interactions.spec.js) 覆盖浅深色、键盘展开、长内容与窄屏。
 
