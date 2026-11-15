@@ -12,6 +12,7 @@ import { createManagementClient } from "../web/assets/controllers/management-cli
 import { createFileUpload } from "../web/assets/controllers/file-upload.js";
 import { createManagedMedia } from "../web/assets/controllers/managed-media.js";
 import { createArtifactViewer } from "../web/assets/controllers/artifact-viewer.js";
+import { endAgentProcesses } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 
 const { createComposerDraftStore } = createRequire(import.meta.url)("../desktop/composer-drafts.cjs");
@@ -2102,7 +2103,21 @@ test("selected bytes and artifacts stay with their authorized backend", { timeou
   const repository = resolve(new URL("..", import.meta.url).pathname);
   const instances = [];
   t.after(async () => {
+    // A resident Main outlives the backend that launched it: stopping the
+    // backend only gives up observation and keeps the agent for adoption. Close
+    // the session through the product's own cancel route while that backend
+    // still serves, then sweep a process the close did not finish.
+    const ran = instances[0];
+    if (ran)
+      await fetch(`${ran.instance.url}/api/tasks/shared-task/action`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-atria-token": ran.instance.token },
+        body: JSON.stringify({ action: "cancel" })
+      })
+        .then((response) => response.arrayBuffer())
+        .catch(() => undefined);
     for (const { env, instance } of instances) await stopBackend(env, instance);
+    for (const { workspace } of instances) await endAgentProcesses(workspace);
     await rm(root, { recursive: true, force: true });
   });
   for (const side of ["a", "b"]) {

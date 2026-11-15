@@ -773,9 +773,13 @@ test(
         return (...args) => value.apply(target, args);
       }
     });
+    // This service is its own execution host, not the dashboard that serves the
+    // same data root: with the dashboard's backend id its healthy 2 s delivery
+    // recovery would replay this fixture's failed write before the forgery
+    // assertions read the pending row.
     const service = serviceFor({
       gateway: failing,
-      backendId: instance.value.backendId,
+      backendId: "backend_receipt_fixture",
       startedAt: "started-receipt",
       root: dashboard.root,
       project
@@ -832,6 +836,11 @@ test(
     const internalMerge = await merge(internalDevelopment, "internal-receipt.txt");
     assert.equal(boardMerge.state, "merged", JSON.stringify(boardMerge));
     assert.equal(internalMerge.state, "merged", JSON.stringify(internalMerge));
+    assert.notEqual(
+      boardMerge.executionBackendId,
+      instance.value.backendId,
+      "the receipt fixture owns its merges so the dashboard's delivery recovery cannot replay them"
+    );
     assert.equal((await authority.gateway.queryDeliveries(project.projectId)).length, 0);
     assert.equal(
       (await authority.gateway.getRequirement(project.projectId, boardRequirementId)).status,

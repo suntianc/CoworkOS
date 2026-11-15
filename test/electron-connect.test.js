@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { createManagementClient } from "../web/assets/controllers/management-client.js";
+import { endAgentProcesses } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 
 /**
@@ -527,7 +528,21 @@ test(
     const root = await createRoot("atria-connect-continue-");
     let model;
     t.after(async () => {
+      // A resident Main outlives the backend that launched it: stopping the
+      // backend only gives up observation and keeps the agent for adoption.
+      // Close the session through the product's own cancel route while the
+      // backend still serves, then sweep a process the close did not finish.
+      const instance = await readRecord(root.home).catch(() => undefined);
+      if (instance)
+        await fetch(`${instance.url}/api/tasks/connect-task/action`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-atria-token": instance.token },
+          body: JSON.stringify({ action: "cancel" })
+        })
+          .then((response) => response.arrayBuffer())
+          .catch(() => undefined);
       await stopRoot(root);
+      await endAgentProcesses(root.workspace);
       await model?.close();
       await rm(root.base, { recursive: true, force: true });
     });
