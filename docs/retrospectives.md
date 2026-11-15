@@ -47,6 +47,7 @@
 | 需求进度面板同 Task 重载时清空                              | [需求进度面板](../e2e/p45-requirement-panel.spec.js)、[P4.5 §1](p4.5-retrospective.md#1-审查抓到的真实缺陷)                                                         |
 | 测试假服务器在块边界切断多字节字符                          | [请求恢复](../e2e/request-recovery.spec.js)、[P4.5 §2](p4.5-retrospective.md#2-偶发失败多数是测试自身的问题)                                                        |
 | 实际前台命令等待 stdin EOF                                  | [P4 修复及超时语义](p4-retrospective.md#6-stdin-eof-修复保留宿主生命周期管道)                                                                                       |
+| 首份目录自动恢复默认会话覆盖已键入的草稿                    | [草稿就绪竞态](../e2e/markdown-links.spec.js)、[P4.5 打磨清单](p4.5-polish-backlog.md)                                                                              |
 
 ## 仍需按触发条件查阅
 

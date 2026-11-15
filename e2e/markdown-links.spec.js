@@ -147,3 +147,34 @@ test("HTTP link punctuation and escaped labels remain inert in the production br
     await dashboard.stop();
   }
 });
+
+// The flake this file kept producing: the composer becomes editable before the
+// first catalog lands, so typing there raced the page restoring the default
+// conversation over it. Holding the catalog until the typing happened makes
+// that ordering independent of machine speed.
+test("a draft typed while the first catalog loads stays in the composer", async ({ page }) => {
+  const dashboard = await startDashboard({ defaultProject: false });
+  let releaseCatalog;
+  const catalogHeld = new Promise((resolve) => {
+    releaseCatalog = resolve;
+  });
+  try {
+    await page.request.post(`${dashboard.base}/api/tasks`, {
+      data: { taskId: "catalog_task", goal: "catalog arrives after the typing" }
+    });
+    // Both first-catalog paths: the event client's snapshot and the fallback read.
+    await page.route(/\/api\/(tasks|events\/snapshot)$/, async (route) => {
+      const response = await route.fetch();
+      await catalogHeld;
+      await route.fulfill({ response });
+    });
+    await page.goto(dashboard.base);
+    await page.locator("#composer-input").fill("catalog 到达前输入的草稿");
+    releaseCatalog();
+    await expect(page.locator('.conversation-item[data-task="catalog_task"]')).toHaveCount(1);
+    await expect(page.locator("#composer-input")).toHaveValue("catalog 到达前输入的草稿");
+  } finally {
+    releaseCatalog();
+    await dashboard.stop();
+  }
+});

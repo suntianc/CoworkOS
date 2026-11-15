@@ -858,6 +858,10 @@ async function applyCatalog(data, { poll = false } = {}) {
   initialConversationTaskId = null;
   if (linkedTaskId && !state.tasks.some((task) => task.taskId === linkedTaskId))
     showToast(ui("找不到链接中的会话，可能已被移除"));
+  // The composer is usable before this first catalog lands. Text or attachments
+  // typed in that window are a new conversation, not something the listed one
+  // may replace when it is restored.
+  if (!state.selected && !state.composingNew && composerHasDraft()) state.composingNew = true;
   if (!state.selected && defaultTask && !state.composingNew) state.selected = defaultTask.taskId;
   if (state.selected && !state.tasks.some((task) => task.taskId === state.selected))
     state.selected = defaultTask?.taskId || null;
@@ -2096,6 +2100,11 @@ function isTaskStopping(taskId = state.selected) {
   );
 }
 
+/** Unsent text or attachments the person put in the composer themselves. */
+function composerHasDraft() {
+  return Boolean($("#composer-input").value.trim() || state.attachments.length);
+}
+
 function updateSendButton() {
   messageEdit.sync();
   const pendingSubmission = currentSubmission();
@@ -2104,7 +2113,7 @@ function updateSendButton() {
   // While working, new messages wait in the queue and can be promoted explicitly.
   const running = Boolean(state.detail?.task?.taskId === state.selected && state.detail?.runtime?.active);
   const stopping = isTaskStopping();
-  const hasDraft = Boolean($("#composer-input").value.trim() || state.attachments.length);
+  const hasDraft = composerHasDraft();
   const showStop = stopping || (running && !hasDraft);
   renderMessageQueue($("#queued-messages"), {
     taskId: state.selected,
