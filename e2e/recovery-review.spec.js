@@ -12,6 +12,8 @@ test("rename, pin, archive and restore keep the conversation identity and draft"
   try {
     await seed(page, dashboard.base, "organized", "很长的初始请求".repeat(100));
     await page.goto(dashboard.base);
+    // The draft below belongs to the restored conversation, not to a new one.
+    await expect(page.locator(".conversation-item.active")).toHaveAttribute("data-task", "organized");
     await page.locator("#composer-input").fill("会话组织不影响草稿");
     await page.locator('.conversation-item[data-task="organized"]').click({ button: "right" });
     await page.getByRole("menuitem", { name: "重命名", exact: true }).click();

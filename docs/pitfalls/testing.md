@@ -82,11 +82,12 @@
 
 ## 应用就绪前输入的草稿被恢复覆盖
 
-- **Trigger：** 页面打开后立即向 `#composer-input` 填入文字或选择附件，此时 `web/app.js` 中的 `await composerSession.ready` 还没完成。
-- **What happens：** 草稿恢复和 `#file-input` 监听在就绪之后才执行：已输入的文字会被恢复的空草稿覆盖，选择的附件会被忽略。在全量运行时偶发失败，例如 `e2e/markdown-links.spec.js:6` 读到的输入框值为空。
-- **Confirm：** 失败时输入框值为空或附件条缺失，单独重复运行通过。
-- **Avoid：** 测试先等应用加载完成（会话行或回复已渲染），再填写内容。上传附件时重复选择文件，直到附件条出现（见 `e2e/model-profile-images.spec.js` 的 `attachImage`）。产品层面的修复在 [P4.5 打磨清单](../p4.5-polish-backlog.md) 第 19 条。
-- **Sources：** 2026-11-11 P4.5 finish 失败记录；#16 中的同类附件竞态。
+- **状态：** 已修复（#22），回归覆盖 `e2e/markdown-links.spec.js` 的「a draft typed while the first catalog loads stays in the composer」「an upload in flight when the first catalog loads keeps its attachment」「a conversation link keeps typing that lands before the catalog」「a stale conversation link keeps early typing in the composer」。本条目已移出坑点索引，历史保留在 [P4.5 打磨清单](../p4.5-polish-backlog.md) 第 19 条。
+- **Trigger：** 页面打开后立即向 `#composer-input` 填入文字、选择附件（上传还没结束也算），或带 `?task=` 链接打开（`e2e/markdown-links.spec.js` 原首个用例、`e2e/recovery-review.spec.js` 同类断言）。全量运行时偶发失败，读到的输入框值为空或会话已切换。
+- **What happens：** 修复前的说法是草稿恢复在 `await composerSession.ready` 之后执行、覆盖了就绪前的输入；实测根因在更后面。草稿租约落定前输入框只读（`aria-busy`），输不进字；租约一落定，输入可编辑与全部输入/附件监听在同一段同步代码里生效。丢字发生在之后：首份目录（`/api/events/snapshot` 或 `/api/tasks`）到达时页面自动恢复默认会话、或用默认会话替换已消失的会话，把这段窗口里键入的文字、已选附件和还在上传的附件换成那份空草稿；链接会话在后端绑定后会短暂失去草稿，绑定到目录之间键入的内容也会落到别的会话草稿里。
+- **Confirm：** 用 `page.route` 扣住首份目录（必要时连 `/api/session`、`/api/uploads` 一起扣）直到输入或上传完成，再放行；修复前读到的输入框为空、附件条为空或活动会话被换掉，修复后保留。单独重复运行通常全部通过，所以偶发失败要按这些方式构造确定性复现。
+- **Avoid：** 首份目录不再覆盖用户输入，测试可以直接在页面打开后输入；需要读取会话内容的断言仍先等目标会话成为活动会话（`e2e/markdown-links.spec.js:6`、`e2e/recovery-review.spec.js` 已如此）。上传附件时重复选择文件直到附件条出现（见 `e2e/model-profile-images.spec.js` 的 `attachImage`）与本次修复无关，仍然适用。
+- **Sources：** 2026-11-11 P4.5 finish 失败记录；#16 中的同类附件竞态；#22 根因与修复（含审查 P1/P2/P3）。
 
 ## 遗留的无头测试浏览器推高负载
 

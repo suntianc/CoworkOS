@@ -59,6 +59,9 @@ test("a final local artifact link downloads its indexed file without leaving the
       })
     );
     await page.goto(dashboard.base);
+    // Filling before the first catalog types into the new-conversation draft;
+    // this case is about the restored conversation keeping its own draft.
+    await expect(page.locator(".conversation-item.active")).toHaveAttribute("data-task", taskId);
     await page.locator("#composer-input").fill("点击导出后仍保留的草稿");
     await page.locator("#file-input").setInputFiles({
       name: "draft.txt",
@@ -144,6 +147,150 @@ test("HTTP link punctuation and escaped labels remain inert in the production br
     expect(result.executable).toBe(0);
     expect(result.injected).toBeUndefined();
   } finally {
+    await dashboard.stop();
+  }
+});
+
+// The flake this file kept producing: the composer becomes editable before the
+// first catalog lands, so typing there raced the page restoring the default
+// conversation over it. Holding the catalog until the typing happened makes
+// that ordering independent of machine speed.
+test("a draft typed while the first catalog loads stays in the composer", async ({ page }) => {
+  const dashboard = await startDashboard({ defaultProject: false });
+  let releaseCatalog;
+  const catalogHeld = new Promise((resolve) => {
+    releaseCatalog = resolve;
+  });
+  try {
+    await page.request.post(`${dashboard.base}/api/tasks`, {
+      data: { taskId: "catalog_task", goal: "catalog arrives after the typing" }
+    });
+    // Both first-catalog paths: the event client's snapshot and the fallback read.
+    await page.route(/\/api\/(tasks|events\/snapshot)$/, async (route) => {
+      const response = await route.fetch();
+      await catalogHeld;
+      await route.fulfill({ response });
+    });
+    await page.goto(dashboard.base);
+    await page.locator("#composer-input").fill("catalog 到达前输入的草稿");
+    releaseCatalog();
+    await expect(page.locator('.conversation-item[data-task="catalog_task"]')).toHaveCount(1);
+    await expect(page.locator("#composer-input")).toHaveValue("catalog 到达前输入的草稿");
+  } finally {
+    releaseCatalog();
+    await dashboard.stop();
+  }
+});
+
+// The upload is the composer's content too, even before its attachment exists:
+// a catalog restored on top of it would retire the upload.
+test("an upload in flight when the first catalog loads keeps its attachment", async ({ page }) => {
+  const dashboard = await startDashboard({ defaultProject: false });
+  let releaseCatalog;
+  let releaseUpload;
+  let uploadReached;
+  const catalogHeld = new Promise((resolve) => (releaseCatalog = resolve));
+  const uploadHeld = new Promise((resolve) => (releaseUpload = resolve));
+  const uploading = new Promise((resolve) => (uploadReached = resolve));
+  try {
+    await page.request.post(`${dashboard.base}/api/tasks`, {
+      data: { taskId: "catalog_task", goal: "catalog arrives mid-upload" }
+    });
+    await page.route(/\/api\/(tasks|events\/snapshot)$/, async (route) => {
+      const response = await route.fetch();
+      await catalogHeld;
+      await route.fulfill({ response });
+    });
+    await page.route(/\/api\/uploads\?/, async (route) => {
+      uploadReached();
+      const response = await route.fetch();
+      await uploadHeld;
+      await route.fulfill({ response });
+    });
+    const backendBound = page.waitForRequest(/\/api\/models$/);
+    await page.goto(dashboard.base);
+    await backendBound;
+    await page.locator("#file-input").setInputFiles({
+      name: "held.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("UPLOAD_HELD_BY_THE_FIRST_CATALOG")
+    });
+    await uploading;
+    // The catalog lands while the attachment is still uploading.
+    releaseCatalog();
+    await expect(page.locator('.conversation-item[data-task="catalog_task"]')).toHaveCount(1);
+    releaseUpload();
+    await expect(page.locator("#attachment-strip")).toContainText("held.txt");
+  } finally {
+    releaseCatalog();
+    releaseUpload();
+    await dashboard.stop();
+  }
+});
+
+// Between the backend bind and the first catalog the composer must stay on the
+// conversation the link names, or typing goes into another conversation's draft.
+test("a conversation link keeps typing that lands before the catalog", async ({ page }) => {
+  const dashboard = await startDashboard({ defaultProject: false });
+  let releaseCatalog;
+  const catalogHeld = new Promise((resolve) => (releaseCatalog = resolve));
+  try {
+    await page.request.post(`${dashboard.base}/api/tasks`, {
+      data: { taskId: "linked_task", goal: "the linked conversation" }
+    });
+    await page.route(/\/api\/(tasks|events\/snapshot)$/, async (route) => {
+      const response = await route.fetch();
+      await catalogHeld;
+      await route.fulfill({ response });
+    });
+    const backendBound = page.waitForRequest(/\/api\/models$/);
+    await page.goto(`${dashboard.base}/?task=linked_task`);
+    // The model read follows the bind, so drafts already belong to the backend.
+    await backendBound;
+    await page.locator("#composer-input").fill("绑定后、目录前输入的草稿");
+    releaseCatalog();
+    await expect(page.locator(".conversation-item.active")).toHaveAttribute("data-task", "linked_task");
+    await expect(page.locator("#composer-input")).toHaveValue("绑定后、目录前输入的草稿");
+  } finally {
+    releaseCatalog();
+    await dashboard.stop();
+  }
+});
+
+// A conversation link the catalog no longer lists must not hand typed text to
+// another conversation's draft, where it would be saved but never shown again.
+test("a stale conversation link keeps early typing in the composer", async ({ page }) => {
+  const dashboard = await startDashboard({ defaultProject: false });
+  let releaseCatalog;
+  let releaseSession;
+  const catalogHeld = new Promise((resolve) => (releaseCatalog = resolve));
+  const sessionHeld = new Promise((resolve) => (releaseSession = resolve));
+  try {
+    await page.request.post(`${dashboard.base}/api/tasks`, {
+      data: { taskId: "other_task", goal: "the fallback conversation" }
+    });
+    await page.route(/\/api\/session$/, async (route) => {
+      const response = await route.fetch();
+      await sessionHeld;
+      await route.fulfill({ response });
+    });
+    await page.route(/\/api\/(tasks|events\/snapshot)$/, async (route) => {
+      const response = await route.fetch();
+      await catalogHeld;
+      await route.fulfill({ response });
+    });
+    await page.goto(`${dashboard.base}/?task=deleted_task`);
+    // Typed before the backend bind, exactly as when a page opens and someone
+    // starts writing immediately.
+    await page.locator("#composer-input").fill("过期链接下输入的草稿");
+    releaseSession();
+    releaseCatalog();
+    await expect(page.locator('.conversation-item[data-task="other_task"]')).toHaveCount(1);
+    await expect(page.locator(".conversation-item.active")).toHaveCount(0);
+    await expect(page.locator("#composer-input")).toHaveValue("过期链接下输入的草稿");
+  } finally {
+    releaseSession();
+    releaseCatalog();
     await dashboard.stop();
   }
 });
