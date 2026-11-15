@@ -8,10 +8,11 @@ import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createDashboardApplication } from "../dist/src/dashboard/application.js";
 import { createImageArchive } from "../dist/src/tools/image-archive.js";
+import { endAgentProcesses } from "./dashboard-fixture.mjs";
 
 test(
   "real Pi loads CUA skill and runs persistent JavaScript cells through native HTTP with cancellation",
-  { timeout: 80_000 },
+  { timeout: 120_000 },
   async () => {
     const root = await mkdtemp(join(tmpdir(), "atria-cua-script-pi-")),
       previous = { ...process.env };
@@ -56,7 +57,7 @@ test(
         }
       }
     ];
-    let dashboard;
+    let dashboard, base;
     const model = createServer(async (request, response) => {
       if (request.url.endsWith("/models")) {
         response.end(JSON.stringify({ data: [{ id: "cua-script-fixture" }] }));
@@ -115,8 +116,8 @@ test(
       const probe = createServer();
       probe.listen(0, "127.0.0.1");
       await once(probe, "listening");
-      const port = probe.address().port,
-        base = `http://127.0.0.1:${port}`;
+      const port = probe.address().port;
+      base = `http://127.0.0.1:${port}`;
       await new Promise((done) => probe.close(done));
       dashboard = createDashboardApplication({
         projectRoot: resolve("."),
@@ -238,12 +239,28 @@ test(
       );
       assert.ok(requests[2].tools.some((tool) => tool.function.name === "cua_script"));
     } finally {
+      // Closing the session is what ends a resident Main through the product's
+      // own path; the process-group sweep behind it covers a Main that did not
+      // finish closing. Either way the fixture must not leave the child holding
+      // this process through stdio until the idle timeout.
+      await (
+        base
+          ? fetch(`${base}/api/tasks/cua-script-agent/action`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "cancel" })
+            }).then((response) => response.arrayBuffer())
+          : Promise.resolve()
+      ).catch(() => undefined);
       await dashboard?.stop();
+      await endAgentProcesses(join(root, "workspace"));
       model.closeAllConnections();
       await new Promise((done) => model.close(done));
       for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
       Object.assign(process.env, previous);
-      await rm(root, { recursive: true, force: true });
+      // A process that was just ended can write one last record; retry the
+      // removal instead of failing a test whose assertions already passed.
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }
 );

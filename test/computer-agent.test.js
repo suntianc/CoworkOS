@@ -11,7 +11,7 @@ import { createImageArchive } from "../dist/src/tools/image-archive.js";
 
 for (const globalPolicy of [false, true, "run-exit"])
   test(
-    `${globalPolicy ? (globalPolicy === "run-exit" ? "global policy + new conversation + automatic release on Run exit: " : "global policy + selection + renewal + revocation: ") : ""}real Pi CUA loop delivers native images and consumes successive observations through HTTP (fixture driver)`,
+    `${globalPolicy ? (globalPolicy === "run-exit" ? "global policy + new conversation + automatic release when the work ends: " : "global policy + selection + renewal + revocation: ") : ""}real Pi CUA loop delivers native images and consumes successive observations through HTTP (fixture driver)`,
     { timeout: 80_000 },
     async () => {
       const root = await mkdtemp(join(tmpdir(), "atria-computer-agent-"));

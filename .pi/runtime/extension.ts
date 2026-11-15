@@ -32,9 +32,9 @@ import {
   isMainContinuationMessage,
   mainInputPath,
   readMainInput,
-  registerMainContinuation,
-  type MainInput
+  registerMainContinuation
 } from "../../dist/src/runtime/main-continuation.js";
+import { readAcceptedMainMessage } from "../../dist/src/runtime/main-message-edit.js";
 import { readSleep } from "../../dist/src/runtime/main-sleep.js";
 import type { PiThinkingLevel } from "../../dist/src/runtime/runtime-settings.js";
 import {
@@ -54,6 +54,7 @@ import {
   runtimeSettingsEnv
 } from "../../dist/src/runtime/runtime-settings.js";
 import { createCoworkModel } from "../../dist/src/runtime/model-profile.js";
+import { withEndpointLimits } from "../../dist/src/runtime/model-catalog.js";
 import { MAIN_MODEL_FROM_CONFIG, resolveMainTurnModel } from "../../dist/src/runtime/main-turn-model.js";
 import { recordModelRequests } from "../../dist/src/runtime/model-request-recording.js";
 import { ModelRequestRecorder } from "../../dist/src/storage/model-request-recorder.js";
@@ -1138,7 +1139,9 @@ async function registerMainExtension(pi: ExtensionAPI) {
      * The Inbox hands over a turn only after the previous one settled, so no
      * model request is on the wire here: the provider, the session model and
      * the thinking level can all change at this boundary. A launch pinned by
-     * the environment is never marked, so it keeps its connection.
+     * the environment is never marked, so it keeps its connection. The limits
+     * the connection leaves to its provider are applied here exactly as the
+     * launch applied them, or the turn would run with the host file's defaults.
      */
     const adoptSavedTurnModel = async (event: BeforeAgentStartEvent) => {
       if (process.env[MAIN_MODEL_FROM_CONFIG] !== "1") return;
@@ -1147,36 +1150,40 @@ async function registerMainExtension(pi: ExtensionAPI) {
       if (retry.isReplaying) return;
       const task = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId);
       const saved = loadConfig();
-      let input: MainInput | undefined;
-      try {
-        input = await readMainInput(mainInputPath(workspaceRoot, taskId, mainRunId));
-      } catch (error) {
-        // A record this turn cannot use only drops its optional level: the
-        // saved connection's own level still applies to the turn.
-        console.error(`[CoworkOS] Turn input record: ${errorMessage(error)}`);
-      }
       const identity = event.messageType === "user" ? readQueuedUserTurn(event.prompt) : undefined;
-      // An explicit level belongs to the message that opened this turn, never
-      // to an older message the input file still names.
-      const explicitLevel =
-        identity && input?.messageId === identity.messageId ? input.thinkingLevel : undefined;
+      // An explicit level belongs to the message that opened this turn. The
+      // Run's input file only names the newest accepted message, so a message
+      // queued after this one must not replace the level this turn picked.
+      const accepted = identity
+        ? await readAcceptedMainMessage(workspaceRoot, taskId, identity.messageId).catch((error) => {
+            // A record this turn cannot use only drops its optional level: the
+            // saved connection's own level still applies to the turn.
+            console.error(`[CoworkOS] Turn input record: ${errorMessage(error)}`);
+            return undefined;
+          })
+        : undefined;
+      const explicitLevel = accepted?.thinkingLevel;
       const selection = resolveMainTurnModel(saved, {
         projectId: task.projectId,
         ...(explicitLevel ? { thinkingLevel: explicitLevel } : {})
       });
       if (!selection) return;
+      // The launch applied the endpoint's own limits to this connection; the
+      // turn must not re-resolve from the host file alone, which would drop the
+      // advertised output cap, context window and image support.
+      const turn = await withEndpointLimits(selection, saved);
       const next = createCoworkModel({
-        baseUrl: selection.baseUrl,
-        ...(selection.connectionId ? { connectionId: selection.connectionId } : {}),
-        api: selection.profile.api,
-        thinkingFormat: selection.profile.thinkingFormat,
-        model: selection.model,
-        maxTokens: selection.profile.mainMaxTokens,
-        contextWindow: selection.profile.contextWindow,
-        supportsImages: selection.supportsImages,
-        supportsReasoningEffort: selection.profile.supportsReasoningEffort
+        baseUrl: turn.baseUrl,
+        ...(turn.connectionId ? { connectionId: turn.connectionId } : {}),
+        api: turn.profile.api,
+        thinkingFormat: turn.profile.thinkingFormat,
+        model: turn.model,
+        maxTokens: turn.profile.mainMaxTokens,
+        contextWindow: turn.profile.contextWindow,
+        supportsImages: turn.supportsImages,
+        supportsReasoningEffort: turn.profile.supportsReasoningEffort
       });
-      const cacheKey = selection.profile.supportsPromptCacheKey;
+      const cacheKey = turn.profile.supportsPromptCacheKey;
       const modelChanged =
         !currentModel ||
         currentModel.provider !== next.provider ||
@@ -1188,18 +1195,18 @@ async function registerMainExtension(pi: ExtensionAPI) {
         currentModel.contextWindow !== next.contextWindow ||
         currentModel.input.join(",") !== next.input.join(",") ||
         JSON.stringify(currentModel.compat) !== JSON.stringify(next.compat);
-      if (modelChanged || currentApiKey !== selection.apiKey || currentCacheKey !== cacheKey)
-        publishModel(next, selection.apiKey, cacheKey);
+      if (modelChanged || currentApiKey !== turn.apiKey || currentCacheKey !== cacheKey)
+        publishModel(next, turn.apiKey, cacheKey);
       if (modelChanged && !(await pi.setModel(next)))
         throw new Error("保存的模型连接未通过 Pi 的认证，本回合仍沿用当前连接");
-      if (pi.getThinkingLevel() !== selection.thinkingLevel) pi.setThinkingLevel(selection.thinkingLevel);
-      const imagesChanged = currentSupportsImages !== selection.supportsImages;
+      if (pi.getThinkingLevel() !== turn.thinkingLevel) pi.setThinkingLevel(turn.thinkingLevel);
+      const imagesChanged = currentSupportsImages !== turn.supportsImages;
       currentModel = next;
-      currentApiKey = selection.apiKey;
+      currentApiKey = turn.apiKey;
       currentCacheKey = cacheKey;
-      currentSupportsImages = selection.supportsImages;
-      currentSupportsReasoningEffort = selection.profile.supportsReasoningEffort;
-      currentModelId = selection.model;
+      currentSupportsImages = turn.supportsImages;
+      currentSupportsReasoningEffort = turn.profile.supportsReasoningEffort;
+      currentModelId = turn.model;
       // Image-only tools follow the connection that now sends the turn.
       if (imagesChanged) await capabilityTools.refresh();
     };

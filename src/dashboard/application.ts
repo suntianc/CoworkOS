@@ -15,10 +15,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { id, now } from "../domain/types.js";
 import { coworkConfigPath, readCoworkConfig, readHostCoworkConfig } from "../runtime/config.js";
 import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
-import {
-  availableModels as catalogModels,
-  cachedAvailableModels as cachedCatalog
-} from "../runtime/model-catalog.js";
+import { availableModels as catalogModels, selectionLimits } from "../runtime/model-catalog.js";
 import { modelLevels, type ModelLevels } from "../runtime/model-levels.js";
 import { atriaDataPaths } from "../../scripts/data-home.cjs";
 import {
@@ -414,15 +411,7 @@ export function createDashboardApplication(
     },
     withTaskProjectLock: workspaces.withTaskProjectLock,
     resolveMainModel: (request) => resolveModelRole(runtimeConfig, request),
-    endpointLimits: async (selection) =>
-      (
-        await cachedCatalog({
-          ...runtimeConfig,
-          baseUrl: selection.baseUrl,
-          apiKey: selection.apiKey,
-          model: selection.model
-        })
-      ).find((entry) => entry.id === selection.model)?.limits,
+    endpointLimits: (selection) => selectionLimits(selection, runtimeConfig),
     // The Run's work ended: release what it held, though its process lives on.
     onRunSettled: (taskId) => computer.finishTask(taskId),
     onRunExit: (taskId) => computer.finishTask(taskId),

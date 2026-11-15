@@ -11,6 +11,7 @@ import { MainSupervisor } from "../dist/src/runtime/main-supervisor.js";
 import { MainInboxDelivery } from "../dist/src/runtime/main-inbox-delivery.js";
 import { assessTaskCompletion } from "../dist/src/runtime/task-completion.js";
 import { readSleep, writeSleep } from "../dist/src/runtime/main-sleep.js";
+import { fakeEventHandlers } from "./fixtures/fake-pi-events.mjs";
 
 /**
  * Sleeping and finishing look the same from outside: no work is queued either
@@ -25,13 +26,11 @@ const RUN = `main-${TASK}`;
 
 function fakePi() {
   const tools = new Map();
-  const handlers = new Map();
+  const events = fakeEventHandlers();
   return {
     tools,
-    handlers,
-    on(name, handler) {
-      handlers.set(name, handler);
-    },
+    handlers: events.handlers,
+    on: events.on,
     registerTool(tool) {
       tools.set(tool.name, tool);
     },

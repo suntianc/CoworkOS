@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { createHttpTransport, proxyEnvironment, type HttpProxyConfig } from "./http-transport.js";
 import { endpointLevels } from "./model-levels.js";
-import { endpointLimits, type EndpointLimits } from "./model-limits.js";
+import { applyEndpointLimits, endpointLimits, type EndpointLimits } from "./model-limits.js";
+import type { ConnectionProfile } from "./model-profile.js";
 import type { PiThinkingLevel } from "./runtime-settings.js";
 
 type CatalogInput = HttpProxyConfig & {
@@ -80,4 +81,37 @@ export function cachedAvailableModels(input: CatalogInput): Promise<CatalogModel
   const models = availableModels(input);
   cache.set(key, { at: Date.now(), models });
   return models;
+}
+
+/**
+ * What one connection's provider says about the model it names (#27).
+ *
+ * The launch and every later turn ask the same question, so a connection saved
+ * between turns takes its new endpoint's limits rather than only the values
+ * written in the host file.
+ */
+export async function selectionLimits(
+  selection: { baseUrl?: string; apiKey?: string; model: string },
+  config: HttpProxyConfig = {}
+): Promise<EndpointLimits | undefined> {
+  const models = await cachedAvailableModels({
+    ...config,
+    baseUrl: selection.baseUrl,
+    apiKey: selection.apiKey,
+    model: selection.model
+  });
+  return models.find((entry) => entry.id === selection.model)?.limits;
+}
+
+/** A resolved selection with the endpoint's limits applied, as a launch and a turn both use it. */
+export async function withEndpointLimits<
+  T extends {
+    baseUrl?: string;
+    apiKey?: string;
+    model: string;
+    profile: ConnectionProfile;
+    supportsImages: boolean;
+  }
+>(selection: T, config: HttpProxyConfig = {}): Promise<T> {
+  return applyEndpointLimits(selection, await selectionLimits(selection, config));
 }
