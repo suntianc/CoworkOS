@@ -1038,8 +1038,12 @@ test(
       mainSessionId: blockerSession.sessionId
     });
     assert.equal(blocking.body.status, "running", JSON.stringify(blocking.body));
+    // The blocker's own entry, not a Run that is still finishing, is what has
+    // to hold the budget before the answer arrives; otherwise the answer is
+    // admitted in the instant a slot looks free.
     await waitFor(
-      async () => (await capacity(request)).body.running.length === 1,
+      async () =>
+        (await capacity(request)).body.running.some((entry) => entry.taskId === blockerSession.taskId),
       "the blocking Main did not take the slot"
     );
 

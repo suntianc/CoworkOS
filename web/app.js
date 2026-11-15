@@ -417,7 +417,7 @@ runControl = createRunControl({
   api,
   showToast,
   onChanged: () => refresh(),
-  cancelRun: (taskId) => interruptTask(taskId),
+  interruptRun: (taskId) => interruptTask(taskId),
   continueRun: (taskId) => continuePausedRun(taskId),
   isContinuing: (taskId) => continuingTasks.has(taskId)
 });
@@ -1537,8 +1537,8 @@ async function stopTask(taskId = state.selected) {
     updateSendButton();
   }
 }
-// Stopping a run discards the step in flight, so the stop key asks first.
-$("#stop-button").addEventListener("click", () => runControl.confirmStop($("#stop-button")));
+// Interrupting a run discards the step in flight, so the stop key asks first.
+$("#stop-button").addEventListener("click", () => runControl.confirmInterrupt($("#stop-button")));
 $("#send-button").addEventListener("click", () => void sendMessage());
 $("#composer-input").addEventListener("input", updateSendButton);
 $("#composer-input").addEventListener("keydown", (event) => {

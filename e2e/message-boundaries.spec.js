@@ -175,7 +175,7 @@ test("late follow-up 409 after completed cancellation cannot restart its task or
     await finishNavigationResponse(page, await cancelled);
     // This toast is set only after stopTask's refresh finishes. Release the
     // interjection after the cancellation request and its local guard settle.
-    await expect(page.locator("#toast")).toContainText("任务已停止");
+    await expect(page.locator("#toast")).toContainText("会话已关闭，已保存的内容保留");
     expect((await (await page.request.get(`${dashboard.base}/api/tasks/task-a`)).json()).task.status).toBe(
       "cancelled"
     );
