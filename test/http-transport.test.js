@@ -115,8 +115,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
     };
     await testModelConnection(connection);
     assert.equal(provider.requests.length, 1);
-    assert.ok(proxy.targets.length, "the request closed its proxy tunnel");
-    assert.ok(proxy.targets.length >= 2, "each request owner closes its proxy tunnel");
+    assert.equal(proxy.targets.length, 1, "the connection check opened one proxy tunnel");
     assert.deepEqual(await availableModelIds({ ...connection, model: "selected-model" }), [
       "selected-model",
       "protocol-fixture"
