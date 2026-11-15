@@ -116,7 +116,7 @@ App 使用 Electron safeStorage 加密客户端会话凭据，保存在桌面数
 
 无显式设置时使用 Exa。已有 `serperApiKey`、`COWORK_SERPER_API_KEY` 或 `SERPER_API_KEY` 时保留 Serper；显式 `webSearch.provider`（`exa` / `serper` / `off`）优先于凭据推断。旧 `webTools: false` 和 `COWORK_WEB_TOOLS=0` 关闭搜索，环境关闭优先。`COWORK_WEB_TOOLS=1` 可覆盖旧布尔关闭，但不能覆盖明确的 `provider: "off"`。升级不写回已有选择。
 
-自有 Exa 密钥可用 `webSearch.exaApiKey` 或 `COWORK_EXA_API_KEY` / `EXA_API_KEY`，环境变量优先。Serper 仍需自己的密钥。Main、子智能体和恢复会话使用同一搜索配置。
+自有 Exa 密钥可用 `webSearch.exaApiKey` 或 `COWORK_EXA_API_KEY` / `EXA_API_KEY`，环境变量优先。Serper 仍需自己的密钥。Main、子智能体和恢复会话使用同一搜索配置；常驻 Main 在每回合开始时重读，页面保存后下一回合即生效。
 
 默认连接 [Exa 官方托管 MCP](https://exa.ai/docs/get-started/exa-mcp)：`https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa`。仅启用基础搜索和读取，支持 JSON/SSE、会话及协议头、取消与 30 秒总期限。`COWORK_EXA_MCP_ENDPOINT` 仅用于可信测试服务，界面不提供地址输入。
 

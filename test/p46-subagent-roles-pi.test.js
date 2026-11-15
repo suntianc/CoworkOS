@@ -52,7 +52,9 @@ const EXECUTOR_TOOLS = [
   "edit",
   "load_skill",
   "read",
+  "search",
   "send_peer_message",
+  "visit",
   "write"
 ];
 
@@ -65,8 +67,10 @@ const REVIEWER_TOOLS = [
   "load_skill",
   "ls",
   "read",
+  "search",
   "send_peer_message",
-  "submit_review"
+  "submit_review",
+  "visit"
 ];
 
 async function waitFor(check, label, timeout = 120_000) {
@@ -259,6 +263,27 @@ test(
       "the catalog points at the install's bundled skill directory"
     );
     assert.doesNotMatch(system, /\brun_command\b/, "the catalog and role text name only tools it holds");
+  }
+);
+
+test(
+  "a delegated process follows Main's search switch: no web tool when search is off",
+  { timeout: 120_000 },
+  async (t) => {
+    const { result } = await delegatedCall(t, {
+      role: "executor",
+      agentId: "subagent_web_off",
+      callId: "call-role-web-off",
+      env: { COWORK_WEB_TOOLS: "0" },
+      handle: (body) => {
+        const declared = toolNames(body);
+        assert.equal(declared.includes("search"), false, "search off means no search tool is declared");
+        assert.equal(declared.includes("visit"), false, "search off means no visit tool is declared");
+        return { text: "NO_WEB" };
+      }
+    });
+
+    assert.equal(result.termination, "completed");
   }
 );
 

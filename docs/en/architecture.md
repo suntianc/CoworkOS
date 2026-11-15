@@ -56,7 +56,7 @@ Delegation converges on the backend too: Main's `call_subagent` only registers a
 
 On desktop exit, trusted IPC first waits for the renderer's draft/document save check; unsaved documents or task drafts prompt the user to return and fix them or confirm the exit. The backend and accepted runs continue after the desktop closes. Save failures preserve the window and draft.
 
-Desktop and Web read and save model and search settings through the selected execution host; the host rejects changes while tasks are running. Open forms bind to a backend instance. The desktop encrypts client session credentials and injects them into trusted main-window API requests. Task notifications use the shared catalog stream and deduplicate by backend and completion.
+Desktop and Web read and save model and search settings through the selected execution host; the host rejects changes while a turn is producing an answer, and an idle resident Main adopts what was saved at its next turn boundary. Open forms bind to a backend instance. The desktop encrypts client session credentials and injects them into trusted main-window API requests. Task notifications use the shared catalog stream and deduplicate by backend and completion.
 
 Pi `before_agent_start` registers tools before the first request; `context` refreshes context between later requests. Tests must cover real Pi hook order and subprocess termination.
 

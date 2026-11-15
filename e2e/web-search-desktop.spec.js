@@ -97,6 +97,8 @@ test("native App after normal model setup performs anonymous search and source f
     expect((await saveSearch("exa", "", true)).authenticated).toBe(false);
   } finally {
     await native?.close();
+    // Stopping the isolated backend also ends the resident Main it left running:
+    // quitting the App keeps it by design, and this run has no next turn.
     await stopNativeBackend(root);
     await provider.close();
     await exa.close();

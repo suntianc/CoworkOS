@@ -1198,3 +1198,75 @@ test(
     assert.equal(late.state, "ready", "a paused Main leaves it queued");
   }
 );
+
+test(
+  "a resident Main applies a search-settings change at its next turn, and a turn in flight holds it",
+  { timeout: 180_000 },
+  async (t) => {
+    let release;
+    const held = new Promise((done) => {
+      release = done;
+    });
+    let requestSeen;
+    const firstRequest = new Promise((done) => {
+      requestSeen = done;
+    });
+    const f = await fixture(t, {
+      handle: async ({ response, requests }) => {
+        if (requests.length === 1) {
+          requestSeen();
+          await held;
+          return complete(response, "first turn done");
+        }
+        return complete(response, `answer ${requests.length}`);
+      }
+    });
+    /** The names one recorded model request declares, Main's own table included. */
+    const declared = (body) => (body.tools ?? []).map((tool) => tool.function?.name ?? tool.name);
+    const saveSearch = async (input) => {
+      const response = await fetch(`${f.dashboard.base}/api/web-search-settings`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input)
+      });
+      const value = await response.json();
+      assert.ok(response.ok, `${response.status} ${JSON.stringify(value)}`);
+      return value;
+    };
+
+    await f.createTask("resident-web-config", "Search configuration between turns");
+    await f.api("/api/tasks/resident-web-config/run", { prompt: "WEB_FIRST_INPUT" });
+    await firstRequest;
+    assert.equal(declared(f.requests[0]).includes("search"), true);
+    // A turn that is producing an answer still holds the provider; the resident
+    // idle time between turns is not a running task.
+    const refused = await fetch(`${f.dashboard.base}/api/web-search-settings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "off" })
+    });
+    assert.equal(refused.status, 400, "a turn in flight holds the search settings");
+    assert.match((await refused.json()).error, /停止运行/);
+    release();
+    await f.settleTurn("resident-web-config");
+    const record = await f.mainRecord("resident-web-config");
+
+    // Between turns the process rests: the same user may switch search off...
+    assert.equal((await saveSearch({ provider: "off" })).enabled, false);
+    await f.api("/api/tasks/resident-web-config/run", { prompt: "WEB_SECOND_INPUT" });
+    await f.settleTurn("resident-web-config");
+    assert.equal((await f.mainRecord("resident-web-config")).pid, record.pid, "the same resident served it");
+    const off = declared(f.requests.at(-1));
+    assert.equal(off.includes("search"), false, "search off means the next turn declares no search");
+    assert.equal(off.includes("visit"), false);
+
+    // ...and switch it back on, without a new process.
+    assert.equal((await saveSearch({ provider: "exa" })).enabled, true);
+    await f.api("/api/tasks/resident-web-config/run", { prompt: "WEB_THIRD_INPUT" });
+    await f.settleTurn("resident-web-config");
+    assert.equal((await f.mainRecord("resident-web-config")).pid, record.pid, "still the first process");
+    const on = declared(f.requests.at(-1));
+    assert.equal(on.includes("search"), true, "search on restores the tool for the next turn");
+    assert.equal(on.includes("visit"), true);
+  }
+);

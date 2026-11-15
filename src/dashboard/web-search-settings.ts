@@ -19,7 +19,7 @@ import {
 export function createWebSearchSettings(
   root: string,
   config: CoworkConfig,
-  active: () => boolean,
+  active: () => Promise<boolean>,
   options: { credentialsPath?: string } = {}
 ) {
   const path = coworkConfigPath(root);
@@ -37,7 +37,9 @@ export function createWebSearchSettings(
   return {
     status,
     async save(input: Record<string, unknown>) {
-      if (active()) throw new Error("请先停止运行中的任务，再修改联网搜索设置");
+      // Only a turn that is producing an answer holds the provider; a resident
+      // Main between turns reads the next search configuration when it starts.
+      if (await active()) throw new Error("请先停止运行中的任务，再修改联网搜索设置");
       if (status().managedByEnvironment) throw new Error("联网搜索由启动环境管理，请在启动配置中修改");
       await withFileLock(path, async () => {
         store.reload();
