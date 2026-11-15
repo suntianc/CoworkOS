@@ -7,6 +7,7 @@ import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 import { openWebSearchSettings } from "./settings-helper.js";
 import { exaMcpFixture, sourceConversationFixture } from "../test/exa-mcp-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+import { endAgentProcesses } from "../test/dashboard-fixture.mjs";
 
 test("native App after normal model setup performs anonymous search and source fetch without a search key", async () => {
   test.skip(process.platform !== "darwin", "Native App acceptance requires macOS");
@@ -98,6 +99,9 @@ test("native App after normal model setup performs anonymous search and source f
   } finally {
     await native?.close();
     await stopNativeBackend(root);
+    // Quitting the App leaves the resident Main running by design; this isolated
+    // run has no next turn, so end it here instead of leaking it to the runner.
+    await endAgentProcesses(join(root, "workspace"));
     await provider.close();
     await exa.close();
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

@@ -743,12 +743,12 @@ Uploads stay local until an agent reads them during the user's model run. Readin
 
 ## 联网搜索设置
 
-`GET /api/web-search-settings` 返回 `{ enabled, provider, authenticated, managedByEnvironment }` 及可能的密钥不可用状态，不返回凭据。`POST /api/web-search-settings` 接收 `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }`，返回更新后的状态；密钥留空保留原值，显式清除回到匿名。任务运行中或由搜索环境变量管理时拒绝修改。沿用本机 Host/Origin、认证、JSON 大小与错误边界。
+`GET /api/web-search-settings` 返回 `{ enabled, provider, authenticated, managedByEnvironment }` 及可能的密钥不可用状态，不返回凭据。`POST /api/web-search-settings` 接收 `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }`，返回更新后的状态；密钥留空保留原值，显式清除回到匿名。有回合正在产出回答时、或由搜索环境变量管理时拒绝修改；空闲的常驻 Main 在下一回合开始前按保存后的配置工作。沿用本机 Host/Origin、认证、JSON 大小与错误边界。
 
-桌面和 Web 使用同一接口，搜索密钥保存在所选执行主机；桌面客户端会话凭据由宿主管理。保存不重启后端，新运行/恢复使用新配置。默认与兼容规则见 [联网搜索](configuration.md#联网搜索)。
+桌面和 Web 使用同一接口，搜索密钥保存在所选执行主机；桌面客户端会话凭据由宿主管理。保存不重启后端，新运行/恢复使用新配置，常驻 Main 在回合边界重读。默认与兼容规则见 [联网搜索](configuration.md#联网搜索)。
 
 ### Web search settings (English)
 
-`GET /api/web-search-settings` returns `{ enabled, provider, authenticated, managedByEnvironment }` and any secret-unavailable status without credentials. `POST` accepts `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }` and returns updated status. A blank key retains the existing value; explicit clearing restores anonymous use. Active runs and search environment management reject writes. Existing local authentication, Host/Origin, JSON-size and error boundaries apply.
+`GET /api/web-search-settings` returns `{ enabled, provider, authenticated, managedByEnvironment }` and any secret-unavailable status without credentials. `POST` accepts `{ provider: "exa" | "serper" | "off", exaApiKey?: string, clearExaApiKey?: boolean }` and returns updated status. A blank key retains the existing value; explicit clearing restores anonymous use. A turn that is producing an answer, and search environment management, reject writes; an idle resident Main applies the saved configuration before its next turn. Existing local authentication, Host/Origin, JSON-size and error boundaries apply.
 
-Desktop and Web use the same interface, and the search key belongs to the selected execution host. Desktop client session credentials are host-managed. Saving does not restart the backend; new or resumed runs use the updated configuration. See [web search](en/configuration.md#web-search).
+Desktop and Web use the same interface, and the search key belongs to the selected execution host. Desktop client session credentials are host-managed. Saving does not restart the backend; new or resumed runs use the updated configuration, and a resident Main re-reads it at the turn boundary. See [web search](en/configuration.md#web-search).
