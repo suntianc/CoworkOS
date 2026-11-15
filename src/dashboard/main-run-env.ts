@@ -1,6 +1,7 @@
 import { atriaDataPaths } from "../../scripts/data-home.cjs";
 import type { PiThinkingLevel } from "../runtime/runtime-settings.js";
 import { roleConnectionEnv, type ResolvedModelRole } from "../runtime/role-models.js";
+import { MAIN_MODEL_FROM_CONFIG } from "../runtime/main-turn-model.js";
 
 /**
  * The environment a Main run is spawned with.
@@ -46,6 +47,13 @@ export function mainRunEnv(input: MainRunEnvInput): Record<string, string> {
       : input.thinkingLevel
         ? { COWORK_REASONING_EFFORT: input.thinkingLevel }
         : {}),
+    // The connection came from this host's saved configuration, so a resident
+    // Main may adopt a newer one at its next turn. An environment-pinned or
+    // one-off (explicit/retry) connection is fixed by definition and stays for
+    // the process's life.
+    ...(input.selection && ["active", "host", "project"].includes(input.selection.source)
+      ? { [MAIN_MODEL_FROM_CONFIG]: "1" }
+      : {}),
     COWORK_WORKSPACE: input.taskWorkspace,
     COWORK_PROJECT_DIR: input.projectDirectory ?? input.taskWorkspace,
     COWORK_TASK_ID: input.taskId,

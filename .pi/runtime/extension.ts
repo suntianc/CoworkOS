@@ -3,6 +3,7 @@ import { configuredWebTools } from "../../dist/src/runtime/web-search-config.js"
 import { queuedUserTurn, readQueuedUserTurn } from "../../dist/src/runtime/queued-user-turn.js";
 import {
   formatSkillsForPrompt,
+  type BeforeAgentStartEvent,
   type ExtensionAPI,
   type ExtensionContext,
   type Skill
@@ -31,7 +32,8 @@ import {
   isMainContinuationMessage,
   mainInputPath,
   readMainInput,
-  registerMainContinuation
+  registerMainContinuation,
+  type MainInput
 } from "../../dist/src/runtime/main-continuation.js";
 import { readSleep } from "../../dist/src/runtime/main-sleep.js";
 import type { PiThinkingLevel } from "../../dist/src/runtime/runtime-settings.js";
@@ -52,6 +54,7 @@ import {
   runtimeSettingsEnv
 } from "../../dist/src/runtime/runtime-settings.js";
 import { createCoworkModel } from "../../dist/src/runtime/model-profile.js";
+import { MAIN_MODEL_FROM_CONFIG, resolveMainTurnModel } from "../../dist/src/runtime/main-turn-model.js";
 import { recordModelRequests } from "../../dist/src/runtime/model-request-recording.js";
 import { ModelRequestRecorder } from "../../dist/src/storage/model-request-recorder.js";
 import {
@@ -994,6 +997,20 @@ async function registerMainExtension(pi: ExtensionAPI) {
       await deliverCallbacks(event.message.stopReason === "stop");
     }
   });
+  /**
+   * What this resident process sends with, as of its latest turn.
+   *
+   * A resident Main serves many turns. When the Dashboard resolved its
+   * connection from this host's saved configuration it marks the launch, and
+   * every later turn re-reads the connection, protocol, model and image
+   * capability saved now; the launch values are only the first turn's.
+   */
+  let currentModel: ReturnType<typeof createCoworkModel> | undefined;
+  let currentApiKey = apiKey;
+  let currentCacheKey = configuredSupportsPromptCacheKey(runtimeEnv);
+  let currentSupportsImages = supportsImages;
+  let currentSupportsReasoningEffort = supportsReasoningEffort;
+  let currentModelId = modelId;
   if (baseUrl && apiKey) {
     const model = process.env.COWORK_MAIN_RETRY_MODEL
       ? parseMainRequestModel(process.env.COWORK_MAIN_RETRY_MODEL)
@@ -1026,22 +1043,99 @@ async function registerMainExtension(pi: ExtensionAPI) {
         }
       }
     );
-    registerCoworkProvider(pi, {
-      model,
-      apiKey,
-      sessionId: `atria:${taskId}:main`,
-      supportsPromptCacheKey: configuredSupportsPromptCacheKey(runtimeEnv),
-      wrap: (streams) =>
-        recordModelRequests(
-          streams,
-          new ModelRequestRecorder(
-            join(taskWorkspace, "sessions", "main", `${mainRunId}-requests.jsonl`),
-            { taskId, runId: mainRunId, agentId: "main" },
-            [apiKey, web?.serperApiKey, web?.exaApiKey].filter((secret): secret is string => Boolean(secret))
-          ),
-          requestRetry
-        )
-    });
+    const retry = requestRetry;
+    const recorder = new ModelRequestRecorder(
+      join(taskWorkspace, "sessions", "main", `${mainRunId}-requests.jsonl`),
+      { taskId, runId: mainRunId, agentId: "main" },
+      [apiKey, web?.serperApiKey, web?.exaApiKey].filter((secret): secret is string => Boolean(secret))
+    );
+    const publishModel = (
+      next: ReturnType<typeof createCoworkModel>,
+      key: string,
+      supportsPromptCacheKey: boolean
+    ) =>
+      registerCoworkProvider(pi, {
+        model: next,
+        apiKey: key,
+        sessionId: `atria:${taskId}:main`,
+        supportsPromptCacheKey,
+        wrap: (streams) => recordModelRequests(streams, recorder, retry)
+      });
+    publishModel(model, apiKey, currentCacheKey);
+    currentModel = model;
+
+    /**
+     * Move the process onto the connection saved for the turn that is starting.
+     *
+     * The Inbox hands over a turn only after the previous one settled, so no
+     * model request is on the wire here: the provider, the session model and
+     * the thinking level can all change at this boundary. A launch pinned by
+     * the environment is never marked, so it keeps its connection.
+     */
+    const adoptSavedTurnModel = async (event: BeforeAgentStartEvent) => {
+      if (process.env[MAIN_MODEL_FROM_CONFIG] !== "1") return;
+      // An exact retry resends the archived connection; changing it would
+      // change the request the retry exists to prove.
+      if (retry.isReplaying) return;
+      const task = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId);
+      const saved = loadConfig();
+      let input: MainInput | undefined;
+      try {
+        input = await readMainInput(mainInputPath(workspaceRoot, taskId, mainRunId));
+      } catch (error) {
+        // A record this turn cannot use only drops its optional level: the
+        // saved connection's own level still applies to the turn.
+        console.error(`[CoworkOS] Turn input record: ${errorMessage(error)}`);
+      }
+      const identity = event.messageType === "user" ? readQueuedUserTurn(event.prompt) : undefined;
+      // An explicit level belongs to the message that opened this turn, never
+      // to an older message the input file still names.
+      const explicitLevel =
+        identity && input?.messageId === identity.messageId ? input.thinkingLevel : undefined;
+      const selection = resolveMainTurnModel(saved, {
+        projectId: task.projectId,
+        ...(explicitLevel ? { thinkingLevel: explicitLevel } : {})
+      });
+      if (!selection) return;
+      const next = createCoworkModel({
+        baseUrl: selection.baseUrl,
+        ...(selection.connectionId ? { connectionId: selection.connectionId } : {}),
+        api: selection.profile.api,
+        thinkingFormat: selection.profile.thinkingFormat,
+        model: selection.model,
+        maxTokens: selection.profile.mainMaxTokens,
+        contextWindow: selection.profile.contextWindow,
+        supportsImages: selection.supportsImages,
+        supportsReasoningEffort: selection.profile.supportsReasoningEffort
+      });
+      const cacheKey = selection.profile.supportsPromptCacheKey;
+      const modelChanged =
+        !currentModel ||
+        currentModel.provider !== next.provider ||
+        currentModel.id !== next.id ||
+        currentModel.api !== next.api ||
+        currentModel.baseUrl !== next.baseUrl ||
+        currentModel.reasoning !== next.reasoning ||
+        currentModel.maxTokens !== next.maxTokens ||
+        currentModel.contextWindow !== next.contextWindow ||
+        currentModel.input.join(",") !== next.input.join(",") ||
+        JSON.stringify(currentModel.compat) !== JSON.stringify(next.compat);
+      if (modelChanged || currentApiKey !== selection.apiKey || currentCacheKey !== cacheKey)
+        publishModel(next, selection.apiKey, cacheKey);
+      if (modelChanged && !(await pi.setModel(next)))
+        throw new Error("保存的模型连接未通过 Pi 的认证，本回合仍沿用当前连接");
+      if (pi.getThinkingLevel() !== selection.thinkingLevel) pi.setThinkingLevel(selection.thinkingLevel);
+      const imagesChanged = currentSupportsImages !== selection.supportsImages;
+      currentModel = next;
+      currentApiKey = selection.apiKey;
+      currentCacheKey = cacheKey;
+      currentSupportsImages = selection.supportsImages;
+      currentSupportsReasoningEffort = selection.profile.supportsReasoningEffort;
+      currentModelId = selection.model;
+      // Image-only tools follow the connection that now sends the turn.
+      if (imagesChanged) await capabilityTools.refresh();
+    };
+    pi.on("before_agent_start", adoptSavedTurnModel);
   }
 
   const toolContext = {
@@ -1088,7 +1182,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
       return mainRunId;
     },
     get modelId() {
-      return modelId;
+      return currentModelId;
     },
     get observedJobs() {
       return observedJobs;
@@ -1124,10 +1218,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
       return skillScopeNow;
     },
     get supportsReasoningEffort() {
-      return supportsReasoningEffort;
+      return currentSupportsReasoningEffort;
     },
     get supportsImages() {
-      return supportsImages;
+      return currentSupportsImages;
     },
     get taskId() {
       return taskId;
@@ -1176,7 +1270,11 @@ async function registerMainExtension(pi: ExtensionAPI) {
     workspaceRoot,
     taskId,
     mainRunId,
-    supportsImages
+    // Read per refresh: a resident Main can move to a text-only connection
+    // between turns, and image-only tools go with the model that can see.
+    get supportsImages() {
+      return currentSupportsImages;
+    }
   });
   pi.registerCommand("cowork-status", {
     description: "Show Cowork workspace and active Coordinator jobs",

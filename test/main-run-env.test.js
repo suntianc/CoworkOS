@@ -54,6 +54,34 @@ test("an explicit reasoning level overrides the connection default for one Main 
   assert.equal(mainRunEnv(base).COWORK_REASONING_EFFORT, undefined);
 });
 
+test("only a connection resolved from the host file is re-readable at the next turn", () => {
+  const selection = (source) => ({
+    role: "main",
+    source,
+    baseUrl: base.baseUrl,
+    apiKey: base.apiKey,
+    model: base.model,
+    profile: {},
+    thinkingLevel: "off",
+    supportsImages: false
+  });
+  // A resident Main adopts a newer saved connection per turn; a connection
+  // pinned by the environment, a one-off profile or an archived retry is
+  // fixed for the process's whole life.
+  for (const source of ["active", "host", "project"])
+    assert.equal(
+      mainRunEnv({ ...base, selection: selection(source) }).COWORK_MAIN_MODEL_FROM_CONFIG,
+      "1",
+      source
+    );
+  for (const source of ["environment", "explicit", "retry"])
+    assert.equal(
+      mainRunEnv({ ...base, selection: selection(source) }).COWORK_MAIN_MODEL_FROM_CONFIG,
+      undefined,
+      source
+    );
+});
+
 test("an explicit Pi agent directory wins over the derived one", () => {
   assert.equal(mainRunEnv({ ...base, piAgentDir: "/tmp/explicit" }).PI_CODING_AGENT_DIR, "/tmp/explicit");
   assert.equal(mainRunEnv(base).PI_CODING_AGENT_DIR, atriaDataPaths().piAgentDir);
