@@ -17,6 +17,7 @@ import type { ReviewConclusion } from "../../dist/src/runtime/subagent-review.js
 import { subagentToolNames, type SubagentRole } from "../../dist/src/runtime/subagent-roles.js";
 import { capabilityProvider, parseCapabilityGrants } from "../../dist/src/runtime/capability-provider.js";
 import { bundledSkillRoot } from "../../dist/src/runtime/skill-registry.js";
+import { configuredWebTools } from "../../dist/src/runtime/web-search-config.js";
 import { attachmentCapabilityProvider } from "../../dist/src/workspace/attachment-capabilities.js";
 import {
   configuredContextWindow,
@@ -35,6 +36,7 @@ import { registerSubagentInbox } from "./subagent-inbox.ts";
 import { blockedToolCall, taskProtectedPaths } from "./protected-call.ts";
 import { registerSubagentTools } from "./tools/subagent.ts";
 import { registerLoadSkillTool } from "./tools/workspace.ts";
+import { registerWebSearchTools } from "./tools/web-search.ts";
 import { SubagentQuestionStore } from "../../dist/src/runtime/subagent-questions.js";
 
 /**
@@ -87,6 +89,10 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
   // limits; without it Pi has no stream to the configured connection.
   const config = loadConfig();
   const runtimeEnv = runtimeSettingsEnv(config);
+  // The same public web provider Main reads from this config: a delegated item
+  // that must cite a source reads it itself. Search turned off registers nothing,
+  // and the role table's names for it then resolve to no tool, as on Main.
+  const web = configuredWebTools(config);
   const baseUrl = process.env.COWORK_API_BASE ?? config.baseUrl ?? config.apiBase ?? "";
   const apiKey = process.env.COWORK_API_KEY ?? config.apiKey;
   if (!baseUrl || !apiKey)
@@ -262,6 +268,7 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
   // a Subagent to load itself returns the instructions, directory and bundled
   // script paths Main would get, and grants nothing beyond read-only loading.
   registerLoadSkillTool(pi, () => [bundledSkillRoot(harnessRoot), join(workingDirectory, ".pi", "skills")]);
+  registerWebSearchTools(pi, web);
 
   // Main's guidance and a peer's message reach this process through its own
   // durable Inbox; nothing about that channel is Main-specific.

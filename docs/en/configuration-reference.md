@@ -102,7 +102,7 @@ Images are read by the Main connection itself. When the connection enables `supp
 
 Without explicit settings, search uses Exa. Existing `serperApiKey`, `COWORK_SERPER_API_KEY` or `SERPER_API_KEY` retains Serper. An explicit `webSearch.provider` (`exa` / `serper` / `off`) takes precedence over credential inference. Legacy `webTools: false` and `COWORK_WEB_TOOLS=0` disable search, with environment disabling taking precedence. `COWORK_WEB_TOOLS=1` can override the old boolean but not an explicit `provider: "off"`. Upgrades do not rewrite existing choices.
 
-For your own Exa key, set `webSearch.exaApiKey` or `COWORK_EXA_API_KEY` / `EXA_API_KEY`; environment values win. Serper still requires its own key. Main, subagents and recovered conversations use the same search settings.
+For your own Exa key, set `webSearch.exaApiKey` or `COWORK_EXA_API_KEY` / `EXA_API_KEY`; environment values win. Serper still requires its own key. Main, subagents and recovered conversations use the same search settings; a resident Main re-reads them at the start of every turn, so a saved choice applies from the next turn.
 
 The default [official Exa MCP](https://exa.ai/docs/get-started/exa-mcp) endpoint is `https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa`. Only basic search and fetching are enabled, with JSON/SSE, session/protocol headers, cancellation and a 30-second total deadline. `COWORK_EXA_MCP_ENDPOINT` is for trusted test services only; the UI has no endpoint input.
 

@@ -31,13 +31,26 @@ const SHARED_WORKSPACE_TOOLS = ["browse_workspace"] as const;
 const SKILL_TOOLS = ["load_skill"] as const;
 /** The channels a delegated process may use. */
 const CHANNEL_TOOLS = ["ask_main", "send_peer_message"] as const;
+/**
+ * Public web reading, read-only: the same `search`/`visit` Main holds through the
+ * same provider, so a delegated item reads its own sources instead of trusting a
+ * summary of them. Absent when search is switched off, exactly as on Main.
+ */
+const WEB_TOOLS = ["search", "visit"] as const;
 
 /** The exact active tool list one role's process declares to the model. */
 export function subagentToolNames(role: SubagentRole, grants: readonly CapabilityGrant[] = []): string[] {
   const base =
     role === "reviewer"
-      ? [...REVIEWER_FILE_TOOLS, ...SKILL_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS, "submit_review"]
-      : [...EXECUTOR_FILE_TOOLS, ...SKILL_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS];
+      ? [
+          ...REVIEWER_FILE_TOOLS,
+          ...SKILL_TOOLS,
+          ...SHARED_WORKSPACE_TOOLS,
+          ...CHANNEL_TOOLS,
+          ...WEB_TOOLS,
+          "submit_review"
+        ]
+      : [...EXECUTOR_FILE_TOOLS, ...SKILL_TOOLS, ...SHARED_WORKSPACE_TOOLS, ...CHANNEL_TOOLS, ...WEB_TOOLS];
   return [...base, ...capabilityToolNames(grants)];
 }
 

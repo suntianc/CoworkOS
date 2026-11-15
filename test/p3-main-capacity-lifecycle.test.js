@@ -1038,8 +1038,12 @@ test(
       mainSessionId: blockerSession.sessionId
     });
     assert.equal(blocking.body.status, "running", JSON.stringify(blocking.body));
+    // The blocker's own entry, not a Run that is still finishing, is what has
+    // to hold the budget before the answer arrives; otherwise the answer is
+    // admitted in the instant a slot looks free.
     await waitFor(
-      async () => (await capacity(request)).body.running.length === 1,
+      async () =>
+        (await capacity(request)).body.running.some((entry) => entry.taskId === blockerSession.taskId),
       "the blocking Main did not take the slot"
     );
 
@@ -1060,14 +1064,12 @@ test(
     local.release("blocker");
     await settle(request, blockerSession.taskId, "completed");
     // The answer starts and its turn may settle again before a poll sees it in
-    // `running`, so the observation is that it reached the model and left the
-    // queue — the slot it took is released with its turn.
+    // `running`, so the observation is that the demand reached the model and
+    // left the queue — the slot it took is released with its turn.
     await waitFor(async () => {
       const view = await capacity(request);
-      return (
-        local.tags().includes("answer-turn") &&
-        !view.body.queued.some((entry) => entry.taskId === answerSession.taskId)
-      );
+      const reached = local.tags().includes("answer-turn");
+      return reached && view.body.queued.length === 0;
     }, "the queued answer did not resume after the slot was released");
     await settle(request, answerSession.taskId, "completed");
     assert.deepEqual((await capacity(request)).body.queued, []);

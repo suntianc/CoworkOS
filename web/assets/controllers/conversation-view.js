@@ -51,7 +51,7 @@ function replyTime(timestamp, now = new Date()) {
 const toolKinds = new Map([
   ...["read", "read_file"].map((name) => [name, "read"]),
   ...["write", "write_file", "edit", "apply_patch"].map((name) => [name, "edit"]),
-  ...["bash", "run_command", "exec_command", "run_tests"].map((name) => [name, "command"])
+  ...["bash", "exec_command", "run_tests"].map((name) => [name, "command"])
 ]);
 
 function latestModelRetry(events) {

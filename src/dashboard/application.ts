@@ -423,12 +423,24 @@ export function createDashboardApplication(
           model: selection.model
         })
       ).find((entry) => entry.id === selection.model)?.limits,
+    // The Run's work ended: release what it held, though its process lives on.
+    onRunSettled: (taskId) => computer.finishTask(taskId),
     onRunExit: (taskId) => computer.finishTask(taskId),
     normalizeModel,
     appendRunEvent,
     readJsonFile
   });
   const { activeRuns, startMainRun, pendingHumanAnswers, resumeHumanAnswers } = runs;
+  /**
+   * Whether any resident Main is producing an answer right now.
+   *
+   * The Run outlives its turn, so settings that the next turn reads may be
+   * changed while the process rests; only a turn in flight holds them.
+   */
+  const anyTurnActive = async () => {
+    for (const taskId of activeRuns.keys()) if (await runs.taskTurnActive(taskId)) return true;
+    return false;
+  };
   const launchMainRun = createMainRunLauncher({ locateTask, mainSessions, startMainRun });
   /**
    * Start the demand that just got a slot.
@@ -830,11 +842,11 @@ export function createDashboardApplication(
     computerApproval,
     dashboardUrl,
     uiRoot,
-    webSearchSettings: createWebSearchSettings(projectRoot, runtimeConfig, () => activeRuns.size > 0),
-    modelSettings: createModelSettings(projectRoot, runtimeConfig, async () => {
-      for (const taskId of activeRuns.keys()) if (await runs.taskTurnActive(taskId)) return true;
-      return false;
-    }),
+    // A resident Main keeps its Run between turns, so "a Run exists" is not "a
+    // turn is running": both settings services may only refuse while a turn is
+    // actually producing an answer, and the next turn reads what was saved.
+    webSearchSettings: createWebSearchSettings(projectRoot, runtimeConfig, anyTurnActive),
+    modelSettings: createModelSettings(projectRoot, runtimeConfig, anyTurnActive),
     globalTaskPayload,
     locateTask,
     projectTasks: workspaces.projectTasks,

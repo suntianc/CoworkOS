@@ -97,7 +97,7 @@ Main 的项目上下文只来自需求台账：项目与需求、完成标准和
 
 ### 联网搜索
 
-联网搜索默认与兼容选择在 [搜索配置](../src/runtime/web-search-config.ts)，Main 首轮装配在 [.pi Web 工具](../.pi/runtime/tools/web-search.ts)，供应商归一化在 [Web 工具](../src/tools/web-tools.ts) 与 [Exa MCP Adapter](../src/tools/exa-search-provider.ts)，状态/保存由 [搜索设置服务](../src/dashboard/web-search-settings.ts) 和 [共用控制器](../web/assets/controllers/web-search-settings.js) 管理。先验证 [配置](../test/web-search-config.test.js)、[MCP JSON/SSE/代理/取消](../test/exa-search-provider.test.js)、[真实 Pi 委派与恢复](../test/web-search-pi.test.js) 、[设置与对话浏览器](../e2e/web-search-settings.spec.js) 和 [原生匿名搜索与设置重启](../e2e/web-search-desktop.spec.js)；同步 [配置](configuration.md#联网搜索)。
+联网搜索默认与兼容选择在 [搜索配置](../src/runtime/web-search-config.ts)，Main 与委派进程的装配在 [.pi Web 工具](../.pi/runtime/tools/web-search.ts)（常驻 Main 由 [Main 扩展](../.pi/runtime/extension.ts) 在回合边界重读并调整可用的 `search`/`visit`），供应商归一化在 [Web 工具](../src/tools/web-tools.ts) 与 [Exa MCP Adapter](../src/tools/exa-search-provider.ts)，状态/保存由 [搜索设置服务](../src/dashboard/web-search-settings.ts) 和 [共用控制器](../web/assets/controllers/web-search-settings.js) 管理。先验证 [配置](../test/web-search-config.test.js)、[MCP JSON/SSE/代理/取消](../test/exa-search-provider.test.js)、[真实 Pi 委派与恢复](../test/web-search-pi.test.js) 、[设置与对话浏览器](../e2e/web-search-settings.spec.js) 和 [原生匿名搜索与设置重启](../e2e/web-search-desktop.spec.js)；同步 [配置](configuration.md#联网搜索)。
 
 科学能力移除及旧配置隔离由[回归](../test/science-removal.test.js)验证。通用项目命令和文件交付仍沿现有工具执行。
 
@@ -167,9 +167,9 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 目录列表通过 [批次归属读取](../src/workspace/project-assignment.ts) 复用项目索引。复用限于本次读取，后续请求仍读取最新状态。[事件流](../src/dashboard/event-stream.ts) 增量读取账本与运行日志，详情从文件尾读取所需记录。读取预算与并发/恢复回归见 [性能验证](testing-local-run.md#性能回归)。
 
-最近主动用户消息的修改重发由 [Main 消息编辑](../src/runtime/main-message-edit.ts) 管理 Pi 前缀分支与历史版本，[Run 服务](../src/dashboard/run-service.ts) 串行校验身份、归属与启动；[编辑控制器](../web/assets/controllers/message-edit.js) 管理加宽的气泡内编辑、键盘与附件菜单，复用控件时刷新当前编辑归属，避免旧监听器忽略新的输入和发送；[对话视图](../web/assets/controllers/conversation-view.js) 展示紧凑气泡与铅笔入口，[Composer Session](../web/assets/controllers/composer-session.js) 分别保存消息编辑与底部草稿，沿用已有编辑存储格式恢复旧数据。
+最近主动用户消息的修改重发由 [Main 消息编辑](../src/runtime/main-message-edit.ts) 管理 Pi 前缀分支与历史版本，[Run 服务](../src/dashboard/run-service.ts) 串行校验身份、归属与启动；[编辑控制器](../web/assets/controllers/message-edit.js) 管理加宽的气泡内编辑、键盘与附件菜单，等待提问的回合停在持久问题上时可编辑（编辑会停掉该进程并在新分支重启），复用控件时刷新当前编辑归属，避免旧监听器忽略新的输入和发送；[对话视图](../web/assets/controllers/conversation-view.js) 展示紧凑气泡与铅笔入口，[Composer Session](../web/assets/controllers/composer-session.js) 分别保存消息编辑与底部草稿，沿用已有编辑存储格式恢复旧数据。
 
-相关回归：[SDK 分支](../test/main-message-edit.test.js)、[编辑交互](../test/message-edit-controller.test.js)、[真实 Pi 编辑](../test/main-message-edit-pi.test.js) 与 [浏览器编辑](../e2e/message-edit.spec.js)，包含等待提问时手动停止后修改重发。
+相关回归：[SDK 分支](../test/main-message-edit.test.js)、[编辑交互](../test/message-edit-controller.test.js)、[真实 Pi 编辑](../test/main-message-edit-pi.test.js) 与 [浏览器编辑](../e2e/message-edit.spec.js)，包含等待提问时重启或手动停止后修改重发。
 
 已提交的人工回复由 [对话视图](../web/assets/controllers/conversation-view.js) 展示为「回答问题」折叠按钮，复用活动区的展开状态保存；[人工交互验收](../e2e/human-interactions.spec.js) 覆盖浅深色、键盘展开、长内容与窄屏。
 
@@ -205,7 +205,7 @@ Main 失败请求重放由 [私有请求槽](../src/storage/main-request-store.t
 
 委派角色、工作项依赖与需求现场由 [协调工具](../.pi/runtime/tools/coordination.ts) 接受参数，[Coordinator](../src/runtime/coordinator-runtime.ts) 在前置结束后、创建会话前读取主机配置并记录非敏感快照，[角色解析](../src/runtime/role-models.ts) 与 [委派模型](../src/runtime/delegation-model.ts) 负责优先级与定位错误，[工作项现场](../src/workspace/work-item-workspace.ts) 复用需求现场与 Git 模块为每个工作项分出独立 `git worktree` 并支持恢复复用，[持久队列](../src/runtime/scheduler.ts) 承担前置等待、取消、恢复与无法启动项的收尾，[进度投影](../src/runtime/progress.ts) 输出角色、模型、现场、依赖与失败原因。复核 [真实 Main 直接改动与独立工作项现场](../test/p4-native-execution.test.js) 和 [五并发角色、启动时解析与恢复](../test/p4-native-role-lifecycle.test.js)，行为边界见 [运行时参考](runtime-reference.md#执行角色工作项依赖与需求现场)。
 
-子代理进程的角色工具表由 [角色策略](../src/runtime/subagent-roles.ts) 决定：[角色工具](../.pi/runtime/tools/subagent.ts) 只注册通道与结论工具，Pi 内置的读写/命令/检索工具在 `session_start` 按角色激活，Reviewer 因此没有写文件工具、但有在自己的候选副本里运行验证的 `bash`；该副本由 [审查现场](../src/workspace/review-site.ts) 从被审候选提交创建为 detached checkout，并在进程结束后由 [后端结算](../src/runtime/subagent-processes.ts) 清理。受保护路径由 [共用拦截](../src/tools/protected-call.ts) 在工具调用边界对 Main 与子代理执行同一条规则，[Main 扩展](../.pi/runtime/extension.ts) 与 [委派进程](../.pi/runtime/subagent-agent.ts) 都只调用它。[审查结论格式](../src/runtime/subagent-review.ts) 同时由提交工具与后端结算校验，未提交结论的 Reviewer 结束记为失败。验证 [真实角色工具表与审查结论](../test/p46-subagent-roles-pi.test.js) 与 [子代理路径保护与 Reviewer 命令](../test/p46-subagent-guards-pi.test.js)。
+子代理进程的角色工具表由 [角色策略](../src/runtime/subagent-roles.ts) 决定：[角色工具](../.pi/runtime/tools/subagent.ts) 只注册通道与结论工具，Pi 内置的读写/命令/检索工具在 `session_start` 按角色激活，两个角色还声明与 Main 同一实现的只读 `search`/`visit`（搜索关闭时都不声明），Reviewer 因此没有写文件工具、但有在自己的候选副本里运行验证的 `bash`；该副本由 [审查现场](../src/workspace/review-site.ts) 从被审候选提交创建为 detached checkout，并在进程结束后由 [后端结算](../src/runtime/subagent-processes.ts) 清理。受保护路径由 [共用拦截](../src/tools/protected-call.ts) 在工具调用边界对 Main 与子代理执行同一条规则，[Main 扩展](../.pi/runtime/extension.ts) 与 [委派进程](../.pi/runtime/subagent-agent.ts) 都只调用它。[审查结论格式](../src/runtime/subagent-review.ts) 同时由提交工具与后端结算校验，未提交结论的 Reviewer 结束记为失败。验证 [真实角色工具表与审查结论](../test/p46-subagent-roles-pi.test.js) 与 [子代理路径保护与 Reviewer 命令](../test/p46-subagent-guards-pi.test.js)。
 
 子代理进程通过通用 [收件箱读取](../src/runtime/agent-inbox-delivery.ts) 读取自己的持久 Inbox，每个回合边界重读一次、空闲时由 [进程唤醒通知](../src/runtime/agent-wake.ts) 唤醒（[文件监听](../src/runtime/file-watch.ts) 留作补充）而不轮询；写入方在持久写入后按进程记录里登记的本地端点通知目标进程，端点不可达时静默跳过；消息进入该进程的会话上下文后才记为已消费，因此后端重启前后都能送达且每条只读一次。验证 [真实子代理消息送达、提问与取消](../test/p46-subagent-messages-pi.test.js) 与 [确认与重投](../test/p46-subagent-inbox-delivery.test.js)。
 

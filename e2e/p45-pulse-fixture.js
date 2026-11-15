@@ -113,8 +113,10 @@ export async function seedPulseLane(
       )}\n`
     );
     for (const subagent of subagents)
+      // Each Subagent is its own process, and the Run keeps that process's
+      // trace as the work item's log; the lanes read activity from there.
       await writeTrace(
-        join(dashboard.workspaceRoot, taskId, "sessions", subagent.agentId, `${runId}.jsonl`),
+        join(runRoot, "agents", "subagents", subagent.agentId, "agent-output.log"),
         activityRecords(clock, subagent)
       );
   }

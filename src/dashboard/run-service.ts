@@ -130,6 +130,15 @@ export interface RunServicePorts {
   resolveMainModel(request: ModelRoleRequest): ResolvedModelRole;
   /** The chosen model's own limits from its connection's `/models` entry, when listed (#27). */
   endpointLimits?: (selection: ResolvedModelRole) => Promise<EndpointLimits | undefined>;
+  /**
+   * The Run's work ended: its turn settled completed, failed or cancelled and
+   * no delegated work is outstanding.
+   *
+   * A resident Main outlives its work, so a resource held for that work — the
+   * Computer Use session — is released at this boundary rather than when the
+   * process exits. The process exit calls it again as a fallback.
+   */
+  onRunSettled?: (taskId: string) => void;
   onRunExit?: (taskId: string) => void;
   onRunFinalized?: (location: TaskLocation, runId: string) => Promise<void>;
   withTaskProjectLock?<T>(taskId: string, action: () => Promise<T>): Promise<T>;
@@ -201,6 +210,7 @@ export function createDashboardRunService({
   locateTask,
   resolveMainModel,
   endpointLimits = async () => undefined,
+  onRunSettled = () => {},
   onRunExit = () => {},
   onRunFinalized = async () => {},
   withTaskProjectLock = (_taskId, action) => action(),
@@ -605,7 +615,9 @@ export function createDashboardRunService({
    * the Run has no delegated work outstanding: a turn admitted (or delegated
    * work started) since the boundary keeps the place, and the release itself
    * re-checks the claim under the ledger lock so a late settlement can never
-   * free a newer turn's slot.
+   * free a newer turn's slot. What the work held is released at the same
+   * boundary, so a resource that belongs to the Run's work does not wait for
+   * the process to end.
    */
   async function settleResidentTurn(
     resident: ResidentMain,
@@ -620,6 +632,21 @@ export function createDashboardRunService({
     // A waiting Task still has delegated work to run; a running one has not
     // written its own boundary yet. Every resting state is between turns.
     if (!["completed", "paused", "failed", "cancelled"].includes(task.status)) return;
+    // Delegated work keeps whatever the Run's work holds: a Subagent still
+    // running or a callback that has not reached Main means the work has not
+    // ended, whatever the turn records.
+    const unfinished = subagents?.unfinishedWork
+      ? await subagents
+          .unfinishedWork({ taskId: resident.taskId, runId: resident.runId })
+          // eslint-disable-next-line no-restricted-syntax -- 读不到时按仍有未完成工作处理，保守保留名额与会话
+          .catch(() => true)
+      : false;
+    // The work ended at this boundary, but the process may live for many more
+    // turns: what the work held is released now, at the same moment as its
+    // place. A turn accepted since the boundary is the work now, and a pause
+    // still has work to do, so both keep it.
+    if (!unfinished && !resident.turnActive && !pendingTurns.has(resident.taskId) && task.status !== "paused")
+      onRunSettled(resident.taskId);
     if (!boundaryRequestId || !mainCapacity) return;
     // This process may already have taken another turn since the boundary: a
     // delivery rebinds the claim, and an accepted turn that has not started is
@@ -627,12 +654,6 @@ export function createDashboardRunService({
     if (resident.requestId !== boundaryRequestId) return;
     // A slot is held while delegated work is unfinished, whatever the turn is
     // doing: a paused Main with a Subagent still running keeps its place.
-    const unfinished = subagents?.unfinishedWork
-      ? await subagents
-          .unfinishedWork({ taskId: resident.taskId, runId: resident.runId })
-          // eslint-disable-next-line no-restricted-syntax -- 读不到时按仍有未完成工作处理，保守保留名额
-          .catch(() => true)
-      : false;
     if (unfinished) return;
     // A turn that started after the boundary (or was accepted and has not
     // written its first boundary yet) owns the claim now.

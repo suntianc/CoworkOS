@@ -2,6 +2,25 @@ import { ui } from "../ui/language.js";
 import { escapeHtml as esc } from "../ui/html.js";
 import { icon } from "../ui/icons.js";
 
+/** A turn producing an answer is not editable; its transcript is still in use. */
+const turnBusy = (detail) => Boolean(detail?.runtime?.active || detail?.runtime?.stopping);
+
+/**
+ * Whether the turn is only parked on a durable question.
+ *
+ * The person deciding how to answer may prefer to edit what they asked. The
+ * Run service stops the parked process and relaunches it on the edited branch,
+ * retiring the question, so the transcript is never rewritten under a reply
+ * that is still arriving.
+ */
+const awaitingAnswer = (detail) =>
+  Boolean(detail?.runtime?.active) &&
+  (detail?.humanRequests ?? []).some((request) => request.status === "pending");
+
+/** Whether the turn still owns the transcript, so an edit has to wait. */
+const editBlocked = (detail) =>
+  awaitingAnswer(detail) ? Boolean(detail?.runtime?.stopping) : turnBusy(detail);
+
 /** Owns the inline editor and request identity; Composer Session keeps its draft and backup. */
 export function createMessageEditController({
   composerSession,
@@ -40,7 +59,7 @@ export function createMessageEditController({
       pending ||
       isBusy() ||
       state.online === false ||
-      Boolean(state.detail?.runtime?.active || state.detail?.runtime?.stopping) ||
+      editBlocked(state.detail) ||
       (!draft.text.trim() && !draft.attachments.length);
     for (const button of root.querySelectorAll("[data-remove-edit-attachment]")) button.disabled = pending;
   }
@@ -121,8 +140,7 @@ export function createMessageEditController({
     begin(taskId, target) {
       const state = getState();
       if (state.selected !== taskId || !target || isBusy()) return;
-      if (state.detail?.runtime?.active || state.detail?.runtime?.stopping)
-        return onError(ui("请先停止当前运行并等待停止完成，再编辑消息。"));
+      if (editBlocked(state.detail)) return onError(ui("请先停止当前运行并等待停止完成，再编辑消息。"));
       if (composerSession.editing) return onError(ui("请先取消或发送当前编辑。原来的草稿仍然保留。"));
       if (!composerSession.beginEdit(target)) return;
       sync();
@@ -136,8 +154,7 @@ export function createMessageEditController({
       const target = composerSession.editing;
       const taskId = composerSession.currentKey;
       if (!target || submitting.has(taskId) || state.selected !== taskId) return;
-      if (state.detail?.runtime?.active || state.detail?.runtime?.stopping)
-        return onError(ui("请先停止当前运行，再修改重发。"));
+      if (editBlocked(state.detail)) return onError(ui("请先停止当前运行，再修改重发。"));
       const draft = composerSession.editSnapshot();
       if (!draft.text.trim() && !draft.attachments.length)
         return onError(ui("请输入消息或保留至少一个附件。"));

@@ -348,9 +348,11 @@ export async function seedRun(page, dashboard, taskId, { toolCalls = 148, roles 
     ["subagent_1", 1_200_000, 140_000],
     ["subagent_2", 400_000, 30_000]
   ]) {
-    const directory = join(taskRoot, "sessions", agentId);
+    // A Subagent runs as its own process; its trace is the Run's log for that
+    // work item, which is where the duration, tool calls and token reports are read.
+    const directory = join(runRoot, "agents", "subagents", agentId);
     await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, `${runId}.jsonl`), `${usage(input, output)}\n`);
+    await writeFile(join(directory, "agent-output.log"), `${usage(input, output)}\n`);
   }
   // The task's recorded Run is the one the runtime sampled; publishing it as
   // the task's active run makes the activity read the trace above instead of

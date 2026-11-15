@@ -172,6 +172,26 @@ test("active generation refuses edit and does not queue an edit payload", async 
   assert.equal(calls, 0);
 });
 
+test("a turn parked on a pending question stays editable", async () => {
+  const calls = [];
+  const f = fixture(async (_url, options) => {
+    calls.push(JSON.parse(options.body));
+    return { runId: "replacement-run" };
+  });
+  // The resident Main keeps the turn in flight while it waits for the answer,
+  // and the edit supersedes that question instead of waiting for a timeout.
+  f.state.detail.runtime.active = true;
+  f.state.detail.humanRequests = [{ requestId: "question", status: "pending" }];
+  f.controller.begin("task-a", f.target);
+  assert.ok(f.session.editing, "the parked turn can be edited");
+  assert.deepEqual(f.errors, []);
+  f.session.updateEdit({ text: "replacement of the parked request" });
+  await f.controller.submit();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body, "replacement of the parked request");
+  assert.deepEqual(f.errors, []);
+});
+
 test("acceptance does not silently discard text changed while the edit request was pending", async () => {
   let resolve;
   const f = fixture(

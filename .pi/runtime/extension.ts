@@ -126,7 +126,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
   const baseUrl = process.env.COWORK_API_BASE ?? config.baseUrl ?? config.apiBase;
   const apiKey = process.env.COWORK_API_KEY ?? config.apiKey;
   const modelId = process.env.COWORK_MODEL ?? config.model ?? "glm-5.3";
-  const web = configuredWebTools(config);
+  // Main is resident, so the search choice saved in the settings page must reach
+  // this process's next turn rather than wait for a new process; the turn
+  // boundary below re-reads it and keeps `search`/`visit` in step.
+  let web = configuredWebTools(config);
   const workspaceRoot = configuredWorkspaceRoot(config);
   const taskId = process.env.COWORK_TASK_ID ?? config.taskId ?? `task-${randomUUID()}`;
   // A stable task id gives the Main Run a stable Inbox across Pi restarts.
@@ -550,9 +553,39 @@ async function registerMainExtension(pi: ExtensionAPI) {
     return { block: true, reason: refused.reason };
   });
 
+  /**
+   * Apply the search configuration saved since the last turn.
+   *
+   * A resident Main outlives the settings page that saved it, so the choice has
+   * to reach this process at its next turn: a changed provider replaces the two
+   * tool definitions, and turning search off removes them from the active
+   * loadout so the model is not offered a provider the user switched off.
+   */
+  const syncWebToolLoadout = () => {
+    const latest = configuredWebTools(loadConfig());
+    // These four are everything `configuredWebTools` derives a provider from, so
+    // an unchanged turn does not rebuild the tool definitions.
+    const unchanged =
+      latest?.provider === web?.provider &&
+      latest?.exaApiKey === web?.exaApiKey &&
+      latest?.serperApiKey === web?.serperApiKey &&
+      latest?.exaEndpoint === web?.exaEndpoint;
+    if (unchanged) return;
+    web = latest;
+    const active = pi.getActiveTools();
+    if (!latest) {
+      pi.setActiveTools(active.filter((name) => name !== "search" && name !== "visit"));
+      return;
+    }
+    registerWebSearchTools(pi, latest);
+    pi.setActiveTools([...new Set([...active, "search", "visit"])]);
+  };
+
   const prepareMainTurnSections = async () => {
     // Real Pi assembles this hook before the per-request context hook, so tool
-    // discovery must finish here to exist on the first model request.
+    // discovery must finish here to exist on the first model request. A resident
+    // Main also reads the search choice saved since its last turn here.
+    syncWebToolLoadout();
     await capabilityTools.refresh();
     const workspace = [
       `用户选择的项目目录：${projectDirectory}。read/edit/write/bash 的相对路径从这里开始；用户说“这个项目”“工作文件夹”指的是这里。以它为准，不要因为运行了 CoworkOS 就改去它的安装目录。`,
@@ -726,6 +759,33 @@ async function registerMainExtension(pi: ExtensionAPI) {
     }
   });
 
+  /**
+   * Close the Run's interval in the durable event log at a settled turn.
+   *
+   * The Run service used to write this when the one-turn process exited. A
+   * resident Main ends its turn and keeps running, so its boundary is the only
+   * place the close is written: readers of the exchange (the conversation's
+   * final answer, Run duration and the pulse lanes) take the last of these
+   * events as the turn's outcome, and without it a settled turn stays "running"
+   * behind an earlier failure for the rest of the process's life.
+   */
+  const appendRunBoundary = async (type: string, payload: unknown): Promise<void> => {
+    try {
+      await new JsonlEventStore(join(workspaceRoot, taskId, "runs", mainRunId, "run_events.jsonl")).append({
+        eventId: `boundary-${randomUUID()}`,
+        type,
+        taskId,
+        runId: mainRunId,
+        agentId: "main",
+        occurredAt: new Date().toISOString(),
+        payload
+      });
+      // eslint-disable-next-line no-restricted-syntax -- Task 状态已落盘；事件只是同一边界的记录，写不进去由进程退出时的结算补上
+    } catch {
+      /* the Task state is the durable fact */
+    }
+  };
+
   pi.on("agent_settled", async (_event, ctx) => {
     try {
       sessionContext = ctx;
@@ -817,6 +877,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
                 signal: isFinalAssistantMessage(lastMainMessage) ? "natural_stop" : "interrupted"
               }
             });
+            await appendRunBoundary("main.run_waiting", {
+              coordination: pending,
+              reason: assessment.reason
+            });
             await updateRuntime({
               runtimePhase: "waiting",
               runtimePendingDelegations: pending.pending.length + pending.callbackPending.length,
@@ -830,6 +894,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
                 signal: task.completion?.signal === "finish_task" ? "finish_task" : "natural_stop",
                 verifiedAt: new Date().toISOString()
               }
+            });
+            await appendRunBoundary("main.run_completed", {
+              coordination: pending,
+              reason: "main_turn_settled"
             });
             await updateRuntime({
               runtimePhase: "completed",
