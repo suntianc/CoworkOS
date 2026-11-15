@@ -155,3 +155,117 @@ test(
     assert.equal(responses.requests[1].body.reasoning.effort, "max");
   }
 );
+
+/** The output cap each request asked for; Pi may send either spelling. */
+const askedTokens = (request) => request.body.max_completion_tokens ?? request.body.max_tokens;
+const toolNames = (request) => request.body.tools.map((tool) => tool.function.name);
+
+test(
+  "AC: every turn keeps the endpoint limits its launch applied, and a saved switch takes the new endpoint's",
+  { timeout: 180_000 },
+  async (t) => {
+    // A advertises a small window, a large output cap and image input; B a
+    // larger window, a smaller output cap and text only. The numbers are the
+    // provider's, not the host file's default of 256000/8192.
+    const completions = await modelProtocolFixture(
+      "openai-completions",
+      (_body, requests) =>
+        requests.length === 1
+          ? // Ask for an image-only tool group: it exists here only if the
+            // turn still sees the endpoint's image support.
+            { name: "enable_tools", arguments: { groups: ["computer"] } }
+          : { text: `limits turn ${requests.length}` },
+      {
+        models: [
+          {
+            id: "limits-a",
+            context_window: 40000,
+            max_output_tokens: 128000,
+            modalities: { input: ["text", "image"] }
+          }
+        ]
+      }
+    );
+    const textOnly = await modelProtocolFixture(
+      "openai-completions",
+      (_body, requests) => ({ text: `B ${requests.length}` }),
+      {
+        models: [{ id: "limits-b", context_window: 120000, max_output_tokens: 30000 }]
+      }
+    );
+    const dashboard = await startDashboard();
+    t.after(async () => {
+      await dashboard.stop();
+      await completions.close();
+      await textOnly.close();
+    });
+    const request = client(dashboard);
+
+    await request("/api/model-settings", {
+      profileId: "",
+      profileName: "端点 A",
+      baseUrl: completions.baseUrl,
+      api: "openai-completions",
+      model: "limits-a",
+      apiKey: "{{SECRET_q4m6x2vd}}"
+    });
+    await request("/api/tasks", { taskId: "resident-limits", goal: "回合沿用端点上限" });
+    await request("/api/tasks/resident-limits/run", { prompt: "LIMITS_ONE" });
+    await settle(request, "resident-limits");
+
+    // Turn one: the enable_tools call is answered, so the second request shows
+    // the tool the image capability added. A 40k window caps output at 20000.
+    assert.equal(completions.requests.length, 2);
+    assert.ok(askedTokens(completions.requests[1]) > 8192, "the endpoint output cap replaced 8192");
+    assert.ok(
+      askedTokens(completions.requests[1]) <= 20000,
+      "the output cap stays within half the 40k window"
+    );
+    assert.ok(
+      toolNames(completions.requests[1]).includes("computer_status"),
+      "the endpoint's images kept the group"
+    );
+    const record = await mainRecord(dashboard, "resident-limits");
+    assert.ok(record?.pid);
+
+    // Two more turns in the same process re-read the saved connection and must
+    // keep what the endpoint advertised instead of falling back to 256000/8192.
+    for (const prompt of ["LIMITS_TWO", "LIMITS_THREE"]) {
+      await request("/api/tasks/resident-limits/run", { prompt });
+      await settle(request, "resident-limits");
+      const latest = completions.requests.at(-1);
+      assert.ok(askedTokens(latest) > 8192, `${prompt} kept the endpoint output cap`);
+      assert.ok(askedTokens(latest) <= 20000, `${prompt} kept the endpoint context window`);
+      assert.ok(toolNames(latest).includes("computer_status"), `${prompt} kept the endpoint's image support`);
+    }
+    assert.equal(completions.requests.length, 4);
+    assert.equal(
+      (await mainRecord(dashboard, "resident-limits")).pid,
+      record.pid,
+      "all turns used one process"
+    );
+
+    // A connection saved between turns brings its own provider limits, and the
+    // same process must not keep the previous connection's image capability.
+    await request("/api/model-settings", {
+      profileId: "",
+      profileName: "端点 B",
+      baseUrl: textOnly.baseUrl,
+      api: "openai-completions",
+      model: "limits-b",
+      apiKey: "{{SECRET_r8n1c7zk}}",
+      activate: true
+    });
+    await request("/api/tasks/resident-limits/run", { prompt: "LIMITS_FOUR" });
+    await settle(request, "resident-limits");
+    assert.equal(textOnly.requests.length, 1, "the new connection served the turn");
+    assert.ok(askedTokens(textOnly.requests[0]) > 20000, "the new endpoint's larger output cap applied");
+    assert.ok(askedTokens(textOnly.requests[0]) <= 30000, "the new endpoint's own cap applied");
+    assert.equal(
+      toolNames(textOnly.requests[0]).includes("computer_status"),
+      false,
+      "the text-only connection dropped the image-only group"
+    );
+    assert.equal((await mainRecord(dashboard, "resident-limits")).pid, record.pid, "no new Main was started");
+  }
+);

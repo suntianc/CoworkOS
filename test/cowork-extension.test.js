@@ -4,13 +4,16 @@ import { test } from "node:test";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { DurableScheduler, InboxStore } from "../dist/src/runtime/scheduler.js";
 import { SubagentQuestionStore } from "../dist/src/runtime/subagent-questions.js";
+import { queuedUserTurn } from "../dist/src/runtime/queued-user-turn.js";
+import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
+import { fakeEventHandlers } from "./fixtures/fake-pi-events.mjs";
 import { startSubagentBackend } from "./fixtures/subagent-backend-fixture.mjs";
 
 const extensionPath = resolve(".pi/extensions/cowork.ts");
@@ -18,12 +21,13 @@ const requirePi = createRequire(import.meta.resolve("@earendil-works/pi-coding-a
 
 function fakePi() {
   const tools = new Map();
-  const handlers = new Map();
+  const events = fakeEventHandlers();
+  const levels = [];
+  let thinkingLevel = "off";
   return {
     tools,
-    on(name, handler) {
-      handlers.set(name, handler);
-    },
+    levels,
+    on: events.on,
     registerTool(tool) {
       tools.set(tool.name, tool);
     },
@@ -34,7 +38,15 @@ function fakePi() {
     },
     setActiveTools() {},
     sendMessage: async () => {},
-    handlers
+    setModel: async () => true,
+    getThinkingLevel() {
+      return thinkingLevel;
+    },
+    setThinkingLevel(level) {
+      levels.push(level);
+      thinkingLevel = level;
+    },
+    handlers: events.handlers
   };
 }
 
@@ -397,6 +409,112 @@ test("the registered ledger tool reaches the configured backend with the run cre
     projectId: "project_a",
     requirements: [{ requirementId: "requirement_a", title: "来自后端的台账" }]
   });
+});
+
+test("a turn takes the level of the message that opened it, not of a newer accepted message", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-turn-level-"));
+  const provider = await modelProtocolFixture("openai-completions", () => ({ text: "unused" }), {
+    models: [{ id: "turn-model" }]
+  });
+  const previous = { ...process.env };
+  t.after(async () => {
+    for (const name of Object.keys(process.env)) if (!(name in previous)) delete process.env[name];
+    Object.assign(process.env, previous);
+    await provider.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const taskId = "turn-level-task";
+  const runId = "main-turn-level";
+  Object.assign(process.env, {
+    COWORK_API_BASE: provider.baseUrl,
+    COWORK_API_KEY: "{{SECRET_kdvqcozt}}",
+    COWORK_MODEL: "turn-model",
+    COWORK_CONFIG: join(root, "config.json"),
+    COWORK_WORKSPACE: root,
+    COWORK_TASK_ID: taskId,
+    COWORK_RUN_ID: runId,
+    COWORK_REASONING_EFFORT: "max",
+    COWORK_SUPPORTS_REASONING_EFFORT: "1",
+    COWORK_MAIN_MODEL_FROM_CONFIG: "1"
+  });
+  await writeFile(
+    process.env.COWORK_CONFIG,
+    JSON.stringify({
+      modelConnections: {
+        version: 1,
+        activeId: "a",
+        profiles: [
+          {
+            id: "a",
+            contextId: "ctx-a",
+            name: "连接",
+            baseUrl: provider.baseUrl,
+            model: "turn-model",
+            api: "openai-completions",
+            apiKey: "{{SECRET_kdvqcozt}}",
+            supportsImages: false,
+            supportsReasoningEffort: true,
+            supportsPromptCacheKey: false,
+            reasoningEffort: "max",
+            mainMaxTokens: 8192,
+            subagentMaxTokens: 8192,
+            contextWindow: 256000
+          }
+        ]
+      }
+    })
+  );
+  await new LocalWorkspaceStore(root).createTask(taskId, { goal: "打开回合的消息决定档位" });
+  await new LocalWorkspaceStore(root).createRun(taskId, runId);
+  // Two accepted messages: the later one rewrote the Run's input file before
+  // the earlier one opened its turn.
+  const records = join(root, taskId, "sessions", "main", "user-inputs");
+  await mkdir(records, { recursive: true });
+  const accepted = (messageId, prompt, thinkingLevel) =>
+    JSON.stringify({
+      version: 1,
+      prompt,
+      submittedAt: Date.now(),
+      taskId,
+      runId,
+      thinkingLevel,
+      messageId,
+      source: "composer",
+      accepted: true
+    });
+  await writeFile(join(records, "message-a.json"), accepted("message-a", "A", "low"));
+  await writeFile(join(records, "message-b.json"), accepted("message-b", "B", "high"));
+  await writeFile(
+    join(root, taskId, "runs", runId, "main-input.json"),
+    JSON.stringify({
+      version: 1,
+      prompt: "B",
+      submittedAt: Date.now(),
+      taskId,
+      runId,
+      thinkingLevel: "high",
+      messageId: "message-b",
+      source: "composer"
+    })
+  );
+
+  const pi = fakePi();
+  await (
+    await loadExtension()
+  )(pi);
+  const start = pi.handlers.get("before_agent_start");
+  await start({
+    systemPrompt: "Baseline rules",
+    messageType: "user",
+    prompt: queuedUserTurn({ taskId, runId, messageId: "message-a", text: "A" })
+  });
+  assert.deepEqual(pi.levels, ["low"], "message A opened the turn with its own level");
+  await start({
+    systemPrompt: "Baseline rules",
+    messageType: "user",
+    prompt: queuedUserTurn({ taskId, runId, messageId: "message-b", text: "B" })
+  });
+  assert.deepEqual(pi.levels, ["low", "high"], "message B keeps its own level when its turn opens");
 });
 
 async function waitUntil(predicate) {

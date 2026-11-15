@@ -14,6 +14,7 @@ import { SubagentProcessService } from "../dist/src/runtime/subagent-processes.j
 import { prepareReviewSite } from "../dist/src/workspace/review-site.js";
 import { protectedCallRefusal, protectedPathReason } from "../dist/src/tools/protected-call.js";
 import { configuredProtectedPaths } from "../dist/src/tools/protected-paths.js";
+import { fakeEventHandlers } from "./fixtures/fake-pi-events.mjs";
 import { isolatedPiEnvironment, startLocalProvider } from "./fixtures/pi-process-fixture.mjs";
 
 /**
@@ -504,14 +505,12 @@ test(
 );
 
 function fakePi() {
-  const handlers = new Map();
+  const events = fakeEventHandlers();
   const tools = new Map();
   return {
-    handlers,
+    handlers: events.handlers,
     tools,
-    on(name, handler) {
-      handlers.set(name, handler);
-    },
+    on: events.on,
     registerTool(tool) {
       tools.set(tool.name, tool);
     },

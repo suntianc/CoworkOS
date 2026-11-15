@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { InboxStore } from "../dist/src/runtime/scheduler.js";
+import { fakeEventHandlers } from "./fixtures/fake-pi-events.mjs";
 
 const extensionPath = resolve(".pi/extensions/cowork.ts");
 const requirePi = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
@@ -15,14 +16,12 @@ const RUN = "main-jobs";
 
 function fakePi() {
   const tools = new Map();
-  const handlers = new Map();
+  const events = fakeEventHandlers();
   const sent = [];
   return {
     tools,
     sent,
-    on(name, handler) {
-      handlers.set(name, handler);
-    },
+    on: events.on,
     registerTool(tool) {
       tools.set(tool.name, tool);
     },
@@ -35,7 +34,7 @@ function fakePi() {
     sendMessage(message, options) {
       sent.push({ ...message, options });
     },
-    handlers
+    handlers: events.handlers
   };
 }
 

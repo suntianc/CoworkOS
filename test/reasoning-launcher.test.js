@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 import { MainInboxDelivery } from "../dist/src/runtime/main-inbox-delivery.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { startSubagentBackend } from "./fixtures/subagent-backend-fixture.mjs";
+import { fakeEventHandlers } from "./fixtures/fake-pi-events.mjs";
 
 const runFile = promisify(execFile);
 const launcherPath = resolve("scripts/start-pi.mjs");
@@ -137,17 +138,15 @@ async function loadExtension() {
 function fakePi(initialThinkingLevel = "off") {
   let thinkingLevel = initialThinkingLevel;
   const tools = new Map();
-  const handlers = new Map();
+  const events = fakeEventHandlers();
   const providers = new Map();
   const selected = [];
   return {
     tools,
-    handlers,
+    handlers: events.handlers,
     providers,
     selected,
-    on(name, handler) {
-      handlers.set(name, handler);
-    },
+    on: events.on,
     registerTool(tool) {
       tools.set(tool.name, tool);
     },

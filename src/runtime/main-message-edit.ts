@@ -67,6 +67,8 @@ interface Versions {
   archives: ArchivedVersion[];
   edits: Array<{ editId: string; runId: string; prompt: string; target: MessageEditRequest }>;
 }
+/** One record file per accepted message; the id never names another path. */
+const MESSAGE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export async function saveAcceptedMainMessage(root: string, taskId: string, input: MainInput) {
   if (input.source === "human" || !input.messageId) return;
   const directory = join(root, taskId, "sessions", "main", "user-inputs");
@@ -82,6 +84,47 @@ export async function rejectAcceptedMainMessage(root: string, taskId: string, me
   const value = JSON.parse(await readFile(path, "utf8"));
   await writeFile(path, JSON.stringify({ ...value, accepted: false }), { mode: 0o600 });
 }
+async function readDurableMainMessage(
+  root: string,
+  taskId: string,
+  file: string
+): Promise<MainInput & { accepted: boolean }> {
+  const value = JSON.parse(
+    await readFile(join(root, taskId, "sessions", "main", "user-inputs", file), "utf8")
+  );
+  if (
+    value.version !== 1 ||
+    value.taskId !== taskId ||
+    typeof value.messageId !== "string" ||
+    `${value.messageId}.json` !== file ||
+    typeof value.prompt !== "string" ||
+    !Number.isFinite(value.submittedAt) ||
+    !["composer", "inbox"].includes(value.source) ||
+    typeof value.accepted !== "boolean"
+  )
+    throw new Error("主动用户输入记录无法恢复，历史已保留。");
+  return value as MainInput & { accepted: boolean };
+}
+/**
+ * What one accepted message itself chose, while it is still accepted.
+ *
+ * The Run's input file names only the newest accepted message, so a later
+ * message replaces the explicit thinking level an earlier one picked before
+ * that earlier message opens its turn. This record is written once per
+ * accepted message and is the one that speaks for it.
+ */
+export async function readAcceptedMainMessage(
+  root: string,
+  taskId: string,
+  messageId: string
+): Promise<MainInput | undefined> {
+  if (!MESSAGE_ID.test(messageId) || messageId.includes("..")) return undefined;
+  const value = await readDurableMainMessage(root, taskId, `${messageId}.json`).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  });
+  return value?.accepted ? value : undefined;
+}
 async function durableMainMessages(
   root: string,
   taskId: string
@@ -91,26 +134,11 @@ async function durableMainMessages(
     if (error.code === "ENOENT") return [];
     throw error;
   });
-  const values = await Promise.all(
+  return Promise.all(
     files
       .filter((file) => /^[a-zA-Z0-9._-]+\.json$/.test(file))
-      .map(async (file) => {
-        const value = JSON.parse(await readFile(join(directory, file), "utf8"));
-        if (
-          value.version !== 1 ||
-          value.taskId !== taskId ||
-          typeof value.messageId !== "string" ||
-          `${value.messageId}.json` !== file ||
-          typeof value.prompt !== "string" ||
-          !Number.isFinite(value.submittedAt) ||
-          !["composer", "inbox"].includes(value.source) ||
-          typeof value.accepted !== "boolean"
-        )
-          throw new Error("主动用户输入记录无法恢复，历史已保留。");
-        return value as MainInput & { accepted: boolean };
-      })
+      .map((file) => readDurableMainMessage(root, taskId, file))
   );
-  return values;
 }
 const versionsPath = (root: string, taskId: string) =>
   join(root, taskId, "sessions", "main", "versions.json");
