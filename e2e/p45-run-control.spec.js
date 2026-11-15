@@ -233,7 +233,7 @@ test("cancel asks before it stops the run and keeps the run on 继续运行", as
     const stop = page.locator("#stop-button");
     await expect(stop).toHaveAccessibleName("中断本回合");
     await stop.click();
-    const dialog = page.locator("#run-cancel-confirm");
+    const dialog = page.locator("#run-interrupt-confirm");
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText("中断本回合？");
     await expect(dialog).toContainText("会话、子代理和已完成的内容都保留");

@@ -1349,11 +1349,14 @@ export function createDashboardRunService({
     // cannot rewrite a Run another process owns.
     if (submission?.onRunAccepted) await submission.onRunAccepted(location, runId);
     const inputPath = mainInputPath(taskWorkspace, taskId, runId);
+    // A promoted queued message carries the queue marker so this launch can
+    // find its row; the accepted message is the person's own text.
+    const queuedTurn = readQueuedUserTurn(prompt);
     const input = continuation
       ? await readMainInput(mainInputPath(taskWorkspace, taskId, task.activeRunId!))
       : {
           version: 1 as const,
-          prompt,
+          prompt: queuedTurn?.text ?? prompt,
           submittedAt: Date.now(),
           body: submission?.body,
           taskId,
@@ -1364,8 +1367,7 @@ export function createDashboardRunService({
             ? { thinkingLevel: normalizeReasoningEffort(submission.thinkingLevel, "thinkingLevel") }
             : {}),
           messageId,
-          source:
-            submission?.source ?? (readQueuedUserTurn(prompt) ? ("inbox" as const) : ("composer" as const))
+          source: submission?.source ?? (queuedTurn ? ("inbox" as const) : ("composer" as const))
         };
     if (input) await saveMainInput(inputPath, input);
     if (input && !continuation) {
@@ -1432,14 +1434,23 @@ export function createDashboardRunService({
         createdAt
       });
     } else if (!continuation && !submission?.edit) {
-      await inbox.enqueue({
+      // A promoted queued message already owns a durable row. This launch is
+      // its turn, so it opens that row instead of leaving a copy the process
+      // could never read; the process reads the person's text, not the queue
+      // marker that carried the identity this far.
+      await inbox.startTurn({
         messageId,
         recipientAgentId: "main",
         kind: "human_command",
         eventId: `main-turn-${messageId}`,
         priority: 120,
         state: "ready",
-        payload: { type: "human.message", message: prompt, delivery: "steer", initial: true },
+        payload: {
+          type: "human.message",
+          message: queuedTurn?.text ?? prompt,
+          delivery: "steer",
+          initial: true
+        },
         createdAt
       });
     }

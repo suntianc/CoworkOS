@@ -149,9 +149,9 @@ html[data-theme] .composer .run-control[data-state="paused"] {
   outline-offset: 2px;
 }
 
-/* Cancel is confirmed where the run is: a small popover above its button,
+/* Interrupting is confirmed where the turn is: a small popover above its button,
    title and two choices only. */
-.run-cancel-confirm {
+.run-interrupt-confirm {
   position: absolute;
   right: 0;
   bottom: calc(100% + 10px);
@@ -166,23 +166,23 @@ html[data-theme] .composer .run-control[data-state="paused"] {
   background: var(--popover-fill);
   box-shadow: var(--popover-shadow);
 }
-.run-cancel-confirm[hidden] {
+.run-interrupt-confirm[hidden] {
   display: none;
 }
-.run-cancel-confirm h2 {
+.run-interrupt-confirm h2 {
   margin: 0;
   color: var(--color-text);
   font-size: 14px;
   font-weight: 600;
   line-height: 20px;
 }
-.run-cancel-confirm p {
+.run-interrupt-confirm p {
   margin: -4px 0 0;
   color: var(--color-text-2);
   font-size: 12px;
   line-height: 1.6;
 }
-.run-cancel-actions {
+.run-interrupt-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
@@ -368,7 +368,7 @@ html[data-theme] #toast.toast {
     right: 12px;
     width: calc(100vw - 24px);
   }
-  .run-cancel-confirm {
+  .run-interrupt-confirm {
     right: 8px;
     width: min(260px, calc(100vw - 32px));
   }

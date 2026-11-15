@@ -79,7 +79,7 @@ test("real retries announce HTTP failure and a stopped request never becomes com
     await send("需要停止的请求");
     await expect(page.locator("#conversation")).toContainText("只输出了部分内容", { timeout: 30000 });
     await page.locator("#stop-button").click();
-    await page.locator("#run-cancel-confirm").getByRole("button", { name: "中断本回合" }).click();
+    await page.locator("#run-interrupt-confirm").getByRole("button", { name: "中断本回合" }).click();
     await expect(page.locator("#send-button")).toBeVisible();
     await send("继续新的请求");
     await expect(page.locator('[data-answer-kind="final"]').last()).toContainText("后续请求完成", {
@@ -87,7 +87,7 @@ test("real retries announce HTTP failure and a stopped request never becomes com
     });
     await page.reload();
     const stopped = page.locator(".live-workflow").filter({ hasText: "只输出了部分内容" });
-    await expect(stopped).toContainText("执行已停止");
+    await expect(stopped).toContainText("等待继续");
     await expect(stopped).toContainText("整轮任务未完成");
     await expect(stopped).not.toContainText("整轮任务已完成");
   } finally {

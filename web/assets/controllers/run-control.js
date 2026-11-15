@@ -14,8 +14,8 @@ const ACTIVE_AGENT_STATES = new Set(["running", "waiting", "queued"]);
  * until that boundary is recorded, so a second click cannot look like a new
  * request. A paused round keeps the strip, amber, with 继续 as its one action.
  *
- * Stopping lives on the composer's stop key; it is confirmed in place, because
- * the confirmation is a choice about the current run.
+ * Interrupting lives on the composer's stop key; it is confirmed in place,
+ * because the confirmation is a choice about the current turn.
  */
 export function createRunControl({
   state,
@@ -23,12 +23,12 @@ export function createRunControl({
   api,
   showToast,
   onChanged,
-  cancelRun,
+  interruptRun,
   continueRun,
   isContinuing
 }) {
   const root = $("#run-control");
-  const confirm = $("#run-cancel-confirm");
+  const confirm = $("#run-interrupt-confirm");
   const pauseButton = root?.querySelector("[data-run-pause]");
   const continueButton = root?.querySelector("[data-run-continue]");
   const label = root?.querySelector("[data-run-label]");
@@ -83,8 +83,8 @@ export function createRunControl({
     confirmTrigger?.setAttribute("aria-expanded", "false");
     if (restoreFocus && confirmTrigger?.isConnected && !confirmTrigger.hidden) confirmTrigger.focus();
   }
-  /** The stop key opens the confirmation instead of stopping straight away. */
-  function confirmStop(trigger) {
+  /** The stop key opens the confirmation instead of interrupting straight away. */
+  function confirmInterrupt(trigger) {
     if (!confirm) return;
     if (!confirm.hidden) return closeConfirm({ restoreFocus: true });
     confirmTrigger = trigger;
@@ -115,11 +115,11 @@ export function createRunControl({
     }
   }
 
-  async function confirmCancel() {
+  async function applyInterrupt() {
     const task = selectedTask();
     closeConfirm({ restoreFocus: true });
     if (!task || task.taskId !== state.selected) return;
-    await cancelRun?.(task.taskId);
+    await interruptRun?.(task.taskId);
   }
 
   function renderLabel() {
@@ -194,7 +194,7 @@ export function createRunControl({
   confirm
     ?.querySelector("[data-confirm-continue]")
     ?.addEventListener("click", () => closeConfirm({ restoreFocus: true }));
-  confirm?.querySelector("[data-confirm-cancel]")?.addEventListener("click", () => void confirmCancel());
+  confirm?.querySelector("[data-confirm-interrupt]")?.addEventListener("click", () => void applyInterrupt());
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || confirm?.hidden) return;
     event.preventDefault();
@@ -208,7 +208,7 @@ export function createRunControl({
 
   return {
     render,
-    confirmStop,
+    confirmInterrupt,
     /** The requirement panel publishes its phase after its own read settles. */
     setRequirementStage(value) {
       stage = value || "";

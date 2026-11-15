@@ -1059,12 +1059,16 @@ test(
     // Freeing the slot resumes the durable answer through the program's queue.
     local.release("blocker");
     await settle(request, blockerSession.taskId, "completed");
-    await waitFor(
-      async () =>
-        (await capacity(request)).body.running.some((entry) => entry.taskId === answerSession.taskId),
-      "the queued answer did not resume after the slot was released"
-    );
-    await waitFor(() => local.tags().includes("answer-turn"), "the answer never reached the model");
+    // The answer starts and its turn may settle again before a poll sees it in
+    // `running`, so the observation is that it reached the model and left the
+    // queue — the slot it took is released with its turn.
+    await waitFor(async () => {
+      const view = await capacity(request);
+      return (
+        local.tags().includes("answer-turn") &&
+        !view.body.queued.some((entry) => entry.taskId === answerSession.taskId)
+      );
+    }, "the queued answer did not resume after the slot was released");
     await settle(request, answerSession.taskId, "completed");
     assert.deepEqual((await capacity(request)).body.queued, []);
 

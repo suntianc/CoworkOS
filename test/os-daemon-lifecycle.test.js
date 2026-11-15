@@ -15,8 +15,9 @@ import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
  * it over the local HTTP API, and only then asks the process to stop. The
  * point is the seam between a client's lifetime and the backend's: a task has
  * to keep running after the client that started it exits, the instance has to
- * be the same one when the client reconnects, and an explicit stop has to
- * finish managed work instead of abandoning it.
+ * be the same one when the client reconnects, and an explicit stop has to end
+ * the daemon without reaping the resident Main it only observes — the next
+ * backend adopts that process, and closing the session is what ends it.
  */
 
 const repositoryRoot = resolve(new URL("..", import.meta.url).pathname);
@@ -199,7 +200,39 @@ async function createTask(root) {
   return project.body.project;
 }
 
+/** Close one session through the running backend; its resident Main ends with it. */
+async function closeSession(root, taskId) {
+  const response = await api(root, "POST", `/api/tasks/${encodeURIComponent(taskId)}/action`, {
+    action: "cancel"
+  });
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  await waitFor(
+    `the resident Main of ${taskId} to end with its session`,
+    async () => {
+      const current = await api(root, "GET", `/api/tasks/${encodeURIComponent(taskId)}`);
+      return !current.body.runtime.mainRunning ? current.body : undefined;
+    },
+    30_000
+  );
+  return response.body;
+}
+
 async function stopQuietly(root) {
+  // A resident Main outlives the backend that launched it, so a session left
+  // open would keep a process past the test. Close it while a backend still
+  // serves the root; the direct kill below only covers the backend record.
+  try {
+    const listed = await api(root, "GET", "/api/tasks");
+    for (const task of listed.body.tasks) {
+      const detail = await api(root, "GET", `/api/tasks/${encodeURIComponent(task.taskId)}`);
+      if (detail.body.runtime?.mainRunning)
+        await api(root, "POST", `/api/tasks/${encodeURIComponent(task.taskId)}/action`, {
+          action: "cancel"
+        });
+    }
+  } catch {
+    /* no backend is serving this root */
+  }
   try {
     await runBackend(["stop"], root.env);
   } catch {
@@ -376,11 +409,16 @@ process.stdout.write("started");
     );
     assert.equal(downloadAgain.status, 200);
     assert.equal(await downloadAgain.text(), report);
+
+    // The resident Main outlived the backend it was launched by; closing the
+    // session is what ends it, and the completed outcome stays.
+    const closed = await closeSession(root, "daemon-task");
+    assert.equal(closed.status, "completed");
   }
 );
 
 test(
-  "an explicit stop reaps a live managed Run and a restart keeps backend identity and task history",
+  "an explicit stop leaves the managed Main for the next backend to adopt, and closing the session ends it",
   { timeout: 120_000 },
   async (t) => {
     const root = await createRoot("atria-daemon-stop-");
@@ -429,19 +467,32 @@ test(
     assert.equal(second.pid, started.pid);
     assert.equal(second.backendId, started.backendId);
 
+    // An explicit stop ends the daemon, not the resident Main it was only
+    // observing: the process is left for the next backend to adopt.
     const stopped = await stopBackend(root.env);
     assert.equal(stopped.state, "stopped");
     assert.equal(alive(started.pid), false, "the backend exited");
-    await waitFor("the managed Main process to be reaped", async () => !alive(heartbeat.pid), 10_000);
+    assert.equal(alive(heartbeat.pid), true, "the resident Main outlives the backend");
 
     const restarted = await startBackend(root.env);
     assert.equal(restarted.backendId, started.backendId);
     assert.notEqual(restarted.pid, started.pid);
-    const recovered = await api(root, "GET", "/api/tasks/daemon-task");
-    assert.equal(recovered.body.task.taskId, "daemon-task");
-    assert.equal(recovered.body.task.goal, "整理输入并交付报告");
-    assert.equal(recovered.body.runtime.active, false, "the stopped Run is not reported as live");
+    const recovered = await waitFor("the new backend to adopt the running Main", async () => {
+      const current = await api(root, "GET", "/api/tasks/daemon-task");
+      return current.body.runtime.mainRunning && current.body.runtime.active ? current.body : undefined;
+    });
+    assert.equal(recovered.task.taskId, "daemon-task");
+    assert.equal(recovered.task.goal, "整理输入并交付报告");
     assert.equal((await backendCommand(["status"], root.env)).state, "running");
+
+    // Closing the session through the adopted backend is the manual exit: it
+    // ends the process that was mid-turn and settles the Task as cancelled.
+    const closed = await closeSession(root, "daemon-task");
+    assert.equal(closed.status, "cancelled");
+    await waitFor("the closed Main process to exit", async () => !alive(heartbeat.pid), 30_000);
+    const afterClose = await api(root, "GET", "/api/tasks/daemon-task");
+    assert.equal(afterClose.body.runtime.active, false);
+    assert.equal(afterClose.body.task.goal, "整理输入并交付报告");
   }
 );
 
@@ -614,6 +665,11 @@ test("jobs close normally and survive an explicit backend stop", { timeout: 150_
   assert.ok(recoveredJob, JSON.stringify(afterRestart.body.jobs));
   assert.equal(recoveredJob.state, "exited");
   assert.equal(recoveredJob.logPath, job.logPath);
+
+  // The restarted backend adopted the resident Main; closing its session ends
+  // the process so the completed Task leaves none behind.
+  const closed = await closeSession(root, "daemon-task");
+  assert.equal(closed.status, "completed");
 });
 
 function exitWithin(child, timeoutMs) {

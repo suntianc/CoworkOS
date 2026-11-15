@@ -320,6 +320,27 @@ export class InboxStore {
     });
   }
 
+  /**
+   * Open the first turn a launch brings.
+   *
+   * A promoted queued message already owns a durable row; the launch owns that
+   * row, so it replaces the lease the promotion took instead of leaving a copy
+   * its own process can never read. Any other id is a normal first turn.
+   */
+  async startTurn(message: InboxMessage): Promise<InboxMessage> {
+    return this.withLock(async () => {
+      const messages = await this.read();
+      const index = messages.findIndex((candidate) => candidate.messageId === message.messageId);
+      if (index >= 0) {
+        if (messages[index].state === "consumed") return messages[index];
+        messages[index] = message;
+      } else messages.push(message);
+      await this.write(messages);
+      this.wakeOwner();
+      return message;
+    });
+  }
+
   async lease(
     recipientAgentId: string,
     leaseMs = INBOX_MESSAGE_LEASE_MS,

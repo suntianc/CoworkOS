@@ -169,8 +169,13 @@ test("stopped queued messages can be cancelled or sent once without losing the c
     }
     await page.getByRole("button", { name: "撤回：CANCEL_WHILE_RUNNING", exact: true }).click();
     await expect(page.locator("#queued-messages")).not.toContainText("CANCEL_WHILE_RUNNING");
-    await page.locator("#stop-button").click();
-    await page.locator("#run-cancel-confirm").getByRole("button", { name: "取消运行" }).click();
+    // The stop key only interrupts the turn and keeps the session, so the
+    // queue would be delivered with it. Closing the session is what leaves
+    // the queued messages waiting, which is the behaviour this case tests.
+    await page.locator(`.conversation-item[data-task="${taskId}"]`).hover();
+    await page.locator(`.conversation-item[data-task="${taskId}"]`).click({ button: "right" });
+    await page.locator('[data-session-action="stop"]').click();
+    await expect(page.locator("#toast")).toContainText("会话已关闭，已保存的内容保留");
     await expect(page.locator("#stop-button")).toBeHidden();
     releaseFirst();
     await page.reload();
