@@ -251,27 +251,13 @@ test("human drafts keep focus through timeout and failed submission without repl
   }
 });
 
-test("a legacy answer migrates once and a late rejection cannot take focus from another task", async ({
-  page
-}) => {
+test("a late rejected submission cannot take focus from another task", async ({ page }) => {
   const dashboard = await startDashboard();
   try {
-    await page.addInitScript(() =>
-      sessionStorage.setItem(
-        "atria-human-draft:human-task:question-one",
-        JSON.stringify({ text: "旧版本中的回复", choice: 1 })
-      )
-    );
     await questionFixture(page, dashboard.base);
     const answer = page.getByRole("textbox", { name: "其他回答或补充说明" });
-    await expect(answer).toHaveValue("旧版本中的回复");
-    await expect(page.getByRole("radio", { name: "PDF", exact: true })).toBeChecked();
-    expect(
-      await page.evaluate(() => sessionStorage.getItem("atria-human-draft:human-task:question-one"))
-    ).toBeNull();
-    expect(
-      await page.evaluate(() => JSON.parse(localStorage.getItem("atria.human.v1:human-task:question-one")))
-    ).toEqual({ text: "旧版本中的回复", choice: 1 });
+    await page.getByRole("radio", { name: "PDF", exact: true }).check();
+    await answer.fill("提交中的回复");
     await page.getByRole("button", { name: "提交并继续", exact: true }).click();
     await page.evaluate(() => window.humanFixture.changeTask("human-other"));
     await answer.fill("另一任务的回复");
@@ -427,8 +413,7 @@ test("human drafts belong to their task and memory-only changes refuse a desktop
     await page.evaluate(() => {
       window.__realHumanSetItem = Storage.prototype.setItem;
       Storage.prototype.setItem = function (key, value) {
-        if (key.startsWith("atria.human.v1:") || key.startsWith("atria-human-draft:"))
-          throw new DOMException("quota fixture", "QuotaExceededError");
+        if (key.startsWith("atria.human.v1:")) throw new DOMException("quota fixture", "QuotaExceededError");
         return window.__realHumanSetItem.call(this, key, value);
       };
     });

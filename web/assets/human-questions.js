@@ -70,17 +70,12 @@ export function createHumanQuestions(root, { submit, resume, onVisibility, onErr
   let displayedTaskId;
   const keyFor = (taskId, requestId) =>
     `atria.human.v1:${encodeURIComponent(taskId)}:${encodeURIComponent(requestId)}`;
-  const legacyKeyFor = (key) => {
-    const [taskId, requestId] = key.slice("atria.human.v1:".length).split(":").map(decodeURIComponent);
-    return `atria-human-draft:${taskId}:${requestId}`;
-  };
   const storageMessage = ui("人工回复草稿暂时无法保存，请保留当前窗口");
   function persist(key, draft) {
     pendingStorage.set(key, draft);
     try {
       if (draft === null) localStorage.removeItem(key);
       else localStorage.setItem(key, JSON.stringify(draft));
-      sessionStorage.removeItem(legacyKeyFor(key));
       window.bookmanDesktop?.saveComposerDrafts?.();
       pendingStorage.delete(key);
       storageErrors.delete(key);
@@ -94,14 +89,10 @@ export function createHumanQuestions(root, { submit, resume, onVisibility, onErr
     if (!drafts.has(key)) {
       let draft = {};
       try {
-        const current = localStorage.getItem(key);
-        const legacy = current === null ? sessionStorage.getItem(legacyKeyFor(key)) : null;
-        const saved = JSON.parse(current ?? legacy ?? "null");
+        const saved = JSON.parse(localStorage.getItem(key) ?? "null");
         if (saved && typeof saved.text === "string") {
           draft = { text: saved.text };
           if (Number.isSafeInteger(saved.choice) && saved.choice >= 0) draft.choice = saved.choice;
-          // Remove the old tab-only copy only after the durable write succeeds.
-          if (legacy !== null) persist(key, draft);
         }
         // eslint-disable-next-line no-restricted-syntax -- 存储被禁用或草稿 JSON 损坏时读取与解析都会抛出，此时不预选任何答案
       } catch {

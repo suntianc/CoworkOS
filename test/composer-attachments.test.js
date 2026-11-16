@@ -276,52 +276,6 @@ test("message edit keeps the original draft through navigation, restart, cancell
   assert.equal(restarted.session.editing, undefined);
 });
 
-test("legacy edit envelopes restore the bottom draft separately from message text and attachments", () => {
-  const input = { value: "", addEventListener() {} };
-  let files = [];
-  const records = new Map([
-    [
-      "atria.composer.v1:task-a",
-      JSON.stringify({
-        text: "legacy edited message",
-        attachments: [{ name: "edit.txt", text: "edited attachment" }],
-        editing: {
-          messageId: "user",
-          editId: "saved-edit",
-          body: "original message",
-          original: {
-            text: "legacy composer draft",
-            attachments: [{ name: "draft.txt", text: "draft attachment" }]
-          }
-        }
-      })
-    ]
-  ]);
-  const session = createComposerSession({
-    input,
-    getAttachments: () => files,
-    setAttachments: (value) => {
-      files = value;
-    },
-    storage: {
-      getItem: (key) => records.get(key),
-      setItem: (key, value) => records.set(key, value),
-      removeItem: (key) => records.delete(key)
-    }
-  });
-  session.activate("task-a");
-  assert.equal(input.value, "legacy composer draft");
-  assert.equal(files[0].name, "draft.txt");
-  assert.equal(session.editSnapshot().text, "legacy edited message");
-  assert.equal(session.editSnapshot().attachments[0].name, "edit.txt");
-  input.value = "continued composer draft";
-  session.save();
-  assert.equal(JSON.parse(records.get("atria.composer.v1:task-a")).editing.original.text, input.value);
-  session.finishEdit();
-  assert.equal(input.value, "continued composer draft");
-  assert.equal(files[0].name, "draft.txt");
-});
-
 test("uploaded attachment and text survive a fresh composer session and remain isolated by task", async () => {
   const records = new Map();
   const storage = {

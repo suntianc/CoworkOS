@@ -54,7 +54,7 @@ test("desktop lets users recover separate unbound drafts to chosen projects", as
   try {
     await launch();
     const projects = [];
-    for (const name of ["Current one", "Current two", "Old one", "Old two"]) {
+    for (const name of ["Current one", "Current two", "Current three"]) {
       const directory = join(root, name.replaceAll(" ", "-"));
       await mkdir(directory);
       const response = await fetch(primary.url + "/api/projects", {
@@ -111,18 +111,6 @@ test("desktop lets users recover separate unbound drafts to chosen projects", as
       await observer.dispose();
       await one.dispose();
       await two.dispose();
-      // Historical unmarked and pre-lease ready formats.
-      for (const [id, index, text] of [
-        ["1".repeat(32), 2, "old one"],
-        ["2".repeat(32), 3, "old two"]
-      ]) {
-        localStorage.setItem(
-          `atria.composer.v1:__prebind__:${id}:new:${encodeURIComponent(projects[index].projectId)}`,
-          JSON.stringify({ text, attachments: [{ name: text + ".txt", text: text + " bytes" }] })
-        );
-        if (index === 3)
-          localStorage.setItem(`atria.composer.v1:__prebind__:${id}:active`, JSON.stringify(`ready:${id}`));
-      }
       window.bookmanDesktop.saveComposerDrafts();
       return {
         closed,
@@ -143,7 +131,7 @@ test("desktop lets users recover separate unbound drafts to chosen projects", as
     const dialog = page.getByRole("dialog", { name: "恢复草稿" });
     const source = dialog.getByLabel("待恢复草稿");
     const target = dialog.getByLabel("目标项目");
-    for (const [index, text] of ["current one", "current two", "old one", "old two"].entries()) {
+    for (const [index, text] of ["current one", "current two"].entries()) {
       await button.click();
       await expect(dialog).toBeVisible();
       await expect(dialog.getByLabel("目标后端")).toHaveValue(primary.backendId);
@@ -171,12 +159,12 @@ test("desktop lets users recover separate unbound drafts to chosen projects", as
       );
     }
     await page.locator("#composer-input").fill("");
-    await page.getByRole("button", { name: "移除 old two.txt" }).click();
+    await page.getByRole("button", { name: "移除 current two.txt" }).click();
     await native.close();
     native = undefined;
     await launch();
     await expect(page.locator("#composer-input")).toHaveValue("");
-    await expect(page.getByRole("button", { name: "移除 old two.txt" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "移除 current two.txt" })).toHaveCount(0);
     const final = await page.evaluate(
       ({ backend, projects }) => ({
         destinations: projects.map((project) =>
@@ -192,15 +180,11 @@ test("desktop lets users recover separate unbound drafts to chosen projects", as
       }),
       { backend: primary.backendId, projects }
     );
-    expect(final.destinations.map((draft) => draft?.text || "")).toEqual([
-      "current one",
-      "current two",
-      "old one",
-      ""
-    ]);
-    expect(Object.values(final.sources).some((value) => value.includes("old one"))).toBe(true);
-    expect(Object.values(final.sources).some((value) => value.includes("old two"))).toBe(true);
-    console.log(JSON.stringify({ event: "deleted-after-restart", project: projects[3].projectId, ...final }));
+    // The recovered draft whose text was cleared stays deleted; the other keeps
+    // its text and the untouched project stays empty.
+    expect(final.destinations.map((draft) => draft?.text || "")).toEqual(["current one", "", ""]);
+    expect(Object.values(final.sources).filter((value) => value.includes("current"))).toEqual([]);
+    console.log(JSON.stringify({ event: "deleted-after-restart", project: projects[1].projectId, ...final }));
     expect(errors).toEqual([]);
   } finally {
     await native?.close();

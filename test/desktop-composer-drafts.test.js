@@ -20,7 +20,7 @@ test("valid envelopes containing malformed draft records are backed up instead o
     const root = await mkdtemp(join(tmpdir(), "atria-draft-inner-damaged-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const path = join(root, "composer-drafts.json");
-    const original = JSON.stringify({ version: 1, entries: { "atria.composer.v1:new": value } });
+    const original = JSON.stringify({ version: 4, entries: { "atria.composer.v1:new": value } });
     await writeFile(path, original);
     const store = createComposerDraftStore(root);
     await store.load();
@@ -104,7 +104,7 @@ test("oversized drafts leave the last good snapshot intact and queued writes ret
   assert.deepEqual(await readdir(root), ["composer-drafts.json"]);
 });
 
-test("damaged drafts are preserved for recovery and future versions cannot be overwritten", async (t) => {
+test("damaged and older drafts are preserved for recovery and future versions cannot be overwritten", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-draft-damaged-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const path = join(root, "composer-drafts.json");
@@ -115,6 +115,22 @@ test("damaged drafts are preserved for recovery and future versions cannot be ov
   const backup = (await readdir(root)).find((name) => name.startsWith("composer-drafts.json.invalid-"));
   assert.equal(await readFile(join(root, backup), "utf8"), "{damaged draft file");
   await store.save(draft("fresh draft"));
+  // An older envelope is not upgraded: it is kept byte for byte beside the file
+  // and the store starts empty, like any other unreadable draft record.
+  const older = JSON.stringify({ version: 3, entries: draft("older") });
+  await writeFile(path, older);
+  const previous = createComposerDraftStore(root);
+  await previous.load();
+  assert.match(previous.snapshot().warning, /损坏/);
+  assert.deepEqual(previous.snapshot().entries, {});
+  const olderBackup = (await readdir(root)).filter((name) =>
+    name.startsWith("composer-drafts.json.invalid-")
+  );
+  assert.equal(olderBackup.length, 2);
+  const restored = await Promise.all(olderBackup.map((name) => readFile(join(root, name), "utf8")));
+  assert.ok(restored.includes(older));
+  await previous.save(draft("after older backup"));
+  assert.equal(JSON.parse(await readFile(path, "utf8")).version, 4);
   await writeFile(path, JSON.stringify({ version: 5, entries: draft("future") }));
   const future = createComposerDraftStore(root);
   await future.load();
@@ -122,18 +138,17 @@ test("damaged drafts are preserved for recovery and future versions cannot be ov
   assert.equal(JSON.parse(await readFile(path, "utf8")).version, 5);
 });
 
-test("human reply records upgrade a compatible profile and validate choices without capturing other data", async (t) => {
+test("human reply records validate choices without capturing other data", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-human-profile-version-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const path = join(root, "composer-drafts.json");
   const original = draft("compatible composer");
-  await writeFile(path, JSON.stringify({ version: 1, entries: original }));
-  const store = createComposerDraftStore(root);
-  await store.load();
   const humanKey = "atria.human.v1:task-id:request-id";
   const entries = { ...original, [humanKey]: JSON.stringify({ text: "人工回复 😀", choice: 1 }) };
+  const store = createComposerDraftStore(root);
+  await store.load();
   await store.save(entries, "http://127.0.0.1:43800");
-  assert.equal(JSON.parse(await readFile(path, "utf8")).version, 2);
+  assert.deepEqual(JSON.parse(await readFile(path, "utf8")).entries, { ...entries });
   assert.equal((await stat(path)).mode & 0o777, 0o600);
   const restored = createComposerDraftStore(root);
   await restored.load();
@@ -148,7 +163,6 @@ test("human reply records upgrade a compatible profile and validate choices with
     await assert.rejects(restored.save({ ...original, [humanKey]: JSON.stringify(record) }), /人工回复/);
   assert.deepEqual(restored.snapshot().entries, entries);
   await restored.save(original);
-  assert.equal(JSON.parse(await readFile(path, "utf8")).version, 1);
   assert.deepEqual(restored.snapshot().entries, original);
 });
 
@@ -168,7 +182,7 @@ test("upload references survive a desktop restart without storing file contents 
   await store.load();
   await store.save(entries, "http://127.0.0.1:45000");
   const saved = JSON.parse(await readFile(join(root, "composer-drafts.json"), "utf8"));
-  assert.equal(saved.version, 3);
+  assert.equal(saved.version, 4);
   const restored = createComposerDraftStore(root);
   await restored.load();
   assert.deepEqual(restored.snapshot().entries, entries);

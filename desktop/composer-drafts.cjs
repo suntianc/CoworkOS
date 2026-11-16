@@ -23,10 +23,8 @@ const validAttachments = (files) =>
  */
 const isSessionMarker = (key) =>
   key === `${prefix}active` || (key.startsWith(prefix) && key.endsWith(":active"));
-const hasEditing = (entries) =>
-  Object.entries(entries).some(
-    ([key, value]) => key.startsWith(prefix) && !isSessionMarker(key) && JSON.parse(value)?.editing
-  );
+/** Only the current envelope is read; older versions take the damaged-file path. */
+const currentVersion = 4;
 
 function validateEntries(entries, limit = maximumBytes) {
   if (!entries || typeof entries !== "object" || Array.isArray(entries))
@@ -107,20 +105,13 @@ function createComposerDraftStore(userData, { limit = maximumBytes } = {}) {
       try {
         if ((await fs.stat(path)).size > limit + 1024) throw new Error("draft file too large");
         const saved = JSON.parse(await fs.readFile(path, "utf8"));
-        if (saved?.version > 4) {
+        if (saved?.version > currentVersion) {
           blocked = "草稿由较新版本创建，请使用对应版本并保留当前窗口";
           warning = blocked;
           return;
         }
-        if (saved?.version !== 1 && saved?.version !== 2 && saved?.version !== 3 && saved?.version !== 4)
-          throw new Error("invalid draft version");
-        if (
-          saved.version === 1 &&
-          Object.keys(saved.entries || {}).some((key) => key.startsWith(humanPrefix))
-        )
-          throw new Error("invalid draft version");
+        if (saved?.version !== currentVersion) throw new Error("invalid draft version");
         entries = validateEntries(saved.entries, limit);
-        if (saved.version < 4 && hasEditing(entries)) throw new Error("invalid edit draft version");
         origin = typeof saved.origin === "string" ? saved.origin : undefined;
         persisted = true;
       } catch (error) {
@@ -156,22 +147,7 @@ function createComposerDraftStore(userData, { limit = maximumBytes } = {}) {
           try {
             await fs.writeFile(
               temporary,
-              JSON.stringify({
-                version: hasEditing(validated)
-                  ? 4
-                  : Object.entries(validated).some(
-                        ([key, value]) =>
-                          key.startsWith(prefix) &&
-                          !isSessionMarker(key) &&
-                          JSON.parse(value)?.attachments?.some((file) => file.uploadId)
-                      )
-                    ? 3
-                    : Object.keys(validated).some((key) => key.startsWith(humanPrefix))
-                      ? 2
-                      : 1,
-                origin: sourceOrigin,
-                entries: validated
-              }),
+              JSON.stringify({ version: currentVersion, origin: sourceOrigin, entries: validated }),
               { mode: 0o600 }
             );
             await fs.rename(temporary, path);
