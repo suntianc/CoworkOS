@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { createDashboardRunService } from "../dist/src/dashboard/run-service.js";
 import { readJsonFile } from "../dist/src/dashboard/event-stream.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+import { mainInputPath, saveMainInput } from "../dist/src/runtime/main-continuation.js";
 import { readSleep, writeSleep } from "../dist/src/runtime/main-sleep.js";
 import { singleConnectionMainModel } from "./role-model-fixture.mjs";
 
@@ -232,6 +233,16 @@ test("successful current retry is not rejected by its historical failed snapshot
   const previous = assistant("error", "历史失败。");
   const output = event(assistant("error", "500 临时上游错误。")) + event(assistant("stop"));
   const f = await fixture(t, { previous, output });
+  // Every launch saves the accepted input its continuation restores, so the
+  // historical Run a retry resumes has one.
+  await saveMainInput(mainInputPath(f.workspaceRoot, "task", "historical-run"), {
+    version: 1,
+    prompt: "继续本次隔离请求。",
+    submittedAt: Date.now() - 1_000,
+    taskId: "task",
+    runId: "historical-run",
+    source: "composer"
+  });
   await f.store.updateTask("task", { activeRunId: "historical-run" });
   await f.service.startMainRun("task", "", "retry", true);
   assert.equal((await f.settle()).status, "completed");

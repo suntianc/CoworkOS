@@ -116,6 +116,7 @@ async function renderSyntheticThought(page, base, firstThoughtInput) {
               type: "tool_execution_end",
               toolCallId: id,
               toolName: name,
+              isError: index === 4,
               result: {
                 content: [
                   {
@@ -125,8 +126,7 @@ async function renderSyntheticThought(page, base, firstThoughtInput) {
                         ? "Error: Cannot find module fixture.mjs\nCommand exited with code 1"
                         : "完成"
                   }
-                ],
-                isError: index === 4
+                ]
               }
             });
         }

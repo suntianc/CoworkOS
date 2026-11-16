@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { createCatalogEvents } from "../dist/src/dashboard/catalog-events.js";
 import { EventLedger } from "../dist/src/dashboard/event-ledger.js";
 import { createWorkspaceDirectory } from "../dist/src/dashboard/workspace-directory.js";
+import { GlobalProjectCatalog } from "../dist/src/workspace/project-catalog.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { ACTIVITY_SLICE_MS, readTaskActivity } from "../dist/src/runtime/activity-metrics.js";
 import { createManagementEventClient } from "../web/assets/controllers/management-events.js";
@@ -39,7 +40,16 @@ async function runFixture(t, { startedMs, output }) {
   const root = await mkdtemp(join(tmpdir(), "atria-activity-bounds-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const storage = join(root, "workspace");
+  const projectDirectory = join(root, "project");
+  await mkdir(projectDirectory);
+  const catalog = new GlobalProjectCatalog(join(root, "projects.json"));
+  const project = await catalog.create({ projectName: "Activity bounds", projectDirectory });
   const store = new LocalWorkspaceStore(storage);
+  await store.createTask("task", {
+    projectId: project.projectId,
+    projectCatalogPath: catalog.filePath,
+    projectDirectory
+  });
   await store.createRun("task", "run");
   const runRoot = join(storage, "task", "runs", "run");
   await writeFile(
@@ -179,8 +189,8 @@ test(
     const events = createCatalogEvents({ ledger, readCatalog: directory.globalTaskPayload });
     t.after(() => events.close());
 
-    // The first read assigns the legacy Task to a project; measure the catalog
-    // once that settlement is behind us.
+    // Measure the catalog on its settled second read, after the first reconcile
+    // has written whatever the opening read had to settle.
     await events.snapshot();
     const snapshot = await events.snapshot();
     const task = snapshot.tasks.find((item) => item.taskId === "task");
