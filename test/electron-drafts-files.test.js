@@ -243,40 +243,6 @@ test("P3: another live unbound session is not adopted with a completed session",
   assert.equal(live.input.value, "live A");
 });
 
-test("P3: an unindexed prior candidate's single saved prebind project is recoverable", () => {
-  const storage = migrationStorage();
-  const key = "atria.composer.v1:__prebind__:0123456789abcdef0123456789abcdef:new:p1";
-  storage.setItem(key, JSON.stringify({ text: "old saved project", attachments: [attached] }));
-  storage.setItem("atria.composer.v1:active", JSON.stringify("new:p1"));
-  const view = draftFixture(storage);
-  view.session.activate(null);
-  view.session.setBackend("backend-a");
-  view.session.activate(null, { projectId: "p1" });
-  assert.equal(view.input.value, "old saved project");
-  assert.deepEqual(view.files(), [attached]);
-});
-
-test("P3: an unindexed prior global draft survives a legacy ownership conflict", () => {
-  const storage = migrationStorage();
-  storage.setItem("atria.composer.v1:new", JSON.stringify({ text: "legacy A", attachments: [] }));
-  storage.setItem("atria.composer.v1:backend-a:new", JSON.stringify({ text: "existing A", attachments: [] }));
-  storage.setItem("atria.composer.v1:legacy-owner:active", JSON.stringify("backend-a"));
-  storage.setItem("atria.composer.v1:active", JSON.stringify("new"));
-  storage.setItem(
-    "atria.composer.v1:__prebind__:0123456789abcdef0123456789abcdef:new",
-    JSON.stringify({ text: "old B", attachments: [attached] })
-  );
-  const view = draftFixture(storage);
-  view.session.activate(null);
-  view.session.setBackend("backend-b");
-  view.session.activate(null);
-  assert.equal(view.input.value, "old B");
-  assert.deepEqual(view.files(), [attached]);
-  view.session.setBackend("backend-a");
-  view.session.activate(null);
-  assert.equal(view.input.value, "existing A");
-});
-
 test("P3: a conflicting recovered destination stays deleted after restart", () => {
   const storage = migrationStorage();
   const first = draftFixture(storage);
@@ -417,85 +383,21 @@ test("P3: separately closed sessions can be explicitly recovered without overwri
   assert.equal(restarted.input.value, "second");
 });
 
-test("P3: older unindexed groups can be individually assigned without losing their sources", async () => {
-  // These are the key/value shapes emitted by two 90b7bfd0 production
-  // sessions which saved p1 and p2 and successfully prepared to close.
-  const storage = migrationStorage();
-  for (const [id, project] of [
-    ["1".repeat(32), "p1"],
-    ["2".repeat(32), "p2"]
-  ]) {
-    storage.setItem(
-      `atria.composer.v1:__prebind__:${id}:new:${project}`,
-      JSON.stringify({
-        text: `saved ${project}`,
-        attachments: [{ name: `${project}.txt`, text: `bytes ${project}` }]
-      })
-    );
-  }
-  const view = draftFixture(storage);
-  view.session.activate(null);
-  view.session.setBackend("backend-a");
-  const candidates = await view.session.listRecoverableDrafts();
-  assert.equal(candidates.length, 2);
-  for (const projectId of ["p1", "p2"]) {
-    const source = candidates.find((candidate) => candidate.projectId === projectId);
-    assert.ok(source);
-    assert.deepEqual(await view.session.recoverDraft(source.id, { projectId }), { ok: true });
-    view.session.activate(null, { projectId });
-    assert.equal(view.input.value, `saved ${projectId}`);
-    assert.deepEqual(view.files(), [{ name: `${projectId}.txt`, text: `bytes ${projectId}` }]);
-    assert.ok(storage.getItem(source.id), "unmarked historical source stays available");
-  }
-  view.input.value = "";
-  view.setFiles([]);
-  view.session.save();
-  assert.equal(view.session.prepareClose(), true);
-  const restarted = draftFixture(storage);
-  restarted.session.activate(null);
-  restarted.session.setBackend("backend-a");
-  restarted.session.activate(null, { projectId: "p1" });
-  assert.equal(restarted.input.value, "saved p1");
-  restarted.session.activate(null, { projectId: "p2" });
-  assert.equal(restarted.input.value, "");
-  assert.deepEqual(restarted.files(), []);
-});
-
-test("P3: a ready group alongside unmarked history requires an explicit choice", async () => {
-  const storage = migrationStorage();
-  const original = draftFixture(storage);
-  original.session.activate(null, { projectId: "p1" });
-  original.input.value = "ready";
-  original.session.save();
-  assert.equal(original.session.prepareClose(), true);
-  storage.setItem(
-    `atria.composer.v1:__prebind__:${"a".repeat(32)}:new:p2`,
-    JSON.stringify({ text: "history", attachments: [attached] })
-  );
-  const next = draftFixture(storage);
-  next.session.activate(null);
-  next.session.setBackend("backend-b");
-  next.session.activate(null, { projectId: "p1" });
-  assert.equal(next.input.value, "");
-  assert.deepEqual((await next.session.listRecoverableDrafts()).map((draft) => draft.text).sort(), [
-    "history",
-    "ready"
-  ]);
-});
-
-test("P3: a legacy live marker from an exited owner remains manually recoverable", async () => {
+test("P3: a live marker from a session that never closed stays manually recoverable", async () => {
   const storage = migrationStorage();
   const prefix = `atria.composer.v1:__prebind__:${"b".repeat(32)}:`;
   storage.setItem(prefix + "active", JSON.stringify(`live:${"c".repeat(32)}`));
-  storage.setItem(prefix + "new:p1", JSON.stringify({ text: "interrupted legacy", attachments: [attached] }));
+  storage.setItem(prefix + "new:p1", JSON.stringify({ text: "interrupted draft", attachments: [attached] }));
   const next = draftFixture(storage);
   next.session.activate(null);
   next.session.setBackend("backend-a");
   const [draft] = await next.session.listRecoverableDrafts();
-  assert.equal(draft.text, "interrupted legacy");
+  assert.equal(draft.text, "interrupted draft");
   assert.deepEqual(await next.session.recoverDraft(draft.id, { projectId: "p1" }), { ok: true });
   next.session.activate(null, { projectId: "p1" });
+  assert.equal(next.input.value, "interrupted draft");
   assert.deepEqual(next.files(), [attached]);
+  assert.equal(storage.getItem(prefix + "new:p1"), null, "recovery moves the draft it now owns");
   next.input.value = "";
   next.setFiles([]);
   next.session.save();
@@ -505,98 +407,7 @@ test("P3: a legacy live marker from an exited owner remains manually recoverable
   restarted.session.setBackend("backend-a");
   restarted.session.activate(null, { projectId: "p1" });
   assert.equal(restarted.input.value, "");
-  assert.ok(storage.getItem(prefix + "new:p1"), "the potentially active old source is retained");
-  assert.equal((await restarted.session.listRecoverableDrafts())[0].text, "interrupted legacy");
-});
-
-for (const marker of [null, "ready:old-writer"]) {
-  test(`P3: an old ${marker === null ? "unmarked" : "ready"} writer is never consumed without a shared lease`, async () => {
-    const storage = migrationStorage();
-    const prefix = `atria.composer.v1:__prebind__:${"d".repeat(32)}:`;
-    if (marker) storage.setItem(prefix + "active", JSON.stringify(marker));
-    const source = JSON.stringify({ text: "old writer content", attachments: [attached] });
-    storage.setItem(prefix + "new:p1", source);
-    const next = draftFixture(storage, lockFixture());
-    await next.session.ready;
-    next.session.activate(null);
-    next.session.setBackend("backend-a");
-    next.session.activate(null, { projectId: "p1" });
-    assert.equal(next.input.value, "");
-    assert.equal(storage.getItem(prefix + "new:p1"), source);
-    const [draft] = await next.session.listRecoverableDrafts();
-    assert.deepEqual(await next.session.recoverDraft(draft.id, { projectId: "p1" }), { ok: true });
-    assert.equal(next.input.value, "old writer content");
-    assert.deepEqual(next.files(), [attached]);
-    assert.equal(storage.getItem(prefix + "new:p1"), source);
-    await next.session.dispose();
-  });
-}
-
-test("P3: replay of an old writer's journal preserves its potentially live source", async () => {
-  const storage = migrationStorage();
-  const prefix = `atria.composer.v1:__prebind__:${"e".repeat(32)}:`;
-  const sourceKey = prefix + "new:p1";
-  const destination = "atria.composer.v1:backend-a:new:p1";
-  const source = JSON.stringify({ text: "legacy journal source", attachments: [attached] });
-  storage.setItem(sourceKey, source);
-  storage.setItem(destination, source);
-  storage.setItem(
-    "atria.composer.v1:migration-journal:active",
-    JSON.stringify(JSON.stringify([{ sourceKey, destination }]))
-  );
-  const view = draftFixture(storage, lockFixture());
-  await view.session.ready;
-  assert.equal(storage.getItem(sourceKey), source);
-  view.session.activate(null);
-  view.session.setBackend("backend-a");
-  view.session.activate(null, { projectId: "p1" });
-  assert.equal(view.input.value, "legacy journal source");
-  view.input.value = "";
-  view.setFiles([]);
-  view.session.save();
-  assert.equal(view.session.prepareClose(), true);
-  await view.session.dispose();
-  const restarted = draftFixture(storage, lockFixture());
-  await restarted.session.ready;
-  restarted.session.activate(null);
-  restarted.session.setBackend("backend-a");
-  restarted.session.activate(null, { projectId: "p1" });
-  assert.equal(restarted.input.value, "");
-  assert.equal(storage.getItem(sourceKey), source);
-  await restarted.session.dispose();
-});
-
-test("P3: an old journal persists protection before retrying a missing destination", async () => {
-  const storage = migrationStorage();
-  const sourceKey = `atria.composer.v1:__prebind__:${"f".repeat(32)}:new:p1`;
-  const destination = "atria.composer.v1:backend-a:new:p1";
-  const source = JSON.stringify({ text: "old interrupted write", attachments: [attached] });
-  storage.setItem(sourceKey, source);
-  storage.setItem(
-    "atria.composer.v1:migration-journal:active",
-    JSON.stringify(JSON.stringify([{ sourceKey, destination }]))
-  );
-  const write = storage.setItem.bind(storage);
-  let fail = true;
-  storage.setItem = (key, value) => {
-    if (fail && key === "atria.composer.v1:migration-journal:active") throw new Error("journal unavailable");
-    write(key, value);
-  };
-  const view = draftFixture(storage, lockFixture());
-  await view.session.ready;
-  assert.equal(view.session.prepareClose(), false);
-  assert.equal(storage.getItem(sourceKey), source);
-  assert.equal(storage.getItem(destination), null);
-  fail = false;
-  assert.equal(view.session.prepareClose(), true);
-  assert.equal(storage.getItem(sourceKey), source);
-  assert.equal(storage.getItem(destination), source);
-  view.session.activate(null);
-  view.session.setBackend("backend-a");
-  view.session.activate(null, { projectId: "p1" });
-  assert.equal(view.input.value, "old interrupted write");
-  assert.deepEqual(view.files(), [attached]);
-  await view.session.dispose();
+  assert.deepEqual(await restarted.session.listRecoverableDrafts(), []);
 });
 
 test("P3: a browser without cross-context locks preserves journal sources", async () => {
@@ -1130,7 +941,7 @@ test("S1: recovered preconnection migration does not resurrect deleted text or a
   assert.deepEqual(restarted.files(), []);
 });
 
-test("S1: deleting a destination with a conflicting legacy source remains deleted", () => {
+test("S1: deleting a destination with a conflicting preconnection source remains deleted", () => {
   const storage = migrationStorage();
   const source = JSON.stringify({ text: "unclaimed legacy", attachments: [attached] });
   storage.setItem("atria.composer.v1:new", source);
@@ -1150,40 +961,6 @@ test("S1: deleting a destination with a conflicting legacy source remains delete
   restarted.session.activate(null);
   assert.equal(restarted.input.value, "");
   assert.deepEqual(restarted.files(), []);
-  assert.equal(storage.getItem("atria.composer.v1:new"), source);
-});
-
-test("S1: a conflict remains protected when restarting in B before deleting in A", () => {
-  const storage = migrationStorage();
-  const source = JSON.stringify({ text: "legacy source", attachments: [attached] });
-  storage.setItem("atria.composer.v1:new", source);
-  storage.setItem(
-    "atria.composer.v1:backend-a:new",
-    JSON.stringify({ text: "A destination", attachments: [attached] })
-  );
-  const initial = draftFixture(storage);
-  initial.session.activate(null);
-  initial.session.setBackend("backend-a");
-  initial.session.activate(null);
-  assert.equal(initial.input.value, "A destination");
-  assert.equal(initial.session.prepareClose(), true);
-  const restartedB = draftFixture(storage);
-  restartedB.session.activate(null);
-  restartedB.session.setBackend("backend-b");
-  restartedB.session.activate(null);
-  restartedB.session.setBackend("backend-a");
-  restartedB.session.activate(null);
-  assert.equal(restartedB.input.value, "A destination");
-  restartedB.input.value = "";
-  restartedB.setFiles([]);
-  restartedB.session.save();
-  assert.equal(restartedB.session.prepareClose(), true);
-  const restartedA = draftFixture(storage);
-  restartedA.session.activate(null);
-  restartedA.session.setBackend("backend-a");
-  restartedA.session.activate(null);
-  assert.equal(restartedA.input.value, "");
-  assert.deepEqual(restartedA.files(), []);
   assert.equal(storage.getItem("atria.composer.v1:new"), source);
 });
 
@@ -1710,39 +1487,6 @@ test("P2: startup navigation metadata cannot assign B's new input to A", () => {
   assert.deepEqual(returnA.files(), []);
 });
 
-test("P2: a retained legacy conflict cannot capture or overwrite later preconnection input", () => {
-  const storage = migrationStorage();
-  const source = JSON.stringify({ text: "unclaimed A source", attachments: [attached] });
-  storage.setItem("atria.composer.v1:new", source);
-  storage.setItem(
-    "atria.composer.v1:backend-a:new",
-    JSON.stringify({ text: "A destination", attachments: [] })
-  );
-  const a = draftFixture(storage);
-  a.session.activate(null);
-  a.session.setBackend("backend-a");
-  a.session.activate(null);
-  assert.equal(a.input.value, "A destination");
-  assert.equal(a.session.prepareClose(), true);
-  const b = draftFixture(storage);
-  b.session.activate(null);
-  b.input.value = "B preconnection";
-  b.setFiles([attached]);
-  b.session.save();
-  b.session.setBackend("backend-b");
-  b.session.activate(null);
-  assert.equal(b.input.value, "B preconnection");
-  assert.deepEqual(b.files(), [attached]);
-  assert.equal(b.session.prepareClose(), true);
-  assert.equal(storage.getItem("atria.composer.v1:new"), source);
-  const restartB = draftFixture(storage);
-  restartB.session.activate(null);
-  restartB.session.setBackend("backend-b");
-  restartB.session.activate(null);
-  assert.equal(restartB.input.value, "B preconnection");
-  assert.deepEqual(restartB.files(), [attached]);
-});
-
 test("failed draft writes remain recoverable after changing backends", () => {
   const { input, session, setUnavailable } = draftFixture();
   session.setBackend("backend-a");
@@ -1762,7 +1506,7 @@ test("failed draft writes remain recoverable after changing backends", () => {
   assert.equal(input.value, "unsaved latest");
 });
 
-test("a legacy new draft is claimed by one backend across restarts", () => {
+test("a draft typed before the first connection is claimed by one backend", () => {
   const original = draftFixture();
   original.session.activate(null);
   original.input.value = "legacy draft";

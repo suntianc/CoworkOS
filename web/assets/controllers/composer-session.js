@@ -12,20 +12,26 @@ export function createComposerSession({
   onPersist,
   locks = globalThis.navigator?.locks
 }) {
-  const legacyPrefix = "atria.composer.v1:";
-  const NAMESPACES_KEY = "atria.composer.namespaces.v1";
-  const legacyOwnerKey = `${legacyPrefix}legacy-owner:active`;
-  // Keep preconnection edits from different launches separate, including when
-  // an earlier connection left a conflicting recovery copy behind.
+  const storagePrefix = "atria.composer.v1:";
+  // Keep preconnection edits from different launches separate.
   const randomId = () =>
     Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join(
       ""
     );
-  const prebindRoot = `${legacyPrefix}__prebind__:`;
+  const prebindRoot = `${storagePrefix}__prebind__:`;
   const prebindId = randomId();
   const lockManager = locks;
   const readyMarker = `ready:${lockManager ? "lease:" : ""}${prebindId}`;
-  const hasLeaseMarker = (marker) => typeof marker === "string" && /^ready:lease:[a-f0-9]{32}$/.test(marker);
+  /**
+   * A session writes its marker before its drafts. Records without a marker, and
+   * markers from writers that never held a lease, are not sessions this version
+   * created, so they are not offered as recoverable drafts.
+   */
+  const currentMarker = (marker) =>
+    typeof marker === "string" &&
+    (lockManager
+      ? /^(?:live|ready:lease):[a-f0-9]{32}$/.test(marker)
+      : /^(?:live|ready):[a-f0-9]{32}$/.test(marker));
   let prebindPrefix = `${prebindRoot}${prebindId}:`;
   let adoptedMarker;
   const unknownOccupancy = !lockManager && typeof window !== "undefined";
@@ -62,15 +68,15 @@ export function createComposerSession({
     });
   };
   let pendingStageBind;
-  const journalKey = `${legacyPrefix}migration-journal:active`;
+  const journalKey = `${storagePrefix}migration-journal:active`;
   /**
    * Drafts belong to one backend. The prefix keeps a conversation started
    * against backend A out of backend B's composer, and a switch back restores
    * exactly the draft that backend had. Empty until the first backend is known,
-   * which is the historical key shape and the source of the migration below.
+   * when the first bind moves the preconnection keys into its namespace.
    */
   let namespace = "";
-  const prefix = () => (namespace ? `${legacyPrefix}${namespace}:` : legacyPrefix);
+  const prefix = () => (namespace ? `${storagePrefix}${namespace}:` : storagePrefix);
   const memory = new Map();
   const pendingStorage = new Set();
   const retainedDrafts = new Map();
@@ -81,8 +87,6 @@ export function createComposerSession({
   const migrationConflicts = new Map();
   const protectedDestinations = new Set();
   const retainedNulls = new Set();
-  const legacySources = new Set();
-  let trackingLegacyOwner = false;
   let journalPresent = false;
   let invalidJournal = false;
   let current;
@@ -115,10 +119,7 @@ export function createComposerSession({
       return null;
     }
   };
-  const keyFor = (key) =>
-    !namespace && (projectDraft(key) || (key === "new" && readRecord(legacyOwnerKey)))
-      ? prebindPrefix + key
-      : prefix() + key;
+  const keyFor = (key) => (!namespace && projectDraft(key) ? prebindPrefix + key : prefix() + key);
   const read = (key) => readRecord(keyFor(key));
   const hasRecord = (key) => {
     if (memory.has(key)) return memory.get(key) !== null || retainedNulls.has(key);
@@ -171,16 +172,11 @@ export function createComposerSession({
   const persistJournal = () => {
     if (invalidJournal) return false;
     const entries = [
-      ...[...pendingMigrations].map(([destination, { sourceKey, legacy }]) => ({
+      ...[...pendingMigrations].map(([destination, { sourceKey }]) => ({ sourceKey, destination })),
+      ...[...migrationConflicts].map(([destination, { sourceKey }]) => ({
         sourceKey,
         destination,
-        ...(legacy ? { legacy: true } : {})
-      })),
-      ...[...migrationConflicts].map(([destination, { sourceKey, legacy }]) => ({
-        sourceKey,
-        destination,
-        conflict: true,
-        ...(legacy ? { legacy: true } : {})
+        conflict: true
       }))
     ];
     if (!entries.length && !journalPresent && !pendingStorage.has(journalKey)) return true;
@@ -203,7 +199,7 @@ export function createComposerSession({
   const finishMigrations = () => {
     if (pendingStorage.has(journalKey) || invalidJournal) return;
     let journalChanged = false;
-    for (const [destination, { sourceKey, source, legacy, expectedDestination }] of pendingMigrations) {
+    for (const [destination, { sourceKey, source, expectedDestination }] of pendingMigrations) {
       if (deferredSources.has(sourceKey)) continue;
       if (pendingStorage.has(destination) || pendingStorage.has(sourceKey)) continue;
       // Another window can update storage after this session cached the source.
@@ -213,14 +209,14 @@ export function createComposerSession({
         const stored = JSON.parse(storage.getItem(sourceKey) || "null");
         const storedDestination = JSON.parse(storage.getItem(destination) || "null");
         if (JSON.stringify(storedDestination) !== JSON.stringify(expectedDestination)) {
-          migrationConflicts.set(destination, { sourceKey, legacy });
+          migrationConflicts.set(destination, { sourceKey });
           protectedDestinations.add(destination);
           pendingMigrations.delete(destination);
           journalChanged = true;
           continue;
         }
         if (JSON.stringify(readRecord(sourceKey)) !== JSON.stringify(source)) {
-          migrationConflicts.set(destination, { sourceKey, legacy });
+          migrationConflicts.set(destination, { sourceKey });
           protectedDestinations.add(destination);
           pendingMigrations.delete(destination);
           journalChanged = true;
@@ -228,9 +224,8 @@ export function createComposerSession({
         }
         if (JSON.stringify(stored) !== JSON.stringify(source)) {
           memory.set(sourceKey, stored);
-          if (legacy && stored === null) legacySources.delete(sourceKey);
           if (stored !== null) {
-            migrationConflicts.set(destination, { sourceKey, legacy });
+            migrationConflicts.set(destination, { sourceKey });
             protectedDestinations.add(destination);
           }
           pendingMigrations.delete(destination);
@@ -241,7 +236,6 @@ export function createComposerSession({
         onPersist?.();
         memory.set(sourceKey, null);
         retainedNulls.delete(sourceKey);
-        if (legacy) legacySources.delete(sourceKey);
         pendingMigrations.delete(destination);
         journalChanged = true;
         // eslint-disable-next-line no-restricted-syntax -- removeItem throws on blocked storage; the migration stays registered in the journal and the next write retries it
@@ -250,7 +244,7 @@ export function createComposerSession({
         warned = true;
       }
     }
-    for (const [destination, { sourceKey, legacy }] of migrationConflicts) {
+    for (const [destination, { sourceKey }] of migrationConflicts) {
       if (pendingStorage.has(sourceKey) || pendingStorage.has(destination)) continue;
       try {
         if (
@@ -261,7 +255,6 @@ export function createComposerSession({
           continue;
         migrationConflicts.delete(destination);
         protectedDestinations.delete(destination);
-        if (legacy) legacySources.delete(sourceKey);
         if (storage.getItem(destination) === "null") {
           retainedNulls.delete(destination);
           writeRecord(destination, null);
@@ -274,15 +267,6 @@ export function createComposerSession({
       }
     }
     if (journalChanged) persistJournal();
-    if (
-      trackingLegacyOwner &&
-      !legacySources.size &&
-      ![...pendingMigrations.values()].some((entry) => entry.legacy)
-    ) {
-      trackingLegacyOwner = false;
-      retainedNulls.delete(legacyOwnerKey);
-      writeRecord(legacyOwnerKey, null);
-    }
   };
   const prebindEntries = (prefix) => {
     const keys = new Set(memory.keys());
@@ -351,7 +335,9 @@ export function createComposerSession({
     );
     const candidates = [...groups].filter(
       ([prefix, group]) =>
-        group.content && (includeReferenced || !referenced.some((key) => key.startsWith(prefix)))
+        group.content &&
+        currentMarker(group.marker) &&
+        (includeReferenced || !referenced.some((key) => key.startsWith(prefix)))
     );
     return candidates;
   };
@@ -365,19 +351,9 @@ export function createComposerSession({
     const ready = candidates.filter(
       ([, group]) => typeof group.marker === "string" && group.marker.startsWith("ready:")
     );
-    const orphans = candidates.filter(([, group]) => group.marker === null);
-    if (lockManager) {
-      const coordinated = ready.filter(([, group]) => hasLeaseMarker(group.marker));
-      const unknown = [...orphans, ...ready.filter(([, group]) => !hasLeaseMarker(group.marker))];
-      return coordinated.length === 1 && unknown.length === 0 ? coordinated[0] : null;
-    }
-    const chosen =
-      ready.length === 1 && orphans.length === 0
-        ? ready[0]
-        : ready.length === 0 && candidates.length === 1 && orphans.length === 1
-          ? orphans[0]
-          : null;
-    return chosen;
+    // A session that never reached close still owns its staged drafts; the
+    // drafts of a single closed session move into the next backend.
+    return ready.length === 1 ? ready[0] : null;
   };
   const cleanupEmptyPrebind = () => {
     const marker = prebindPrefix + "active";
@@ -398,7 +374,7 @@ export function createComposerSession({
     for (const sourceKey of sources) {
       const slot = sourceKey.slice(prebindPrefix.length);
       const staged = readRecord(sourceKey);
-      const destination = `${legacyPrefix}${backendId}:${slot}`;
+      const destination = `${storagePrefix}${backendId}:${slot}`;
       const existing = readRecord(destination);
       if (
         !hasRecord(destination) ||
@@ -441,8 +417,8 @@ export function createComposerSession({
             !entry ||
             typeof entry.sourceKey !== "string" ||
             typeof entry.destination !== "string" ||
-            !entry.sourceKey.startsWith(legacyPrefix) ||
-            !entry.destination.startsWith(legacyPrefix) ||
+            !entry.sourceKey.startsWith(storagePrefix) ||
+            !entry.destination.startsWith(storagePrefix) ||
             entry.sourceKey === entry.destination ||
             entry.sourceKey === journalKey ||
             entry.destination === journalKey ||
@@ -453,7 +429,7 @@ export function createComposerSession({
       journalPresent = true;
       let changed = false;
       const conservativeWrites = [];
-      for (const { sourceKey, destination, legacy, conflict } of entries) {
+      for (const { sourceKey, destination, conflict } of entries) {
         const source = JSON.parse(storage.getItem(sourceKey) || "null");
         const rawDestination = storage.getItem(destination);
         const target = JSON.parse(rawDestination || "null");
@@ -461,12 +437,10 @@ export function createComposerSession({
           changed = true;
           continue;
         }
-        const group = sourceKey.match(/^(atria\.composer\.v1:__prebind__:[a-f0-9]{32}:)/)?.[1];
-        const marker = group ? JSON.parse(storage.getItem(group + "active") || "null") : null;
-        if (group && (lockManager || unknownOccupancy) && (unknownOccupancy || !hasLeaseMarker(marker))) {
-          // Older writers never held a lease. Keep their source even after
-          // replay; the journal also protects an explicit destination delete.
-          migrationConflicts.set(destination, { sourceKey, legacy });
+        if (unknownOccupancy && sourceKey.startsWith(prebindRoot)) {
+          // Without cross-context locks another window may still own the source.
+          // Keep it and protect an explicit destination delete.
+          migrationConflicts.set(destination, { sourceKey });
           protectedDestinations.add(destination);
           if (!conflict) changed = true;
           if (!conflict && rawDestination === null) {
@@ -478,25 +452,17 @@ export function createComposerSession({
         }
         if (lockManager && sourceKey.startsWith(prebindRoot) && !conflict) deferredSources.add(sourceKey);
         if (rawDestination === null && !conflict) {
-          pendingMigrations.set(destination, { sourceKey, source, legacy, expectedDestination: source });
+          pendingMigrations.set(destination, { sourceKey, source, expectedDestination: source });
           memory.set(destination, source);
           pendingStorage.add(destination);
-          if (legacy) {
-            legacySources.add(sourceKey);
-            trackingLegacyOwner = true;
-          }
           continue;
         }
         if (conflict || JSON.stringify(source) !== JSON.stringify(target)) {
-          migrationConflicts.set(destination, { sourceKey, legacy });
+          migrationConflicts.set(destination, { sourceKey });
           protectedDestinations.add(destination);
           if (!conflict) changed = true;
         } else {
-          pendingMigrations.set(destination, { sourceKey, source, legacy, expectedDestination: source });
-          if (legacy) {
-            legacySources.add(sourceKey);
-            trackingLegacyOwner = true;
-          }
+          pendingMigrations.set(destination, { sourceKey, source, expectedDestination: source });
         }
       }
       if (changed) persistJournal();
@@ -529,13 +495,16 @@ export function createComposerSession({
   };
   const showDraft = (draft) => {
     shownDraftIdentity = draftIdentities.get(current);
+    const candidate = draft?.editing;
     editing =
-      draft?.editing &&
-      typeof draft.editing.messageId === "string" &&
-      typeof draft.editing.editId === "string" &&
-      typeof draft.editing.original?.text === "string" &&
-      Array.isArray(draft.editing.original?.attachments)
-        ? draft.editing
+      candidate &&
+      [candidate.messageId, candidate.versionId, candidate.runId].every(
+        (value) => typeof value === "string"
+      ) &&
+      typeof candidate.editId === "string" &&
+      typeof candidate.original?.text === "string" &&
+      Array.isArray(candidate.original?.attachments)
+        ? candidate
         : undefined;
     const validAttachments = (files) =>
       Array.isArray(files)
@@ -627,7 +596,7 @@ export function createComposerSession({
       await ready;
       const referenced = new Set([...pendingMigrations.values()].map(({ sourceKey }) => sourceKey));
       const drafts = [];
-      for (const [group, { marker }] of prebindGroups(true) || []) {
+      for (const [group] of prebindGroups(true) || []) {
         if (group === prebindPrefix && !namespace) continue;
         const release = group === prebindPrefix ? () => {} : await acquireLease(group);
         if (!release) continue;
@@ -639,8 +608,7 @@ export function createComposerSession({
             id: key,
             projectId: projectDraft(slot) ? decodeURIComponent(slot.slice(4)) : null,
             text: draft.text || "",
-            attachments: draft.attachments || [],
-            marker
+            attachments: draft.attachments || []
           });
         }
         await release();
@@ -662,17 +630,16 @@ export function createComposerSession({
         if (namespace !== backend || token !== navigation) return { ok: false, reason: "backend" };
         save();
         const slot = projectId ? `new:${encodeURIComponent(projectId)}` : "new";
-        const destination = `${legacyPrefix}${backend}:${slot}`;
+        const destination = `${storagePrefix}${backend}:${slot}`;
         if (hasRecord(destination)) return { ok: false, reason: "conflict" };
         const source = JSON.parse(storage?.getItem(id) || "null");
         if (!hasContent(source)) return { ok: false, reason: "unavailable" };
-        const marker = JSON.parse(storage?.getItem(group + "active") || "null");
-        if (hasLeaseMarker(marker) && !unknownOccupancy) {
+        if (!unknownOccupancy) {
           registerMigration(destination, { sourceKey: id, source });
           finishMigrations();
         } else {
-          // Old unmarked/live writers did not take a lease. Retain their
-          // source and protect deletion of the recovered destination.
+          // Without cross-context locks another window may still own the source.
+          // Retain it and protect deletion of the recovered destination.
           migrationConflicts.set(destination, { sourceKey: id });
           protectedDestinations.add(destination);
           if (persistJournal()) writeRecord(destination, source);
@@ -822,8 +789,8 @@ export function createComposerSession({
     /**
      * Bind drafts to one backend.
      *
-     * The composer exists before the first connection, so its historical keys
-     * carry no backend. The first bind copies those keys into the backend's
+     * The composer exists before the first connection, so its keys carry no
+     * backend until then. The first bind moves those keys into the backend's
      * namespace once; later binds only change which namespace is read, and the
      * draft of the backend being left stays on disk exactly as it was.
      */
@@ -833,71 +800,42 @@ export function createComposerSession({
       save();
       const previous = namespace;
       if (!previous && next) {
-        const from = legacyPrefix;
-        const to = `${legacyPrefix}${next}:`;
+        const from = storagePrefix;
+        const to = `${storagePrefix}${next}:`;
         try {
-          const known = new Set(JSON.parse(storage?.getItem(NAMESPACES_KEY) || "[]"));
-          known.add(next);
           const candidates = new Set(memory.keys());
           for (let index = 0; index < (storage?.length || 0); index += 1) {
             const key = storage.key(index);
-            if (typeof key !== "string" || !key.startsWith(from)) continue;
-            candidates.add(key);
-            if (key.endsWith(":active")) known.add(key.slice(from.length, -":active".length));
+            if (typeof key === "string" && key.startsWith(from)) candidates.add(key);
           }
-          const keys = [];
-          for (const key of candidates) {
-            if (typeof key !== "string" || !key.startsWith(from) || key.startsWith(to)) continue;
-            if (key === legacyOwnerKey || key === journalKey) continue;
-            const slot = key.slice(from.length);
-            if (known.has(slot.split(":")[0])) continue;
-            // A colon can identify an existing backend even when its marker
-            // failed. Unbound project edits use separate prebind keys.
-            if (slot.includes(":")) continue;
-            keys.push(key);
-          }
-          const contentKeys = keys.filter((key) => key !== from + "active" && hasContent(readRecord(key)));
-          const ambiguousContent = [...candidates].some(
+          // A slot containing a colon already names a backend or an unbound
+          // project draft; only the bare slots of this page move.
+          const keys = [...candidates].filter(
             (key) =>
               typeof key === "string" &&
-              key.startsWith(from + "new:") &&
-              !keys.includes(key) &&
-              hasContent(readRecord(key))
+              key.startsWith(from) &&
+              !key.startsWith(to) &&
+              !key.slice(from.length).includes(":")
           );
-          let owner = readRecord(legacyOwnerKey);
-          if (contentKeys.length && !owner) {
-            owner = next;
-            writeRecord(legacyOwnerKey, owner);
-          }
-          if (owner === next) {
-            trackingLegacyOwner = true;
-            for (const key of contentKeys) {
-              const value = readRecord(key);
-              const destination = to + key.slice(from.length);
-              legacySources.add(key);
-              const existing = readRecord(destination);
-              // Keep a conflicting legacy record as a recovery copy. Only its
-              // original owner may retry the migration on a later launch.
-              if (hasRecord(destination) && JSON.stringify(existing) !== JSON.stringify(value)) {
-                migrationConflicts.set(destination, { sourceKey: key, legacy: true });
-                protectedDestinations.add(destination);
-                persistJournal();
-                continue;
-              }
-              registerMigration(
-                destination,
-                { sourceKey: key, source: value, legacy: true },
-                !hasRecord(destination)
-              );
+          for (const key of keys) {
+            if (key === from + "active") continue;
+            const value = readRecord(key);
+            if (!hasContent(value)) continue;
+            const destination = to + key.slice(from.length);
+            const existing = readRecord(destination);
+            // Keep the preconnection draft as a recovery copy when the backend
+            // already has a different draft there; that draft stays visible.
+            if (hasRecord(destination) && JSON.stringify(existing) !== JSON.stringify(value)) {
+              migrationConflicts.set(destination, { sourceKey: key });
+              protectedDestinations.add(destination);
+              persistJournal();
+              continue;
             }
-            finishMigrations();
-          } else if (owner && !contentKeys.length && !ambiguousContent) {
-            // An old version could retain an owner for an `active` conflict.
-            // Navigation alone cannot claim text typed for a later backend.
-            writeRecord(legacyOwnerKey, null);
+            registerMigration(destination, { sourceKey: key, source: value }, !hasRecord(destination));
           }
+          finishMigrations();
           const active = from + "active";
-          if (keys.includes(active) && (!contentKeys.length || owner === next)) {
+          if (keys.includes(active)) {
             const destination = to + "active";
             const value = readRecord(active);
             if (!hasRecord(destination) && typeof value === "string") writeRecord(destination, value);

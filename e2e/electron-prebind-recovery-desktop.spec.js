@@ -77,17 +77,6 @@ test("desktop restores drafts saved before the first backend binding", async () 
           }
         };
       };
-      localStorage.setItem("atria.composer.v1:new", JSON.stringify({ text: "legacy A", attachments: [] }));
-      localStorage.setItem(
-        "atria.composer.v1:fixture-a:new",
-        JSON.stringify({ text: "existing A", attachments: [] })
-      );
-      const a = fixture();
-      await a.session.ready;
-      a.session.activate(null);
-      a.session.setBackend("fixture-a");
-      a.session.activate(null);
-      const aClosed = a.session.prepareClose();
       const waiting = fixture();
       await waiting.session.ready;
       waiting.session.activate(null);
@@ -101,17 +90,19 @@ test("desktop restores drafts saved before the first backend binding", async () 
       waiting.session.save();
       const closed = waiting.session.prepareClose();
       return {
-        aClosed,
         closed,
         staged: Object.fromEntries(
           Object.entries(localStorage).filter(([key]) => key.includes(":__prebind__:"))
-        )
+        ),
+        global: JSON.parse(localStorage.getItem("atria.composer.v1:new") || "null")
       };
     });
-    expect(saved.aClosed).toBe(true);
     expect(saved.closed).toBe(true);
     expect(Object.values(saved.staged).some((value) => value.includes("native prebind project"))).toBe(true);
-    expect(Object.values(saved.staged).some((value) => value.includes("native prebind global"))).toBe(true);
+    expect(saved.global).toEqual({
+      text: "native prebind global",
+      attachments: [{ name: "global.txt", text: "global attachment" }]
+    });
     console.log(JSON.stringify({ event: "unbound-close", ...saved }));
     await native.close();
     native = undefined;
@@ -122,8 +113,7 @@ test("desktop restores drafts saved before the first backend binding", async () 
       (backendId) => ({
         global: JSON.parse(localStorage.getItem(`atria.composer.v1:${backendId}:new`) || "null"),
         project: JSON.parse(localStorage.getItem(`atria.composer.v1:${backendId}:new:native-p1`) || "null"),
-        legacySource: JSON.parse(localStorage.getItem("atria.composer.v1:new") || "null"),
-        legacyDestination: JSON.parse(localStorage.getItem("atria.composer.v1:fixture-a:new") || "null"),
+        bare: localStorage.getItem("atria.composer.v1:new"),
         staged: Object.keys(localStorage).filter((key) => key.includes(":__prebind__:"))
       }),
       primary.backendId
@@ -136,8 +126,7 @@ test("desktop restores drafts saved before the first backend binding", async () 
       text: "native prebind project",
       attachments: [{ name: "project.txt", text: "project attachment" }]
     });
-    expect(recovered.legacySource.text).toBe("legacy A");
-    expect(recovered.legacyDestination.text).toBe("existing A");
+    expect(recovered.bare).toBeNull();
     expect(recovered.staged).toEqual([]);
     console.log(JSON.stringify({ event: "after-restart", ...recovered }));
     await page.locator("#composer-input").fill("");
