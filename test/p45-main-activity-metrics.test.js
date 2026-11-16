@@ -10,6 +10,7 @@ import { createCatalogEvents } from "../dist/src/dashboard/catalog-events.js";
 import { EventLedger } from "../dist/src/dashboard/event-ledger.js";
 import { readTaskActivity } from "../dist/src/runtime/activity-metrics.js";
 import { createWorkspaceDirectory } from "../dist/src/dashboard/workspace-directory.js";
+import { GlobalProjectCatalog } from "../dist/src/workspace/project-catalog.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 
 /**
@@ -220,7 +221,16 @@ async function traceFixture(t, { startedMs, activity, subagentActivity = [] }) {
   const root = await mkdtemp(join(tmpdir(), "atria-activity-window-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const storage = join(root, "workspace");
+  const projectDirectory = join(root, "project");
+  await mkdir(projectDirectory);
+  const catalog = new GlobalProjectCatalog(join(root, "projects.json"));
+  const project = await catalog.create({ projectName: "Activity window", projectDirectory });
   const store = new LocalWorkspaceStore(storage);
+  await store.createTask("task", {
+    projectId: project.projectId,
+    projectCatalogPath: catalog.filePath,
+    projectDirectory
+  });
   await store.createRun("task", "run");
   const runRoot = join(storage, "task", "runs", "run");
   await writeFile(

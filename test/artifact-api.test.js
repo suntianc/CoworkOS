@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
+import { GlobalProjectCatalog } from "../dist/src/workspace/project-catalog.js";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 
 test(
@@ -17,8 +18,17 @@ test(
     let child;
     try {
       const workspaceRoot = join(root, "workspace");
+      const projectDirectory = join(root, "project");
+      await mkdir(projectDirectory);
+      const catalog = new GlobalProjectCatalog(join(root, "projects.json"));
+      const project = await catalog.create({ projectName: "Artifact API", projectDirectory });
       const store = new LocalWorkspaceStore(workspaceRoot);
-      await store.createTask("task", { goal: "artifact API regression" });
+      await store.createTask("task", {
+        goal: "artifact API regression",
+        projectId: project.projectId,
+        projectCatalogPath: catalog.filePath,
+        projectDirectory
+      });
       const artifacts = join(workspaceRoot, "task", "artifacts");
       const candidate = join(workspaceRoot, "task", "agents", "main", "deliverables");
       await mkdir(candidate, { recursive: true });
