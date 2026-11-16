@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createComposerSession } from "../web/assets/controllers/composer-session.js";
+import { createFileUpload, uploadedFileIds } from "../web/assets/controllers/file-upload.js";
 import { readTextAttachments, composePrompt, MAX_ATTACHMENT_BYTES } from "../web/assets/attachments.js";
 
 const file = (name, content) => new File([content], name);
@@ -273,4 +274,58 @@ test("message edit keeps the original draft through navigation, restart, cancell
   restarted.session.activate("task-a");
   assert.equal(restarted.input.value, "unsent draft\nkeep this");
   assert.equal(restarted.session.editing, undefined);
+});
+
+test("uploaded attachment and text survive a fresh composer session and remain isolated by task", async () => {
+  const records = new Map();
+  const storage = {
+    getItem: (key) => records.get(key) ?? null,
+    setItem: (key, value) => records.set(key, value),
+    removeItem: (key) => records.delete(key)
+  };
+  const create = () => {
+    const input = { value: "", addEventListener() {} };
+    let files = [];
+    const session = createComposerSession({
+      input,
+      storage,
+      getAttachments: () => files,
+      setAttachments: (next) => (files = next)
+    });
+    return { input, session, getFiles: () => files, setFiles: (next) => (files = next) };
+  };
+  const first = create();
+  first.session.activate("task-a");
+  first.input.value = "Draft with an attachment";
+  const bytes = [];
+  const upload = createFileUpload({
+    getDraftIdentity: () => first.session.currentToken,
+    getFiles: first.getFiles,
+    setFiles: first.setFiles,
+    onStatus() {},
+    onBusy() {},
+    onError: (message) => assert.fail(message),
+    upload: async (file) => {
+      bytes.push(await file.text());
+      return {
+        name: file.name,
+        size: file.size,
+        uploadId: "upload-00000000-0000-4000-8000-000000000001",
+        sha256: "fixture"
+      };
+    }
+  });
+  await upload.add([new File(["fixture attachment bytes"], "sample.txt")]);
+  assert.deepEqual(bytes, ["fixture attachment bytes"]);
+  assert.deepEqual(uploadedFileIds(first.getFiles()), ["upload-00000000-0000-4000-8000-000000000001"]);
+  assert.equal(first.session.prepareClose(), true);
+  const reopened = create();
+  reopened.session.activate("task-a");
+  assert.equal(reopened.input.value, "Draft with an attachment");
+  assert.deepEqual(uploadedFileIds(reopened.getFiles()), ["upload-00000000-0000-4000-8000-000000000001"]);
+  reopened.session.activate("task-b");
+  assert.equal(reopened.input.value, "");
+  assert.deepEqual(reopened.getFiles(), []);
+  reopened.session.activate("task-a");
+  assert.equal(reopened.input.value, "Draft with an attachment");
 });

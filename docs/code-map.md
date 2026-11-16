@@ -93,13 +93,13 @@ CLI 一条命令安装由 [install.sh](../scripts/install.sh) 负责，使用公
 
 Main 的项目上下文只来自需求台账：项目与需求、完成标准和交付记录由 [项目数据服务](../src/workspace/project-data-service.ts) 与 [Main 工具](../.pi/runtime/tools/project-ledger.ts) 提供，工具的装配在 [Pi 扩展](../.pi/runtime/extension.ts)。每个 Task 的 Main 上下文目录（[main-context](../src/runtime/main-context.ts)）只保存这个 Task 自己的 `memory.md` 与运行快照，不是跨 Task 的用户记忆。
 
-用户记忆、自动学习与项目经验已在 P4.6 剔除：源码、HTTP 接口、Pi 工具、界面入口与专门测试均已删除，系统提示不再包含这些段落，磁盘上的残留文件不再读取。回归见 [剔除回归](../test/p46-memory-removed.test.js) 与[浏览器](../e2e/p46-memory-removed.spec.js)。
+用户记忆、自动学习与项目经验已在 P4.6 剔除：源码、HTTP 接口、Pi 工具、界面入口与专门测试均已删除，系统提示不再包含这些段落，磁盘上的残留文件不再读取。剔除项统一记录在[剔除守卫](../test/removed-capabilities.test.js)。
 
 ### 联网搜索
 
 联网搜索默认与兼容选择在 [搜索配置](../src/runtime/web-search-config.ts)，Main 与委派进程的装配在 [.pi Web 工具](../.pi/runtime/tools/web-search.ts)（常驻 Main 由 [Main 扩展](../.pi/runtime/extension.ts) 在回合边界重读并调整可用的 `search`/`visit`），供应商归一化在 [Web 工具](../src/tools/web-tools.ts) 与 [Exa MCP Adapter](../src/tools/exa-search-provider.ts)，状态/保存由 [搜索设置服务](../src/dashboard/web-search-settings.ts) 和 [共用控制器](../web/assets/controllers/web-search-settings.js) 管理。先验证 [配置](../test/web-search-config.test.js)、[MCP JSON/SSE/代理/取消](../test/exa-search-provider.test.js)、[真实 Pi 委派与恢复](../test/web-search-pi.test.js) 、[设置与对话浏览器](../e2e/web-search-settings.spec.js) 和 [原生匿名搜索与设置重启](../e2e/web-search-desktop.spec.js)；同步 [配置](configuration.md#联网搜索)。
 
-科学能力移除及旧配置隔离由[回归](../test/science-removal.test.js)验证。通用项目命令和文件交付仍沿现有工具执行。
+科学能力移除由[剔除守卫](../test/removed-capabilities.test.js)记录。通用项目命令和文件交付仍沿现有工具执行。
 
 公共 Web 工具由 [工具装配](../src/tools/web-tools.ts)、[有界请求](../src/tools/web-request.ts) 和 [凭据池](../src/tools/web-key-pool.ts) 管理；先验证 [取消、代理、Reader 与轮换](../test/web-tools.test.js)。工具文本预算由 [工具输出](../src/runtime/tool-output.ts) 统一，Main 与委派子代理的 Pi 工具都使用它。
 
@@ -179,7 +179,7 @@ CoworkOS 的免依赖版本入口由 [cli-information](../scripts/cli-informatio
 
 补充指令的显示分段在 [会话分组](../web/assets/conversation.js) 与 [会话视图](../web/assets/controllers/conversation-view.js)；实际送达消息和旧 Inbox 时间回退由 [历史恢复](../src/runtime/conversation-history.ts)、[消息归一化](../src/runtime/conversation-view.ts) 负责。先验证 [分组与恢复](../test/conversation.test.js)、[视图](../test/conversation-view.test.js) 和使用真实 Pi 投递的 [浏览器消息流程](../e2e/message-delivery.spec.js)，同步 [运行时参考](runtime-reference.md#会话与消息)。
 
-输入区移除语音链路的契约及文字、草稿和附件回归见 [输入移除测试](../test/voice-input-removal.test.js)；原生屏幕与辅助功能由 Computer Use 独立管理。
+语音链路的移除由[剔除守卫](../test/removed-capabilities.test.js)记录，文字、草稿与附件回归见[草稿与附件](../test/composer-attachments.test.js)；原生屏幕与辅助功能由 Computer Use 独立管理。
 
 输入框粘贴由 [剪贴板控制器](../web/assets/controllers/composer-clipboard.js) 处理文字/图片优先级与 HTML 文字回退；桌面原生编辑菜单在 [编辑菜单宿主](../desktop/edit-context-menu.cjs)。回归见 [剪贴板边界](../test/composer-clipboard.test.js)、[菜单信任边界](../test/desktop-edit-context-menu.test.js)、[真实浏览器快捷键](../e2e/composer-clipboard.spec.js) 和 [Electron 右键/原生编辑](../e2e/composer-clipboard-desktop.spec.js)，同步 [会话契约](runtime-reference.md#会话与消息)。
 
@@ -283,4 +283,4 @@ App/Web 界面语言由 [轻量文案模块](../web/assets/ui/language.js)、[�
 
 通过 npm 首次安装桌面 App 由[桌面安装器](../scripts/desktop.mjs)负责，复用[受管安装器](../desktop/update-install.cjs)校验应用；[安装回归](../test/desktop-cli-install.test.js)覆盖下载、平台门槛、取消与安装冲突。[CLI 打包](../scripts/package-cli.mjs)区分 npm 包 `coworkos-app` 与旧发行包的命令归属，两者均提供 `coworkos` 命令。
 
-应用、资源与工作台已在 P4.6 整体移除：源码、HTTP 路由、Pi 工具和界面入口均已删除，旧的应用实例、资源和标签文件保留在磁盘但不再读取。保留的交付链路是附件读取、产出物发布以及产出物的预览和下载，回归见 [附件 HTTP](../test/input-files-http.test.js)、[产出物发布 Pi](../test/publish-artifact-pi.test.js) 与[移除回归](../test/p46-applications-removed.test.js)。
+应用、资源与工作台已在 P4.6 整体移除：源码、HTTP 路由、Pi 工具和界面入口均已删除，旧的应用实例、资源和标签文件保留在磁盘但不再读取。保留的交付链路是附件读取、产出物发布以及产出物的预览和下载，回归见 [附件 HTTP](../test/input-files-http.test.js)、[产出物发布 Pi](../test/publish-artifact-pi.test.js) 与[剔除守卫](../test/removed-capabilities.test.js)。
