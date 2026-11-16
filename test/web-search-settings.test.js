@@ -32,24 +32,22 @@ async function fixture(t) {
       else process.env[key] = value;
     }
   });
-  return {
-    root,
-    paths: { configPath: join(root, "config.json"), secretPath: join(root, "model-secret.bin") }
-  };
+  return { root, paths: { configPath: join(root, "config.json") } };
 }
-test("Web search settings persist choices privately without changing model or legacy Serper", async (t) => {
+test("Web search settings persist choices privately without changing the model connection", async (t) => {
   const { root, paths } = await fixture(t);
-  const config = { model: "fixture-model", apiKey: "model-secret", serperApiKey: "legacy-secret" };
+  const config = { model: "fixture-model", apiKey: "model-secret" };
   await writeFile(paths.configPath, JSON.stringify(config));
   let active = false;
   const settings = createWebSearchSettings(root, config, () => active);
-  assert.equal(settings.status().provider, "serper");
+  assert.equal(settings.status().provider, "exa");
+  assert.equal(settings.status().authenticated, false, "no configuration means anonymous Exa");
   await settings.save({ provider: "exa", exaApiKey: "exa-secret" });
   assert.equal(settings.status().authenticated, true);
-  assert.doesNotMatch(JSON.stringify(settings.status()), /exa-secret|model-secret|legacy-secret/);
+  assert.doesNotMatch(JSON.stringify(settings.status()), /exa-secret|model-secret/);
   const saved = JSON.parse(await readFile(paths.configPath, "utf8"));
   assert.equal(saved.model, "fixture-model");
-  assert.equal(saved.serperApiKey, "legacy-secret");
+  assert.deepEqual(saved.webSearch, { provider: "exa" });
   assert.equal((await stat(paths.configPath)).mode & 0o777, 0o600);
   active = true;
   await assert.rejects(settings.save({ provider: "off" }), /停止运行/);

@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, readFile, realpath, stat, copyFile, symlink, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  stat,
+  copyFile,
+  symlink,
+  rm,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { execFile } from "node:child_process";
@@ -98,4 +109,32 @@ test("desktop file selection includes the complete Pi runtime import closure and
     timeout: 15000
   });
   assert.match(result.stdout, /desktop-runtime-closure-loaded/);
+});
+
+test("the desktop build ships no removed voice input resources or privacy declarations", async () => {
+  const pkg = JSON.parse(await readFile("package.json", "utf8"));
+  const config = require("../electron-builder.config.cjs");
+  assert.equal("build:speech-input" in pkg.scripts, false);
+  assert.doesNotMatch(pkg.scripts["build:base"], /speech/);
+  assert.ok(pkg.scripts["build:base"].includes("build-computer-use"));
+  assert.equal(config.asar, false);
+  assert.ok(config.files.includes("!dist/src/gui/atria-speech-input"));
+  assert.ok(config.files.includes("!dist/src/gui/atria-speech-input.sha256"));
+  for (const path of [
+    "desktop/speech-input.cjs",
+    "web/assets/controllers/voice-input.js",
+    "src/gui/macos-speech.swift",
+    "scripts/build-speech-input.mjs"
+  ])
+    await assert.rejects(access(resolve(path)), { code: "ENOENT" }, `${path} is not part of the build`);
+  assert.ok(config.mac.extendInfo, "packaging must remove Electron's default privacy descriptions");
+  for (const key of ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"])
+    assert.equal(config.mac.extendInfo[key], null);
+  const entitlements = await readFile("desktop/entitlements.mac.plist", "utf8");
+  assert.doesNotMatch(entitlements, /com\.apple\.security\.device\.audio-input/);
+  assert.match(entitlements, /com\.apple\.security\.cs\.allow-jit/);
+  // The development launcher continues to strip the default privacy descriptions.
+  const dev = await readFile("scripts/desktop-dev.mjs", "utf8");
+  assert.doesNotMatch(dev, /speech-input|createDesktopSpeechInput/);
+  assert.match(dev, /Delete :\$\{key\}/);
 });

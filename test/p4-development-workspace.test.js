@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { after, before, test } from "node:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import pg from "pg";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import {
   PROJECT_DATA_ENGINES,
@@ -17,9 +14,6 @@ import { ProjectDataRuntime } from "../dist/src/workspace/project-data-service.j
 import { RemoteProjectDataService } from "../dist/src/workspace/project-data-remote.js";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 import { createProjectDevelopmentTool } from "../dist/src/runtime/project-development-tool.js";
-import { SqliteDatabase } from "../dist/src/storage/project-data/sqlite-database.js";
-import { PostgresDatabase } from "../dist/src/storage/project-data/postgres-database.js";
-import { PROJECT_DATA_MIGRATIONS } from "../dist/src/storage/project-data/migrations.js";
 
 const run = promisify(execFile);
 
@@ -633,117 +627,4 @@ for (const engine of PROJECT_DATA_ENGINES) {
     );
     assert.equal(crossProject.status, 404, JSON.stringify(crossProject.body));
   });
-
-  test(`${engine}: a v3 database upgrades to the current schema and keeps its records usable`, async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), `coworkos-p4-upgrade-${engine}-`));
-    const moved = await migrateDirectory(t, directory, engine);
-    const repository = await makeRepository(join(directory, "repository"));
-    const runtime = new ProjectDataRuntime({
-      config: moved.config,
-      configPath: join(directory, "config.json"),
-      dataRoot: directory,
-      backendId: "backend_upgrade"
-    });
-    try {
-      const service = await runtime.service();
-      // v5 appends candidate reviews; an older database still upgrades in order.
-      assert.equal(service.description.schemaVersion, 7);
-      assert.deepEqual(
-        (await service.queryRequirements("project_legacy")).map((requirement) => requirement.title),
-        ["旧需求"]
-      );
-      const config = await service.setMergeConfig(
-        "project_legacy",
-        { repository, targetBranch: "main" },
-        "backend_upgrade"
-      );
-      assert.equal(config.targetBranch, "main");
-      const record = await service.createDevelopment("project_legacy", {
-        requirementId: "requirement_legacy",
-        goal: "升级后记录目标",
-        completionCriteria: ["升级后仍可创建"],
-        route: "direct",
-        baseline: { branch: "main", commit: await git(repository, ["rev-parse", "HEAD"]) }
-      });
-      assert.equal(record.developmentId.startsWith("development_"), true);
-      assert.equal((await service.queryDevelopments("project_legacy")).length, 1);
-      const workspace = await service.getDevelopment(
-        "project_legacy",
-        record.developmentId,
-        "backend_upgrade"
-      );
-      assert.equal(workspace.workspace, undefined, "no workspace was bound yet");
-    } finally {
-      await runtime.close();
-      await moved.cleanup();
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-}
-
-/**
- * A database that only knows v1..v3, on either engine.
- *
- * It reproduces the shipped versions by applying their statements in order, so
- * the upgrade is observed rather than constructed from the current schema.
- */
-async function migrateDirectory(t, directory, engine) {
-  if (engine === "sqlite") {
-    const path = join(directory, "legacy.sqlite");
-    const database = await SqliteDatabase.open(path);
-    await seedLegacy(database);
-    await database.close();
-    return { config: { sqlite: { path } }, cleanup: async () => {} };
-  }
-  const suffix = randomBytes(4).toString("hex");
-  const name = `p4_upgrade_${suffix}`;
-  const admin = new pg.Client({ connectionString: postgres.connectionString });
-  await admin.connect();
-  t.after(() => admin.end().catch(() => undefined));
-  await admin.query(`CREATE DATABASE ${name}`);
-  const cleanup = async () => {
-    await admin.query(`DROP DATABASE IF EXISTS ${name}`).catch(() => undefined);
-  };
-  const url = new URL(postgres.connectionString);
-  url.pathname = `/${name}`;
-  const database = new PostgresDatabase({ connectionString: url.toString() });
-  await seedLegacy(database);
-  await database.close();
-  return { config: { engine, postgres: { connectionString: url.toString() } }, cleanup };
-}
-
-async function seedLegacy(database) {
-  await database.execute(
-    "CREATE TABLE project_data_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
-  );
-  for (const version of [1, 2, 3]) {
-    const migration = PROJECT_DATA_MIGRATIONS.find((entry) => entry.version === version);
-    assert.ok(migration, `migration v${version} exists`);
-    for (const statement of migration.statements) await database.execute(statement);
-    await database.execute("INSERT INTO project_data_migrations (version, applied_at) VALUES (?, ?)", [
-      version,
-      "2026-01-01T00:00:00.000Z"
-    ]);
-  }
-  await database.execute(
-    "INSERT INTO project_data_projects (project_id, project_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-    ["project_legacy", "旧项目", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"]
-  );
-  await database.execute(
-    `INSERT INTO project_data_requirements
-       (project_id, requirement_id, title, content, source_kind, source_reference, status, revision, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      "project_legacy",
-      "requirement_legacy",
-      "旧需求",
-      "v3 数据不能丢。",
-      "internal",
-      null,
-      "open",
-      1,
-      "2026-01-01T00:00:00.000Z",
-      "2026-01-01T00:00:00.000Z"
-    ]
-  );
 }

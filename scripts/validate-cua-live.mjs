@@ -163,7 +163,7 @@ export async function validateCuaLive(args = process.argv.slice(2)) {
         ...publicConnection,
         mainTimeoutMs: Math.min(240_000, remaining()),
         mainMaxTurns: 40,
-        webTools: false
+        webSearch: { provider: "off" }
       }) + "\n",
       { mode: 0o600 }
     );

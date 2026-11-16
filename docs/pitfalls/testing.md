@@ -4,7 +4,7 @@
 
 - **Trigger：** 外部执行 CLI 已可用，准备从 OS UI 开始真实 Main/Executor/Reviewer 验收。
 - **What happens：** OS 自身连接仍未配置，真实模型流程无法开始；需要在验收实例中配置产品模型。
-- **Confirm：** 只读核对该实例 `/api/model-settings` 的 `configured`、`credentialUnavailable`，以及已有 Task/Run 是否活跃。P4 配置前 `configured=false`，配置完成后为 true。
+- **Confirm：** 只读核对该实例 `/api/model-settings` 的 `configured` 与 `credentialError`，以及已有 Task/Run 是否活跃。P4 配置前 `configured=false`，配置完成后为 true。
 - **Avoid：** 提前核对正确实例的模型设置入口，凭据保留在产品配置；就绪后续接已有任务，避免重复创建 Run。其余不依赖真实模型的检查可继续。
 - **Sources：** 2026-11-09 [P4 产品配置摘录](evidence/os-p4-native-development/checks.md#产品配置前置)、[整轮复盘](../p4-retrospective.md#5-产品模型配置是独立的验收前置)。自动就绪门禁尚未新增。
 
@@ -109,7 +109,7 @@
 
 - **Trigger：** 一张票新增环境开关或接口，另一张票删除旧的那个，例如测试中关闭 Main 守护的开关从 `COWORK_DISABLE_WATCH_SUPERVISOR` 换成 `COWORK_DISABLE_MAIN_GUARDIAN`。
 - **What happens：** 旧名被删、新名没有补上的地方静默失效。P4.6 第一轮约 80 处测试启动的后端因此运行了守护，时序用例偶发失败，起初被当成负载问题。
-- **Confirm：** `rg -n "<旧名>" src test e2e scripts desktop .pi` 应无结果，`rg -n "<新名>"` 覆盖原来每一处调用方；守护开关由 `test/p46-guardian-off-in-tests.test.js` 扫描。
+- **Confirm：** `rg -n "<旧名>" src test e2e scripts desktop .pi` 应无结果，`rg -n "<新名>"` 覆盖原来每一处调用方；守护开关由 `test/removed-capabilities.test.js` 的剔除表扫描。
 - **Avoid：** 工单写明「每个旧用法都要有新用法」，用 rg 全量查 `test/`、`e2e/`；改名跨票时由后一张票负责替换，并用扫描测试守住。
 - **Sources：** 2026-11-13 [P4.6 摘录](evidence/os-p46/retro.md#开关替换后旧用法残留第一轮)。
 

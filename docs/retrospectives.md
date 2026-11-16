@@ -32,7 +32,7 @@
 | Watch 普通命令继承错误权限上下文                            | [主机能力](../test/os-native-host-capabilities.test.js)                                                                                                             |
 | 干净工作树的轻量验证缺少数学资源准备                        | [验证编排](../scripts/verify.mjs)、[仓库回归](../test/repository-checks.test.js)                                                                                    |
 | 剪枝后 release catalog 与 runner 数量断言残留               | [发布计划](../scripts/release-test-plan.mjs)、[发布 runner 测试](../test/release/)                                                                                  |
-| 不同 workspace 同名 Task 导致误删共享标签                   | [科学剪枝边界](../test/science-removal.test.js)                                                                                                                     |
+| 不同 workspace 同名 Task 导致误删共享标签                   | [清理复盘](core-pruning-retrospective.md#2-清理必须确认跨工作区归属)（一次性清理工具已删除）                                                                        |
 | 台账工具注册过早要求运行凭据、PG 错误缺少定位               | [台账消费者](../test/p3-ledger-consumers.test.js)                                                                                                                   |
 | 拒绝启动污染原 Run、需求归属丢失、retry/本地收尾状态错误    | [MainSession 消费者](../test/p3-main-session-consumers.test.js)                                                                                                     |
 | 永久/暂时失败丢输入、重复请求清草稿、附件身份遗漏           | [容量生命周期](../test/p3-main-capacity-lifecycle.test.js)                                                                                                          |

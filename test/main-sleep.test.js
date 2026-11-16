@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRequire } from "node:module";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -132,6 +132,17 @@ test("sleep_until with an interval records a wake time and ends the turn", async
   assert.equal(parked.reason, "refresh the report");
   // Below the floor is raised to it: a wake cannot be due before the turn ends.
   assert.ok(Date.parse(parked.wakeAt) >= before + 60_000);
+});
+
+test("a park record without a wake time is damaged data, not an old park", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-sleep-damaged-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, TASK, "agents", "main"), { recursive: true });
+  await writeFile(
+    join(root, TASK, "agents", "main", "sleep.json"),
+    JSON.stringify({ runId: RUN, reason: "old monitor", parkedAt: new Date().toISOString() })
+  );
+  await assert.rejects(readSleep(root, TASK), /停泊记录损坏/);
 });
 
 test("a parked Main settles to waiting; an unparked Main still completes", async (t) => {

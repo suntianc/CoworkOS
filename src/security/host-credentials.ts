@@ -192,15 +192,3 @@ export function mergeHostCredentials(current: HostCredentials, incoming: HostCre
 export function hasHostCredentials(credentials: HostCredentials): boolean {
   return Object.keys(credentials.modelConnections).length > 0 || Boolean(credentials.webSearch?.exaApiKey);
 }
-
-/** A connection whose ciphertext belongs to the old desktop host cannot run here. */
-export function unavailableModelCredential(config: CoworkConfig): string | undefined {
-  if (!config.modelConnections?.profiles.some((profile) => profile.encryptedApiKey && !profile.apiKey))
-    return undefined;
-  return "已保存的模型密钥由旧版桌面宿主加密，当前执行主机无法读取；请重新填写 API Key，或先运行桌面配置迁移工具";
-}
-
-export function unavailableWebSearchCredential(config: CoworkConfig): string | undefined {
-  if (!config.webSearch?.encryptedExaApiKey || config.webSearch.exaApiKey) return undefined;
-  return "已保存的联网搜索密钥由旧版桌面宿主加密，当前执行主机无法读取；请重新填写 Exa API Key，或先运行桌面配置迁移工具";
-}

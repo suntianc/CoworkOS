@@ -57,7 +57,10 @@ async function fixture(t) {
     previousSearchKey = "isolated-contract-config-search-key";
   const secrets = [apiKey, searchKey, previousKey, previousSearchKey];
   const config = join(root, "config.json");
-  await writeFile(config, JSON.stringify({ apiKey: previousKey, serperApiKey: previousSearchKey }));
+  await writeFile(
+    config,
+    JSON.stringify({ apiKey: previousKey, webSearch: { provider: "exa", exaApiKey: previousSearchKey } })
+  );
   const records = [
     { type: "session", version: 3, id: sessionId, timestamp, cwd: project },
     {
@@ -168,14 +171,14 @@ async function fixture(t) {
   });
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([name]) => !/^(COWORK_|PI_|ATRIA_|SERPER_|OPENAI_|ANTHROPIC_)/.test(name)
+      ([name]) => !/^(COWORK_|PI_|ATRIA_|SERPER_|EXA_|OPENAI_|ANTHROPIC_)/.test(name)
     )
   );
   Object.assign(env, {
     ATRIA_HOME: user,
     COWORK_CONFIG: config,
     COWORK_API_KEY: apiKey,
-    COWORK_SERPER_API_KEY: searchKey,
+    COWORK_EXA_API_KEY: searchKey,
     COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
@@ -675,7 +678,7 @@ test(
     const data = JSON.parse(await readFile(join(f.project, "rpc-export.json"), "utf8"));
     assert.equal(data.producer.name, "CoworkOS");
     assert.equal(data.session.taskId, f.taskId);
-    for (const key of f.secrets) assert.ok(!JSON.stringify(data).includes(key));
+    for (const key of f.secrets) assert.ok(!JSON.stringify(data).includes(key), `export leaked ${key}`);
     assert.ok((await readFile(join(f.project, "rpc-share.html"), "utf8")).includes("· CoworkOS"));
     const report = (await readdir(f.project)).find((name) => name.startsWith("coworkos-feedback-"));
     for (const key of f.secrets) assert.ok(!(await readFile(join(f.project, report), "utf8")).includes(key));

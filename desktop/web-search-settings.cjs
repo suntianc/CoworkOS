@@ -43,6 +43,8 @@ function createWebSearchSettings(paths, safeStorage) {
         const existing = await read();
         // Retaining an old encrypted key never needs to decrypt it.
         const next = saveWebSearchConfig(existing, input || {});
+        // Clearing removes this host's ciphertext too, so an unrelated save cannot restore it.
+        if (input?.clearExaApiKey === true && next.webSearch) delete next.webSearch.encryptedExaApiKey;
         if (next.webSearch.exaApiKey) {
           if (!(await safeStorage.isEncryptionAvailable()))
             throw new Error("系统密钥存储访问失败，Exa API Key 尚未保存。请再次点击保存重试。");

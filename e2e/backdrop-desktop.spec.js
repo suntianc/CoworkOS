@@ -18,10 +18,43 @@ function iconPixels(png) {
   return { light, dark };
 }
 
-test("desktop window uses the native material and shows Formicand while package names stay", async () => {
+const layers = (page) =>
+  page.evaluate(() => {
+    const read = (selector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+      return { color: style.backgroundColor, image: style.backgroundImage };
+    };
+    const conversation = getComputedStyle(document.querySelector(".chat-pane"));
+    const taskPanel = getComputedStyle(document.querySelector(".agent-pane"));
+    return {
+      material: window.bookmanDesktop.windowMaterial,
+      title: document.title,
+      html: read("html"),
+      body: read("body"),
+      shell: read(".app-shell"),
+      conversation: { blur: conversation.backdropFilter, image: conversation.backgroundImage },
+      taskPanel: { blur: taskPanel.backdropFilter, image: taskPanel.backgroundImage }
+    };
+  });
+
+// Light mode lays one faint white wash on the body so the material reads as a
+// pale sheet; the other layers stay clear and nothing paints a gradient.
+const expectClearPage = (value, theme) => {
+  for (const layer of [value.html, value.body, value.shell]) {
+    const wash = layer === value.body && theme === "light";
+    expect(layer.color).toBe(wash ? "rgba(255, 255, 255, 0.4)" : "rgba(0, 0, 0, 0)");
+    expect(layer.image).toBe("none");
+  }
+  for (const panel of [value.conversation, value.taskPanel]) {
+    expect(panel.blur).toContain("blur(");
+    expect(panel.image).toContain("linear-gradient");
+  }
+};
+
+test("macOS window material shows the desktop through the page, keeps the glass panels and names Formicand while packages stay", async () => {
   test.skip(process.platform !== "darwin", "Native window material acceptance requires macOS");
   test.setTimeout(180_000);
-  const root = await mkdtemp(join(tmpdir(), "atria-formicand-desktop-"));
+  const root = await mkdtemp(join(tmpdir(), "atria-backdrop-desktop-"));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|SERPER_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
@@ -49,6 +82,9 @@ test("desktop window uses the native material and shows Formicand while package 
     });
     const page = await native.firstWindow();
     await expect(page.locator("#composer-input")).toBeAttached();
+    await expect(page.locator("html")).toHaveAttribute("data-window-material", "under-window");
+    // The page adds no canvas layer over the native material.
+    await expect(page.locator("canvas")).toHaveCount(0);
 
     const window = await native.evaluate(({ app, BrowserWindow }) => {
       const main = BrowserWindow.getAllWindows()[0];
@@ -65,21 +101,6 @@ test("desktop window uses the native material and shows Formicand while package 
     // reports a fully transparent color without its alpha channel.
     expect(window.background).toBe("#000000");
     expect(window.userData).toBe(root);
-
-    await expect(page.locator("html")).toHaveAttribute("data-window-material", "under-window");
-    expect(await page.evaluate(() => window.bookmanDesktop.windowMaterial)).toEqual({
-      material: "under-window"
-    });
-    const renderer = await page.evaluate(() => ({
-      theme: document.documentElement.dataset.theme,
-      body: getComputedStyle(document.body).backgroundColor,
-      wash: getComputedStyle(document.querySelector(".app-shell")).backgroundImage,
-      title: document.title
-    }));
-    // Light mode lays a faint white wash on the body; dark leaves it clear.
-    expect(renderer.body).toBe(renderer.theme === "light" ? "rgba(255, 255, 255, 0.4)" : "rgba(0, 0, 0, 0)");
-    expect(renderer.wash).toBe("none");
-    expect(renderer.title).toBe("Formicand");
 
     const icon = PNG.sync.read(await readFile("build/atria-icon.png"));
     expect(icon.width).toBe(1024);
@@ -102,6 +123,18 @@ test("desktop window uses the native material and shows Formicand while package 
     const builder = await import("../electron-builder.config.cjs");
     expect(builder.default.productName).toBe("CoworkOS");
     expect(builder.default.dmg.title).toContain("CoworkOS");
+
+    // The real host exposes the material and switches appearance through IPC.
+    for (const theme of ["dark", "light"]) {
+      await page.evaluate((value) => window.bookmanDesktop.appearance.set(value), theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await expect(page.locator("html")).toHaveAttribute("data-window-material", "under-window");
+      const value = await layers(page);
+      expect(value.material).toEqual({ material: "under-window" });
+      expect(value.title).toBe("Formicand");
+      expectClearPage(value, theme);
+      await expect(page.locator("canvas")).toHaveCount(0);
+    }
   } finally {
     await native?.close();
     await stopNativeBackend(root);

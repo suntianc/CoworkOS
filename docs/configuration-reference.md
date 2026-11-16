@@ -21,9 +21,9 @@
 | `mainMaxTokens` / `subagentMaxTokens` | 新连接均为 8192；整数 1 至 65536，且不超过服务上限                               |
 | `workspaceRoot`                       | 持久任务目录，建议绝对路径                                                       |
 
-`contextWindow` 用于 Main、子智能体及恢复任务的上下文预算和自动压缩，不作为模型请求参数发送。旧连接缺少该字段时使用 256000。输出上限另行设置。
+`contextWindow` 用于 Main、子智能体及恢复任务的上下文预算和自动压缩，不作为模型请求参数发送。新连接使用 256000，保存过的连接沿用其容量。输出上限另行设置。
 
-`off` 始终省略强度字段。旧 `minimal` 值仍可读取，界面标为旧配置；编辑其他字段会保留它，选择并保存其他强度后才替换。未显式配置的旧连接可能沿用 Runtime 的 `high` 和推理支持默认值，新连接使用 `off` / `false`。
+`off` 始终省略强度字段。可选档位为 `off`、`low`、`medium`、`high`、`xhigh`、`max`；未显式配置的旧连接可能沿用 Runtime 的 `high` 和推理支持默认值，新连接使用 `off` / `false`。
 
 连接测试、Main 和子智能体共用能力校正及请求序列化规则。显式强度被服务拒绝时，测试失败，不自动换档。测试使用短合成消息和测试工具，不发送真实会话历史；开启图像后会检查合成图片的底色与随机大号数字 2 或 4。长上下文、内容策略和实际任务需另行验证。
 
@@ -80,13 +80,11 @@ Finder/Dock 启动的 macOS App 会将存在的 `~/.local/bin`、Homebrew `bin`/
 
 App 使用 Electron safeStorage 加密客户端会话凭据，保存在桌面数据目录的 `client-sessions.json`；系统授权失败时显示错误，重试不会覆盖已保存凭据。模型和搜索密钥属于所选执行主机。
 
-独立执行主机把模型与搜索密钥保存在配置文件旁的 `credentials.json`（0600，可用 `COWORK_CREDENTIALS` 指定路径）。设置接口只返回 `configured`、`credentialUnavailable` 或 `secretUnavailable` 及具体 `credentialError`，不返回密钥；空白密钥保留原值，显式清除搜索密钥会删除保存项。旧桌面密文在迁移前按不可用处理，不会被报告为已配置。
+独立执行主机把模型与搜索密钥保存在配置文件旁的 `credentials.json`（0600，可用 `COWORK_CREDENTIALS` 指定路径）。设置接口只返回 `configured` 及具体 `credentialError`，不返回密钥；空白密钥保留原值，显式清除搜索密钥会删除保存项。凭据文件损坏时报告具体错误并保留原文件，不覆盖。设置页和真实运行使用同一份主机凭据，密钥不会进入界面状态、日志或事件。
 
-旧 Electron 加密配置的一次性转换：先停止后端，再在仓库内运行 `node scripts/migrate-desktop-settings.mjs --config <模型配置文件>`（可选 `--credentials`、`--legacy-secret`；隔离验证可用 `--host-arg --use-mock-keychain` 避免访问真实钥匙串）。工具临时调用旧宿主解密全部值后才写入，先把原文件备份为 `<配置>.before-host-credentials`，再原子改写配置；失败时原文件、备份和凭据文件都不变，成功后原配置中的密文和明文密钥被移除。重跑返回 `already-migrated`，不会新增连接。迁移完成后重新启动后端；正在运行的后端不会重新读取磁盘配置。设置页和真实运行使用同一份主机凭据，密钥不会进入界面状态、日志或事件。
+旧单组连接显示为“默认配置”；首次保存多组配置前把原文件复制为 `.before-model-profiles`，未知版本拒绝覆盖，恢复备份前先退出应用。
 
-旧单组连接显示为“默认配置”。首次保存多组配置前创建 `.before-model-profiles` 备份，并保留旧桌面 `model-secret.bin`；未知版本拒绝覆盖。恢复备份前先退出应用，配置和备份均按私有数据管理。
-
-客户端会话使用独立钥匙串进程的 `CoworkOS Client` 加密标识；旧模型密文转换仍使用 `Atria` 标识。旧开发标识加密的密钥可能需要重新输入，原密文与源目录保留。原生钥匙串和签名兼容需单独验收。
+客户端会话使用独立钥匙串进程的 `CoworkOS Client` 加密标识，旧开发标识加密的密钥可能需要重新输入，原密文与源目录保留。原生钥匙串和签名兼容需单独验收。
 
 ## 角色模型
 
@@ -114,9 +112,9 @@ App 使用 Electron safeStorage 加密客户端会话凭据，保存在桌面数
 
 ## 联网搜索
 
-无显式设置时使用 Exa。已有 `serperApiKey`、`COWORK_SERPER_API_KEY` 或 `SERPER_API_KEY` 时保留 Serper；显式 `webSearch.provider`（`exa` / `serper` / `off`）优先于凭据推断。旧 `webTools: false` 和 `COWORK_WEB_TOOLS=0` 关闭搜索，环境关闭优先。`COWORK_WEB_TOOLS=1` 可覆盖旧布尔关闭，但不能覆盖明确的 `provider: "off"`。升级不写回已有选择。
+搜索为 Exa 或关闭：默认使用 Exa，`webSearch.provider: "off"` 或 `COWORK_WEB_TOOLS=0` 关闭，环境关闭优先。
 
-自有 Exa 密钥可用 `webSearch.exaApiKey` 或 `COWORK_EXA_API_KEY` / `EXA_API_KEY`，环境变量优先。Serper 仍需自己的密钥。Main、子智能体和恢复会话使用同一搜索配置；常驻 Main 在每回合开始时重读，页面保存后下一回合即生效。
+自有 Exa 密钥可用 `webSearch.exaApiKey` 或 `COWORK_EXA_API_KEY` / `EXA_API_KEY`，环境变量优先。Main、子智能体和恢复会话使用同一搜索配置；常驻 Main 在每回合开始时重读，页面保存后下一回合即生效。
 
 默认连接 [Exa 官方托管 MCP](https://exa.ai/docs/get-started/exa-mcp)：`https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa`。仅启用基础搜索和读取，支持 JSON/SSE、会话及协议头、取消与 30 秒总期限。`COWORK_EXA_MCP_ENDPOINT` 仅用于可信测试服务，界面不提供地址输入。
 
@@ -169,7 +167,7 @@ SQLite 的默认文件是数据根下的 `project-data.sqlite`（`ATRIA_HOME/run
 
 ### 备份与恢复
 
-服务启动时按版本执行 schema 迁移。`GET /api/project-data` 报告当前引擎、服务端版本和已应用的 schema 版本；`target` 是文件路径或 `postgresql://host:port/database`，不含凭据。当前 schema 为 v7：v6 增加项目合入操作，v7 增加交付记录与看板上的实际合入提交列；迁移只追加，旧数据继续可读。备份与恢复使用同一服务，按当前引擎读取和写入：
+服务启动时只创建当前 schema。`GET /api/project-data` 报告当前引擎、服务端版本和 schema 版本；`target` 是文件路径或 `postgresql://host:port/database`，不含凭据。当前 schema 为 v7，包含看板、主会话、需求开发、审查、合入操作与交付记录。打开记录为其他版本的数据库会被拒绝，错误指明文件（或 `postgresql://host:port/database`）与版本，文件不被改写；此时请从备份恢复或使用对应版本打开。备份与恢复使用同一服务，按当前引擎读取和写入：
 
 ```sh
 coworkos data backup --to ~/backups/project-data.json

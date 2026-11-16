@@ -52,14 +52,14 @@ test("failed search save preserves the selected provider and secret draft when r
         : route.continue()
     );
     const dialog = await openSearch(page);
-    await dialog.locator('[name="provider"]').selectOption("serper");
+    await dialog.locator('[name="provider"]').selectOption("off");
     await dialog.getByText("高级设置 · 可选认证", { exact: true }).click();
     await dialog.locator('[name="exaApiKey"]').fill("preserved-fixture-secret");
     await dialog.getByRole("button", { name: "保存设置" }).click();
     await expect(dialog.locator("[data-search-error]")).toContainText("停止运行");
     await dialog.getByRole("button", { name: "关闭设置", exact: true }).click();
     await openSearch(page);
-    await expect(dialog.locator('[name="provider"]')).toHaveValue("serper");
+    await expect(dialog.locator('[name="provider"]')).toHaveValue("off");
     await expect(dialog.locator('[name="exaApiKey"]')).toHaveValue("preserved-fixture-secret");
   } finally {
     await dashboard.stop();
