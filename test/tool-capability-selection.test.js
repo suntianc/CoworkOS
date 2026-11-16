@@ -46,7 +46,7 @@ async function fixture(t) {
     }
     await rm(root, { recursive: true, force: true });
   });
-  const start = () => {
+  const start = (supportsImages = true) => {
     const tools = new Map();
     let active = ["read", "write", "edit", "bash", ...CORE_TOOLS, ...optional];
     const pi = {
@@ -60,7 +60,7 @@ async function fixture(t) {
       workspaceRoot: root,
       taskId: "task",
       mainRunId: "run",
-      supportsImages: true
+      supportsImages
     });
     return { controller, pi, enable: (groups) => tools.get("enable_tools").execute("load", { groups }) };
   };
@@ -136,6 +136,41 @@ test("enabling jobs never grants them; the recorded permission activates and rev
   await f.store.updateTask("task", { capabilities: { longRunning: false } });
   await main.controller.refresh();
   assert.equal(main.pi.getActiveTools().includes("start_job"), false);
+});
+
+test("desktop, browser and CUA tools require a Main connection that accepts image input", async (t) => {
+  const f = await fixture(t);
+  // Every tool in these groups returns pixels to the current connection.
+  const imageTools = [
+    "browser_open",
+    "browser_observe",
+    "browser_act",
+    "browser_wait",
+    "browser_close",
+    "cua_script",
+    "cua_reset",
+    "computer_status",
+    "computer_observe",
+    "computer_wait",
+    "computer_act"
+  ];
+  const textOnly = f.start(false);
+  const requested = await textOnly.enable(["browser", "cua", "computer"]);
+  for (const name of ["browser", "cua", "computer"])
+    assert.equal(requested.details.groups[name].enabled, false, `${name} needs an image-capable connection`);
+  for (const name of imageTools) assert.equal(textOnly.pi.getActiveTools().includes(name), false);
+  await textOnly.controller.refresh();
+  for (const name of imageTools) assert.equal(textOnly.pi.getActiveTools().includes(name), false);
+
+  const imageCapable = f.start(true);
+  const available = await imageCapable.enable(["browser", "cua"]);
+  assert.equal(available.details.groups.browser.enabled, true);
+  assert.equal(available.details.groups.cua.enabled, true);
+  // The desktop host is absent here, so only the always-safe browser/CUA tools load.
+  for (const name of ["browser_open", "browser_wait", "cua_script", "cua_reset"])
+    assert.ok(imageCapable.pi.getActiveTools().includes(name), `${name} stays available`);
+  for (const name of ["computer_observe", "computer_act"])
+    assert.equal(imageCapable.pi.getActiveTools().includes(name), false);
 });
 
 test("desktop tool schemas follow active human observation/control grants and expiry", async (t) => {

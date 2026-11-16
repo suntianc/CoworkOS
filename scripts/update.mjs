@@ -54,8 +54,7 @@ export async function runUpdate({
       const build = JSON.parse(await readFile(join(root, "build-info.json"), "utf8"));
       if (build.distribution !== "npm" || build.version !== pkg.version)
         throw new Error("无法确认 npm 安装来源；请使用原安装方式重新安装 coworkos。");
-      if (options.explicitChannel)
-        throw new Error("npm 安装使用 npm dist-tag；请使用 npm install -g coworkos-app@beta 或 @latest。");
+      // An npm installation follows its own dist-tag, so the release channel option does not apply.
       const tag = pkg.version.split("+")[0].includes("-") ? "beta" : "latest";
       const updateCommand = `npm install --global coworkos-app@${tag}`;
       let version = pkg.version,

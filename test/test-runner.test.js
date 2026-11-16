@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startDashboard } from "./dashboard-fixture.mjs";
 import {
   createTestPlan,
   discoverNodeTests,
@@ -122,4 +123,14 @@ test("test list is read-only and missing focused files return a failure before b
 
 test("child test failures propagate their actual exit code", async () => {
   assert.equal(await runCommand(process.execPath, ["-e", "process.exit(7)"]), 7);
+});
+
+test("the shared Dashboard fixture keeps the Main guardian off unless a test opts in", async (t) => {
+  const off = await startDashboard({ defaultProject: false });
+  t.after(() => off.stop());
+  assert.equal(off.env.COWORK_DISABLE_MAIN_GUARDIAN, "1");
+
+  const on = await startDashboard({ defaultProject: false, mainGuardian: true });
+  t.after(() => on.stop());
+  assert.equal(on.env.COWORK_DISABLE_MAIN_GUARDIAN, "0");
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readCoworkConfig } from "../dist/src/runtime/config.js";
@@ -25,9 +25,10 @@ test("context capacity resolves config and environment independently of output l
     assert.throws(() => configuredContextWindow({ COWORK_CONTEXT_WINDOW: value }), /上下文窗口/);
 });
 
-test("legacy profile lists get the previous capacity without rewriting files; invalid files are rejected", async (t) => {
+test("a stored connection capacity is readable and an invalid one is rejected without rewriting the file", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-context-window-"));
   t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, "config.json");
   const config = saveConnection(
     {},
     {
@@ -36,19 +37,20 @@ test("legacy profile lists get the previous capacity without rewriting files; in
       apiKey: "local-fixture"
     }
   );
-  delete config.contextWindow;
-  delete config.modelConnections.profiles[0].contextWindow;
-  const path = join(root, "config.json");
+  config.modelConnections.profiles[0].contextWindow = 64000;
   await writeFile(path, JSON.stringify(config));
   const loaded = readCoworkConfig(root, { COWORK_CONFIG: path });
-  assert.equal(modelConnections(loaded).profiles[0].contextWindow, 256000);
-  assert.equal(loaded.modelConnections.profiles[0].contextWindow, undefined);
+  assert.equal(modelConnections(loaded).profiles[0].contextWindow, 64000);
+  let rejected;
   for (const contextWindow of [0, -1, 1.5, "64000", null, 2 ** 53]) {
-    await writeFile(path, JSON.stringify({ ...config, contextWindow }));
+    rejected = JSON.stringify({ ...config, contextWindow });
+    await writeFile(path, rejected);
     assert.throws(() => readCoworkConfig(root, { COWORK_CONFIG: path }), /上下文窗口/);
     const invalid = structuredClone(config);
     invalid.modelConnections.profiles[0].contextWindow = contextWindow;
-    await writeFile(path, JSON.stringify(invalid));
+    rejected = JSON.stringify(invalid);
+    await writeFile(path, rejected);
     assert.throws(() => readCoworkConfig(root, { COWORK_CONFIG: path }), /上下文窗口/);
   }
+  assert.equal(await readFile(path, "utf8"), rejected, "a rejected file is not rewritten");
 });

@@ -31,8 +31,6 @@ export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig {
   model?: string;
   workspaceRoot?: string;
   taskId?: string;
-  serperApiKey?: string;
-  webTools?: boolean;
   /** Default SQLite; an explicit PostgreSQL choice is never replaced by a fallback. */
   projectData?: ProjectDataConfig;
   /** External Main quotas; absent keeps the internal-only behavior of an old entry. */

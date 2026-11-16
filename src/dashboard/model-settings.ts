@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { chmod, copyFile, mkdir, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { coworkConfigPath, readCoworkConfig, type CoworkConfig } from "../runtime/config.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { configuredSupportsImages } from "../runtime/runtime-settings.js";
@@ -17,8 +17,7 @@ import {
   HostCredentialStore,
   hostCredentialsPath,
   mergeHostCredentials,
-  takeHostCredentials,
-  unavailableModelCredential
+  takeHostCredentials
 } from "../security/host-credentials.js";
 
 /**
@@ -26,8 +25,8 @@ import {
  *
  * The response never carries a secret: keys are written to the host credential
  * store, the public configuration keeps only what a connection needs to be
- * described. A configuration that still holds old desktop ciphertext reports
- * that it cannot be decrypted here instead of claiming a usable connection.
+ * described. A connection whose key is missing here is reported as unconfigured
+ * and becomes usable again when a key is submitted.
  */
 export function createModelSettings(
   root: string,
@@ -38,13 +37,8 @@ export function createModelSettings(
   const path = coworkConfigPath(root);
   const store = new HostCredentialStore(options.credentialsPath ?? hostCredentialsPath(path));
   if (!store.error) applyHostCredentials(config, store.value);
-  const legacyCredential = () =>
-    !config.modelConnections && !config.apiKey && existsSync(join(dirname(path), "model-secret.bin"))
-      ? "已保存的模型密钥由旧版桌面宿主加密；请重新填写 API Key，或先运行桌面配置迁移工具"
-      : undefined;
-  const credentialError = () => store.error ?? unavailableModelCredential(config) ?? legacyCredential();
   const status = (projectId?: string) => {
-    const error = credentialError();
+    const error = store.error;
     return {
       ...connectionProfile(config),
       ...publicConnections(config),
@@ -74,7 +68,6 @@ export function createModelSettings(
         process.env.COWORK_THINKING_FORMAT !== undefined ||
         process.env.COWORK_CONTEXT_WINDOW !== undefined
       ),
-      credentialUnavailable: Boolean(unavailableModelCredential(config) || legacyCredential()),
       ...(error ? { credentialError: error } : {}),
       modelRoles: publicModelRoles(config, projectId)
     };
@@ -109,8 +102,7 @@ export function createModelSettings(
       if (value.supportsImages !== undefined && typeof value.supportsImages !== "boolean")
         throw new Error("图像能力设置必须为布尔值");
       const supplied = typeof value.apiKey === "string" && Boolean(value.apiKey.trim());
-      const unavailable = credentialError();
-      if (!managed && !supplied && unavailable) throw new Error(unavailable);
+      if (!managed && !supplied && store.error) throw new Error(store.error);
       return testModelConnection({
         ...parseConnectionProfile(managed ? {} : value, connectionProfile(selected)),
         baseUrl: managed
@@ -146,7 +138,7 @@ export function createModelSettings(
       const baseUrl = typeof value.baseUrl === "string" ? value.baseUrl.trim() : selected?.baseUrl || "";
       const model = typeof value.model === "string" ? value.model.trim() : selected?.model || "";
       const supplied = typeof value.apiKey === "string" ? value.apiKey.trim() : "";
-      const apiKey = supplied || (credentialError() ? "" : selected?.apiKey || "");
+      const apiKey = supplied || (store.error ? "" : selected?.apiKey || "");
       const catalog =
         baseUrl && model && apiKey ? await catalogModels({ ...config, baseUrl, model, apiKey }) : [];
       return {
@@ -172,6 +164,7 @@ export function createModelSettings(
         const previous = existsSync(path) ? readCoworkConfig(root, { COWORK_CONFIG: path }) : config;
         applyHostCredentials(previous, store.value);
         const next = saveConnection(previous, value);
+        // The single-connection file the CLI writes is copied before its first profile save.
         if (!previous.modelConnections && existsSync(path)) {
           await copyFile(path, `${path}.before-model-profiles`, 1).catch((error) => {
             if (error.code !== "EEXIST") throw error;

@@ -148,9 +148,6 @@ async function registerMainExtension(pi: ExtensionAPI) {
     secrets: [
       process.env.COWORK_API_KEY,
       config.apiKey,
-      process.env.COWORK_SERPER_API_KEY,
-      process.env.SERPER_API_KEY,
-      config.serperApiKey,
       web?.exaApiKey,
       ...(config.modelConnections?.profiles.map((profile) => profile.apiKey) ?? [])
     ].filter((value): value is string => Boolean(value))
@@ -564,12 +561,11 @@ async function registerMainExtension(pi: ExtensionAPI) {
    */
   const syncWebToolLoadout = () => {
     const latest = configuredWebTools(loadConfig());
-    // These four are everything `configuredWebTools` derives a provider from, so
+    // These three are everything `configuredWebTools` derives a provider from, so
     // an unchanged turn does not rebuild the tool definitions.
     const unchanged =
       latest?.provider === web?.provider &&
       latest?.exaApiKey === web?.exaApiKey &&
-      latest?.serperApiKey === web?.serperApiKey &&
       latest?.exaEndpoint === web?.exaEndpoint;
     if (unchanged) return;
     web = latest;
@@ -1116,7 +1112,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
     const recorder = new ModelRequestRecorder(
       join(taskWorkspace, "sessions", "main", `${mainRunId}-requests.jsonl`),
       { taskId, runId: mainRunId, agentId: "main" },
-      [apiKey, web?.serperApiKey, web?.exaApiKey].filter((secret): secret is string => Boolean(secret))
+      [apiKey, web?.exaApiKey].filter((secret): secret is string => Boolean(secret))
     );
     const publishModel = (
       next: ReturnType<typeof createCoworkModel>,

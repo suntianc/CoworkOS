@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -167,6 +168,19 @@ test("an archived body from another Pi version rebuilds the context and states w
   const row = (await f.archiveRows()).find((entry) => entry.type === "model_request");
   assert.equal(row.payload.retryOf, "archived-request");
   assert.equal(row.payload.replaySkipped.reason, "pi_version_mismatch");
+});
+
+test("a snapshot without a Pi version is damaged data, not an unversioned replay", async (t) => {
+  const f = await fixture(t, installedPiVersion);
+  // Drop the version the way an archive from before versions were recorded would.
+  const snapshot = JSON.parse(await readFile(f.store.filePath, "utf8"));
+  delete snapshot.piVersion;
+  delete snapshot.checksum;
+  const checksum = createHash("sha256")
+    .update(JSON.stringify(Object.fromEntries(Object.entries(snapshot))))
+    .digest("hex");
+  await writeFile(f.store.filePath, JSON.stringify({ ...snapshot, checksum }));
+  await assert.rejects(f.store.read(), /原请求快照损坏/);
 });
 
 /** A real Dashboard whose first model request fails, as an App retry would find it. */

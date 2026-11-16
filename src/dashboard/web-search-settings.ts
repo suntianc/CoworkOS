@@ -11,8 +11,7 @@ import {
   HostCredentialStore,
   hostCredentialsPath,
   mergeHostCredentials,
-  takeHostCredentials,
-  unavailableWebSearchCredential
+  takeHostCredentials
 } from "../security/host-credentials.js";
 
 /** The host stores the optional search key privately and never returns it. */
@@ -25,15 +24,10 @@ export function createWebSearchSettings(
   const path = coworkConfigPath(root);
   const store = new HostCredentialStore(options.credentialsPath ?? hostCredentialsPath(path));
   if (!store.error) applyHostCredentials(config, store.value);
-  const credentialError = () => store.error ?? unavailableWebSearchCredential(config);
-  const status = () => {
-    const error = credentialError();
-    return {
-      ...publicWebSearchStatus(config),
-      secretUnavailable: Boolean(unavailableWebSearchCredential(config)),
-      ...(error ? { credentialError: error } : {})
-    };
-  };
+  const status = () => ({
+    ...publicWebSearchStatus(config),
+    ...(store.error ? { credentialError: store.error } : {})
+  });
   return {
     status,
     async save(input: Record<string, unknown>) {
@@ -49,11 +43,6 @@ export function createWebSearchSettings(
         const next = saveWebSearchConfig(previous, input);
         const persisted = structuredClone(next);
         const extracted = takeHostCredentials(persisted);
-        // Only a submitted (or explicitly cleared) key supersedes old desktop ciphertext.
-        const replaced =
-          input.clearExaApiKey === true ||
-          (typeof input.exaApiKey === "string" && Boolean(input.exaApiKey.trim()));
-        if (replaced) delete persisted.webSearch?.encryptedExaApiKey;
         const merged = mergeHostCredentials(store.value, extracted);
         // An explicit clear removes the stored key instead of retaining it for a later re-enable.
         const credentials =

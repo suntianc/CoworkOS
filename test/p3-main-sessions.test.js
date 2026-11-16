@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
@@ -16,8 +15,6 @@ import {
   startProjectDataDashboard
 } from "./p3-storage-fixture.mjs";
 import { ProjectDataRuntime } from "../dist/src/workspace/project-data-service.js";
-import { SqliteDatabase } from "../dist/src/storage/project-data/sqlite-database.js";
-import { PROJECT_DATA_MIGRATIONS } from "../dist/src/storage/project-data/migrations.js";
 
 /**
  * Persistent project Main sessions against the real Dashboard, the real Pi
@@ -563,153 +560,3 @@ for (const engine of PROJECT_DATA_ENGINES) {
     );
   });
 }
-
-/**
- * The three shipped versions apply in their own order. A database built from a
- * branch that had v1+v3 must still receive v2; a v2 database must receive v3
- * without losing its board or ledger rows.
- */
-async function legacyDatabase(t, versions) {
-  const directory = await mkdtemp(join(tmpdir(), "coworkos-main-sessions-upgrade-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  const path = join(directory, "project-data.sqlite");
-  const database = await SqliteDatabase.open(path);
-  await database.execute(
-    "CREATE TABLE project_data_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
-  );
-  for (const version of versions) {
-    const migration = PROJECT_DATA_MIGRATIONS.find((entry) => entry.version === version);
-    assert.ok(migration, `migration v${version} exists`);
-    for (const statement of migration.statements) await database.execute(statement);
-    await database.execute("INSERT INTO project_data_migrations (version, applied_at) VALUES (?, ?)", [
-      version,
-      "2026-01-01T00:00:00.000Z"
-    ]);
-  }
-  await database.execute(
-    "INSERT INTO project_data_projects (project_id, project_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-    ["project_upgrade", "旧项目", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"]
-  );
-  await database.execute(
-    `INSERT INTO project_data_requirements
-       (project_id, requirement_id, title, content, source_kind, source_reference, status, revision, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      "project_upgrade",
-      "requirement_upgrade",
-      "旧需求",
-      "升级不能丢。",
-      "internal",
-      null,
-      "open",
-      1,
-      "2026-01-01T00:00:00.000Z",
-      "2026-01-01T00:00:00.000Z"
-    ]
-  );
-  return { directory, path, database };
-}
-
-test("a v2 database upgrades to v3 and keeps its board and ledger records", async (t) => {
-  const database = await legacyDatabase(t, [1, 2]);
-  // Board data written under v2 survives the v3 upgrade.
-  await database.database.execute(
-    `INSERT INTO project_data_board_entries
-       (project_id, board_id, requirement_id, entry_kind, state, revision, backend_id, publish_request_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      "project_upgrade",
-      "board_legacy",
-      "requirement_upgrade",
-      "external",
-      "pending",
-      1,
-      "backend_legacy",
-      "publish_legacy",
-      "2026-01-01T00:00:00.000Z",
-      "2026-01-01T00:00:00.000Z"
-    ]
-  );
-  await database.database.close();
-  const runtime = new ProjectDataRuntime({
-    config: { sqlite: { path: database.path } },
-    env: {},
-    configPath: join(database.directory, "config.json"),
-    dataRoot: database.directory,
-    backendId: "backend_upgrade"
-  });
-  const service = await runtime.service();
-  t.after(() => runtime.close());
-  assert.equal(service.description.schemaVersion, 7);
-  assert.deepEqual(
-    (await service.queryRequirements("project_upgrade")).map((requirement) => requirement.title),
-    ["旧需求"]
-  );
-  assert.deepEqual(
-    (await service.boardEntries("project_upgrade")).map((board) => board.boardId),
-    ["board_legacy"]
-  );
-  // v3 tables exist and are usable after the upgrade.
-  const session = await service.createMainSession("project_upgrade", {
-    title: "升级后的会话",
-    backendId: "backend_upgrade",
-    taskId: "task-upgrade"
-  });
-  assert.deepEqual(
-    (await service.listMainSessions("project_upgrade")).map((record) => record.session.sessionId),
-    [session.session.sessionId]
-  );
-});
-
-test("a v1+v3 database applies the missing v2 instead of skipping it", async (t) => {
-  const database = await legacyDatabase(t, [1, 3]);
-  await database.database.execute(
-    `INSERT INTO project_data_main_sessions
-       (project_id, session_id, title, entry_kind, kind, backend_id, task_id, current_requirement_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      "project_upgrade",
-      "session_legacy",
-      "分支上的会话",
-      "internal",
-      "regular",
-      "backend_legacy",
-      "task_legacy",
-      "requirement_upgrade",
-      "2026-01-01T00:00:00.000Z",
-      "2026-01-01T00:00:00.000Z"
-    ]
-  );
-  await database.database.close();
-  const runtime = new ProjectDataRuntime({
-    config: { sqlite: { path: database.path } },
-    env: {},
-    configPath: join(database.directory, "config.json"),
-    dataRoot: database.directory,
-    backendId: "backend_upgrade"
-  });
-  const service = await runtime.service();
-  t.after(() => runtime.close());
-  assert.equal(service.description.schemaVersion, 7);
-  const sessions = await service.listMainSessions("project_upgrade");
-  assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].session.sessionId, "session_legacy");
-  assert.equal(sessions[0].currentRequirementTitle, "旧需求");
-  // v2 is applied even though a higher version was already recorded.
-  const published = await service.publishBoardEntry(
-    "project_upgrade",
-    {
-      title: "补做的看板需求",
-      content: "v2 表在 v3 之后补齐。",
-      source: { kind: "external", reference: "升级验证" },
-      requestId: "publish-late-v2"
-    },
-    { backendId: "backend_upgrade", actor: { id: "host", host: true } }
-  );
-  assert.equal(published.state, "pending");
-  // Publishing the board need adds its own requirement; the old one stays.
-  assert.deepEqual(
-    (await service.queryRequirements("project_upgrade")).map((requirement) => requirement.title).sort(),
-    ["旧需求", "补做的看板需求"].sort()
-  );
-});

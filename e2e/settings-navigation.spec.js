@@ -98,12 +98,12 @@ test("returning from model and search settings preserves unsaved fields and secr
     await page.locator('[data-settings-section="tools"]').click();
     await overview.locator("[data-search-open]").click();
     const search = page.getByRole("dialog", { name: "联网搜索", exact: true });
-    await search.locator('[name="provider"]').selectOption("serper");
+    await search.locator('[name="provider"]').selectOption("off");
     await search.locator("summary").click();
     await search.locator('[name="exaApiKey"]').fill("synthetic-search-navigation-key");
     await search.getByRole("button", { name: "返回设置", exact: true }).click();
     await overview.locator("[data-search-open]").click();
-    await expect(search.locator('[name="provider"]')).toHaveValue("serper");
+    await expect(search.locator('[name="provider"]')).toHaveValue("off");
     await expect(search.locator('[name="exaApiKey"]')).toHaveValue("synthetic-search-navigation-key");
     await search.getByRole("button", { name: "关闭设置", exact: true }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);

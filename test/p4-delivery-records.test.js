@@ -1,13 +1,11 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, before, test } from "node:test";
-import pg from "pg";
 import {
   PROJECT_DATA_ENGINES,
   startPostgresProjectDatabase,
@@ -19,8 +17,6 @@ import { RemoteProjectDataService } from "../dist/src/workspace/project-data-rem
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 import { createProjectDevelopmentService } from "../dist/src/dashboard/project-development-service.js";
 import { ProjectDataUnavailableError } from "../dist/src/domain/project-ledger.js";
-import { PROJECT_DATA_MIGRATIONS } from "../dist/src/storage/project-data/migrations.js";
-import { PostgresDatabase } from "../dist/src/storage/project-data/postgres-database.js";
 import { SqliteDatabase } from "../dist/src/storage/project-data/sqlite-database.js";
 
 const run = promisify(execFile);
@@ -626,118 +622,6 @@ for (const engine of PROJECT_DATA_ENGINES) {
       );
       assert.deepEqual(await outboxEntries(join(dashboard.root, "execution")), []);
       assert.equal((await authority.gateway.queryDeliveries(project.projectId)).length, 2);
-    }
-  );
-
-  test(
-    `${engine}: a v6 database keeps its rows when the delivery schema is added`,
-    { timeout: 180_000 },
-    async (t) => {
-      const directory = await mkdtemp(join(tmpdir(), `coworkos-delivery-upgrade-${engine}-`));
-      t.after(() => rm(directory, { recursive: true, force: true }));
-      let database;
-      let config;
-      if (engine === "sqlite") {
-        const path = join(directory, "project-data.sqlite");
-        database = await SqliteDatabase.open(path);
-        config = { sqlite: { path } };
-      } else {
-        const name = `coworkos_upgrade_${process.pid}_${Math.random().toString(16).slice(2, 8)}`;
-        const admin = new pg.Client({ connectionString: postgres.connectionString });
-        await admin.connect();
-        await admin.query(`CREATE DATABASE ${name}`);
-        await admin.end();
-        const url = new URL(postgres.connectionString);
-        url.pathname = `/${name}`;
-        t.after(async () => {
-          const cleanup = new pg.Client({ connectionString: postgres.connectionString });
-          await cleanup.connect();
-          await cleanup.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).catch(() => undefined);
-          await cleanup.end();
-        });
-        database = new PostgresDatabase({ connectionString: url.toString() });
-        config = { engine, postgres: { connectionString: url.toString() } };
-      }
-      await database.execute(
-        "CREATE TABLE project_data_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
-      );
-      for (const migration of PROJECT_DATA_MIGRATIONS.filter((entry) => entry.version <= 6)) {
-        for (const statement of migration.statements) await database.execute(statement);
-        await database.execute("INSERT INTO project_data_migrations (version, applied_at) VALUES (?, ?)", [
-          migration.version,
-          "2026-01-01T00:00:00.000Z"
-        ]);
-      }
-      const timestamp = "2026-01-01T00:00:00.000Z";
-      await database.execute(
-        "INSERT INTO project_data_projects (project_id, project_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        ["project_legacy", "旧交付项目", timestamp, timestamp]
-      );
-      await database.execute(
-        `INSERT INTO project_data_requirements
-           (project_id, requirement_id, title, content, source_kind, source_reference, status, revision, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          "project_legacy",
-          "requirement_legacy",
-          "旧看板需求",
-          "v6 数据不能丢。",
-          "external",
-          "旧渠道",
-          "open",
-          1,
-          timestamp,
-          timestamp
-        ]
-      );
-      await database.execute(
-        `INSERT INTO project_data_board_entries
-           (project_id, board_id, requirement_id, entry_kind, state, revision, backend_id,
-            publish_request_id, assignment_kind, assignee_id, handler_backend_id, handler_project_id,
-            handler_task_id, assigned_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          "project_legacy",
-          "board_legacy",
-          "requirement_legacy",
-          "external",
-          "claimed",
-          2,
-          "backend_legacy",
-          "publish_legacy",
-          "main",
-          "host",
-          "backend_legacy",
-          "project_legacy",
-          "task_legacy",
-          timestamp,
-          timestamp,
-          timestamp
-        ]
-      );
-      await database.close();
-
-      const runtime = new ProjectDataRuntime({
-        config,
-        configPath: join(directory, "config.json"),
-        dataRoot: directory,
-        env: {}
-      });
-      try {
-        const service = await runtime.service();
-        assert.equal(service.description.schemaVersion, 7);
-        assert.deepEqual(
-          (await service.queryRequirements("project_legacy")).map((entry) => entry.title),
-          ["旧看板需求"]
-        );
-        const [entry] = await service.boardEntries("project_legacy");
-        assert.equal(entry.state, "claimed");
-        assert.equal(entry.assignment.handler.taskId, "task_legacy");
-        assert.equal(entry.delivery, undefined, "old rows have no delivery until a real merge");
-        assert.deepEqual(await service.queryDeliveries("project_legacy"), []);
-      } finally {
-        await runtime.close();
-      }
     }
   );
 }

@@ -6,7 +6,7 @@ import { icon } from "../ui/icons.js";
 import { escapeHtml as esc } from "../ui/html.js";
 import { LEVEL_LABELS as LEVEL_NAMES } from "./model-picker.js";
 
-/** The levels a connection can narrow to (#27); `minimal` stays only on old settings. */
+/** The levels a connection can narrow to (#27). */
 const LEVEL_CHOICES = ["off", "low", "medium", "high", "xhigh", "max"];
 const LEVEL_SOURCES = { endpoint: ui("来自 /models 接口"), official: ui("官方 · 自动") };
 /** Both hosts share one settings UI; keys are submitted once and never read back. */
@@ -380,9 +380,8 @@ export function installDesktopSettings({
   const checkedLevels = () => [...levelBoxes()].filter((box) => box.checked).map((box) => box.value);
   const limitEffort = (levels) => {
     const effort = form.elements.reasoningEffort;
-    for (const option of effort.options)
-      if (!option.dataset.legacyEffort) option.hidden = option.disabled = !levels.includes(option.value);
-    if (!levels.includes(effort.value) && effort.value !== "minimal") {
+    for (const option of effort.options) option.hidden = option.disabled = !levels.includes(option.value);
+    if (!levels.includes(effort.value)) {
       const order = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
       const at = order.indexOf(effort.value);
       effort.value = levels.reduce((best, next) =>
@@ -503,17 +502,6 @@ export function installDesktopSettings({
     form.elements.supportsPromptCacheKey.checked = value.supportsPromptCacheKey === true;
     form.elements.supportsReasoningEffort.checked = value.supportsReasoningEffort === true;
     const effort = form.elements.reasoningEffort;
-    effort.querySelector("[data-legacy-effort]")?.remove();
-    // Keep old configurations unchanged without offering minimal as a new choice.
-    if (value.reasoningEffort === "minimal") {
-      const legacy = document.createElement("option");
-      legacy.value = "minimal";
-      legacy.textContent = ui("minimal（旧配置）");
-      legacy.hidden = true;
-      legacy.disabled = true;
-      legacy.dataset.legacyEffort = "";
-      effort.append(legacy);
-    }
     effort.value = value.reasoningEffort || "off";
     form.elements.thinkingFormat.value = value.thinkingFormat || "auto";
     form.elements.mainMaxTokens.value = value.mainMaxTokens ?? 8192;

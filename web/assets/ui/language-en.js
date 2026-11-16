@@ -204,7 +204,6 @@ export default {
   "载入中…": "Loading…",
   "请稍候…": "Please wait…",
   新配置: "New profile",
-  "minimal（旧配置）": "minimal (legacy)",
   留空保留已有密钥: "Leave blank to keep the existing key",
   "填写 API Key": "Enter API key",
   "当前连接由启动环境管理，请在启动配置中修改。":
@@ -245,26 +244,19 @@ export default {
   "Exa 可匿名使用，受免费限额和地区网络限制。":
     "Exa supports anonymous use, subject to free limits and regional availability.",
   搜索服务: "Search provider",
-  "Exa（默认）": "Exa (default)",
-  "Serper（保留已有配置）": "Serper (existing configuration)",
   关闭联网搜索: "Disable web search",
   "高级设置 · 可选认证": "Advanced · Optional authentication",
   "自有 Exa API Key": "Your Exa API key",
   "可选；留空保留已有密钥": "Optional; leave blank to keep the existing key",
   "清除已有 Exa 密钥，使用匿名模式": "Clear the Exa key and use anonymous access",
-  "自有密钥的额度和计费由 Exa 管理；Serper 沿用已有密钥。":
-    "Exa manages your key's usage and billing. Serper keeps its existing key.",
   保存设置: "Save settings",
   "搜索设置暂时不可用，请稍后重试": "Search settings are unavailable. Try again later.",
   "已启用 ·": "Enabled ·",
   自有密钥: "Your key",
   匿名限额: "Anonymous limits",
-  "需配置 Serper 密钥": "Serper key required",
   已关闭: "Off",
   "搜索设置由启动环境管理，请在启动配置中修改。":
     "Search settings are managed by the launch environment. Edit the launch configuration.",
-  "已有 Exa 密钥无法解密，请填写新密钥或清除后使用匿名模式。":
-    "The Exa key cannot be decrypted. Enter a new key or clear it for anonymous access.",
   "请返回设置后重新进入，重试读取搜索设置。": "Return to settings and reopen this page to retry.",
   "联网搜索设置已保存，后续运行使用新设置": "Search settings saved for subsequent runs",
   查看: "View",

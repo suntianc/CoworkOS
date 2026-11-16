@@ -71,9 +71,11 @@ test("stable npm installs check latest without downgrading to an older registry 
   assert.match(options.messages[0], /最新 npm/);
 });
 
-test("npm update rejects legacy release channels, mismatched metadata and unavailable registry tags", async (t) => {
+test("npm update follows its dist-tag, rejects mismatched metadata and reports unavailable registry tags", async (t) => {
   const options = await fixture(t);
-  await assert.rejects(runUpdate({ ...options, args: ["--channel", "preview"] }), /dist-tag/);
+  const ignored = await runUpdate({ ...options, args: ["--channel", "preview"] });
+  assert.equal(ignored.mode, "npm");
+  assert.equal(ignored.updateCommand, "npm install --global coworkos-app@latest");
   await assert.rejects(
     runUpdate({
       ...options,
