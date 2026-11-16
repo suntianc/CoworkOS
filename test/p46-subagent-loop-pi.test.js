@@ -493,9 +493,29 @@ test(
     await Promise.race([beforeRestart, scriptFailure]);
     await f.dashboard.restart();
     releaseAfterRestart();
-    await Promise.race([settle(f.request, f.taskId), scriptFailure]);
+    const settled = await Promise.race([settle(f.request, f.taskId), scriptFailure]);
     assert.equal(reworkSawOriginalSession, true, "the rework request carried the original session history");
     assert.deepEqual(failures, [], failures.join("\n"));
+
+    // The backend restarted in the middle of the loop; the settled view still
+    // attributes every item from its durable records: identity, role, site and
+    // outcome.
+    const attributed = new Map(settled.progress.agents.map((agent) => [agent.callId, agent]));
+    for (const [call, role] of [
+      [calls.a, "executor"],
+      [calls.b, "reviewer"],
+      [calls.a2, "executor"],
+      [calls.c, "reviewer"]
+    ]) {
+      const recorded = attributed.get(call.callId);
+      assert.ok(
+        recorded,
+        `${call.callId} is in the settled view: ${JSON.stringify(settled.progress.agents)}`
+      );
+      assert.equal(recorded.role, role, `${call.callId} keeps its role`);
+      assert.equal(recorded.status, "succeeded", `${call.callId} keeps its outcome`);
+      assert.equal(recorded.workspace, call.workspace, "the recorded site is the one the item ran in");
+    }
 
     // The Reviewer examined the frozen candidate even though the Executor
     // checkout had already moved past it.
@@ -592,6 +612,13 @@ test(
               calls.c = toolJson(body);
               assert.deepEqual(calls.c.dependsOn, [calls.a.callId]);
               assert.notEqual(calls.a.workspace, calls.b.workspace, "parallel items get their own checkouts");
+              // Delegated work is Main's work, not a Main demand: with two
+              // items running and one waiting on its prerequisite, no work item
+              // holds a capacity slot or queues behind the quota.
+              const capacity = await f.request("/api/main-capacity");
+              assert.equal(capacity.status, 200, JSON.stringify(capacity.body));
+              assert.deepEqual(capacity.body.running, [], "a delegated item registers no Main slot");
+              assert.deepEqual(capacity.body.queued, [], "a delegated item queues no Main demand");
               return {
                 name: "cancel_subagent",
                 arguments: { callId: calls.a.callId, reason: "改由其它工作项覆盖" }
