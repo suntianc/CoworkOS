@@ -30,9 +30,8 @@ function optionValue(args, name) {
 }
 
 /** A copied/forked transcript is a different session, even when it contains the same custom entries. */
-async function matchingBinding(session, workspaceRoot, projectDirectory) {
-  const workspace = await canonical(workspaceRoot),
-    project = await canonical(projectDirectory);
+async function matchingBinding(session, workspaceRoot) {
+  const workspace = await canonical(workspaceRoot);
   const sessionId = session.getSessionId();
   const sessionFile = session.getSessionFile?.();
   const candidates = session
@@ -58,49 +57,10 @@ async function matchingBinding(session, workspaceRoot, projectDirectory) {
       continue;
     if ((await canonical(data.sessionFile)) !== (await canonical(sessionFile))) continue;
     if ((await canonical(data.workspaceRoot)) !== workspace) continue;
-    // eslint-disable-next-line no-restricted-syntax -- 旧绑定指向的 Task 可能已被删除，读不到时跳过这条记录而不能中断会话发现
-    const task = await new LocalWorkspaceStore(workspace).readTask(data.taskId).catch(() => undefined);
-    if (!task) continue;
-    // A catalog project may change its working folder while retaining this
-    // exact Task and transcript. Legacy bindings still require their old CWD.
-    if (!task.projectId || !task.projectCatalogPath) {
-      if ((await canonical(data.projectDirectory)) !== project) continue;
-      if (task.projectDirectory && (await canonical(task.projectDirectory)) !== project) continue;
-    }
+    // eslint-disable-next-line no-restricted-syntax -- 会话绑定的 Task 可能已被删除，读不到时跳过这条记录而不能中断会话发现
+    if (!(await new LocalWorkspaceStore(workspace).readTask(data.taskId).catch(() => undefined))) continue;
     return data;
   }
-}
-
-/** Older releases recorded full Pi entries in each Task snapshot. Reuse only a unique exact message identity match. */
-async function legacyTask(session, workspaceRoot, projectDirectory) {
-  if (session.getHeader()?.parentSession) return undefined;
-  const ids = session
-    .getEntries()
-    .filter((entry) => entry.type === "message")
-    .map((entry) => entry.id);
-  if (ids.length === 0) return undefined;
-  const project = await canonical(projectDirectory);
-  const matches = [];
-  for (const task of await new LocalWorkspaceStore(workspaceRoot).listTasks()) {
-    if (task.projectDirectory && (await canonical(task.projectDirectory)) !== project) continue;
-    let entries;
-    try {
-      entries = JSON.parse(
-        await readFile(join(workspaceRoot, task.taskId, "agents/main/context/messages.json"), "utf8")
-      );
-    } catch (error) {
-      if (error.code === "ENOENT" || error instanceof SyntaxError) continue;
-      throw error;
-    }
-    if (!Array.isArray(entries)) continue;
-    const saved = entries.filter((entry) => entry?.type === "message").map((entry) => entry.id);
-    if (
-      saved.length === ids.length &&
-      saved.every((id, index) => typeof id === "string" && id === ids[index])
-    )
-      matches.push(task.taskId);
-  }
-  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export async function allProjectSessions(agentDir) {
@@ -235,7 +195,7 @@ export async function resolveCliSession({
   const selectedProject = await canonical(header.cwd);
   const selectedDirectory = explicitDirectory ? sessionDirectory : dirname(sessionPath);
   const session = SessionManager.open(sessionPath, selectedDirectory);
-  const binding = await matchingBinding(session, workspaceRoot, selectedProject);
+  const binding = await matchingBinding(session, workspaceRoot);
   if (explicitTaskId) {
     const explicitTask = await new LocalWorkspaceStore(workspaceRoot)
       .readTask(explicitTaskId)
@@ -252,14 +212,7 @@ export async function resolveCliSession({
         "显式任务的项目与所选会话不一致。请选择该任务的原会话，或使用另一个任务。Explicit Task project differs from the selected session; choose its original session or another Task."
       );
   }
-  // Existing metadata in another workspace is never guessed into the current workspace.
-  const hasBinding = session
-    .getEntries()
-    .some((item) => item.type === "custom" && item.customType === CLI_TASK_ENTRY);
-  const taskId =
-    explicitTaskId ??
-    binding?.taskId ??
-    (hasBinding ? undefined : await legacyTask(session, workspaceRoot, selectedProject));
+  const taskId = explicitTaskId ?? binding?.taskId;
   const task = taskId
     ? // eslint-disable-next-line no-restricted-syntax -- 会话绑定的 Task 快照可能已被删除，读不到就按没有任务继续解析工作目录
       await new LocalWorkspaceStore(workspaceRoot).readTask(taskId).catch(() => undefined)
@@ -290,7 +243,7 @@ export async function recordCliSessionBinding({
     (await canonical(task.projectDirectory)) !== (await canonical(projectDirectory))
   )
     return { status: "conflict" };
-  const binding = await matchingBinding(sessionManager, workspaceRoot, projectDirectory);
+  const binding = await matchingBinding(sessionManager, workspaceRoot);
   if (binding?.taskId === taskId) return { status: "unchanged" };
   if (binding && !allowOverride) return { status: "conflict" };
   const data = {

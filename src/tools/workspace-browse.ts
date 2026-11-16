@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { containsFilePath, resolveFileTarget } from "./file-path.js";
 import { readWorkspaceText, searchWorkspaceText } from "./workspace-text.js";
@@ -38,37 +38,12 @@ export async function browseWorkspace(options: BrowseWorkspaceOptions, rawInput:
   const maxBytes = options.maxOutputBytes ?? 128_000;
 
   if (mode === "read") {
-    let readTarget = target;
-    let redirectedFrom: string | undefined;
-    try {
-      await stat(readTarget);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      // Old callbacks may still quote a pre-migration artifact path. Follow
-      // the explicit migration journal for model reads, not for the UI list.
-      const journal = await readFile(resolve(root, ".runtime/artifact-migration.json"), "utf8").catch(
-        // eslint-disable-next-line no-restricted-syntax -- 迁移日志在旧工作区尚不存在是预期情况，读取失败由下面的 JSON.parse 兜底为空映射
-        () => "{}"
-      );
-      const mappings =
-        (JSON.parse(journal) as { paths?: Array<{ sourcePath: string; destinationPath: string }> }).paths ??
-        [];
-      const mapping = mappings.find((entry) => entry.sourcePath === relative(root, target));
-      if (!mapping) throw error;
-      redirectedFrom = relative(root, target);
-      readTarget = await safeWorkspaceTarget(root, mapping.destinationPath);
-    }
     const page = await readWorkspaceText(
-      readTarget,
+      target,
       maxBytes,
       typeof input.offset === "number" ? input.offset : 0
     );
-    return {
-      mode,
-      path: relative(root, readTarget) || ".",
-      ...page,
-      ...(redirectedFrom ? { redirectedFrom } : {})
-    };
+    return { mode, path: relative(root, target) || ".", ...page };
   }
 
   if (mode === "search") {

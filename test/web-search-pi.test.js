@@ -68,7 +68,7 @@ test(
     await mkdir(project);
     await writeFile(join(root, "config.json"), "{}");
     const store = new LocalWorkspaceStore(workspace);
-    await store.createTask("search-task", { goal: "search" });
+    await store.createTask("search-task", { goal: "search", projectDirectory: project });
     await store.createRun("search-task", "search-run");
     const exa = await searchFixture(t);
     const failures = [],

@@ -48,7 +48,6 @@ const titles = {
 };
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const commands = new Set(["bash", "exec_command", "run_tests", "start_job"]);
-const reads = new Set(["read", "read_file"]);
 const searches = new Set(["grep", "search", "search_files", "web_search", "find"]);
 const parse = (value) => {
   if (typeof value !== "string") return value;
@@ -175,17 +174,6 @@ function resultSummary(name, data, completed, failed) {
   if (!completed || failed) return "";
   if (commands.has(name))
     return name === "start_job" && data.jobId ? ui("后台任务已启动") : ui("命令执行完成");
-  if (searches.has(name)) {
-    const results = [data.matches, data.results, data.files].find(Array.isArray);
-    if (results) return ui`返回 ${results.length} 项结果`;
-  }
-  if (reads.has(name) && typeof data.path === "string" && typeof data.content === "string")
-    return ui`返回 ${data.content ? data.content.split(/\r?\n/).length : 0} 行内容`;
-  if (["write", "write_file", "edit", "apply_patch"].includes(name)) {
-    if (data.changed === false) return ui("文件没有变化");
-    if (typeof data.bytes === "number" && Number.isFinite(data.bytes) && data.bytes >= 0)
-      return ui`已写入 ${data.bytes} 字节`;
-  }
   return "";
 }
 
@@ -200,10 +188,7 @@ export function presentToolCall(call = {}, options = {}) {
   const result = unpackToolResult(call.rawResult ?? call.result);
   const command = commands.has(name);
   const completed = call.completed === true || options.completed === true;
-  const failed =
-    call.failed === true ||
-    toolExecutionFailed({ isError: call.isError, result: result.raw }) ||
-    (command && typeof result.data.exitCode === "number" && result.data.exitCode !== 0);
+  const failed = call.failed === true || toolExecutionFailed({ isError: call.isError, result: result.raw });
   const waiting =
     result.raw?.details?.completed === false || (name === "finish_task" && result.data.completed === false);
   const stopped = !completed && options.active === false;
@@ -263,12 +248,6 @@ export function presentToolCall(call = {}, options = {}) {
   const durationLabel = durationText(durationMs);
   const detailSections = [
     { label: ui("参数"), text: technicalText(arguments_) },
-    ...(command
-      ? [
-          { label: ui("标准输出"), text: typeof result.data.stdout === "string" ? result.data.stdout : "" },
-          { label: ui("标准错误"), text: typeof result.data.stderr === "string" ? result.data.stderr : "" }
-        ]
-      : []),
     { label: ui("返回结果"), text: result.technicalText }
   ].filter((section) => section.text);
   return {

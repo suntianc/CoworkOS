@@ -12,7 +12,7 @@ import { buildConversationExchanges } from "../web/assets/conversation.js";
 import { buildLiveActivity } from "../web/assets/activity.js";
 
 test(
-  "Dashboard migrates legacy session CWD and retains follow-ups, reasoning, tools, final answers and title",
+  "Dashboard retains follow-ups, reasoning, tools, final answers and title across a reopened Main",
   { timeout: 45000 },
   async () => {
     const root = await mkdtemp(join(tmpdir(), "atria-conversation-api-"));
@@ -86,8 +86,8 @@ test(
           COWORK_SUPPORTS_REASONING_EFFORT: "true",
           PI_CODING_AGENT_DIR: join(root, "pi-agent"),
           COWORK_DISABLE_MAIN_GUARDIAN: "1",
-          // The legacy CWD migration runs when the session is reopened by a new
-          // process; a resident Main would keep the old session in memory.
+          // The second request must start a new Main so the test covers
+          // reopening the saved Pi session; a resident Main keeps it in memory.
           COWORK_MAIN_IDLE_TIMEOUT_MS: "800",
           COWORK_SERPER_API_KEY: "",
           SERPER_API_KEY: "",
@@ -125,7 +125,10 @@ test(
         await delay(20);
       }
       const prompt = "Read the fixture and complete the first request.";
-      await post("/api/tasks", { taskId: "conversation", goal: prompt });
+      const project = (
+        await post("/api/projects", { projectName: "Selected project", projectDirectory: workspaceRoot })
+      ).project;
+      await post("/api/tasks", { taskId: "conversation", goal: prompt, projectId: project.projectId });
       const run = await post("/api/tasks/conversation/run", { prompt });
       const waitForCompletion = async () => {
         for (let attempt = 0; attempt < 500; attempt++) {
@@ -168,20 +171,14 @@ test(
       );
       assert.equal(detail.messages.at(-1).content.at(-1).text, "First request complete.");
       // The process exits when idle, preserving the session and Task state; the
-      // next message starts a Main that reopens and migrates the session.
+      // next message starts a new Main that reopens the same Pi session.
       for (let attempt = 0; attempt < 200; attempt += 1) {
         if (!(await get("/api/tasks/conversation")).runtime.mainRunning) break;
         await delay(30);
       }
+      // One Run per Main process, so the reopened session is a second Run.
       const firstEvents = detail.runtimeEvents.map((event) => event.eventId);
-      // Older Dashboard runs recorded the harness CWD even for another project.
       const sessionDirectory = join(workspaceRoot, "conversation", "sessions", "main", "pi");
-      const originalSession = (await readdir(sessionDirectory)).find((path) => path.endsWith(".jsonl"));
-      const originalPath = join(sessionDirectory, originalSession);
-      const legacyLines = (await readFile(originalPath, "utf8")).trimEnd().split("\n");
-      legacyLines[0] = JSON.stringify({ ...JSON.parse(legacyLines[0]), cwd: resolve(".") });
-      const legacySource = `${legacyLines.join("\n")}\n`;
-      await writeFile(originalPath, legacySource);
       const next = await post("/api/tasks/conversation/run", {
         prompt: "Continue with the second request.",
         resume: false
@@ -249,13 +246,8 @@ test(
       const sessions = await readdir(sessionDirectory);
       assert.equal(
         sessions.filter((path) => path.endsWith(".jsonl")).length,
-        2,
-        "the legacy session is copied into the selected CWD once"
-      );
-      assert.equal(
-        await readFile(originalPath, "utf8"),
-        legacySource,
-        "migration must preserve the source session"
+        1,
+        "reopening the conversation continues the same Pi session"
       );
       const saved = JSON.parse(
         await readFile(
@@ -274,20 +266,6 @@ test(
             JSON.stringify(entry.message.content).includes("Second request complete.")
         ),
         "the final reply must be saved at settlement"
-      );
-      await post("/api/tasks/conversation/run", { prompt: "Continue in the same project again." });
-      detail = await waitForCompletion();
-      assert.equal(requests.length, 4);
-      assert.equal(requests[3].reasoning_effort, "high");
-      assert.equal(detail.statistics.usage.totalTokens, 500);
-      // The message after the reopened session joins that resident Main, so the
-      // conversation is two Runs — one per Main process — not one per message.
-      assert.equal(detail.statistics.runCount, 2);
-      assert.equal(requests[3].messages.filter((message) => message.role === "user").length, 3);
-      assert.equal(
-        (await readdir(sessionDirectory)).filter((path) => path.endsWith(".jsonl")).length,
-        2,
-        "aligned sessions must continue without another copy"
       );
     } finally {
       if (child && child.exitCode === null) {

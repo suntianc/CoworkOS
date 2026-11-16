@@ -33,11 +33,9 @@ export function validMainRequestExecutionScope(value: unknown): value is MainReq
 }
 
 export function assertMainRequestExecutionScope(
-  original: MainRequestExecutionScope | undefined,
+  original: MainRequestExecutionScope,
   current: MainRequestExecutionScope
 ): void {
-  if (!original)
-    throw new Error("原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。");
   const comparable = (scope: MainRequestExecutionScope) => ({
     version: scope.version,
     taskStorageRoot: scope.taskStorageRoot,

@@ -1,7 +1,7 @@
 import { MainMessageEditConflict } from "../runtime/main-message-edit.js";
 import { readFile } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse } from "node:http";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { ModelLevels } from "../runtime/model-levels.js";
 import { serveArtifact } from "./artifact-response.js";
 import { resolveTaskArtifact } from "../workspace/artifact-store.js";
@@ -675,8 +675,17 @@ export function createDashboardHandler(
                   ? ports.workspaceRoot()
                   : await resolveWorkspacePath(body.workspaceRoot);
               await ports.registerWorkspace(root);
+              // A folder named by this request opens a project of its own; a
+              // Task always belongs to one.
+              const project =
+                (await ports.projectForRoot(root)) ??
+                (await ports.createProject({ projectName: basename(root) || root, projectDirectory: root }));
               const taskStore = new LocalWorkspaceStore(root);
-              await taskStore.createTask(requested, { goal: goal.slice(0, 4_000) });
+              await taskStore.createTask(requested, {
+                goal: goal.slice(0, 4_000),
+                projectId: project.projectId,
+                projectDirectory: project.projectDirectory
+              });
               const location = await locateTask(requested);
               return { status: 201, body: await publishTask(await taskListItem(location)) };
             }
@@ -1043,7 +1052,6 @@ export function createDashboardHandler(
       if (request.method === "DELETE") {
         const location = await locateTask(taskId);
         if (await mainRunning(taskId)) throw new Error("请先停止任务，再删除会话");
-        if (location.task.kind === "workspace") throw new Error("工作区不能作为会话删除");
         await location.store.deleteTask(taskId);
         await ports.events?.taskDeleted(taskId);
         sendJson(response, 200, { taskId, deleted: true });

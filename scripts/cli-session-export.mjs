@@ -39,7 +39,7 @@ export async function exportCliSession({
       );
     path = selected[0].path;
   }
-  const original = (await readFile(path, "utf8")).replace(/^\uFEFF/, "");
+  const original = await readFile(path, "utf8");
   let records;
   try {
     records = original
@@ -55,10 +55,10 @@ export async function exportCliSession({
     typeof header.id !== "string" ||
     !header.id ||
     typeof header.cwd !== "string" ||
-    ![1, 2, 3].includes(header.version ?? 1)
+    header.version !== 3
   )
     throw new Error("无效的会话文件头，原文件已保留。");
-  validateSessionExportEntries(records.slice(1), { legacy: (header.version ?? 1) === 1 });
+  validateSessionExportEntries(records.slice(1));
   const destination = resolve(
     directory,
     outputPath ?? `coworkos-session-${header.id.replace(/[^a-zA-Z0-9._-]/g, "_")}.${format}`

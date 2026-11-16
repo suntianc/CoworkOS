@@ -113,19 +113,9 @@ function consumeUsage(summary: UsageAccumulator, record: UsageRecord): void {
           output: usage.output,
           cacheRead: usage.cacheRead ?? 0,
           cacheWrite: usage.cacheWrite ?? 0,
-          tokenUsageReported:
-            usage.tokenUsageReported === true ||
-            (usage.tokenUsageReported === undefined &&
-              [usage.input, usage.output, usage.cacheRead ?? 0, usage.cacheWrite ?? 0].some(
-                (value) => value > 0
-              )),
-          // Legacy zeros are ambiguous. Positive counters are still useful evidence.
-          cacheReadReported:
-            usage.cacheReadReported === true ||
-            (usage.cacheReadReported === undefined && (usage.cacheRead ?? 0) > 0),
-          cacheWriteReported:
-            usage.cacheWriteReported === true ||
-            (usage.cacheWriteReported === undefined && (usage.cacheWrite ?? 0) > 0)
+          tokenUsageReported: usage.tokenUsageReported === true,
+          cacheReadReported: usage.cacheReadReported === true,
+          cacheWriteReported: usage.cacheWriteReported === true
         }
       : null;
   // Pi initializes absent provider usage to zero, including aborted requests.

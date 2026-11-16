@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { agentName } from "../web/assets/agent-names.js";
 import { readAgentTrajectory } from "../dist/src/runtime/agent-trajectory.js";
 import { agentDisplayName, reserveSubagentIdentity } from "../dist/src/runtime/agent-identity.js";
-import { renderRunOverview } from "../web/assets/run-overview.js";
 
 test("agent names remain unique through concurrent delegation, follow-ups and reordered cards", async () => {
   const root = await mkdtemp(join(tmpdir(), "atria-agent-names-"));
@@ -27,34 +26,10 @@ test("agent names remain unique through concurrent delegation, follow-ups and re
       agents.toReversed().map((agent) => agent.name)
     );
     assert.equal(agentName({ agentId: "main" }), "Formicand");
+    assert.equal(agentName({ agentId: "my-monitor", name: "Paper Watcher" }), "Paper Watcher");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-});
-
-test("older team and usage snapshots resolve to the same constellation names as new delegations", () => {
-  const legacy = [
-    { agentId: "subagent_1", callId: "first", name: "青禾", status: "succeeded" },
-    { agentId: "subagent_2", callId: "second", name: "知微", status: "running" },
-    { agentId: "subagent_3", callId: "third", name: "明川", status: "waiting" },
-    { agentId: "subagent_4", callId: "fourth", name: "星野", status: "running" }
-  ];
-  assert.deepEqual(legacy.map(agentName), ["Ara", "Norma", "Circinus", "Apus"]);
-  assert.deepEqual(
-    legacy.map(agentName),
-    legacy.map((member) => agentDisplayName(member.agentId))
-  );
-  assert.equal(legacy[0].name, "青禾", "renaming the presentation must not rewrite historical records");
-  assert.equal(agentName({ agentId: "my-monitor", name: "Paper Watcher" }), "Paper Watcher");
-  const usage = { totalTokens: null, responses: 0, coverage: "unavailable" };
-  const html = renderRunOverview({
-    elapsedMs: 0,
-    active: false,
-    usage,
-    agents: legacy.map((agent) => ({ ...agent, usage }))
-  });
-  for (const name of ["Ara", "Norma", "Circinus", "Apus"]) assert.ok(html.includes(name));
-  assert.doesNotMatch(html, /青禾|知微|明川|星野/);
 });
 
 test("agent trajectories fold real tool results, isolate agents, and resume partial appended lines", async () => {

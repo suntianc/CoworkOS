@@ -37,7 +37,7 @@ export function createNewSessionView({
     (state.projects || []).find((project) => project.projectId === state.selectedProjectId);
   function recentTasks() {
     return (state.tasks || [])
-      .filter((task) => !task.archived && !task.temporaryWorkspaceRoot && task.kind !== "workspace")
+      .filter((task) => !task.archived && !task.temporaryWorkspaceRoot)
       .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
       .slice(0, 2);
   }

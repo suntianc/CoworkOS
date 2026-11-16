@@ -21,7 +21,7 @@ Main 的最近一条模型请求执行快照位于 `<task-storage-root>/<taskId>
 
 无项目会话创建 `<dirname(global-index)>/temporary-workspaces/<uuid>/`，通常位于 `~/.atria/runtime/temporary-workspaces/`。这些目录持久保存，不属于 OS 临时目录，也不登记为共享默认 workspace 或普通空项目。每空间有 `.atria-temporary-workspace.json`（版本 1、workspaceId、holdingTaskId、taskStorageRoot、createdAt、retention=`until-explicit-discard`）；目录和记录身份必须匹配，路径 canonical 化且拒绝符号链接。先在隐藏 staging 目录写入并 sync 记录，再提交目录，发现过程不读取未完成空间。
 
-临时会话的 `task.json` 仍在真实 Task 存储根，并带 `temporaryWorkspaceRoot`；`projectDirectory` 表示该空间的有效工具工作目录，`projectId` 不存项目成员身份，HTTP DTO 明确返回 `projectId:null`。全局目录索引把临时会话单独列出，跳过 legacy 项目推断。临时工作区只用于临时会话；已有带 `temporaryWorkspaceRoot` 的记录可继续读取，旧无标记 Task 保持原解释，不自动迁移、改归属或删除。
+临时会话的 `task.json` 仍在真实 Task 存储根，并带 `temporaryWorkspaceRoot`；`projectDirectory` 表示该空间的有效工具工作目录，`projectId` 不存项目成员身份，HTTP DTO 明确返回 `projectId:null`。全局目录索引把临时会话单独列出，不参与项目推断。临时工作区只用于临时会话；带 `temporaryWorkspaceRoot` 的记录必须同时指定同一 `projectDirectory` 且不带项目归属，否则按损坏记录拒绝。
 
 取消会话和服务退出均不删除暂存空间；本版本无自动清理或临时空间丢弃入口，备份必须包含这些目录和真实 Task 存储。
 
@@ -29,13 +29,13 @@ Main 的最近一条模型请求执行快照位于 `<task-storage-root>/<taskId>
 
 Projectless chats allocate separate `<dirname(global-index)>/temporary-workspaces/<uuid>/` directories, normally `~/.atria/runtime/temporary-workspaces/`. These are durable product data, distinct from OS temp storage, shared default roots and projects. Version 1 `.atria-temporary-workspace.json` records identify each root, its original Task storage root and its holding Task with `retention: until-explicit-discard`. Canonical paths, directory/record identities and symlink checks protect restoration; staged records are synced before the root becomes discoverable.
 
-Task history remains in the real Task storage root. `temporaryWorkspaceRoot` marks temporary ownership, `projectDirectory` carries the effective tool CWD, and HTTP returns `projectId:null`. Temporary conversations stay visible independently of projects. Temporary workspaces are only for temporary conversations; existing records with the marker remain readable, and legacy Tasks without it retain their existing interpretation. Nothing is migrated, reassigned or deleted.
+Task history remains in the real Task storage root. `temporaryWorkspaceRoot` marks temporary ownership, `projectDirectory` carries the effective tool CWD, and HTTP returns `projectId:null`. Temporary conversations stay visible independently of projects. Temporary workspaces are only for temporary conversations; a marked record must name the same `projectDirectory` and must not carry a project assignment, otherwise it is refused as damaged. Nothing is migrated, reassigned or deleted.
 
 Cancellation and shutdown retain all managed materials. No automatic cleanup or temporary-workspace discard action is provided; backups include these roots and Task storage.
 
 ## 项目与会话归属
 
-App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，默认 `~/.atria/runtime/projects.json`。它保存项目名称、稳定 `projectId`、工作文件夹 `projectDirectory` 和时间；空项目也持久保留。新项目 ID 为 `project_<uuid>`，旧目录分组保留原绝对路径 ID。会话 `task.json` 记录 `projectId`、`projectCatalogPath` 和目录快照；读取时以所属项目已提交的目录为准，工作文件夹调整不搬移 Task 目录、历史或产物。
+App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，默认 `~/.atria/runtime/projects.json`。它保存项目名称、稳定 `projectId`、工作文件夹 `projectDirectory` 和时间；空项目也持久保留。项目 ID 恒为 `project_<uuid>`，目录本身不是身份。会话 `task.json` 记录 `projectId`、`projectCatalogPath` 和目录快照；读取时以所属项目已提交的目录为准，工作文件夹调整不搬移 Task 目录、历史或产物。没有项目归属的会话不进入列表，也不按目录推断项目。
 
 项目目录更新先保存可恢复意图，更新关联会话快照后再提交项目记录；中途退出可在重新打开时完成，损坏记录会拒绝覆盖并保留原文件。Main、交互 CLI、子智能体、待回复、休眠唤醒或命令任务仍在使用项目时，禁止修改工作文件夹。`<task-storage-root>/<taskId>/agents/main/project-execution.json` 是 Main 启动和进程存活的执行租约，覆盖 CLI 两轮输入之间的空档；退出或停止后释放。重命名不改变目录。
 
@@ -75,7 +75,7 @@ App / Web 项目索引保存在全局工作区索引同级的 `projects.json`，
 
 以上目录按需创建。`artifacts/`、`inputs/`、`visual/`、`runs/` 和 `sessions/` 都属于当前 Task；旧版本遗留的 `applications/` 目录和其他应用文件保留在磁盘，但不再被读取。
 
-Task 初始化会创建 `agents/main/work/`，在 Main 首次模型请求前即可访问提示中的工作目录。恢复旧 Task 时补建缺失目录，已有草稿和产出物保持原内容。
+Task 首次写入时创建布局与 `agents/main/work/`，在 Main 首次模型请求前即可访问提示中的工作目录。已存在的 Task 不重建或改写它的布局与已保存内容。
 
 `visual/images/` 保存工具读到的图片、原生和浏览器截图，引用只属于当前 Task。版本 1 元数据与像素 hash 校验，完整写入后原子发布；中断残留计入限额，不自动删除旧图。图片可能包含用户内容，随 Task 一起备份保护；恢复历史图片不会恢复窗口授权或动作凭据。限额及接口见 [视觉观察](visual-observation.md)。
 
@@ -87,7 +87,7 @@ Task 初始化会创建 `agents/main/work/`，在 Main 首次模型请求前即�
 
 `sessions/main/versions.json` 使用版本 1 记录 Task、当前会话版本 ID、明确选定的 Pi session 文件、旧 Run 排除集合、此前前缀活动、历史消息/活动快照，以及修改重发的幂等身份。新 Pi 分支只包含被修改输入之前的 entry；旧 session 文件和 Run 记录保留，后续运行不靠最近修改文件猜测当前版本。`request-before-edit-<versionId>.json` 私有副本保留被替换轮次的原模型请求快照，权限为 600，不能作为新编辑输入的活动重试槽。备份应包含版本索引、所有 session 与这些私有恢复副本，不能仅复制当前消息列表。
 
-新版本将历史正文和活动单独写入私有 `sessions/main/message-versions/<versionId>.json`（权限 600）；版本索引只保存历史文件名、当前对应消息、分组、预览和活动数量。旧版内联历史仍可读取，下次编辑时迁移到独立文件；备份应同时包含这些历史文件。项目目录变更会复制当前选定 Pi 分支到新 CWD，再原子更新版本索引中的 session 指针，版本 ID 和旧记录不变。
+新版本将历史正文和活动单独写入私有 `sessions/main/message-versions/<versionId>.json`（权限 600）；版本索引只保存历史文件名、当前对应消息、分组、预览和活动数量。缺少独立历史文件的版本索引按损坏记录拒绝并保留原文件；备份应同时包含这些历史文件。项目目录变更会复制当前选定 Pi 分支到新 CWD，再原子更新版本索引中的 session 指针，版本 ID 和旧记录不变。
 
 `sessions/main/request-retry.json` 是唯一主动写入的版本 1 私有恢复槽，保存实际序列化 body、发送 endpoint、原模型/上下文和会话 ID、Task/Run/request 身份、执行环境、写入时的 Pi 版本（`piVersion`）、body SHA-256 与整槽校验和，状态为 pending/failed/completed。它保留原始用户正文、附件像素和成功工具结果，权限为 600；认证 headers 与配置密钥不保存。重放关联使用 `retryOf`，跨进程文件锁保护保存、结算及请求身份比对。版本不一致时不重放；重试写下的新快照用 `replaySkipped` 记录 `pi_version_mismatch` 与旧版本。缺少 `piVersion` 的快照按损坏记录处理。
 
@@ -145,17 +145,6 @@ COWORK_UI_PORT=3881 npm run ui
 
 当前预算 16 MiB，写入采用临时文件原子替换，损坏记录保留 `.invalid-*` 副本，未来版本拒绝覆盖。普通 Web 服务仍使用 origin 内的 localStorage，不写该桌面文件。
 
-## 旧产物目录迁移
-
-停止旧版运行并备份 workspace 后执行：
-
-```sh
-npm run build
-node scripts/migrate-artifacts.mjs --workspace /path/to/workspace --task <task-id>
-```
-
-省略 `--task` 处理全部 Task。脚本依据旧 manifest 识别框架日志和候选文件，移回 Agent 私有目录，并导入旧 Main deliverables；保留旧清单与迁移记录，不覆盖冲突文件。它只处理该产物布局迁移，不是桌面全部数据版本的通用升级器。当前普通扫描不会自动把候选文件发布成产物。
-
 ## CoworkOS 会话导出格式
 
 `coworkos session export`、交互 `/export` 和 RPC `/coworkos-export` 使用同一产品序列化器。JSON 顶层为 `schemaVersion: 1`、`format: "atria.session"`，包含 `producer`（CoworkOS 版本及真实 Pi 依赖版本）、`exportedAt`、`session`（sessionId、项目目录、可核对的 taskId/runId）、`task`、`messages`、`toolCalls`、`events` 和 `artifacts`。
@@ -164,7 +153,7 @@ node scripts/migrate-artifacts.mjs --workspace /path/to/workspace --task <task-i
 
 `artifacts` 仅引用现有 `.runtime/artifacts.json` 的注册元数据，不包含文件字节，也不为导出执行扫描或迁移。未能核对会话文件与 workspace 的绑定时，不猜测 Task 关联。凭据字段与所选配置及执行主机凭据存储（`credentials.json`）中的模型和搜索凭据脱敏，包括环境变量覆盖；其他正文和路径仍保留。新建和强制覆盖的导出文件均使用 600 权限，覆盖时先限制权限再写入会话内容。各分支的记录须有唯一 ID、有效父引用，且父引用不能形成循环；异常记录在导出前拒绝，源文件和已有输出保留。HTML 展示当前分支，另附全部分支的审计数据；用户内容始终转义为文本。
 
-该格式用于阅读、分享和审计，不作为 Pi 恢复输入。内部 JSONL 和请求归档保持原格式，旧会话迁移只发生在导出临时副本中。导出不能替代完整备份：恢复仍需原生会话、工作区和外部项目文件；旧历史未保存的事实无法补回。原生 RPC `export_html` 仍属于引擎兼容接口，产品导出使用 `/coworkos-export`。
+该格式用于阅读、分享和审计，不作为 Pi 恢复输入。内部 JSONL 和请求归档保持原格式。导出只接受当前版本的会话文件；更早的会话文件按无效文件头拒绝并保留原文件。导出不能替代完整备份：恢复仍需原生会话、工作区和外部项目文件；旧历史未保存的事实无法补回。原生 RPC `export_html` 仍属于引擎兼容接口，产品导出使用 `/coworkos-export`。
 
 ## 用户上传的输入文件
 

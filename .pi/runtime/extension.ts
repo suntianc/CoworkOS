@@ -1392,11 +1392,6 @@ async function registerMainExtension(pi: ExtensionAPI) {
       if (missingTools.length > 0) pi.setActiveTools([...activeTools, ...missingTools]);
       const taskStore = new LocalWorkspaceStore(workspaceRoot);
       await taskStore.createTask(taskId, { projectDirectory });
-      // Old CLI Tasks stored their CWD only in the native session binding.
-      // Persist it before the Dashboard can adopt this history as a project.
-      if (!(await taskStore.readTask(taskId)).projectDirectory) {
-        await taskStore.updateTask(taskId, { projectDirectory });
-      }
       await taskStore.createRun(taskId, mainRunId);
       if (process.env.COWORK_CLI_SESSION === "1") {
         const binding = await recordCliSessionBinding({

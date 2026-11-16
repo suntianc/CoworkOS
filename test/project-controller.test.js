@@ -98,16 +98,6 @@ test("explicit collaboration can establish a project without changing navigation
   assert.equal(f.calls.length, 1, "reuse an existing project instead of creating duplicates");
 });
 
-test("legacy projects with only archived or no tasks disappear while explicit projects remain", (t) => {
-  const f = fixture(t);
-  f.state.projects.push({ ...project("old"), legacy: true, tasks: [{ taskId: "old", archived: true }] });
-  f.state.projects.push({ ...project("orphan"), legacy: true, tasks: [] });
-  f.controller.render();
-  assert.equal(f.$('[data-project="old"]'), null);
-  assert.ok(f.$('[data-project="a"]'));
-  assert.equal(f.$('[data-project="orphan"]'), null);
-});
-
 test("cancelling project creation preserves the conversation and never submits a task", (t) => {
   const f = fixture(t);
   f.state.selected = "task-old";
@@ -476,14 +466,4 @@ test("an existing project draft prevents legacy source cleanup even after a fail
   assert.equal(session.prepareClose(), true);
   assert.equal(JSON.parse(records.get("atria.composer.v1:backend-a:new:a")).text, "A 已有草稿");
   assert.equal(records.get("atria.composer.v1:backend-a:new"), source);
-});
-
-test("legacy migration groups without conversations stay hidden while named empty projects survive", (t) => {
-  const f = fixture(t);
-  f.state.projects.push({ ...project("workspace"), legacy: true, tasks: [] });
-  f.state.projects.push({ ...project("test"), legacy: true, tasks: [] });
-  f.controller.render();
-  assert.equal(f.$('[data-project="workspace"]'), null);
-  assert.equal(f.$('[data-project="test"]'), null);
-  assert.ok(f.$('[data-project="a"]'));
 });

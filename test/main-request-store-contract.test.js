@@ -288,34 +288,14 @@ test("clearing the active slot survives a process restart", async (t) => {
   await assert.rejects(readFile(f.store.filePath), { code: "ENOENT" });
 });
 
-test("an older Main snapshot without execution scope remains readable but prepare refuses replay unchanged", async (t) => {
-  const f = await storage(t);
-  const { executionScope: _scope, ...oldInput } = f.input;
-  await f.store.begin(oldInput);
-  await f.store.settle(f.input.requestId, "failed");
-  const original = await readFile(f.store.filePath, "utf8");
-  const reloaded = new MainRequestStore(f.store.filePath, "task");
-  assert.equal((await reloaded.read()).executionScope, undefined);
-  assert.equal((await reloaded.pending()).requestId, f.input.requestId);
-  const retry = new MainRequestRetry(
-    reloaded,
-    "retry-run",
-    () => mainRequestEnvironment(f.root, "task", f.environment.projectDirectory),
-    f.input.requestId
-  );
-  await assert.rejects(retry.prepare(f.model, f.context), {
-    ...snapshotChanged,
-    message: /缺少执行归属记录/
-  });
-  assert.equal(await readFile(f.store.filePath, "utf8"), original);
-});
-
 test("malformed version annotations report a damaged snapshot instead of throwing", async (t) => {
   for (const [name, patch] of [
     ["a non-string Pi version", { piVersion: 123 }],
     ["a missing Pi version", { piVersion: undefined }],
     ["a null replay reason", { replaySkipped: null }],
-    ["an unknown replay reason", { replaySkipped: { reason: "unknown" } }]
+    ["an unknown replay reason", { replaySkipped: { reason: "unknown" } }],
+    ["a missing execution scope", { executionScope: undefined }],
+    ["a missing endpoint", { endpoint: undefined }]
   ]) {
     await t.test(name, async (t) => {
       const f = await storage(t);

@@ -35,10 +35,7 @@ function cacheLabel(usage, field) {
   const coverage = usage?.[`${field}Coverage`];
   if (coverage === "complete") return number(usage[field]);
   if (coverage === "partial") return ui`${number(usage[field])} <small>已报告 · 部分未知</small>`;
-  // Older API responses also cannot establish whether a zero was reported.
-  return coverage === undefined && usage?.[field] > 0
-    ? ui`${number(usage[field])} <small>已报告 · 部分未知</small>`
-    : ui("未报告");
+  return ui("未报告");
 }
 
 function agentUsageRow(agent) {

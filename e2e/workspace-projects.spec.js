@@ -267,48 +267,50 @@ test("two projects use isolated real Pi working directories and reject folder ch
   }
 });
 
-test("legacy directory groups keep their identities while explicit empty projects remain visible", async ({
+test("a conversation in its own folder keeps its project visible while explicit empty projects remain visible", async ({
   page
 }) => {
   const dashboard = await startDashboard({ defaultProject: false });
-  const legacy = join(dashboard.root, "legacy-project");
+  const folder = join(dashboard.root, "folder-project");
   try {
-    await mkdir(legacy);
+    await mkdir(folder);
     const empty = await createProject(page, dashboard, "空项目", join(dashboard.root, "empty"));
     const response = await page.request.post(`${dashboard.base}/api/tasks`, {
-      data: { taskId: "legacy", goal: "旧目录会话", workspaceRoot: legacy }
+      data: { taskId: "folder-task", goal: "目录会话", workspaceRoot: folder }
     });
     expect(response.status()).toBe(201);
-    expect((await response.json()).projectId).toBe(legacy);
+    const { projectId } = await response.json();
+    expect(projectId).toMatch(/^project_[a-f0-9-]{36}$/);
     await page.goto(dashboard.base);
-    await expect(groupFor(page, legacy).locator('[data-task="legacy"]')).toBeVisible();
+    await expect(groupFor(page, projectId).locator('[data-task="folder-task"]')).toBeVisible();
     await expect(groupFor(page, empty.projectId)).toBeVisible();
-    await page.locator('.conversation-item[data-task="legacy"]').click();
-    await page.locator("#composer-input").fill("旧会话的未发送草稿");
-    await expectTaskProject(page, dashboard, "legacy", {
-      projectId: legacy,
-      projectDirectory: legacy,
-      workspaceRoot: legacy,
-      storageRoot: legacy
+    await page.locator('.conversation-item[data-task="folder-task"]').click();
+    await page.locator("#composer-input").fill("会话的未发送草稿");
+    await expectTaskProject(page, dashboard, "folder-task", {
+      projectId,
+      projectDirectory: folder,
+      workspaceRoot: folder,
+      storageRoot: folder
     });
     expect(
       (
         await page.request.post(`${dashboard.base}/api/workspace/choose`, {
-          data: { taskId: "legacy", workspaceRoot: empty.projectDirectory }
+          data: { taskId: "folder-task", workspaceRoot: empty.projectDirectory }
         })
       ).status()
     ).toBe(410);
     await page.reload();
-    await expect(page.locator("#composer-input")).toHaveValue("旧会话的未发送草稿");
-    await expect(page.locator(".project-group.is-selected .project-row")).toHaveAttribute("title", legacy);
-    await page.request.patch(`${dashboard.base}/api/tasks/legacy`, { data: { archived: true } });
+    await expect(page.locator("#composer-input")).toHaveValue("会话的未发送草稿");
+    await expect(page.locator(".project-group.is-selected .project-row")).toHaveAttribute("title", folder);
+    await page.request.patch(`${dashboard.base}/api/tasks/folder-task`, { data: { archived: true } });
     await page.reload();
     // The open conversation stays listed, marked archived, until the user leaves it.
-    await expect(page.locator('.conversation-item[data-task="legacy"]').locator("..")).toHaveClass(
+    await expect(page.locator('.conversation-item[data-task="folder-task"]').locator("..")).toHaveClass(
       /is-archived/
     );
     await page.locator("#new-conversation").click();
-    await expect(groupFor(page, legacy)).toHaveCount(0);
+    // Its explicit project stays listed after the archived conversation leaves.
+    await expect(groupFor(page, projectId)).toBeVisible();
     await expect(groupFor(page, empty.projectId)).toBeVisible();
   } finally {
     await dashboard.stop();

@@ -77,7 +77,7 @@ test(
     execFileSync("python3", ["-m", "venv", pythonEnvironment], { stdio: "pipe" });
     await writeFile(join(root, "config.json"), JSON.stringify({ science: { enabled: true } }));
     const store = new LocalWorkspaceStore(workspace);
-    await store.createTask("task");
+    await store.createTask("task", { projectDirectory: project });
     await store.createRun("task", "run");
     const steps = { main: 0, delegate: 0 };
     const failures = [];

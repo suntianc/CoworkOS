@@ -672,12 +672,7 @@ export function createDashboardApplication(
           })
         : undefined;
     const retryRequest =
-      retry &&
-      retry.executionScope &&
-      retry.endpoint &&
-      retry.taskId === taskId &&
-      retry.runId === runId &&
-      retry.state !== "completed"
+      retry && retry.taskId === taskId && retry.runId === runId && retry.state !== "completed"
         ? { requestId: retry.requestId, model: retry.model.id }
         : undefined;
     const lastFailure = [...events].reverse().find((event) => event.type === "main.run_failed")?.payload as
@@ -687,9 +682,7 @@ export function createDashboardApplication(
       ["failed", "waiting"].includes(task.status) &&
       !retryRequest &&
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- damagedRetry 在上面的 catch 回调里赋值，TS 在读取处看不到这次写入
-      (damagedRetry ||
-        (retry && (!retry.executionScope || !retry.endpoint)) ||
-        lastFailure?.failure?.kind === "model_request");
+      (damagedRetry || lastFailure?.failure?.kind === "model_request");
     const statistics = await readRunStatistics({ workspaceRoot: taskWorkspace, task, active });
     const humanRequests = await new HumanRequestStore(taskWorkspace).list(taskId);
     // eslint-disable-next-line no-restricted-syntax -- 停泊记录缺失或损坏按未停泊展示，任务详情仍要返回其余字段

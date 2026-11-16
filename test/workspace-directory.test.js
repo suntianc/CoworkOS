@@ -1,27 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const { createWorkspaceDirectory } = await import("../dist/src/dashboard/workspace-directory.js");
 const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-store.js");
 
-test("empty storage roots are omitted; legacy projects adopt history and project edits preserve its storage", async (t) => {
+test("empty storage roots are omitted and project edits keep conversations in their storage root", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-workspace-directory-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const a = join(root, "a");
   const b = join(root, "b");
+  await mkdir(b);
   const index = join(root, "catalog.json");
   let directory = createWorkspaceDirectory(a, index, () => "fixture");
   await directory.register(b);
   assert.deepEqual((await directory.globalTaskPayload()).projects, []);
-  const store = new LocalWorkspaceStore(a);
-  await store.createTask("standalone", { kind: "workspace" });
-  assert.deepEqual((await directory.globalTaskPayload()).projects, []);
-  await store.createTask("session", { goal: "保留我的历史" });
+  const project = await directory.createProject({ projectName: "保留我的历史", projectDirectory: b });
+  await directory.createProjectTask("session", project.projectId, { goal: "保留我的历史" });
   const memory = join(a, "session", "agents", "main", "context", "memory.md");
   await writeFile(memory, "不能丢失的历史");
-  await store.updateTask("session", { projectDirectory: b });
   directory = createWorkspaceDirectory(a, index, () => "fixture");
   const payload = await directory.globalTaskPayload();
   assert.equal(payload.projects.length, 1);
@@ -30,43 +28,35 @@ test("empty storage roots are omitted; legacy projects adopt history and project
   assert.equal(payload.currentWorkspaceRoot, a);
   const location = await directory.locateTask("session");
   assert.equal(location.workspaceRoot, a);
-  assert.equal(location.projectId, b);
+  assert.equal(location.projectId, project.projectId);
   assert.equal((await directory.taskListItem(location)).workspaceRoot, b);
   assert.equal(await readFile(memory, "utf8"), "不能丢失的历史");
-  await directory.updateProject(b, { projectDirectory: a }, (_taskIds, action) => action());
+  await directory.updateProject(project.projectId, { projectDirectory: a }, (_taskIds, action) => action());
   assert.equal((await directory.globalTaskPayload()).projects[0].workspaceRoot, a);
 });
 
-test("stale directory indexes are hidden without deleting records, while explicit empty projects remain", async (t) => {
+test("a Task without a project is left off the list and on disk, while explicit empty projects remain", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-project-evidence-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const { mkdir } = await import("node:fs/promises");
   const storage = join(root, "workspace"),
-    staleRoot = join(root, "retained-documents"),
     emptyRoot = join(root, "empty");
-  await Promise.all([mkdir(staleRoot), mkdir(emptyRoot)]);
+  await mkdir(emptyRoot);
   const directory = createWorkspaceDirectory(storage, join(root, "global.json"), () => "fixture");
-  await new LocalWorkspaceStore(storage).createTask("workspace", { kind: "workspace" });
-  await directory.locateTask("workspace");
-  assert.deepEqual(
-    await directory.projectCatalog.list(),
-    [],
-    "lookup of a holding Task cannot adopt its directory"
-  );
+  const store = new LocalWorkspaceStore(storage);
+  await store.createTask("unassigned", { goal: "没有项目的历史" });
+  assert.deepEqual((await directory.globalTaskPayload()).tasks, []);
+  await assert.rejects(directory.locateTask("unassigned"), /找不到会话所属项目/);
   const explicit = await directory.createProject({
     projectName: "Explicit empty",
     projectDirectory: emptyRoot
   });
-  const temporary = join(root, "atria-reasoning-launcher-old");
-  await directory.projectCatalog.ensureLegacy([storage, temporary, staleRoot]);
   const indexBefore = await readFile(directory.projectCatalog.filePath, "utf8");
   const payload = await directory.globalTaskPayload();
-  // A legacy directory with no conversations is not a project the sidebar shows.
   assert.deepEqual(
     payload.projects.map((project) => project.projectId),
     [explicit.projectId]
   );
-  // Reading the list neither rewrites nor prunes the catalog records.
+  // Reading the list neither rewrites nor prunes records or Task files.
   assert.equal(await readFile(directory.projectCatalog.filePath, "utf8"), indexBefore);
-  assert.equal((await directory.projectCatalog.list()).filter((entry) => entry.legacy).length, 3);
+  await access(join(storage, "unassigned", "task.json"));
 });

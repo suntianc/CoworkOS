@@ -291,13 +291,12 @@ export async function startPi({ uiCompatibility } = {}) {
       sessionDirectoryArg >= 0 &&
       userArgs[sessionDirectoryArg + 1]
     ) {
-      const { alignTaskSessionDirectory, restoreUnflushedTaskSession } = await import("./main-session.mjs");
+      const { restoreUnflushedTaskSession } = await import("./main-session.mjs");
       await restoreUnflushedTaskSession(
         userArgs[sessionDirectoryArg + 1],
         projectDirectory,
         resolve(workspaceRoot, explicitTaskId, "agents/main/context/messages.json")
       );
-      await alignTaskSessionDirectory(userArgs[sessionDirectoryArg + 1], projectDirectory);
       if (process.env.COWORK_MAIN_CONTINUATION) {
         const { restorePendingTaskInput } = await import("./main-session.mjs");
         await restorePendingTaskInput(

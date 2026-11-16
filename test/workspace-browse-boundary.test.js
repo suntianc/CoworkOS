@@ -33,19 +33,6 @@ for (const [mode, path] of [
     );
   });
 
-test("artifact migration destinations cannot redirect a read outside the workspace", async (t) => {
-  const { workspace } = await fixture(t);
-  await mkdir(join(workspace, ".runtime"));
-  await writeFile(
-    join(workspace, ".runtime/artifact-migration.json"),
-    JSON.stringify({ paths: [{ sourcePath: "old.txt", destinationPath: "file-alias" }] })
-  );
-  await assert.rejects(
-    browseWorkspace({ workspaceDirectory: workspace }, { mode: "read", path: "old.txt" }),
-    /escapes workspace/
-  );
-});
-
 test("workspace aliases resolving inside the same root keep normal browsing behavior", async (t) => {
   const { root, workspace } = await fixture(t);
   await mkdir(join(workspace, "documents"));

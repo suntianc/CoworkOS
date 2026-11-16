@@ -1,5 +1,5 @@
 import { readTemporaryWorkspace } from "./temporary-workspaces.js";
-import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { withFileLock } from "../storage/file-lock.js";
 import {
@@ -23,7 +23,6 @@ export type TaskMetadata = Pick<
   | "model"
   | "constraints"
   | "successCriteria"
-  | "kind"
   | "projectId"
   | "temporaryWorkspaceRoot"
   | "projectDirectory"
@@ -48,7 +47,6 @@ export type TaskPatch = Partial<
     | "capabilities"
     | "activeRunId"
     | "pause"
-    | "kind"
   >
 > & { completion?: Partial<TaskCompletion> };
 
@@ -105,9 +103,10 @@ async function validateTemporaryRoot(
   if (!(await readTemporaryWorkspace(value.temporaryWorkspaceRoot)))
     throw new Error("missing temporary workspace record");
   if (
+    typeof value.projectDirectory !== "string" ||
     value.projectId ||
     value.projectCatalogPath ||
-    (value.projectDirectory && resolve(value.projectDirectory) !== resolve(value.temporaryWorkspaceRoot))
+    resolve(value.projectDirectory) !== resolve(value.temporaryWorkspaceRoot)
   )
     throw new Error("temporary workspace cannot override project assignment");
 }
@@ -118,6 +117,14 @@ export class LocalWorkspaceStore implements WorkspaceStore {
   async createTask(taskId: string, metadata: TaskMetadata = {}): Promise<string> {
     await validateTemporaryRoot(metadata);
     const path = this.taskPath(taskId);
+    // One write opens a Task. Its layout and context files are created with the
+    // record, not repaired for a record that already exists.
+    const taskFile = join(path, "task.json");
+    const existing = await stat(taskFile).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (existing) return path;
     await mkdir(join(path, "artifacts"), { recursive: true });
     await mkdir(join(path, "agents", "main", "work"), { recursive: true });
     await mkdir(join(path, "agents", "main", "context"), { recursive: true });
@@ -147,11 +154,10 @@ export class LocalWorkspaceStore implements WorkspaceStore {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
-    let taskCreated = false;
     try {
       const createdAt = new Date().toISOString();
       await writeFile(
-        join(path, "task.json"),
+        taskFile,
         `${JSON.stringify(
           {
             taskId,
@@ -168,20 +174,16 @@ export class LocalWorkspaceStore implements WorkspaceStore {
         )}\n`,
         { flag: "wx" }
       );
-      taskCreated = true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      // Another process opened this Task while its directories were prepared.
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return path;
+      throw error;
     }
-    const taskEventsPath = join(path, "task_events.jsonl");
-    if (taskCreated) {
-      await appendFile(
-        taskEventsPath,
-        `${JSON.stringify({ eventId: id("task-event"), type: "task.created", taskId, occurredAt: now(), payload: { goal: metadata.goal, completion: normalizeCompletion(metadata.completion, "created") } })}\n`,
-        "utf8"
-      );
-    } else {
-      await appendFile(taskEventsPath, "", "utf8");
-    }
+    await appendFile(
+      join(path, "task_events.jsonl"),
+      `${JSON.stringify({ eventId: id("task-event"), type: "task.created", taskId, occurredAt: now(), payload: { goal: metadata.goal, completion: normalizeCompletion(metadata.completion, "created") } })}\n`,
+      "utf8"
+    );
     return path;
   }
 
@@ -201,7 +203,6 @@ export class LocalWorkspaceStore implements WorkspaceStore {
       return {
         taskId,
         layoutVersion: value.layoutVersion ?? 2,
-        kind: value.kind === "workspace" ? "workspace" : "conversation",
         status: value.status ?? "created",
         goal: value.goal,
         title: typeof value.title === "string" ? value.title : undefined,
@@ -232,14 +233,8 @@ export class LocalWorkspaceStore implements WorkspaceStore {
     }
   }
 
-  /**
-   * Conversations, for the sidebar.
-   *
-   * Application workspaces live in the same directory and are deliberately
-   * excluded: showing one as a conversation would offer the user a chat they
-   * can never hold.
-   */
-  async listTasks(includeWorkspaces = false): Promise<TaskRecord[]> {
+  /** Conversations, for the sidebar, newest first. */
+  async listTasks(): Promise<TaskRecord[]> {
     let entries;
     try {
       entries = await readdir(this.root, { withFileTypes: true });
@@ -252,9 +247,7 @@ export class LocalWorkspaceStore implements WorkspaceStore {
     for (const entry of entries) {
       if (!entry.isDirectory() || !/^[a-zA-Z0-9._-]+$/.test(entry.name)) continue;
       try {
-        const task = await this.readTask(entry.name, readOptions);
-        if (!includeWorkspaces && task.kind === "workspace") continue;
-        tasks.push(task);
+        tasks.push(await this.readTask(entry.name, readOptions));
         // eslint-disable-next-line no-restricted-syntax -- 根目录下还混着非任务目录和写坏的 task.json，读不了只跳过这一项，其余会话照常列出
       } catch {
         /* ignore unrelated directories */

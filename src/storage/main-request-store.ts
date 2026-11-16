@@ -33,10 +33,10 @@ export interface MainRequestSnapshot {
   context: Context;
   sessionId?: string;
   environment: MainRequestEnvironment;
-  /** Ownership of the directories a replay may touch; without it a replay is refused. */
-  executionScope?: MainRequestExecutionScope;
-  /** Model endpoint the archive was sent to; without it a replay is refused. */
-  endpoint?: string;
+  /** Ownership of the directories a replay may touch. */
+  executionScope: MainRequestExecutionScope;
+  /** Model endpoint the archive was sent to. */
+  endpoint: string;
   /** Pi version that wrote this snapshot; an archive only replays on that version. */
   piVersion: string;
   replaySkipped?: MainRequestReplaySkip;
@@ -99,8 +99,8 @@ export class MainRequestStore {
       !Array.isArray(snapshot.context?.messages) ||
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 旧版快照可能没有 environment 字段，缺失时须按损坏快照报错而不是抛 TypeError
       typeof snapshot.environment?.projectDirectory !== "string" ||
-      (snapshot.executionScope !== undefined && !validMainRequestExecutionScope(snapshot.executionScope)) ||
-      (snapshot.endpoint !== undefined && typeof snapshot.endpoint !== "string") ||
+      !validMainRequestExecutionScope(snapshot.executionScope) ||
+      typeof snapshot.endpoint !== "string" ||
       typeof snapshot.piVersion !== "string" ||
       (snapshot.replaySkipped !== undefined && !validReplaySkip(snapshot.replaySkipped)) ||
       typeof snapshot.body !== "string" ||
@@ -110,14 +110,12 @@ export class MainRequestStore {
       throw new MainRequestSnapshotError("原请求快照损坏，已保留记录。请检查后重试。");
     try {
       JSON.parse(snapshot.body);
-      if (snapshot.endpoint) {
-        const endpoint = new URL(snapshot.endpoint);
-        if (
-          !["http:", "https:"].includes(endpoint.protocol) ||
-          endpoint.origin !== new URL(snapshot.model.baseUrl).origin
-        )
-          throw new Error("Invalid endpoint");
-      }
+      const endpoint = new URL(snapshot.endpoint);
+      if (
+        !["http:", "https:"].includes(endpoint.protocol) ||
+        endpoint.origin !== new URL(snapshot.model.baseUrl).origin
+      )
+        throw new Error("Invalid endpoint");
     } catch (error) {
       throw new MainRequestSnapshotError("原请求正文损坏，已保留记录。请检查后重试。", { cause: error });
     }

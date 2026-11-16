@@ -21,7 +21,7 @@ import {
 import { currentPiVersion } from "./pi-version.js";
 
 export interface MainRequestExecutionEnvironment extends MainRequestEnvironment {
-  executionScope?: MainRequestExecutionScope;
+  executionScope: MainRequestExecutionScope;
 }
 
 export class MainRequestConflictError extends Error {
@@ -92,7 +92,7 @@ export class MainRequestRetry {
     this.execution?.beginTurn();
     await this.restore();
     if (this.replay) {
-      this.execution?.protectReplayScope(this.replay.executionScope!);
+      this.execution?.protectReplayScope(this.replay.executionScope);
       const input = (messages: TranscriptContext["messages"]) =>
         messages
           .filter(
@@ -133,10 +133,6 @@ export class MainRequestRetry {
       this.loaded = true;
     }
     if (!this.archived) return;
-    if (!this.archived.executionScope || !this.archived.endpoint)
-      throw new MainRequestSnapshotError(
-        "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
-      );
     // A version mismatch leaves this retry on the ordinary path: Pi rebuilds
     // the context from the live session, and the new snapshot states why the
     // archive was not resent.
@@ -149,7 +145,7 @@ export class MainRequestRetry {
         "原请求的项目目录已变化，已有内容仍保留。请恢复原设置后重试，或发送新消息。"
       );
     try {
-      assertMainRequestExecutionScope(this.replay.executionScope, current.executionScope!);
+      assertMainRequestExecutionScope(this.replay.executionScope, current.executionScope);
     } catch (error) {
       throw new MainRequestConflictError(error instanceof Error ? error.message : String(error));
     }
@@ -172,7 +168,6 @@ export class MainRequestRetry {
     >
   ) {
     const { executionScope, ...environment } = await this.environment();
-    if (!executionScope) throw new MainRequestSnapshotError("模型请求没有执行归属记录，未发送请求。");
     if (this.replay && JSON.stringify(environment) !== JSON.stringify(this.replay.environment))
       throw new MainRequestConflictError("原请求的执行环境已变化，未发送请求。已有内容仍保留。");
     if (this.replay) {

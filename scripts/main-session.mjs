@@ -4,16 +4,6 @@ import { realpath, readFile, rename, writeFile } from "node:fs/promises";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { mainInputDelivered, readMainInput } from "../dist/src/runtime/main-continuation.js";
 
-/** Pi --continue filters custom session directories by CWD. Carry legacy
- * Task history into the selected project once, leaving the source intact. */
-export async function alignTaskSessionDirectory(sessionDirectory, projectDirectory) {
-  // process.cwd() resolves symlinks (notably /var -> /private/var on macOS).
-  const target = await realpath(resolve(projectDirectory));
-  const [latest] = await SessionManager.listAll(resolve(sessionDirectory));
-  if (!latest || resolve(latest.cwd) === target) return;
-  SessionManager.forkFrom(latest.path, target, resolve(sessionDirectory));
-}
-
 /** Resume the same Task in its project's new folder without rewriting its source transcript. */
 export async function alignSelectedTaskSession(sessionPath, sessionDirectory, projectDirectory) {
   const target = await realpath(resolve(projectDirectory));
@@ -56,7 +46,7 @@ export async function restorePendingTaskInput(
   selectedSessionPath
 ) {
   const input = await readMainInput(inputPath);
-  if (!input) return;
+  if (!input) throw new Error("这次继续缺少已保存的输入记录，无法恢复；会话与记录仍保留。");
   const directory = resolve(sessionDirectory);
   const [latest] = selectedSessionPath
     ? [{ path: selectedSessionPath }]

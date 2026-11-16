@@ -71,22 +71,13 @@ const clip = (value, limit = 180) => {
 export function explainToolFailure(result, { failed = false, command = false } = {}) {
   if (!failed) return "";
   const { data, text } = result;
-  if (command && data.timedOut === true) {
-    const seconds =
-      typeof data.timeoutMs === "number" && Number.isFinite(data.timeoutMs) && data.timeoutMs > 0
-        ? data.timeoutMs / 1000
-        : undefined;
-    return `命令执行超时${seconds === undefined ? "" : `（${seconds} 秒）`}`;
-  }
   const error =
     typeof data.error === "string"
       ? data.error
       : record(data.error) && typeof data.error.message === "string"
         ? data.error.message
         : "";
-  const evidence = [data.stderr, error, text]
-    .filter((entry) => typeof entry === "string" && entry.trim())
-    .join("\n");
+  const evidence = [error, text].filter((entry) => typeof entry === "string" && entry.trim()).join("\n");
   const module = /ModuleNotFoundError:\s*No module named ['"]([^'"\r\n]+)['"]/.exec(evidence);
   if (module) return `缺少 Python 模块：${clip(module[1], 100)}`;
   if (/\b(?:MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND)\b|Error:\s*Cannot find module\b/.test(evidence))
@@ -118,8 +109,6 @@ export function explainToolFailure(result, { failed = false, command = false } =
     if (/File does not exist/i.test(meaningful[0])) return "文件不存在";
     return clip(meaningful[0]);
   }
-  if (command && typeof data.exitCode === "number" && Number.isFinite(data.exitCode))
-    return `命令退出码 ${data.exitCode}`;
   const exit = /Command exited with code (\d+)/.exec(evidence);
   return exit
     ? `命令退出码 ${exit[1]}`

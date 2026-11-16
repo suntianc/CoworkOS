@@ -159,16 +159,6 @@ export interface TaskCapabilities {
 
 export interface TaskRecord {
   taskId: string;
-  /**
-   * What this record is for.
-   *
-   * A "workspace" is a legacy holding record, not a conversation: it keeps an
-   * editor workspace out of session lists and out of session deletion. New
-   * temporary working directories ride on an ordinary record's
-   * `temporaryWorkspaceRoot`, so only records written before that change carry
-   * this kind; they keep the same storage so nothing on disk needs rewriting.
-   */
-  kind?: "conversation" | "workspace";
   /** 3 separates final artifacts from runtime metadata and agent candidates. */
   layoutVersion?: number;
   status: TaskStatus;

@@ -5,22 +5,10 @@ import { presentToolCall, toolArgumentSummary, friendlyToolName } from "../web/a
 import { escapeHtml } from "../web/assets/ui/html.js";
 
 const args = { command: "python3 agents/main/work/create_harness_ppt.py", timeout: 120 };
-const envelope = (details) => ({
-  content: [{ type: "text", text: JSON.stringify(details) }],
-  details,
-  ...(details.isError === true ? { isError: true } : {})
-});
+const envelope = (details) => ({ content: [{ type: "text", text: JSON.stringify(details) }], details });
 const command = (overrides = {}) => ({ name: "bash", arguments: JSON.stringify(args), ...overrides });
-const result = (overrides = {}) =>
-  envelope({
-    command: "python3",
-    args: ["agents/main/work/create_harness_ppt.py"],
-    cwd: "/synthetic/project",
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-    ...overrides
-  });
+/** Pi returns command output as content text; details carry only Pi's own metadata. */
+const result = (text = "", details = {}) => ({ content: [{ type: "text", text }], details });
 
 test("a Python command describes its actual action and script, never a guessed successful deliverable", () => {
   const presentation = presentToolCall(command());
@@ -48,7 +36,7 @@ test("successful command evidence remains distinct from artifact validation and 
   assert.equal(presentation.durationLabel, "1.3 秒");
   assert.equal(presentation.failureReason, "");
   assert.doesNotMatch(presentation.resultSummary, /已生成|PPT|文件已创建/);
-  const unmeasured = presentToolCall(command({ completed: true, result: result({ durationMs: 120000 }) }));
+  const unmeasured = presentToolCall(command({ completed: true, result: result("") }));
   assert.equal(unmeasured.durationMs, undefined);
   assert.equal(unmeasured.durationLabel, "");
 });
@@ -88,19 +76,22 @@ test("partial streamed arguments and unknown configuration fields stay in the te
   assert.equal(toolArgumentSummary({ query: "界".repeat(200) }, 170).length, 170);
 });
 
-test("file actions retain useful relative objects and only count returned content", () => {
+test("file actions retain useful relative objects and keep full paths in details", () => {
   const presentation = presentToolCall(
     {
       name: "read_file",
       arguments: { path: "/projects/demo/task/artifacts/结果.md", limit: 500 },
       completed: true,
-      result: envelope({ content: "one\ntwo", path: "artifacts/结果.md" })
+      result: {
+        content: [{ type: "text", text: "one\ntwo" }],
+        details: { totalFileLines: 2, truncation: undefined }
+      }
     },
     { workspaceRoot: "/projects/demo", taskId: "task" }
   );
   assert.equal(presentation.title, "读取文件");
   assert.equal(presentation.subject, "artifacts/结果.md");
-  assert.equal(presentation.resultSummary, "返回 2 行内容");
+  assert.equal(presentation.resultSummary, "");
   assert.match(presentation.details, /\/projects\/demo\/task\/artifacts\/结果.md/);
   assert.equal(
     presentToolCall(
@@ -167,17 +158,17 @@ test("unknown technical failures stay complete in details with a short readable 
   assert.equal(returned.details.error, diagnostic);
 });
 
-test("search previews explain the query and actual returned count rather than parameter budgets", () => {
+test("search previews explain the query rather than parameter budgets", () => {
   const presentation = presentToolCall({
     name: "search_files",
     arguments: { path: "src", pattern: "TODO", limit: 100 },
     completed: true,
-    result: envelope({ matches: [{ path: "a.js" }, { path: "b.js" }] })
+    result: result("a.js:1: TODO\nb.js:2: TODO")
   });
   assert.equal(presentation.title, "搜索文件内容");
   assert.equal(presentation.subject, "src");
   assert.equal(presentation.summary, "TODO");
-  assert.equal(presentation.resultSummary, "返回 2 项结果");
+  assert.equal(presentation.resultSummary, "");
   assert.doesNotMatch(presentation.summary, /limit|100|pattern=/);
 });
 
@@ -195,38 +186,37 @@ test("delegation names the concrete task without exposing coordination parameter
 });
 
 test("specific failures require actual diagnostics, including the real missing script and syntax scenarios", () => {
-  for (const [stderr, explanation, exitCode] of [
+  for (const [diagnostic, explanation] of [
     [
       "Error: Cannot find module '/synthetic/skills/office-documents/scripts/check_backend.mjs'\ncode: 'MODULE_NOT_FOUND'\nCommand exited with code 1",
-      "Node.js 脚本或模块不存在",
-      1
+      "Node.js 脚本或模块不存在"
     ],
     [
       "Traceback (most recent call last):\nModuleNotFoundError: No module named 'pptx'",
-      "缺少 Python 模块：pptx",
-      1
+      "缺少 Python 模块：pptx"
     ],
     [
       "/usr/bin/python3: can't open file '/synthetic/project/agents/main/work/create_harness_ppt.py': [Errno 2] No such file or directory\nCommand exited with code 2",
-      "文件或目录不存在",
-      2
+      "文件或目录不存在"
     ],
-    ["FileNotFoundError: [Errno 2] No such file or directory: 'input.csv'", "文件或目录不存在", 1],
-    ["PermissionError: [Errno 13] Permission denied: 'protected.txt'", "没有访问权限", 1],
+    ["FileNotFoundError: [Errno 2] No such file or directory: 'input.csv'", "文件或目录不存在"],
+    ["PermissionError: [Errno 13] Permission denied: 'protected.txt'", "没有访问权限"],
     [
       "  File 'create_harness_ppt.py', line 226\nSyntaxError: EOL while scanning string literal",
-      "Python 第 226 行语法错误",
-      1
+      "Python 第 226 行语法错误"
     ]
   ]) {
     const presentation = presentToolCall(
-      command({ completed: true, failed: true, result: result({ exitCode, stderr, isError: true }) })
+      command({ completed: true, failed: true, result: result(diagnostic) })
     );
     assert.equal(presentation.failureReason, explanation);
     assert.equal(presentation.statusLabel, "调用失败");
     assert.equal(presentation.durationLabel, "");
     assert.doesNotMatch(presentation.failureReason, /超时|120/);
-    assert.ok(presentation.details.includes(stderr));
+    const returned = JSON.parse(
+      presentation.detailSections.find((section) => section.label === "返回结果").text
+    );
+    assert.equal(returned.content[0].text, diagnostic);
     assert.equal(presentation.resultSummary, "");
   }
 });
@@ -234,25 +224,19 @@ test("specific failures require actual diagnostics, including the real missing s
 test("syntax line numbers come from actual traceback locations and internal connection timeouts stay distinct", () => {
   for (const quote of ["'", '"']) {
     const stderr = `  File ${quote}work/outer.py${quote}, line 11\n  File ${quote}work/create.py${quote}, line 480\nSyntaxError: EOL while scanning string literal`;
-    const presentation = presentToolCall(
-      command({ completed: true, failed: true, result: result({ exitCode: 1, stderr }) })
-    );
+    const presentation = presentToolCall(command({ completed: true, failed: true, result: result(stderr) }));
     assert.equal(presentation.failureReason, "Python 第 480 行语法错误");
     assert.ok(presentation.details.includes("EOL while scanning string literal"));
   }
   const withoutLocation = presentToolCall(
-    command({
-      completed: true,
-      failed: true,
-      result: result({ exitCode: 1, stderr: "SyntaxError: invalid syntax" })
-    })
+    command({ completed: true, failed: true, result: result("SyntaxError: invalid syntax") })
   );
   assert.equal(withoutLocation.failureReason, "Python 语法错误");
   const connectionTimeout = presentToolCall(
     command({
       completed: true,
       failed: true,
-      result: result({ exitCode: 1, stderr: "Error: connect ETIMEDOUT fixture.example:443" })
+      result: result("Error: connect ETIMEDOUT fixture.example:443")
     })
   );
   assert.equal(connectionTimeout.failureReason, "连接超时");
@@ -276,38 +260,27 @@ test("public web search and local file search retain different action labels", (
 
 test("real timeout and exit evidence remain distinct from requested timeout parameters", () => {
   const actualTimeout = presentToolCall(
-    command({
-      completed: true,
-      result: result({ isError: true, timedOut: true, timeoutMs: 500, signal: "SIGTERM", exitCode: 1 })
-    })
+    command({ completed: true, failed: true, result: result("Command timed out after 20 seconds") })
   );
-  assert.equal(actualTimeout.failureReason, "命令执行超时（0.5 秒）");
+  assert.equal(actualTimeout.failureReason, "命令执行超时");
   assert.equal(actualTimeout.durationLabel, "");
   const genericFailure = presentToolCall(
-    command({ completed: true, failed: true, result: result({ exitCode: 3 }) })
+    command({
+      completed: true,
+      failed: true,
+      result: result("some output\n\nCommand exited with code 3")
+    })
   );
   assert.equal(genericFailure.failureReason, "命令退出码 3");
   assert.doesNotMatch(genericFailure.failureReason, /超时/);
   const launchFailure = presentToolCall(
-    command({
-      completed: true,
-      failed: true,
-      result: result({ exitCode: 1, stderr: "Error: spawn python3 ENOENT" })
-    })
+    command({ completed: true, failed: true, result: result("Error: spawn python3 ENOENT") })
   );
   assert.equal(launchFailure.failureReason, "无法启动命令（ENOENT）");
   const missingCommand = presentToolCall(
-    command({
-      completed: true,
-      failed: true,
-      result: result({ exitCode: 127, stderr: "bash: python3: command not found" })
-    })
+    command({ completed: true, failed: true, result: result("bash: python3: command not found") })
   );
   assert.equal(missingCommand.failureReason, "找不到可执行命令");
-  const unknown127 = presentToolCall(
-    command({ completed: true, failed: true, result: result({ exitCode: 127 }) })
-  );
-  assert.equal(unknown127.failureReason, "命令退出码 127");
 });
 
 test("successful payload fields and stderr warnings never become invented tool errors", () => {
@@ -320,7 +293,7 @@ test("successful payload fields and stderr warnings never become invented tool e
         timeoutMs: 500
       })
     },
-    { name: "bash", arguments: args, result: result({ stderr: "Warning: deprecated API", exitCode: 0 }) }
+    { name: "bash", arguments: args, result: result("Warning: deprecated API") }
   ]) {
     const presentation = presentToolCall({ ...fixture, completed: true, failed: false });
     assert.equal(presentation.status, "completed");
@@ -334,7 +307,7 @@ test("incomplete finish results keep waiting precedence and interrupted calls ne
       name: "finish_task",
       completed: true,
       failed: true,
-      result: envelope({ completed: false, ok: false })
+      result: { content: [{ type: "text", text: "waiting" }], details: { completed: false } }
     }).status,
     "waiting"
   );
@@ -577,44 +550,21 @@ test("raw Pi command envelopes retain partial output and attribute failure to th
   }
 });
 
-test("empty Pi details retain JSON-content diagnostics and real detail fields override compatibility content", () => {
-  const diagnostic = { exitCode: 1, stderr: "SyntaxError: invalid syntax", stdout: "partial output" };
-  const rawResult = { content: [{ type: "text", text: JSON.stringify(diagnostic) }], details: {} };
+test("absent Pi details keep JSON-content diagnostics without inventing failure", () => {
+  const diagnostic = { output: "partial output", note: "business field" };
+  const rawResult = { content: [{ type: "text", text: JSON.stringify(diagnostic) }] };
   const presentation = presentToolCall(command({ completed: true, rawResult }));
-  assert.equal(presentation.status, "failed");
-  assert.equal(presentation.failureReason, "Python 语法错误");
-  assert.equal(
-    presentation.detailSections.find((section) => section.label === "标准错误").text,
-    diagnostic.stderr
+  assert.equal(presentation.status, "completed");
+  assert.equal(presentation.failureReason, "");
+  const returned = JSON.parse(
+    presentation.detailSections.find((section) => section.label === "返回结果").text
   );
-  assert.equal(
-    presentation.detailSections.find((section) => section.label === "标准输出").text,
-    diagnostic.stdout
-  );
-  assert.deepEqual(rawResult.details, {});
-  const overridden = presentToolCall(
-    command({
-      completed: true,
-      rawResult: { ...rawResult, details: { exitCode: 0, stderr: "", stdout: "confirmed output" } }
-    })
-  );
-  assert.equal(overridden.status, "completed");
-  assert.equal(overridden.failureReason, "");
-  assert.equal(
-    overridden.detailSections.find((section) => section.label === "标准输出").text,
-    "confirmed output"
-  );
+  assert.deepEqual(returned, rawResult);
   const business = presentToolCall({
     name: "business_payload",
     completed: true,
     rawResult: {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({ failed: true, error: "SyntaxError: business value", exitCode: 1 })
-        }
-      ],
-      details: {}
+      content: [{ type: "text", text: JSON.stringify({ failed: true, error: "SyntaxError: business" }) }]
     }
   });
   assert.equal(business.status, "completed");

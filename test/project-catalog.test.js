@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GlobalProjectCatalog } from "../dist/src/workspace/project-catalog.js";
@@ -171,17 +171,8 @@ test("an interrupted directory commit presents the old assignment until recovery
   assert.equal(await readFile(join(f.storageRoot, "one", "task.json"), "utf8"), recovered);
 });
 
-test("legacy adoption keeps missing-folder history and timestamps, while imported projects keep names and stable ids", async (t) => {
+test("imported projects keep their names and stable ids while the local catalog owns the Task", async (t) => {
   const f = await fixture(t);
-  const missing = join(f.root, "removed-folder");
-  await f.store.createTask("legacy", { goal: "Retained", projectDirectory: missing });
-  const original = await f.store.readTask("legacy");
-  const legacy = (await f.directory.globalTaskPayload()).projects[0];
-  assert.equal(legacy.projectId, missing);
-  const adopted = await f.store.readTask("legacy");
-  assert.equal(adopted.projectId, missing);
-  assert.equal(adopted.projectCatalogPath, f.catalog.filePath);
-  assert.equal(adopted.updatedAt, original.updatedAt);
   const foreign = new GlobalProjectCatalog(join(f.root, "imported", "projects.json"));
   const sameFolder = await f.directory.createProject({
     projectName: "Existing local label",
@@ -242,61 +233,6 @@ test("project creation and folder changes use the same cross-instance lock as ta
     action()
   );
   assert.equal((await f.store.readTask("new")).projectDirectory, f.third);
-});
-
-test("legacy CLI history recovers its exact bound project before adopting a task with no directory metadata", async (t) => {
-  const f = await fixture(t);
-  await f.store.createTask("legacy-cli", { goal: "Original CLI project" });
-  const history = join(f.storageRoot, "legacy-cli", "agents", "main", "context", "messages.json");
-  const entries = [
-    {
-      type: "custom",
-      customType: "atria-cli-task",
-      data: { taskId: "other-task", workspaceRoot: f.storageRoot, projectDirectory: f.second }
-    },
-    {
-      type: "custom",
-      customType: "atria-cli-task",
-      data: { taskId: "legacy-cli", workspaceRoot: f.storageRoot, projectDirectory: f.first }
-    }
-  ];
-  await writeFile(history, JSON.stringify(entries));
-  const original = await readFile(history, "utf8");
-  const task = (await f.directory.globalTaskPayload()).tasks.find((item) => item.taskId === "legacy-cli");
-  assert.equal(task.projectDirectory, f.first);
-  assert.equal(task.projectId, f.first);
-  assert.equal((await f.store.readTask("legacy-cli")).projectDirectory, f.first);
-  assert.equal(await readFile(history, "utf8"), original);
-});
-
-test("legacy CLI bindings match canonical storage roots reached through an alias", async (t) => {
-  const f = await fixture(t);
-  await f.store.createTask("alias-cli", { goal: "Original project through storage alias" });
-  const alias = join(f.root, "workspace-alias");
-  await symlink(f.storageRoot, alias, process.platform === "win32" ? "junction" : "dir");
-  const canonicalStorage = await realpath(f.storageRoot),
-    canonicalProject = await realpath(f.first);
-  const history = join(f.storageRoot, "alias-cli", "agents", "main", "context", "messages.json");
-  await writeFile(
-    history,
-    JSON.stringify([
-      {
-        type: "custom",
-        customType: "atria-cli-task",
-        data: { taskId: "alias-cli", workspaceRoot: canonicalStorage, projectDirectory: canonicalProject }
-      }
-    ])
-  );
-  const directory = createWorkspaceDirectory(
-    alias,
-    join(f.root, "alias-runtime", "workspaces.json"),
-    () => "fixture"
-  );
-  const task = (await directory.globalTaskPayload()).tasks.find((item) => item.taskId === "alias-cli");
-  assert.equal(task.projectDirectory, canonicalProject);
-  assert.equal(task.projectId, canonicalProject);
-  assert.equal(task.storageRoot, alias);
-  assert.equal((await f.store.readTask("alias-cli")).projectDirectory, canonicalProject);
 });
 
 test("removing a project hides it and its conversations, and adding its folder again restores both (#33)", async (t) => {

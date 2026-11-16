@@ -152,6 +152,8 @@ export async function readMessageVersions(root: string, taskId: string): Promise
       value.taskId !== taskId ||
       dirname(resolve(value.sessionFile)) !== sessionDirectory ||
       !Array.isArray(value.archives) ||
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 归档从磁盘 JSON 读出，旧版本可能内联历史而没有独立文件
+      !value.archives.every((archive) => typeof archive?.historyFile === "string") ||
       !Array.isArray(value.edits) ||
       !Array.isArray(value.excludedRuns) ||
       !Array.isArray(value.prefixEvents)
@@ -203,7 +205,7 @@ export function messageVersionSummaries(versions?: Versions) {
       replacedBy: archive.replacedBy,
       preview: archive.preview,
       createdAt: archive.createdAt,
-      activityCount: archive.activityCount ?? archive.runtimeEvents?.length ?? 0
+      activityCount: archive.activityCount ?? 0
     })) ?? []
   );
 }
@@ -212,8 +214,7 @@ export async function readArchivedMessageVersion(root: string, taskId: string, v
     (value) => value.versionId === versionId
   );
   if (!archive) return;
-  if (!archive.historyFile)
-    return { messages: archive.messages ?? [], runtimeEvents: archive.runtimeEvents ?? [] };
+  if (!archive.historyFile) throw new MainMessageEditConflict("历史版本缺少归档文件，记录已保留。");
   if (basename(archive.historyFile) !== archive.historyFile || archive.historyFile !== `${versionId}.json`)
     throw new MainMessageEditConflict("历史版本路径无效，记录已保留。");
   const value = JSON.parse(

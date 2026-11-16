@@ -9,7 +9,17 @@ import { formatRunDuration, renderRunOverview, runElapsed } from "../web/assets/
 const time = (seconds) => new Date(Date.UTC(2026, 8, 8, 0, 0, seconds)).toISOString();
 const response = (
   id,
-  usage = { input: 100, output: 20, cacheRead: 80, cacheWrite: 10, reasoning: 5, totalTokens: "[REDACTED]" }
+  usage = {
+    input: 100,
+    output: 20,
+    cacheRead: 80,
+    cacheWrite: 10,
+    reasoning: 5,
+    totalTokens: "[REDACTED]",
+    tokenUsageReported: true,
+    cacheReadReported: true,
+    cacheWriteReported: true
+  }
 ) => ({
   type: "message_end",
   message: {
@@ -311,13 +321,14 @@ test("duration excludes idle gaps on resume and freezes after completion, failur
   assert.equal(formatRunDuration(3_661_000), "1:01:01");
 });
 
-test("cache coverage preserves explicit zero, unknown legacy zeros and partial totals across reload", async (t) => {
+test("cache coverage preserves explicit zero and partial totals across reload", async (t) => {
   const f = await fixture(t, []);
   const usage = {
     input: 100,
     output: 10,
     cacheRead: 0,
     cacheWrite: 0,
+    tokenUsageReported: true,
     cacheReadReported: true,
     cacheWriteReported: true
   };
@@ -349,17 +360,9 @@ test("cache coverage preserves explicit zero, unknown legacy zeros and partial t
     }),
     result
   );
-  await rm(f.main);
-  await writeFile(
-    f.main,
-    jsonl([response("legacy", { input: 100, output: 10, cacheRead: 0, cacheWrite: 0 })])
-  );
-  result = await f.read();
-  assert.equal(result.usage.cacheReadCoverage, "unavailable");
-  assert.match(renderRunOverview(result), /输入缓存命中<\/dt><dd>未报告<\/dd>/);
 });
 
-test("total usage coverage stays independent of cache-only reports, including all-zero totals and legacy records", async (t) => {
+test("total usage coverage stays independent of cache-only reports, including all-zero totals", async (t) => {
   const f = await fixture(t, []);
   const zero = {
     input: 0,
@@ -395,15 +398,4 @@ test("total usage coverage stays independent of cache-only reports, including al
     }),
     result
   );
-  await appendFile(
-    f.main,
-    jsonl([
-      response("legacy-zero", { input: 0, output: 0 }),
-      response("legacy-positive", { input: 10, output: 0 })
-    ])
-  );
-  result = await f.read();
-  assert.equal(result.usage.totalTokens, 50);
-  assert.equal(result.usage.reportedResponses, 2);
-  assert.equal(result.usage.coverage, "partial");
 });

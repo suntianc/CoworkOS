@@ -133,14 +133,14 @@ async function executionFixture(page, base, command) {
       );
       window.executionFixture = {
         poll: render,
-        toolOutput(details) {
+        toolOutput(text) {
           push(
             {
               type: "tool_execution_end",
               toolCallId: pathCall.id,
               toolName: "bash",
               isError: false,
-              result: { content: [], details }
+              result: { content: text ? [{ type: "text", text }] : [] }
             },
             3000
           );
@@ -494,38 +494,32 @@ for (const width of [1440, 768, 320]) {
   });
 }
 
-test("independent stdout and stderr reading positions survive streamed updates and reopening", async ({
-  page
-}) => {
+test("independent detail reading positions survive streamed updates and reopening", async ({ page }) => {
   const dashboard = await startDashboard();
   try {
-    const requests = await executionFixture(page, dashboard.base);
-    await page.evaluate(() =>
-      window.executionFixture.toolOutput({
-        stdout: "synthetic output line\n".repeat(100),
-        stderr: "synthetic warning line\n".repeat(100),
-        exitCode: 0
-      })
-    );
+    // Long arguments and long output make both detail sections scrollable.
+    const longCommand = `python3 ${"agents/main/work/synthetic-folder/".repeat(60)}check.py`;
+    const requests = await executionFixture(page, dashboard.base, longCommand);
+    await page.evaluate(() => window.executionFixture.toolOutput("synthetic output line\n".repeat(100)));
     const tool = page.locator(".tool-details").first();
     await tool.locator(":scope > summary").click();
-    const stdout = tool.locator('[data-reading-key="标准输出"]');
-    const stderr = tool.locator('[data-reading-key="标准错误"]');
-    await stdout.evaluate((node) => {
+    const parameters = tool.locator('[data-reading-key="参数"]');
+    const returned = tool.locator('[data-reading-key="返回结果"]');
+    await parameters.evaluate((node) => {
       node.scrollTop = 91;
     });
-    await stderr.evaluate((node) => {
+    await returned.evaluate((node) => {
       node.scrollTop = 123;
     });
-    await expect.poll(() => stdout.evaluate((node) => node.scrollTop)).toBe(91);
-    await expect.poll(() => stderr.evaluate((node) => node.scrollTop)).toBe(123);
+    await expect.poll(() => parameters.evaluate((node) => node.scrollTop)).toBe(91);
+    await expect.poll(() => returned.evaluate((node) => node.scrollTop)).toBe(123);
     await page.evaluate(() => window.executionFixture.append());
-    await expect.poll(() => stdout.evaluate((node) => node.scrollTop)).toBe(91);
-    await expect.poll(() => stderr.evaluate((node) => node.scrollTop)).toBe(123);
+    await expect.poll(() => parameters.evaluate((node) => node.scrollTop)).toBe(91);
+    await expect.poll(() => returned.evaluate((node) => node.scrollTop)).toBe(123);
     await tool.locator(":scope > summary").click();
     await page.evaluate(() => window.executionFixture.append("\n继续保留技术详情的阅读位置。"));
     await tool.locator(":scope > summary").click();
-    await expect.poll(() => stderr.evaluate((node) => node.scrollTop)).toBe(123);
+    await expect.poll(() => returned.evaluate((node) => node.scrollTop)).toBe(123);
     expect(requests).toEqual({ api: [], external: [] });
   } finally {
     await dashboard.stop();

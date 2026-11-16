@@ -352,7 +352,7 @@ test("consecutive successful file and command calls compact into an expandable g
       update("toolcall_end", index, {
         toolCall: { id, name, arguments: { path: `file-${index}.txt`, command: "node check.mjs" } }
       }),
-      { type: "tool_execution_end", toolCallId: id, toolName: name, result: { content: [], isError: failed } }
+      { type: "tool_execution_end", toolCallId: id, toolName: name, isError: failed, result: { content: [] } }
     );
   };
   add(1, "read");
@@ -453,29 +453,26 @@ test("all tool diagnostic sections retain independent reading positions through 
     {
       type: "tool_execution_end",
       toolCallId: "verify",
-      result: {
-        content: [],
-        details: { stdout: "output\n".repeat(80), stderr: "warning\n".repeat(80), exitCode: 0 }
-      }
+      result: { content: [{ type: "text", text: "output\n".repeat(80) }] }
     }
   );
   render();
   document.querySelector(".tool-details").open = true;
-  const stdout = document.querySelector('[data-reading-key="标准输出"]');
-  const stderr = document.querySelector('[data-reading-key="标准错误"]');
-  stdout.scrollTop = 91;
-  stderr.scrollTop = 123;
-  stderr.scrollLeft = 11;
+  const parameters = document.querySelector('[data-reading-key="参数"]');
+  const returned = document.querySelector('[data-reading-key="返回结果"]');
+  parameters.scrollTop = 91;
+  returned.scrollTop = 123;
+  returned.scrollLeft = 11;
   state.detail.runtimeEvents.push(update("thinking_delta", 0, { delta: "更新过程。" }));
   render();
-  assert.equal(document.querySelector('[data-reading-key="标准输出"]').scrollTop, 91);
-  assert.equal(document.querySelector('[data-reading-key="标准错误"]').scrollTop, 123);
-  assert.equal(document.querySelector('[data-reading-key="标准错误"]').scrollLeft, 11);
+  assert.equal(document.querySelector('[data-reading-key="参数"]').scrollTop, 91);
+  assert.equal(document.querySelector('[data-reading-key="返回结果"]').scrollTop, 123);
+  assert.equal(document.querySelector('[data-reading-key="返回结果"]').scrollLeft, 11);
   document.querySelector(".tool-details").open = false;
   render();
   document.querySelector(".tool-details").open = true;
   document.querySelector(".tool-details").dispatchEvent(new document.defaultView.Event("toggle"));
-  assert.equal(document.querySelector('[data-reading-key="标准错误"]').scrollTop, 123);
+  assert.equal(document.querySelector('[data-reading-key="返回结果"]').scrollTop, 123);
 });
 
 test("a rejected finish acknowledgement remains waiting in the visible tool row", () => {
@@ -506,8 +503,10 @@ test("command exit evidence marks a failed tool while counting its returned call
     {
       type: "tool_execution_end",
       toolCallId: "exit",
-      isError: false,
-      result: { content: [], details: { exitCode: 1, stderr: "SyntaxError: invalid syntax" } }
+      isError: true,
+      result: {
+        content: [{ type: "text", text: "SyntaxError: invalid syntax\n\nCommand exited with code 1" }]
+      }
     }
   );
   render();
