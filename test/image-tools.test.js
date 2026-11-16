@@ -170,3 +170,18 @@ test("image tools accept the retired goal and review arguments without a visual-
     /single image/
   );
 });
+
+test("a text-only connection refuses image pixels without contacting another model", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atria-image-text-only-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "pixel.png"), pixel);
+  // No supportsImages: the tool must refuse instead of handing pixels to a
+  // second model, which the removed vision role used to do.
+  const tools = createImageTools({ rootDirectory: root, taskDirectory: root });
+  await assert.rejects(tools.read_image.execute({ path: "pixel.png" }), /当前模型不支持图片/);
+  await assert.rejects(tools.read_images.execute({ images: [{ path: "pixel.png" }] }), /当前模型不支持图片/);
+  await assert.rejects(
+    tools.crop_image.execute({ path: "pixel.png", region: { x: 0, y: 0, width: 1, height: 1 } }),
+    /当前模型不支持图片/
+  );
+});

@@ -135,7 +135,7 @@ test("stage selection excludes unrelated commands and keeps shared build", async
   const plan = await loadPlan(root, parseOptions(["--stage", "cases"]));
   assert.equal(plan.steps[0].id, "build");
   assert.ok(plan.steps.slice(1).every((step) => step.stage === "cases"));
-  assert.ok(plan.steps.some((step) => step.args.includes("test/science-removal.test.js")));
+  assert.ok(plan.steps.some((step) => step.args.includes("test/machine-learning-skill-pi.test.js")));
   assert.ok(!plan.steps.some((step) => step.id === "basic-node"));
 });
 
@@ -155,14 +155,12 @@ test("mixed files retain Web coverage and gate only native variants", async () =
   const normal = await loadPlan(root, parseOptions([]), "darwin");
   const browser = normal.steps.find((step) => step.id === "app-browser");
   assert.ok(browser.args.includes("e2e/model-profiles.spec.js"));
-  assert.ok(browser.args.includes("e2e/science-removal.spec.js"));
   assert.ok(browser.args.includes("--grep-invert"));
   assert.ok(browser.args.some((arg) => arg.includes("desktop: saved connections")));
-  assert.ok(browser.args.some((arg) => arg.includes("Electron removes science controls")));
   assert.equal(normal.steps.find((step) => step.id === "app-node").env.ATRIA_NATIVE_DESKTOP_TEST, "0");
   assert.equal(normal.steps.find((step) => step.id === "app-node").env.ATRIA_MANAGED_UPDATE_NATIVE, "0");
   assert.ok(normal.deferredVariants.some((variant) => variant.file === "test/desktop-update-install.test.js"));
-  assert.equal(normal.deferredVariants.length, 4);
+  assert.equal(normal.deferredVariants.length, 3);
   const native = await loadPlan(root, parseOptions(["--native"]), "darwin");
   assert.equal(native.steps.find((step) => step.id === "app-node").env.ATRIA_NATIVE_DESKTOP_TEST, "1");
   assert.equal(native.steps.find((step) => step.id === "app-node").env.ATRIA_MANAGED_UPDATE_NATIVE, "1");

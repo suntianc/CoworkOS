@@ -21,7 +21,7 @@
   "rules": [
     {
       "stage": "cases",
-      "node": "^(science-removal|machine-learning-skill-pi|publish-artifact-pi|automation-pi|main-recovery-pi|input-files-pi|image-tools-pi|live-ui)\\.test\\.js$",
+      "node": "^(machine-learning-skill-pi|publish-artifact-pi|automation-pi|main-recovery-pi|input-files-pi|image-tools-pi|live-ui)\\.test\\.js$",
       "browser": "^(human-interactions|message-delivery|conversation-integrity|request-recovery)\\.spec\\.js$"
     },
     {
@@ -31,7 +31,7 @@
     },
     {
       "stage": "app",
-      "node": "^(desktop-|composer-|conversation-view|artifact-ui|voice-input|markdown|model-settings|app-boot|request-error|computer-)"
+      "node": "^(desktop-|composer-|conversation-view|artifact-ui|markdown|model-settings|app-boot|request-error|computer-)"
     }
   ],
   "nativeNode": [
@@ -39,11 +39,6 @@
   ],
   "nativeBrowserPattern": "-desktop\\.spec\\.js$",
   "nativeVariants": [
-    {
-      "file": "e2e/science-removal.spec.js",
-      "kind": "browser",
-      "pattern": "Electron removes science controls"
-    },
     {
       "file": "e2e/model-profiles.spec.js",
       "kind": "browser",
@@ -158,7 +153,6 @@
       "files": [
         "test/main-recovery-pi.test.js",
         "test/publish-artifact-pi.test.js",
-        "test/science-removal.test.js",
         "e2e/message-delivery.spec.js"
       ],
       "note": "复用已有确定性链路；这些文件通过不等于真实模型完成全部用户 case。"

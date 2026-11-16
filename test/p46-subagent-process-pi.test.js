@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { DurableScheduler } from "../dist/src/runtime/scheduler.js";
 import { SubagentProcessService } from "../dist/src/runtime/subagent-processes.js";
+import { subagentCallStatuses } from "../dist/src/runtime/subagent-call-status.js";
 import { isolatedPiEnvironment, startLocalProvider } from "./fixtures/pi-process-fixture.mjs";
 
 const harness = resolve(".");
@@ -293,6 +294,21 @@ test(
     assert.equal((await queueItems(f)).find((item) => item.stepId === callId).status, "completed");
   }
 );
+
+test("subagent diagnostics name the process log that the delegated process writes", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "p46-subagent-diagnostics-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const directory = join(root, TASK_ID, "runs", RUN_ID, "agents", "subagents", "subagent_1");
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "agent-output.log"), "");
+  const [status] = await subagentCallStatuses(
+    { workspaceRoot: root, taskId: TASK_ID, runId: RUN_ID },
+    [{ stepId: "call-1", agentId: "subagent_1", status: "completed" }],
+    []
+  );
+  assert.equal(status.diagnostics.tracePath, `runs/${RUN_ID}/agents/subagents/subagent_1/agent-output.log`);
+  assert.equal(await readFile(join(root, TASK_ID, status.diagnostics.tracePath), "utf8"), "");
+});
 
 async function psCommand(pid) {
   const child = spawn("ps", ["-p", String(pid), "-o", "command="], { stdio: ["ignore", "pipe", "ignore"] });

@@ -109,7 +109,7 @@
 
 - **Trigger：** 一张票新增环境开关或接口，另一张票删除旧的那个，例如测试中关闭 Main 守护的开关从 `COWORK_DISABLE_WATCH_SUPERVISOR` 换成 `COWORK_DISABLE_MAIN_GUARDIAN`。
 - **What happens：** 旧名被删、新名没有补上的地方静默失效。P4.6 第一轮约 80 处测试启动的后端因此运行了守护，时序用例偶发失败，起初被当成负载问题。
-- **Confirm：** `rg -n "<旧名>" src test e2e scripts desktop .pi` 应无结果，`rg -n "<新名>"` 覆盖原来每一处调用方；守护开关由 `test/p46-guardian-off-in-tests.test.js` 扫描。
+- **Confirm：** `rg -n "<旧名>" src test e2e scripts desktop .pi` 应无结果，`rg -n "<新名>"` 覆盖原来每一处调用方；守护开关由 `test/removed-capabilities.test.js` 的剔除表扫描。
 - **Avoid：** 工单写明「每个旧用法都要有新用法」，用 rg 全量查 `test/`、`e2e/`；改名跨票时由后一张票负责替换，并用扫描测试守住。
 - **Sources：** 2026-11-13 [P4.6 摘录](evidence/os-p46/retro.md#开关替换后旧用法残留第一轮)。
 
