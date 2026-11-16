@@ -34,12 +34,12 @@ export function installWebSearchSettings({ showToast, host, api, identity = () =
     <form class="settings-form"><div class="settings-scroll settings-form-content">
       <p class="settings-status" data-search-state role="status"></p>
       <p class="settings-note">Exa 可匿名使用，受免费限额和地区网络限制。</p>
-      <label class="settings-field">搜索服务<select name="provider" aria-describedby="search-provider-help"><option value="exa">Exa（默认）</option><option value="serper">Serper（保留已有配置）</option><option value="off">关闭联网搜索</option></select></label>
+      <label class="settings-field">搜索服务<select name="provider" aria-describedby="search-provider-help"><option value="exa">Exa</option><option value="off">关闭联网搜索</option></select></label>
       <small id="search-provider-help" class="settings-help">查询和来源链接会发送给所选服务。</small>
       <details class="settings-advanced"><summary>高级设置 · 可选认证${icon("chevron-down")}</summary><div class="settings-advanced-content">
         <label class="settings-field">自有 Exa API Key<input name="exaApiKey" type="password" autocomplete="off" placeholder="可选；留空保留已有密钥"></label>
         <label class="settings-checkbox"><input name="clearExaApiKey" type="checkbox"><span>清除已有 Exa 密钥，使用匿名模式</span></label>
-        <small class="settings-help">${ui("密钥保存在执行主机的私有配置中。")}自有密钥的额度和计费由 Exa 管理；Serper 沿用已有密钥。</small>
+        <small class="settings-help">${ui("密钥保存在执行主机的私有配置中。")}自有密钥的额度和计费由 Exa 管理。</small>
       </div></details>
     </div><div class="settings-feedback"><p data-search-error role="alert"></p></div>
     <footer class="modal-actions"><button type="submit" class="app-button is-primary">保存设置</button></footer></form></section>`;
@@ -65,7 +65,7 @@ export function installWebSearchSettings({ showToast, host, api, identity = () =
     );
   const label = (value) =>
     value.enabled
-      ? ui`已启用 · ${value.provider === "exa" ? "Exa" : "Serper"} · ${value.authenticated ? ui("自有密钥") : value.provider === "exa" ? ui("匿名限额") : ui("需配置 Serper 密钥")}`
+      ? ui`已启用 · Exa · ${value.authenticated ? ui("自有密钥") : ui("匿名限额")}`
       : ui("已关闭");
   const display = (value) => {
     lastStatus = value;
@@ -131,9 +131,7 @@ export function installWebSearchSettings({ showToast, host, api, identity = () =
       managed = value.managedByEnvironment;
       panel.querySelector("[data-search-error]").textContent = managed
         ? ui("搜索设置由启动环境管理，请在启动配置中修改。")
-        : value.secretUnavailable
-          ? ui("已有 Exa 密钥无法解密，请填写新密钥或清除后使用匿名模式。")
-          : "";
+        : "";
       loaded = true;
       lock();
     } catch (error) {

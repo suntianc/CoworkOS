@@ -501,26 +501,6 @@ test(
   }
 );
 
-test("legacy single-connection ciphertext is reported before migration and preserved", async (t) => {
-  const { createModelSettings } = await import("../dist/src/dashboard/model-settings.js");
-  const { mkdtemp, writeFile, readFile, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-  const root = await mkdtemp(join(tmpdir(), "cowork-old-single-key-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  process.env.COWORK_CONFIG = join(root, "model-config.json");
-  const config = { baseUrl: "https://fixture.invalid", model: "legacy" };
-  await writeFile(process.env.COWORK_CONFIG, JSON.stringify(config));
-  await writeFile(join(root, "model-secret.bin"), "fixture-ciphertext");
-  const settings = createModelSettings(root, config, () => false);
-  const value = settings.status();
-  assert.equal(value.credentialUnavailable, true);
-  assert.match(value.credentialError, /迁移/);
-  await assert.rejects(settings.test({}), /迁移/);
-  assert.equal(await readFile(join(root, "model-secret.bin"), "utf8"), "fixture-ciphertext");
-  delete process.env.COWORK_CONFIG;
-});
-
 test(
   "catalog reconnect and backend switch retire listeners without duplicate completion notices",
   { timeout: 15000 },

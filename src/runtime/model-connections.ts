@@ -11,7 +11,6 @@ export interface ModelConnection extends ConnectionProfile {
   model: string;
   supportsImages: boolean;
   apiKey?: string;
-  encryptedApiKey?: string;
 }
 export interface ModelConnections {
   version: 1;
@@ -46,8 +45,8 @@ export function modelConnections(config: CoworkConfig): ModelConnections {
       ...(value.activeId ? { activeId: value.activeId } : {}),
       profiles: structuredClone(value.profiles)
     };
-    for (const profile of registry.profiles)
-      profile.contextWindow = normalizeContextWindow(profile.contextWindow);
+    // A stored capacity must still parse; a profile without one takes the current default.
+    for (const profile of registry.profiles) normalizeContextWindow(profile.contextWindow);
     return registry;
   }
   if (!config.baseUrl && !config.apiBase) return { version: 1, profiles: [] };

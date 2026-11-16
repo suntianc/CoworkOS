@@ -12,9 +12,8 @@ import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 import { createModelSettings } from "../dist/src/dashboard/model-settings.js";
 import { createWebSearchSettings } from "../dist/src/dashboard/web-search-settings.js";
-import { migrateDesktopCredentials } from "../dist/src/security/desktop-credentials-migration.js";
 import { HostCredentialStore } from "../dist/src/security/host-credentials.js";
-import { readCoworkConfig, readHostCoworkConfig } from "../dist/src/runtime/config.js";
+import { readCoworkConfig } from "../dist/src/runtime/config.js";
 
 const configureTimeout = { timeout: 120_000 };
 const execute = promisify(execFile);
@@ -212,223 +211,57 @@ test("host settings keep multi-connection, default model, image input and search
   assert.equal((await call("/api/web-search-settings")).authenticated, true);
 });
 
-test("encrypted desktop credentials report a concrete error instead of a configured connection", async (t) => {
+test("a damaged host credential store is reported and left for recovery", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-host-credentials-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, "config.json");
+  const credentialsPath = join(root, "credentials.json");
   const savedEnv = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => /^(?:COWORK_|EXA_|SERPER_)/.test(name))
   );
   for (const name of Object.keys(savedEnv)) delete process.env[name];
-  const path = join(root, "config.json");
-  process.env.COWORK_CONFIG = path;
-  t.after(async () => {
+  t.after(() => {
     for (const name of Object.keys(process.env))
       if (/^(?:COWORK_|EXA_|SERPER_)/.test(name)) delete process.env[name];
     Object.assign(process.env, savedEnv);
-    await rm(root, { recursive: true, force: true });
   });
-  const legacy = {
-    workspaceRoot: "/keep",
-    modelConnections: {
-      version: 1,
-      activeId: "old",
-      profiles: [
-        {
-          id: "old",
-          name: "旧桌面连接",
-          baseUrl: "https://old.example/v1",
-          model: "old-model",
-          api: "openai-responses",
-          contextWindow: 64000,
-          supportsImages: true,
-          encryptedApiKey: "old-desktop-ciphertext"
-        }
-      ]
-    },
-    webSearch: { provider: "exa", encryptedExaApiKey: "old-search-ciphertext" }
-  };
-  await writeFile(path, JSON.stringify(legacy));
+  process.env.COWORK_CONFIG = path;
+  t.after(() => delete process.env.COWORK_CONFIG);
+  await writeFile(
+    path,
+    JSON.stringify({
+      modelConnections: {
+        version: 1,
+        activeId: "a",
+        profiles: [
+          {
+            id: "a",
+            name: "连接 A",
+            baseUrl: "https://a.example/v1",
+            model: "a-model",
+            api: "openai-responses"
+          }
+        ]
+      }
+    })
+  );
+  await writeFile(credentialsPath, "{not json");
   const config = readCoworkConfig(root);
   const model = createModelSettings(root, config, () => false);
-  const status = model.status();
-  assert.equal(status.configured, false, "an undecryptable key is not a configured connection");
-  assert.equal(status.credentialUnavailable, true);
-  assert.match(status.credentialError, /旧版桌面宿主/);
-  assert.match(status.credentialError, /API Key/);
-  assert.equal(status.profiles[0].configured, false);
-  await assert.rejects(model.test({}), /旧版桌面宿主/);
-
-  const saved = await model.save({
-    profileId: "old",
-    profileName: "旧桌面连接",
-    baseUrl: "https://old.example/v1",
-    model: "old-model",
-    api: "openai-responses",
-    supportsImages: true,
-    apiKey: "replacement-host-key",
-    activate: true
-  });
-  assert.equal(saved.configured, true);
-  assert.equal(saved.credentialUnavailable, false);
-  const configText = await readFile(path, "utf8");
-  assert.equal(configText.includes("replacement-host-key"), false);
-  assert.equal(configText.includes("old-desktop-ciphertext"), false);
-  const stored = new HostCredentialStore(join(root, "credentials.json"));
-  assert.equal(stored.value.modelConnections.old, "replacement-host-key");
-
-  const search = createWebSearchSettings(root, config, () => false);
-  const searchStatus = search.status();
-  assert.equal(searchStatus.authenticated, false, "an undecryptable search key is not authenticated");
-  assert.equal(searchStatus.secretUnavailable, true);
-  assert.match(searchStatus.credentialError, /旧版桌面宿主/);
-  const blank = await search.save({ provider: "exa" });
-  assert.equal(blank.authenticated, false, "saving without a key must not claim success");
-  const rekeyed = await search.save({ provider: "exa", exaApiKey: "replacement-search-key" });
-  assert.equal(rekeyed.authenticated, true);
-  assert.equal(rekeyed.secretUnavailable, false);
-  assert.equal((await readFile(path, "utf8")).includes("replacement-search-key"), false);
-  assert.equal(
-    new HostCredentialStore(join(root, "credentials.json")).value.webSearch.exaApiKey,
-    "replacement-search-key"
-  );
-
-  // A damaged host store is reported and left for recovery instead of being replaced.
-  const credentialsPath = join(root, "credentials.json");
-  await writeFile(credentialsPath, "{not json");
-  const damaged = createModelSettings(root, readCoworkConfig(root), () => false);
-  assert.equal(damaged.status().configured, false);
-  assert.match(damaged.status().credentialError, /凭据存储无法读取/);
+  assert.equal(model.status().configured, false);
+  assert.match(model.status().credentialError, /凭据存储无法读取/);
   await assert.rejects(
-    damaged.save({
-      profileId: "old",
-      baseUrl: "https://old.example/v1",
-      model: "old-model",
+    model.save({
+      profileId: "a",
+      baseUrl: "https://a.example/v1",
+      model: "a-model",
       apiKey: "another-key"
     }),
     /凭据存储无法读取/
   );
   assert.equal(await readFile(credentialsPath, "utf8"), "{not json");
-});
-
-test("desktop migration decrypts once, backs up the original and keeps it on failure", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "atria-desktop-migration-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const configPath = join(root, "model-config.json");
-  const credentialsPath = join(root, "credentials.json");
-  const backupPath = `${configPath}.before-host-credentials`;
-  const legacy = {
-    workspaceRoot: "/keep",
-    apiKey: "plain-legacy-top",
-    modelConnections: {
-      version: 1,
-      activeId: "a",
-      profiles: [
-        {
-          id: "a",
-          name: "连接 A",
-          baseUrl: "https://a.example/v1",
-          model: "a-model",
-          api: "openai-completions",
-          supportsImages: false,
-          encryptedApiKey: Buffer.from("cipher-a").toString("base64")
-        },
-        {
-          id: "b",
-          name: "连接 B",
-          baseUrl: "https://b.example/v1",
-          model: "b-model",
-          api: "openai-responses",
-          supportsImages: true,
-          encryptedApiKey: Buffer.from("cipher-b").toString("base64")
-        }
-      ]
-    },
-    webSearch: { provider: "exa", encryptedExaApiKey: Buffer.from("cipher-search").toString("base64") }
-  };
-  const original = JSON.stringify(legacy);
-  await writeFile(configPath, original);
-  const decrypt = async (ciphertext) => {
-    const text = ciphertext.toString();
-    if (!text.startsWith("cipher-")) throw new Error("not old host ciphertext");
-    return `plain-${text.slice("cipher-".length)}`;
-  };
-
-  await assert.rejects(
-    migrateDesktopCredentials({
-      configPath,
-      decrypt: async (ciphertext) => {
-        if (ciphertext.toString() === "cipher-b") throw new Error("keychain unavailable");
-        return decrypt(ciphertext);
-      }
-    }),
-    /无法使用旧版桌面宿主/
-  );
-  assert.equal(await readFile(configPath, "utf8"), original, "a failed migration keeps the old file");
-  await assert.rejects(readFile(backupPath), { code: "ENOENT" });
-  await assert.rejects(readFile(credentialsPath), { code: "ENOENT" });
-
-  const result = await migrateDesktopCredentials({ configPath, decrypt });
-  assert.equal(result.status, "migrated");
-  assert.equal(result.modelConnections, 2);
-  assert.equal(result.webSearch, true);
-  assert.equal(result.backupPath, backupPath);
-  assert.equal(await readFile(backupPath, "utf8"), original, "the original is retained byte for byte");
-  const migrated = JSON.parse(await readFile(configPath, "utf8"));
-  assert.equal(migrated.workspaceRoot, "/keep");
-  assert.equal(migrated.modelConnections.profiles.length, 2);
-  assert.equal(
-    migrated.modelConnections.profiles.some((profile) => "encryptedApiKey" in profile),
-    false
-  );
-  assert.equal(migrated.webSearch.provider, "exa");
-  assert.equal(JSON.stringify(migrated).includes("plain-"), false, "plaintext stays out of the config");
-  assert.equal("apiKey" in migrated, false, "a stray plaintext top-level key also moves to the store");
-  const stored = new HostCredentialStore(credentialsPath);
-  assert.equal(stored.value.modelConnections.a, "plain-a");
-  assert.equal(stored.value.modelConnections.b, "plain-b");
-  assert.equal(stored.value.webSearch.exaApiKey, "plain-search");
-  assert.equal((await stat(credentialsPath)).mode & 0o777, 0o600);
-
-  const again = await migrateDesktopCredentials({ configPath, decrypt });
-  assert.equal(again.status, "already-migrated");
-  assert.equal(again.modelConnections, 0);
-  assert.equal(
-    JSON.parse(await readFile(configPath, "utf8")).modelConnections.profiles.length,
-    2,
-    "re-running does not create duplicate connections"
-  );
-  assert.equal(Object.keys(new HostCredentialStore(credentialsPath).value.modelConnections).length, 2);
-  const effective = readHostCoworkConfig(root, { COWORK_CONFIG: configPath });
-  assert.equal(
-    effective.modelConnections.profiles.find((profile) => profile.id === "a").apiKey,
-    "plain-a",
-    "the execution host resolves migrated keys for its runs"
-  );
-  assert.equal(effective.webSearch.exaApiKey, "plain-search");
-});
-
-test("desktop migration converts a legacy single connection secret", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "atria-desktop-legacy-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const configPath = join(root, "model-config.json");
-  await writeFile(
-    configPath,
-    JSON.stringify({ baseUrl: "https://legacy.example/v1", model: "legacy-model" })
-  );
-  await writeFile(join(root, "model-secret.bin"), Buffer.from("cipher-legacy"));
-  const result = await migrateDesktopCredentials({
-    configPath,
-    decrypt: async (ciphertext) => {
-      assert.equal(ciphertext.toString(), "cipher-legacy");
-      return "plain-legacy";
-    }
-  });
-  assert.equal(result.status, "migrated");
-  assert.equal(result.legacySecret, true);
-  assert.equal(result.modelConnections, 1);
-  assert.equal(
-    new HostCredentialStore(join(root, "credentials.json")).value.modelConnections.default,
-    "plain-legacy"
-  );
+  const search = createWebSearchSettings(root, config, () => false);
+  assert.match(search.status().credentialError, /凭据存储无法读取/);
 });
 
 test("session export redacts host-stored connection and search keys", async (t) => {

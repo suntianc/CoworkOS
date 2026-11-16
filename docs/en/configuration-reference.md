@@ -21,9 +21,9 @@ For everyday setup, see [model and runtime configuration](configuration.md).
 | `mainMaxTokens` / `subagentMaxTokens` | 8192 each for new connections; integer 1 to 65536, within service limits                                                            |
 | `workspaceRoot`                       | Persistent task data directory; prefer an absolute path                                                                             |
 
-`contextWindow` controls context budgets and automatic compaction for Main, subagents and recovered tasks. It is not sent as a request parameter. Older connections without the field use 256000. Output limits are separate.
+`contextWindow` controls context budgets and automatic compaction for Main, subagents and recovered tasks. It is not sent as a request parameter. New connections use 256000 and a saved connection keeps its own capacity. Output limits are separate.
 
-`off` always omits effort fields. Legacy `minimal` values remain readable and appear as legacy settings in the UI. Editing other fields preserves them until another level is selected and saved. Unspecified legacy connections may retain the Runtime defaults of `high` and reasoning support; new connections use `off` / `false`.
+`off` always omits effort fields. The selectable levels are `off`, `low`, `medium`, `high`, `xhigh` and `max`; unspecified legacy connections may retain the Runtime defaults of `high` and reasoning support, while new connections use `off` / `false`.
 
 Connection tests, Main and subagents share capability clamping and request serialization. If a service rejects an explicit effort, the test fails without trying other levels. Tests use short synthetic messages and tools, excluding real conversation history. With images enabled, they also check a synthetic image's background color and a random large digit, 2 or 4. Long contexts, content policies and real tasks need separate checks.
 
@@ -80,13 +80,11 @@ On macOS, Finder/Dock launches add existing `~/.local/bin`, Homebrew `bin`/`sbin
 
 The App encrypts client session credentials with Electron safeStorage in `client-sessions.json` in the desktop data directory. A system authorization failure is displayed and a retry preserves the saved credentials. Model and search keys belong to the selected execution host.
 
-The standalone execution host keeps model and search keys in `credentials.json` (mode 0600) beside its configuration; `COWORK_CREDENTIALS` selects another path. Settings responses carry only `configured`, `credentialUnavailable` or `secretUnavailable`, and a concrete `credentialError`; they never return a key. A blank key keeps the stored value, and explicitly clearing the search key removes it. Old desktop ciphertext counts as unavailable until migrated and is never reported as configured.
+The standalone execution host keeps model and search keys in `credentials.json` (mode 0600) beside its configuration; `COWORK_CREDENTIALS` selects another path. Settings responses carry only `configured` and a concrete `credentialError`; they never return a key. A blank key keeps the stored value, and explicitly clearing the search key removes it. A damaged credential file is reported and left in place instead of being overwritten. The settings page and real runs share this host store, and keys never enter renderer state, logs or events.
 
-To convert an old Electron configuration once, stop the backend and run `node scripts/migrate-desktop-settings.mjs --config <model config>` from the repository (optional `--credentials`, `--legacy-secret`; isolated validation can pass `--host-arg --use-mock-keychain` to avoid real Keychain access). The tool decrypts every value through the old host before writing, backs the original up as `<config>.before-host-credentials`, then rewrites the configuration atomically. A failure leaves the original, backup and credential file unchanged; a success removes ciphertext and plaintext keys from the configuration. Re-running reports `already-migrated` and adds no connections. Restart the backend afterwards; a running backend does not re-read its configuration from disk. The settings page and real runs share this host store, and keys never enter renderer state, logs or events.
+A single-connection configuration appears as the Default connection; the first profile save copies the file to `.before-model-profiles`, and a configuration recorded at an unknown version cannot be overwritten. Quit before restoring a backup.
 
-Legacy single connections appear as Default configuration. The first multi-profile save creates a `.before-model-profiles` backup and retains the old desktop `model-secret.bin`. Unknown versions cannot be overwritten. Quit before restoring a backup, and treat configurations and backups as private data.
-
-Client sessions use the `CoworkOS Client` encryption identity through a separate Keychain process; legacy model migration continues to use `Atria`. Keys encrypted under the previous development identity may need re-entry. Original ciphertext and source directories remain available. Native Keychain and signing compatibility require separate acceptance checks.
+Client sessions use the `CoworkOS Client` encryption identity through a separate Keychain process. Keys encrypted under the previous development identity may need re-entry. Original ciphertext and source directories remain available. Native Keychain and signing compatibility require separate acceptance checks.
 
 ## Model roles
 
@@ -100,9 +98,9 @@ Images are read by the Main connection itself. When the connection enables `supp
 
 ## Web search
 
-Without explicit settings, search uses Exa. Existing `serperApiKey`, `COWORK_SERPER_API_KEY` or `SERPER_API_KEY` retains Serper. An explicit `webSearch.provider` (`exa` / `serper` / `off`) takes precedence over credential inference. Legacy `webTools: false` and `COWORK_WEB_TOOLS=0` disable search, with environment disabling taking precedence. `COWORK_WEB_TOOLS=1` can override the old boolean but not an explicit `provider: "off"`. Upgrades do not rewrite existing choices.
+Search is Exa or off: Exa is the default, and `webSearch.provider: "off"` or `COWORK_WEB_TOOLS=0` disables it, with environment disabling taking precedence.
 
-For your own Exa key, set `webSearch.exaApiKey` or `COWORK_EXA_API_KEY` / `EXA_API_KEY`; environment values win. Serper still requires its own key. Main, subagents and recovered conversations use the same search settings; a resident Main re-reads them at the start of every turn, so a saved choice applies from the next turn.
+For your own Exa key, set `webSearch.exaApiKey` or `COWORK_EXA_API_KEY` / `EXA_API_KEY`; environment values win. Main, subagents and recovered conversations use the same search settings; a resident Main re-reads them at the start of every turn, so a saved choice applies from the next turn.
 
 The default [official Exa MCP](https://exa.ai/docs/get-started/exa-mcp) endpoint is `https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa`. Only basic search and fetching are enabled, with JSON/SSE, session/protocol headers, cancellation and a 30-second total deadline. `COWORK_EXA_MCP_ENDPOINT` is for trusted test services only; the UI has no endpoint input.
 
@@ -155,7 +153,7 @@ Choosing an engine is not a data migration: switching engines does not move the 
 
 ### Backup and restore
 
-The service applies versioned schema migrations at startup. `GET /api/project-data` reports the current engine, server version and applied schema version; `target` is a file path or `postgresql://host:port/database` and carries no credential. The current schema is v7: v6 adds project merge operations, and v7 adds delivery records plus the board's actual merge-commit columns. Migrations are additive, so older rows stay readable. Backup and restore use the same service against the current engine:
+The service creates only the current schema at startup. `GET /api/project-data` reports the current engine, server version and schema version; `target` is a file path or `postgresql://host:port/database` and carries no credential. The current schema is v7, covering the board, Main sessions, developments, reviews, merge operations and delivery records. A database recorded at another version is refused with its file path (or `postgresql://host:port/database`) and version, and is not rewritten; restore it from a backup or open it with the version that wrote it. Backup and restore use the same service against the current engine:
 
 ```sh
 coworkos data backup --to ~/backups/project-data.json

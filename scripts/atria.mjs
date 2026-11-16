@@ -343,9 +343,6 @@ async function sessionExport(values) {
     secrets: [
       process.env.COWORK_API_KEY,
       config.apiKey,
-      process.env.COWORK_SERPER_API_KEY,
-      process.env.SERPER_API_KEY,
-      config.serperApiKey,
       config.webSearch?.exaApiKey,
       process.env.COWORK_EXA_API_KEY,
       process.env.EXA_API_KEY,

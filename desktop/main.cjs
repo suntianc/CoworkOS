@@ -172,9 +172,7 @@ function openExternalLink(url) {
 }
 async function connectSelectedRenderer(selected) {
   sessionTransport.rotate();
-  return computerNavigation.navigate(selected.url, () =>
-    connectRenderer(selected, session.defaultSession.cookies, () => mainWindow)
-  );
+  return computerNavigation.navigate(selected.url, () => connectRenderer(selected, () => mainWindow));
 }
 async function stopSelectedExecutionHost(previous) {
   const result = await previous.stop();

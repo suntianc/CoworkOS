@@ -126,7 +126,6 @@ COWORK_UI_PORT=3881 npm run ui
 ├── model-config.json       模型配置列表与启用项
 ├── credentials.json        执行主机的模型与搜索密钥，权限 0600
 ├── client-sessions.json    桌面客户端按后端加密的会话凭据
-├── model-secret.bin        旧单组 macOS 加密密钥，迁移后保留用于恢复
 ├── composer-drafts.json     跨端口恢复的对话草稿/文本附件，仅指定前缀
 ├── computer-policy.json     桌面全局窗口授权策略；不保存临时会话/截图
 ├── data-version.json       格式/创建/最近打开版本

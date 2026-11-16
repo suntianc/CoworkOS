@@ -5,40 +5,25 @@ import { test } from "node:test";
 const { connectRenderer } = createRequire(import.meta.url)("../desktop/renderer-connection.cjs");
 const backend = { url: "http://127.0.0.1:12345" };
 
-test("renderer removes the legacy host cookie before navigating to the selected backend", async () => {
-  const events = [];
-  await connectRenderer(
-    backend,
-    {
-      remove: async (url, name) => {
-        assert.equal(url, backend.url);
-        assert.equal(name, "atria-session");
-        events.push("remove");
-      }
-    },
-    () => ({
-      isDestroyed: () => false,
-      loadURL: async (url) => {
-        assert.equal(url, backend.url);
-        events.push("navigate");
-      }
-    })
-  );
-  assert.deepEqual(events, ["remove", "navigate"]);
+test("renderer navigates the live window to the selected backend", async () => {
+  const loaded = [];
+  await connectRenderer(backend, () => ({
+    isDestroyed: () => false,
+    loadURL: async (url) => loaded.push(url)
+  }));
+  assert.deepEqual(loaded, [backend.url]);
 });
 
-test("a closed renderer is not navigated and a cookie removal failure prevents navigation", async () => {
-  await connectRenderer(backend, { remove: async () => {} }, () => undefined);
+test("a closed renderer is not navigated and a failed navigation is reported", async () => {
+  await connectRenderer(backend, () => undefined);
+  await connectRenderer(backend, () => ({ isDestroyed: () => true, loadURL: () => assert.fail("closed") }));
   await assert.rejects(
-    connectRenderer(
-      backend,
-      {
-        remove: async () => {
-          throw new Error("cookie failure");
-        }
-      },
-      () => ({ isDestroyed: () => false, loadURL: () => assert.fail("must not navigate") })
-    ),
-    /cookie failure/
+    connectRenderer(backend, () => ({
+      isDestroyed: () => false,
+      loadURL: async () => {
+        throw new Error("navigation failed");
+      }
+    })),
+    /navigation failed/
   );
 });

@@ -11,7 +11,6 @@ async function fixture(
   {
     development = false,
     version = "0.1.1",
-    channel,
     env = {},
     observe,
     managedScheduleError,
@@ -26,13 +25,12 @@ async function fixture(
   await mkdir(userData);
   await writeFile(join(root, "package.json"), JSON.stringify({ version }));
   await writeFile(join(userData, "model-config.json"), "fixture encrypted settings");
-  if (channel) await writeFile(join(userData, "update-preferences.json"), JSON.stringify({ channel }));
   const calls = [];
   const snapshots = [];
   let constructor, result, checkWait, restartWait, recoverWait, restartError, nativeError, recoverError;
   const createUpdates = (options) => {
     constructor = options;
-    let state = { mode: options.mode, channel: options.channel, phase: "idle", busy: false };
+    let state = { mode: options.mode, phase: "idle", busy: false };
     const publish = (patch) => {
       state = { ...state, ...patch };
       options.onStatus({ ...state });
@@ -54,7 +52,7 @@ async function fixture(
       check: async (input) => {
         publish({ phase: "checking", busy: true });
         await checkWait;
-        return publish({ phase: "up-to-date", busy: false, channel: input?.channel || options.channel });
+        return publish({ phase: "up-to-date", busy: false });
       },
       apply: async () => {
         calls.push("apply");
@@ -156,13 +154,8 @@ function deferred() {
 }
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 
-test("desktop host ignores legacy channel preferences and preserves private settings", async (t) => {
-  const f = await fixture(t, {
-    channel: "preview",
-    version: "0.2.0-beta.1",
-    env: { ATRIA_UPDATE_CHANNEL: "stable" }
-  });
-  assert.equal(f.constructor.channel, undefined);
+test("desktop host rejects update settings and preserves private settings", async (t) => {
+  const f = await fixture(t, { version: "0.2.0-beta.1" });
   assert.equal(f.constructor.signed, true);
   for (const input of [
     { channel: "stable" },
@@ -172,9 +165,6 @@ test("desktop host ignores legacy channel preferences and preserves private sett
   ])
     await assert.rejects(f.host.check(input), /不接受配置参数/);
   await f.host.check({});
-  assert.deepEqual(JSON.parse(await readFile(join(f.userData, "update-preferences.json"))), {
-    channel: "preview"
-  });
   assert.equal(await readFile(join(f.userData, "model-config.json"), "utf8"), "fixture encrypted settings");
   await f.host.dispose();
   assert.ok(f.calls.includes("dispose"));
@@ -251,7 +241,7 @@ test("host serializes the full public check before another update operation", as
   await assert.rejects(f.host.apply(), /另一次/);
   done();
   await first;
-  assert.equal(f.host.status().channel, undefined);
+  assert.equal(f.host.status().busy, false);
 });
 
 test("a native installation error resets staged state and resumes the backend instead of quitting silently", async (t) => {

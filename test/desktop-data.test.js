@@ -110,12 +110,22 @@ test("model settings expose status without credentials and fail closed without O
   }
 });
 
-test("a replacement key recovers a desktop connection whose previous secret cannot be decrypted", async (t) => {
+test("a replacement key recovers a desktop connection whose saved key cannot be decrypted", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-secret-recovery-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const paths = desktopPaths("/install", root, {});
-  await writeFile(paths.configPath, JSON.stringify({ baseUrl: "https://example.com/v1", model: "fixture" }));
-  await writeFile(paths.secretPath, "unreadable-old-secret");
+  const connection = {
+    id: "fixture",
+    name: "fixture",
+    baseUrl: "https://example.com/v1",
+    model: "fixture",
+    api: "openai-responses",
+    encryptedApiKey: Buffer.from("unreadable-old-secret").toString("base64")
+  };
+  await writeFile(
+    paths.configPath,
+    JSON.stringify({ modelConnections: { version: 1, activeId: "fixture", profiles: [connection] } })
+  );
   const settings = createModelSettings(paths, {
     isEncryptionAvailable: () => true,
     encryptString: (value) => Buffer.from(`encrypted:${value}`),
@@ -126,8 +136,12 @@ test("a replacement key recovers a desktop connection whose previous secret cann
   });
   assert.equal((await settings.status()).configured, false);
   await assert.rejects(settings.read(), /无法解密/);
-  await assert.rejects(settings.save({ baseUrl: "https://example.com/v1", model: "fixture" }), /无法解密/);
+  await assert.rejects(
+    settings.save({ profileId: "fixture", baseUrl: "https://example.com/v1", model: "fixture" }),
+    /无法解密/
+  );
   const restored = await settings.save({
+    profileId: "fixture",
     baseUrl: "https://example.com/v1",
     model: "fixture",
     apiKey: "replacement-key"
@@ -166,7 +180,7 @@ test("renderer shutdown waits for saved documents and refuses a timeout or wrong
   assert.equal(await failed, false);
 });
 
-test("desktop profiles migrate the legacy key, encrypt every profile and restore independent keys", async (t) => {
+test("desktop profiles encrypt every key and restore independent keys", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-desktop-profiles-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const paths = desktopPaths("/install", root, {});
@@ -175,9 +189,20 @@ test("desktop profiles migrate the legacy key, encrypt every profile and restore
     encryptString: (s) => Buffer.from(`encrypted:${s}`),
     decryptString: (s) => String(s).slice(10)
   };
-  const legacy = { baseUrl: "https://first.example/v1", model: "first-model" };
-  await writeFile(paths.configPath, JSON.stringify(legacy));
-  await writeFile(paths.secretPath, secure.encryptString("first-private-key"));
+  const seeded = {
+    id: "first",
+    name: "第一组",
+    baseUrl: "https://first.example/v1",
+    model: "first-model",
+    api: "openai-completions",
+    supportsImages: false,
+    contextWindow: 256000,
+    encryptedApiKey: secure.encryptString("first-private-key").toString("base64")
+  };
+  await writeFile(
+    paths.configPath,
+    JSON.stringify({ modelConnections: { version: 1, activeId: "first", profiles: [seeded] } })
+  );
   const settings = createModelSettings(paths, secure);
   const firstId = (await settings.status()).activeProfileId;
   const saved = await settings.save({
@@ -197,15 +222,14 @@ test("desktop profiles migrate the legacy key, encrypt every profile and restore
   assert.ok(!raw.includes("private-key"));
   assert.ok(!JSON.stringify(saved).includes("encryptedApiKey"));
   assert.ok(!JSON.stringify(saved).includes("apiKey"));
-  assert.deepEqual(JSON.parse(await readFile(`${paths.configPath}.before-model-profiles`, "utf8")), legacy);
   const second = saved.profiles.find((p) => p.name === "第二组");
   await settings.save({ ...second, profileId: second.id, activate: true });
   const restarted = createModelSettings(paths, secure);
   assert.equal((await restarted.read()).apiKey, "second-private-key");
   assert.equal((await restarted.status()).api, "openai-responses");
   assert.equal((await restarted.status()).contextWindow, 128000);
-  const first = saved.profiles.find((p) => p.id === firstId);
-  await restarted.save({ ...first, profileId: firstId, activate: true });
+  const firstProfile = saved.profiles.find((p) => p.id === firstId);
+  await restarted.save({ ...firstProfile, profileId: firstId, activate: true });
   assert.equal((await restarted.read()).apiKey, "first-private-key");
   assert.equal((await restarted.status()).contextWindow, 256000);
   const before = await readFile(paths.configPath, "utf8");
@@ -215,7 +239,7 @@ test("desktop profiles migrate the legacy key, encrypt every profile and restore
       throw new Error("encryption unavailable");
     }
   });
-  await assert.rejects(broken.save({ ...first, profileId: firstId, apiKey: "replacement" }));
+  await assert.rejects(broken.save({ ...firstProfile, profileId: firstId, apiKey: "replacement" }));
   assert.equal(await readFile(paths.configPath, "utf8"), before);
   await writeFile(paths.configPath, JSON.stringify({ modelConnections: { version: 2 } }));
   await assert.rejects(restarted.status(), /不兼容/);

@@ -203,62 +203,6 @@ for (const native of [false, true]) {
   });
 }
 
-test("legacy minimal connections retain their effort until another level is chosen", async ({ page }) => {
-  const provider = await modelProtocolFixture("openai-completions", () => ({ text: "推理配置已生效" }));
-  const dashboard = await startDashboard();
-  const status = async () => (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
-  const open = async () => {
-    await openModelConnectionEditor(page);
-  };
-  try {
-    const saved = await page.request.post(`${dashboard.base}/api/model-settings`, {
-      data: {
-        baseUrl: provider.baseUrl,
-        api: "openai-completions",
-        model: "legacy-effort-model",
-        apiKey: "synthetic-legacy-key",
-        reasoningEffort: "minimal",
-        supportsReasoningEffort: true
-      }
-    });
-    expect(saved.ok()).toBe(true);
-    await page.goto(dashboard.base);
-    await open();
-    const dialog = page.getByRole("dialog", { name: "连接模型" });
-    await dialog.getByText("高级连接参数", { exact: true }).click();
-    const effort = dialog.locator('[name="reasoningEffort"]');
-    expect(
-      await effort.locator("option:not(:disabled)").evaluateAll((nodes) => nodes.map((n) => n.value))
-    ).toEqual(["off", "low", "medium", "high", "xhigh", "max"]);
-    await expect(effort).toHaveValue("minimal");
-    await dialog.locator('[name="profileName"]').fill("保留历史推理配置");
-    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(dialog).toBeHidden();
-    await page.locator("#settings-back").click();
-    expect((await status()).reasoningEffort).toBe("minimal");
-    await open();
-    await effort.selectOption("low");
-    await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
-    await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
-    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(dialog).toBeHidden();
-    await page.locator("#settings-back").click();
-    expect((await status()).reasoningEffort).toBe("low");
-    await page.locator("#composer-input").fill("验证已测试的推理配置");
-    await page.locator("#send-button").click();
-    await expect(page.locator("#conversation")).toContainText("推理配置已生效", { timeout: 30_000 });
-    // The connection test reads the saved effort directly; a run keeps its own level.
-    const probes = provider.requests.filter(({ body }) =>
-      JSON.stringify(body).includes("atria_connection_check")
-    );
-    expect(probes).toHaveLength(1);
-    expect(probes[0].body.reasoning_effort).toBe("low");
-  } finally {
-    await dashboard.stop();
-    await provider.close();
-  }
-});
-
 test("a tested connection rejected during a run can be saved after the run finishes", async ({ page }) => {
   test.setTimeout(90_000);
   let release;
