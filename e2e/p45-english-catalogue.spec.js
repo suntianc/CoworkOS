@@ -194,6 +194,18 @@ test("all six settings sections and their dialogs read English", async ({ page }
     await expectEnglish(page, "a host reason for window access");
     await page.unroute("**/api/computer/status");
 
+    // The search status and its help text render after the dialog loads.
+    await page.locator("[data-search-open]").click();
+    const search = page.getByRole("dialog", { name: "Web search", exact: true });
+    await expect(search.locator("[data-search-state]")).toHaveText("Enabled · Exa · Anonymous limits");
+    await search.getByText("Advanced · Optional authentication", { exact: true }).click();
+    await expect(search.locator(".settings-advanced-content")).toContainText(
+      "Exa manages your key's usage and billing."
+    );
+    await expectEnglish(page, "the web search settings dialog");
+    await search.getByRole("button", { name: "Close settings", exact: true }).click();
+    await expect(search).toBeHidden();
+
     await page.locator('[data-settings-section="nodes"]').click();
     await page.locator("#settings-node-add").click();
     const node = page.getByRole("dialog", { name: "Add node", exact: true });
