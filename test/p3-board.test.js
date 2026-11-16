@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { randomBytes } from "node:crypto";
 import { before, after, test } from "node:test";
+import pg from "pg";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import {
   PROJECT_DATA_ENGINES,
@@ -12,7 +15,7 @@ import {
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
 import { ProjectDataRuntime } from "../dist/src/workspace/project-data-service.js";
 import { SqliteDatabase } from "../dist/src/storage/project-data/sqlite-database.js";
-import { PROJECT_DATA_MIGRATIONS } from "../dist/src/storage/project-data/migrations.js";
+import { PostgresDatabase, postgresTargetLabel } from "../dist/src/storage/project-data/postgres-database.js";
 
 /**
  * The board contract on both real engines.
@@ -409,81 +412,112 @@ for (const engine of PROJECT_DATA_ENGINES) {
   });
 }
 
-test("a v1 project database upgrades in place and keeps its ledger", async (t) => {
-  const directory = await import("node:fs/promises").then(({ mkdtemp }) =>
-    mkdtemp(join("/tmp", "coworkos-board-upgrade-"))
-  );
-  t.after(() => import("node:fs/promises").then(({ rm }) => rm(directory, { recursive: true, force: true })));
-  const path = join(directory, "project-data.sqlite");
-  const database = await SqliteDatabase.open(path);
-  await database.execute(
-    "CREATE TABLE project_data_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
-  );
-  for (const statement of PROJECT_DATA_MIGRATIONS[0].statements) await database.execute(statement);
-  await database.execute("INSERT INTO project_data_migrations (version, applied_at) VALUES (1, ?)", [
-    "2026-01-01T00:00:00.000Z"
-  ]);
-  await database.execute(
-    "INSERT INTO project_data_projects (project_id, project_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-    ["project_legacy", "旧项目", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"]
-  );
-  await database.execute(
-    `INSERT INTO project_data_requirements
-       (project_id, requirement_id, title, content, source_kind, source_reference, status, revision, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      "project_legacy",
-      "requirement_legacy",
-      "旧需求",
-      "v1 数据不能丢。",
-      "internal",
-      null,
-      "open",
-      1,
-      "2026-01-01T00:00:00.000Z",
-      "2026-01-01T00:00:00.000Z"
-    ]
-  );
+/**
+ * A database recorded at an earlier schema version, on either engine.
+ *
+ * It holds the bookkeeping rows an earlier build wrote plus one project, so a
+ * refusal is distinguishable from an empty (and therefore new) database.
+ */
+async function previousVersionDatabase(t, engine) {
+  const timestamp = "2026-01-01T00:00:00.000Z";
+  const seed = async (database) => {
+    await database.execute(
+      "CREATE TABLE project_data_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+    );
+    for (const version of [1, 2, 3])
+      await database.execute("INSERT INTO project_data_migrations (version, applied_at) VALUES (?, ?)", [
+        version,
+        timestamp
+      ]);
+    await database.execute(
+      "CREATE TABLE project_data_projects (project_id TEXT PRIMARY KEY, project_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
+    );
+    await database.execute(
+      "INSERT INTO project_data_projects (project_id, project_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      ["project_legacy", "旧项目", timestamp, timestamp]
+    );
+  };
+  if (engine === "sqlite") {
+    const directory = await mkdtemp(join(tmpdir(), "coworkos-board-version-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const path = join(directory, "project-data.sqlite");
+    const database = await SqliteDatabase.open(path);
+    await seed(database);
+    await database.close();
+    return {
+      config: { sqlite: { path } },
+      dataRoot: directory,
+      configPath: join(directory, "config.json"),
+      async unchanged(previous) {
+        assert.equal(await readFile(path, "utf8"), previous, "the refused file is not rewritten");
+      },
+      async version() {
+        const reopened = await SqliteDatabase.open(path);
+        const rows = await reopened.query(
+          "SELECT COALESCE(MAX(version), 0) AS version FROM project_data_migrations"
+        );
+        await reopened.close();
+        return Number(rows[0].version);
+      }
+    };
+  }
+  const suffix = randomBytes(4).toString("hex");
+  const name = `coworkos_version_${suffix}`;
+  const admin = new pg.Client({ connectionString: postgres.connectionString });
+  await admin.connect();
+  await admin.query(`CREATE DATABASE ${name}`);
+  t.after(() => admin.end().catch(() => undefined));
+  t.after(() => admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).catch(() => undefined));
+  const url = new URL(postgres.connectionString);
+  url.pathname = `/${name}`;
+  const database = new PostgresDatabase({ connectionString: url.toString() });
+  await seed(database);
   await database.close();
-
-  const runtime = new ProjectDataRuntime({
-    config: { sqlite: { path } },
-    env: {},
+  const directory = await mkdtemp(join(tmpdir(), "coworkos-board-version-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  return {
+    config: { engine, postgres: { connectionString: url.toString() } },
+    dataRoot: directory,
     configPath: join(directory, "config.json"),
-    dataRoot: directory
-  });
-  const service = await runtime.service();
-  t.after(() => runtime.close());
-  // v1 and v2 keep their meaning; v3 adds project Main sessions and v4 adds
-  // development records. Each missing version is applied on its own, so the
-  // final schema is the latest one.
-  assert.equal(service.description.schemaVersion, 7);
-  const requirements = await service.queryRequirements("project_legacy");
-  assert.deepEqual(
-    requirements.map((requirement) => requirement.title),
-    ["旧需求"]
-  );
-  assert.deepEqual(await service.boardEntries("project_legacy"), []);
-  const entry = await service.publishBoardEntry(
-    "project_legacy",
-    {
-      title: "升级后的看板需求",
-      content: "v2 表在同一个数据库里可用。",
-      source: { kind: "external", reference: "升级验证" },
-      requestId: "publish-upgrade"
+    async unchanged() {
+      const reopened = new PostgresDatabase({ connectionString: url.toString() });
+      const rows = await reopened.query("SELECT COUNT(*) AS count FROM project_data_projects");
+      await reopened.close();
+      assert.equal(Number(rows[0].count), 1, "the refused database keeps its rows");
     },
-    { backendId: "backend_upgrade", actor: { id: "host", host: true } }
-  );
-  assert.equal(entry.state, "pending");
-  // The same upgrade makes the session tables available without touching v1.
-  const session = await service.createMainSession("project_legacy", {
-    title: "升级后的会话",
-    backendId: "backend_upgrade",
-    taskId: "task-upgrade"
+    async version() {
+      const reopened = new PostgresDatabase({ connectionString: url.toString() });
+      const rows = await reopened.query(
+        "SELECT COALESCE(MAX(version), 0) AS version FROM project_data_migrations"
+      );
+      await reopened.close();
+      return Number(rows[0].version);
+    }
+  };
+}
+
+for (const engine of PROJECT_DATA_ENGINES) {
+  test(`${engine}: a database below the current schema version is refused with its file and version`, async (t) => {
+    const legacy = await previousVersionDatabase(t, engine);
+    const before = engine === "sqlite" ? await readFile(legacy.config.sqlite.path, "utf8") : undefined;
+    const runtime = new ProjectDataRuntime({
+      config: legacy.config,
+      env: {},
+      configPath: legacy.configPath,
+      dataRoot: legacy.dataRoot
+    });
+    t.after(() => runtime.close());
+    const label =
+      engine === "sqlite"
+        ? legacy.config.sqlite.path
+        : postgresTargetLabel({ connectionString: legacy.config.postgres.connectionString });
+    await assert.rejects(runtime.service(), (error) => {
+      assert.equal(error.code, "storage_schema_version");
+      assert.match(error.message, /schema 版本为 3/);
+      assert.ok(error.message.includes(label), error.message);
+      return true;
+    });
+    await legacy.unchanged(before);
+    assert.equal(await legacy.version(), 3, "the recorded version is left as it was");
   });
-  assert.equal(session.session.title, "升级后的会话");
-  assert.deepEqual(
-    (await service.listMainSessions("project_legacy")).map((record) => record.session.sessionId),
-    [session.session.sessionId]
-  );
-});
+}

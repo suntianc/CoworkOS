@@ -40,13 +40,7 @@ function createModelSettings(paths, safeStorage) {
         apiKey: registry.profiles.find((p) => p.id === registry.activeId)?.apiKey
       };
     }
-    let apiKey;
-    try {
-      apiKey = await decrypt(await fs.readFile(paths.secretPath));
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    return { ...settings, apiKey };
+    return settings;
   }
   return {
     read,

@@ -117,8 +117,25 @@ test("an unreadable saved secret still starts an unconfigured backend for connec
   let backend;
   try {
     await prepare(paths);
-    await writeFile(paths.configPath, JSON.stringify({ baseUrl: "http://127.0.0.1:1/v1", model: "fixture" }));
-    await writeFile(paths.secretPath, "invalid-old-secret");
+    await writeFile(
+      paths.configPath,
+      JSON.stringify({
+        modelConnections: {
+          version: 1,
+          activeId: "fixture",
+          profiles: [
+            {
+              id: "fixture",
+              name: "fixture",
+              baseUrl: "http://127.0.0.1:1/v1",
+              model: "fixture",
+              api: "openai-responses",
+              encryptedApiKey: Buffer.from("unreadable-secret").toString("base64")
+            }
+          ]
+        }
+      })
+    );
     const settings = createModelSettings(paths, {
       isEncryptionAvailable: () => true,
       decryptString: () => {
