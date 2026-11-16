@@ -36,7 +36,7 @@ Pi 启动器 ─→ .pi/extensions/ ─→ .pi/runtime/ ─→ runtime / tools
 
 ## Pi 依赖边界
 
-Pi 包的运行时导入（`@earendil-works/pi-*`，非 `import type`）只允许出现在持有 Pi 进程的区域：`.pi/`（扩展与工具）、`scripts/`（启动器）、模型配置、Main 会话文件读写与上下文压缩；其余模块只能用类型导入。允许区域是 [ESLint 规则](../eslint.config.mjs) 中的明确文件清单（`cowork/pi-import-boundary`），[依赖边界回归](../test/p46-pi-dependency-boundary.test.js) 校验清单与本节的路径一致。
+Pi 包的运行时导入（`@earendil-works/pi-*`，非 `import type`）只允许出现在持有 Pi 进程的区域：`.pi/`（扩展与工具）、`scripts/`（启动器）、模型配置、Main 会话文件读写与上下文压缩；其余模块只能用类型导入。允许区域是 [ESLint 规则](../eslint.config.mjs) 中的明确文件清单（`cowork/pi-import-boundary`），[依赖边界回归](../test/architecture-boundaries.test.js) 校验清单与本节的路径一致。
 
 - 模型配置（连接探测、思考档位、模型参数与请求记录）：[main-request-retry](../src/runtime/main-request-retry.ts)、[model-cache](../src/runtime/model-cache.ts)、[model-connection](../src/runtime/model-connection.ts)、[model-levels](../src/runtime/model-levels.ts)、[model-profile](../src/runtime/model-profile.ts)、[model-provider](../src/runtime/model-provider.ts)、[model-request-recording](../src/runtime/model-request-recording.ts)。
 - Main 会话文件读写（后端在 Main 未运行时改写 Pi 会话文件，即会话消息编辑与分叉）：[conversation-fork](../src/runtime/conversation-fork.ts)、[main-message-edit](../src/runtime/main-message-edit.ts)。
