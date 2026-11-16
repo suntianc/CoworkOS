@@ -42,7 +42,7 @@ test("temporary allocation commits distinct validated records and restart discov
   );
 });
 
-test("temporary Task metadata rejects unvalidated roots while old projectless records retain legacy compatibility", async (t) => {
+test("temporary Task metadata requires its own managed root and rejects unvalidated records", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atria-temporary-tasks-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new LocalWorkspaceStore(join(root, "history"));
@@ -58,6 +58,10 @@ test("temporary Task metadata rejects unvalidated roots while old projectless re
   );
   await assert.rejects(store.readTask("legacy"), /invalid temporary workspace root/);
   const allocated = await new TemporaryWorkspaceStore(root).create(join(root, "history"));
+  await assert.rejects(
+    store.createTask("marked", { goal: "marked", temporaryWorkspaceRoot: allocated.root }),
+    /cannot override project assignment/
+  );
   await store.createTask("valid", {
     goal: "valid",
     temporaryWorkspaceRoot: allocated.root,

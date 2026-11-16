@@ -540,7 +540,16 @@ export class InboxStore {
 
   private async read(): Promise<InboxMessage[]> {
     try {
-      return JSON.parse(await readFile(this.filePath, "utf8")) as InboxMessage[];
+      const messages = JSON.parse(await readFile(this.filePath, "utf8")) as InboxMessage[];
+      // A lease names the process that may still deliver its message. Without
+      // that identity a reader cannot tell a live lease from an abandoned one.
+      if (
+        messages.some(
+          (message) => message.state === "leased" && typeof message.lease?.consumerId !== "string"
+        )
+      )
+        throw new Error("收件箱记录损坏：租约缺少消费者身份，请保留文件后恢复备份。");
+      return messages;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
@@ -615,7 +624,7 @@ function consumerOwnerPid(consumerId: string | undefined): number | undefined {
 }
 
 async function consumerOwnerIsAlive(
-  consumerId: string | undefined,
+  consumerId: string,
   owner?: { pid: number; startedAt: string }
 ): Promise<boolean> {
   if (owner?.startedAt) return verifyProcessIdentity(owner);

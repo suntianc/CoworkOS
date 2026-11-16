@@ -46,7 +46,7 @@ for (const channel of ["inbox", "wait"]) {
       for (const [path, content] of Object.entries(files)) await writeFile(join(project, path), content);
       await writeFile(join(root, "config.json"), JSON.stringify({ contextWindow: 96000 }));
       const store = new LocalWorkspaceStore(workspace);
-      await store.createTask(taskId, { goal: files["request.txt"] });
+      await store.createTask(taskId, { goal: files["request.txt"], projectDirectory: project });
       await store.createRun(taskId, runId);
 
       // Select each legal delivery order without replacing real dispatch, waits,

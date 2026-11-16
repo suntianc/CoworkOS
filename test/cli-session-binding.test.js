@@ -91,23 +91,6 @@ test("different workspaces and forked/copied transcripts do not inherit a Task b
   assert.deepEqual(await f.choose({ args: ["--no-session", "--continue"] }), {});
 });
 
-test("legacy recovery requires a unique exact transcript identity match and preserves old records", async (t) => {
-  const f = await fixture(t);
-  f.flush();
-  const snapshot = join(f.workspaceRoot, "original", "agents/main/context/messages.json");
-  const content = JSON.stringify(f.session.getEntries());
-  await writeFile(snapshot, content);
-  assert.equal((await f.choose()).taskId, "original");
-  await f.store.createTask("ambiguous", { projectDirectory: f.project });
-  await writeFile(join(f.workspaceRoot, "ambiguous", "agents/main/context/messages.json"), content);
-  assert.equal(
-    (await f.choose()).taskId,
-    undefined,
-    "identical copied snapshots must not be guessed into one Task"
-  );
-  await assert.rejects(f.choose({ args: ["--resume"] }), /coworkos --continue/);
-});
-
 test("invalid and mutually exclusive session flags fail before a recovery file is opened", async (t) => {
   const f = await fixture(t);
   await f.record();

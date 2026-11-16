@@ -7,7 +7,6 @@ export interface ProjectRecord {
   projectDirectory: string;
   createdAt: string;
   updatedAt: string;
-  legacy?: boolean;
   /**
    * Set when the person removed the project from the list. The record stays so
    * its conversations keep their owner; adding the same folder again restores it.

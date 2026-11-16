@@ -1223,10 +1223,6 @@ export function createDashboardRunService({
           if (!snapshot) return undefined;
           if (snapshot.runId !== task.activeRunId)
             throw new MainRequestSnapshotError("原请求所属运行已变化，已有内容仍保留。请刷新后重试。");
-          if (!snapshot.executionScope || !snapshot.endpoint)
-            throw new MainRequestSnapshotError(
-              "原请求缺少执行归属记录，无法安全重试。原请求、历史和草稿已保留，请主动发送新消息。"
-            );
           if (
             (await realpath(resolve(task.projectDirectory ?? taskWorkspace))) !==
             snapshot.environment.projectDirectory
@@ -1240,7 +1236,7 @@ export function createDashboardRunService({
             snapshot.environment.projectDirectory
           );
           try {
-            assertMainRequestExecutionScope(snapshot.executionScope, current.executionScope!);
+            assertMainRequestExecutionScope(snapshot.executionScope, current.executionScope);
           } catch (error) {
             throw new MainRequestConflictError(error instanceof Error ? error.message : String(error));
           }
@@ -1390,8 +1386,10 @@ export function createDashboardRunService({
           messageId,
           source: submission?.source ?? (queuedTurn ? ("inbox" as const) : ("composer" as const))
         };
-    if (input) await saveMainInput(inputPath, input);
-    if (input && !continuation) {
+    if (!input)
+      throw new MainRequestSnapshotError("这次继续缺少已保存的输入记录，无法恢复；会话与记录仍保留。");
+    await saveMainInput(inputPath, input);
+    if (!continuation) {
       await saveAcceptedMainMessage(taskWorkspace, taskId, input);
       submission?.onAcceptedInput?.(input.messageId!);
     }
@@ -1494,7 +1492,7 @@ export function createDashboardRunService({
         piAgentDir: process.env.PI_CODING_AGENT_DIR,
         projectRoot,
         selection,
-        ...(input?.thinkingLevel
+        ...(input.thinkingLevel
           ? { thinkingLevel: normalizeReasoningEffort(input.thinkingLevel, "thinkingLevel") }
           : {})
       }),

@@ -94,16 +94,6 @@ export function buildConversationExchanges(messages, events) {
   const byId = index((entry) => entry.user?.id);
   const byTimestamp = index((entry) => entry.user?.timestamp);
   let byText;
-  const interjectedAssistants = new Map();
-  for (const exchange of exchanges)
-    if (exchange.user?.interjected)
-      for (const message of exchange.messages)
-        if (
-          message.role === "assistant" &&
-          message.timestamp !== undefined &&
-          !interjectedAssistants.has(message.timestamp)
-        )
-          interjectedAssistants.set(message.timestamp, exchange);
   const groupedIds = new Set();
   const groupedTimestamps = new Set();
   const groups = [];
@@ -121,22 +111,6 @@ export function buildConversationExchanges(messages, events) {
             timestamp: incoming.timestamp
           }
         : incoming;
-    // Older logs can omit the delivered custom message. A persisted assistant
-    // snapshot still locates the response after that instruction without
-    // moving all of the preceding request's activity into the new segment.
-    if (event?.type === "message_start" && incoming?.role === "assistant") {
-      const owner = interjectedAssistants.get(incoming.timestamp);
-      if (
-        owner &&
-        !(owner.user.id ? groupedIds.has(owner.user.id) : groupedTimestamps.has(owner.user.timestamp))
-      ) {
-        groupedIds.add(owner.user.id);
-        groupedTimestamps.add(owner.user.timestamp);
-        group = { user: owner.user, events: prelude };
-        prelude = [];
-        groups.push(group);
-      }
-    }
     if (userMessage?.role === "user" && ["message_start", "message_end"].includes(event.type)) {
       // A supervisor wake-up opens no exchange, so its activity belongs to the
       // exchange already in progress rather than to a group with no request.

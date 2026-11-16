@@ -70,10 +70,7 @@ function consume(cache: TraceCache, record: TraceRecord): void {
       status: "running"
     };
     if (event.type === "tool_execution_end") {
-      entry.status =
-        event.isError || event.result?.isError || event.result?.details?.ok === false
-          ? "failed"
-          : "completed";
+      entry.status = event.isError ? "failed" : "completed";
       entry.result = clip(contentText(event.result?.content) || event.result);
     }
     if (!previous) add(entry);

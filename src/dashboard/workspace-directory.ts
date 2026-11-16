@@ -33,7 +33,6 @@ export interface ProjectListItem {
   projectDirectory: string;
   createdAt: string;
   updatedAt: string;
-  legacy?: boolean;
   removedAt?: string;
   tasks: TaskListItem[];
 }
@@ -59,7 +58,6 @@ import {
 } from "../workspace/project-catalog.js";
 import type { TaskMetadata } from "../workspace/workspace-store.js";
 import { readProjectAssignment } from "../workspace/project-assignment.js";
-import { inferLegacyProjectDirectory } from "../workspace/project-history.js";
 
 /** Owns the workspace catalog and cross-workspace lookup, independently of HTTP/Run state. */
 export function createWorkspaceDirectory(
@@ -85,8 +83,7 @@ export function createWorkspaceDirectory(
 
   async function listGlobalProjects(): Promise<{ tasks: TaskListItem[]; projects: ProjectListItem[] }> {
     const roots = await knownWorkspaceRoots();
-    const stored = await storedTasks(true, roots);
-    const locations = stored.filter((location) => location.task.kind !== "workspace");
+    const locations = await storedTasks(roots);
     const records = await projectRecords(locations);
     const grouped = new Map(
       records.map((project) => [
@@ -111,6 +108,7 @@ export function createWorkspaceDirectory(
         .filter((location) => !location.task.temporaryWorkspaceRoot)
         .map(async (location) => {
           const project = resolveProject(location.task, location.workspaceRoot, records);
+          if (!project) return undefined;
           return {
             project,
             task: await taskListItem({
@@ -122,9 +120,11 @@ export function createWorkspaceDirectory(
           };
         })
     );
-    for (const { project, task } of assigned) grouped.get(project.projectId)!.tasks.push(task);
+    for (const entry of assigned) {
+      if (!entry) continue;
+      grouped.get(entry.project.projectId)!.tasks.push(entry.task);
+    }
     const projects = [...grouped.values()]
-      .filter((project) => !project.legacy || project.tasks.length > 0)
       // A removed project and its conversations leave the list; nothing on disk is deleted.
       .filter((project) => !project.removedAt);
     for (const project of projects) project.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -139,7 +139,7 @@ export function createWorkspaceDirectory(
     return { tasks, projects };
   }
 
-  async function storedTasks(includeWorkspaces = false, roots?: string[]) {
+  async function storedTasks(roots?: string[]) {
     const locations: Array<{
       workspaceRoot: string;
       store: LocalWorkspaceStore;
@@ -148,14 +148,9 @@ export function createWorkspaceDirectory(
     for (const root of roots ?? (await knownWorkspaceRoots())) {
       const store = new LocalWorkspaceStore(root);
       // eslint-disable-next-line no-restricted-syntax -- 已注册的旧工作区根目录可能被删除，该根的列表读取失败按空处理，其它根仍要汇总
-      const tasks = await store.listTasks(includeWorkspaces).catch(() => []);
+      const tasks = await store.listTasks().catch(() => []);
       for (let task of tasks) {
-        if (task.kind !== "workspace") {
-          if (await recoverMessageEditTransaction(root, task.taskId))
-            task = await store.readTask(task.taskId);
-          if (!task.projectDirectory)
-            task.projectDirectory = await inferLegacyProjectDirectory(root, task.taskId);
-        }
+        if (await recoverMessageEditTransaction(root, task.taskId)) task = await store.readTask(task.taskId);
         locations.push({ workspaceRoot: root, store, task });
       }
     }
@@ -182,22 +177,9 @@ export function createWorkspaceDirectory(
       await projectCatalog.importRecords(imported);
       records = await projectCatalog.list();
     }
-    const missing = locations.filter(
-      ({ task, workspaceRoot: root }) =>
-        !records.some(
-          (project) =>
-            project.projectId === task.projectId ||
-            project.projectDirectory === (task.projectDirectory || root)
-        )
-    );
-    if (missing.length) {
-      await projectCatalog.ensureLegacy(
-        missing.map(({ task, workspaceRoot: root }) => task.projectDirectory || root)
-      );
-      records = await projectCatalog.list();
-    }
     for (const { task, workspaceRoot: root } of locations) {
       const project = resolveProject(task, root, records);
+      if (!project) continue;
       if (task.projectId === project.projectId && task.projectCatalogPath === projectCatalog.filePath)
         continue;
       await projectCatalog.withProjectLock(project.projectId, async (currentProject) => {
@@ -221,12 +203,15 @@ export function createWorkspaceDirectory(
     }
     return records;
   }
-  function resolveProject(task: TaskLocation["task"], root: string, records: ProjectRecord[]): ProjectRecord {
-    const project =
+  function resolveProject(
+    task: TaskLocation["task"],
+    root: string,
+    records: ProjectRecord[]
+  ): ProjectRecord | undefined {
+    return (
       records.find((record) => record.projectId === task.projectId) ??
-      records.find((record) => record.projectDirectory === (task.projectDirectory || root));
-    if (!project) throw new Error("找不到会话所属项目");
-    return project;
+      records.find((record) => record.projectDirectory === (task.projectDirectory || root))
+    );
   }
 
   async function globalTaskPayload(): Promise<{
@@ -251,19 +236,17 @@ export function createWorkspaceDirectory(
       try {
         await recoverMessageEditTransaction(root, taskId);
         const task = await taskStore.readTask(taskId);
-        // Holding Tasks provide editor access, not a user project. Looking one
-        // up must not run legacy directory adoption or rewrite its assignment.
-        if (task.kind === "workspace" || task.temporaryWorkspaceRoot)
+        if (task.temporaryWorkspaceRoot)
           return {
             workspaceRoot: root,
             store: taskStore,
             task,
             projectId: "",
             projectName: "",
-            projectDirectory: task.temporaryWorkspaceRoot ?? root
+            projectDirectory: task.temporaryWorkspaceRoot
           };
-        if (!task.projectDirectory) task.projectDirectory = await inferLegacyProjectDirectory(root, taskId);
         const project = resolveProject(task, root, await projectRecords([{ task, workspaceRoot: root }]));
+        if (!project) throw new ProjectCatalogError("找不到会话所属项目", 404);
         return {
           workspaceRoot: root,
           store: taskStore,
@@ -272,9 +255,9 @@ export function createWorkspaceDirectory(
           projectName: project.projectName,
           projectDirectory: project.projectDirectory
         };
-        // eslint-disable-next-line no-restricted-syntax -- 任务可能属于其它已注册工作区，本根读取失败就继续查找下一个根
-      } catch {
-        /* task belongs to another registered workspace */
+        // A Task may belong to another registered workspace root.
+      } catch (error) {
+        if (error instanceof ProjectCatalogError) throw error;
       }
     }
     throw new Error(`unknown task: ${taskId}`);
@@ -364,20 +347,9 @@ export function createWorkspaceDirectory(
     async createProject(input: { projectName: unknown; projectDirectory: unknown; projectId?: unknown }) {
       await catalogReady;
       await projectRecords(await storedTasks());
-      const visible = (await listGlobalProjects()).projects;
-      const hiddenLegacy = (await projectCatalog.list()).some(
-        (project) =>
-          project.legacy &&
-          typeof input.projectDirectory === "string" &&
-          project.projectDirectory === resolve(input.projectDirectory) &&
-          !visible.some((entry) => entry.projectId === project.projectId)
-      );
       const project = await projectCatalog.create(
         { projectName: input.projectName, projectDirectory: input.projectDirectory },
-        {
-          adoptLegacy: hiddenLegacy,
-          ...(input.projectId === undefined ? {} : { projectId: input.projectId })
-        }
+        input.projectId === undefined ? {} : { projectId: input.projectId }
       );
       // A restored project brings back the conversations it had when it was removed.
       const tasks =
@@ -399,7 +371,7 @@ export function createWorkspaceDirectory(
           .filter(
             ({ task, workspaceRoot: root }) =>
               !task.temporaryWorkspaceRoot &&
-              resolveProject(task, root, records).projectId === previous.projectId
+              resolveProject(task, root, records)?.projectId === previous.projectId
           )
           .map(({ task }) => task.taskId);
         return guard(taskIds, commit);
@@ -439,7 +411,7 @@ export function createWorkspaceDirectory(
         const members = (await storedTasks()).filter(
           ({ task, workspaceRoot: root }) =>
             !task.temporaryWorkspaceRoot &&
-            resolveProject(task, root, records).projectId === previous.projectId
+            resolveProject(task, root, records)?.projectId === previous.projectId
         );
         const references: ProjectTaskReference[] = members.map(({ task, workspaceRoot: storageRoot }) => ({
           taskId: task.taskId,
@@ -459,7 +431,7 @@ export function createWorkspaceDirectory(
     },
     async withTaskProjectLock<T>(taskId: string, action: () => Promise<T>): Promise<T> {
       const location = await locateTask(taskId);
-      return location.task.temporaryWorkspaceRoot || location.task.kind === "workspace"
+      return location.task.temporaryWorkspaceRoot
         ? action()
         : projectCatalog.withProjectLock(location.projectId, action);
     },

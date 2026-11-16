@@ -301,22 +301,9 @@ test("delivered steering input recovers its context position and identity instea
     assert.equal(buildLiveActivity(exchanges[1].events).at(-1).answer, "after steering");
     assert.equal(exchanges[1].key, "steer-context");
   }
-  const legacy = messagesWithRuntimeHistory(
-    [],
-    events.filter((event) => event.message?.role !== "custom")
-  );
-  assert.equal(legacy.find((message) => message.id === "steer-context").timestamp, 41);
-  const legacyExchanges = buildConversationExchanges(
-    legacy,
-    events.filter((event) => event.message?.role !== "custom")
-  );
-  assert.deepEqual(
-    legacyExchanges.map((exchange) => buildLiveActivity(exchange.events).at(-1).answer),
-    ["before steering", "after steering"]
-  );
 });
 
-test("real SDK ISO steering entries retain their position when old logs omit delivery and receipts are repaired later", () => {
+test("real SDK ISO steering entries retain their position while receipts are repaired later", () => {
   const session = SessionManager.inMemory("/fixture");
   session.appendCustomMessageEntry("cowork-user-message", "Harness delivery envelope", true, {
     message: "try again",
@@ -365,24 +352,22 @@ test("real SDK ISO steering entries retain their position when old logs omit del
       payload: { messageId: "steer-sdk", delivery: "steer" }
     }
   ];
-  for (const includeRuntimeDelivery of [false, true]) {
-    const logs = includeRuntimeDelivery ? events : events.filter((event) => event.message !== runtimeQueued);
-    const restored = messagesWithRuntimeHistory(saved, logs);
-    assert.deepEqual(
-      restored.map((message) => message.timestamp),
-      [10, 20, 40, 50]
-    );
-    assert.equal(restored[2].id, "steer-sdk");
-    assert.equal(restored[2].content, "try again");
-    const exchanges = buildConversationExchanges(restored, logs);
-    assert.equal(exchanges.length, 2);
-    assert.equal(exchanges[0].continued, true);
-    assert.deepEqual(
-      exchanges.map((exchange) => buildLiveActivity(exchange.events).at(-1).answer),
-      ["before steering", "after steering"]
-    );
-    assert.equal(exchanges[1].key, "steer-sdk");
-  }
+  const logs = events;
+  const restored = messagesWithRuntimeHistory(saved, logs);
+  assert.deepEqual(
+    restored.map((message) => message.timestamp),
+    [10, 20, 40, 50]
+  );
+  assert.equal(restored[2].id, "steer-sdk");
+  assert.equal(restored[2].content, "try again");
+  const exchanges = buildConversationExchanges(restored, logs);
+  assert.equal(exchanges.length, 2);
+  assert.equal(exchanges[0].continued, true);
+  assert.deepEqual(
+    exchanges.map((exchange) => buildLiveActivity(exchange.events).at(-1).answer),
+    ["before steering", "after steering"]
+  );
+  assert.equal(exchanges[1].key, "steer-sdk");
   const normalReceipt = events.map((event) =>
     event.type === "inbox.consumed" ? { ...event, occurredAt: new Date(41).toISOString() } : event
   );

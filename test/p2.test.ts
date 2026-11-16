@@ -262,9 +262,12 @@ async function main(): Promise<void> {
     await expiredInbox.enqueue({ ...message, messageId: "m3", eventId: "e3" });
     await expiredInbox.lease("a");
     const expiredMessages = JSON.parse(await readFile(expiredPath, "utf8")) as Array<{
-      lease?: { expiresAt: string };
+      lease?: { consumerId: string; expiresAt: string };
     }>;
-    expiredMessages[0].lease = { expiresAt: new Date(Date.now() - 1).toISOString() } as never;
+    expiredMessages[0].lease = {
+      consumerId: "consumer-departed",
+      expiresAt: new Date(Date.now() - 1).toISOString()
+    };
     await writeFile(expiredPath, JSON.stringify(expiredMessages), "utf8");
     assert.equal((await expiredInbox.lease("a"))?.messageId, "m3");
 

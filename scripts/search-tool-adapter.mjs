@@ -8,7 +8,6 @@ import { promisify } from "node:util";
 import { runFileSearch } from "./file-search.mjs";
 
 const MARKER = "# CoworkOS Pi search adapter v1";
-const OWNED_MARKERS = [MARKER, "# Atria Pi search adapter v1"];
 const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** These adapters implement Pi's search/autocomplete arguments, not the fd/rg CLI. */
@@ -114,11 +113,7 @@ export async function installSearchToolAdapters(
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
-    if (
-      existing !== undefined &&
-      !OWNED_MARKERS.some((marker) => existing.startsWith(`#!/bin/sh\n${marker}\n`))
-    )
-      continue;
+    if (existing !== undefined && !existing.startsWith(`#!/bin/sh\n${MARKER}\n`)) continue;
     const content = `#!/bin/sh\n${MARKER}\nexec ${shellQuote(node)} ${shellQuote(entry)} ${shellQuote(tool)} "$@"\n`;
     if (content === existing) {
       await chmod(target, 0o755);

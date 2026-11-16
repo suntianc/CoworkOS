@@ -62,7 +62,7 @@ export function recordModelRequests(
             captured = false;
             if (replay) {
               // Preserve the archived bytes and parameters exactly.
-              input = replay.endpoint!;
+              input = replay.endpoint;
               init = { ...init, body: replayBody };
             }
             // Archive the SDK-serialized body for every HTTP attempt, including retries.

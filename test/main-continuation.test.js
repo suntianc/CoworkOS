@@ -47,10 +47,10 @@ test("an identical later request is restored without mistaking an older turn for
   );
 });
 
-test("legacy history without a saved input remains intact and invalid input is rejected", async (t) => {
+test("a continuation without its saved input is refused and an invalid input is preserved", async (t) => {
   const f = await fixture(t);
   assert.equal(await readMainInput(f.inputPath), undefined);
-  await restorePendingTaskInput(f.sessions, f.root, f.inputPath);
+  await assert.rejects(restorePendingTaskInput(f.sessions, f.root, f.inputPath), /缺少已保存的输入记录/);
   assert.deepEqual(await SessionManager.listAll(f.sessions), []);
   await writeFile(f.inputPath, JSON.stringify({ version: 1, prompt: "keep", submittedAt: "invalid" }));
   const original = await readFile(f.inputPath, "utf8");

@@ -598,10 +598,6 @@ for (const [name, args] of [
         if (requests.length === 1) return reply({ calls: [[name, args]] });
         reply({ text: "Complete interpretation. No further work is required." });
       });
-      // Persisted conversations may still carry the old policy value.
-      await new LocalWorkspaceStore(f.workspaceRoot).updateTask("task", {
-        completion: { policy: "explicit" }
-      });
       await f.start();
       const detail = await until(
         f.detail,
@@ -616,34 +612,28 @@ for (const [name, args] of [
   );
 }
 
-test(
-  "A natural final answer at the turn limit completes even with legacy explicit metadata",
-  { timeout: 15000 },
-  async (t) => {
-    let requests = 0;
-    const f = await fixture(
-      t,
-      (_body, reply) => {
-        requests += 1;
-        reply({ text: "Complete interpretation." });
-      },
-      1
-    );
-    await new LocalWorkspaceStore(f.workspaceRoot).updateTask("task", { completion: { policy: "explicit" } });
-    await f.start();
-    const detail = await until(f.detail, (value) => !value.runtime.active, "final answer at budget limit");
-    assert.equal(requests, 1);
-    assert.equal(detail.task.status, "completed");
-    assert.equal(detail.task.completion.signal, "natural_stop");
-  }
-);
+test("A natural final answer at the turn limit completes", { timeout: 15000 }, async (t) => {
+  let requests = 0;
+  const f = await fixture(
+    t,
+    (_body, reply) => {
+      requests += 1;
+      reply({ text: "Complete interpretation." });
+    },
+    1
+  );
+  await f.start();
+  const detail = await until(f.detail, (value) => !value.runtime.active, "final answer at budget limit");
+  assert.equal(requests, 1);
+  assert.equal(detail.task.status, "completed");
+  assert.equal(detail.task.completion.signal, "natural_stop");
+});
 
 test(
   "A turn budget stop on a tool never promotes an incomplete response to a final answer",
   { timeout: 15000 },
   async (t) => {
     const f = await fixture(t, (_body, reply) => reply({ calls: [["bash", { command: "pwd" }]] }), 1);
-    await new LocalWorkspaceStore(f.workspaceRoot).updateTask("task", { completion: { policy: "explicit" } });
     await f.start();
     const detail = await until(f.detail, (value) => !value.runtime.active, "budget-limited Main exit");
     assert.ok(["waiting", "failed"].includes(detail.task.status), JSON.stringify(detail.task));
@@ -658,7 +648,9 @@ test(
 
 test(
   "Main's completion wait re-drives a queued Subagent retry without abandoning its callback",
-  { timeout: 15000 },
+  // The retry starts a second real Subagent process after the first one ends,
+  // so a loaded machine needs more than one in-process turn's budget.
+  { timeout: 45000 },
   async (t) => {
     let subagentRequests = 0;
     let mainRequests = 0;
@@ -692,7 +684,7 @@ test(
       { COWORK_MAX_ATTEMPTS: "3" }
     );
     await f.start();
-    const detail = await until(f.detail, (value) => !value.runtime.active, "retried task completion");
+    const detail = await until(f.detail, (value) => !value.runtime.active, "retried task completion", 30_000);
     assert.equal(subagentRequests, 2);
     assert.equal(detail.task.status, "completed");
     assert.equal(detail.task.completion.signal, "finish_task");
@@ -759,10 +751,13 @@ test(
       reply({ text: callback ? "协作者已按澄清完成核对。" : "等待协作者。" });
     });
     await f.start();
+    // A real Subagent takes another turn after the answer, so a loaded machine
+    // needs more than one in-process turn's budget.
     const detail = await until(
       f.detail,
       (value) => !value.runtime.active && value.task.status === "completed",
-      "question answered and task completed"
+      "question answered and task completed",
+      30_000
     );
 
     assert.ok(questionId, "Main must actually receive the question through its Inbox");

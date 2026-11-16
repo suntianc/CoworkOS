@@ -424,24 +424,17 @@ export class MainInboxDelivery {
   private async recordConsumed(message: InboxMessage, delivery?: "wait"): Promise<void> {
     if (this.recorded.has(message.messageId)) return;
     const type = message.kind === "callback" ? "callback.consumed" : "inbox.consumed";
+    const eventId = `event_inbox_consumed_${message.messageId}`;
     // Use a separate lock because EventStore.list/append acquire their own
-    // event-file lock. This makes receipt repair idempotent across processes,
-    // including old receipts whose event ids were randomly generated.
+    // event-file lock. The receipt keeps the message's deterministic identity,
+    // so receipt repair stays idempotent across processes and retries.
     const appended = await withFileLock(
       this.receiptLock,
       async () => {
         const events = await this.events.list(this.runId);
-        if (
-          events.some(
-            (event) =>
-              event.type === type &&
-              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 事件从 run_events.jsonl 读出，payload 声明为 unknown，旧记录可能没有 payload
-              (event.payload as { messageId?: string })?.messageId === message.messageId
-          )
-        )
-          return false;
+        if (events.some((event) => event.type === type && event.eventId === eventId)) return false;
         await this.events.append({
-          eventId: `event_inbox_consumed_${message.messageId}`,
+          eventId,
           type,
           taskId: this.taskId,
           runId: this.runId,

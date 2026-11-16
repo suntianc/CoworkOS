@@ -295,19 +295,13 @@ test("settlement releases a failed wait result without consuming its callback", 
   assert.equal((await inbox.list("main"))[0].state, "consumed");
 });
 
-test("legacy expired callback leases without a consumer identity remain recoverable", async (t) => {
-  const { path, inbox, bridge } = await fixture(t);
+test("a leased message without a consumer identity is refused as damaged", async (t) => {
+  const { path, inbox } = await fixture(t);
   const messages = await inbox.list("main");
   messages[0].state = "leased";
   messages[0].lease = { expiresAt: new Date(0).toISOString() };
   await writeFile(path, JSON.stringify(messages));
-  const delivered = [];
-  await bridge.deliver((message) => {
-    delivered.push(message);
-  });
-  assert.equal(delivered.length, 1);
-  await bridge.acknowledge([{ role: "custom", ...delivered[0] }]);
-  assert.equal((await inbox.list("main"))[0].state, "consumed");
+  await assert.rejects(inbox.list("main"), /租约缺少消费者身份/);
 });
 
 test("wait wakes a parked Main but acknowledgement preserves a later standing wake", async (t) => {
@@ -494,35 +488,6 @@ test("a consumed follow-up recovers its failed receipt once without replaying th
   );
   const conversation = messagesWithRuntimeHistory([], ledger);
   assert.equal(conversation.find((message) => message.id === messageId).pending, false);
-});
-
-test("restored contexts retain a legacy callback receipt without duplicating it", async (t) => {
-  const { root, inbox, bridge } = await fixture(t);
-  let delivered;
-  await bridge.deliver((message) => {
-    delivered = message;
-  });
-  await inbox.consume("callback-one");
-  const events = new JsonlEventStore(join(root, "task", "runs", "run", "run_events.jsonl"));
-  await events.append({
-    eventId: "legacy-random-receipt",
-    type: "callback.consumed",
-    taskId: "task",
-    runId: "run",
-    agentId: "main",
-    callId: "one",
-    occurredAt: new Date().toISOString(),
-    payload: { messageId: "callback-one", kind: "callback" }
-  });
-  const restored = new MainInboxDelivery(root, "task", "run");
-  const context = [{ type: "custom_message", ...delivered }];
-  await Promise.all([bridge.acknowledge(context), restored.acknowledge(context)]);
-  await restored.acknowledge(context);
-  await restored.deliver(() => assert.fail("the saved callback must not be resent"));
-  const receipts = (await events.list("run")).filter((event) => event.type === "callback.consumed");
-  assert.equal(receipts.length, 1);
-  assert.equal(receipts[0].eventId, "legacy-random-receipt");
-  assert.equal(bridge.queuedCount, 0);
 });
 
 test(

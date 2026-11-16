@@ -1,4 +1,4 @@
-/** Older Pi logs put failure inside result rather than on the execution event. */
+/** Failure evidence is the execution event's own flag. */
 export function toolExecutionFailed(event) {
-  return event?.isError === true || event?.result?.isError === true || event?.result?.details?.ok === false;
+  return event?.isError === true;
 }

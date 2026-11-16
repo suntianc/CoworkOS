@@ -262,48 +262,44 @@ for (const engine of PROJECT_DATA_ENGINES) {
     assert.equal(infoAfterRestart.body.schemaVersion, 7);
   });
 
-  test(`${engine}: existing project and task history keep their identity and files`, async (t) => {
+  test(`${engine}: an explicit project and its task keep their identity and files`, async (t) => {
     const f = await ledgerFixture(t, engine);
-    const taskRoot = join(f.workspaceRoot, "legacy-task");
-    await mkdir(taskRoot, { recursive: true });
-    await writeFile(
-      join(taskRoot, "task.json"),
-      JSON.stringify({ taskId: "legacy-task", goal: "历史任务", createdAt: "2026-01-01T00:00:00.000Z" })
-    );
-    const listed = await f.request("/api/tasks", undefined, "GET");
-    const legacyProject = listed.body.projects.find((project) =>
-      project.tasks.some((task) => task.taskId === "legacy-task")
-    );
-    assert.ok(legacyProject, "the old task still groups under a project");
-    assert.equal(legacyProject.projectId, f.workspaceRoot, "the legacy directory id is preserved");
+    const project = await createProject(f, "history");
+    const task = await f.request("/api/tasks", {
+      taskId: "history-task",
+      goal: "历史任务",
+      projectId: project.projectId
+    });
+    assert.equal(task.status, 201, JSON.stringify(task.body));
 
     const catalogPath = join(f.root, "projects.json");
     const catalogBefore = await readFile(catalogPath, "utf8");
-    const taskBefore = await readFile(join(taskRoot, "task.json"), "utf8");
+    const taskFile = join(f.workspaceRoot, "history-task", "task.json");
+    const taskBefore = await readFile(taskFile, "utf8");
 
-    const created = await f.request(`/api/projects/${encodeURIComponent(legacyProject.projectId)}/ledger`, {
+    const created = await f.request(`/api/projects/${encodeURIComponent(project.projectId)}/ledger`, {
       action: "create",
-      title: "旧项目需求",
-      content: "历史项目继续记录需求。"
+      title: "项目需求",
+      content: "项目继续记录需求。"
     });
     assert.equal(created.status, 201, JSON.stringify(created.body));
-    assert.equal(created.body.requirement.projectId, legacyProject.projectId);
+    assert.equal(created.body.requirement.projectId, project.projectId);
     // Ledger writes never touch the catalog or the task snapshot.
     assert.equal(await readFile(catalogPath, "utf8"), catalogBefore);
-    assert.equal(await readFile(join(taskRoot, "task.json"), "utf8"), taskBefore);
+    assert.equal(await readFile(taskFile, "utf8"), taskBefore);
 
     await f.restart();
     const history = await f.request("/api/tasks", undefined, "GET");
     assert.ok(
       history.body.projects
-        .find((project) => project.projectId === legacyProject.projectId)
-        ?.tasks.some((task) => task.taskId === "legacy-task")
+        .find((entry) => entry.projectId === project.projectId)
+        ?.tasks.some((entry) => entry.taskId === "history-task")
     );
-    const ledger = await f.request(`/api/projects/${encodeURIComponent(legacyProject.projectId)}/ledger`, {
+    const ledger = await f.request(`/api/projects/${encodeURIComponent(project.projectId)}/ledger`, {
       action: "query"
     });
     assert.equal(ledger.body.requirements.length, 1);
-    assert.equal(ledger.body.requirements[0].title, "旧项目需求");
+    assert.equal(ledger.body.requirements[0].title, "项目需求");
   });
 }
 

@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { id, now } from "../domain/types.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { LocalWorkspaceStore } from "./workspace-store.js";
@@ -35,10 +35,6 @@ function projectName(value: unknown): string {
     throw new ProjectCatalogError("项目名称须为 1–120 个字符");
   return value.trim();
 }
-function legacyName(directory: string): string {
-  const leaf = basename(directory) || directory;
-  return leaf === ".tmp" || leaf === ".cowork" ? basename(resolve(directory, "..")) || leaf : leaf;
-}
 async function projectDirectory(value: unknown): Promise<string> {
   if (typeof value !== "string" || !value.trim() || value.includes("\0") || !isAbsolute(value))
     throw new ProjectCatalogError("projectDirectory 必须是本机绝对路径");
@@ -55,8 +51,6 @@ async function projectDirectory(value: unknown): Promise<string> {
  * identity, never a directory or Task id.
  */
 function sharedId(value: unknown): string {
-  // New shared identities are opaque `project_<uuid>` values. A legacy
-  // absolute-directory id is history, not something another host may adopt.
   if (typeof value !== "string" || !/^project_[a-f0-9-]+$/.test(value))
     throw new ProjectCatalogError("共享项目 ID 格式不合法");
   return value;
@@ -67,7 +61,7 @@ function validRecord(value: unknown): value is ProjectRecord {
   const record = value as ProjectRecord;
   return (
     typeof record.projectId === "string" &&
-    (isAbsolute(record.projectId) || /^project_[a-f0-9-]+$/.test(record.projectId)) &&
+    /^project_[a-f0-9-]+$/.test(record.projectId) &&
     typeof record.projectName === "string" &&
     Boolean(record.projectName.trim()) &&
     typeof record.projectDirectory === "string" &&
@@ -103,10 +97,7 @@ export class GlobalProjectCatalog {
 
   async create(
     input: { projectName: unknown; projectDirectory: unknown },
-    {
-      adoptLegacy = false,
-      projectId: requestedProjectId
-    }: { adoptLegacy?: boolean; projectId?: unknown } = {}
+    { projectId: requestedProjectId }: { projectId?: unknown } = {}
   ): Promise<ProjectRecord> {
     const name = projectName(input.projectName);
     const directory = await projectDirectory(input.projectDirectory);
@@ -120,7 +111,6 @@ export class GlobalProjectCatalog {
       if (existing?.removedAt && (!sharedProjectId || sharedProjectId === existing.projectId)) {
         const restored: ProjectRecord = {
           ...existing,
-          ...(existing.legacy ? { legacy: false } : {}),
           projectName: name,
           updatedAt: now()
         };
@@ -130,14 +120,6 @@ export class GlobalProjectCatalog {
         );
         await this.writeDocument(document);
         return restored;
-      }
-      if (existing?.legacy && adoptLegacy) {
-        const adopted = { ...existing, projectName: name, legacy: false, updatedAt: now() };
-        document.projects = document.projects.map((project) =>
-          project.projectId === existing.projectId ? adopted : project
-        );
-        await this.writeDocument(document);
-        return adopted;
       }
       this.checkDuplicate(document, directory);
       const timestamp = now();
@@ -151,30 +133,6 @@ export class GlobalProjectCatalog {
       document.projects.push(record);
       await this.writeDocument(document);
       return record;
-    });
-  }
-
-  /** Historic directory groups keep their old ids. Missing folders still have visible history. */
-  async ensureLegacy(directories: string[]): Promise<void> {
-    if (!directories.length) return;
-    await this.withOperation(async () => {
-      const document = await this.readDocument();
-      let changed = false;
-      for (const value of directories) {
-        const directory = resolve(value);
-        if (document.projects.some((project) => project.projectDirectory === directory)) continue;
-        const timestamp = now();
-        document.projects.push({
-          projectId: directory,
-          projectName: legacyName(directory),
-          projectDirectory: directory,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          legacy: true
-        });
-        changed = true;
-      }
-      if (changed) await this.writeDocument(document);
     });
   }
 
@@ -218,7 +176,6 @@ export class GlobalProjectCatalog {
       const document = await this.readDocument();
       const next: ProjectRecord = {
         ...previous,
-        ...(previous.legacy ? { legacy: false } : {}),
         projectName: name ?? previous.projectName,
         projectDirectory: directory ?? previous.projectDirectory,
         updatedAt: now()

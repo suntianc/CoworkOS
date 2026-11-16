@@ -172,40 +172,6 @@ test("Pi search adapters expose only supported arguments and preserve user-insta
 });
 
 test(
-  "legacy branded adapters are rebound after the original runtime is removed",
-  { skip: !portable },
-  async (t) => {
-    const f = await fixture(t);
-    const agent = join(f.root, "legacy agent's profile");
-    const runtime = join(f.root, "old-runtime.mjs");
-    const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
-    await mkdir(join(agent, "bin"), { recursive: true });
-    await writeFile(runtime, 'console.log("legacy search runtime");\n');
-    for (const tool of ["fd", "rg"]) {
-      await writeFile(
-        join(agent, "bin", tool),
-        `#!/bin/sh\n# Atria Pi search adapter v1\nexec ${quote(process.execPath)} ${quote(runtime)} ${quote(tool)} "$@"\n`,
-        { mode: 0o755 }
-      );
-      assert.match((await exec(join(agent, "bin", tool), ["--version"])).stdout, /legacy search runtime/);
-    }
-    await rm(runtime);
-    await assert.rejects(exec(join(agent, "bin/fd"), ["--version"]), /MODULE_NOT_FOUND/);
-
-    assert.deepEqual((await installSearchToolAdapters(agent)).installed, ["fd", "rg"]);
-    await f.put("project/hello.txt", "search migration evidence\n");
-    const project = join(f.root, "project");
-    const fd = await exec(join(agent, "bin/fd"), ["--glob", "--", "*.txt", project]);
-    assert.match(fd.stdout, /hello\.txt/);
-    const rg = await exec(join(agent, "bin/rg"), ["--fixed-strings", "--", "migration evidence", project]);
-    const match = JSON.parse(rg.stdout.trim());
-    assert.match(match.data.path.text, /hello\.txt$/);
-    assert.equal(match.data.lines.text, "search migration evidence\n");
-    assert.deepEqual((await installSearchToolAdapters(agent)).installed, []);
-  }
-);
-
-test(
   "installed adapters support actual Pi file autocomplete and find/grep arguments while offline",
   { skip: !portable },
   async (t) => {

@@ -36,11 +36,8 @@ export interface SessionExportInput {
   secrets?: readonly string[];
 }
 
-/** Validate every branch before SDK traversal. V1 IDs are assigned by temporary-copy migration. */
-export function validateSessionExportEntries(
-  entries: readonly unknown[],
-  options: { legacy?: boolean } = {}
-) {
+/** Validate every branch before SDK traversal. */
+export function validateSessionExportEntries(entries: readonly unknown[]) {
   if (!Array.isArray(entries)) throw new Error("无效的会话记录结构，原文件已保留。");
   const byId = new Map<string, Entry>();
   for (const value of entries) {
@@ -52,7 +49,6 @@ export function validateSessionExportEntries(
       if (typeof message.role !== "string" || !message.role.trim())
         throw new Error("无效的会话记录结构，原文件已保留。");
     }
-    if (options.legacy) continue;
     if (
       typeof entry.id !== "string" ||
       !entry.id.trim() ||

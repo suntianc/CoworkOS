@@ -87,8 +87,6 @@ export function createProjectController({
   // An archived conversation stays listed while it is open, so its row menu
   // can restore it; it leaves the list once another conversation is selected.
   const visibleTask = (task) => (!task.archived || task.taskId === state.selected) && isTaskVisible(task);
-  const visibleProjects = () =>
-    projects().filter((project) => !project.legacy || project.tasks?.some(visibleTask));
   const find = (id) => projects().find((project) => project.projectId === id);
   const projectForTask = (task) =>
     find(task?.projectId) ||
@@ -97,9 +95,9 @@ export function createProjectController({
     state.tasks.find((task) => task.taskId === state.selected)?.temporaryWorkspaceRoot ||
     (state.selectedProjectId === null && state.composingNew)
       ? undefined
-      : visibleProjects().find((project) => project.projectId === state.selectedProjectId) ||
+      : find(state.selectedProjectId) ||
         projectForTask(state.tasks.find((task) => task.taskId === state.selected)) ||
-        visibleProjects()[0];
+        projects()[0];
   function select(id, { automatic = false } = {}) {
     const project = find(id);
     if (!project) return;
@@ -139,7 +137,7 @@ export function createProjectController({
       : "";
     const markup =
       temporaryMarkup +
-      (visibleProjects()
+      (projects()
         .map((project) => {
           const id = project.projectId,
             tasks = (project.tasks || []).filter(visibleTask),
@@ -458,7 +456,7 @@ export function createProjectController({
   return {
     render,
     /** The projects the tree actually shows; the work entry follows the same list. */
-    visibleProjects,
+    visibleProjects: projects,
     currentProject: current,
     async ensureProject(projectDirectory, projectName) {
       const existing = projects().find((project) => project.projectDirectory === projectDirectory);

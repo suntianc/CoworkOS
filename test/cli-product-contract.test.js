@@ -57,7 +57,10 @@ async function fixture(t) {
     previousSearchKey = "isolated-contract-config-search-key";
   const secrets = [apiKey, searchKey, previousKey, previousSearchKey];
   const config = join(root, "config.json");
-  await writeFile(config, JSON.stringify({ apiKey: previousKey, serperApiKey: previousSearchKey }));
+  await writeFile(
+    config,
+    JSON.stringify({ apiKey: previousKey, webSearch: { provider: "exa", exaApiKey: previousSearchKey } })
+  );
   const records = [
     { type: "session", version: 3, id: sessionId, timestamp, cwd: project },
     {
@@ -168,14 +171,14 @@ async function fixture(t) {
   });
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([name]) => !/^(COWORK_|PI_|ATRIA_|SERPER_|OPENAI_|ANTHROPIC_)/.test(name)
+      ([name]) => !/^(COWORK_|PI_|ATRIA_|SERPER_|EXA_|OPENAI_|ANTHROPIC_)/.test(name)
     )
   );
   Object.assign(env, {
     ATRIA_HOME: user,
     COWORK_CONFIG: config,
     COWORK_API_KEY: apiKey,
-    COWORK_SERPER_API_KEY: searchKey,
+    COWORK_EXA_API_KEY: searchKey,
     COWORK_DISABLE_MAIN_GUARDIAN: "1",
     PI_OFFLINE: "1"
   });
@@ -246,10 +249,9 @@ test("offline CoworkOS exports resolve nested session IDs, preserve branches, me
   assert.equal((await stat(result.outputPath)).mode & 0o777, 0o600);
 });
 
-test("legacy/BOM exports are read-only, bind symlink workspaces and never overwrite their source", async (t) => {
+test("offline exports bind symlinked workspaces and never overwrite their source", async (t) => {
   const f = await fixture(t);
   const original = await readFile(f.sessionPath, "utf8");
-  await writeFile(f.sessionPath, "\uFEFF" + original);
   const alias = join(f.root, "workspace-alias");
   await symlink(f.workspace, alias, "dir");
   const output = await exportCliSession({
@@ -259,7 +261,7 @@ test("legacy/BOM exports are read-only, bind symlink workspaces and never overwr
     directory: f.project
   });
   assert.equal(JSON.parse(await readFile(output.outputPath, "utf8")).session.taskId, f.taskId);
-  assert.equal(await readFile(f.sessionPath, "utf8"), "\uFEFF" + original);
+  assert.equal(await readFile(f.sessionPath, "utf8"), original);
   await assert.rejects(
     exportCliSession({
       source: f.sessionPath,
@@ -291,33 +293,14 @@ test("legacy/BOM exports are read-only, bind symlink workspaces and never overwr
     assert.ok(!error.stderr.includes("private-header-secret"));
     return true;
   });
-  const legacy = join(f.project, "legacy.jsonl");
-  await writeFile(legacy, original.replace('"version":3', '"version":2'));
-  const legacyBefore = await readFile(legacy);
-  await f.run(["session", "export", legacy, "--output", "legacy-export.json"]);
-  assert.deepEqual(await readFile(legacy), legacyBefore);
-  const v1 = join(f.project, "v1.jsonl");
-  const v1Raw =
-    [
-      { type: "session", id: f.sessionId, cwd: f.project, timestamp: new Date().toISOString() },
-      {
-        type: "message",
-        message: { role: "user", content: "Early transcript without version", timestamp: Date.now() }
-      }
-    ]
-      .map(JSON.stringify)
-      .join("\n") + "\n";
-  await writeFile(v1, v1Raw);
-  const v1Export = JSON.parse((await f.run(["session", "export", v1, "--output", "v1-export.json"])).stdout);
-  assert.equal(
-    JSON.parse(await readFile(v1Export.outputPath, "utf8")).messages[0].content,
-    "Early transcript without version"
-  );
-  const v1Message = JSON.parse(await readFile(v1Export.outputPath, "utf8")).messages[0];
-  assert.ok(v1Message.messageId);
-  assert.equal(v1Message.parentEntryId, null);
-  assert.equal(v1Message.inCurrentBranch, true);
-  assert.equal(await readFile(v1, "utf8"), v1Raw);
+  const older = join(f.project, "older.jsonl");
+  await writeFile(older, original.replace('"version":3', '"version":2'));
+  const olderBefore = await readFile(older);
+  await assert.rejects(f.run(["session", "export", older, "--output", "older-export.json"]), (error) => {
+    assert.match(error.stderr, /无效的会话文件头/);
+    return true;
+  });
+  assert.deepEqual(await readFile(older), olderBefore);
 });
 
 test("offline exports reject malformed records and cyclic branches without touching source or output", async (t) => {
@@ -695,7 +678,7 @@ test(
     const data = JSON.parse(await readFile(join(f.project, "rpc-export.json"), "utf8"));
     assert.equal(data.producer.name, "CoworkOS");
     assert.equal(data.session.taskId, f.taskId);
-    for (const key of f.secrets) assert.ok(!JSON.stringify(data).includes(key));
+    for (const key of f.secrets) assert.ok(!JSON.stringify(data).includes(key), `export leaked ${key}`);
     assert.ok((await readFile(join(f.project, "rpc-share.html"), "utf8")).includes("· CoworkOS"));
     const report = (await readdir(f.project)).find((name) => name.startsWith("coworkos-feedback-"));
     for (const key of f.secrets) assert.ok(!(await readFile(join(f.project, report), "utf8")).includes(key));

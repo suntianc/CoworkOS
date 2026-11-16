@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
+import { GlobalProjectCatalog } from "../dist/src/workspace/project-catalog.js";
 import { singleConnectionMainModel } from "./role-model-fixture.mjs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
@@ -52,7 +53,17 @@ const textMessage = (role, text, timestamp) => ({
 async function fixture(t, first = false) {
   const root = await mkdtemp(join(tmpdir(), "atria-edit-unit-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await new LocalWorkspaceStore(root).createTask("task", { goal: "old input" });
+  const store = new LocalWorkspaceStore(root);
+  await store.createTask("task", { goal: "old input" });
+  const projectDirectory = join(root, "project");
+  await mkdir(projectDirectory);
+  const catalog = new GlobalProjectCatalog(join(root, "global", "projects.json"));
+  const project = await catalog.create({ projectName: "Fixture", projectDirectory });
+  await store.updateTask("task", {
+    projectId: project.projectId,
+    projectCatalogPath: catalog.filePath,
+    projectDirectory
+  });
   const session = SessionManager.create(root, join(root, "task", "sessions", "main", "pi"));
   const time = Date.now() - 100;
   if (first) session.appendCustomEntry("fixture-settings-before-first-user", { fixture: true });
@@ -156,7 +167,7 @@ test("project-folder changes retain the selected version and full prefix, even b
   }
 });
 
-test("multiple edits keep histories associated with their current message and preserve legacy archives", async (t) => {
+test("multiple edits keep histories associated with their current message", async (t) => {
   const f = await fixture(t);
   const messageId = randomUUID();
   const prepared = await prepareMessageEdit(f.root, "task", f.request, "new input", "new-run", messageId);
@@ -184,12 +195,6 @@ test("multiple edits keep histories associated with their current message and pr
     source: "composer"
   });
   await finishMessageEditTransaction(f.root, "task");
-  // Previous installations stored the complete archive inline. It remains readable,
-  // then is moved to the private history file when the next edit is accepted.
-  delete versions.archives[0].historyFile;
-  Object.assign(versions.archives[0], history);
-  await writeFile(join(f.root, "task/sessions/main/versions.json"), JSON.stringify(versions));
-  assert.deepEqual(await readArchivedMessageVersion(f.root, "task", versions.archives[0].versionId), history);
   const latest = await latestEditableMessage(f.root, "task", "new-run");
   const replacementId = randomUUID();
   await prepareMessageEdit(
@@ -258,7 +263,10 @@ test("scope changes reject stale editing without altering the original session",
   const f = await fixture(t);
   const changed = join(f.root, "changed-project");
   await mkdir(changed);
-  await new LocalWorkspaceStore(f.root).updateTask("task", { projectDirectory: changed });
+  const store = new LocalWorkspaceStore(f.root);
+  const projectId = (await store.readTask("task")).projectId;
+  const catalog = new GlobalProjectCatalog(join(f.root, "global", "projects.json"));
+  await catalog.update(projectId, { projectDirectory: changed }, (_previous, _next, commit) => commit([]));
   await assert.rejects(prepareMessageEdit(f.root, "task", f.request, "replacement", "new-run"), /会话版本/);
   assert.equal(await readMessageVersions(f.root, "task"), undefined);
 });
@@ -493,7 +501,7 @@ for (const stage of ["prepared", "input", "task", "launch_ready"]) {
     );
     await childProcess(
       common +
-        'const directory = createWorkspaceDirectory(root, root + "/test-global-index.json", () => undefined); await directory.locateTask("task");'
+        'const directory = createWorkspaceDirectory(root, root + "/global/workspaces.json", () => undefined); await directory.locateTask("task");'
     );
     const restored = await store.readTask("task");
     assert.equal(await readFile(f.session.getSessionFile(), "utf8"), original);
