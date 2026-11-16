@@ -38,3 +38,21 @@ export async function openWebSearchSettings(page) {
   await settings.locator("[data-search-open]").click();
   return page.getByRole("dialog", { name: "联网搜索", exact: true });
 }
+
+/** The page neither scrolls sideways nor pushes the document wider than the window. */
+export async function expectNoHorizontalOverflow(page, container) {
+  expect(await container.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+}
+
+/** A settings sub-page fills the viewport without overflowing or scrolling inside. */
+export async function expectContained(page, panel) {
+  await expect(panel).toBeVisible();
+  const geometry = await panel.boundingBox();
+  const viewport = page.viewportSize();
+  expect(geometry.x).toBeGreaterThanOrEqual(0);
+  expect(geometry.y).toBeGreaterThanOrEqual(0);
+  expect(geometry.x + geometry.width).toBeLessThanOrEqual(viewport.width);
+  expect(geometry.y + geometry.height).toBeLessThanOrEqual(viewport.height);
+  expect(await panel.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+}

@@ -1,13 +1,15 @@
 import { test, expect } from "@playwright/test";
 import { startConfiguredDashboard, startDashboard } from "../test/dashboard-fixture.mjs";
+import {
+  expectContained,
+  expectNoHorizontalOverflow,
+  openModelConnectionEditor,
+  openSettings,
+  openWebSearchSettings
+} from "./settings-helper.js";
 
 const section = (page, name) => page.locator(`[data-settings-panel="${name}"]`);
 const navItem = (page, name) => page.locator(`[data-settings-section="${name}"]`);
-
-async function openSettings(page) {
-  await page.locator("#user-menu-button").click();
-  await expect(page.locator("#settings-entry")).toBeVisible();
-}
 
 test("the six sections switch from one navigation, return to the entry and no settings dialog remains", async ({
   page
@@ -268,8 +270,7 @@ test("a refused role change reports on its row and restores the saved connection
     const connection = status.profiles[0];
     await page.goto(dashboard.base);
     await expect(page.locator("#composer-input")).toBeVisible();
-    await page.locator("#user-menu-button").click();
-    await page.locator('[data-settings-section="models"]').click();
+    await openSettings(page, "models");
     const main = page.locator('[data-role-model="main"]');
     const row = page.locator('[data-model-role="main"]');
     await expect(main).toHaveValue("");
@@ -292,6 +293,115 @@ test("a refused role change reports on its row and restores the saved connection
     // The failure belongs to the section, never to the closed connection form.
     expect(await page.locator("[data-model-error]").innerText()).toBe("");
   } finally {
+    await dashboard.stop();
+  }
+});
+
+for (const desktop of [false, true]) {
+  test(`settings keep their rows legible at desktop and narrow widths and show the host update state in ${desktop ? "desktop" : "web"}`, async ({
+    page
+  }, info) => {
+    const dashboard = await startConfiguredDashboard();
+    try {
+      await page.addInitScript(() => localStorage.setItem("atria.appearance", "system"));
+      if (desktop) {
+        await page.addInitScript(() => {
+          const update = {
+            mode: "source",
+            phase: "failed",
+            currentVersion: "fixture",
+            error: "更新暂不可用，请稍后重试"
+          };
+          window.bookmanDesktop = {
+            onPrepareClose() {},
+            updateStatus: async () => update,
+            checkUpdates: async () => update,
+            applyUpdate: async () => update
+          };
+        });
+      }
+      await page.goto(dashboard.base);
+      for (const width of [1440, 640]) {
+        await page.setViewportSize({ width, height: 760 });
+        const settings = await openSettings(page);
+        await expect(settings.getByRole("heading", { name: "通用", exact: true })).toBeVisible();
+        if (desktop) await expect(settings.locator("[data-update-error]")).toContainText("更新暂不可用");
+        await expectNoHorizontalOverflow(page, settings);
+        for (const row of await settings.locator(".settings-row-copy").all()) {
+          const bounds = await row.boundingBox();
+          if (bounds) expect(bounds.width).toBeGreaterThanOrEqual(100);
+        }
+        await page.screenshot({ path: info.outputPath(`overview-${width}.png`) });
+        await page.locator('[data-settings-section="tools"]').click();
+        await expect(settings.locator("#profile-settings-tools")).toContainText("联网搜索");
+        await expect(settings.locator("#profile-settings-tools")).toContainText("窗口访问");
+        await page.locator("#settings-back").click();
+        await expect(settings).toBeHidden();
+      }
+    } finally {
+      await dashboard.stop();
+    }
+  });
+}
+
+for (const theme of ["dark", "light"]) {
+  test(`settings and their sub-pages stay contained and reachable in ${theme}`, async ({
+    page
+  }, testInfo) => {
+    test.setTimeout(90_000);
+    const dashboard = await startConfiguredDashboard();
+    try {
+      await page.goto(dashboard.base);
+      for (const width of [1440, 640]) {
+        await page.setViewportSize({ width, height: 900 });
+        const entry = await openSettings(page);
+        await page.locator(`[data-appearance-value="${theme}"]`).click();
+        await expect(page.locator("#settings-back")).toBeInViewport();
+        await expectNoHorizontalOverflow(page, entry);
+        await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-settings.png`) });
+
+        const model = await openModelConnectionEditor(page, { add: true });
+        await expectContained(page, model);
+        await model.locator('[name="model"]').fill("保留模型设置草稿");
+        await model.getByRole("button", { name: "关闭设置", exact: true }).click();
+
+        const search = await openWebSearchSettings(page);
+        await expectContained(page, search);
+        await page.keyboard.press("Escape");
+        await expect(search).toBeHidden();
+        await expect(entry).toBeVisible();
+        await page.locator("#settings-back").click();
+        await expect(entry).toBeHidden();
+      }
+    } finally {
+      await dashboard.stop();
+    }
+  });
+}
+
+test("settings drop glass under reduced transparency", async ({ page }) => {
+  const dashboard = await startConfiguredDashboard();
+  const client = await page.context().newCDPSession(page);
+  try {
+    await client.send("Emulation.setEmulatedMedia", {
+      features: [
+        { name: "prefers-reduced-transparency", value: "reduce" },
+        { name: "prefers-color-scheme", value: "dark" }
+      ]
+    });
+    await page.goto(dashboard.base);
+    await page.locator("#user-menu-button").click();
+    const entry = page.locator("#settings-entry");
+    await expect(entry).toBeVisible();
+    await expect(entry.locator(".settings-content")).toHaveCSS("background-image", "none");
+    await expect(entry.locator(".settings-content")).toHaveCSS("backdrop-filter", "none");
+    const model = await openModelConnectionEditor(page, { add: true });
+    await expect(model).toHaveCSS("backdrop-filter", "none");
+    await page.keyboard.press("Escape");
+    await expect(model).toBeHidden();
+    await expect(entry).toBeVisible();
+  } finally {
+    await client.detach();
     await dashboard.stop();
   }
 });
