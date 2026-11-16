@@ -769,7 +769,7 @@ test("another trusted local browser origin may manage this backend, and only whe
   assert.equal(refused.headers.get("access-control-allow-origin"), null);
 });
 
-test("drafts stay with their backend and a legacy draft migrates once", async (t) => {
+test("drafts stay with their backend and a preconnection draft migrates once", async (t) => {
   const storage = memoryStorage();
   const input = { value: "", addEventListener() {} };
   let attachments = [];
@@ -784,12 +784,12 @@ test("drafts stay with their backend and a legacy draft migrates once", async (t
   t.after(() => session.prepareClose());
 
   session.activate(null);
-  input.value = "旧版草稿";
+  input.value = "连接前的草稿";
   session.save();
 
   session.setBackend("backend_a");
   session.activate(null);
-  assert.equal(input.value, "旧版草稿", "the historical draft migrates into the first backend");
+  assert.equal(input.value, "连接前的草稿", "the preconnection draft migrates into the first backend");
 
   input.value = "后端 A 的草稿";
   session.save();
