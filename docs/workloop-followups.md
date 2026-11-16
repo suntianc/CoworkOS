@@ -125,3 +125,7 @@ P4.6 第三轮终审 r3 报告中 A8 的 Blocking 列为 yes，`wait` 却提示�
 ## WL-17 Rex 会话窗口上限
 
 每个执行、审查、终审回合各开一个 Rex 窗口，长 run 累积到 64 个时 `rex window new` 返回 409，终审无法启动。当前绕行：关闭已有审查文件的旧审查窗口（`rex window close -s <session> <window_id>...`），执行者窗口留给复盘。建议回合结束且结果落盘后自动关闭审查窗口。来源：P4.6 第三轮终审 r4 启动失败。
+
+## WL-18 收尾后的文档提交没有位置
+
+P4.6 第三轮在 finish、retro 之后把坑点写进集成分支，`archive` 拒绝：「integration worktree HEAD != recorded tip」。当前绕行：文档提交放在单独的本地分支，合入 main 时一并合入。建议 workloop 提供收尾后的文档提交位置（例如 retro 阶段允许仅改 `docs/` 的提交并记录为新 tip），或在 retro 提示里写明坑点落地要放到合入 main 时。来源：P4.6 第三轮归档。

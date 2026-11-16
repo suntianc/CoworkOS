@@ -49,4 +49,3 @@ finish 的 Playwright 全量中 `e2e/p45-motion.spec.js:44` 失败（断言没�
 
 - 第一轮 #05 的 `send --merge-tip` 回合执行者没有真正合并，集成时才冲突；之后每次发送合并请求都用 `git merge-base --is-ancestor <tip> HEAD` 核对。来源：`os-p46-removal/retro.md` §2。
 - 第二轮终审已在 `74e723ad` 上跑过全量，finish 在同一提交上又跑了 24 条检查（含全量），其中一条偶发失败后再跑一次 finish 又耗 16 分钟。来源：`evidence/checks/finish-*`。
-- 第三轮 finish 在终审 r4/r5 已跑过全量的同一提交上再次运行 Playwright 全量；r3 报告中 A8 为阻断项，`wait` 却提示「blocking findings are all waived」；长 run 的 Rex 会话在 64 个窗口时无法再开终审窗口，需先关闭已结束的审查窗口。来源：`os-p46-subagents/retro.md`。
