@@ -57,7 +57,7 @@ test("macOS window material shows the desktop through the page, keeps the glass 
   const root = await mkdtemp(join(tmpdir(), "atria-backdrop-desktop-"));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|SERPER_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
+      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
     )
   );
   Object.assign(env, {

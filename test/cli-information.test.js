@@ -72,7 +72,7 @@ test("public root, start, npm and thin version queries work without SDK/dist/con
   await writeFile(config, "invalid configuration containing fixture-private-key");
   const env = {
     ...Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(COWORK_|PI_|ATRIA_|SERPER_|NODE_OPTIONS)/.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(COWORK_|PI_|ATRIA_|NODE_OPTIONS)/.test(key))
     ),
     HOME: join(root, "home"),
     ATRIA_HOME: join(root, "uncreated-home"),

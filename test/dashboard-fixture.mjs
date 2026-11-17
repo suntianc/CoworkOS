@@ -51,7 +51,7 @@ export async function startDashboard({
   await writeFile(join(root, "config.json"), JSON.stringify(config));
   let port = requestedPort ?? (await freePort());
   const isolatedEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|SERPER_|EXA_)/.test(name))
+    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|EXA_)/.test(name))
   );
   const launchOptions = {
     cwd: harnessRoot,

@@ -534,7 +534,7 @@ test(
       }
     });
     const inherited = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(COWORK_|ATRIA_|PI_|ELECTRON_|SERPER_|EXA_)/.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(COWORK_|ATRIA_|PI_|ELECTRON_|EXA_)/.test(key))
     );
     const env = {
       ...inherited,

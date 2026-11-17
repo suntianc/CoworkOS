@@ -71,7 +71,7 @@ for (const api of ["openai-completions", "openai-responses"])
       const configPath = join(root, "config.json");
       await writeFile(configPath, JSON.stringify(config));
       const env = Object.fromEntries(
-        Object.entries(process.env).filter(([name]) => !/^(COWORK_|PI_|ATRIA_|SERPER_)/.test(name))
+        Object.entries(process.env).filter(([name]) => !/^(COWORK_|PI_|ATRIA_)/.test(name))
       );
       const pending = exec(
         process.execPath,

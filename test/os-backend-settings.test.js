@@ -217,12 +217,11 @@ test("a damaged host credential store is reported and left for recovery", async 
   const path = join(root, "config.json");
   const credentialsPath = join(root, "credentials.json");
   const savedEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => /^(?:COWORK_|EXA_|SERPER_)/.test(name))
+    Object.entries(process.env).filter(([name]) => /^(?:COWORK_|EXA_)/.test(name))
   );
   for (const name of Object.keys(savedEnv)) delete process.env[name];
   t.after(() => {
-    for (const name of Object.keys(process.env))
-      if (/^(?:COWORK_|EXA_|SERPER_)/.test(name)) delete process.env[name];
+    for (const name of Object.keys(process.env)) if (/^(?:COWORK_|EXA_)/.test(name)) delete process.env[name];
     Object.assign(process.env, savedEnv);
   });
   process.env.COWORK_CONFIG = path;
@@ -344,7 +343,7 @@ test("session export redacts host-stored connection and search keys", async (t) 
       .join("\n") + "\n";
   await writeFile(sessionPath, sessionText);
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_|EXA_)/.test(name))
+    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_)/.test(name))
   );
   Object.assign(env, {
     ATRIA_HOME: join(root, "home"),
@@ -411,7 +410,7 @@ test("the CLI config writer never copies a host-stored key into the public confi
   };
   await writeFile(credentialsPath, JSON.stringify(credentials), { mode: 0o600 });
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_|EXA_)/.test(name))
+    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_)/.test(name))
   );
   Object.assign(env, {
     ATRIA_HOME: join(root, "home"),

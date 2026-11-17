@@ -13,7 +13,7 @@ test("desktop appearance applies natively and preserves the live backend across 
   const provider = await modelProtocolFixture("openai-completions", () => ({ text: "外观切换后服务正常" }));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|SERPER_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
+      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
     )
   );
   Object.assign(env, {

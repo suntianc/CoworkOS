@@ -89,8 +89,6 @@ test(
           // The second request must start a new Main so the test covers
           // reopening the saved Pi session; a resident Main keeps it in memory.
           COWORK_MAIN_IDLE_TIMEOUT_MS: "800",
-          COWORK_SERPER_API_KEY: "",
-          SERPER_API_KEY: "",
           COWORK_WEB_TOOLS: "0"
         }
       });

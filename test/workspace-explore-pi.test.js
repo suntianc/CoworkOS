@@ -200,8 +200,7 @@ CoordinatorRuntime.prototype.waitForSubagents = async function(input) {
 
       const inherited = Object.fromEntries(
         Object.entries(process.env).filter(
-          ([name]) =>
-            !/^(COWORK_|ATRIA_|PI_|SERPER_|OPENAI_|ANTHROPIC_)/.test(name) && name !== "NODE_OPTIONS"
+          ([name]) => !/^(COWORK_|ATRIA_|PI_|OPENAI_|ANTHROPIC_)/.test(name) && name !== "NODE_OPTIONS"
         )
       );
       child = spawn(

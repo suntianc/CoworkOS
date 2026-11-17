@@ -512,7 +512,7 @@ test(
       {
         cwd: root,
         env: Object.fromEntries(
-          Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_)/.test(key))
+          Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_)/.test(key))
         ),
         stdio: "ignore"
       }

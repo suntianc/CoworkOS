@@ -11,7 +11,7 @@ test("桌面版用系统默认应用打开产物，并且只接受后端解析�
   const root = await mkdtemp(join(tmpdir(), "atria-p46-artifact-desktop-"));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([name]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|SERPER_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(name)
+      ([name]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(name)
     )
   );
   Object.assign(env, {

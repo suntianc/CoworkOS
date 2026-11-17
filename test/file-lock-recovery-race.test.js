@@ -46,7 +46,7 @@ test(
     const root = await mkdtemp(join(tmpdir(), "atria-lock-claim-race-"));
     const children = new Set();
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_)/.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_)/.test(key))
     );
     t.after(async () => {
       for (const child of children) {
@@ -150,7 +150,7 @@ test(
     const target = join(root, "projects.json.operation");
     const ownerPath = `${target}.lock/owner.json`;
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_)/.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_)/.test(key))
     );
     const child = spawn(
       process.execPath,
@@ -258,7 +258,7 @@ test(
     const actionPath = join(root, "entered-action.txt");
     const children = new Set();
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_)/.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_)/.test(key))
     );
     t.after(async () => {
       for (const child of children) {
@@ -416,7 +416,7 @@ test(
     const claimPath = join(lockPath, ".dead-owner-recovery");
     const children = new Set();
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_)/.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(?:COWORK_|ATRIA_|PI_)/.test(key))
     );
     t.after(async () => {
       for (const child of children) {

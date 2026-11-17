@@ -14,14 +14,7 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const saved = process.env.COWORK_CONFIG;
   process.env.COWORK_CONFIG = join(root, "config.json");
-  const keys = [
-    "COWORK_WEB_TOOLS",
-    "COWORK_EXA_API_KEY",
-    "EXA_API_KEY",
-    "COWORK_SERPER_API_KEY",
-    "SERPER_API_KEY",
-    "COWORK_EXA_MCP_ENDPOINT"
-  ];
+  const keys = ["COWORK_WEB_TOOLS", "COWORK_EXA_API_KEY", "EXA_API_KEY", "COWORK_EXA_MCP_ENDPOINT"];
   const env = keys.map((key) => [key, process.env[key]]);
   for (const key of keys) delete process.env[key];
   t.after(() => {

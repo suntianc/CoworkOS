@@ -6,7 +6,7 @@ import { join } from "node:path";
 // COWORK_PYTHON is the documented explicit interpreter for document fixtures, not user data.
 const home = mkdtempSync(join(tmpdir(), "atria-test-home-"));
 for (const key of Object.keys(process.env))
-  if (/^(?:COWORK_|ATRIA_|PI_|SERPER_)/.test(key) && !["ATRIA_TEST_CLI_ENTRY", "COWORK_PYTHON"].includes(key))
+  if (/^(?:COWORK_|ATRIA_|PI_)/.test(key) && !["ATRIA_TEST_CLI_ENTRY", "COWORK_PYTHON"].includes(key))
     delete process.env[key];
 process.env.ATRIA_HOME = home;
 process.env.COWORK_CONFIG = join(home, "config.json");

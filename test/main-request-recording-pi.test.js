@@ -261,9 +261,7 @@ for (const [api, compact] of [
 
       // Keep machine/user model connections and storage out of this fixture.
       const inherited = Object.fromEntries(
-        Object.entries(process.env).filter(
-          ([name]) => !/^(COWORK_|ATRIA_|PI_|SERPER_|OPENAI_|ANTHROPIC_)/.test(name)
-        )
+        Object.entries(process.env).filter(([name]) => !/^(COWORK_|ATRIA_|PI_|OPENAI_|ANTHROPIC_)/.test(name))
       );
       const environment = {
         ...inherited,
@@ -283,8 +281,6 @@ for (const [api, compact] of [
         COWORK_REASONING_EFFORT: "off",
         COWORK_SUPPORTS_REASONING_EFFORT: "0",
         COWORK_WEB_TOOLS: "0",
-        COWORK_SERPER_API_KEY: "",
-        SERPER_API_KEY: "",
         PI_CODING_AGENT_DIR: join(root, "pi"),
         PI_OFFLINE: "1"
       };

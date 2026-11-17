@@ -211,9 +211,7 @@ for (const [mode, memoryKind, summaryFailure] of [
       server.listen(0, "127.0.0.1");
       await once(server, "listening");
       const inherited = Object.fromEntries(
-        Object.entries(process.env).filter(
-          ([name]) => !/^(COWORK_|ATRIA_|PI_|SERPER_|OPENAI_|ANTHROPIC_)/.test(name)
-        )
+        Object.entries(process.env).filter(([name]) => !/^(COWORK_|ATRIA_|PI_|OPENAI_|ANTHROPIC_)/.test(name))
       );
       const env = {
         ...inherited,

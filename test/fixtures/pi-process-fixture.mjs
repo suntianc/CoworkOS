@@ -20,7 +20,7 @@ export function isolatedPiEnvironment(overrides = {}) {
   return {
     ...Object.fromEntries(
       Object.entries(process.env).filter(
-        ([key]) => !/^(?:COWORK_|PI_|ATRIA_|OPENAI_|ANTHROPIC_|SERPER_|EXA_|NODE_OPTIONS)/.test(key)
+        ([key]) => !/^(?:COWORK_|PI_|ATRIA_|OPENAI_|ANTHROPIC_|EXA_|NODE_OPTIONS)/.test(key)
       )
     ),
     ...overrides

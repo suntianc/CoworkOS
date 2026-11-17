@@ -396,7 +396,7 @@ test(
       )
     );
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|SERPER_|EXA_)/.test(name))
+      Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|EXA_)/.test(name))
     );
     Object.assign(env, {
       ATRIA_HOME: join(root, "home"),
@@ -466,7 +466,7 @@ test(
       })
     );
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|SERPER_|EXA_)/.test(name))
+      Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|EXA_)/.test(name))
     );
     Object.assign(env, {
       ATRIA_HOME: join(root, "home"),

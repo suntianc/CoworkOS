@@ -171,7 +171,7 @@ async function fixture(t) {
   });
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([name]) => !/^(COWORK_|PI_|ATRIA_|SERPER_|EXA_|OPENAI_|ANTHROPIC_)/.test(name)
+      ([name]) => !/^(COWORK_|PI_|ATRIA_|EXA_|OPENAI_|ANTHROPIC_)/.test(name)
     )
   );
   Object.assign(env, {

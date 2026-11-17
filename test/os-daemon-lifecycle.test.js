@@ -35,7 +35,7 @@ const alive = (pid) => {
 
 function isolatedEnv(overrides) {
   const inherited = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|SERPER_)/.test(name))
+    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_)/.test(name))
   );
   return { ...inherited, ...overrides };
 }

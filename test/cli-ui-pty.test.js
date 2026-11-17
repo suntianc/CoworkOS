@@ -144,7 +144,7 @@ async function fixture(t) {
   });
   const env = {
     ...Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(COWORK_|PI_|ATRIA_|SERPER_|NODE_OPTIONS)/.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(COWORK_|PI_|ATRIA_|NODE_OPTIONS)/.test(key))
     ),
     ...branding,
     HOME: root,

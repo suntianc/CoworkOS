@@ -78,7 +78,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
         await store.createRun("cache-task", "cache-run");
         const inherited = Object.fromEntries(
           Object.entries(process.env).filter(
-            ([name]) => !/^(COWORK_|ATRIA_|PI_|SERPER_|OPENAI_|ANTHROPIC_)/.test(name)
+            ([name]) => !/^(COWORK_|ATRIA_|PI_|OPENAI_|ANTHROPIC_)/.test(name)
           )
         );
         const env = {
@@ -99,8 +99,6 @@ for (const api of ["openai-completions", "openai-responses"]) {
           COWORK_REASONING_EFFORT: "off",
           COWORK_SUPPORTS_REASONING_EFFORT: "0",
           COWORK_WEB_TOOLS: "0",
-          COWORK_SERPER_API_KEY: "",
-          SERPER_API_KEY: "",
           PI_CODING_AGENT_DIR: join(root, "pi"),
           PI_OFFLINE: "1"
         };

@@ -28,7 +28,7 @@ const HOST_CREDENTIAL = "host-credential-for-os-web-client-protocol";
 
 function isolatedEnv(overrides) {
   const inherited = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|SERPER_|EXA_)/.test(name))
+    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|EXA_)/.test(name))
   );
   return { ...inherited, PI_OFFLINE: "1", PI_TELEMETRY: "0", ...overrides };
 }

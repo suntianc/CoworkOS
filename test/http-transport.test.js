@@ -204,7 +204,7 @@ test(
       })
     );
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(COWORK_|PI_|ATRIA_|SERPER_)/.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(COWORK_|PI_|ATRIA_)/.test(key))
     );
     const pending = promisify(execFile)(
       process.execPath,

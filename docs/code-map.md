@@ -101,7 +101,7 @@ Main 的项目上下文只来自需求台账：项目与需求、完成标准和
 
 科学能力移除由[剔除守卫](../test/removed-capabilities.test.js)记录。通用项目命令和文件交付仍沿现有工具执行。
 
-公共 Web 工具由 [工具装配](../src/tools/web-tools.ts)、[有界请求](../src/tools/web-request.ts) 和 [凭据池](../src/tools/web-key-pool.ts) 管理；先验证 [取消、代理、Reader 与轮换](../test/web-tools.test.js)。工具文本预算由 [工具输出](../src/runtime/tool-output.ts) 统一，Main 与委派子代理的 Pi 工具都使用它。
+公共 Web 工具由 [工具装配](../src/tools/web-tools.ts) 和 [调用时限](../src/tools/web-request.ts) 管理，搜索与读取都经 [Exa MCP Adapter](../src/tools/exa-search-provider.ts)，`visit` 在调用前拒绝本机与私网地址；先验证 [Exa 搜索、读取、代理与取消](../test/exa-search-provider.test.js)。工具文本预算由 [工具输出](../src/runtime/tool-output.ts) 统一，Main 与委派子代理的 Pi 工具都使用它。
 
 ### 模型连接、上下文与请求归档
 

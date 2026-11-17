@@ -13,7 +13,7 @@ async function bootDesktop() {
   const root = await mkdtemp(join(tmpdir(), "atria-p45-titlebar-"));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|SERPER_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
+      ([key]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_|ELECTRON_RUN_AS_NODE$|NODE_OPTIONS$)/.test(key)
     )
   );
   Object.assign(env, {

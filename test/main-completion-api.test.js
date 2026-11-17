@@ -123,8 +123,6 @@ async function fixture(t, handle, maxTurns = 20, env = {}) {
       COWORK_MODEL: "glm-5.3",
       PI_CODING_AGENT_DIR: join(root, "pi-agent"),
       COWORK_DISABLE_MAIN_GUARDIAN: "1",
-      COWORK_SERPER_API_KEY: "",
-      SERPER_API_KEY: "",
       COWORK_WEB_TOOLS: "0",
       COWORK_MAIN_MAX_TURNS: String(maxTurns),
       ...env

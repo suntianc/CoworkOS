@@ -78,9 +78,7 @@ test(
       })
     );
     const cleanEnv = Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([name]) => !/^(?:COWORK_|PI_|ATRIA_|SERPER_|EXA_|NODE_OPTIONS)/.test(name)
-      )
+      Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|PI_|ATRIA_|EXA_|NODE_OPTIONS)/.test(name))
     );
     t.after(() => rm(root, { recursive: true, force: true }));
     const pending = exec(

@@ -206,7 +206,7 @@ test("the actual CLI packer excludes retained Mac helpers and tolerates optional
     await put(root, "dist/src/tools/science/runner.py", "retired runtime sentinel");
     for (const name of ["npmrc", "global-npmrc"]) await put(root, name, "");
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(?:npm_config_|COWORK_|PI_|ATRIA_|SERPER_)/i.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(?:npm_config_|COWORK_|PI_|ATRIA_)/i.test(key))
     );
     Object.assign(env, {
       ATRIA_PACKAGE_DIR: join(root, "archives"),

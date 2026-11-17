@@ -171,7 +171,7 @@ export async function validateCuaLive(args = process.argv.slice(2)) {
     try {
       for (const key of Object.keys(process.env))
         if (
-          /^(?:COWORK_|PI_|ATRIA_|SERPER_|NODE_OPTIONS$|ELECTRON_RUN_AS_NODE$)/.test(key) ||
+          /^(?:COWORK_|PI_|ATRIA_|NODE_OPTIONS$|ELECTRON_RUN_AS_NODE$)/.test(key) ||
           /(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(key)
         )
           delete process.env[key];

@@ -313,7 +313,7 @@ test("the real bundle boot loads with cache enabled while SDK source and empty p
   const before = await Promise.all(Object.keys(policy.files).map((file) => readFile(join(sdkRoot, file))));
   const env = {
     ...Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !/^(COWORK_|PI_|ATRIA_|SERPER_|NODE_OPTIONS)/.test(key))
+      Object.entries(process.env).filter(([key]) => !/^(COWORK_|PI_|ATRIA_|NODE_OPTIONS)/.test(key))
     ),
     HOME: root,
     ATRIA_HOME: join(root, "home"),

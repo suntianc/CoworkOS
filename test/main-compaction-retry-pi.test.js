@@ -173,7 +173,7 @@ for (const mode of ["cooldown", "manual", "clear-context"])
       const env = Object.fromEntries(
         Object.entries(process.env).filter(
           ([key]) =>
-            !/^(COWORK_|ATRIA_|PI_|SERPER_|EXA_|OPENAI_|ANTHROPIC_|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy)/.test(
+            !/^(COWORK_|ATRIA_|PI_|EXA_|OPENAI_|ANTHROPIC_|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy)/.test(
               key
             )
         )

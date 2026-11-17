@@ -96,7 +96,7 @@ Default web search and legacy selections are owned by [search configuration](../
 
 Retired science capabilities are recorded in the [removal guard](../../test/removed-capabilities.test.js). Generic project commands and file delivery remain available.
 
-Public web tools belong to [tool composition](../../src/tools/web-tools.ts), [bounded requests](../../src/tools/web-request.ts) and the [credential pool](../../src/tools/web-key-pool.ts). Start with [cancellation/proxy/Reader/rotation](../../test/web-tools.test.js). Programmatic RuntimeTool text limits are in [tool output](../../src/runtime/tool-output.ts). The same budget applies to the Pi tools Main and delegated agents run.
+Public web tools belong to [tool composition](../../src/tools/web-tools.ts) and the [call deadline](../../src/tools/web-request.ts); search and reading both go through the [Exa MCP adapter](../../src/tools/exa-search-provider.ts), and `visit` refuses local and private-network targets before calling it. Start with [Exa search/fetch/proxy/cancellation](../../test/exa-search-provider.test.js). Programmatic RuntimeTool text limits are in [tool output](../../src/runtime/tool-output.ts). The same budget applies to the Pi tools Main and delegated agents run.
 
 ### Model connections, context and request archives
 

@@ -90,7 +90,7 @@ test("real Main launcher sends the connection's GLM format", { timeout: 45000 },
     })
   );
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !/^(COWORK_|PI_|ATRIA_|SERPER_)/.test(name))
+    Object.entries(process.env).filter(([name]) => !/^(COWORK_|PI_|ATRIA_)/.test(name))
   );
   const pending = exec(
     process.execPath,

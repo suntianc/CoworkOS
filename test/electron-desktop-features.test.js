@@ -401,7 +401,7 @@ test(
   { timeout: 120000 },
   async (t) => {
     for (const name of Object.keys(process.env))
-      if (/^(?:COWORK_|ATRIA_|PI_|ELECTRON_|EXA_|SERPER_)/.test(name)) delete process.env[name];
+      if (/^(?:COWORK_|ATRIA_|PI_|ELECTRON_|EXA_)/.test(name)) delete process.env[name];
     const { createManagementClient } = await import("../web/assets/controllers/management-client.js");
     const { createSettingsBackend } = await import("../web/assets/controllers/settings-backend.js");
     const { createBackendAuthorization } = require("../desktop/backend-authorization.cjs");

@@ -97,7 +97,7 @@ for (const sse of [false, true])
     assert.equal(search.sources[0].title, "Paper");
     assert.equal(search.sources[0].date, "2026-10-01");
     assert.equal(search.sources[1].date, undefined);
-    assert.equal(search.organic[0].link, "https://example.org/paper");
+    assert.equal(search.organic, undefined);
     assert.match(search.sources[0].text, /Public evidence/);
     const page = await tools.get("visit").execute({ url: search.sources[0].url });
     assert.equal(page.title, "Paper");

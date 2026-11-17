@@ -1,4 +1,4 @@
-/** Provider-neutral sources; legacy organic/link fields remain available to existing callers. */
+/** Provider-neutral sources returned by search. */
 export interface WebSource {
   title?: string;
   url: string;

@@ -129,7 +129,7 @@ test(
     const env = Object.fromEntries(
       Object.entries(process.env).filter(
         ([name]) =>
-          !/^(?:COWORK_|PI_|ATRIA_|SERPER_|EXA_|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy)/.test(
+          !/^(?:COWORK_|PI_|ATRIA_|EXA_|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy)/.test(
             name
           )
       )

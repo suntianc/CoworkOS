@@ -40,7 +40,7 @@ const git = (cwd, args) =>
 function spawnMain({ root, project, workspace, taskId, runId, prompt, env = {} }) {
   const inherited = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([name]) => !/^(COWORK_|ATRIA_|PI_|SERPER_|OPENAI_|ANTHROPIC_)/.test(name) && name !== "NODE_OPTIONS"
+      ([name]) => !/^(COWORK_|ATRIA_|PI_|OPENAI_|ANTHROPIC_)/.test(name) && name !== "NODE_OPTIONS"
     )
   );
   const child = spawn(

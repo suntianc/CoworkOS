@@ -15,7 +15,7 @@ test("native App after normal model setup performs anonymous search and source f
   const exa = await exaMcpFixture(),
     provider = await modelProtocolFixture("openai-completions", sourceConversationFixture());
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|ATRIA_|PI_|SERPER_|EXA_)/.test(name))
+    Object.entries(process.env).filter(([name]) => !/^(?:COWORK_|ATRIA_|PI_|EXA_)/.test(name))
   );
   Object.assign(env, {
     COWORK_DESKTOP_DATA: root,
