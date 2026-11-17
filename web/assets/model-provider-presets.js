@@ -162,8 +162,8 @@ export const PROVIDER_PRESETS = [
 ];
 
 export const PRESET_REGIONS = [
-  ["cn", "国内"],
-  ["global", "海外"],
+  ["cn", "中国"],
+  ["global", "国际"],
   ["local", "本地与自定义"]
 ];
 

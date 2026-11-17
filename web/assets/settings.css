@@ -1513,10 +1513,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   background: var(--color-surface-2);
 }
 .provider-item[aria-current="true"] {
-  background: var(--selected-fill, var(--color-surface-3));
-  box-shadow:
-    inset 0 0 0 1px var(--selected-edge),
-    var(--selected-shadow);
+  background: var(--color-surface-3);
 }
 .provider-item-text {
   display: flex;
@@ -2170,7 +2167,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
 }
 .preset-item[aria-pressed="true"] {
   border-color: var(--color-accent);
-  box-shadow: inset 0 0 0 1px var(--color-accent);
 }
 .provider-dialog-fields {
   display: flex;

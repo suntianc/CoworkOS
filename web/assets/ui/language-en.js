@@ -1427,8 +1427,8 @@ export default {
   "连接通过 · 工具调用可用 · ": "Connection OK · tool calls work · ",
   模型已移除: "Model removed",
   推理强度已更新: "Reasoning effort updated",
-  国内: "China",
-  海外: "Global",
+  中国: "China",
+  国际: "International",
   本地与自定义: "Local and custom",
   " 个模型。": " models."
 };
