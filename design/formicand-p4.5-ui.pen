@@ -83090,7 +83090,7 @@
                       "id": "Rj79B",
                       "name": "HintText",
                       "fill": "$v2-text-3",
-                      "content": "配置供应商后自动获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
+                      "content": "配置供应商后获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -83110,7 +83110,7 @@
                   "type": "frame",
                   "id": "pK2RJ",
                   "name": "ProviderList",
-                  "width": 272,
+                  "width": 260,
                   "height": "fill_container",
                   "stroke": "$v2-line",
                   "strokeWidth": {
@@ -83953,20 +83953,15 @@
                     },
                     {
                       "type": "frame",
-                      "id": "voi9h",
+                      "id": "zYrnC",
                       "name": "ConnCard",
                       "width": "fill_container",
-                      "fill": "$v2-hover",
-                      "cornerRadius": 12,
-                      "stroke": "$v2-line",
-                      "strokeWidth": 1,
                       "layout": "vertical",
                       "gap": 16,
-                      "padding": 20,
                       "children": [
                         {
                           "type": "frame",
-                          "id": "OIYKV",
+                          "id": "EGRZB",
                           "name": "Field API Key",
                           "width": "fill_container",
                           "layout": "vertical",
@@ -83974,7 +83969,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "ONugM",
+                              "id": "Xi8ZC",
                               "name": "LabelRow",
                               "width": "fill_container",
                               "gap": 6,
@@ -83982,7 +83977,7 @@
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "XFeqe",
+                                  "id": "k4kSfk",
                                   "name": "Label",
                                   "fill": "$v2-text",
                                   "content": "API Key",
@@ -83992,14 +83987,14 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "z42tJw",
+                                  "id": "NO47u",
                                   "name": "Spacer",
                                   "width": "fill_container",
                                   "height": 1
                                 },
                                 {
                                   "type": "text",
-                                  "id": "KEImj",
+                                  "id": "YEcxC",
                                   "name": "Help",
                                   "fill": "$v2-text-3",
                                   "content": "保存在执行主机的私有配置中",
@@ -84011,7 +84006,7 @@
                             },
                             {
                               "type": "frame",
-                              "id": "KTyzm",
+                              "id": "nWUR6",
                               "name": "KeyRow",
                               "width": "fill_container",
                               "gap": 8,
@@ -84019,7 +84014,7 @@
                               "children": [
                                 {
                                   "type": "frame",
-                                  "id": "g0O0N",
+                                  "id": "OCYr0",
                                   "name": "Input",
                                   "width": "fill_container",
                                   "fill": "$v2-track",
@@ -84035,7 +84030,7 @@
                                   "children": [
                                     {
                                       "type": "text",
-                                      "id": "HRZAe",
+                                      "id": "dAN0A",
                                       "name": "Value",
                                       "fill": "$v2-text",
                                       "content": "sk-••••••••••••••••••••3f9a",
@@ -84045,14 +84040,14 @@
                                     },
                                     {
                                       "type": "frame",
-                                      "id": "Aytfh",
+                                      "id": "I7NuRs",
                                       "name": "Spacer",
                                       "width": "fill_container",
                                       "height": 1
                                     },
                                     {
                                       "type": "icon",
-                                      "id": "rfljI",
+                                      "id": "AvH4n",
                                       "name": "i-eye",
                                       "width": 15,
                                       "height": 15,
@@ -84062,7 +84057,7 @@
                                     },
                                     {
                                       "type": "icon",
-                                      "id": "K2Zil",
+                                      "id": "xKpF7",
                                       "name": "i-copy",
                                       "width": 15,
                                       "height": 15,
@@ -84074,7 +84069,7 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "H1PnuL",
+                                  "id": "icrTi",
                                   "name": "Button 检查",
                                   "fill": "$v2-secondary",
                                   "cornerRadius": 8,
@@ -84087,7 +84082,7 @@
                                   "children": [
                                     {
                                       "type": "icon",
-                                      "id": "Fg2zo",
+                                      "id": "HNe75",
                                       "name": "i-plug-zap",
                                       "width": 14,
                                       "height": 14,
@@ -84097,7 +84092,7 @@
                                     },
                                     {
                                       "type": "text",
-                                      "id": "L7QG8",
+                                      "id": "g9FBc",
                                       "name": "Label",
                                       "fill": "$v2-text",
                                       "content": "检查",
@@ -84113,7 +84108,7 @@
                         },
                         {
                           "type": "frame",
-                          "id": "YLjeB",
+                          "id": "m1Wda",
                           "name": "Field API 地址",
                           "width": "fill_container",
                           "layout": "vertical",
@@ -84121,7 +84116,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "NcyJ1",
+                              "id": "PoXSS",
                               "name": "LabelRow",
                               "width": "fill_container",
                               "gap": 6,
@@ -84129,7 +84124,7 @@
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "Z6ldL",
+                                  "id": "rsvnN",
                                   "name": "Label",
                                   "fill": "$v2-text",
                                   "content": "API 地址",
@@ -84141,7 +84136,7 @@
                             },
                             {
                               "type": "frame",
-                              "id": "P9YfC",
+                              "id": "HzKW0",
                               "name": "Input",
                               "width": "fill_container",
                               "fill": "$v2-track",
@@ -84157,7 +84152,7 @@
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "EadgY",
+                                  "id": "ktXXP",
                                   "name": "Value",
                                   "fill": "$v2-text",
                                   "content": "https://api.deepseek.com/v1",
@@ -84167,14 +84162,14 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "ezudF",
+                                  "id": "mazop",
                                   "name": "Spacer",
                                   "width": "fill_container",
                                   "height": 1
                                 },
                                 {
                                   "type": "icon",
-                                  "id": "h5DhD5",
+                                  "id": "EDsip",
                                   "name": "i-rotate-ccw",
                                   "width": 15,
                                   "height": 15,
@@ -84186,7 +84181,7 @@
                             },
                             {
                               "type": "text",
-                              "id": "sNYRf",
+                              "id": "jDNKb",
                               "name": "Preview",
                               "fill": "$v2-text-3",
                               "content": "请求地址：https://api.deepseek.com/v1/chat/completions",
@@ -84198,7 +84193,7 @@
                         },
                         {
                           "type": "frame",
-                          "id": "uV5ax",
+                          "id": "bKvpj",
                           "name": "Field 接口格式",
                           "width": "fill_container",
                           "layout": "vertical",
@@ -84206,7 +84201,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "x3QYqw",
+                              "id": "rfLn9",
                               "name": "LabelRow",
                               "width": "fill_container",
                               "gap": 6,
@@ -84214,7 +84209,7 @@
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "kiZDS",
+                                  "id": "G7GWy",
                                   "name": "Label",
                                   "fill": "$v2-text",
                                   "content": "接口格式",
@@ -84224,14 +84219,14 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "QOwWo",
+                                  "id": "bdiKM",
                                   "name": "Spacer",
                                   "width": "fill_container",
                                   "height": 1
                                 },
                                 {
                                   "type": "text",
-                                  "id": "cmLW0",
+                                  "id": "jb9Yn",
                                   "name": "Help",
                                   "fill": "$v2-text-3",
                                   "content": "决定请求路径与消息结构；预置供应商自动选好",
@@ -84243,7 +84238,7 @@
                             },
                             {
                               "type": "frame",
-                              "id": "JiyhK",
+                              "id": "G4WCYD",
                               "name": "Segmented",
                               "fill": "$v2-track",
                               "cornerRadius": 8,
@@ -84252,7 +84247,7 @@
                               "children": [
                                 {
                                   "type": "frame",
-                                  "id": "D51c4u",
+                                  "id": "ZE7ox",
                                   "name": "Seg Chat Completions",
                                   "fill": "$v2-selected",
                                   "cornerRadius": 6,
@@ -84263,7 +84258,7 @@
                                   "children": [
                                     {
                                       "type": "text",
-                                      "id": "eYZLA",
+                                      "id": "Q274S",
                                       "name": "SegLabel",
                                       "fill": "$v2-text",
                                       "content": "Chat Completions",
@@ -84275,7 +84270,7 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "vk58Y",
+                                  "id": "l6kqKS",
                                   "name": "Seg Responses",
                                   "fill": "#00000000",
                                   "cornerRadius": 6,
@@ -84286,7 +84281,7 @@
                                   "children": [
                                     {
                                       "type": "text",
-                                      "id": "A7uIR",
+                                      "id": "y3rmIe",
                                       "name": "SegLabel",
                                       "fill": "$v2-text-2",
                                       "content": "Responses",
@@ -84298,7 +84293,7 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "VoBla",
+                                  "id": "LLogz",
                                   "name": "Seg Anthropic Messages",
                                   "fill": "#00000000",
                                   "cornerRadius": 6,
@@ -84309,7 +84304,7 @@
                                   "children": [
                                     {
                                       "type": "text",
-                                      "id": "OJep9",
+                                      "id": "n35Zm",
                                       "name": "SegLabel",
                                       "fill": "$v2-text-2",
                                       "content": "Anthropic Messages",
@@ -86194,7 +86189,7 @@
                       "id": "flf6G",
                       "name": "HintText",
                       "fill": "$v2-text-3",
-                      "content": "每个角色从已启用供应商的模型中选择；推理强度跟随所选模型",
+                      "content": "每个角色从已启用供应商的模型中选择；推理强度属于所选模型",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -86309,13 +86304,14 @@
                               "id": "Gqdae",
                               "name": "ModelPicker",
                               "width": 280,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 9,
                               "padding": [
-                                7,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -86353,7 +86349,8 @@
                                   "id": "xqpEc",
                                   "name": "Text",
                                   "width": "fill_container",
-                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "alignItems": "end",
                                   "children": [
                                     {
                                       "type": "text",
@@ -86394,13 +86391,14 @@
                               "id": "kstVJ",
                               "name": "Effort",
                               "width": 96,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 6,
                               "padding": [
-                                9,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -86520,13 +86518,14 @@
                               "id": "lIanJ",
                               "name": "ModelPicker",
                               "width": 280,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-focus",
                               "strokeWidth": 1,
                               "gap": 9,
                               "padding": [
-                                7,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -86564,7 +86563,8 @@
                                   "id": "VAetQ",
                                   "name": "Text",
                                   "width": "fill_container",
-                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "alignItems": "end",
                                   "children": [
                                     {
                                       "type": "text",
@@ -86605,13 +86605,14 @@
                               "id": "xOcYl",
                               "name": "Effort",
                               "width": 96,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 6,
                               "padding": [
-                                9,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -86728,13 +86729,14 @@
                               "id": "f1529",
                               "name": "ModelPicker",
                               "width": 280,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 9,
                               "padding": [
-                                7,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -86772,7 +86774,8 @@
                                   "id": "YYPLN",
                                   "name": "Text",
                                   "width": "fill_container",
-                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "alignItems": "end",
                                   "children": [
                                     {
                                       "type": "text",
@@ -86813,13 +86816,14 @@
                               "id": "v8kcA",
                               "name": "Effort",
                               "width": 96,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 6,
                               "padding": [
-                                9,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -86862,147 +86866,6 @@
                                   "fill": "$v2-text-3"
                                 }
                               ]
-                            }
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "l8lKYQ",
-                      "name": "ProjectOverride",
-                      "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 10,
-                      "children": [
-                        {
-                          "type": "frame",
-                          "id": "JzwXW",
-                          "name": "Head",
-                          "width": "fill_container",
-                          "gap": 8,
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "Q1e8PB",
-                              "name": "Title",
-                              "fill": "$v2-text",
-                              "content": "项目覆盖",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 15,
-                              "fontWeight": "600"
-                            },
-                            {
-                              "type": "text",
-                              "id": "uCS1u",
-                              "name": "Sub",
-                              "fill": "$v2-text-3",
-                              "content": "只覆盖 Main，其余角色沿用上方设置",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 12,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "frame",
-                              "id": "NyHag",
-                              "name": "Spacer",
-                              "width": "fill_container",
-                              "height": 1
-                            },
-                            {
-                              "type": "frame",
-                              "id": "KVcSj",
-                              "name": "AddOverride",
-                              "gap": 6,
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "icon",
-                                  "id": "UYP01",
-                                  "name": "i-plus",
-                                  "width": 14,
-                                  "height": 14,
-                                  "icon": "plus",
-                                  "library": "lucide",
-                                  "fill": "$v2-text-2"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "tmkdM",
-                                  "name": "Label",
-                                  "fill": "$v2-text-2",
-                                  "content": "添加项目",
-                                  "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13,
-                                  "fontWeight": "normal"
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "type": "frame",
-                          "id": "CSpVN",
-                          "name": "Override CoworkOS",
-                          "width": "fill_container",
-                          "fill": "$v2-hover",
-                          "cornerRadius": 12,
-                          "stroke": "$v2-line",
-                          "strokeWidth": 1,
-                          "gap": 12,
-                          "padding": [
-                            12,
-                            18
-                          ],
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "icon",
-                              "id": "YSdNP",
-                              "name": "i-folder",
-                              "width": 16,
-                              "height": 16,
-                              "icon": "folder",
-                              "library": "lucide",
-                              "fill": "$v2-text-2"
-                            },
-                            {
-                              "type": "text",
-                              "id": "L6QQX",
-                              "name": "Project",
-                              "fill": "$v2-text",
-                              "content": "CoworkOS",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 13,
-                              "fontWeight": "500"
-                            },
-                            {
-                              "type": "frame",
-                              "id": "CWWVq",
-                              "name": "Spacer",
-                              "width": "fill_container",
-                              "height": 1
-                            },
-                            {
-                              "type": "text",
-                              "id": "eKxub",
-                              "name": "Binding",
-                              "fill": "$v2-text-2",
-                              "content": "Main →  OpenRouter / claude-sonnet",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 12,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "icon",
-                              "id": "HJhXt",
-                              "name": "i-x",
-                              "width": 14,
-                              "height": 14,
-                              "icon": "x",
-                              "library": "lucide",
-                              "fill": "$v2-text-3"
                             }
                           ]
                         }
@@ -87749,7 +87612,7 @@
           "fill": "#C9C9CF",
           "textGrowth": "fixed-width",
           "width": "fill_container",
-          "content": "• 项目覆盖保留：只覆盖 Main。",
+          "content": "• 不设项目覆盖：单个会话换模型在对话面板选择；这个位置留给后续的自定义 Agent（路线图 P6.5）。",
           "lineHeight": 1.55,
           "fontFamily": "Noto Sans SC",
           "fontSize": 13,
@@ -87775,7 +87638,7 @@
           "fill": "#C9C9CF",
           "textGrowth": "fixed-width",
           "width": "fill_container",
-          "content": "待确认：① 两个标签页的结构是否认可；② 是否一并做后端供应商实体；③ 预置常见供应商模板（DeepSeek、智谱、Kimi、百炼、OpenRouter、Ollama 等，自动填好地址）还是只做自定义。",
+          "content": "已确认（2026-11-17）：两个标签页的结构；后端供应商实体已实现；预置按「中国 / 国际 / 本地与自定义」分组，国内厂商同时提供国际版 API。",
           "lineHeight": 1.55,
           "fontFamily": "Noto Sans SC",
           "fontSize": 13,
@@ -88317,7 +88180,7 @@
                       "id": "v7PhGR",
                       "name": "HintText",
                       "fill": "$v2-text-3",
-                      "content": "配置供应商后自动获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
+                      "content": "配置供应商后获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -90271,7 +90134,7 @@
           "id": "y0OON9",
           "layoutPosition": "absolute",
           "x": 380,
-          "y": 117,
+          "y": 67,
           "name": "Dialog 添加供应商",
           "width": 680,
           "fill": "$v2-overlay",
@@ -90344,7 +90207,7 @@
             {
               "type": "frame",
               "id": "xbV4n",
-              "name": "Section 国内",
+              "name": "Section 中国",
               "width": "fill_container",
               "layout": "vertical",
               "gap": 8,
@@ -90354,24 +90217,24 @@
                   "id": "k0piy",
                   "name": "SectionTitle",
                   "fill": "$v2-text-3",
-                  "content": "国内",
+                  "content": "中国",
                   "fontFamily": "Noto Sans SC",
                   "fontSize": 12,
                   "fontWeight": "500"
                 },
                 {
                   "type": "frame",
-                  "id": "pPMaz",
+                  "id": "ltEzM",
                   "name": "Row",
                   "width": "fill_container",
                   "gap": 8,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "FBap2",
+                      "id": "fkDbz",
                       "name": "Preset DeepSeek",
                       "width": "fill_container",
-                      "fill": "$v2-selected",
+                      "fill": "$v2-hover",
                       "cornerRadius": 9,
                       "stroke": "$v2-focus",
                       "strokeWidth": 1,
@@ -90384,7 +90247,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "FD5PA",
+                          "id": "ROptf",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90397,7 +90260,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "emguw",
+                              "id": "WLj63",
                               "name": "Logo deepseek",
                               "width": 15,
                               "height": 15,
@@ -90412,7 +90275,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "b0V4Of",
+                          "id": "fm4vW",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "DeepSeek",
@@ -90424,7 +90287,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "HT7aN",
+                      "id": "KP3UX",
                       "name": "Preset 智谱 GLM",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90440,7 +90303,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "DwOeE",
+                          "id": "sqUtK",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90453,7 +90316,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "FZOtj",
+                              "id": "XrZwI",
                               "name": "Logo zhipu",
                               "width": 15,
                               "height": 15,
@@ -90468,7 +90331,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "a0eQxe",
+                          "id": "TGI1W",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "智谱 GLM",
@@ -90480,7 +90343,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "W9MI9",
+                      "id": "F8SdTT",
                       "name": "Preset Moonshot Kimi",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90496,7 +90359,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "CShKf",
+                          "id": "uycDd",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90509,7 +90372,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "r24G7",
+                              "id": "J5uGo",
                               "name": "Logo moonshot",
                               "width": 15,
                               "height": 15,
@@ -90524,7 +90387,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "SeOsH",
+                          "id": "KPkrW",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "Moonshot Kimi",
@@ -90536,7 +90399,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "cdtKS",
+                      "id": "WhXYP",
                       "name": "Preset 阿里云百炼",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90552,7 +90415,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "GTbbU",
+                          "id": "zwPgp",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90565,7 +90428,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "oLMG2",
+                              "id": "uj0S8",
                               "name": "Logo bailian",
                               "width": 15,
                               "height": 15,
@@ -90580,7 +90443,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "Xg3ta",
+                          "id": "U9bQB",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "阿里云百炼",
@@ -90594,14 +90457,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "SZM0o",
+                  "id": "Yu4dg",
                   "name": "Row",
                   "width": "fill_container",
                   "gap": 8,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "Gq7Uu",
+                      "id": "B0I6x",
                       "name": "Preset 火山方舟",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90617,7 +90480,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "pfWxr",
+                          "id": "fVYmL",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90630,7 +90493,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "J7y9UD",
+                              "id": "QJkJI",
                               "name": "Logo volcengine",
                               "width": 15,
                               "height": 15,
@@ -90645,7 +90508,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "HWcNf",
+                          "id": "IQsXn",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "火山方舟",
@@ -90657,7 +90520,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "sucKX",
+                      "id": "BWiZc",
                       "name": "Preset 硅基流动",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90673,7 +90536,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "N1hQia",
+                          "id": "Tz4sn",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90686,7 +90549,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "ojMgL",
+                              "id": "JvXgp",
                               "name": "Logo siliconflow",
                               "width": 15,
                               "height": 15,
@@ -90701,7 +90564,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "wNfDj",
+                          "id": "Hw0Re",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "硅基流动",
@@ -90713,7 +90576,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "jiRgr",
+                      "id": "R9EXcc",
                       "name": "Preset MiniMax",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90729,7 +90592,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "QDyQV",
+                          "id": "ghcJa",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90742,7 +90605,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "o6RZ4U",
+                              "id": "e13w3",
                               "name": "Logo minimax",
                               "width": 15,
                               "height": 15,
@@ -90757,7 +90620,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "uLEEb",
+                          "id": "T3Wi8",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "MiniMax",
@@ -90769,7 +90632,240 @@
                     },
                     {
                       "type": "frame",
-                      "id": "O8BOeK",
+                      "id": "Wce2v",
+                      "name": "Preset 腾讯混元",
+                      "width": "fill_container",
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "sFfHR",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "IQ1Rn",
+                              "name": "Logo hunyuan",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/hunyuan.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "w9n2v",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "腾讯混元",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "FXH4N",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "tgKMO",
+                      "name": "Preset 百度千帆",
+                      "width": "fill_container",
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "joEZV",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "pB2x9",
+                              "name": "Logo qianfan",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/qianfan.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "ned71",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "百度千帆",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "TxGJI",
+                      "name": "Preset 小米 MiMo",
+                      "width": "fill_container",
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "yau7V",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "Xkvd2",
+                              "name": "Logo xiaomimimo",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/xiaomimimo.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "iABFf",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "小米 MiMo",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B3o2Dc",
+                      "name": "Preset 讯飞星火",
+                      "width": "fill_container",
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "LMeiN",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "nzBcD",
+                              "name": "Logo spark",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/spark.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "Z0stas",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "讯飞星火",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "US7nH",
                       "name": "Empty",
                       "width": "fill_container",
                       "height": 1
@@ -90781,7 +90877,7 @@
             {
               "type": "frame",
               "id": "XNHtQ",
-              "name": "Section 海外",
+              "name": "Section 国际",
               "width": "fill_container",
               "layout": "vertical",
               "gap": 8,
@@ -90791,21 +90887,21 @@
                   "id": "B5nmU",
                   "name": "SectionTitle",
                   "fill": "$v2-text-3",
-                  "content": "海外",
+                  "content": "国际",
                   "fontFamily": "Noto Sans SC",
                   "fontSize": 12,
                   "fontWeight": "500"
                 },
                 {
                   "type": "frame",
-                  "id": "eVYlG",
+                  "id": "Tkjah",
                   "name": "Row",
                   "width": "fill_container",
                   "gap": 8,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "DZJG6",
+                      "id": "J5DlV",
                       "name": "Preset OpenAI",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90821,7 +90917,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "ZZ0kE",
+                          "id": "RVrE0",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90834,7 +90930,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "md3qe",
+                              "id": "XTp46",
                               "name": "Logo openai",
                               "width": 15,
                               "height": 15,
@@ -90849,7 +90945,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "JkBO0",
+                          "id": "Qr3wa",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "OpenAI",
@@ -90861,7 +90957,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "URMv1",
+                      "id": "QXvRM",
                       "name": "Preset Anthropic",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90877,7 +90973,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "wL2gO",
+                          "id": "EQF3r",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90890,7 +90986,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "B9wJG",
+                              "id": "pP7NJ",
                               "name": "Logo anthropic",
                               "width": 15,
                               "height": 15,
@@ -90905,7 +91001,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "Aub4B",
+                          "id": "CkHTF",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "Anthropic",
@@ -90917,7 +91013,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "wXp4n",
+                      "id": "BuJde",
                       "name": "Preset Google Gemini",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90933,7 +91029,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "k3gGT",
+                          "id": "u2Sv4e",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -90946,7 +91042,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "Lby1d",
+                              "id": "U6IO8",
                               "name": "Logo gemini",
                               "width": 15,
                               "height": 15,
@@ -90961,7 +91057,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "Oc6vF",
+                          "id": "drSG7",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "Google Gemini",
@@ -90973,7 +91069,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "a5PmFo",
+                      "id": "v6VOLd",
                       "name": "Preset xAI",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -90989,7 +91085,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "lgEFF",
+                          "id": "Vf9cS",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -91002,7 +91098,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "q9f97",
+                              "id": "uUiJA",
                               "name": "Logo xai",
                               "width": 15,
                               "height": 15,
@@ -91017,7 +91113,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "LyUiX",
+                          "id": "ayFPT",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "xAI",
@@ -91031,14 +91127,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "q9qdu3",
+                  "id": "T6YAN",
                   "name": "Row",
                   "width": "fill_container",
                   "gap": 8,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "La9tP",
+                      "id": "S66o8",
                       "name": "Preset Mistral",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -91054,7 +91150,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "dN8OX",
+                          "id": "LAgN6",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -91067,7 +91163,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "xM3Za",
+                              "id": "azz5u",
                               "name": "Logo mistral",
                               "width": 15,
                               "height": 15,
@@ -91082,7 +91178,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "cMhUO",
+                          "id": "daIKk",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "Mistral",
@@ -91094,7 +91190,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "B9GNZu",
+                      "id": "IKuxr",
                       "name": "Preset Groq",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -91110,7 +91206,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "S53lee",
+                          "id": "r5FHWW",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -91123,7 +91219,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "kv5TJ",
+                              "id": "beYvX",
                               "name": "Logo groq",
                               "width": 15,
                               "height": 15,
@@ -91138,7 +91234,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "PizwP",
+                          "id": "E3abGO",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "Groq",
@@ -91150,7 +91246,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "tRKKc",
+                      "id": "NwNSO",
                       "name": "Preset OpenRouter",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -91166,7 +91262,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "wx8sy",
+                          "id": "bFhlL",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -91179,7 +91275,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "OgO6v",
+                              "id": "pFjsz",
                               "name": "Logo openrouter",
                               "width": 15,
                               "height": 15,
@@ -91194,7 +91290,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "o0Iu9w",
+                          "id": "IKsNn",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "OpenRouter",
@@ -91206,7 +91302,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "KRhkD",
+                      "id": "K1n7J4",
                       "name": "Preset Together AI",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -91222,7 +91318,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "l2qIJ",
+                          "id": "C6XfcP",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -91235,7 +91331,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "znT3y",
+                              "id": "VAkmt",
                               "name": "Logo together",
                               "width": 15,
                               "height": 15,
@@ -91250,7 +91346,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "uYBPM",
+                          "id": "n6uIpP",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "Together AI",
@@ -91264,14 +91360,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "TQWg7",
+                  "id": "A9GS9",
                   "name": "Row",
                   "width": "fill_container",
                   "gap": 8,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "j8Qwq",
+                      "id": "t2JqI",
                       "name": "Preset Fireworks",
                       "width": "fill_container",
                       "fill": "$v2-hover",
@@ -91287,7 +91383,7 @@
                       "children": [
                         {
                           "type": "frame",
-                          "id": "j4H0El",
+                          "id": "jlUZG",
                           "name": "Avatar",
                           "width": 24,
                           "height": 24,
@@ -91300,7 +91396,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "zhKbp",
+                              "id": "lBxfe",
                               "name": "Logo fireworks",
                               "width": 15,
                               "height": 15,
@@ -91315,7 +91411,7 @@
                         },
                         {
                           "type": "text",
-                          "id": "my4Or",
+                          "id": "m97OtI",
                           "name": "Name",
                           "fill": "$v2-text",
                           "content": "Fireworks",
@@ -91327,24 +91423,404 @@
                     },
                     {
                       "type": "frame",
-                      "id": "tg6AN",
-                      "name": "Empty",
+                      "id": "mVHaV",
+                      "name": "Preset Z.ai",
                       "width": "fill_container",
-                      "height": 1
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "bd4lc",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "N8EGc",
+                              "name": "Logo zai",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/zai.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "uK6FX",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "Z.ai",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
                     },
                     {
                       "type": "frame",
-                      "id": "QuiTR",
-                      "name": "Empty",
+                      "id": "c1DQVq",
+                      "name": "Preset Kimi Global",
                       "width": "fill_container",
-                      "height": 1
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "tOBiC",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "XAxVl",
+                              "name": "Logo moonshot",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/moonshot.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "wIbYg",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "Kimi Global",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
                     },
                     {
                       "type": "frame",
-                      "id": "hIhlt",
-                      "name": "Empty",
+                      "id": "eRB5Z",
+                      "name": "Preset Alibaba Cloud",
                       "width": "fill_container",
-                      "height": 1
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "BN8WF",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "a5PK8",
+                              "name": "Logo alibabacloud",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/alibabacloud.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "w5pgm",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "Alibaba Cloud",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "qOrWq",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "oLxCr",
+                      "name": "Preset BytePlus",
+                      "width": "fill_container",
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "F0sfxY",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "nj0Nf",
+                              "name": "Logo byteplus",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/byteplus.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "kCauU",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "BytePlus",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "MOJAZ",
+                      "name": "Preset SiliconFlow",
+                      "width": "fill_container",
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "JYElk",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "ipb23",
+                              "name": "Logo siliconflow",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/siliconflow.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "eivwf",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "SiliconFlow",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "c7Zww0",
+                      "name": "Preset MiniMax Global",
+                      "width": "fill_container",
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "iZ3qU",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "aJiBu",
+                              "name": "Logo minimax",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/minimax.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "VCZIo",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "MiniMax Global",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "tHQdr",
+                      "name": "Preset Hunyuan Global",
+                      "width": "fill_container",
+                      "fill": "$v2-hover",
+                      "cornerRadius": 9,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "gap": 9,
+                      "padding": [
+                        9,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "H7BxJD",
+                          "name": "Avatar",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$v2-chip",
+                          "cornerRadius": 6,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "qMhn3",
+                              "name": "Logo hunyuan",
+                              "width": 15,
+                              "height": 15,
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "assets/providers/dark/hunyuan.png",
+                                "mode": "contain"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "imoJX",
+                          "name": "Name",
+                          "fill": "$v2-text",
+                          "content": "Hunyuan Global",
+                          "fontFamily": "Noto Sans SC",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
                     }
                   ]
                 }
@@ -92259,7 +92735,7 @@
                       "id": "sC3P1",
                       "name": "HintText",
                       "fill": "$v2-text-3",
-                      "content": "配置供应商后自动获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
+                      "content": "配置供应商后获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -95638,7 +96114,7 @@
                       "id": "SG0e8",
                       "name": "HintText",
                       "fill": "$v2-text-3",
-                      "content": "配置供应商后自动获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
+                      "content": "配置供应商后获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -96649,7 +97125,7 @@
                       "id": "zeVpR",
                       "name": "HintText",
                       "fill": "$v2-text-3",
-                      "content": "配置供应商后自动获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
+                      "content": "配置供应商后获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -96669,7 +97145,7 @@
                   "type": "frame",
                   "id": "IemQ8",
                   "name": "ProviderList",
-                  "width": 272,
+                  "width": 260,
                   "height": "fill_container",
                   "stroke": "$v2-line",
                   "strokeWidth": {
@@ -97512,20 +97988,15 @@
                     },
                     {
                       "type": "frame",
-                      "id": "D4WRb",
+                      "id": "XKFFF",
                       "name": "ConnCard",
                       "width": "fill_container",
-                      "fill": "$v2-hover",
-                      "cornerRadius": 12,
-                      "stroke": "$v2-line",
-                      "strokeWidth": 1,
                       "layout": "vertical",
                       "gap": 16,
-                      "padding": 20,
                       "children": [
                         {
                           "type": "frame",
-                          "id": "oye4Q",
+                          "id": "k3xYU",
                           "name": "Field API Key",
                           "width": "fill_container",
                           "layout": "vertical",
@@ -97533,7 +98004,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "uorcY",
+                              "id": "ogKRJ",
                               "name": "LabelRow",
                               "width": "fill_container",
                               "gap": 6,
@@ -97541,7 +98012,7 @@
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "SSTMn",
+                                  "id": "lAECn",
                                   "name": "Label",
                                   "fill": "$v2-text",
                                   "content": "API Key",
@@ -97551,14 +98022,14 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "yARtK",
+                                  "id": "cg9Xc",
                                   "name": "Spacer",
                                   "width": "fill_container",
                                   "height": 1
                                 },
                                 {
                                   "type": "text",
-                                  "id": "LsI7V",
+                                  "id": "dK0KZ",
                                   "name": "Help",
                                   "fill": "$v2-text-3",
                                   "content": "保存在执行主机的私有配置中",
@@ -97570,7 +98041,7 @@
                             },
                             {
                               "type": "frame",
-                              "id": "daWcv",
+                              "id": "RBqIM",
                               "name": "KeyRow",
                               "width": "fill_container",
                               "gap": 8,
@@ -97578,7 +98049,7 @@
                               "children": [
                                 {
                                   "type": "frame",
-                                  "id": "YzCNc",
+                                  "id": "PSKW9",
                                   "name": "Input",
                                   "width": "fill_container",
                                   "fill": "$v2-track",
@@ -97594,7 +98065,7 @@
                                   "children": [
                                     {
                                       "type": "text",
-                                      "id": "ZKMW2",
+                                      "id": "xxzZ8",
                                       "name": "Value",
                                       "fill": "$v2-text",
                                       "content": "sk-••••••••••••••••••••3f9a",
@@ -97604,14 +98075,14 @@
                                     },
                                     {
                                       "type": "frame",
-                                      "id": "eg8cR",
+                                      "id": "mGsR9",
                                       "name": "Spacer",
                                       "width": "fill_container",
                                       "height": 1
                                     },
                                     {
                                       "type": "icon",
-                                      "id": "s88Vx",
+                                      "id": "F3Jwgk",
                                       "name": "i-eye",
                                       "width": 15,
                                       "height": 15,
@@ -97621,7 +98092,7 @@
                                     },
                                     {
                                       "type": "icon",
-                                      "id": "AlwQF",
+                                      "id": "e65mcM",
                                       "name": "i-copy",
                                       "width": 15,
                                       "height": 15,
@@ -97633,7 +98104,7 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "Hlbmi",
+                                  "id": "h6GGR",
                                   "name": "Button 检查",
                                   "fill": "$v2-secondary",
                                   "cornerRadius": 8,
@@ -97646,7 +98117,7 @@
                                   "children": [
                                     {
                                       "type": "icon",
-                                      "id": "zGoBi",
+                                      "id": "J2ITDV",
                                       "name": "i-plug-zap",
                                       "width": 14,
                                       "height": 14,
@@ -97656,7 +98127,7 @@
                                     },
                                     {
                                       "type": "text",
-                                      "id": "W9Pkhb",
+                                      "id": "gT08I",
                                       "name": "Label",
                                       "fill": "$v2-text",
                                       "content": "检查",
@@ -97672,7 +98143,7 @@
                         },
                         {
                           "type": "frame",
-                          "id": "i410ts",
+                          "id": "dBCZP",
                           "name": "Field API 地址",
                           "width": "fill_container",
                           "layout": "vertical",
@@ -97680,7 +98151,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "b04Sf",
+                              "id": "gLvbU",
                               "name": "LabelRow",
                               "width": "fill_container",
                               "gap": 6,
@@ -97688,7 +98159,7 @@
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "gQ2pC",
+                                  "id": "YIonL",
                                   "name": "Label",
                                   "fill": "$v2-text",
                                   "content": "API 地址",
@@ -97700,7 +98171,7 @@
                             },
                             {
                               "type": "frame",
-                              "id": "SJN8X",
+                              "id": "GYmXd",
                               "name": "Input",
                               "width": "fill_container",
                               "fill": "$v2-track",
@@ -97716,7 +98187,7 @@
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "XiWLC",
+                                  "id": "o9M374",
                                   "name": "Value",
                                   "fill": "$v2-text",
                                   "content": "https://api.deepseek.com/v1",
@@ -97726,14 +98197,14 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "hCrVV",
+                                  "id": "OSwno",
                                   "name": "Spacer",
                                   "width": "fill_container",
                                   "height": 1
                                 },
                                 {
                                   "type": "icon",
-                                  "id": "pXH1T",
+                                  "id": "ux2I1",
                                   "name": "i-rotate-ccw",
                                   "width": 15,
                                   "height": 15,
@@ -97745,7 +98216,7 @@
                             },
                             {
                               "type": "text",
-                              "id": "M8TQq",
+                              "id": "Aoy1Z",
                               "name": "Preview",
                               "fill": "$v2-text-3",
                               "content": "请求地址：https://api.deepseek.com/v1/chat/completions",
@@ -97757,7 +98228,7 @@
                         },
                         {
                           "type": "frame",
-                          "id": "ckX6h",
+                          "id": "VRu9b",
                           "name": "Field 接口格式",
                           "width": "fill_container",
                           "layout": "vertical",
@@ -97765,7 +98236,7 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "XS2ND",
+                              "id": "y2gcE",
                               "name": "LabelRow",
                               "width": "fill_container",
                               "gap": 6,
@@ -97773,7 +98244,7 @@
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "d3sWW",
+                                  "id": "ZBtfh",
                                   "name": "Label",
                                   "fill": "$v2-text",
                                   "content": "接口格式",
@@ -97783,14 +98254,14 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "Css3M",
+                                  "id": "hdCjF",
                                   "name": "Spacer",
                                   "width": "fill_container",
                                   "height": 1
                                 },
                                 {
                                   "type": "text",
-                                  "id": "HI8Mw",
+                                  "id": "SzC0z",
                                   "name": "Help",
                                   "fill": "$v2-text-3",
                                   "content": "决定请求路径与消息结构；预置供应商自动选好",
@@ -97802,7 +98273,7 @@
                             },
                             {
                               "type": "frame",
-                              "id": "B9KnIo",
+                              "id": "o1eaX",
                               "name": "Segmented",
                               "fill": "$v2-track",
                               "cornerRadius": 8,
@@ -97811,7 +98282,7 @@
                               "children": [
                                 {
                                   "type": "frame",
-                                  "id": "a2ryRy",
+                                  "id": "g1S2LC",
                                   "name": "Seg Chat Completions",
                                   "fill": "$v2-selected",
                                   "cornerRadius": 6,
@@ -97822,7 +98293,7 @@
                                   "children": [
                                     {
                                       "type": "text",
-                                      "id": "e6mGFW",
+                                      "id": "MmTvY",
                                       "name": "SegLabel",
                                       "fill": "$v2-text",
                                       "content": "Chat Completions",
@@ -97834,7 +98305,7 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "l4dYLq",
+                                  "id": "PFLGy",
                                   "name": "Seg Responses",
                                   "fill": "#00000000",
                                   "cornerRadius": 6,
@@ -97845,7 +98316,7 @@
                                   "children": [
                                     {
                                       "type": "text",
-                                      "id": "vUKvI",
+                                      "id": "ESCd1",
                                       "name": "SegLabel",
                                       "fill": "$v2-text-2",
                                       "content": "Responses",
@@ -97857,7 +98328,7 @@
                                 },
                                 {
                                   "type": "frame",
-                                  "id": "PWMeV",
+                                  "id": "ighAc",
                                   "name": "Seg Anthropic Messages",
                                   "fill": "#00000000",
                                   "cornerRadius": 6,
@@ -97868,7 +98339,7 @@
                                   "children": [
                                     {
                                       "type": "text",
-                                      "id": "tdns7",
+                                      "id": "PwExs",
                                       "name": "SegLabel",
                                       "fill": "$v2-text-2",
                                       "content": "Anthropic Messages",
@@ -99753,7 +100224,7 @@
                       "id": "CJjDZ",
                       "name": "HintText",
                       "fill": "$v2-text-3",
-                      "content": "每个角色从已启用供应商的模型中选择；推理强度跟随所选模型",
+                      "content": "每个角色从已启用供应商的模型中选择；推理强度属于所选模型",
                       "fontFamily": "Noto Sans SC",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -99868,13 +100339,14 @@
                               "id": "YOGJd",
                               "name": "ModelPicker",
                               "width": 280,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 9,
                               "padding": [
-                                7,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -99912,7 +100384,8 @@
                                   "id": "o3C7Mf",
                                   "name": "Text",
                                   "width": "fill_container",
-                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "alignItems": "end",
                                   "children": [
                                     {
                                       "type": "text",
@@ -99953,13 +100426,14 @@
                               "id": "AtbHF",
                               "name": "Effort",
                               "width": 96,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 6,
                               "padding": [
-                                9,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -100079,13 +100553,14 @@
                               "id": "Mcjan",
                               "name": "ModelPicker",
                               "width": 280,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-focus",
                               "strokeWidth": 1,
                               "gap": 9,
                               "padding": [
-                                7,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -100123,7 +100598,8 @@
                                   "id": "iqdep",
                                   "name": "Text",
                                   "width": "fill_container",
-                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "alignItems": "end",
                                   "children": [
                                     {
                                       "type": "text",
@@ -100164,13 +100640,14 @@
                               "id": "wuB1f",
                               "name": "Effort",
                               "width": 96,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 6,
                               "padding": [
-                                9,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -100287,13 +100764,14 @@
                               "id": "c8dxJ",
                               "name": "ModelPicker",
                               "width": 280,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 9,
                               "padding": [
-                                7,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -100331,7 +100809,8 @@
                                   "id": "iifef",
                                   "name": "Text",
                                   "width": "fill_container",
-                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "alignItems": "end",
                                   "children": [
                                     {
                                       "type": "text",
@@ -100372,13 +100851,14 @@
                               "id": "iLNy9",
                               "name": "Effort",
                               "width": 96,
+                              "height": 38,
                               "fill": "$v2-track",
                               "cornerRadius": 8,
                               "stroke": "$v2-line",
                               "strokeWidth": 1,
                               "gap": 6,
                               "padding": [
-                                9,
+                                0,
                                 10
                               ],
                               "alignItems": "center",
@@ -100421,147 +100901,6 @@
                                   "fill": "$v2-text-3"
                                 }
                               ]
-                            }
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "es6NX",
-                      "name": "ProjectOverride",
-                      "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 10,
-                      "children": [
-                        {
-                          "type": "frame",
-                          "id": "zzJXd",
-                          "name": "Head",
-                          "width": "fill_container",
-                          "gap": 8,
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "G4rvS",
-                              "name": "Title",
-                              "fill": "$v2-text",
-                              "content": "项目覆盖",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 15,
-                              "fontWeight": "600"
-                            },
-                            {
-                              "type": "text",
-                              "id": "DuRcF",
-                              "name": "Sub",
-                              "fill": "$v2-text-3",
-                              "content": "只覆盖 Main，其余角色沿用上方设置",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 12,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "frame",
-                              "id": "V4QQr",
-                              "name": "Spacer",
-                              "width": "fill_container",
-                              "height": 1
-                            },
-                            {
-                              "type": "frame",
-                              "id": "ORCCW",
-                              "name": "AddOverride",
-                              "gap": 6,
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "icon",
-                                  "id": "hqrjP",
-                                  "name": "i-plus",
-                                  "width": 14,
-                                  "height": 14,
-                                  "icon": "plus",
-                                  "library": "lucide",
-                                  "fill": "$v2-text-2"
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "awO6B",
-                                  "name": "Label",
-                                  "fill": "$v2-text-2",
-                                  "content": "添加项目",
-                                  "fontFamily": "Noto Sans SC",
-                                  "fontSize": 13,
-                                  "fontWeight": "normal"
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "type": "frame",
-                          "id": "PnqZV",
-                          "name": "Override CoworkOS",
-                          "width": "fill_container",
-                          "fill": "$v2-hover",
-                          "cornerRadius": 12,
-                          "stroke": "$v2-line",
-                          "strokeWidth": 1,
-                          "gap": 12,
-                          "padding": [
-                            12,
-                            18
-                          ],
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "icon",
-                              "id": "L6Gubv",
-                              "name": "i-folder",
-                              "width": 16,
-                              "height": 16,
-                              "icon": "folder",
-                              "library": "lucide",
-                              "fill": "$v2-text-2"
-                            },
-                            {
-                              "type": "text",
-                              "id": "vEFmx",
-                              "name": "Project",
-                              "fill": "$v2-text",
-                              "content": "CoworkOS",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 13,
-                              "fontWeight": "500"
-                            },
-                            {
-                              "type": "frame",
-                              "id": "sYqBi",
-                              "name": "Spacer",
-                              "width": "fill_container",
-                              "height": 1
-                            },
-                            {
-                              "type": "text",
-                              "id": "Qk5aP",
-                              "name": "Binding",
-                              "fill": "$v2-text-2",
-                              "content": "Main →  OpenRouter / claude-sonnet",
-                              "fontFamily": "Noto Sans SC",
-                              "fontSize": 12,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "icon",
-                              "id": "ywFKH",
-                              "name": "i-x",
-                              "width": 14,
-                              "height": 14,
-                              "icon": "x",
-                              "library": "lucide",
-                              "fill": "$v2-text-3"
                             }
                           ]
                         }
