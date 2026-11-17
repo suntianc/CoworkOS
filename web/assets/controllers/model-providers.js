@@ -67,7 +67,7 @@ function capabilityTags(model) {
   )
     tags.push(`<span class="model-tag is-reasoning">${ui("推理")}</span>`);
   if (model.supportsImages ?? model.images)
-    tags.push(`<span class="model-tag is-vision">${ui("视觉")}</span>`);
+    tags.push(`<span class="model-tag is-images">${ui("视觉")}</span>`);
   // The new-model default says nothing about the model; only a known window is shown.
   const context =
     model.contextWindow === 256000 && !model.autoLimits?.length ? "" : formatTokens(model.contextWindow);
@@ -571,7 +571,7 @@ export function installModelProviders({
         model.id.toLowerCase().includes(filter.text.toLowerCase()) &&
         (filter.kind === "all" ||
           (filter.kind === "reasoning" && model.reasoning) ||
-          (filter.kind === "vision" && model.images))
+          (filter.kind === "images" && model.images))
     );
     fetchDialog.body.querySelector("[data-fetch-list]").innerHTML = listingLoading
       ? `<div class="fetch-loading" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>${ui("正在读取模型列表…")}</span></div>`
@@ -608,7 +608,7 @@ export function installModelProviders({
       <div class="settings-segmented" role="radiogroup">${[
         ["all", ui("全部")],
         ["reasoning", ui("推理")],
-        ["vision", ui("视觉")]
+        ["images", ui("视觉")]
       ]
         .map(
           ([id, label]) =>

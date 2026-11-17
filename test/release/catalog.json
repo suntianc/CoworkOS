@@ -40,9 +40,9 @@
   "nativeBrowserPattern": "-desktop\\.spec\\.js$",
   "nativeVariants": [
     {
-      "file": "e2e/model-profiles.spec.js",
+      "file": "e2e/model-providers.spec.js",
       "kind": "browser",
-      "pattern": "desktop: saved connections"
+      "pattern": "desktop: Main moves between providers"
     },
     {
       "file": "test/desktop-dev.test.js",

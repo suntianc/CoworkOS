@@ -1324,7 +1324,7 @@ export default {
     "Sub-agent that carries out development; uses Main's model when unset",
   "独立审查改动并给出结论；未选择时沿用 Main 的模型":
     "Reviews changes independently; uses Main's model when unset",
-  视觉: "Vision",
+  视觉: "Images",
   上下文: "context",
   供应商: "Providers",
   角色分配: "Roles",

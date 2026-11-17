@@ -154,9 +154,9 @@ test("native and package work is explicit and Mac-specific", async () => {
 test("mixed files retain Web coverage and gate only native variants", async () => {
   const normal = await loadPlan(root, parseOptions([]), "darwin");
   const browser = normal.steps.find((step) => step.id === "app-browser");
-  assert.ok(browser.args.includes("e2e/model-profiles.spec.js"));
+  assert.ok(browser.args.includes("e2e/model-providers.spec.js"));
   assert.ok(browser.args.includes("--grep-invert"));
-  assert.ok(browser.args.some((arg) => arg.includes("desktop: saved connections")));
+  assert.ok(browser.args.some((arg) => arg.includes("desktop: Main moves between providers")));
   assert.equal(normal.steps.find((step) => step.id === "app-node").env.ATRIA_NATIVE_DESKTOP_TEST, "0");
   assert.equal(normal.steps.find((step) => step.id === "app-node").env.ATRIA_MANAGED_UPDATE_NATIVE, "0");
   assert.ok(normal.deferredVariants.some((variant) => variant.file === "test/desktop-update-install.test.js"));

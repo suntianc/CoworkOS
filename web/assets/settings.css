@@ -1867,7 +1867,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   background: color-mix(in srgb, var(--ui-accent) 14%, transparent);
   color: var(--ui-accent);
 }
-.model-tag.is-vision {
+.model-tag.is-images {
   background: color-mix(in srgb, var(--ui-success) 14%, transparent);
   color: var(--ui-success);
 }
