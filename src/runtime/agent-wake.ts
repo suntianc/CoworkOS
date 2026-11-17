@@ -15,11 +15,11 @@ import { dirname, join, resolve } from "node:path";
  * write already succeeded and its caller must not depend on this.
  *
  * The endpoint is registered in the process record, so a backend that restarts
- * and adopts a still-running process finds the same channel. The socket lives
- * in the user's temporary directory under a name derived from the launch token:
- * a run directory can be deeper than the operating system's socket-path limit
- * (104 bytes on macOS), and the name is unique per launch, so a leftover file
- * from a dead process can never shadow a live one.
+ * and adopts a still-running process finds the same channel. The socket's name
+ * is derived from the launch token, so a leftover file from a dead process can
+ * never shadow a live one. It lives in the user's temporary directory, or in
+ * the fixed short one when that directory is too deep for the operating
+ * system's socket address (104 bytes on macOS).
  */
 
 /** How long a nudge may take to fail; a wake that hangs must not hold a writer. */
@@ -62,8 +62,27 @@ export function agentWakeEndpoint(processDirectory: string, token: string): stri
   // Windows has no filesystem socket name; its named pipe is the same
   // process-local, same-user channel under the same digest.
   if (process.platform === "win32") return `\\\\.\\pipe\\cowork-wake-${digest}`;
-  return join(wakeDirectory(), `wake-${digest}.sock`);
+  const name = `wake-${digest}.sock`;
+  const [preferred, shortest] = wakeDirectories();
+  const endpoint = join(preferred, name);
+  // A temporary directory can be deep enough that this name no longer fits the
+  // OS address. The process record is what a writer reads, so the reader follows
+  // this choice instead of recomputing one of its own.
+  return Buffer.byteLength(endpoint) <= MAX_SOCKET_PATH_BYTES ? endpoint : join(shortest, name);
 }
+
+/**
+ * The longest endpoint path a filesystem socket accepts, in bytes.
+ *
+ * `sockaddr_un.sun_path` is 104 bytes on macOS and 108 on Linux, both counting
+ * the terminator. A longer name is not a clean failure: Electron's Node answers
+ * `listen` with EINVAL and binds nothing, while plain Node truncates the name
+ * silently, so the socket lands at a path the process record does not name and
+ * the mode change after it fails. Either way the process wakes only through the
+ * best-effort file watch, and a message can wait in its durable Inbox for an OS
+ * event that never comes.
+ */
+const MAX_SOCKET_PATH_BYTES = 100;
 
 /**
  * Tell one agent process that its durable records changed.
@@ -177,9 +196,19 @@ async function nudge(processDirectory: string): Promise<void> {
   });
 }
 
-function wakeDirectory(): string {
+/**
+ * Where wake sockets live, longest-preferred first.
+ *
+ * The user's own temporary directory keeps the sockets with everything else
+ * that run leaves behind. When that directory is too deep to name a socket in,
+ * the fixed short one is used instead: the socket carries no data, only "read
+ * your records again", and only its bind and its writer need to agree on the
+ * location.
+ */
+function wakeDirectories(): [string, string] {
   // Per-user on Linux (a shared /tmp) and already per-user under macOS
   // `$TMPDIR`; the socket mode is the second lock on the same door.
   const uid = process.getuid?.();
-  return join(tmpdir(), uid === undefined ? "cowork-wake" : `cowork-wake-${uid}`);
+  const name = uid === undefined ? "cowork-wake" : `cowork-wake-${uid}`;
+  return [join(tmpdir(), name), join("/tmp", name)];
 }
