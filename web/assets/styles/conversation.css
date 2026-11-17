@@ -591,3 +591,9 @@ html[data-theme] .execution-history[open] > .live-workflow {
     animation: none;
   }
 }
+
+/* The heading's resting dot sits in the same 16px mark column as the steps. */
+html[data-theme] .live-workflow-head > .live-pulse {
+  flex: 0 0 5px;
+  margin: 0 5.5px;
+}
