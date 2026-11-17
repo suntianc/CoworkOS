@@ -6,8 +6,6 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { createWebSearchSettings } from "../dist/src/dashboard/web-search-settings.js";
 const require = createRequire(import.meta.url);
-const { createWebSearchSettings: desktopSearch } = require("../desktop/web-search-settings.cjs");
-const { createModelSettings } = require("../desktop/model-settings.cjs");
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "atria-search-settings-"));
@@ -58,47 +56,4 @@ test("Web search settings create a missing config and reject invalid input", asy
   await assert.rejects(settings.save({ provider: "bad" }), /搜索服务/);
   await settings.save({ provider: "off" });
   assert.equal(settings.status().provider, "off");
-});
-test("Desktop encrypts optional Exa key, model saves preserve ciphertext and native reads restore it", async (t) => {
-  const { paths } = await fixture(t);
-  const storage = {
-    isEncryptionAvailable: () => true,
-    encryptString: (value) => Buffer.from(`encrypted:${value}`),
-    decryptString: (value) => value.toString().slice(10)
-  };
-  const settings = desktopSearch(paths, storage);
-  assert.equal((await settings.status()).provider, "exa");
-  await settings.save({ provider: "exa", exaApiKey: "exa-secret" });
-  const raw = JSON.parse(await readFile(paths.configPath, "utf8"));
-  assert.equal(raw.webSearch.exaApiKey, undefined);
-  assert.equal(raw.webSearch.encryptedExaApiKey, Buffer.from("encrypted:exa-secret").toString("base64"));
-  const models = createModelSettings(paths, storage);
-  assert.equal((await models.read()).webSearch.exaApiKey, "exa-secret");
-  await models.save({
-    profileName: "model",
-    baseUrl: "https://example.org/v1",
-    model: "fixture",
-    apiKey: "model-secret"
-  });
-  const after = JSON.parse(await readFile(paths.configPath, "utf8"));
-  assert.equal(after.webSearch.exaApiKey, undefined);
-  assert.equal(after.webSearch.encryptedExaApiKey, raw.webSearch.encryptedExaApiKey);
-  assert.equal((await settings.status()).authenticated, true);
-  await settings.save({ provider: "off" });
-  await settings.save({ provider: "exa" });
-  assert.equal((await models.read()).webSearch.exaApiKey, "exa-secret");
-  await settings.save({ provider: "exa", clearExaApiKey: true });
-  assert.equal((await settings.status()).authenticated, false);
-});
-test("Desktop unavailable encrypted key can be cleared without system key access", async (t) => {
-  const { paths } = await fixture(t);
-  await writeFile(
-    paths.configPath,
-    JSON.stringify({ webSearch: { provider: "exa", encryptedExaApiKey: "unavailable" } })
-  );
-  const settings = desktopSearch(paths, { isEncryptionAvailable: () => false });
-  assert.equal((await settings.status()).authenticated, false);
-  await assert.rejects(settings.save({ provider: "exa", exaApiKey: "new" }), /密钥存储/);
-  await settings.save({ provider: "exa", clearExaApiKey: true });
-  assert.equal(JSON.parse(await readFile(paths.configPath, "utf8")).webSearch.encryptedExaApiKey, undefined);
 });

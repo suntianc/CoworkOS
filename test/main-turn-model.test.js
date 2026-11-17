@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MAIN_MODEL_FROM_CONFIG, resolveMainTurnModel } from "../dist/src/runtime/main-turn-model.js";
+import { profileId, providerConfig } from "./model-provider-fixture.mjs";
 
 /**
  * Which connection a resident Main's next turn should use.
@@ -12,8 +13,7 @@ import { MAIN_MODEL_FROM_CONFIG, resolveMainTurnModel } from "../dist/src/runtim
  */
 
 const connection = (id, overrides = {}) => ({
-  id,
-  contextId: `ctx-${id}`,
+  id: `ctx-${id}`,
   name: `连接 ${id.toUpperCase()}`,
   baseUrl: `https://${id}.example.test/v1`,
   model: `model-${id}`,
@@ -28,20 +28,15 @@ const connection = (id, overrides = {}) => ({
   contextWindow: 256000,
   ...overrides
 });
+const a = connection("a");
+const b = connection("b", { api: "openai-responses", model: "model-b", reasoningEffort: "max" });
 
 const config = {
-  modelConnections: {
-    version: 1,
-    activeId: "a",
-    profiles: [
-      connection("a"),
-      connection("b", { api: "openai-responses", model: "model-b", reasoningEffort: "max" })
-    ]
-  },
+  ...providerConfig([a, b]),
   roleModels: {
     version: 1,
-    host: { main: { profileId: "b" } },
-    projects: { projectA: { main: { profileId: "a" } } }
+    host: { main: { profileId: profileId(b) } },
+    projects: { projectA: { main: { profileId: profileId(a) } } }
   }
 };
 
@@ -70,7 +65,7 @@ test("a Dashboard-resolved launch reads the saved connection, not the values cop
 
 test("the project override and the message's explicit level win for that turn", () => {
   const hosted = resolveMainTurnModel(
-    { ...config, roleModels: { version: 1, host: { main: { profileId: "b" } } } },
+    { ...config, roleModels: { version: 1, host: { main: { profileId: profileId(b) } } } },
     {},
     launch
   );
@@ -86,7 +81,7 @@ test("the project override and the message's explicit level win for that turn", 
 
 test("a saved configuration with no usable connection leaves the running connection alone", () => {
   assert.equal(
-    resolveMainTurnModel({ modelConnections: { version: 1, profiles: [] } }, {}, launch),
+    resolveMainTurnModel({ modelProviders: { version: 1, providers: [] } }, {}, launch),
     undefined
   );
 });

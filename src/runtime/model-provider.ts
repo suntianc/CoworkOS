@@ -1,6 +1,7 @@
 import { clampThinkingLevel, type Model, type Api, type ProviderStreams } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
+import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { withModelCache } from "./model-cache.js";
 import type { CoworkModelApi, PiThinkingLevel } from "./runtime-settings.js";
 
@@ -14,10 +15,11 @@ export function createModelStreams(
   api: CoworkModelApi,
   cache: { supportsPromptCacheKey: boolean; sessionId?: string } = { supportsPromptCacheKey: false }
 ): ProviderStreams {
-  const streams = withModelCache(
-    api === "openai-responses" ? openAIResponsesApi() : openAICompletionsApi(),
-    cache
-  );
+  // Cache keys and usage counters are OpenAI wire fields; Anthropic requests go to Pi unchanged.
+  const streams =
+    api === "anthropic-messages"
+      ? anthropicMessagesApi()
+      : withModelCache(api === "openai-responses" ? openAIResponsesApi() : openAICompletionsApi(), cache);
   const wrap =
     (method: "stream" | "streamSimple"): ProviderStreams["streamSimple"] =>
     (model, context, options) =>

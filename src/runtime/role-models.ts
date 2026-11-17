@@ -1,5 +1,5 @@
 import type { CoworkConfig } from "./config.js";
-import { modelConnections, type ModelConnection } from "./model-connections.js";
+import { modelConnections, type ModelConnection } from "./model-providers.js";
 import { connectionProfile, parseConnectionProfile, type ConnectionProfile } from "./model-profile.js";
 import { configuredSupportsImages, runtimeSettingsEnv, type PiThinkingLevel } from "./runtime-settings.js";
 
@@ -193,7 +193,7 @@ export function resolveModelRole(
   const role = request.role ?? "main";
   if (!isRoleKey(role)) throw new Error(`未知的模型角色：${String(request.role)}`);
   const registry = modelConnections(config);
-  const realRegistry = config.modelConnections;
+  const providers = Boolean(config.modelProviders);
   const projectId = request.projectId?.trim() || undefined;
   const explicitProfileId = request.profileId?.trim() || undefined;
   // A model forced by the launch environment is an explicit choice, as it was
@@ -209,7 +209,7 @@ export function resolveModelRole(
     scopeProject?: string
   ): ResolvedModelRole => {
     const profile = normalizedProfile(connection);
-    const active = connection.id === realRegistry?.activeId;
+    const active = connection.id === registry.activeId;
     // An environment key belongs to the forced endpoint, so only the active
     // connection may fall back to it; a role connection must keep its own key.
     const apiKey = active
@@ -222,7 +222,7 @@ export function resolveModelRole(
     return {
       role,
       source: sourceName(source),
-      ...(realRegistry ? { connectionId: connection.contextId || connection.id } : {}),
+      ...(providers ? { connectionId: connection.contextId } : {}),
       connectionName: connection.name,
       ...(projectId ? { projectId: scopeProject ?? projectId } : {}),
       baseUrl: connection.baseUrl,
@@ -248,7 +248,7 @@ export function resolveModelRole(
       apiKey: env.COWORK_API_KEY || config.apiKey || "",
       model: sourceModel(
         env.COWORK_MODEL ||
-          (realRegistry?.activeId ? config.model : request.taskModel) ||
+          (registry.activeId ? config.model : request.taskModel) ||
           config.model ||
           DEFAULT_MODEL
       ),
@@ -270,9 +270,7 @@ export function resolveModelRole(
     return fromConnection("host", connectionFor(registry, hostBinding.profileId, scope));
   }
 
-  const active = realRegistry?.activeId
-    ? registry.profiles.find((profile) => profile.id === realRegistry.activeId)
-    : undefined;
+  const active = registry.profiles.find((profile) => profile.id === registry.activeId);
   if (active) return fromConnection("active", active);
 
   const profile = connectionProfile(config);

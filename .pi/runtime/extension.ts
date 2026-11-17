@@ -152,7 +152,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
       process.env.EXA_API_KEY,
       config.webSearch?.exaApiKey,
       web?.exaApiKey,
-      ...(config.modelConnections?.profiles.map((profile) => profile.apiKey) ?? [])
+      ...(config.modelProviders?.providers.map((provider) => provider.apiKey) ?? [])
     ].filter((value): value is string => Boolean(value))
   });
   let projectDefaultIdentity = true;

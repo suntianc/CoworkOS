@@ -15,6 +15,7 @@ import { queuedUserTurn } from "../dist/src/runtime/queued-user-turn.js";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 import { fakeEventHandlers } from "./fixtures/fake-pi-events.mjs";
 import { startSubagentBackend } from "./fixtures/subagent-backend-fixture.mjs";
+import { providerConfig } from "./model-provider-fixture.mjs";
 
 const extensionPath = resolve(".pi/extensions/cowork.ts");
 const requirePi = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
@@ -440,28 +441,23 @@ test("a turn takes the level of the message that opened it, not of a newer accep
   await writeFile(
     process.env.COWORK_CONFIG,
     JSON.stringify({
-      modelConnections: {
-        version: 1,
-        activeId: "a",
-        profiles: [
-          {
-            id: "a",
-            contextId: "ctx-a",
-            name: "连接",
-            baseUrl: provider.baseUrl,
-            model: "turn-model",
-            api: "openai-completions",
-            apiKey: "{{SECRET_kdvqcozt}}",
-            supportsImages: false,
-            supportsReasoningEffort: true,
-            supportsPromptCacheKey: false,
-            reasoningEffort: "max",
-            mainMaxTokens: 8192,
-            subagentMaxTokens: 8192,
-            contextWindow: 256000
-          }
-        ]
-      }
+      ...providerConfig([
+        {
+          id: "ctx-a",
+          name: "连接",
+          baseUrl: provider.baseUrl,
+          model: "turn-model",
+          api: "openai-completions",
+          apiKey: "{{SECRET_kdvqcozt}}",
+          supportsImages: false,
+          supportsReasoningEffort: true,
+          supportsPromptCacheKey: false,
+          reasoningEffort: "max",
+          mainMaxTokens: 8192,
+          subagentMaxTokens: 8192,
+          contextWindow: 256000
+        }
+      ])
     })
   );
   await new LocalWorkspaceStore(root).createTask(taskId, { goal: "打开回合的消息决定档位" });

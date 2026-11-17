@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
+import { providerConfig } from "./model-provider-fixture.mjs";
 
 /**
  * Which reasoning effort a real run actually sends.
@@ -65,6 +66,9 @@ function client(dashboard) {
   };
 }
 
+/** The connection id of `conn-<level>`: its provider and the model named after the level. */
+const ref = (id) => `${id}#model-${id.slice("conn-".length)}-${id}`;
+
 /** One saved connection: its model name carries the level so a request names its account. */
 function connection(profileId, level, baseUrl) {
   return {
@@ -89,7 +93,7 @@ async function dashboardWith(t, buildProfiles, bindings) {
   const profiles = buildProfiles(requests.base);
   const dashboard = await startDashboard({
     config: {
-      modelConnections: { version: 1, activeId: profiles[0].id, profiles },
+      ...providerConfig(profiles),
       roleModels: { version: 1, host: bindings }
     }
   });
@@ -128,12 +132,12 @@ test(
     const { dashboard, requests, request } = await dashboardWith(
       t,
       (baseUrl) => levels.map((level) => connection(`conn-${level}`, level, baseUrl)),
-      { main: { profileId: "conn-max" }, executor: { profileId: "conn-max" } }
+      { main: { profileId: ref("conn-max") }, executor: { profileId: ref("conn-max") } }
     );
 
     for (const level of levels) {
       for (const role of ["main", "executor"]) {
-        const saved = await request("/api/model-settings/roles", { role, profileId: `conn-${level}` });
+        const saved = await request("/api/model-settings/roles", { role, profileId: ref(`conn-${level}`) });
         assert.equal(saved.status, 200, JSON.stringify(saved.body));
       }
       const before = requests.length;
@@ -154,11 +158,11 @@ test(
 
     // Two roles on different connections keep their own settings in one run.
     assert.equal(
-      (await request("/api/model-settings/roles", { role: "main", profileId: "conn-max" })).status,
+      (await request("/api/model-settings/roles", { role: "main", profileId: ref("conn-max") })).status,
       200
     );
     assert.equal(
-      (await request("/api/model-settings/roles", { role: "executor", profileId: "conn-low" })).status,
+      (await request("/api/model-settings/roles", { role: "executor", profileId: ref("conn-low") })).status,
       200
     );
     const before = requests.length;
@@ -180,7 +184,7 @@ test(
     const { dashboard, requests, request } = await dashboardWith(
       t,
       (baseUrl) => levels.map((level) => connection(`conn-${level}`, level, baseUrl)),
-      { main: { profileId: "conn-max" } }
+      { main: { profileId: ref("conn-max") } }
     );
 
     const before = requests.length;
@@ -204,7 +208,7 @@ test("/api/models reports the effort the next Main run will use", { timeout: 120
   const { dashboard, request } = await dashboardWith(
     t,
     (baseUrl) => levels.map((level) => connection(`conn-${level}`, level, baseUrl)),
-    { main: { profileId: "conn-max" } }
+    { main: { profileId: ref("conn-max") } }
   );
 
   const first = await request("/api/models");
@@ -212,7 +216,7 @@ test("/api/models reports the effort the next Main run will use", { timeout: 120
   assert.equal(first.body.reasoningEffort, "max", "the composer's default comes from the Main connection");
 
   assert.equal(
-    (await request("/api/model-settings/roles", { role: "main", profileId: "conn-low" })).status,
+    (await request("/api/model-settings/roles", { role: "main", profileId: ref("conn-low") })).status,
     200
   );
   const switched = await request("/api/models");

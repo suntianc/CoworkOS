@@ -1,6 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
+import {
+  connectionsOf,
+  pageRequest,
+  providerConfig,
+  saveTestConnection
+} from "../test/model-provider-fixture.mjs";
+import { chooseRoleModel } from "./model-provider-ui.js";
 
 /**
  * The composer's reasoning control follows the Main connection.
@@ -27,35 +34,32 @@ test("the composer shows and sends the Main connection's reasoning strength, and
   const provider = await modelProtocolFixture("openai-completions", () => ({ text: "推理强度已确认" }));
   const dashboard = await startDashboard({
     config: {
-      modelConnections: {
-        version: 1,
-        activeId: "save-max",
-        profiles: [
-          {
-            id: "save-max",
-            name: "最大连接",
-            baseUrl: provider.baseUrl,
-            apiKey: "synthetic-connection-key",
-            model: "max-model",
-            api: "openai-completions",
-            reasoningEffort: "max",
-            supportsReasoningEffort: true,
-            supportsPromptCacheKey: false,
-            mainMaxTokens: 8192,
-            subagentMaxTokens: 8192,
-            contextWindow: 256000,
-            supportsImages: false
-          }
-        ]
-      }
+      ...providerConfig([
+        {
+          id: "save-max",
+          name: "最大连接",
+          baseUrl: provider.baseUrl,
+          apiKey: "synthetic-connection-key",
+          model: "max-model",
+          api: "openai-completions",
+          reasoningEffort: "max",
+          supportsReasoningEffort: true,
+          supportsPromptCacheKey: false,
+          mainMaxTokens: 8192,
+          subagentMaxTokens: 8192,
+          contextWindow: 256000,
+          supportsImages: false
+        }
+      ])
     }
   });
   try {
     // A second connection the person can bind as Main; it is not the active one.
-    const saved = await page.request.post(`${dashboard.base}/api/model-settings`, {
-      data: connection(provider.baseUrl, { name: "低连接", model: "low-model", reasoningEffort: "low" })
+    const saved = await saveTestConnection(pageRequest(page, dashboard.base), {
+      ...connection(provider.baseUrl, { name: "低连接", model: "low-model", reasoningEffort: "low" }),
+      activate: false
     });
-    expect(saved.ok()).toBe(true);
+    expect(saved.status).toBe(200);
 
     await page.goto(dashboard.base);
     // Model and reasoning effort share one composer button and one menu.
@@ -71,11 +75,7 @@ test("the composer shows and sends the Main connection's reasoning strength, and
 
     // Switching the Main connection to another saved strength moves the label
     // without a reload: the settings page tells the composer to re-read it.
-    await page.locator("#user-menu-button").click();
-    await page.locator('[data-settings-section="models"]').click();
-    const mainRole = page.locator('[data-role-model="main"]');
-    await expect(mainRole).toBeVisible();
-    await mainRole.selectOption({ label: "低连接 / low-model" });
+    await chooseRoleModel(page, "main", "low-model");
     await expect
       .poll(async () => {
         const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
@@ -97,7 +97,7 @@ test("the composer shows and sends the Main connection's reasoning strength, and
     expect(provider.requests.at(-1).body.reasoning_effort).toBe("high");
 
     const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
-    expect(status.profiles.find((profile) => profile.name === "低连接").reasoningEffort).toBe("low");
+    expect(connectionsOf(status).find((profile) => profile.name === "低连接").reasoningEffort).toBe("low");
   } finally {
     await dashboard.stop();
     await provider.close();

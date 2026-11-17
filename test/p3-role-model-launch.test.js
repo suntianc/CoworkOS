@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
+import { profileId as connectionId, providerConfig, saveTestConnection } from "./model-provider-fixture.mjs";
 
 /**
  * What a real Main process is actually asked.
@@ -89,15 +90,17 @@ async function createProject(request, dashboard, name) {
 }
 
 async function saveConnection(request, value) {
-  const saved = await request("/api/model-settings", {
+  const saved = await saveTestConnection(request, {
     api: "openai-completions",
     supportsImages: false,
     supportsReasoningEffort: true,
     ...value
   });
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  return saved.body;
+  assert.equal(saved.status, 200, JSON.stringify(saved));
+  return saved;
 }
+
+const providerOf = (profileId) => profileId.split("#")[0];
 
 async function createTask(request, projectId, taskId) {
   const created = await request("/api/tasks", { taskId, goal: `${taskId} 的目标`, projectId });
@@ -196,13 +199,13 @@ test(
     assert.match(userText(a.requests[0].body), /role-default/);
 
     const configText = await readFile(join(dashboard.root, "config.json"), "utf8");
-    const storedProfiles = JSON.parse(configText).modelConnections.profiles;
-    const contextA = storedProfiles.find((profile) => profile.id === profileA.id).contextId;
-    const contextB = storedProfiles.find((profile) => profile.id === profileB.id).contextId;
+    // A provider's models share its account context: the provider id.
+    const contextA = providerOf(profileA.id);
+    const contextB = providerOf(profileB.id);
     const credentialsText = await readFile(join(dashboard.root, "credentials.json"), "utf8");
     assert.equal(configText.includes(keyA) || configText.includes(keyB), false);
-    assert.equal(JSON.parse(credentialsText).modelConnections[profileA.id], keyA);
-    assert.equal(JSON.parse(credentialsText).modelConnections[profileB.id], keyB);
+    assert.equal(JSON.parse(credentialsText).modelProviders[contextA], keyA);
+    assert.equal(JSON.parse(credentialsText).modelProviders[contextB], keyB);
     const publicText = JSON.stringify(await request("/api/model-settings"));
     assert.equal(publicText.includes(keyA) || publicText.includes(keyB), false);
 
@@ -224,7 +227,7 @@ test(
       role: "main",
       source: "host",
       connectionId: contextB,
-      connectionName: "连接 B",
+      connectionName: "连接 B / model-b",
       model: "model-b",
       api: "openai-responses",
       thinkingLevel: "high",
@@ -323,7 +326,7 @@ test(
     release();
     await settle(request, "role-in-flight");
     const inFlightSnapshot = await spawnedPayload(dashboard, "role-in-flight", inFlight.runId);
-    assert.equal(inFlightSnapshot.payload.modelSelection.connectionName, "连接 B 挂起");
+    assert.equal(inFlightSnapshot.payload.modelSelection.connectionName, "连接 B 挂起 / model-held");
     await createTask(request, projectB.projectId, "role-next");
     await startRun(request, "role-next");
     await settle(request, "role-next");
@@ -351,45 +354,41 @@ test(
       configPath,
       JSON.stringify(
         {
-          modelConnections: {
-            version: 1,
-            activeId: "cli-a",
-            profiles: [
-              {
-                id: "cli-a",
-                name: "连接 A",
-                baseUrl: a.base,
-                model: "model-a",
-                apiKey: "{{SECRET_clikeya1}}",
-                api: "openai-completions",
-                thinkingFormat: "auto",
-                reasoningEffort: "low",
-                supportsReasoningEffort: true,
-                supportsPromptCacheKey: false,
-                mainMaxTokens: 8192,
-                subagentMaxTokens: 8192,
-                contextWindow: 128000,
-                supportsImages: false
-              },
-              {
-                id: "cli-b",
-                name: "连接 B",
-                baseUrl: b.base,
-                model: "model-b",
-                apiKey: "{{SECRET_clikeyb2}}",
-                api: "openai-completions",
-                thinkingFormat: "auto",
-                reasoningEffort: "high",
-                supportsReasoningEffort: true,
-                supportsPromptCacheKey: false,
-                mainMaxTokens: 4096,
-                subagentMaxTokens: 2048,
-                contextWindow: 64000,
-                supportsImages: false
-              }
-            ]
-          },
-          roleModels: { version: 1, host: { main: { profileId: "cli-b" } } }
+          ...providerConfig([
+            {
+              id: "cli-a",
+              name: "连接 A",
+              baseUrl: a.base,
+              model: "model-a",
+              apiKey: "{{SECRET_clikeya1}}",
+              api: "openai-completions",
+              thinkingFormat: "auto",
+              reasoningEffort: "low",
+              supportsReasoningEffort: true,
+              supportsPromptCacheKey: false,
+              mainMaxTokens: 8192,
+              subagentMaxTokens: 8192,
+              contextWindow: 128000,
+              supportsImages: false
+            },
+            {
+              id: "cli-b",
+              name: "连接 B",
+              baseUrl: b.base,
+              model: "model-b",
+              apiKey: "{{SECRET_clikeyb2}}",
+              api: "openai-completions",
+              thinkingFormat: "auto",
+              reasoningEffort: "high",
+              supportsReasoningEffort: true,
+              supportsPromptCacheKey: false,
+              mainMaxTokens: 4096,
+              subagentMaxTokens: 2048,
+              contextWindow: 64000,
+              supportsImages: false
+            }
+          ]),
+          roleModels: { version: 1, host: { main: { profileId: "cli-b#model-b" } } }
         },
         null,
         2
@@ -442,26 +441,22 @@ test(
     await writeFile(
       join(root, "config.json"),
       JSON.stringify({
-        modelConnections: {
-          version: 1,
-          activeId: "cli-a",
-          profiles: [
-            {
-              id: "cli-a",
-              name: "连接 A",
-              baseUrl: a.base,
-              model: "model-a",
-              apiKey: "{{SECRET_clibroken}}",
-              api: "openai-completions",
-              reasoningEffort: "low",
-              supportsReasoningEffort: true,
-              supportsPromptCacheKey: false,
-              mainMaxTokens: 8192,
-              subagentMaxTokens: 8192,
-              contextWindow: 128000
-            }
-          ]
-        },
+        ...providerConfig([
+          {
+            id: "cli-a",
+            name: "连接 A",
+            baseUrl: a.base,
+            model: "model-a",
+            apiKey: "{{SECRET_clibroken}}",
+            api: "openai-completions",
+            reasoningEffort: "low",
+            supportsReasoningEffort: true,
+            supportsPromptCacheKey: false,
+            mainMaxTokens: 8192,
+            subagentMaxTokens: 8192,
+            contextWindow: 128000
+          }
+        ]),
         roleModels: { version: 1, host: { main: { profileId: "gone" } } }
       })
     );

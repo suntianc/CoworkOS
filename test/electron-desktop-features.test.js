@@ -486,16 +486,20 @@ test(
     settings.bind();
     const modelKey = "fixture-model-secret",
       searchKey = "fixture-search-secret";
-    const model = await settings.request("/api/model-settings", {
+    const created = await settings.request("/api/model-settings/providers", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        profileName: "B",
+        name: "B",
         baseUrl: "https://example.invalid/v1",
-        model: "fixture-model",
         api: "openai-responses",
         apiKey: modelKey
       })
+    });
+    const model = await settings.request("/api/model-settings/models", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ providerId: created.providers[0].id, models: [{ id: "fixture-model" }] })
     });
     const search = await settings.request("/api/web-search-settings", {
       method: "POST",

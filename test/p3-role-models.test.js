@@ -8,6 +8,7 @@ import { startDashboard } from "./dashboard-fixture.mjs";
 import { publicModelRoles, resolveModelRole, saveRoleModelBinding } from "../dist/src/runtime/role-models.js";
 import { readCoworkConfig } from "../dist/src/runtime/config.js";
 import { installDesktopSettings } from "../web/assets/controllers/desktop-settings.js";
+import { profileId as connectionId, providerConfig, saveTestConnection } from "./model-provider-fixture.mjs";
 
 /**
  * Role model settings and resolution.
@@ -59,17 +60,18 @@ async function createProject(request, dashboard, name) {
 }
 
 async function saveConnection(request, value) {
-  const saved = await request("/api/model-settings", {
+  const saved = await saveTestConnection(request, {
     api: "openai-completions",
     supportsImages: false,
     supportsReasoningEffort: true,
     reasoningEffort: "low",
     ...value
   });
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  return saved.body;
+  assert.equal(saved.status, 200, JSON.stringify(saved));
+  return saved;
 }
 
+const providerOf = (profileId) => profileId.split("#")[0];
 const roleMain = (status) => status.modelRoles?.roles?.find((role) => role.role === "main");
 
 test("host defaults and project overrides persist, keep their source and never travel with a key", async (t) => {
@@ -78,29 +80,23 @@ test("host defaults and project overrides persist, keep their source and never t
   const request = client(dashboard);
   const keyA = "role-host-key-a-7f31";
   const keyB = "role-host-key-b-2c94";
+  // Without a Main binding the first model is the one Main uses ("active").
   await saveConnection(request, {
     profileName: "连接 A",
     baseUrl: "http://127.0.0.1:1/v1",
     model: "model-a",
-    apiKey: keyA
+    apiKey: keyA,
+    activate: false
   });
   const withB = await saveConnection(request, {
-    profileId: "",
     profileName: "连接 B",
     baseUrl: "http://127.0.0.1:1/v1",
     model: "model-b",
-    apiKey: keyB
+    apiKey: keyB,
+    activate: false
   });
   const profileA = withB.profiles.find((profile) => profile.name === "连接 A");
   const profileB = withB.profiles.find((profile) => profile.name === "连接 B");
-  await saveConnection(request, {
-    profileId: profileA.id,
-    profileName: "连接 A",
-    baseUrl: "http://127.0.0.1:1/v1",
-    model: "model-a",
-    apiKey: "",
-    activate: true
-  });
   const projectA = await createProject(request, dashboard, "a");
   const projectB = await createProject(request, dashboard, "b");
 
@@ -128,7 +124,7 @@ test("host defaults and project overrides persist, keep their source and never t
   assert.equal(host.status, 200, JSON.stringify(host.body));
   assert.equal(roleMain(host.body).host.profileId, profileB.id);
   assert.equal(roleMain(host.body).effective.source, "host");
-  assert.equal(roleMain(host.body).effective.connectionName, "连接 B");
+  assert.equal(roleMain(host.body).effective.connectionName, "连接 B / model-b");
   assert.equal(roleMain(host.body).effective.model, "model-b");
 
   const project = await request("/api/model-settings/roles", {
@@ -161,13 +157,13 @@ test("host defaults and project overrides persist, keep their source and never t
   assert.equal(config.roleModels.host.main.profileId, profileB.id);
   assert.equal(config.roleModels.projects[projectA.projectId].main.profileId, profileA.id);
   const credentials = JSON.parse(await readFile(join(dashboard.root, "credentials.json"), "utf8"));
-  assert.equal(credentials.modelConnections[profileA.id], keyA);
-  assert.equal(credentials.modelConnections[profileB.id], keyB);
+  assert.equal(credentials.modelProviders[providerOf(profileA.id)], keyA);
+  assert.equal(credentials.modelProviders[providerOf(profileB.id)], keyB);
 
   await dashboard.restart();
   const restarted = await request(`/api/model-settings?projectId=${projectA.projectId}`);
   assert.equal(roleMain(restarted.body).effective.source, "project");
-  assert.equal(roleMain(restarted.body).effective.connectionName, "连接 A");
+  assert.equal(roleMain(restarted.body).effective.connectionName, "连接 A / model-a");
   const restartedHost = await request("/api/model-settings");
   assert.equal(roleMain(restartedHost.body).effective.source, "host");
 
@@ -241,7 +237,7 @@ test("a missing referenced connection is reported where it is used and never rep
   const restored = await request("/api/model-settings");
   assert.equal(roleMain(restored.body).effective.source, "host");
   assert.equal(JSON.stringify(restored.body).includes("{{SECRET_0k3m9d2q}}"), false);
-  assert.equal(credentials.modelConnections[profileId], "{{SECRET_0k3m9d2q}}");
+  assert.equal(credentials.modelProviders[providerOf(profileId)], "{{SECRET_0k3m9d2q}}");
 });
 
 test("resolution prefers an explicit choice, then the project, the host and the active connection", async () => {
@@ -250,27 +246,26 @@ test("resolution prefers an explicit choice, then the project, the host and the 
   );
   for (const name of Object.keys(saved)) delete process.env[name];
   try {
+    const a = connection("a", "A", "model-a", "key-a", { reasoningEffort: "low" });
+    const b = connection("b", "B", "model-b", "key-b", { reasoningEffort: "high", api: "openai-responses" });
     const config = {
-      modelConnections: {
-        version: 1,
-        activeId: "a",
-        profiles: [
-          connection("a", "A", "model-a", "key-a", { reasoningEffort: "low" }),
-          connection("b", "B", "model-b", "key-b", { reasoningEffort: "high", api: "openai-responses" })
-        ]
-      }
+      ...providerConfig([a, b])
     };
     const active = resolveModelRole(config);
     assert.equal(active.source, "active");
     assert.equal(active.connectionId, "a");
 
-    const hosted = saveRoleModelBinding(config, { role: "main", profileId: "b" });
+    const hosted = saveRoleModelBinding(config, { role: "main", profileId: connectionId(b) });
     assert.equal(resolveModelRole(hosted).source, "host");
     assert.equal(resolveModelRole(hosted).model, "model-b");
     assert.equal(resolveModelRole(hosted).thinkingLevel, "high");
     assert.equal(resolveModelRole(hosted).profile.api, "openai-responses");
 
-    const scoped = saveRoleModelBinding(hosted, { role: "main", projectId: "project-1", profileId: "a" });
+    const scoped = saveRoleModelBinding(hosted, {
+      role: "main",
+      projectId: "project-1",
+      profileId: connectionId(a)
+    });
     const project = resolveModelRole(scoped, { projectId: "project-1" });
     assert.equal(project.source, "project");
     assert.equal(project.model, "model-a");
@@ -278,7 +273,7 @@ test("resolution prefers an explicit choice, then the project, the host and the 
 
     const explicit = resolveModelRole(scoped, {
       projectId: "project-1",
-      profileId: "b",
+      profileId: connectionId(b),
       model: "single-shot"
     });
     assert.equal(explicit.source, "explicit");
@@ -325,9 +320,9 @@ test("the local configuration rejects a malformed role section instead of ignori
   assert.throws(() => readCoworkConfig(root, { COWORK_CONFIG: path }), /项目 ID 不合法/);
 });
 
-function settingsFixture(t) {
+function settingsFixture(t, { fail } = {}) {
   const { window, document } = parseHTML(
-    '<html><body><div id="profile-settings-connections"></div><div id="settings-role-rows"></div><div id="profile-settings-tools"></div></body></html>'
+    '<html><body><section data-settings-panel="models"></section><div id="profile-settings-tools"></div></body></html>'
   );
   const previous = { window: globalThis.window, document: globalThis.document };
   Object.assign(globalThis, { window, document });
@@ -335,194 +330,56 @@ function settingsFixture(t) {
   window.HTMLElement.prototype.getClientRects = function () {
     return this.closest("[hidden]") ? [] : [{ width: 1, height: 1 }];
   };
+  window.HTMLElement.prototype.getBoundingClientRect = () => ({ left: 0, bottom: 0, top: 0, right: 0 });
+  globalThis.innerWidth = 1440;
+  globalThis.innerHeight = 900;
+  const model = (provider, id, extra = {}) => ({
+    id,
+    profileId: `${provider}#${id}`,
+    supportsImages: false,
+    reasoningEffort: "low",
+    ...extra
+  });
   const state = {
-    profiles: [
-      { id: "a", name: "连接 A", baseUrl: "https://a.example.test/v1", model: "model-a", configured: true },
-      { id: "b", name: "连接 B", baseUrl: "https://b.example.test/v1", model: "model-b", configured: true }
+    providers: [
+      {
+        id: "p-a",
+        name: "连接 A",
+        baseUrl: "https://a.example.test/v1",
+        api: "openai-completions",
+        enabled: true,
+        configured: true,
+        models: [model("p-a", "model-a")]
+      },
+      {
+        id: "p-b",
+        name: "连接 B",
+        baseUrl: "https://b.example.test/v1",
+        api: "openai-completions",
+        enabled: true,
+        configured: true,
+        models: [model("p-b", "model-b", { reasoningEffort: "high" })]
+      }
     ],
     projectId: "project-1",
     host: null,
-    project: null
-  };
-  // The server scopes the role view by the request: a host-default save names
-  // no project, so its answer carries no project override. The fake keeps that
-  // boundary instead of always echoing the selected project.
-  const effective = (scoped) => {
-    const project = scoped ? state.project : null;
-    const source = project ? "project" : state.host ? "host" : "active";
-    const profile = state.profiles.find((entry) => entry.id === (project || state.host || "a"));
-    return {
-      role: "main",
-      source,
-      connectionId: profile.id,
-      connectionName: profile.name,
-      model: profile.model,
-      api: "openai-completions",
-      thinkingLevel: "low",
-      supportsImages: false,
-      ...(project ? { projectId: state.projectId } : {})
-    };
-  };
-  const status = (scoped = state.projectId) => {
-    const project = scoped ? state.project : null;
-    return {
-      ...state.profiles[0],
-      activeProfileId: "a",
-      profiles: state.profiles,
-      managedByEnvironment: false,
-      modelRoles: {
-        projectId: scoped ?? null,
-        roles: [
-          {
-            role: "main",
-            wired: true,
-            host: state.host ? { profileId: state.host } : null,
-            project: project ? { profileId: project } : null,
-            effective: effective(scoped)
-          },
-          { role: "executor", wired: false, host: null, project: null, effective: null },
-          { role: "reviewer", wired: false, host: null, project: null, effective: null },
-          { role: "router", wired: false, host: null, project: null, effective: null }
-        ]
-      }
-    };
-  };
-  const requests = [];
-  const settings = installDesktopSettings({
-    showToast() {},
-    host: { close: () => true, open() {}, onSection: () => () => {} },
-    identity: () => "backend-a",
-    projectId: () => state.projectId,
-    async api(path, options) {
-      const body = options.body ? JSON.parse(options.body) : undefined;
-      requests.push({ path, method: options.method, body });
-      if (path === "/api/model-settings/roles") {
-        if (body.projectId) state.project = body.profileId || null;
-        else state.host = body.profileId || null;
-        return status(body.projectId ?? null);
-      }
-      return status(new URL(path, "http://fixture.test").searchParams.get("projectId"));
-    }
-  });
-  const panel = document.querySelector("[aria-labelledby=model-settings-title]").parentNode;
-  const form = panel.querySelector("form");
-  const elements = Object.fromEntries(
-    [...form.querySelectorAll("[name]")].map((element) => [element.name, element])
-  );
-  Object.defineProperty(form, "elements", { value: elements });
-  form.reportValidity = () => true;
-  for (const select of form.querySelectorAll("select"))
-    Object.defineProperty(select, "value", {
-      value: select.querySelector("option")?.value || "",
-      writable: true
-    });
-  const hostSelect = panel.querySelector("[data-role-host]");
-  const projectSelect = panel.querySelector("[data-role-project]");
-  const tick = async () => {
-    for (let index = 0; index < 8; index++) await new Promise((done) => setTimeout(done, 0));
-  };
-  return {
-    state,
-    requests,
-    panel,
-    hostSelect,
-    projectSelect,
-    projectField: projectSelect.closest("label"),
-    effective: () => panel.querySelector("[data-role-effective]").textContent,
-    async open() {
-      void settings.open();
-      await tick();
-    },
-    async choose(select, value) {
-      select.value = value;
-      select.dispatchEvent(new window.Event("change", { bubbles: true }));
-      await tick();
-    }
-  };
-}
-
-test("the production settings view configures Main and shows which source is in effect", async (t) => {
-  const f = settingsFixture(t);
-  await f.open();
-  assert.deepEqual(
-    [...f.hostSelect.querySelectorAll("option")].map((option) => option.textContent),
-    ["跟随当前启用连接", "连接 A", "连接 B"]
-  );
-  assert.equal(f.projectField.hidden, false, "a selected project offers its override");
-  // The real control is the select inside the field, not the field itself.
-  assert.equal(f.projectSelect.tagName, "SELECT", "the project override is a select");
-  assert.equal(f.projectField.tagName, "LABEL");
-  assert.equal(f.projectField.querySelector("select"), f.projectSelect);
-  assert.match(f.effective(), /当前启用连接/);
-  assert.match(f.effective(), /连接 A · model-a/);
-  assert.doesNotMatch(f.panel.textContent, /Executor|Reviewer|Router|已运行/);
-
-  await f.choose(f.projectSelect, "b");
-  const projectSave = f.requests.find((request) => request.path === "/api/model-settings/roles");
-  assert.deepEqual(projectSave.body, { role: "main", projectId: "project-1", profileId: "b" });
-  assert.match(f.effective(), /项目覆盖/);
-  assert.match(f.effective(), /连接 B · model-b/);
-
-  await f.choose(f.hostSelect, "b");
-  const hostSave = f.requests.filter((request) => request.path === "/api/model-settings/roles").at(-1);
-  assert.deepEqual(hostSave.body, { role: "main", profileId: "b" });
-  // A host-default save must not hide the project override the person is editing.
-  assert.equal(f.projectField.hidden, false, "the project override stays editable");
-  assert.equal(f.projectSelect.value, "b", "the project override keeps its saved choice");
-  assert.match(f.effective(), /项目覆盖/, "the project override still outranks the host default");
-  assert.match(f.effective(), /连接 B · model-b/);
-
-  await f.choose(f.projectSelect, "");
-  const clear = f.requests.filter((request) => request.path === "/api/model-settings/roles").at(-1);
-  assert.deepEqual(clear.body, { role: "main", projectId: "project-1", profileId: "" });
-  assert.match(f.effective(), /主机默认/);
-  assert.match(f.effective(), /连接 B · model-b/);
-  assert.equal(f.state.host, "b");
-  assert.equal(f.state.project, null);
-});
-
-test("a role change that fails on the settings page reports on its row and restores the saved value", async (t) => {
-  const { window, document } = parseHTML(`<html><body><div id="settings-entry">
-    <div class="settings-nav-items"></div>
-    <div class="settings-rows" id="profile-settings-connections"></div>
-    <div class="settings-rows" id="settings-role-rows"></div>
-    <div class="settings-rows" id="profile-settings-tools"></div>
-  </div></body></html>`);
-  const previous = { window: globalThis.window, document: globalThis.document };
-  Object.assign(globalThis, { window, document });
-  t.after(() => Object.assign(globalThis, previous));
-  window.HTMLElement.prototype.getClientRects = function () {
-    return this.closest("[hidden]") ? [] : [{ width: 1, height: 1 }];
-  };
-  const state = {
-    profiles: [
-      {
-        id: "a",
-        name: "连接 A",
-        baseUrl: "https://a.example.test/v1",
-        model: "model-a",
-        api: "openai-completions",
-        reasoningEffort: "low",
-        configured: true,
-        active: true
-      }
-    ],
-    host: null,
+    project: null,
     executor: null
   };
-  const status = () => ({
-    ...state.profiles[0],
-    activeProfileId: "a",
-    profiles: state.profiles,
+  // The server scopes the role view by the request: a host-default save names
+  // no project, so its answer carries no project override.
+  const status = (scoped = state.projectId) => ({
+    providers: state.providers,
+    activeProfileId: state.host || "p-a#model-a",
     managedByEnvironment: false,
     modelRoles: {
-      projectId: null,
+      projectId: scoped ?? null,
       roles: [
         {
           role: "main",
           wired: true,
           host: state.host ? { profileId: state.host } : null,
-          project: null,
+          project: scoped && state.project ? { profileId: state.project } : null,
           effective: null
         },
         {
@@ -538,72 +395,117 @@ test("a role change that fails on the settings page reports on its row and resto
     }
   });
   const requests = [];
-  const handlers = [];
-  const saved = [];
-  installDesktopSettings({
-    showToast() {},
-    host: {
-      close: () => true,
-      open() {},
-      onSection: (name, handler) => {
-        if (name === "models") handlers.push(handler);
-        return () => {};
-      }
-    },
+  const toasts = [];
+  const settings = installDesktopSettings({
+    showToast: (message) => toasts.push(message),
+    host: { close: () => true, open() {}, onSection: () => () => {} },
     identity: () => "backend-a",
+    projectId: () => state.projectId,
     async api(path, options) {
       const body = options.body ? JSON.parse(options.body) : undefined;
       requests.push({ path, method: options.method, body });
+      if (fail?.(path, body)) throw new Error(fail(path, body));
       if (path === "/api/model-settings/roles") {
-        // A refused write leaves the saved binding untouched.
-        if (body.role === "main") throw new Error("保存被拒绝：连接不可用");
-        if (body.role === "executor") state.executor = body.profileId || null;
+        if (body.projectId) state.project = body.profileId || null;
+        else if (body.role === "executor") state.executor = body.profileId || null;
         else state.host = body.profileId || null;
-        return status();
+        return status(body.projectId ?? null);
       }
-      if (path === "/api/model-settings" && options.method === "POST")
-        throw new Error("推理强度保存失败：连接不可用");
-      return status();
+      return status(new URL(path, "http://fixture.test").searchParams.get("projectId"));
     }
   });
+  const panel = document.querySelector('[data-settings-panel="models"]');
   const tick = async () => {
     for (let index = 0; index < 8; index++) await new Promise((done) => setTimeout(done, 0));
   };
-  assert.equal(handlers.length, 1, "the section refresh hook is registered");
-  handlers[0]();
-  await tick();
-  const roleRow = (role) => document.querySelector(`[data-model-role="${role}"]`);
-  const errorOf = (role) => roleRow(role).querySelector("[data-role-error]");
-  assert.equal(document.querySelector('[data-role-effort="main"]').value, "low");
-  assert.equal(errorOf("main").hidden, true);
+  const picker = (role) => panel.querySelector(`[data-role-picker="${role}"]`);
+  return {
+    state,
+    requests,
+    toasts,
+    panel,
+    picker,
+    roleSaves: () => requests.filter((request) => request.path === "/api/model-settings/roles"),
+    async open() {
+      settings.open();
+      await tick();
+      panel.querySelector('[data-model-tab="roles"]').click();
+    },
+    async pick(role, profileId) {
+      picker(role).click();
+      const option = document.querySelector(`.role-menu [data-menu-pick="${profileId}"]`);
+      assert.ok(option, `no option ${profileId} for ${role}`);
+      option.click();
+      await tick();
+    },
+    async effort(role, value) {
+      const select = panel.querySelector(`[data-role-effort="${role}"]`);
+      // linkedom's select has no settable value; the page reads `value` at change time.
+      Object.defineProperty(select, "value", { value, configurable: true });
+      select.dispatchEvent(new window.Event("change", { bubbles: true }));
+      await tick();
+    }
+  };
+}
 
-  // The effort select keeps the persisted value when the write is refused, and
-  // the reason is on the row instead of the closed connection dialog.
-  const effort = document.querySelector('[data-role-effort="main"]');
-  effort.querySelector('option[value="high"]').selected = true;
-  effort.dispatchEvent(new window.Event("change", { bubbles: true }));
-  await tick();
+test("the role tab sets Main for the host and the current project and shows each choice", async (t) => {
+  const f = settingsFixture(t);
+  await f.open();
+  assert.equal(f.panel.querySelector('[data-model-view="roles"]').hidden, false);
+  assert.match(f.picker("main").textContent, /未选择/);
+  assert.match(f.picker("executor").textContent, /沿用 Main/);
   assert.equal(
-    requests.filter((request) => request.path === "/api/model-settings" && request.method === "POST").length,
-    1
-  );
-  assert.equal(document.querySelector('[data-role-effort="main"]').value, "low");
-  assert.equal(errorOf("main").hidden, false);
-  assert.match(errorOf("main").textContent, /推理强度保存失败/);
-  assert.equal(roleRow("main").classList.contains("has-error"), true);
-  assert.equal(
-    document.querySelector("[data-model-error]").textContent,
-    "",
-    "the closed connection dialog must not carry the failure"
+    f.panel.querySelector("[data-project-override]").hidden,
+    false,
+    "a project offers its override"
   );
 
-  // A later change clears the reason and saves normally.
-  const model = document.querySelector('[data-role-model="executor"]');
-  model.querySelector('option[value="a"]').selected = true;
-  model.dispatchEvent(new window.Event("change", { bubbles: true }));
-  await tick();
-  assert.equal(errorOf("executor").hidden, true);
-  saved.push(...requests.filter((request) => request.path === "/api/model-settings/roles"));
-  assert.deepEqual(saved.at(-1).body, { role: "executor", profileId: "a" });
-  assert.equal(document.querySelector('[data-role-model="executor"]').value, "a");
+  await f.pick("main-project", "p-b#model-b");
+  assert.deepEqual(f.roleSaves().at(-1).body, {
+    role: "main",
+    profileId: "p-b#model-b",
+    projectId: "project-1"
+  });
+  assert.match(f.picker("main-project").textContent, /model-b/);
+  assert.match(f.picker("main-project").textContent, /连接 B/);
+
+  await f.pick("main", "p-b#model-b");
+  assert.deepEqual(f.roleSaves().at(-1).body, { role: "main", profileId: "p-b#model-b" });
+  assert.match(f.picker("main").textContent, /model-b/);
+  // A host save must not hide the project override the person is editing.
+  assert.match(f.picker("main-project").textContent, /model-b/, "the project override keeps its choice");
+  assert.equal(f.panel.querySelector('[data-role-effort="main"]').value, "high", "effort follows the model");
+
+  await f.pick("main-project", "");
+  assert.deepEqual(f.roleSaves().at(-1).body, { role: "main", profileId: "", projectId: "project-1" });
+  assert.match(f.picker("main-project").textContent, /跟随上方 Main/);
+  assert.equal(f.state.host, "p-b#model-b");
+  assert.equal(f.state.project, null);
+});
+
+test("a role change that fails is reported and the saved choice stays on the page", async (t) => {
+  const f = settingsFixture(t, {
+    fail: (path, body) =>
+      path === "/api/model-settings/roles" && body.role === "main"
+        ? "保存被拒绝：连接不可用"
+        : path === "/api/model-settings/models"
+          ? "推理强度保存失败：连接不可用"
+          : undefined
+  });
+  await f.open();
+  await f.pick("main", "p-b#model-b");
+  assert.match(f.toasts.at(-1), /保存被拒绝/);
+  assert.match(f.picker("main").textContent, /未选择/, "the refused choice is not shown as saved");
+
+  await f.pick("executor", "p-a#model-a");
+  assert.deepEqual(f.roleSaves().at(-1).body, { role: "executor", profileId: "p-a#model-a" });
+  assert.match(f.picker("executor").textContent, /model-a/);
+  await f.effort("executor", "high");
+  const effortSave = f.requests.filter((request) => request.path === "/api/model-settings/models").at(-1);
+  assert.deepEqual(effortSave.body, {
+    providerId: "p-a",
+    models: [{ id: "model-a", reasoningEffort: "high" }]
+  });
+  assert.match(f.toasts.at(-1), /推理强度保存失败/);
+  assert.equal(f.panel.querySelector('[data-role-effort="executor"]').value, "low", "the saved effort stays");
 });

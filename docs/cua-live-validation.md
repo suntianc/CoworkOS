@@ -12,7 +12,7 @@ node scripts/validate-cua-live.mjs --run --evidence-dir ../cua-validation-eviden
 
 默认总时限五分钟，可用 `--timeout-ms` 调整为 10–600 秒。`--evidence-dir` 必须在仓库外，保存不含密钥、服务地址、随机答案或模型原文的 JSON 验收记录；未指定时使用系统临时目录中的 `atria-cua-live-receipts`。退出码 0 表示所列检查全部通过，1 表示失败或环境不满足。
 
-连接读取复用 `desktop/model-settings.cjs` 与 `desktop/retryable-storage.cjs`，由 Electron 的生产 keychain worker 在 Safe Storage 中解密。默认数据位置沿用桌面 `ATRIA_HOME` / `COWORK_DESKTOP_DATA`。不修改模型设置、不复制密钥、不降级寻找明文凭据；系统密钥存储拒绝、未配置连接或默认模型未启用图像输入时记为未完成验收。
+连接读取复用执行主机自己的配置与凭据存储读取（`readCoworkConfig`、`HostCredentialStore`），取 Main 默认使用的模型。默认数据位置沿用桌面 `ATRIA_HOME` / `COWORK_DESKTOP_DATA`。不修改模型设置、不复制密钥；凭据存储无法读取、未配置模型或默认模型未启用图像输入时记为未完成验收。
 
 运行器通过生产 `desktop/backend.cjs` 启动独立后端，使用自己的临时 workspace、配置、索引和 Pi 目录，仅创建一个专用 Task。配置文件仅保存非密钥字段；模型连接在内存中交给宿主。控制目标是隔离的 headless Chromium，不接管用户浏览器或原生应用。
 

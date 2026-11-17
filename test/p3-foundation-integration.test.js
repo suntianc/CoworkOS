@@ -14,6 +14,7 @@ import {
   startProjectDataDashboard
 } from "./p3-storage-fixture.mjs";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
+import { saveTestConnection } from "./model-provider-fixture.mjs";
 
 /**
  * The whole P3 product on one real stack, on both engines.
@@ -162,15 +163,15 @@ async function startSecondaryBackend(t, authority, config = {}, options = {}) {
 }
 
 async function saveConnection(request, value) {
-  const saved = await request("/api/model-settings", {
+  const saved = await saveTestConnection(request, {
     api: "openai-completions",
     supportsImages: false,
     supportsReasoningEffort: true,
     reasoningEffort: "low",
     ...value
   });
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  return saved.body;
+  assert.equal(saved.status, 200, JSON.stringify(saved));
+  return saved;
 }
 
 const profileNamed = (saved, name) => {

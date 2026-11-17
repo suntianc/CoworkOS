@@ -13,6 +13,7 @@ import { LocalWorkspaceStore } from "../dist/src/workspace/workspace-store.js";
 import { ExperimentProgramStore } from "../dist/src/runtime/experiment-program-store.js";
 import { CoordinatorRuntime } from "../dist/src/runtime/coordinator-runtime.js";
 import { DurableScheduler } from "../dist/src/runtime/scheduler.js";
+import { providerConfig } from "./model-provider-fixture.mjs";
 
 const run = promisify(execFile);
 const messageText = (message) =>
@@ -115,7 +116,7 @@ async function writeHostConfig(root, { connections, host, projects }) {
     join(root, "config.json"),
     `${JSON.stringify(
       {
-        modelConnections: { version: 1, activeId: connections[0].id, profiles: connections },
+        ...providerConfig(connections),
         roleModels: { version: 1, host, ...(projects ? { projects } : {}) }
       },
       null,
@@ -247,22 +248,28 @@ async function readTree(directory) {
   return parts.join("\n");
 }
 
-const connection = (id, name, baseUrl, model, apiKey) => ({
-  id,
-  name,
-  baseUrl,
-  model,
-  apiKey,
-  api: "openai-completions",
-  thinkingFormat: "auto",
-  reasoningEffort: "off",
-  supportsReasoningEffort: false,
-  supportsPromptCacheKey: false,
-  mainMaxTokens: 4096,
-  subagentMaxTokens: 2048,
-  contextWindow: 64000,
-  supportsImages: false
-});
+/** Each connection is a provider with one model; bindings name `<id>#<model>`. */
+const modelOf = new Map();
+const ref = (id) => `${id}#${modelOf.get(id) ?? "missing-model"}`;
+const connection = (id, name, baseUrl, model, apiKey) => (
+  modelOf.set(id, model),
+  {
+    id,
+    name,
+    baseUrl,
+    model,
+    apiKey,
+    api: "openai-completions",
+    thinkingFormat: "auto",
+    reasoningEffort: "off",
+    supportsReasoningEffort: false,
+    supportsPromptCacheKey: false,
+    mainMaxTokens: 4096,
+    subagentMaxTokens: 2048,
+    contextWindow: 64000,
+    supportsImages: false
+  }
+);
 
 test(
   "executor and reviewer role bindings reach the model requests of a real Main process",
@@ -297,7 +304,7 @@ test(
           await writeConfig({ project: "exec-project" });
           return call("执行者工作项 B：项目覆盖角色。");
         }
-        if (step === 2) return call("执行者工作项 C：显式选择连接。", { profileId: "exec-explicit" });
+        if (step === 2) return call("执行者工作项 C：显式选择连接。", { profileId: ref("exec-explicit") });
         if (step === 3) return call("执行者工作项 D：在途连接保持不变。");
         if (step === 4) return call("执行者工作项 E：之后的启动读取新配置。");
         if (step === 5) {
@@ -332,28 +339,26 @@ test(
     });
     const explicitProvider = await provider(t, "显式执行", async () => ({ text: "执行者 C 完成。" }));
 
-    const agentsConfig = () => ({
-      version: 1,
-      activeId: "main-a",
-      profiles: [
+    const agentsConfig = () =>
+      providerConfig([
         connection("main-a", "主连接", mainProvider.baseUrl, "main-model", keys.main),
         connection("exec-host", "主机执行", hostProvider.baseUrl, "host-model", keys.host),
         connection("exec-project", "项目执行", projectProvider.baseUrl, "project-model", keys.project),
         connection("exec-explicit", "显式执行", explicitProvider.baseUrl, "explicit-model", keys.explicit)
-      ]
-    });
+      ]);
     const failures = [];
     let mainSteps = 0;
     const writeConfig = async ({ project: binding }) => {
+      // The connections register their models before a binding names one.
+      const agents = agentsConfig();
       const roleModels = {
         version: 1,
-        host: { executor: { profileId: "exec-host" } },
-        ...(binding === undefined ? {} : { projects: { "proj-roles": { executor: { profileId: binding } } } })
+        host: { executor: { profileId: ref("exec-host") } },
+        ...(binding === undefined
+          ? {}
+          : { projects: { "proj-roles": { executor: { profileId: ref(binding) } } } })
       };
-      await writeFile(
-        join(root, "config.json"),
-        `${JSON.stringify({ modelConnections: agentsConfig(), roleModels }, null, 2)}\n`
-      );
+      await writeFile(join(root, "config.json"), `${JSON.stringify({ ...agents, roleModels }, null, 2)}\n`);
     };
     const call = (task, extra = {}) => ({
       name: "call_subagent",
@@ -449,7 +454,8 @@ test(
     );
     assert.ok(
       selections.some(
-        (snapshot) => snapshot.connectionName === "项目执行" && snapshot.model === "project-model"
+        (snapshot) =>
+          snapshot.connectionName === "项目执行 / project-model" && snapshot.model === "project-model"
       )
     );
     const shared = await readTree(join(workspace, taskId));
@@ -590,7 +596,7 @@ test(
     ];
     await writeHostConfig(root, {
       connections,
-      host: { executor: { profileId: "exec-old" }, reviewer: { profileId: "exec-review" } }
+      host: { executor: { profileId: ref("exec-old") }, reviewer: { profileId: ref("exec-review") } }
     });
 
     const main = spawnMain({
@@ -622,7 +628,7 @@ test(
     // dependent items are still queued.
     await writeHostConfig(root, {
       connections: connections.filter((entry) => entry.id !== "exec-review"),
-      host: { executor: { profileId: "exec-new" }, reviewer: { profileId: "exec-review" } }
+      host: { executor: { profileId: ref("exec-new") }, reviewer: { profileId: ref("exec-review") } }
     });
     configEdited();
 
@@ -796,7 +802,7 @@ test(
     ];
     await writeHostConfig(root, {
       connections,
-      host: { executor: { profileId: "exec-old" }, reviewer: { profileId: "exec-review" } }
+      host: { executor: { profileId: ref("exec-old") }, reviewer: { profileId: ref("exec-review") } }
     });
 
     const first = spawnMain({
@@ -843,7 +849,7 @@ test(
     await expireLeases(workspace, taskId, runId);
     await writeHostConfig(root, {
       connections: connections.filter((entry) => entry.id !== "exec-review"),
-      host: { executor: { profileId: "exec-old" }, reviewer: { profileId: "exec-review" } }
+      host: { executor: { profileId: ref("exec-old") }, reviewer: { profileId: ref("exec-review") } }
     });
 
     const second = spawnMain({
@@ -1024,7 +1030,7 @@ test(
     });
     await writeHostConfig(root, {
       connections: [connection("main-a", "主连接", mainProvider.baseUrl, "main-model", "refusal-main")],
-      host: { executor: { profileId: "main-a" } }
+      host: { executor: { profileId: ref("main-a") } }
     });
     const main = spawnMain({
       root,

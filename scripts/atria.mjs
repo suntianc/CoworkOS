@@ -346,7 +346,7 @@ async function sessionExport(values) {
       config.webSearch?.exaApiKey,
       process.env.COWORK_EXA_API_KEY,
       process.env.EXA_API_KEY,
-      ...(config.modelConnections?.profiles.map((profile) => profile.apiKey) ?? [])
+      ...(config.modelProviders?.providers.map((provider) => provider.apiKey) ?? [])
     ].filter(Boolean)
   });
   console.log(JSON.stringify(result));

@@ -736,7 +736,7 @@ export function createDashboardApplication(
         mainRunning,
         stopping: runs.cancellations.has(taskId),
         model:
-          active || !runtimeConfig.modelConnections?.activeId
+          active || !runtimeConfig.modelProviders
             ? task.model || runtimeValue("COWORK_MODEL")
             : runtimeValue("COWORK_MODEL")
       }

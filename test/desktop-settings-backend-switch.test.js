@@ -115,7 +115,7 @@ test("search settings retain A's draft while reopening, reading and saving B", a
 
 function modelFixture(t, intercept) {
   const { window, document } = parseHTML(
-    '<html><body><div id="profile-settings-connections"></div><div id="settings-role-rows"></div><div id="profile-settings-tools"></div></body></html>'
+    '<html><body><section data-settings-panel="models"></section><div id="profile-settings-tools"></div></body></html>'
   );
   const previous = { window: globalThis.window, document: globalThis.document };
   Object.assign(globalThis, { window, document });
@@ -125,20 +125,23 @@ function modelFixture(t, intercept) {
   };
   let backend = "a";
   const requests = [];
-  const profile = (id, model) => ({
-    id,
-    name: `Profile ${id}`,
+  const provider = (id) => ({
+    id: `provider-${id}`,
+    name: `Provider ${id}`,
     baseUrl: `https://${id}.invalid/v1`,
-    model,
     api: "openai-completions",
-    configured: true
+    thinkingFormat: "auto",
+    supportsPromptCacheKey: false,
+    enabled: true,
+    configured: true,
+    models: [{ id: `model-${id}`, profileId: `provider-${id}#model-${id}`, supportsImages: false }]
   });
-  const saved = { a: profile("a", "model-a"), b: profile("b", "model-b") };
+  const saved = { a: provider("a"), b: provider("b") };
   const status = (value) => ({
-    ...value,
-    activeProfileId: value.id,
-    profiles: [value],
-    managedByEnvironment: false
+    providers: [value],
+    activeProfileId: value.models[0].profileId,
+    managedByEnvironment: false,
+    modelRoles: { projectId: null, roles: [] }
   });
   const modelSettings = installDesktopSettings({
     showToast() {},
@@ -147,93 +150,107 @@ function modelFixture(t, intercept) {
     async api(path, options) {
       const target = backend;
       const body = options.body ? JSON.parse(options.body) : undefined;
-      // Level detection only describes the connection being edited; it saves nothing.
-      if (path.endsWith("/levels")) return { levels: ["off", "high"], source: "manual", official: false };
       requests.push({ target, path, method: options.method, body });
-      if (body) saved[target] = { ...saved[target], ...body };
+      if (body) {
+        const { apiKey: _key, ...fields } = body;
+        saved[target] = { ...saved[target], ...fields };
+      }
       const value = status(saved[target]);
       return intercept ? intercept({ target, method: options.method, value }) : value;
     }
   });
-  const panel = document.querySelector("[aria-labelledby=model-settings-title]").parentNode;
-  const form = panel.querySelector("form");
-  const elements = Object.fromEntries(
-    [...form.querySelectorAll("[name]")].map((element) => [element.name, element])
-  );
-  Object.defineProperty(form, "elements", { value: elements });
-  form.reportValidity = () => true;
-  for (const select of form.querySelectorAll("select"))
-    Object.defineProperty(select, "value", {
-      value: select.querySelector("option")?.value || "",
-      writable: true
-    });
+  const panel = document.querySelector('[data-settings-panel="models"]');
+  const field = (name) => panel.querySelector(`[data-field="${name}"]`);
   return {
     panel,
-    form,
-    elements,
     requests,
     saved,
+    field,
+    shown: () => panel.querySelector(".provider-item-name")?.textContent,
     switchBackend(value) {
       backend = value;
     },
     async open() {
-      void modelSettings.open();
+      modelSettings.open();
+      await tick();
       await tick();
     },
-    close() {
-      panel.querySelector("[data-model-close]").click();
+    type(name, value) {
+      const input = field(name);
+      input.value = value;
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
     },
     async save() {
-      form.dispatchEvent(new window.Event("submit", { cancelable: true }));
+      panel.querySelector("[data-provider-save]").click();
       await tick();
-    },
-    edit() {
-      form.dispatchEvent(new window.Event("input"));
+      await tick();
     }
   };
 }
 
-test("model settings retain A's draft while reopening, reading and saving B", async (t) => {
+test("model provider drafts stay with the backend they were typed for", async (t) => {
   const f = modelFixture(t);
   await f.open();
-  f.elements.model.value = "unsaved-model-a";
-  f.elements.apiKey.value = "unsaved-key-a";
-  f.elements.contextWindow.value = "";
-  f.elements.mainMaxTokens.value = "2048";
-  f.elements.subagentMaxTokens.value = "";
-  f.edit();
-  f.close();
+  assert.equal(f.shown(), "Provider a");
+  f.type("apiKey", "unsaved-key-a");
   f.switchBackend("b");
   await f.open();
-  assert.equal(f.elements.model.value, "model-b");
-  assert.equal(f.elements.apiKey.value, "");
-  f.close();
-  await f.open();
-  f.elements.model.value = "saved-model-b";
-  f.elements.apiKey.value = "saved-key-b";
-  f.edit();
+  assert.equal(f.shown(), "Provider b");
+  assert.equal(f.field("apiKey").value, "");
+  f.type("apiKey", "saved-key-b");
+  f.type("baseUrl", "https://saved-b.invalid/v1");
   await f.save();
-  const bSave = f.requests.find((request) => request.target === "b" && request.method === "POST");
-  assert.equal(bSave.body.model, "saved-model-b");
+  const bSave = f.requests.find((entry) => entry.target === "b" && entry.method === "POST");
+  assert.equal(bSave.path, "/api/model-settings/providers");
+  assert.equal(bSave.body.id, "provider-b");
   assert.equal(bSave.body.apiKey, "saved-key-b");
-  assert.equal(f.saved.b.model, "saved-model-b");
+  assert.equal(f.saved.b.baseUrl, "https://saved-b.invalid/v1");
   assert.equal(
-    f.requests.some((request) => request.target === "a" && request.method === "POST"),
+    f.requests.some((entry) => entry.target === "a" && entry.method === "POST"),
     false
   );
   f.switchBackend("a");
   await f.open();
-  assert.equal(f.elements.model.value, "unsaved-model-a");
-  assert.equal(f.elements.apiKey.value, "unsaved-key-a");
-  assert.equal(f.elements.contextWindow.value, "");
-  assert.equal(f.elements.mainMaxTokens.value, "2048");
-  assert.equal(f.elements.subagentMaxTokens.value, "");
+  assert.equal(f.shown(), "Provider a");
+  assert.equal(f.field("apiKey").value, "unsaved-key-a");
 });
 
-for (const [kind, fixture] of [
-  ["search", searchFixture],
-  ["model", modelFixture]
-]) {
+test("model settings report a failed backend read and recover on reopen", async (t) => {
+  let first = true;
+  const f = modelFixture(t, ({ method, value }) => {
+    if (first && method === "GET") {
+      first = false;
+      throw new Error("temporary read failure");
+    }
+    return value;
+  });
+  await f.open();
+  assert.match(f.panel.textContent, /temporary read failure/);
+  await f.open();
+  assert.equal(f.shown(), "Provider a");
+  assert.equal(f.panel.querySelector("[data-model-notice]").hidden, true);
+});
+
+test("model settings ignore a delayed A read after opening B", async (t) => {
+  let finish;
+  const delayed = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const f = modelFixture(t, ({ target, method, value }) =>
+    target === "a" && method === "GET" ? delayed.then(() => value) : value
+  );
+  void f.open();
+  f.switchBackend("b");
+  await f.open();
+  assert.equal(f.shown(), "Provider b");
+  finish();
+  await tick();
+  await tick();
+  assert.equal(f.shown(), "Provider b");
+  assert.equal(f.panel.querySelector("[data-model-notice]").hidden, true);
+});
+
+for (const [kind, fixture] of [["search", searchFixture]]) {
   test(`${kind} settings retry a failed backend read on reopen`, async (t) => {
     let first = true;
     const f = fixture(t, ({ method, value }) => {

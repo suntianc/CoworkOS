@@ -17,6 +17,7 @@ import {
 } from "../dist/src/runtime/runtime-settings.js";
 import { ensurePiRetryDefaults } from "../dist/src/runtime/model-retry.js";
 import { resolveModelRole, roleConnectionEnv } from "../dist/src/runtime/role-models.js";
+import { modelConnections } from "../dist/src/runtime/model-providers.js";
 import { bundledSkillRoot } from "../dist/src/runtime/skill-registry.js";
 import { resolveCliSession } from "./cli-session.mjs";
 import { ensureCliBranding, ensureCliStartupSettings } from "./cli-branding.mjs";
@@ -353,9 +354,8 @@ export async function startPi({ uiCompatibility } = {}) {
       if (selectedDirectoryArg < 0) userArgs.unshift("--session-dir", selectedSession.sessionDirectory);
       else userArgs[selectedDirectoryArg + 1] = selectedSession.sessionDirectory;
     }
-    const activeConnection = launchConfig.modelConnections?.profiles.find(
-      (profile) => profile.id === launchConfig.modelConnections.activeId
-    );
+    const connections = modelConnections(launchConfig);
+    const activeConnection = connections.profiles.find((profile) => profile.id === connections.activeId);
     const roleEnv = mainRole ? roleConnectionEnv(mainRole) : {};
     // A Dashboard run already resolved its connection and passes its identity;
     // a CLI launch without one falls back to the active connection as before.

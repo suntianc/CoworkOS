@@ -10,6 +10,7 @@ import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 import { prepareDevelopmentWorkspace } from "../dist/src/workspace/development-workspace.js";
 import { prepareWorkItemSite } from "../dist/src/workspace/work-item-workspace.js";
+import { saveTestConnection } from "./model-provider-fixture.mjs";
 
 const run = promisify(execFile);
 const messageText = (message) =>
@@ -413,7 +414,7 @@ test(
       release();
       await provider.close();
     });
-    const saved = await request("/api/model-settings", {
+    const saved = await saveTestConnection(request, {
       profileName: "本地夹具",
       baseUrl: provider.baseUrl,
       model: "protocol-fixture",
@@ -422,7 +423,7 @@ test(
       supportsImages: false,
       apiKey: "native-execution-local-key"
     });
-    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(saved.status, 200, JSON.stringify(saved));
 
     const started = await request(`/api/tasks/${taskId}/run`, {
       prompt: "完成报表导出需求，先在自己的需求现场完成小改动，再按依赖组织子任务。"

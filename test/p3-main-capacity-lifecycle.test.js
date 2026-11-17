@@ -15,6 +15,7 @@ import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 import { createSettingsPages } from "../web/assets/controllers/settings-pages.js";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
+import { saveTestConnection } from "./model-provider-fixture.mjs";
 
 const run = promisify(execFile);
 
@@ -805,14 +806,14 @@ async function accountProvider(t, label, api = "openai-completions") {
 }
 
 async function saveConnection(request, value) {
-  const saved = await request("/api/model-settings", {
+  const saved = await saveTestConnection(request, {
     api: "openai-completions",
     supportsImages: false,
     supportsReasoningEffort: true,
     ...value
   });
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  return saved.body;
+  assert.equal(saved.status, 200, JSON.stringify(saved));
+  return saved;
 }
 
 async function spawnPayload(dashboard, taskId, runId) {
@@ -944,9 +945,8 @@ test(
     assert.equal(a.requests.length, 1);
 
     // The recorded snapshots agree with what was actually called.
-    const storedProfiles = JSON.parse(await readFile(join(dashboard.root, "config.json"), "utf8"))
-      .modelConnections.profiles;
-    const contextA = storedProfiles.find((profile) => profile.id === profileA.id).contextId;
+    // Every model of a provider shares the provider's account context.
+    const contextA = profileA.providerId;
     const inflightSnapshot = await spawnPayload(dashboard, sessions.inflight.taskId, inflight.body.runId);
     assert.equal(inflightSnapshot.modelSelection.connectionId, contextA);
     const queuedSnapshot = await spawnPayload(dashboard, sessions.queued.taskId, queued.body.runId);
@@ -969,7 +969,7 @@ test(
     const config = JSON.parse(configText);
     assert.equal(config.mainCapacity.resident, 2, configText);
     assert.equal(config.roleModels?.host?.main?.profileId, profileA.id, configText);
-    assert.equal(config.modelConnections.profiles.length, 2, configText);
+    assert.equal(config.modelProviders.providers.length, 2, configText);
     const settings = await request("/api/model-settings");
     assert.equal(settings.status, 200);
     assert.equal(
