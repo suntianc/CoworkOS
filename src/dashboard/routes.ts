@@ -606,13 +606,19 @@ export function createDashboardHandler(
         // The effort of the connection the next Main run resolves to, so the
         // composer can show it instead of an assumed default. Read from the same
         // role resolution the launch uses; absent when that connection is unusable.
-        const mainEffort = status.modelRoles.roles.find((entry) => entry.role === "main")?.effective
-          ?.thinkingLevel;
+        const mainRole = status.modelRoles.roles.find((entry) => entry.role === "main")?.effective;
+        const mainEffort = mainRole?.thinkingLevel;
+        // Whose models these are, so the composer can show the provider's mark.
+        const profileId = mainRole?.connectionId || status.activeProfileId;
+        const owner = status.providers.find((provider) => profileId.startsWith(`${provider.id}#`));
         const models = await availableModels();
         sendJson(response, 200, {
           current: runtimeValue("COWORK_MODEL"),
           connectionProfileId: status.activeProfileId,
           ...(mainEffort ? { reasoningEffort: mainEffort } : {}),
+          ...(owner
+            ? { provider: { name: owner.name, ...(owner.preset ? { preset: owner.preset } : {}) } }
+            : {}),
           models: models.map((model) => model.id),
           // Each model's reasoning levels and where they came from (#27).
           levels: Object.fromEntries(models.map(({ id, levels, source }) => [id, { levels, source }])),

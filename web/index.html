@@ -27,6 +27,7 @@
     <link rel="stylesheet" href="/assets/styles/observe-runs.css" />
     <link rel="stylesheet" href="/assets/styles/observe-overview.css" />
     <link rel="stylesheet" href="/assets/styles/motion.css" />
+    <link rel="stylesheet" href="/assets/styles/conversation.css" />
   </head>
   <body class="output-collapsed">
     <svg aria-hidden="true" class="icon-defs">
@@ -720,7 +721,7 @@
                   <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
                   <textarea
                     id="composer-input"
-                    rows="3"
+                    rows="1"
                     readonly
                     aria-busy="true"
                     aria-label="任务描述"
@@ -754,6 +755,8 @@
                         ></span>
                       </button>
                       <button id="model-setup-button" type="button" hidden>连接模型</button>
+                    </div>
+                    <div class="composer-right">
                       <button
                         class="model-select"
                         id="model-select"
@@ -771,8 +774,6 @@
                           ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
                         ></span>
                       </button>
-                    </div>
-                    <div class="composer-right">
                       <button
                         id="stop-button"
                         class="stop-button"
@@ -802,6 +803,13 @@
                     aria-label="会话项目"
                     hidden
                   ></div>
+                </div>
+                <div class="composer-hint" aria-hidden="true">
+                  <span class="composer-hint-idle">文件可以直接拖进来或粘贴截图</span>
+                  <span class="composer-hint-running">运行中发出的消息会交给正在工作的 Main</span>
+                  <span class="composer-keys"
+                    ><kbd>Enter</kbd> 发送，<kbd>Shift</kbd> + <kbd>Enter</kbd> 另起一行</span
+                  >
                 </div>
               </div>
             </div>

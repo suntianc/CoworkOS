@@ -19,6 +19,15 @@ import { escapeHtml as esc } from "../ui/html.js";
 import { icon } from "../ui/icons.js";
 import { executionElapsedMs, formatExecutionDuration } from "../execution-time.js";
 import { reconcileParts } from "../ui/reconcile.js";
+import { antMarkSvg } from "../ui/thinking-mark.js";
+import { completeMarkdown, createStreamReveal } from "../ui/stream-reveal.js";
+
+const reducedMotion = () => {
+  const preference = globalThis.window?.atriaPreferences?.motion?.();
+  if (preference === "on") return true;
+  if (preference === "off") return false;
+  return Boolean(globalThis.window?.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+};
 
 const replyClock = new Intl.DateTimeFormat(language, {
   hour: "2-digit",
@@ -191,6 +200,7 @@ export function createConversationView({
   resolveFile,
   showToast = () => {}
 }) {
+  const streamReveal = createStreamReveal({ reducedMotion });
   const markdown = (source, options = {}) =>
     renderMarkdown(source, {
       resolveLocalLink: (path) => resolveArtifactLink(state.detail, path),
@@ -243,7 +253,8 @@ export function createConversationView({
       thinkingStartedAt.set(key, startedAt);
       // innerHTML replaces the spinner on new deltas. Reuse its elapsed time
       // without adding style attributes that would invalidate markup equality.
-      for (const animation of node.getAnimations?.() || []) animation.currentTime = now - startedAt;
+      for (const animation of node.getAnimations?.({ subtree: true }) || [])
+        animation.currentTime = now - startedAt;
     }
     for (const key of thinkingStartedAt.keys()) if (!activeKeys.has(key)) thinkingStartedAt.delete(key);
   };
@@ -540,6 +551,7 @@ export function createConversationView({
       const offset = kept.reduce((sum, count) => sum + count, 0);
       const counts = reconcileParts(scroll, parts.slice(kept.length), scroll.childNodes[offset] ?? null);
       lastRender = { taskId: task.taskId, parts, counts: [...kept, ...counts] };
+      streamReveal.apply(scroll);
       const ownsRecovery = () => state.selected === task.taskId && state.detail?.task?.taskId === task.taskId;
       for (const [selector, action] of [
         ["[data-edit-message]", () => edit?.(task.taskId, state.detail?.editableMessage)],
@@ -781,7 +793,7 @@ export function createConversationView({
                   ? ui("等待后台任务…")
                   : ui("等待模型响应…");
     const progress = active
-      ? `<span class="workflow-progress-spinner" data-thinking-key="${esc(`${historyKey}:progress`)}" aria-hidden="true"></span>`
+      ? `<span class="workflow-progress-spinner ant-mark" data-thinking-key="${esc(`${historyKey}:progress`)}" aria-hidden="true">${antMarkSvg}</span>`
       : '<span class="live-pulse" aria-hidden="true"></span>';
     const caption = working
       ? [callCount ? ui`${returnedCalls}/${callCount} 项调用已返回` : "", ...outstandingLabels]
@@ -796,10 +808,10 @@ export function createConversationView({
             : ui("整轮任务已完成");
     const heading = collapsible
       ? ""
-      : `<div class="live-workflow-head">${progress}<div class="workflow-heading"><strong>${esc(working ? (active ? phase : ui("仍有工作未结束")) : failed ? ui("执行已停止") : pending && !continued ? ui("等待继续") : ui("执行过程"))}</strong><span>${esc(stepLabel)}</span></div>${caption ? `<span class="live-caption">${esc(caption)}</span>` : ""}</div>`;
+      : `<div class="live-workflow-head">${progress}<div class="workflow-heading"><strong${active ? ' class="shimmer-text"' : ""}>${esc(working ? (active ? phase : ui("仍有工作未结束")) : failed ? ui("执行已停止") : pending && !continued ? ui("等待继续") : ui("执行过程"))}</strong><span>${esc(stepLabel)}</span></div>${caption ? `<span class="live-caption">${esc(caption)}</span>` : ""}</div>`;
     const content = `<section class="live-workflow ${working ? "is-active" : "is-complete"}"${active ? ' aria-live="polite"' : ""}>
     ${heading}
-    <div class="workflow-rail">${compactActivity.map((item) => (item.type === "tools" ? renderToolGroup(item, active, presentations) : item.type === "reasoning" ? renderReasoningStep(item.text, { done: !active || item.done, interrupted: (!active || item.done) && !item.complete }, item.key, item.rawText) : item.type === "answer" ? `<div class="live-answer" data-activity-key="${esc(item.key)}"><div class="markdown-body">${markdown(item.text)}</div></div>` : renderToolStep(item.call, active, item.key, presentations.get(item.call)))).join("")}</div>
+    <div class="workflow-rail">${compactActivity.map((item) => (item.type === "tools" ? renderToolGroup(item, active, presentations) : item.type === "reasoning" ? renderReasoningStep(item.text, { done: !active || item.done, interrupted: (!active || item.done) && !item.complete }, item.key, item.rawText) : item.type === "answer" ? (active && item === compactActivity.at(-1) && !item.done ? `<div class="live-answer" data-activity-key="${esc(item.key)}" data-streaming-answer><div class="markdown-body">${markdown(completeMarkdown(item.text))}</div></div>` : `<div class="live-answer" data-activity-key="${esc(item.key)}"><div class="markdown-body">${markdown(item.text)}</div></div>`) : renderToolStep(item.call, active, item.key, presentations.get(item.call)))).join("")}</div>
   </section>`;
     if (!collapsible) return retryBanner + content;
     const duration = formatExecutionDuration(executionElapsedMs(events, state.detail?.events));
@@ -815,16 +827,16 @@ export function createConversationView({
     const label = turn.interrupted ? ui("思考已停止") : turn.done ? ui("思考完成") : ui("思考中");
     const spinner = turn.done
       ? ""
-      : `<span class="thinking-spinner" data-thinking-key="${esc(key)}" aria-hidden="true"></span>`;
+      : `<span class="thinking-spinner ant-mark" data-thinking-key="${esc(key)}" aria-hidden="true">${antMarkSvg}</span>`;
     return `<div class="activity-step reasoning-step" data-view-key="${esc(key)}">
     <div class="activity-step-content">
-      ${preview ? `<details class="reasoning-details" data-activity-key="${esc(key)}"><summary>${spinner}<span class="reasoning-preview">${esc(preview)}</span><span class="reasoning-state">${label}</span><span class="reasoning-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="reasoning-copy markdown-body">${markdown(normalized)}</div>${original !== normalized || /\*\*|```/.test(original) ? ui`<details class="activity-raw" data-activity-key="${esc(`${key}:source`)}"><summary>原始内容</summary><pre class="activity-raw-copy">${esc(original)}</pre></details>` : ""}</details>` : `<div class="activity-step-head">${spinner}<strong>${label}</strong></div>`}
+      ${preview ? `<details class="reasoning-details" data-activity-key="${esc(key)}"><summary>${spinner}<span class="reasoning-preview">${esc(preview)}</span><span class="reasoning-state${turn.done ? "" : " shimmer-text"}">${label}</span><span class="reasoning-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="reasoning-copy markdown-body">${markdown(normalized)}</div>${original !== normalized || /\*\*|```/.test(original) ? ui`<details class="activity-raw" data-activity-key="${esc(`${key}:source`)}"><summary>原始内容</summary><pre class="activity-raw-copy">${esc(original)}</pre></details>` : ""}</details>` : `<div class="activity-step-head">${spinner}<strong>${label}</strong></div>`}
     </div>
   </div>`;
   }
 
   function renderThinkingPlaceholder(key, label = ui("正在思考…"), announce = true) {
-    return `<div class="assistant-thinking"${announce ? ' role="status"' : ""}><span class="thinking-spinner" data-thinking-key="${esc(`${key}:pending`)}" aria-hidden="true"></span><span>${esc(label)}</span></div>`;
+    return `<div class="assistant-thinking"${announce ? ' role="status"' : ""}><span class="thinking-spinner ant-mark" data-thinking-key="${esc(`${key}:pending`)}" aria-hidden="true">${antMarkSvg}</span><span class="shimmer-text">${esc(label)}</span></div>`;
   }
 
   function renderToolGroup(group, active, presentations) {
@@ -877,7 +889,7 @@ export function createConversationView({
     const sections = presentation.detailSections || [];
     const indicator =
       statusClass === "running"
-        ? `<span class="tool-progress-spinner" data-thinking-key="${esc(`${key}:tool`)}" aria-hidden="true"></span>`
+        ? `<span class="tool-progress-spinner ant-mark" data-thinking-key="${esc(`${key}:tool`)}" aria-hidden="true">${antMarkSvg}</span>`
         : '<span class="tool-status-dot" aria-hidden="true"></span>';
     return `<div class="activity-step tool-step is-${statusClass}" data-view-key="${esc(key)}">
     <div class="activity-step-content">

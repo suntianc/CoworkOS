@@ -3,6 +3,8 @@ import { installLanguageSettings } from "./assets/controllers/language-settings.
 import { createCoalescedRead } from "./assets/controllers/coalesced-read.js";
 import { createMessageEditController } from "./assets/controllers/message-edit.js";
 import { createComposerClipboard } from "./assets/controllers/composer-clipboard.js";
+import { providerLogo } from "./assets/controllers/model-providers.js";
+import { antMarkSvg } from "./assets/ui/thinking-mark.js";
 import { createComposerSession } from "./assets/controllers/composer-session.js";
 import { createDraftRecovery } from "./assets/controllers/draft-recovery.js";
 import { createComposerLayout } from "./assets/controllers/composer-layout.js";
@@ -64,6 +66,11 @@ import { animateLayout, installSelectionGlide } from "./assets/ui/motion.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
 
 localizeShell(document.body);
+// The run pill walks the Formicand ant while Main works.
+for (const dot of document.querySelectorAll(".run-control-dot")) {
+  dot.classList.add("ant-mark");
+  dot.innerHTML = antMarkSvg;
+}
 
 const state = {
   online: true,
@@ -638,6 +645,13 @@ function setModelLabel(value) {
   else $(".model-select").textContent = label;
   paintModelButton();
 }
+/** The composer's model button carries the mark of the provider the models come from. */
+function paintModelProvider(provider) {
+  const slot = $("#model-select .model-logo");
+  state.modelProvider = provider || null;
+  if (!slot || !provider) return;
+  slot.innerHTML = providerLogo(provider, 18);
+}
 /** One button names the model and the reasoning level this Run will send. */
 function paintModelButton() {
   const button = $("#model-select");
@@ -673,6 +687,8 @@ function setThinkingLabel(value) {
   const label = effective ? THINKING_LEVEL_LABELS[effective] || effective : ui("自动");
   const name = $(".reasoning-name");
   if (name) name.textContent = label;
+  // No reasoning reads as just the model's name, not "model · Off".
+  $(".reasoning-label")?.classList.toggle("is-off", !effective || effective === "off");
   paintModelButton();
 }
 
@@ -715,6 +731,7 @@ async function loadModels() {
         ? data.current.trim()
         : state.models[0] || "glm-5.3";
     syncModelConnection(defaultModel, data.connectionProfileId, data.reasoningEffort ?? null);
+    paintModelProvider(data.provider);
     // eslint-disable-next-line no-restricted-syntax -- /api/models is unavailable while the backend restarts or is offline; the picker keeps a usable model instead of an empty list
   } catch {
     state.models = state.model ? [state.model] : ["glm-5.3"];
@@ -1400,7 +1417,10 @@ const modelPicker = createModelPicker({
     levels: modelLevelsFor(),
     chosen: state.thinkingLevel,
     fallback: fallbackThinkingLevel(),
-    notice: modelNotice
+    notice: modelNotice,
+    provider: state.modelProvider
+      ? { name: state.modelProvider.name, mark: providerLogo(state.modelProvider, 18) }
+      : null
   }),
   chooseModel,
   chooseLevel: chooseThinkingLevel
@@ -2041,9 +2061,9 @@ function showSentDraft(draft) {
   const input = $("#composer-input");
   const sent = Boolean(
     draft &&
-      composerSession.currentToken === draft.token &&
-      input.value === draft.input &&
-      JSON.stringify(state.attachments) === draft.attachments
+    composerSession.currentToken === draft.token &&
+    input.value === draft.input &&
+    JSON.stringify(state.attachments) === draft.attachments
   );
   if (input.classList.contains("is-sent") === sent) return;
   input.classList.toggle("is-sent", sent);

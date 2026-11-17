@@ -66,16 +66,17 @@ export function createModelPicker({ panel, view, chooseModel, chooseLevel }) {
   };
 
   const modelsPage = () => {
-    const { model, defaultModel, models } = view();
+    const { model, defaultModel, models, provider } = view();
     return `<div class="picker-head">
         <button type="button" class="picker-back" data-picker-page="effort" aria-label="${esc(ui("返回推理强度"))}">${icon("chevron-left")}</button>
         <span class="picker-title">${esc(ui("选择模型"))}</span>
       </div>
       <div class="picker-models" role="listbox" aria-label="${esc(ui("选择模型"))}">
+        ${provider ? `<div class="picker-group" role="presentation">${esc(provider.name)}</div>` : ""}
         ${models
           .map(
             (id) =>
-              `<button type="button" class="model-option${id === model ? " active" : ""}" data-model="${esc(id)}" role="option" aria-selected="${id === model}"><span class="model-option-name">${esc(id)}</span>${id === defaultModel ? `<small>${esc(ui("默认"))}</small>` : ""}<span class="model-option-check">${id === model ? icon("check") : ""}</span></button>`
+              `<button type="button" class="model-option${id === model ? " active" : ""}" data-model="${esc(id)}" role="option" aria-selected="${id === model}">${provider?.mark || ""}<span class="model-option-name">${esc(id)}</span>${id === defaultModel ? `<small>${esc(ui("默认"))}</small>` : ""}<span class="model-option-check">${id === model ? icon("check") : ""}</span></button>`
           )
           .join("")}
       </div>`;

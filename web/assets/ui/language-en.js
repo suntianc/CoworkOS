@@ -1252,6 +1252,10 @@ export default {
   // Reply actions and code blocks.
   自动换行: "Wrap long lines",
   换行: "Wrap",
+  "发送，": "to send, ",
+  另起一行: "for a new line",
+  文件可以直接拖进来或粘贴截图: "Drag files in or paste a screenshot",
+  "运行中发出的消息会交给正在工作的 Main": "Messages sent now go to Main while it works",
   复制代码: "Copy code",
   已复制: "Copied",
   回复操作: "Reply actions",
