@@ -242,7 +242,6 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         attachments: Type.Optional(
           Type.Array(Type.String(), {
             maxItems: 10,
-            uniqueItems: true,
             description: "Explicit upload IDs this delegate may inspect with read_attachment."
           })
         ),
@@ -259,7 +258,6 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         dependsOn: Type.Optional(
           Type.Array(Type.String(), {
             maxItems: 16,
-            uniqueItems: true,
             description:
               "callIds from this Run that must finish first. A work item with unfinished prerequisites does not start until they are terminal, and does not run at all when one of them failed or was cancelled."
           })
@@ -337,7 +335,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           : {}),
         ...(continueCallId ? { continueCallId } : {}),
         ...(requestedReview ? { reviewId: requestedReview } : {}),
-        ...(params.attachments === undefined ? {} : { attachments: params.attachments }),
+        ...(params.attachments === undefined ? {} : { attachments: [...new Set(params.attachments)] }),
         ...(typeof params.profileId === "string" && params.profileId.trim()
           ? { profileId: params.profileId.trim() }
           : {}),

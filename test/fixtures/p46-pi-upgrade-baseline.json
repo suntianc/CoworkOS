@@ -167,7 +167,6 @@
               "type": "string"
             },
             "maxItems": 10,
-            "uniqueItems": true,
             "description": "Explicit upload IDs this delegate may inspect with read_attachment."
           },
           "mode": {
@@ -202,7 +201,6 @@
               "type": "string"
             },
             "maxItems": 16,
-            "uniqueItems": true,
             "description": "callIds from this Run that must finish first. A work item with unfinished prerequisites does not start until they are terminal, and does not run at all when one of them failed or was cancelled."
           },
           "developmentId": {
@@ -1029,8 +1027,7 @@
                   "const": "computer"
                 }
               ]
-            },
-            "uniqueItems": true
+            }
           }
         }
       }

@@ -193,7 +193,7 @@ export function registerCapabilityTools(
       "Discover and enable optional tool groups for the current task. Omit groups to list availability. Attachments, delivery, jobs, computer, browser and cua are loaded only when needed; desktop, browser and CUA tools require a model connection that accepts image input. Enabling is not authorization: job grants and desktop grants remain enforced. Scripts need their underlying browser/computer tools enabled. CLI and App share all non-host-specific groups.",
     parameters: Type.Object({
       groups: Type.Optional(
-        Type.Array(Type.Union(Object.keys(groups).map((name) => Type.Literal(name))), { uniqueItems: true })
+        Type.Array(Type.Union(Object.keys(groups).map((name) => Type.Literal(name))))
       )
     }),
     async execute(_id, params) {
