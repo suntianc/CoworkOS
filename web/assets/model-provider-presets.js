@@ -4,7 +4,8 @@
  * logo; every field stays editable and the backend stores plain values.
  *
  * Logos come from lobehub/lobe-icons (MIT), see THIRD_PARTY_NOTICES.md. A mono
- * logo is drawn in the text color so it reads in both themes.
+ * logo is drawn in the text color so it reads in both themes. An international
+ * endpoint of a Chinese vendor names the vendor's logo with `logo`.
  */
 export const PROVIDER_PRESETS = [
   {
@@ -140,6 +141,59 @@ export const PROVIDER_PRESETS = [
     baseUrl: "https://api.fireworks.ai/inference/v1",
     api: "openai-completions",
     keyUrl: "https://fireworks.ai/account/api-keys"
+  },
+  {
+    id: "zai",
+    name: "Z.ai",
+    region: "global",
+    baseUrl: "https://api.z.ai/api/paas/v4",
+    api: "openai-completions",
+    mono: true,
+    keyUrl: "https://z.ai/manage-apikey/apikey-list"
+  },
+  {
+    id: "moonshot-global",
+    logo: "moonshot",
+    name: "Kimi Global",
+    region: "global",
+    baseUrl: "https://api.moonshot.ai/v1",
+    api: "openai-completions",
+    mono: true,
+    keyUrl: "https://platform.moonshot.ai/console/api-keys"
+  },
+  {
+    id: "alibabacloud",
+    name: "Alibaba Cloud",
+    region: "global",
+    baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    api: "openai-completions",
+    keyUrl: "https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key"
+  },
+  {
+    id: "byteplus",
+    name: "BytePlus",
+    region: "global",
+    baseUrl: "https://ark.ap-southeast.bytepluses.com/api/v3",
+    api: "openai-completions",
+    keyUrl: "https://console.byteplus.com/ark/region:ark+ap-southeast-1/apiKey"
+  },
+  {
+    id: "siliconflow-global",
+    logo: "siliconflow",
+    name: "SiliconFlow",
+    region: "global",
+    baseUrl: "https://api.siliconflow.com/v1",
+    api: "openai-completions",
+    keyUrl: "https://cloud.siliconflow.com/account/ak"
+  },
+  {
+    id: "minimax-global",
+    logo: "minimax",
+    name: "MiniMax Global",
+    region: "global",
+    baseUrl: "https://api.minimax.io/v1",
+    api: "openai-completions",
+    keyUrl: "https://platform.minimax.io/user-center/basic-information/interface-key"
   },
   {
     id: "ollama",

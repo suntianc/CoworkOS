@@ -50,7 +50,7 @@ export function providerLogo(provider, size = 28) {
   const style = `--logo-size:${size}px`;
   if (!preset)
     return `<span class="provider-logo is-letter" style="${style}" aria-hidden="true">${esc((provider?.name || "?").trim().slice(0, 1).toUpperCase())}</span>`;
-  const url = `/assets/brand/providers/${preset.id}.svg`;
+  const url = `/assets/brand/providers/${preset.logo ?? preset.id}.svg`;
   return preset.mono
     ? `<span class="provider-logo" style="${style}" aria-hidden="true"><span class="provider-logo-mono" style="--logo:url('${url}')"></span></span>`
     : `<span class="provider-logo" style="${style}" aria-hidden="true"><img src="${url}" alt=""></span>`;

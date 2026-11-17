@@ -1448,10 +1448,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
   min-height: 560px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-  overflow: hidden;
 }
 .provider-layout[hidden],
 .model-roles[hidden] {
@@ -1462,7 +1458,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  padding: 14px 10px;
+  padding: 0 14px 0 0;
   border-right: 1px solid var(--color-line);
 }
 .provider-search {
@@ -1604,7 +1600,7 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   flex-direction: column;
   gap: 20px;
   min-width: 0;
-  padding: 22px 26px;
+  padding: 0 0 0 28px;
   overflow-y: auto;
 }
 .provider-head {
@@ -1650,10 +1646,6 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 18px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-surface-2);
 }
 .provider-field {
   display: flex;
@@ -2248,8 +2240,12 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
     grid-template-columns: minmax(0, 1fr);
   }
   .provider-list {
+    padding: 0 0 14px;
     border-right: 0;
     border-bottom: 1px solid var(--color-line);
+  }
+  .provider-detail {
+    padding: 20px 0 0;
   }
   .preset-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2257,4 +2253,10 @@ html[data-desktop-platform="darwin"]:not([data-desktop-fullscreen="true"]) .sett
   .role-picker {
     width: 100%;
   }
+}
+/* The search and key fields draw their own edge; the inner input takes no halo. */
+html[data-theme] body :is(.provider-search, .provider-input) input:not([type="checkbox"]):focus-visible {
+  border: 0;
+  outline: none;
+  box-shadow: none;
 }
