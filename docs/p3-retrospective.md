@@ -76,17 +76,17 @@ UI attempt 1–12 失败，13/14 通过，之后固定候选验收通过。失�
 
 档案标识 `coworkos-p1-docs/os-p3-project-foundation`。下表路径相对于档案根目录；原始日志与安装包独立保存。仓库保留 [脱敏证据摘录](pitfalls/evidence/os-p3-project-foundation/checks.md)，不复制私人路径和操作流水。
 
-| 内容                   | 档案内路径                                                                                                               |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 完整复盘、正式登记     | `retro.md`、`retros/1794118328307-48d1f0b1.md`                                                                           |
-| 审计与最终验收映射     | `evidence/p3-run-audit-before-archive.txt`、`evidence/p3-run-audit-after-retro.txt`、`final-review.md`                   |
-| 共享接口交接           | `evidence/03-merge-02-dispatch-5b894b0b.json`、`messages/04-merge-05-6da228e9.md`                                        |
-| #03 所有权与并发修复   | `reviews/03-951727b9.md`、`reviews/03-cad64805.md`、`reviews/03-065fe0d6.md`                                             |
-| #04 失败保留与恢复竞态 | `reviews/04-7b8bc726.md`、`reviews/04-f3543e2d.md`、`reviews/04-4d90cf63.md`、`reviews/04-dd3a330e.md`                   |
-| #06 分类及逐次原始输出 | `evidence/06-a1/classification.json`、`evidence/06-a1/classification/`、`evidence/06-a1/ac2-ui/`                         |
-| 最终候选验收与独立终审 | `evidence/06-a1/acceptance/candidate-e5e9e567/`、`reviews/final-1-11f0f42c.md`                                           |
-| 同树对应与完整差异     | `evidence/final-review-preparation/source-correspondence.json` 及同目录差异清单                                          |
-| 归档保全与核对         | `evidence/archive-retained/manifest.json`、`evidence/archive-verification.json`、`evidence/archive-main-reconciled.json` |
+| 内容                   | 档案内路径                                                                                                                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 完整复盘、正式登记     | `retro.md`、`retros/1794118328307-48d1f0b1.md`                                                                                                                          |
+| 审计与最终验收映射     | `evidence/p3-run-audit-before-archive.txt`、`evidence/p3-run-audit-after-retro.txt`（两份原件已于 2026-11-17 清理时误删，审计结论见同表 `retro.md`）、`final-review.md` |
+| 共享接口交接           | `evidence/03-merge-02-dispatch-5b894b0b.json`、`messages/04-merge-05-6da228e9.md`                                                                                       |
+| #03 所有权与并发修复   | `reviews/03-951727b9.md`、`reviews/03-cad64805.md`、`reviews/03-065fe0d6.md`                                                                                            |
+| #04 失败保留与恢复竞态 | `reviews/04-7b8bc726.md`、`reviews/04-f3543e2d.md`、`reviews/04-4d90cf63.md`、`reviews/04-dd3a330e.md`                                                                  |
+| #06 分类及逐次原始输出 | `evidence/06-a1/classification.json`、`evidence/06-a1/classification/`、`evidence/06-a1/ac2-ui/`                                                                        |
+| 最终候选验收与独立终审 | `evidence/06-a1/acceptance/candidate-e5e9e567/`、`reviews/final-1-11f0f42c.md`                                                                                          |
+| 同树对应与完整差异     | `evidence/final-review-preparation/source-correspondence.json` 及同目录差异清单                                                                                         |
+| 归档保全与核对         | `evidence/archive-retained/manifest.json`、`evidence/archive-verification.json`、`evidence/archive-main-reconciled.json`                                                |
 
 归档保留 10 份 scratch 原始脚本、3 份基线输入副本、最终及两份早期包、SQLite/PG 备份、失败尝试、19 份 Agent 转录和原始 turns。1006 份保全文件校验通过，6 个外部保护工作树保持不变。已合入的临时工作树与可再生依赖由 Workloop 归档释放，集成分支保留。
 
