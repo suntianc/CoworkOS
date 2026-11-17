@@ -262,9 +262,6 @@ function usedBy(config: CoworkConfig, match: (profileId: string) => boolean): st
   const roles = config.roleModels;
   for (const [role, binding] of Object.entries(roles?.host ?? {}))
     if (match(binding.profileId)) uses.push(role);
-  for (const [project, bindings] of Object.entries(roles?.projects ?? {}))
-    for (const [role, binding] of Object.entries(bindings))
-      if (match(binding.profileId)) uses.push(`${role}（项目 ${project}）`);
   return uses;
 }
 

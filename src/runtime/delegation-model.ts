@@ -91,8 +91,7 @@ export function resolveWorkItemModel(input: {
       model: caller.model || DEFAULT_MODEL,
       api: caller.api,
       thinkingLevel: caller.thinkingLevel,
-      supportsImages: caller.supportsImages,
-      ...(input.delegation.projectId ? { projectId: input.delegation.projectId } : {})
+      supportsImages: caller.supportsImages
     }
   };
 }

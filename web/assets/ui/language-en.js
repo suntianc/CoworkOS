@@ -159,7 +159,6 @@ export default {
   已保存的配置: "Saved profiles",
   "Main 角色": "Main role",
   "Main 角色默认连接": "Default connection for the Main role",
-  项目覆盖: "Project override",
   "当前项目的 Main 模型连接": "Main connection for the current project",
   跟随当前启用连接: "Follow the active connection",
   跟随主机默认: "Follow the host default",
@@ -1331,8 +1330,6 @@ export default {
   角色分配: "Roles",
   搜索供应商: "Search providers",
   添加供应商: "Add provider",
-  "只覆盖当前项目的 Main，其余角色沿用上方设置":
-    "Overrides Main for the current project only; other roles keep the settings above",
   "当前模型连接由启动环境管理，请在启动配置中修改。":
     "The model connection is managed by the launch environment. Change it in the launch configuration.",
   "缺少 API Key": "API key missing",
@@ -1375,8 +1372,6 @@ export default {
   "沿用 Main 的模型": "Same as Main",
   " 的模型": " model",
   推理强度属于所选的模型: "Reasoning effort belongs to the selected model",
-  "当前项目 · Main": "Current project · Main",
-  "跟随上方 Main": "Same as Main above",
   供应商已保存: "Provider saved",
   "预置供应商会自动填好 API 地址和接口格式，只需填写 API Key；其他兼容 OpenAI 或 Anthropic 接口的服务选「自定义」。":
     "Presets fill in the API address and format, so only the API key is needed. For other OpenAI- or Anthropic-compatible services, choose Custom.",

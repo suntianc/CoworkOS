@@ -88,7 +88,6 @@ export function installModelProviders({
   showToast,
   onSaved,
   errorMessage,
-  currentProject,
   identity = () => ""
 }) {
   let snapshot;
@@ -124,10 +123,6 @@ export function installModelProviders({
     </div>
     <div class="model-roles" data-model-view="roles" hidden>
       <div class="settings-rows" data-role-rows></div>
-      <div class="settings-group" data-project-override hidden>
-        <div class="settings-group-head"><h2 class="settings-group-title">${ui("项目覆盖")}</h2><span class="settings-row-meta">${ui("只覆盖当前项目的 Main，其余角色沿用上方设置")}</span></div>
-        <div class="settings-rows" data-project-rows></div>
-      </div>
     </div>`;
   const $ = (selector) => panel.querySelector(selector);
   const notice = $("[data-model-notice]");
@@ -142,9 +137,8 @@ export function installModelProviders({
   const usage = () => {
     const uses = new Map();
     for (const entry of snapshot?.modelRoles?.roles || [])
-      for (const binding of [entry.host, entry.project])
-        if (binding?.profileId)
-          uses.set(binding.profileId, [...(uses.get(binding.profileId) || []), entry.role]);
+      if (entry.host?.profileId)
+        uses.set(entry.host.profileId, [...(uses.get(entry.host.profileId) || []), entry.role]);
     return uses;
   };
   const roleLabel = (role) => ROLES.find((entry) => entry.role === role)?.label || role;
@@ -352,17 +346,6 @@ export function installModelProviders({
         ${entry?.error ? `<span class="role-error" role="alert">${esc(entry.error)}</span>` : ""}
       </div>`;
     }).join("");
-    const project = snapshot?.modelRoles?.projectId;
-    const override = $("[data-project-override]");
-    override.hidden = !project;
-    if (project) {
-      const bound = roleOf("main")?.project?.profileId;
-      $("[data-project-rows]").innerHTML = `<div class="role-row" data-role="main-project">
-        <span class="role-icon">${icon("folder")}</span>
-        <span class="role-text"><span class="role-name">${ui("当前项目 · Main")}</span><span class="role-hint">${esc(project)}</span></span>
-        <button type="button" class="role-picker" data-role-picker="main-project" aria-haspopup="listbox"${locked ? " disabled" : ""}>${pickerLabel(bound, ui("跟随上方 Main"))}${icon("chevron-down")}</button>
-      </div>`;
-    }
   };
 
   /* -------------------------------------------------------------- rendering */
@@ -892,14 +875,8 @@ export function installModelProviders({
     menuRole = "";
   };
   const renderMenu = () => {
-    const current =
-      menuRole === "main-project" ? roleOf("main")?.project?.profileId : roleOf(menuRole)?.host?.profileId;
-    const empty =
-      menuRole === "main-project"
-        ? ui("跟随上方 Main")
-        : menuRole === "main"
-          ? ui("未选择（使用第一个可用模型）")
-          : ui("沿用 Main 的模型");
+    const current = roleOf(menuRole)?.host?.profileId;
+    const empty = menuRole === "main" ? ui("未选择（使用第一个可用模型）") : ui("沿用 Main 的模型");
     const groups = providers()
       .map((provider) => ({
         provider,
@@ -943,13 +920,8 @@ export function installModelProviders({
     if (!pick || pick.disabled) return;
     const role = menuRole;
     closeMenu();
-    const project = role === "main-project" ? snapshot?.modelRoles?.projectId : undefined;
     void run(async () => {
-      await post("/api/model-settings/roles", {
-        role: role === "main-project" ? "main" : role,
-        profileId: pick.dataset.menuPick,
-        ...(project ? { projectId: project } : {})
-      });
+      await post("/api/model-settings/roles", { role, profileId: pick.dataset.menuPick });
       return status();
     }, ui("角色模型已更新"));
   });
@@ -1115,7 +1087,6 @@ export function installModelProviders({
       void refresh().then(() => {
         if (!providers().length) openAdd();
       });
-    },
-    project: currentProject
+    }
   };
 }

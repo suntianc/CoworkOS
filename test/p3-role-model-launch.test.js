@@ -145,7 +145,7 @@ const waitFor = async (check, message, timeout = 20_000) => {
 };
 
 test(
-  "real Main runs use the host default, project override and one-off connection without changing in-flight work",
+  "real Main runs use the host default and a one-off connection without changing in-flight work",
   { timeout: 180_000 },
   async (t) => {
     const a = await provider(t, "连接A");
@@ -231,52 +231,32 @@ test(
       model: "model-b",
       api: "openai-responses",
       thinkingLevel: "high",
-      supportsImages: false,
-      projectId: projectA.projectId
+      supportsImages: false
     });
     assert.equal(hostSnapshot.raw.includes(keyB), false, "the Run record never stores a key");
 
-    // Project override: project A moves to connection A while project B keeps the host default.
-    await request("/api/model-settings/roles", {
-      role: "main",
-      projectId: projectA.projectId,
-      profileId: profileA.id
-    });
-    await createTask(request, projectA.projectId, "role-project-a");
-    await startRun(request, "role-project-a");
-    await settle(request, "role-project-a");
-    assert.equal(a.requests.length, 2);
-    assert.equal(a.requests[1].body.model, "model-a");
-    assert.equal(a.requests[1].body.reasoning_effort, "low");
-    assert.equal(b.requests.length, 1);
-    await createTask(request, projectB.projectId, "role-project-b");
-    await startRun(request, "role-project-b");
-    await settle(request, "role-project-b");
-    assert.equal(b.requests.length, 2, "project B is unaffected by project A's override");
-    assert.equal(b.requests[1].body.model, "model-b");
-
-    // Two sessions in one project: a one-off selection never rewrites the project.
+    // A one-off selection runs on its own connection and never rewrites the host default.
     await createTask(request, projectA.projectId, "role-once");
-    const onceRun = await startRun(request, "role-once", { profileId: profileB.id, model: "model-once" });
+    const onceRun = await startRun(request, "role-once", { profileId: profileA.id, model: "model-once" });
     await settle(request, "role-once");
-    assert.equal(b.requests.length, 3);
-    assert.equal(b.requests[2].body.model, "model-once");
-    assert.equal(a.requests.length, 2, "the explicit session did not leak onto the other provider");
+    assert.equal(a.requests.length, 2);
+    assert.equal(a.requests[1].body.model, "model-once");
+    assert.equal(b.requests.length, 1, "the explicit session did not leak onto the other provider");
     const onceSnapshot = await spawnedPayload(dashboard, "role-once", onceRun.runId);
     assert.equal(onceSnapshot.payload.modelSelection.source, "explicit");
-    assert.equal(onceSnapshot.payload.modelSelection.connectionId, contextB);
+    assert.equal(onceSnapshot.payload.modelSelection.connectionId, contextA);
     assert.equal(onceSnapshot.payload.modelSelection.model, "model-once");
-    const scoped = await request(`/api/model-settings?projectId=${projectA.projectId}`);
+    const settings = await request("/api/model-settings");
     assert.equal(
-      scoped.body.modelRoles.roles.find((role) => role.role === "main").project.profileId,
-      profileA.id,
-      "a one-off choice leaves the saved project override alone"
+      settings.body.modelRoles.roles.find((role) => role.role === "main").host.profileId,
+      profileB.id,
+      "a one-off choice leaves the saved host default alone"
     );
-    await createTask(request, projectA.projectId, "role-after-once");
+    await createTask(request, projectB.projectId, "role-after-once");
     await startRun(request, "role-after-once");
     await settle(request, "role-after-once");
-    assert.equal(a.requests.length, 3, "the next default Run returns to the project override");
-    assert.equal(a.requests[2].body.model, "model-a");
+    assert.equal(b.requests.length, 2, "the next default Run returns to the host default");
+    assert.equal(b.requests[1].body.model, "model-b");
 
     // An explicit reference that no longer exists refuses the launch instead of switching accounts.
     await createTask(request, projectA.projectId, "role-missing");
@@ -287,8 +267,8 @@ test(
     assert.equal(refused.status, 400, JSON.stringify(refused.body));
     assert.match(refused.body.error, /deleted-connection/);
     assert.match(refused.body.error, /不存在/);
-    assert.equal(a.requests.length, 3);
-    assert.equal(b.requests.length, 3);
+    assert.equal(a.requests.length, 2);
+    assert.equal(b.requests.length, 2);
     const missing = await request("/api/tasks/role-missing");
     assert.equal(missing.body.runtime.active, false);
     assert.notEqual(missing.body.task.status, "running");
@@ -330,8 +310,8 @@ test(
     await createTask(request, projectB.projectId, "role-next");
     await startRun(request, "role-next");
     await settle(request, "role-next");
-    assert.equal(a.requests.length, 4, "the next Run uses the new host default");
-    assert.equal(a.requests[3].body.model, "model-a");
+    assert.equal(a.requests.length, 3, "the next Run uses the new host default");
+    assert.equal(a.requests[2].body.model, "model-a");
 
     assert.deepEqual(heldProvider.failures, []);
     assert.deepEqual(a.failures, []);

@@ -74,7 +74,7 @@ async function saveConnection(request, value) {
 const providerOf = (profileId) => profileId.split("#")[0];
 const roleMain = (status) => status.modelRoles?.roles?.find((role) => role.role === "main");
 
-test("host defaults and project overrides persist, keep their source and never travel with a key", async (t) => {
+test("host role defaults persist, keep their source and never travel with a key", async (t) => {
   const dashboard = await startDashboard({ defaultProject: false });
   t.after(() => dashboard.stop());
   const request = client(dashboard);
@@ -97,14 +97,12 @@ test("host defaults and project overrides persist, keep their source and never t
   });
   const profileA = withB.profiles.find((profile) => profile.name === "连接 A");
   const profileB = withB.profiles.find((profile) => profile.name === "连接 B");
-  const projectA = await createProject(request, dashboard, "a");
-  const projectB = await createProject(request, dashboard, "b");
 
-  const initial = await request(`/api/model-settings?projectId=${projectA.projectId}`);
+  const initial = await request("/api/model-settings");
   assert.equal(initial.status, 200, JSON.stringify(initial.body));
   assert.equal(roleMain(initial.body).effective.source, "active");
+  assert.equal(roleMain(initial.body).effective.connectionName, "连接 A / model-a");
   assert.equal(roleMain(initial.body).host, null);
-  assert.equal(roleMain(initial.body).project, null);
   assert.equal(
     initial.body.modelRoles.roles.find((role) => role.role === "executor").wired,
     true,
@@ -126,25 +124,13 @@ test("host defaults and project overrides persist, keep their source and never t
   assert.equal(roleMain(host.body).effective.source, "host");
   assert.equal(roleMain(host.body).effective.connectionName, "连接 B / model-b");
   assert.equal(roleMain(host.body).effective.model, "model-b");
+  const executor = await request("/api/model-settings/roles", { role: "executor", profileId: profileA.id });
+  assert.equal(executor.status, 200, JSON.stringify(executor.body));
+  const executorRole = executor.body.modelRoles.roles.find((role) => role.role === "executor");
+  assert.equal(executorRole.effective.source, "host");
+  assert.equal(executorRole.effective.model, "model-a");
 
-  const project = await request("/api/model-settings/roles", {
-    role: "main",
-    projectId: projectA.projectId,
-    profileId: profileA.id
-  });
-  assert.equal(project.status, 200, JSON.stringify(project.body));
-  assert.equal(roleMain(project.body).project.profileId, profileA.id);
-  assert.equal(roleMain(project.body).effective.source, "project");
-
-  const other = await request(`/api/model-settings?projectId=${projectB.projectId}`);
-  assert.equal(roleMain(other.body).effective.source, "host", "project B keeps the host default");
-  assert.equal(roleMain(other.body).project, null);
-  const scoped = await request(`/api/model-settings?projectId=${projectA.projectId}`);
-  assert.equal(roleMain(scoped.body).effective.source, "project");
-  const unscoped = await request("/api/model-settings");
-  assert.equal(roleMain(unscoped.body).effective.source, "host");
-
-  for (const body of [initial.body, host.body, project.body, other.body, scoped.body, unscoped.body]) {
+  for (const body of [initial.body, host.body, executor.body]) {
     const text = JSON.stringify(body);
     assert.equal(text.includes(keyA), false, "a settings response never returns a key");
     assert.equal(text.includes(keyB), false, "a settings response never returns a key");
@@ -153,29 +139,25 @@ test("host defaults and project overrides persist, keep their source and never t
   const configPath = join(dashboard.root, "config.json");
   const config = JSON.parse(await readFile(configPath, "utf8"));
   assert.equal(JSON.stringify(config).includes(keyA), false, "the public config never stores a key");
-  assert.equal(config.roleModels.version, 1);
-  assert.equal(config.roleModels.host.main.profileId, profileB.id);
-  assert.equal(config.roleModels.projects[projectA.projectId].main.profileId, profileA.id);
+  assert.deepEqual(config.roleModels, {
+    version: 1,
+    host: { main: { profileId: profileB.id }, executor: { profileId: profileA.id } }
+  });
   const credentials = JSON.parse(await readFile(join(dashboard.root, "credentials.json"), "utf8"));
   assert.equal(credentials.modelProviders[providerOf(profileA.id)], keyA);
   assert.equal(credentials.modelProviders[providerOf(profileB.id)], keyB);
 
   await dashboard.restart();
-  const restarted = await request(`/api/model-settings?projectId=${projectA.projectId}`);
-  assert.equal(roleMain(restarted.body).effective.source, "project");
-  assert.equal(roleMain(restarted.body).effective.connectionName, "连接 A / model-a");
-  const restartedHost = await request("/api/model-settings");
-  assert.equal(roleMain(restartedHost.body).effective.source, "host");
+  const restarted = await request("/api/model-settings");
+  assert.equal(roleMain(restarted.body).effective.source, "host");
+  assert.equal(roleMain(restarted.body).effective.connectionName, "连接 B / model-b");
 
-  const cleared = await request("/api/model-settings/roles", {
-    role: "main",
-    projectId: projectA.projectId,
-    profileId: ""
-  });
-  assert.equal(roleMain(cleared.body).project, null);
-  assert.equal(roleMain(cleared.body).effective.source, "host");
+  await request("/api/model-settings/roles", { role: "executor", profileId: "" });
+  const cleared = await request("/api/model-settings/roles", { role: "main", profileId: "" });
+  assert.equal(roleMain(cleared.body).host, null);
+  assert.equal(roleMain(cleared.body).effective.source, "active");
   const stored = JSON.parse(await readFile(configPath, "utf8"));
-  assert.equal(stored.roleModels.projects, undefined, "clearing the last project binding removes the map");
+  assert.equal(stored.roleModels, undefined, "clearing the last binding removes the role section");
 
   const rejectedRole = await request("/api/model-settings/roles", {
     role: "planner",
@@ -189,7 +171,11 @@ test("host defaults and project overrides persist, keep their source and never t
   });
   assert.equal(rejectedProfile.status, 400);
   assert.match(rejectedProfile.body.error, /不存在/);
-  assert.equal(JSON.parse(await readFile(configPath, "utf8")).roleModels.host.main.profileId, profileB.id);
+  assert.equal(
+    JSON.parse(await readFile(configPath, "utf8")).roleModels,
+    undefined,
+    "a refused save writes nothing"
+  );
 });
 
 test("a missing referenced connection is reported where it is used and never replaced by the active one", async (t) => {
@@ -211,7 +197,7 @@ test("a missing referenced connection is reported where it is used and never rep
   await writeFile(configPath, JSON.stringify(config, null, 2));
   await dashboard.restart();
 
-  const status = await request(`/api/model-settings?projectId=${project.projectId}`);
+  const status = await request("/api/model-settings");
   assert.equal(status.status, 200);
   assert.match(roleMain(status.body).error, /deleted-connection/);
   assert.match(roleMain(status.body).error, /不存在/);
@@ -240,7 +226,7 @@ test("a missing referenced connection is reported where it is used and never rep
   assert.equal(credentials.modelProviders[providerOf(profileId)], "{{SECRET_0k3m9d2q}}");
 });
 
-test("resolution prefers an explicit choice, then the project, the host and the active connection", async () => {
+test("resolution prefers an explicit choice, then the host and the active connection", async () => {
   const saved = Object.fromEntries(
     ["COWORK_API_BASE", "COWORK_API_KEY", "COWORK_MODEL"].map((name) => [name, process.env[name]])
   );
@@ -261,31 +247,17 @@ test("resolution prefers an explicit choice, then the project, the host and the 
     assert.equal(resolveModelRole(hosted).thinkingLevel, "high");
     assert.equal(resolveModelRole(hosted).profile.api, "openai-responses");
 
-    const scoped = saveRoleModelBinding(hosted, {
-      role: "main",
-      projectId: "project-1",
-      profileId: connectionId(a)
-    });
-    const project = resolveModelRole(scoped, { projectId: "project-1" });
-    assert.equal(project.source, "project");
-    assert.equal(project.model, "model-a");
-    assert.equal(resolveModelRole(scoped, { projectId: "project-2" }).source, "host");
-
-    const explicit = resolveModelRole(scoped, {
-      projectId: "project-1",
-      profileId: connectionId(b),
-      model: "single-shot"
-    });
+    const explicit = resolveModelRole(hosted, { profileId: connectionId(a), model: "single-shot" });
     assert.equal(explicit.source, "explicit");
-    assert.equal(explicit.connectionId, "b");
+    assert.equal(explicit.connectionId, "a");
     assert.equal(explicit.model, "single-shot");
-    assert.equal(explicit.apiKey, "key-b", "an explicit connection keeps its own key");
-    assert.throws(() => resolveModelRole(scoped, { profileId: "removed" }), /不存在[\s\S]*不会改用其他连接/);
+    assert.equal(explicit.apiKey, "key-a", "an explicit connection keeps its own key");
+    assert.throws(() => resolveModelRole(hosted, { profileId: "removed" }), /不存在[\s\S]*不会改用其他连接/);
 
     // A role with no binding on this host keeps the ordinary active connection.
-    assert.equal(resolveModelRole(scoped, { role: "executor" }).source, "active");
+    assert.equal(resolveModelRole(hosted, { role: "executor" }).source, "active");
 
-    const publicView = publicModelRoles(scoped, "project-1");
+    const publicView = publicModelRoles(hosted);
     assert.equal(JSON.stringify(publicView).includes("key-a"), false);
     assert.equal(JSON.stringify(publicView).includes("key-b"), false);
     assert.equal(publicView.roles.filter((role) => role.wired).length, 3);
@@ -315,9 +287,9 @@ test("the local configuration rejects a malformed role section instead of ignori
   assert.throws(() => readCoworkConfig(root, { COWORK_CONFIG: path }), /版本不兼容/);
   await writeFile(
     path,
-    JSON.stringify({ roleModels: { version: 1, projects: { "": { main: { profileId: "a" } } } } })
+    JSON.stringify({ roleModels: { version: 1, projects: { p: { main: { profileId: "a" } } } } })
   );
-  assert.throws(() => readCoworkConfig(root, { COWORK_CONFIG: path }), /项目 ID 不合法/);
+  assert.throws(() => readCoworkConfig(root, { COWORK_CONFIG: path }), /未知字段：projects/);
 });
 
 function settingsFixture(t, { fail } = {}) {
@@ -361,36 +333,29 @@ function settingsFixture(t, { fail } = {}) {
         models: [model("p-b", "model-b", { reasoningEffort: "high" })]
       }
     ],
-    projectId: "project-1",
     host: null,
-    project: null,
     executor: null
   };
-  // The server scopes the role view by the request: a host-default save names
-  // no project, so its answer carries no project override.
-  const status = (scoped = state.projectId) => ({
+  const status = () => ({
     providers: state.providers,
     activeProfileId: state.host || "p-a#model-a",
     managedByEnvironment: false,
     modelRoles: {
-      projectId: scoped ?? null,
       roles: [
         {
           role: "main",
           wired: true,
           host: state.host ? { profileId: state.host } : null,
-          project: scoped && state.project ? { profileId: state.project } : null,
           effective: null
         },
         {
           role: "executor",
           wired: true,
           host: state.executor ? { profileId: state.executor } : null,
-          project: null,
           effective: null
         },
-        { role: "reviewer", wired: true, host: null, project: null, effective: null },
-        { role: "router", wired: false, host: null, project: null, effective: null }
+        { role: "reviewer", wired: true, host: null, effective: null },
+        { role: "router", wired: false, host: null, effective: null }
       ]
     }
   });
@@ -400,18 +365,16 @@ function settingsFixture(t, { fail } = {}) {
     showToast: (message) => toasts.push(message),
     host: { close: () => true, open() {}, onSection: () => () => {} },
     identity: () => "backend-a",
-    projectId: () => state.projectId,
     async api(path, options) {
       const body = options.body ? JSON.parse(options.body) : undefined;
       requests.push({ path, method: options.method, body });
       if (fail?.(path, body)) throw new Error(fail(path, body));
       if (path === "/api/model-settings/roles") {
-        if (body.projectId) state.project = body.profileId || null;
-        else if (body.role === "executor") state.executor = body.profileId || null;
+        if (body.role === "executor") state.executor = body.profileId || null;
         else state.host = body.profileId || null;
-        return status(body.projectId ?? null);
+        return status();
       }
-      return status(new URL(path, "http://fixture.test").searchParams.get("projectId"));
+      return status();
     }
   });
   const panel = document.querySelector('[data-settings-panel="models"]');
@@ -448,39 +411,27 @@ function settingsFixture(t, { fail } = {}) {
   };
 }
 
-test("the role tab sets Main for the host and the current project and shows each choice", async (t) => {
+test("the role tab sets Main for the host and shows the choice", async (t) => {
   const f = settingsFixture(t);
   await f.open();
   assert.equal(f.panel.querySelector('[data-model-view="roles"]').hidden, false);
   assert.match(f.picker("main").textContent, /未选择/);
   assert.match(f.picker("executor").textContent, /沿用 Main/);
   assert.equal(
-    f.panel.querySelector("[data-project-override]").hidden,
-    false,
-    "a project offers its override"
+    f.requests.some((request) => request.path.includes("projectId")),
+    false
   );
-
-  await f.pick("main-project", "p-b#model-b");
-  assert.deepEqual(f.roleSaves().at(-1).body, {
-    role: "main",
-    profileId: "p-b#model-b",
-    projectId: "project-1"
-  });
-  assert.match(f.picker("main-project").textContent, /model-b/);
-  assert.match(f.picker("main-project").textContent, /连接 B/);
 
   await f.pick("main", "p-b#model-b");
   assert.deepEqual(f.roleSaves().at(-1).body, { role: "main", profileId: "p-b#model-b" });
   assert.match(f.picker("main").textContent, /model-b/);
-  // A host save must not hide the project override the person is editing.
-  assert.match(f.picker("main-project").textContent, /model-b/, "the project override keeps its choice");
+  assert.match(f.picker("main").textContent, /连接 B/);
   assert.equal(f.panel.querySelector('[data-role-effort="main"]').value, "high", "effort follows the model");
 
-  await f.pick("main-project", "");
-  assert.deepEqual(f.roleSaves().at(-1).body, { role: "main", profileId: "", projectId: "project-1" });
-  assert.match(f.picker("main-project").textContent, /跟随上方 Main/);
-  assert.equal(f.state.host, "p-b#model-b");
-  assert.equal(f.state.project, null);
+  await f.pick("main", "");
+  assert.deepEqual(f.roleSaves().at(-1).body, { role: "main", profileId: "" });
+  assert.match(f.picker("main").textContent, /未选择/);
+  assert.equal(f.state.host, null);
 });
 
 test("a role change that fails is reported and the saved choice stays on the page", async (t) => {

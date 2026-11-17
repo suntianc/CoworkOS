@@ -1208,7 +1208,6 @@ export function createDashboardRunService({
     // The connection a retry must still belong to. Resolving it here also refuses
     // an explicit profile id before this request is admitted.
     const roleRequestBase = {
-      ...(location.projectId ? { projectId: location.projectId } : {}),
       ...(submission?.profileId ? { profileId: submission.profileId } : {})
     };
     const retryRequest = continuation

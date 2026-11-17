@@ -4,14 +4,7 @@ import { createSettingsBackend } from "./settings-backend.js";
 import { installModelProviders } from "./model-providers.js";
 
 /** Both hosts share one settings UI; keys are submitted once and never read back. */
-export function installDesktopSettings({
-  showToast,
-  onSaved,
-  host,
-  api,
-  projectId: projectIdOf,
-  identity = () => location.origin
-}) {
+export function installDesktopSettings({ showToast, onSaved, host, api, identity = () => location.origin }) {
   const desktop = window.bookmanDesktop;
   const errorMessage = (error) => {
     const message = typeof error?.message === "string" ? error.message : ui("模型设置暂时不可用，请稍后重试");
@@ -42,29 +35,16 @@ export function installDesktopSettings({
     };
     return settingsBackend.request(path, options);
   };
-  const currentProject = () => {
-    const value = projectIdOf?.();
-    return typeof value === "string" ? value : "";
-  };
-  const status = () => {
-    const scoped = currentProject();
-    return request(
-      "GET",
-      undefined,
-      scoped ? `/api/model-settings?projectId=${encodeURIComponent(scoped)}` : "/api/model-settings"
-    );
-  };
   const models = installModelProviders({
     panel: document.querySelector('[data-settings-panel="models"]'),
     request,
     status: () => {
       settingsBackend.bind();
-      return status();
+      return request("GET");
     },
     showToast,
     onSaved,
     errorMessage,
-    currentProject,
     identity
   });
   host?.onSection?.("models", () => void models.refresh());

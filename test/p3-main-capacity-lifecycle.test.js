@@ -829,7 +829,7 @@ async function spawnPayload(dashboard, taskId, runId) {
 }
 
 test(
-  "a queued external Main fixes host and project defaults when it gets a slot and keeps explicit choices",
+  "a queued external Main fixes the host default when it gets a slot and keeps explicit choices",
   { timeout: 240_000 },
   async (t) => {
     const a = await accountProvider(t, "连接A", "openai-completions");
@@ -909,18 +909,12 @@ test(
     assert.match(queuedState, /model-explicit/, "the explicit model is kept with the demand");
     assert.match(queuedState, /profileId/, "the explicit connection is kept with the demand");
 
-    // While they wait, the host default and the project default both move to B.
+    // While they wait, the host default moves to B.
     const hostSwitch = await request("/api/model-settings/roles", {
       role: "main",
       profileId: profileB.id
     });
     assert.equal(hostSwitch.status, 200, JSON.stringify(hostSwitch.body));
-    const projectSwitch = await request("/api/model-settings/roles", {
-      role: "main",
-      projectId: projects.queued.projectId,
-      profileId: profileB.id
-    });
-    assert.equal(projectSwitch.status, 200, JSON.stringify(projectSwitch.body));
     assert.equal(a.requests.length, 1, "the in-flight Run is untouched by the role change");
     assert.equal(b.requests.length, 0);
 
@@ -936,7 +930,7 @@ test(
     assert.equal(inflightRequest.authorization, `Bearer ${keyA}`);
     assert.equal(inflightRequest.body.model, "model-a");
     const queuedRequest = b.requests.find((entry) => entry.tag === "queued");
-    assert.equal(queuedRequest.authorization, `Bearer ${keyB}`, "the new host/project default is used");
+    assert.equal(queuedRequest.authorization, `Bearer ${keyB}`, "the new host default is used");
     assert.equal(queuedRequest.path, "/v1/responses", "the role profile is pinned");
     assert.equal(queuedRequest.body.model, "model-b");
     const explicitRequest = b.requests.find((entry) => entry.tag === "explicit");
@@ -950,7 +944,7 @@ test(
     const inflightSnapshot = await spawnPayload(dashboard, sessions.inflight.taskId, inflight.body.runId);
     assert.equal(inflightSnapshot.modelSelection.connectionId, contextA);
     const queuedSnapshot = await spawnPayload(dashboard, sessions.queued.taskId, queued.body.runId);
-    assert.equal(queuedSnapshot.modelSelection.source, "project");
+    assert.equal(queuedSnapshot.modelSelection.source, "host");
     assert.equal(queuedSnapshot.modelSelection.model, "model-b");
     const explicitSnapshot = await spawnPayload(dashboard, sessions.explicit.taskId, explicit.body.runId);
     assert.equal(explicitSnapshot.modelSelection.source, "explicit");

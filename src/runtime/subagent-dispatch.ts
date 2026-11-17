@@ -281,7 +281,6 @@ export class SubagentDispatchService {
       : undefined;
     const delegation: DelegatedModelRequest = {
       role,
-      ...(task.projectId ? { projectId: task.projectId } : {}),
       ...(request.profileId?.trim() ? { profileId: request.profileId.trim() } : {}),
       ...(request.model?.trim() ? { model: request.model.trim() } : {})
     };

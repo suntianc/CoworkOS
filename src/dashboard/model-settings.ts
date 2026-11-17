@@ -57,7 +57,7 @@ export function createModelSettings(
   if (!store.error) applyHostCredentials(config, store.value);
   const managed = () =>
     ENVIRONMENT_KEYS.some((key) => process.env[key] !== undefined && process.env[key] !== "");
-  const status = (projectId?: string) => {
+  const status = () => {
     const error = store.error;
     return {
       ...publicProviders(config),
@@ -68,7 +68,7 @@ export function createModelSettings(
       ),
       managedByEnvironment: managed(),
       ...(error ? { credentialError: error } : {}),
-      modelRoles: publicModelRoles(config, projectId)
+      modelRoles: publicModelRoles(config)
     };
   };
   /**
@@ -228,9 +228,7 @@ export function createModelSettings(
      */
     async saveRole(value: Record<string, unknown>) {
       await update((previous) => withActiveConnection(saveRoleModelBinding(previous, value)), true);
-      const projectId =
-        typeof value.projectId === "string" && value.projectId.trim() ? value.projectId.trim() : undefined;
-      return status(projectId);
+      return status();
     }
   };
 }

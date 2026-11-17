@@ -597,9 +597,7 @@ export function createDashboardHandler(
         return;
       }
       if (url.pathname === "/api/model-settings") {
-        const scopedProject = url.searchParams.get("projectId") ?? "";
-        if (request.method === "GET")
-          sendJson(response, 200, ports.modelSettings.status(scopedProject || undefined));
+        if (request.method === "GET") sendJson(response, 200, ports.modelSettings.status());
         else sendJson(response, 405, { error: "method not allowed" });
         return;
       }
