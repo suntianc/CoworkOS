@@ -1565,14 +1565,14 @@ html[data-theme] .composer .model-picker {
 .effort-reset {
   grid-column: 3;
   grid-row: 1;
-  justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
+  justify-self: start;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 4px;
   border-radius: 6px;
   color: var(--color-text-3) !important;
-  font-size: 12px !important;
 }
 .effort-reset[hidden] {
   display: none;
@@ -1603,8 +1603,7 @@ html[data-theme] .composer .model-picker {
 :is(.effort-reset, .effort-model, .picker-back, .model-picker .model-option):hover {
   background: var(--hover-fill) !important;
 }
-.effort-rail,
-.effort-labels {
+.effort-rail {
   --den: max(calc(var(--steps) - 1), 1);
   --span: calc(100% - 30px);
   position: relative;
@@ -1661,27 +1660,8 @@ html[data-theme] .composer .model-picker {
 .effort-rail.is-dragging :is(.effort-fill, .effort-knob) {
   transition: none;
 }
-.effort-labels {
-  height: 16px;
-}
-.effort-labels button {
-  position: absolute;
-  top: 0;
-  left: calc(15px + var(--span) * var(--i) / var(--den));
-  transform: translateX(-50%);
-  padding: 0 2px;
-  color: var(--color-text-3) !important;
-  font-size: 11px !important;
-  white-space: nowrap;
-}
-.effort-labels button[aria-pressed="true"] {
-  color: var(--color-text) !important;
-  font-weight: 600;
-}
 .effort-foot {
   margin: 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--color-line);
   color: var(--color-text-3);
   font-size: 11px;
   line-height: 1.5;

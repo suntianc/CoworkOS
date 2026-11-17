@@ -39,17 +39,21 @@ test("the reasoning rail follows each model's levels, keys move it, and a model 
     const menu = page.locator("#model-menu");
     const rail = menu.locator(".effort-rail");
     await expect(rail).toBeFocused();
-    await expect(menu.locator("[data-thinking-level]")).toHaveCount(6);
+    // "Off" is not on the rail, and the rail carries no names under it.
+    await expect(menu.locator(".effort-notch")).toHaveCount(5);
+    await expect(menu.locator(".effort-labels")).toHaveCount(0);
+    await expect(menu.locator(".effort-foot")).toHaveCount(0);
     await expect(menu.locator(".effort-level small")).toHaveText("默认");
 
     // Keys move the level and the choice applies at once.
     await page.keyboard.press("Home");
-    await expect(rail).toHaveAttribute("aria-valuetext", "关闭");
-    await page.keyboard.press("ArrowRight");
+    await expect(rail).toHaveAttribute("aria-valuetext", "低");
     await page.keyboard.press("ArrowRight");
     await expect(rail).toHaveAttribute("aria-valuetext", "中");
     await expect(page.locator("#model-select .reasoning-name")).toHaveText("中");
     await expect(menu.locator("[data-effort-reset]")).toBeVisible();
+    await expect(menu.locator("[data-effort-reset]")).toHaveText("");
+    await expect(menu.locator("[data-effort-reset]")).toHaveAttribute("aria-label", "恢复默认");
     await expect(menu.locator(".effort-level small")).toHaveCount(0);
 
     // The model list is the second page; ArrowLeft returns to the rail.
@@ -62,7 +66,7 @@ test("the reasoning rail follows each model's levels, keys move it, and a model 
     await menu.locator(".effort-model").click();
     await menu.locator('[data-model="narrow-model"]').click();
     await expect(menu).toBeVisible();
-    await expect(menu.locator("[data-thinking-level]")).toHaveText(["关闭", "高", "最大"]);
+    await expect(menu.locator(".effort-notch")).toHaveCount(2);
     await expect(rail).toHaveAttribute("aria-valuetext", "高");
     await expect(menu.locator(".effort-foot")).toHaveText("此模型不支持「中」，已改为「高」。");
     await expect(page.locator("#model-select .model-name")).toHaveText("narrow-model");
@@ -70,11 +74,19 @@ test("the reasoning rail follows each model's levels, keys move it, and a model 
 
     await page.keyboard.press("End");
     await expect(rail).toHaveAttribute("aria-valuetext", "最大");
-    await expect(menu.locator(".effort-foot")).toHaveText("只影响这个会话。");
+    await expect(menu.locator(".effort-foot")).toHaveCount(0);
 
-    // A click on a notch label picks it; 恢复默认 returns to the connection's level.
-    await menu.locator('[data-thinking-level="off"]').click();
-    await expect(page.locator("#model-select .reasoning-name")).toHaveText("关闭");
+    // While the knob is held the heading names the level under it; letting go picks it.
+    const box = await rail.boundingBox();
+    await page.mouse.move(box.x + box.width - 8, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 8, box.y + box.height / 2);
+    await expect(menu.locator(".effort-level-name")).toHaveText("高");
+    await expect(page.locator("#model-select .reasoning-name")).toHaveText("最大");
+    await page.mouse.up();
+    await expect(page.locator("#model-select .reasoning-name")).toHaveText("高");
+
+    // The reset key returns to the connection's level.
     await menu.locator("[data-effort-reset]").click();
     await expect(menu.locator(".effort-level small")).toHaveText("默认");
 
@@ -118,7 +130,7 @@ test("a model's supported levels are checked by hand for a relay and read from P
     expect(activeModelOf(status).reasoningLevels).toEqual(["off", "low", "medium", "high"]);
     await leaveSettings(page);
     await page.locator("#model-select").click();
-    await expect(page.locator("#model-menu [data-thinking-level]")).toHaveText(["关闭", "低", "中", "高"]);
+    await expect(page.locator("#model-menu .effort-notch")).toHaveCount(3);
     await page.keyboard.press("Escape");
 
     // An official address is read from Pi's table and cannot be narrowed by hand.

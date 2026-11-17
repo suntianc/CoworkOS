@@ -241,7 +241,7 @@ html[data-theme] .composer:has(#composer-input:placeholder-shown):not(:has(.atta
   background: var(--color-surface-3);
   color: var(--color-text-3);
 }
-html[data-theme] .composer .model-menu {
+html[data-theme] .composer .model-picker {
   right: 0;
   left: auto;
 }
@@ -345,8 +345,11 @@ html[data-theme] .composer .queued-message {
 
 /* ------------------------------------------------------------ process steps */
 
-/* While Main works, the run pill already says which step and how long; the
-   heading keeps only what it is doing now. */
+/* While the run pill shows, it names what Main is doing; the transcript
+   heading would only repeat it above the steps. */
+body:has(#run-control:not([hidden])) .live-workflow[aria-live] > .live-workflow-head {
+  display: none;
+}
 .live-workflow[aria-live] :is(.workflow-heading > span, .live-caption) {
   display: none;
 }
@@ -354,10 +357,34 @@ html[data-theme] .composer .queued-message {
   font-weight: 500;
 }
 
-/* One quiet line per tool call: status mark, verb, subject, duration. */
-html[data-theme] .tool-step .activity-step-head {
-  gap: 8px;
+/* Every step is one row on the same grid: a 16px mark, then its words in
+   one tone. What follows a row (a note, its details) starts under the words. */
+html[data-theme] .workflow-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
+html[data-theme] .workflow-rail > .activity-step,
+html[data-theme] .workflow-rail > .tool-step {
+  min-height: 0;
+  padding: 4px 0;
+}
+html[data-theme] .workflow-rail > .live-answer {
+  padding: 8px 0 10px;
+}
+html[data-theme] :is(.tool-details, .reasoning-details) > summary,
+html[data-theme] .reasoning-step .activity-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+html[data-theme] .reasoning-step .activity-step-head strong {
+  color: var(--color-text-2);
+  font-weight: 400;
+}
+
+/* One quiet line per tool call: status mark, verb, subject, duration. */
 html[data-theme] .tool-step .activity-status {
   order: -1;
   display: inline-grid;
@@ -386,10 +413,11 @@ html[data-theme] .tool-step.is-done .tool-status-dot {
     center / contain no-repeat;
 }
 html[data-theme] .tool-step .tool-action strong {
-  color: var(--color-text);
+  color: var(--color-text-2);
   font-weight: 500;
 }
 html[data-theme] .tool-step .tool-subject {
+  color: var(--color-text-3);
   font-family: var(--ui-mono);
   font-size: 12px;
 }
@@ -398,15 +426,70 @@ html[data-theme] .tool-step .tool-duration {
   color: var(--color-text-3);
   font-variant-numeric: tabular-nums;
 }
-
-/* Thinking reads "思考中 · what it is on", the state first. */
-html[data-theme] .reasoning-details > summary .reasoning-state {
-  order: -1;
-  color: var(--color-text);
-  font-weight: 500;
+/* A tool's note (a delegated brief, a result line) is one muted line under
+   its words; the whole text is in the details. A failure keeps three. */
+html[data-theme] .tool-step .tool-context {
+  display: -webkit-box;
+  margin: 0;
+  padding-left: 24px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  color: var(--color-text-3);
+  font-size: 12.5px;
+  line-height: 20px;
 }
+html[data-theme] .tool-step .tool-context.is-failure {
+  -webkit-line-clamp: 3;
+}
+html[data-theme] .tool-step .tool-details-body,
+html[data-theme] .reasoning-details > .reasoning-copy {
+  margin-left: 24px;
+}
+
+/* A folded batch and a failed call keep the mark column too: a quiet dot for
+   the batch, a red one for the failure, and the batch opens onto a guide. */
+html[data-theme] :is(.tool-group-details, .tool-step.is-failed .tool-details) > summary::before {
+  content: "";
+  flex: 0 0 16px;
+  height: 16px;
+  background: radial-gradient(circle closest-side, var(--dot, var(--color-text-3)) 2.5px, transparent 3.2px);
+}
+html[data-theme] .tool-step.is-failed .tool-details > summary::before {
+  --dot: var(--color-danger, #e5484d);
+  order: -2;
+}
+html[data-theme] .tool-step.is-failed .tool-status-dot {
+  display: none;
+}
+html[data-theme] .tool-group-details > summary {
+  min-height: 26px;
+  color: var(--color-text-2);
+}
+html[data-theme] .tool-group-body {
+  margin-left: 7px;
+}
+
+/* A thought reads like a step: its mark, what it is on, then its state. */
 html[data-theme] .reasoning-details > summary .thinking-spinner {
   order: -2;
+}
+html[data-theme] .reasoning-details > summary:not(:has(.thinking-spinner))::before {
+  content: "";
+  flex: 0 0 16px;
+  height: 16px;
+  background: radial-gradient(circle closest-side, var(--color-text-3) 2.5px, transparent 3.2px);
+}
+html[data-theme] .reasoning-details > summary .reasoning-preview {
+  flex: 0 1 auto;
+  color: var(--color-text-2);
+}
+html[data-theme] .reasoning-details > summary .reasoning-state {
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+html[data-theme] .reasoning-details > summary .reasoning-chevron {
+  margin-left: 0;
 }
 
 /* A finished turn folds into one line: 用时 · 操作数 ›, opening onto a guide rail. */
@@ -455,4 +538,56 @@ html[data-theme] .execution-history[open] > .live-workflow {
 }
 .model-picker .model-option .provider-logo {
   flex: none;
+}
+
+/* Requirement panel without a requirement: the Subagents at work, then why
+   the phases are missing. */
+.rp-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rp-agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  color: var(--color-text-2);
+  font-size: 13px;
+}
+.rp-agent-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  color: var(--color-text-3);
+}
+.rp-agent-mark .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+.rp-agent-mark.is-active .ui-icon {
+  animation: ui-spin 1.1s linear infinite;
+}
+.rp-agent-name {
+  color: var(--color-text);
+  font-weight: 500;
+}
+.rp-agent-role,
+.rp-agent-state {
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+.rp-empty {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-agent-mark.is-active .ui-icon {
+    animation: none;
+  }
 }

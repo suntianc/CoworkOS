@@ -973,6 +973,8 @@ export default {
   执行细节: "Execution details",
   工具调用: "Tool calls",
   "子 Agent": "Subagents",
+  "这个会话没有关联需求。开发类任务开始后，这里会显示阶段、完成标准和改动。":
+    "No requirement is linked to this conversation. When development starts, its phase, criteria and changes show here.",
   工作目录: "Working directory",
   会话标识: "Session id",
   "查看 diff": "View diff",

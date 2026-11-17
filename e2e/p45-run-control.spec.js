@@ -379,7 +379,7 @@ test("while Main waits the strip names the Subagents it waits for, and the model
     await page.locator("#model-select").click();
     const menu = page.locator("#model-menu");
     await expect(menu.locator(".effort-rail")).toBeFocused();
-    await expect(menu.locator("[data-thinking-level]")).toHaveCount(6);
+    await expect(menu.locator("[data-thinking-level]")).toHaveCount(5);
     await menu.locator('[data-thinking-level="medium"]').click();
     await expect(page.locator("#model-select .reasoning-name")).toHaveText("中");
     // The pick applies at once and the popover stays open until Esc.
