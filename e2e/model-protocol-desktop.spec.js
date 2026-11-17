@@ -5,7 +5,17 @@ import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
-import { openModelConnectionEditor } from "./settings-helper.js";
+import {
+  activeModelOf,
+  addProviderThroughUi,
+  checkProvider,
+  leaveSettings,
+  openModelParams,
+  openModelSettings,
+  saveProviderEdits,
+  setupDialog,
+  windowRequest
+} from "./model-provider-ui.js";
 
 for (const reasoningEffort of ["off", "max"]) {
   test(`native desktop persists each protocol and ${reasoningEffort} across saves and application relaunch`, async ({}, testInfo) => {
@@ -46,44 +56,42 @@ for (const reasoningEffort of ["off", "max"]) {
         const responseText = `协议会话验证成功 ${api}`;
         const provider = await modelProtocolFixture(api, () => ({ text: responseText }));
         providers.push(provider);
-        const dialog = page.getByRole("dialog", { name: "连接模型" });
-        if (api === "openai-responses") await openModelConnectionEditor(page);
-        await expect(dialog).toBeVisible();
-        await dialog.locator('[name="baseUrl"]').fill(provider.baseUrl);
-        await dialog.locator('[name="api"]').selectOption(api);
-        await dialog.locator('[name="model"]').fill("protocol-fixture");
-        await dialog.locator('[name="apiKey"]').fill("local-desktop-fixture");
-        await dialog.getByText("高级连接参数", { exact: true }).click();
-        await dialog.locator('[name="supportsReasoningEffort"]').check();
-        await dialog.locator('[name="reasoningEffort"]').selectOption(reasoningEffort);
-        await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
-        await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
-        await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-        await expect(dialog).toBeHidden();
-        // A connection edited from settings keeps the page open behind the dialog.
-        if (await page.locator("#settings-entry").isVisible()) await page.locator("#settings-back").click();
+        if (api === "openai-completions") {
+          await expect(setupDialog(page)).toBeVisible();
+          await addProviderThroughUi(page, {
+            baseUrl: provider.baseUrl,
+            api,
+            model: "protocol-fixture",
+            apiKey: "local-desktop-fixture"
+          });
+        } else {
+          // The same provider moves to another address and format; its key stays.
+          const panel = await openModelSettings(page);
+          await panel.locator('[data-field="baseUrl"]').fill(provider.baseUrl);
+          await panel.locator(`[data-api="${api}"]`).click();
+          await saveProviderEdits(page);
+          await expect(panel.locator("[data-provider-save]")).toBeHidden();
+        }
+        const params = await openModelParams(page, "protocol-fixture");
+        const supports = params.locator('[data-model-switch="supportsReasoningEffort"]');
+        if ((await supports.getAttribute("aria-checked")) !== "true") await supports.click();
+        await params.locator('[data-model-field="reasoningEffort"]').selectOption(reasoningEffort);
+        await params.locator("[data-model-save]").click();
+        await expect(params).toBeHidden();
+        await expect(await checkProvider(page)).toContainText("连接通过");
+        await leaveSettings(page);
         await expect(page.locator("#composer-input")).toBeVisible();
         await native.close();
         native = undefined;
         page = await launch();
         await expect(page.locator("#composer-input")).toBeVisible();
-        const readStatus = () =>
-          page.evaluate(async () =>
-            (
-              await fetch("/api/model-settings", {
-                headers: window.bookmanDesktop?.transportNonce
-                  ? { "x-cowork-desktop-nonce": window.bookmanDesktop.transportNonce }
-                  : {}
-              })
-            ).json()
-          );
+        const readStatus = async () => (await windowRequest(page)("/api/model-settings")).body;
         // A relaunched window authorizes its transport once the host session is ready.
         await expect.poll(async () => (await readStatus()).configured).toBe(true);
         const status = await readStatus();
-        expect(status.api).toBe(api);
-        expect(status.reasoningEffort).toBe(reasoningEffort);
-        expect(status.configured).toBe(true);
-        expect(status).not.toHaveProperty("apiKey");
+        expect(status.providers[0].api).toBe(api);
+        expect(activeModelOf(status).reasoningEffort).toBe(reasoningEffort);
+        expect(JSON.stringify(status)).not.toContain("local-desktop-fixture");
         if (api === "openai-completions") {
           await page.locator("#new-project").click();
           await page.locator("#add-project-name").fill("模型协议验收项目");

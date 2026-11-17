@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
-import { openModelConnectionEditor, openWebSearchSettings } from "./settings-helper.js";
+import { saveTestConnection } from "../test/model-provider-fixture.mjs";
+import { openModelSettings } from "./model-provider-ui.js";
+import { openWebSearchSettings } from "./settings-helper.js";
 import { createServer } from "node:net";
 import { once } from "node:events";
 
@@ -23,6 +25,15 @@ async function post(base, path, body) {
   return response.json();
 }
 
+const request = (base) => async (path, body) => {
+  const response = await fetch(`${base}${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  return { status: response.status, body: await response.json() };
+};
+
 test("dirty model and search settings stay with their backend when switching", async ({ page }) => {
   const portA = await freePort();
   let portB = await freePort();
@@ -44,7 +55,7 @@ test("dirty model and search settings stay with their backend when switching", a
       [a, "a"],
       [b, "b"]
     ]) {
-      await post(backend.base, "/api/model-settings", {
+      await saveTestConnection(request(backend.base), {
         profileName: `profile-${name}`,
         baseUrl: `https://${name}.invalid/v1`,
         model: `model-${name}`,
@@ -55,13 +66,15 @@ test("dirty model and search settings stay with their backend when switching", a
     await post(b.base, "/api/web-search-settings", { provider: "off" });
     const requests = [];
     page.on("request", (request) => {
-      if (/\/api\/(model-settings|web-search-settings)$/.test(new URL(request.url()).pathname))
+      if (/\/api\/(model-settings\/providers|web-search-settings)$/.test(new URL(request.url()).pathname))
         requests.push({ url: request.url(), method: request.method(), body: request.postDataJSON() });
     });
     await page.goto(a.base);
+    // A provider's unsaved edits are drafts of the backend they were made on.
     const openModel = async () => {
-      await openModelConnectionEditor(page);
-      return page.getByRole("dialog", { name: "连接模型", exact: true });
+      const panel = await openModelSettings(page);
+      await panel.locator(".provider-item").first().click();
+      return panel;
     };
     const openSearch = async () => openWebSearchSettings(page);
     const switchTo = async (base) => {
@@ -83,14 +96,10 @@ test("dirty model and search settings stay with their backend when switching", a
     };
 
     let model = await openModel();
-    await expect(model.locator('[name="model"]')).toHaveValue("model-a");
-    await model.locator('[name="model"]').fill("draft-model-a");
-    await model.locator('[name="apiKey"]').fill("draft-key-a");
-    await model.locator("details summary").click();
-    await model.locator('[name="contextWindow"]').fill("");
-    await model.locator('[name="mainMaxTokens"]').fill("2048");
-    await model.locator('[name="subagentMaxTokens"]').fill("");
-    await model.locator("[data-model-close]").click();
+    await expect(model.locator(".provider-name-input")).toHaveValue("profile-a");
+    await model.locator(".provider-name-input").fill("draft-name-a");
+    await model.locator('[data-field="apiKey"]').fill("draft-key-a");
+    await model.locator('[data-field="baseUrl"]').fill("https://draft-a.invalid/v1");
     let search = await openSearch();
     await expect(search.locator('[name="provider"]')).toHaveValue("exa");
     await search.locator("details summary").click();
@@ -99,14 +108,12 @@ test("dirty model and search settings stay with their backend when switching", a
 
     await switchTo(b.base);
     model = await openModel();
-    await expect(model.locator('[name="model"]')).toHaveValue("model-b");
-    await expect(model.locator('[name="apiKey"]')).toHaveValue("");
-    await model.locator("[data-model-close]").click();
-    model = await openModel();
-    await model.locator('[name="model"]').fill("saved-model-b");
-    await model.locator('[name="apiKey"]').fill("saved-key-b");
-    await model.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(model).toBeHidden();
+    await expect(model.locator(".provider-name-input")).toHaveValue("profile-b");
+    await expect(model.locator('[data-field="apiKey"]')).toHaveValue("");
+    await model.locator(".provider-name-input").fill("saved-name-b");
+    await model.locator('[data-field="apiKey"]').fill("saved-key-b");
+    await model.locator("[data-provider-save]").click();
+    await expect(model.locator("[data-provider-save]")).toBeHidden();
     search = await openSearch();
     await expect(search.locator('[name="provider"]')).toHaveValue("off");
     await expect(search.locator('[name="exaApiKey"]')).toHaveValue("");
@@ -121,12 +128,9 @@ test("dirty model and search settings stay with their backend when switching", a
 
     await switchTo(a.base);
     model = await openModel();
-    await expect(model.locator('[name="model"]')).toHaveValue("draft-model-a");
-    await expect(model.locator('[name="apiKey"]')).toHaveValue("draft-key-a");
-    await expect(model.locator('[name="contextWindow"]')).toHaveValue("");
-    await expect(model.locator('[name="mainMaxTokens"]')).toHaveValue("2048");
-    await expect(model.locator('[name="subagentMaxTokens"]')).toHaveValue("");
-    await model.locator("[data-model-close]").click();
+    await expect(model.locator(".provider-name-input")).toHaveValue("draft-name-a");
+    await expect(model.locator('[data-field="apiKey"]')).toHaveValue("draft-key-a");
+    await expect(model.locator('[data-field="baseUrl"]')).toHaveValue("https://draft-a.invalid/v1");
     search = await openSearch();
     await expect(search.locator('[name="exaApiKey"]')).toHaveValue("draft-search-a");
     await search.locator("[data-search-close]").click();
@@ -137,8 +141,8 @@ test("dirty model and search settings stay with their backend when switching", a
     const searchB = await (await fetch(`${b.base}/api/web-search-settings`)).json();
     const backendA = await (await fetch(`${a.base}/api/backend`)).json();
     const backendB = await (await fetch(`${b.base}/api/backend`)).json();
-    expect(modelA.model).toBe("model-a");
-    expect(modelB.model).toBe("saved-model-b");
+    expect(modelA.providers[0].name).toBe("profile-a");
+    expect(modelB.providers[0].name).toBe("saved-name-b");
     expect(searchA).toMatchObject({ provider: "exa", authenticated: false });
     expect(searchB).toMatchObject({ provider: "exa", authenticated: true });
     expect(JSON.stringify(modelB)).not.toContain("saved-key-b");
@@ -147,8 +151,9 @@ test("dirty model and search settings stay with their backend when switching", a
       requests.filter((request) => request.method === "POST").map((request) => new URL(request.url).origin)
     ).toEqual([b.base, b.base]);
     expect(
-      requests.find((request) => request.url === `${b.base}/api/model-settings` && request.method === "POST")
-        .body.apiKey
+      requests.find(
+        (request) => request.url === `${b.base}/api/model-settings/providers` && request.method === "POST"
+      ).body.apiKey
     ).toBe("saved-key-b");
     expect(
       requests.find(
@@ -163,14 +168,14 @@ test("dirty model and search settings stay with their backend when switching", a
           backendId: backendA.backendId,
           pid: a.child.pid,
           root: a.root,
-          model: modelA.model,
+          provider: modelA.providers[0].name,
           search: searchA.provider
         },
         b: {
           backendId: backendB.backendId,
           pid: b.child.pid,
           root: b.root,
-          model: modelB.model,
+          provider: modelB.providers[0].name,
           search: searchB.provider,
           searchAuthenticated: searchB.authenticated
         },

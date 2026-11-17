@@ -14,6 +14,7 @@ import {
   startProjectDataDashboard
 } from "./p3-storage-fixture.mjs";
 import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend-instance.js";
+import { saveTestConnection } from "./model-provider-fixture.mjs";
 
 /**
  * The whole P3 product on one real stack, on both engines.
@@ -162,15 +163,15 @@ async function startSecondaryBackend(t, authority, config = {}, options = {}) {
 }
 
 async function saveConnection(request, value) {
-  const saved = await request("/api/model-settings", {
+  const saved = await saveTestConnection(request, {
     api: "openai-completions",
     supportsImages: false,
     supportsReasoningEffort: true,
     reasoningEffort: "low",
     ...value
   });
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  return saved.body;
+  assert.equal(saved.status, 200, JSON.stringify(saved));
+  return saved;
 }
 
 const profileNamed = (saved, name) => {
@@ -548,7 +549,7 @@ for (const engine of PROJECT_DATA_ENGINES) {
   );
 
   test(
-    `${engine}: fixed slots queue, the Main model override and a restart reconcile the shared facts`,
+    `${engine}: fixed slots queue, Main model choices and a restart reconcile the shared facts`,
     { timeout: 300_000 },
     async (t) => {
       const hostModel = await provider(t, "authority");
@@ -569,13 +570,13 @@ for (const engine of PROJECT_DATA_ENGINES) {
       });
       const withProject = await saveConnection(request, {
         profileId: "",
-        profileName: "项目覆盖",
+        profileName: "指定连接",
         baseUrl: projectModel.base,
         model: "model-project",
         apiKey: "fixture-project-key"
       });
       const hostProfile = profileNamed(hostSaved, "主机默认");
-      const projectProfile = profileNamed(withProject, "项目覆盖");
+      const projectProfile = profileNamed(withProject, "指定连接");
       const hostRole = await request("/api/model-settings/roles", {
         role: "main",
         profileId: hostProfile.id
@@ -585,12 +586,6 @@ for (const engine of PROJECT_DATA_ENGINES) {
       const a = await createProject(authority, `model-${engine}-a`);
       const q1 = await createProject(authority, `queue-${engine}-one`);
       const q2 = await createProject(authority, `queue-${engine}-two`);
-      const projectRole = await request("/api/model-settings/roles", {
-        role: "main",
-        projectId: a.projectId,
-        profileId: projectProfile.id
-      });
-      assert.equal(projectRole.status, 200, JSON.stringify(projectRole.body));
 
       const externalOne = await createSession(request, q1.projectId, {
         title: "常规一",
@@ -681,17 +676,18 @@ for (const engine of PROJECT_DATA_ENGINES) {
       assert.equal(queuedSelection.source, "explicit");
       assert.equal(queuedSelection.model, "model-queued");
 
-      // Project override beats the host role; another project keeps the host
-      // default. Internal sessions spend no external slot.
+      // A session's own choice beats the host role; a session without one keeps
+      // the host default. Internal sessions spend no external slot.
       const modelSession = await createSession(request, a.projectId, { title: "A 项目内部会话" });
       const projectRun = await runTask(request, modelSession.taskId, {
-        prompt: "[tag:model-project] 使用项目覆盖连接。",
-        mainSessionId: modelSession.sessionId
+        prompt: "[tag:model-project] 使用指定连接。",
+        mainSessionId: modelSession.sessionId,
+        profileId: projectProfile.id
       });
       assert.equal(projectRun.status, 202, JSON.stringify(projectRun.body));
       await settle(request, modelSession.taskId, "completed");
       const projectSelection = await selectionFor(authority, modelSession.taskId, projectRun.body.runId);
-      assert.equal(projectSelection.source, "project");
+      assert.equal(projectSelection.source, "explicit");
       assert.equal(projectSelection.model, "model-project");
       assert.equal(projectModel.tagged("model-project").length, 1);
       assert.equal(hostModel.tagged("model-project").length, 0);
@@ -796,10 +792,11 @@ for (const engine of PROJECT_DATA_ENGINES) {
       assert.equal(projectModel.requests.length, projectRequestsBefore);
 
       // The next turn resumes the history that survived the restart and spends
-      // exactly one new model request on the project override.
+      // exactly one new model request on the session's chosen connection.
       const resumed = await runTask(request, modelSession.taskId, {
         prompt: "[tag:model-after-restart] 重启后继续。",
-        mainSessionId: modelSession.sessionId
+        mainSessionId: modelSession.sessionId,
+        profileId: projectProfile.id
       });
       assert.equal(resumed.status, 202, JSON.stringify(resumed.body));
       await settle(request, modelSession.taskId, "completed");
@@ -807,11 +804,11 @@ for (const engine of PROJECT_DATA_ENGINES) {
       assert.equal(projectModel.requests.length, projectRequestsBefore + 1);
       assert.match(
         userText(projectModel.tagged("model-after-restart")[0].body),
-        /使用项目覆盖连接/,
+        /使用指定连接/,
         "the resumed turn saw the pre-restart history"
       );
       const resumedSelection = await selectionFor(authority, modelSession.taskId, resumed.body.runId);
-      assert.equal(resumedSelection.source, "project");
+      assert.equal(resumedSelection.source, "explicit");
       await waitFor(
         async () => (await capacity(request)).body.running.length === 0,
         "the idle resident Main to release its slot"

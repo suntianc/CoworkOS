@@ -1,6 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
+import {
+  activeModelOf,
+  addProviderThroughUi,
+  checkProvider,
+  leaveSettings,
+  openModelParams
+} from "./model-provider-ui.js";
 
 for (const api of ["openai-completions", "openai-responses"]) {
   test(`${api}: configure, probe, persist, reload and converse through the real runtime`, async ({
@@ -23,24 +30,25 @@ for (const api of ["openai-completions", "openai-responses"]) {
       await page.goto(dashboard.base);
       await page.locator("#composer-input").fill("协议测试草稿");
       await page.locator("#model-setup-button").click();
-      const dialog = page.getByRole("dialog", { name: "连接模型" });
-      await dialog.locator('[name="baseUrl"]').fill(provider.baseUrl);
-      await dialog.getByRole("combobox", { name: "消息格式" }).selectOption(api);
-      await dialog.locator('[name="model"]').fill("protocol-fixture");
-      await dialog.locator('[name="apiKey"]').fill("local-test-key");
-      await dialog.getByText("高级连接参数", { exact: true }).click();
-      await dialog.locator('[name="supportsReasoningEffort"]').check();
-      await dialog.locator('[name="reasoningEffort"]').selectOption("max");
-      await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
-      await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
-      await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-      await expect(dialog).toBeHidden();
+      await addProviderThroughUi(page, {
+        baseUrl: provider.baseUrl,
+        api,
+        model: "protocol-fixture",
+        apiKey: "local-test-key"
+      });
+      const params = await openModelParams(page, "protocol-fixture");
+      await params.locator('[data-model-switch="supportsReasoningEffort"]').click();
+      await params.locator('[data-model-field="reasoningEffort"]').selectOption("max");
+      await params.locator("[data-model-save]").click();
+      await expect(params).toBeHidden();
+      await expect(await checkProvider(page)).toContainText("连接通过");
+      await leaveSettings(page);
       await page.reload();
       await expect(page.locator("#composer-input")).toHaveValue("协议测试草稿");
       const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
-      expect(status.api).toBe(api);
-      expect(status.reasoningEffort).toBe("max");
-      expect(status).not.toHaveProperty("apiKey");
+      expect(status.providers[0].api).toBe(api);
+      expect(activeModelOf(status).reasoningEffort).toBe("max");
+      expect(JSON.stringify(status)).not.toContain("local-test-key");
       await page.locator("#composer-input").press("Enter");
       await expect(page.locator("#conversation").getByText("协议会话验证成功", { exact: true })).toBeVisible({
         timeout: 30_000

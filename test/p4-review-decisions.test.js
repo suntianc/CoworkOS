@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
+import { saveTestConnection } from "./model-provider-fixture.mjs";
 
 const run = promisify(execFile);
 const git = (cwd, args) =>
@@ -660,7 +661,7 @@ test(
     t.after(async () => {
       await provider.close();
     });
-    const saved = await request("/api/model-settings", {
+    const saved = await saveTestConnection(request, {
       profileName: "本地夹具",
       baseUrl: provider.baseUrl,
       model: "protocol-fixture",
@@ -669,7 +670,7 @@ test(
       supportsImages: false,
       apiKey: "review-decisions-local-key"
     });
-    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(saved.status, 200, JSON.stringify(saved));
 
     // The owner answers the one question that would change the agreed scope.
     let answeredQuestion = null;

@@ -62,7 +62,7 @@ const REASONING_LEVELS: readonly PiThinkingLevel[] = [
   "max"
 ];
 
-export type CoworkModelApi = "openai-completions" | "openai-responses";
+export type CoworkModelApi = "openai-completions" | "openai-responses" | "anthropic-messages";
 export type CoworkThinkingFormat = "auto" | "openai" | "zai";
 
 /** Preserve SDK detection unless a connection explicitly selects a wire format. */
@@ -79,8 +79,9 @@ export function configuredThinkingFormat(env: NodeJS.ProcessEnv = process.env): 
 /** Missing legacy runtime settings keep their original protocol; new connections use NEW_CONNECTION_PROFILE. */
 export function normalizeModelApi(value: unknown): CoworkModelApi {
   if (value === undefined) return "openai-completions";
-  if (value === "openai-completions" || value === "openai-responses") return value;
-  throw new Error("消息格式须为 Chat Completions 或 Responses");
+  if (value === "openai-completions" || value === "openai-responses" || value === "anthropic-messages")
+    return value;
+  throw new Error("接口格式须为 Chat Completions、Responses 或 Anthropic Messages");
 }
 
 export function configuredModelApi(env: NodeJS.ProcessEnv = process.env): CoworkModelApi {

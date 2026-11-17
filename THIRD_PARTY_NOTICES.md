@@ -14,6 +14,12 @@ License links below point to versioned upstream files or npm source archives con
 
 The application bundles the unmodified Inter Variable font from the linked `inter-ui 4.1.1` distribution of the official Inter typeface (`variable/InterVariable.woff2`), with the SHA-256 recorded above. It supports weights 100–900 and optical sizing. Copyright belongs to The Inter Project Authors under the **SIL Open Font License 1.1**; the complete license and copyright notice are retained alongside the font. The font loads locally without runtime network requests or additional npm dependencies.
 
+## 模型供应商标志 / Model provider logos
+
+设置页「模型与角色」中的供应商标志（[web/assets/brand/providers/](web/assets/brand/providers/)）取自 [lobe-icons](https://github.com/lobehub/lobe-icons) 的 [`@lobehub/icons-static-svg` 1.103.0 npm 发行](https://registry.npmjs.org/@lobehub/icons-static-svg/-/icons-static-svg-1.103.0.tgz)，适用 **MIT** 许可，版权所有者为 LobeHub。文件仅去掉了 SVG 根元素的 `width`、`height`、`style` 属性，图形未改动。各标志是对应厂商的商标，仅用于标识用户自行配置的服务，不表示与这些厂商存在合作或获得其认可。设计稿使用的 PNG 由同一组 SVG 渲染生成（[design/assets/providers/](design/assets/providers/)）。
+
+Provider logos on the Models & roles settings page come from the linked `@lobehub/icons-static-svg` 1.103.0 distribution of lobe-icons under the **MIT** license (copyright LobeHub). Only the root `width`, `height` and `style` attributes were removed; the artwork is unchanged. Each logo is its vendor's trademark, used only to identify a service the person configures, and implies no affiliation or endorsement. The design file's PNGs are rendered from the same SVGs.
+
 ## Documentation site / 文档站
 
 独立 Docs 站点的工具依赖由 [docs/site/package-lock.json](docs/site/package-lock.json) 锁定。Markdown 构建使用 marked 与 sanitize-html，浏览器中的图表使用 Mermaid，资源由 esbuild 打包；这些依赖不加入产品运行时。站点构建按实际浏览器 bundle 的输入保留相应包的完整许可与 NOTICE，生成到 `.tmp/docs-site/_site/licenses/`，并从每页页脚链接许可索引。

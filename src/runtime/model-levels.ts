@@ -54,13 +54,23 @@ export function endpointLevels(entry: unknown): PiThinkingLevel[] | undefined {
   return value.reasoning === false ? ["off"] : undefined;
 }
 
-let officialTable: Promise<Map<string, Map<string, PiThinkingLevel[]>>> | undefined;
-/** Host to model ID to levels, built once from Pi's built-in providers. */
+/** What Pi's built-in catalog says about one model. */
+export interface OfficialModel {
+  levels?: PiThinkingLevel[];
+  name: string;
+  contextWindow: number;
+  maxTokens: number;
+  images: boolean;
+  reasoning: boolean;
+}
+
+let officialTable: Promise<Map<string, Map<string, OfficialModel>>> | undefined;
+/** Host to model ID to catalog entry, built once from Pi's built-in providers. */
 function official() {
   officialTable ??= import("@earendil-works/pi-ai/providers/all").then(
     async ({ getBuiltinProviders, getBuiltinModels }) => {
       const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
-      const table = new Map<string, Map<string, PiThinkingLevel[]>>();
+      const table = new Map<string, Map<string, OfficialModel>>();
       for (const provider of getBuiltinProviders())
         for (const model of getBuiltinModels(provider)) {
           let host: string;
@@ -71,16 +81,30 @@ function official() {
             if (error instanceof TypeError) continue;
             throw error;
           }
-          const models = table.get(host) ?? new Map<string, PiThinkingLevel[]>();
+          const models = table.get(host) ?? new Map<string, OfficialModel>();
           table.set(host, models);
-          const levels = orderedLevels(getSupportedThinkingLevels(model));
           // Several providers can share a host; the first that lists the model answers.
-          if (levels && !models.has(model.id)) models.set(model.id, levels);
+          if (models.has(model.id)) continue;
+          const levels = orderedLevels(getSupportedThinkingLevels(model));
+          models.set(model.id, {
+            ...(levels ? { levels } : {}),
+            name: model.name,
+            contextWindow: model.contextWindow,
+            maxTokens: model.maxTokens,
+            images: model.input.includes("image"),
+            reasoning: model.reasoning
+          });
         }
       return table;
     }
   );
   return officialTable;
+}
+
+/** Pi's catalog entry for a model at a provider address it knows. */
+export async function officialModel(baseUrl: string, model: string): Promise<OfficialModel | undefined> {
+  const host = hostOf(baseUrl);
+  return host ? (await official()).get(host)?.get(model) : undefined;
 }
 
 /** Whether `baseUrl` is the address of a provider Pi knows. */
@@ -108,8 +132,7 @@ export async function modelLevels(input: {
   manual?: readonly PiThinkingLevel[];
 }): Promise<ModelLevels> {
   if (input.endpoint?.length) return { levels: [...input.endpoint], source: "endpoint" };
-  const host = hostOf(input.baseUrl);
-  const listed = host ? (await official()).get(host)?.get(input.model) : undefined;
+  const listed = (await officialModel(input.baseUrl, input.model))?.levels;
   if (listed) return { levels: [...listed], source: "official" };
   return { levels: [...(input.manual?.length ? input.manual : DEFAULT_LEVELS)], source: "manual" };
 }

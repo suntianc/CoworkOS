@@ -1,9 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { startConfiguredDashboard, startDashboard } from "../test/dashboard-fixture.mjs";
+import { pageRequest, saveTestConnection } from "../test/model-provider-fixture.mjs";
+import { addProviderThroughUi, chooseRoleModel } from "./model-provider-ui.js";
 import {
   expectContained,
   expectNoHorizontalOverflow,
-  openModelConnectionEditor,
+  openAddProvider,
   openSettings,
   openWebSearchSettings
 } from "./settings-helper.js";
@@ -148,9 +150,7 @@ test("general preferences take effect, survive a reload and stay in their sectio
   }
 });
 
-test("model connections and the three roles are edited and saved from the settings page", async ({
-  page
-}) => {
+test("providers and the three roles are edited and saved from the settings page", async ({ page }) => {
   const dashboard = await startDashboard();
   try {
     await page.goto(dashboard.base);
@@ -159,61 +159,45 @@ test("model connections and the three roles are edited and saved from the settin
     await navItem(page, "models").click();
     await expect(section(page, "models")).toBeVisible();
 
-    // An empty host still shows where a connection is added, never a fake one.
-    await expect(page.locator("#profile-settings-connections")).toContainText("尚未配置模型连接");
+    // An empty host shows where a provider is added, never a fake one.
+    await expect(section(page, "models").locator(".provider-empty-list")).toHaveText("还没有供应商");
 
-    await page.locator("#settings-model-add").click();
-    const form = page.getByRole("dialog", { name: "连接模型" });
-    await expect(form).toBeVisible();
-    await form.getByRole("textbox", { name: "配置名称", exact: false }).fill("验收连接");
-    await form.getByRole("textbox", { name: "模型 ID", exact: true }).fill("acceptance-model");
-    await form.getByRole("textbox", { name: "API 地址", exact: true }).fill("http://127.0.0.1:1/v1");
-    await form.getByLabel("API Key").fill("test-key-not-echoed");
-    await form.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(form).toBeHidden();
-
-    const row = page.locator("#profile-settings-connections .settings-row").first();
-    await expect(row).toContainText("验收连接");
-    await expect(row).toContainText("当前启用");
+    await addProviderThroughUi(page, {
+      name: "验收供应商",
+      baseUrl: "http://127.0.0.1:1/v1",
+      model: "acceptance-model",
+      apiKey: "test-key-not-echoed"
+    });
+    await expect(page.locator(".provider-item", { hasText: "验收供应商" })).toContainText("1 个模型");
     // The key never comes back to the page.
+    await expect(page.locator('[data-field="apiKey"]')).toHaveValue("");
     expect(await page.locator("#settings-entry").innerText()).not.toContain("test-key-not-echoed");
 
-    // Main/Executor/Reviewer each bind a connection through the existing roles API.
+    // Main/Executor/Reviewer each pick a model from the role tab.
+    await chooseRoleModel(page, "executor", "acceptance-model");
     for (const role of ["main", "executor", "reviewer"])
-      await expect(page.locator(`[data-model-role="${role}"]`)).toBeVisible();
-    await page.locator('[data-role-model="executor"]').selectOption({ label: "验收连接 / acceptance-model" });
-    await expect
-      .poll(async () => {
-        const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
-        return status.modelRoles.roles.find((entry) => entry.role === "executor")?.host?.profileId;
-      })
-      .not.toBeUndefined();
+      await expect(page.locator(`[data-role-picker="${role}"]`)).toBeVisible();
     const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
+    const model = status.providers[0].models[0];
     const bound = status.modelRoles.roles.find((entry) => entry.role === "executor");
-    expect(bound.host.profileId).toBe(status.profiles[0].id);
+    expect(bound.host.profileId).toBe(model.profileId);
 
     // Reopening the page reads the saved bindings back.
     await page.locator("#settings-back").click();
     await openSettings(page);
     await navItem(page, "models").click();
-    await expect(page.locator('[data-role-model="executor"]')).toHaveValue(status.profiles[0].id);
+    await page.locator('[data-model-tab="roles"]').click();
+    await expect(page.locator('[data-role-picker="executor"]')).toContainText("acceptance-model");
 
-    // Inference effort belongs to the connection both roles use.
-    await page.locator('[data-role-effort="main"]').selectOption("high");
+    // Inference effort belongs to the model both roles use.
+    await page.locator('[data-role-effort="executor"]').selectOption("high");
     await expect
       .poll(async () => {
         const value = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
-        return value.profiles[0].reasoningEffort;
+        return value.providers[0].models[0].reasoningEffort;
       })
       .toBe("high");
-    await expect(page.locator('[data-role-effort="executor"]')).toHaveValue("high");
-
-    // Each connection opens the same form for editing.
-    await page.locator("[data-model-edit]").first().click();
-    await expect(page.getByRole("dialog", { name: "连接模型" })).toBeVisible();
-    await page.getByRole("button", { name: "返回设置", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "连接模型" })).toBeHidden();
-    await expect(page.locator("#settings-entry")).toBeVisible();
+    await expect(page.locator('[data-role-effort="main"]')).toHaveValue("high");
   } finally {
     await dashboard.stop();
   }
@@ -263,21 +247,23 @@ test("node connections, tools and members show only the information each section
   }
 });
 
-test("a refused role change reports on its row and restores the saved connection", async ({ page }) => {
-  const dashboard = await startConfiguredDashboard();
+test("a refused role change reports the reason and keeps the saved model", async ({ page }) => {
+  const dashboard = await startDashboard();
   try {
+    await saveTestConnection(pageRequest(page, dashboard.base), {
+      profileName: "角色供应商",
+      baseUrl: "http://127.0.0.1:1/v1",
+      model: "role-fixture",
+      apiKey: "local-role-key"
+    });
     const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
-    const connection = status.profiles[0];
+    const model = status.providers[0].models[0];
     await page.goto(dashboard.base);
     await expect(page.locator("#composer-input")).toBeVisible();
-    await openSettings(page, "models");
-    const main = page.locator('[data-role-model="main"]');
-    const row = page.locator('[data-model-role="main"]');
-    await expect(main).toHaveValue("");
 
     // Save one binding so the refused change has a persisted value to return to.
-    await main.selectOption(connection.id);
-    await expect(main).toHaveValue(connection.id);
+    await chooseRoleModel(page, "executor", model.id);
+    const picker = page.locator('[data-role-picker="executor"]');
 
     await page.route("**/api/model-settings/roles", (route) =>
       route.fulfill({
@@ -286,12 +272,14 @@ test("a refused role change reports on its row and restores the saved connection
         body: JSON.stringify({ error: "保存被拒绝：连接不可用" })
       })
     );
-    await main.selectOption("");
-    await expect(row.locator("[data-role-error]")).toHaveText(/保存被拒绝/);
-    await expect(row).toHaveClass(/has-error/);
-    await expect(main).toHaveValue(connection.id);
-    // The failure belongs to the section, never to the closed connection form.
-    expect(await page.locator("[data-model-error]").innerText()).toBe("");
+    await picker.click();
+    await page.locator(".role-menu .role-menu-item").first().click();
+    await expect(page.locator("#toast")).toContainText("保存被拒绝");
+    await expect(picker).toContainText(model.id);
+    const after = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
+    expect(after.modelRoles.roles.find((entry) => entry.role === "executor").host.profileId).toBe(
+      model.profileId
+    );
   } finally {
     await dashboard.stop();
   }
@@ -360,10 +348,10 @@ for (const theme of ["dark", "light"]) {
         await expectNoHorizontalOverflow(page, entry);
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-settings.png`) });
 
-        const model = await openModelConnectionEditor(page, { add: true });
+        const model = await openAddProvider(page);
         await expectContained(page, model);
-        await model.locator('[name="model"]').fill("保留模型设置草稿");
-        await model.getByRole("button", { name: "关闭设置", exact: true }).click();
+        await model.locator("[data-dialog-close]").click();
+        await expect(model).toBeHidden();
 
         const search = await openWebSearchSettings(page);
         await expectContained(page, search);
@@ -395,7 +383,7 @@ test("settings drop glass under reduced transparency", async ({ page }) => {
     await expect(entry).toBeVisible();
     await expect(entry.locator(".settings-content")).toHaveCSS("background-image", "none");
     await expect(entry.locator(".settings-content")).toHaveCSS("backdrop-filter", "none");
-    const model = await openModelConnectionEditor(page, { add: true });
+    const model = await openAddProvider(page);
     await expect(model).toHaveCSS("backdrop-filter", "none");
     await page.keyboard.press("Escape");
     await expect(model).toBeHidden();

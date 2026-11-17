@@ -285,3 +285,40 @@ test("late creation preserves the newer saved task draft and a deliberate clear 
     }
   }
 });
+
+test("a message on its way leaves the composer looking empty and a failure shows it again", async ({ page }) => {
+  const dashboard = await startDashboard({ modelEndpoint: "http://127.0.0.1:1/v1" });
+  const gates = [deferred(), deferred()];
+  let calls = 0;
+  try {
+    await page.route("**/run", async (route) => {
+      const index = calls++;
+      await gates[index].promise;
+      await route.fulfill(
+        index === 0
+          ? { status: 500, json: { error: "本地测试拒绝" } }
+          : { status: 202, json: { runId: "accepted-after-retry" } }
+      );
+    });
+    await seed(page, dashboard);
+    await select(page, "task-a");
+    const input = page.locator("#composer-input");
+    await input.fill("正在发送的消息");
+    await page.locator("#send-button").click();
+    await expect.poll(() => calls).toBe(1);
+    await expect(input).toHaveClass(/is-sent/);
+    await expect(input).toHaveValue("正在发送的消息");
+    gates[0].resolve();
+    await expect(input).not.toHaveClass(/is-sent/);
+    await expect(input).toHaveValue("正在发送的消息");
+    await page.locator("#send-button").click();
+    await expect.poll(() => calls).toBe(2);
+    await expect(input).toHaveClass(/is-sent/);
+    gates[1].resolve();
+    await expect(input).toHaveValue("");
+    await expect(input).not.toHaveClass(/is-sent/);
+  } finally {
+    gates.forEach((gate) => gate.resolve());
+    await dashboard.stop();
+  }
+});

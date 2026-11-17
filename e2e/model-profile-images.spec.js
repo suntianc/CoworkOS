@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
+import { pageRequest, saveTestConnection } from "../test/model-provider-fixture.mjs";
 
 // app.js attaches the file-input listener only after its top-level boot await, so a
 // file chosen right after navigation can be dropped. Choose it again until the chip
@@ -39,18 +40,18 @@ for (const imageApi of ["openai-completions", "openai-responses"]) {
     const dashboard = await startDashboard();
     const image = await readFile("web/assets/atria-symbol.png");
     const pixels = image.toString("base64");
-    const status = async () => (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
+    const request = pageRequest(page, dashboard.base);
     const save = async (body) => {
-      const result = await page.request.post(`${dashboard.base}/api/model-settings`, { data: body });
-      expect(result.ok(), await result.text()).toBe(true);
-      return result.json();
+      const result = await saveTestConnection(request, body);
+      expect(result.status, result.error).toBe(200);
+      return result;
     };
     const waitDone = async (message) => {
       await expect(page.locator("#conversation")).toContainText(message, { timeout: 30_000 });
       await expect(page.locator("#stop-button")).toBeHidden();
     };
     try {
-      await save({
+      const first = await save({
         profileId: "",
         profileName: "视觉",
         baseUrl: imageConnection.baseUrl,
@@ -75,7 +76,6 @@ for (const imageApi of ["openai-completions", "openai-responses"]) {
       await waitDone("视觉读取完成");
       expect(imageConnection.requests.at(-1).body.model).toBe("same-model-name");
       expect(JSON.stringify(imageConnection.requests.at(-1).body)).toContain(pixels);
-      const first = (await status()).profiles[0];
       await attachImage(page, "pending.png", image);
       await page.locator("#composer-input").fill("这是切换前的图片草稿");
       await save({
@@ -104,15 +104,19 @@ for (const imageApi of ["openai-completions", "openai-responses"]) {
       }
       expect(JSON.stringify(text.requests.at(-1).body)).toContain("当前模型不支持图片");
       phase = "restored";
-      await save({ ...first, profileId: first.id, activate: true });
+      const restored = await request("/api/model-settings/roles", {
+        role: "main",
+        profileId: first.profileId
+      });
+      expect(restored.status).toBe(200);
       await page.reload();
       await page.locator("#composer-input").fill("切回视觉后继续");
       await page.locator("#send-button").click();
       await waitDone("视觉恢复完成");
-      const restored = JSON.stringify(imageConnection.requests.at(-1).body);
-      expect(restored).toContain(pixels);
-      expect(restored).toContain("纯文本继续完成");
-      expect(restored).toContain("切回视觉后继续");
+      const resumed = JSON.stringify(imageConnection.requests.at(-1).body);
+      expect(resumed).toContain(pixels);
+      expect(resumed).toContain("纯文本继续完成");
+      expect(resumed).toContain("切回视觉后继续");
     } finally {
       await dashboard.stop();
       await imageConnection.close();

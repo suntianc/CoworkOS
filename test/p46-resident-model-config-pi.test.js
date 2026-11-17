@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
+import { saveTestConnection } from "./model-provider-fixture.mjs";
 
 /**
  * A resident Main adopts the model configuration saved for its next turn.
@@ -37,6 +38,10 @@ function client(dashboard) {
     return payload;
   };
 }
+
+/** Save a connection through the provider settings with this file's client. */
+const saveConnection = (request, value) =>
+  saveTestConnection(async (path, body) => ({ status: 200, body: await request(path, body) }), value);
 
 /** The newest Main process record this Task started. */
 async function mainRecord(dashboard, taskId) {
@@ -82,7 +87,7 @@ test(
     const keyA = "{{SECRET_q4m6x2vd}}";
     const keyB = "{{SECRET_r8n1c7zk}}";
 
-    const first = await request("/api/model-settings", {
+    const first = await saveConnection(request, {
       profileId: "",
       profileName: "连接 A",
       baseUrl: completions.baseUrl,
@@ -110,7 +115,7 @@ test(
 
     // A connection saved between turns names another protocol, model and
     // default level. The resident process reads it at the next turn boundary.
-    const switched = await request("/api/model-settings", {
+    const switched = await saveConnection(request, {
       profileId: "",
       profileName: "连接 B",
       baseUrl: responses.baseUrl,
@@ -201,7 +206,7 @@ test(
     });
     const request = client(dashboard);
 
-    await request("/api/model-settings", {
+    await saveConnection(request, {
       profileId: "",
       profileName: "端点 A",
       baseUrl: completions.baseUrl,
@@ -247,7 +252,7 @@ test(
 
     // A connection saved between turns brings its own provider limits, and the
     // same process must not keep the previous connection's image capability.
-    await request("/api/model-settings", {
+    await saveConnection(request, {
       profileId: "",
       profileName: "端点 B",
       baseUrl: textOnly.baseUrl,

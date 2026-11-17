@@ -1,5 +1,5 @@
 import type { CoworkConfig } from "./config.js";
-import { modelConnections, type ModelConnection } from "./model-connections.js";
+import { modelConnections, type ModelConnection } from "./model-providers.js";
 import { connectionProfile, parseConnectionProfile, type ConnectionProfile } from "./model-profile.js";
 import { configuredSupportsImages, runtimeSettingsEnv, type PiThinkingLevel } from "./runtime-settings.js";
 
@@ -7,9 +7,8 @@ import { configuredSupportsImages, runtimeSettingsEnv, type PiThinkingLevel } fr
  * Model roles on the execution host.
  *
  * A connection and its key belong to the host that runs the request. A role
- * only names one of that host's connections: the host default is local to the
- * machine, and a project override is indexed by the shared project id without
- * copying any identity or secret into shared data. `main` and the delegated
+ * only names one of that host's connections, and the binding is local to the
+ * machine: nothing is copied into shared project data. `main` and the delegated
  * Executor/Reviewer roles read their binding at launch; `router` is a later
  * path's key and stays configuration only.
  */
@@ -37,16 +36,13 @@ export interface RoleModelConfig {
   version: 1;
   /** Defaults for every project on this execution host. */
   host?: Partial<Record<ModelRoleKey, RoleModelBinding>>;
-  /** This host's overrides, keyed by the shared project's stable id. */
-  projects?: Record<string, Partial<Record<ModelRoleKey, RoleModelBinding>>>;
 }
 
-export type RoleModelSource = "explicit" | "project" | "host" | "active" | "environment" | "retry";
+export type RoleModelSource = "explicit" | "host" | "active" | "environment" | "retry";
 
 /** A launch request may pin a connection and/or a model for one Run. */
 export interface ModelRoleRequest {
   role?: ModelRoleKey;
-  projectId?: string | null;
   /** Explicit one-off connection; a missing id is an error, never a fallback. */
   profileId?: string;
   /** Explicit one-off model on the resolved connection. */
@@ -67,7 +63,6 @@ export interface ModelRoleRequest {
  */
 export interface DelegatedModelRequest {
   role: DelegatedModelRole;
-  projectId?: string | null;
   /** One-off connection for this work item; never saved as a role binding. */
   profileId?: string;
   /** One-off model on the connection the role resolves to. */
@@ -79,7 +74,6 @@ export interface ResolvedModelRole {
   source: RoleModelSource;
   connectionId?: string;
   connectionName?: string;
-  projectId?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -98,7 +92,6 @@ export interface ModelRoleSnapshot {
   api: ConnectionProfile["api"];
   thinkingLevel: PiThinkingLevel;
   supportsImages: boolean;
-  projectId?: string;
 }
 
 function isRoleKey(value: unknown): value is ModelRoleKey {
@@ -114,11 +107,6 @@ function parseBinding(value: unknown, scope: string): RoleModelBinding {
   return { profileId };
 }
 
-function parseProjectId(value: unknown): string {
-  if (typeof value !== "string" || !value.trim() || value.length > 200) throw new Error("项目 ID 不合法");
-  return value.trim();
-}
-
 /** Structural validation while reading the local configuration. */
 export function validateRoleModelConfig(value: unknown): void {
   if (value === undefined) return;
@@ -126,26 +114,13 @@ export function validateRoleModelConfig(value: unknown): void {
   const record = value as Record<string, unknown>;
   if (record.version !== 1) throw new Error("模型角色配置版本不兼容，请升级应用");
   for (const key of Object.keys(record))
-    if (!["version", "host", "projects"].includes(key)) throw new Error(`模型角色配置包含未知字段：${key}`);
+    if (!["version", "host"].includes(key)) throw new Error(`模型角色配置包含未知字段：${key}`);
   if (record.host !== undefined) {
     if (!record.host || typeof record.host !== "object" || Array.isArray(record.host))
       throw new Error("模型角色配置的主机默认无法读取");
     for (const [role, binding] of Object.entries(record.host)) {
       if (!isRoleKey(role)) throw new Error(`模型角色配置包含未知角色：${role}`);
       parseBinding(binding, ROLE_LABELS[role]);
-    }
-  }
-  if (record.projects !== undefined) {
-    if (!record.projects || typeof record.projects !== "object" || Array.isArray(record.projects))
-      throw new Error("模型角色配置的项目覆盖无法读取");
-    for (const [projectId, bindings] of Object.entries(record.projects)) {
-      parseProjectId(projectId);
-      if (!bindings || typeof bindings !== "object" || Array.isArray(bindings))
-        throw new Error("模型角色配置的项目覆盖无法读取");
-      for (const [role, binding] of Object.entries(bindings)) {
-        if (!isRoleKey(role)) throw new Error(`模型角色配置包含未知角色：${role}`);
-        parseBinding(binding, ROLE_LABELS[role]);
-      }
     }
   }
 }
@@ -174,8 +149,7 @@ function connectionFor(
 /**
  * Resolve which connection and model a Run starts with.
  *
- * Priority is explicit one-off selection, the current host's project override,
- * the host role default, then the existing active connection. A named but
+ * Priority is explicit one-off selection, the host role default, then the existing active connection. A named but
  * missing connection raises instead of silently using another account. The
  * result is fixed when the launch is admitted; later settings changes only
  * affect the next Run.
@@ -193,8 +167,7 @@ export function resolveModelRole(
   const role = request.role ?? "main";
   if (!isRoleKey(role)) throw new Error(`未知的模型角色：${String(request.role)}`);
   const registry = modelConnections(config);
-  const realRegistry = config.modelConnections;
-  const projectId = request.projectId?.trim() || undefined;
+  const providers = Boolean(config.modelProviders);
   const explicitProfileId = request.profileId?.trim() || undefined;
   // A model forced by the launch environment is an explicit choice, as it was
   // before roles existed; it still uses the connection resolved for this Run.
@@ -203,13 +176,9 @@ export function resolveModelRole(
   const sourceModel = (fallback: string) => retryModel ?? explicitModel ?? fallback;
   const sourceName = (base: RoleModelSource): RoleModelSource => (retryModel ? "retry" : base);
 
-  const fromConnection = (
-    source: RoleModelSource,
-    connection: ModelConnection,
-    scopeProject?: string
-  ): ResolvedModelRole => {
+  const fromConnection = (source: RoleModelSource, connection: ModelConnection): ResolvedModelRole => {
     const profile = normalizedProfile(connection);
-    const active = connection.id === realRegistry?.activeId;
+    const active = connection.id === registry.activeId;
     // An environment key belongs to the forced endpoint, so only the active
     // connection may fall back to it; a role connection must keep its own key.
     const apiKey = active
@@ -222,9 +191,8 @@ export function resolveModelRole(
     return {
       role,
       source: sourceName(source),
-      ...(realRegistry ? { connectionId: connection.contextId || connection.id } : {}),
+      ...(providers ? { connectionId: connection.contextId } : {}),
       connectionName: connection.name,
-      ...(projectId ? { projectId: scopeProject ?? projectId } : {}),
       baseUrl: connection.baseUrl,
       apiKey,
       model: sourceModel(connection.model),
@@ -248,7 +216,7 @@ export function resolveModelRole(
       apiKey: env.COWORK_API_KEY || config.apiKey || "",
       model: sourceModel(
         env.COWORK_MODEL ||
-          (realRegistry?.activeId ? config.model : request.taskModel) ||
+          (registry.activeId ? config.model : request.taskModel) ||
           config.model ||
           DEFAULT_MODEL
       ),
@@ -258,21 +226,13 @@ export function resolveModelRole(
     };
   }
 
-  const projectBinding = projectId ? config.roleModels?.projects?.[projectId]?.[role] : undefined;
-  if (projectBinding) {
-    const scope = `项目 ${projectId} 的 ${roleLabel(role)} 角色引用的模型连接`;
-    return fromConnection("project", connectionFor(registry, projectBinding.profileId, scope), projectId);
-  }
-
   const hostBinding = config.roleModels?.host?.[role];
   if (hostBinding) {
     const scope = `主机的 ${roleLabel(role)} 角色引用的模型连接`;
     return fromConnection("host", connectionFor(registry, hostBinding.profileId, scope));
   }
 
-  const active = realRegistry?.activeId
-    ? registry.profiles.find((profile) => profile.id === realRegistry.activeId)
-    : undefined;
+  const active = registry.profiles.find((profile) => profile.id === registry.activeId);
   if (active) return fromConnection("active", active);
 
   const profile = connectionProfile(config);
@@ -311,16 +271,12 @@ export function isDelegatedModelRole(value: unknown): value is DelegatedModelRol
   return typeof value === "string" && (DELEGATED_MODEL_ROLES as readonly string[]).includes(value);
 }
 
-/** The binding a delegated role would read, project override first. */
+/** The binding a delegated role would read on this host. */
 export function delegatedRoleBinding(
   config: CoworkConfig,
-  role: DelegatedModelRole,
-  projectId?: string | null
+  role: DelegatedModelRole
 ): RoleModelBinding | undefined {
-  const project = projectId?.trim();
-  return (
-    (project ? config.roleModels?.projects?.[project]?.[role] : undefined) ?? config.roleModels?.host?.[role]
-  );
+  return config.roleModels?.host?.[role];
 }
 
 /**
@@ -341,9 +297,8 @@ export function resolveDelegatedModelRole(
   if (!isDelegatedModelRole(request.role)) throw new Error(`未知的委派角色：${String(request.role)}`);
   const explicitProfileId = request.profileId?.trim() || undefined;
   const explicitModel = request.model?.trim() || undefined;
-  if (!explicitProfileId && !explicitModel && !delegatedRoleBinding(config, request.role, request.projectId))
-    return undefined;
-  return resolveModelRole(config, { ...request, projectId: request.projectId ?? undefined }, env);
+  if (!explicitProfileId && !explicitModel && !delegatedRoleBinding(config, request.role)) return undefined;
+  return resolveModelRole(config, request, env);
 }
 
 /** Nothing here identifies an account or carries a secret. */
@@ -356,8 +311,7 @@ export function modelRoleSnapshot(selection: ResolvedModelRole): ModelRoleSnapsh
     model: selection.model,
     api: selection.profile.api,
     thinkingLevel: selection.thinkingLevel,
-    supportsImages: selection.supportsImages,
-    ...(selection.projectId ? { projectId: selection.projectId } : {})
+    supportsImages: selection.supportsImages
   };
 }
 
@@ -365,37 +319,32 @@ export interface PublicModelRole {
   role: ModelRoleKey;
   wired: boolean;
   host: RoleModelBinding | null;
-  project: RoleModelBinding | null;
   effective: ModelRoleSnapshot | null;
   error?: string;
 }
 
 export interface PublicModelRoles {
-  projectId: string | null;
   roles: PublicModelRole[];
 }
 
 /** Redacted role view for the settings API; never includes a key or endpoint. */
-export function publicModelRoles(config: CoworkConfig, projectId?: string): PublicModelRoles {
-  const selectedProject = projectId?.trim() || undefined;
+export function publicModelRoles(config: CoworkConfig): PublicModelRoles {
   const roles = MODEL_ROLE_KEYS.map((role): PublicModelRole => {
     const host = config.roleModels?.host?.[role] ?? null;
-    const project = selectedProject ? (config.roleModels?.projects?.[selectedProject]?.[role] ?? null) : null;
     const wired = WIRED_MODEL_ROLES.includes(role);
-    if (!wired) return { role, wired, host, project, effective: null };
+    if (!wired) return { role, wired, host, effective: null };
     try {
       // A delegated role is resolved the same way its launch resolves it: with
       // the host's saved configuration only. With no binding it has no fixed
       // effective connection — delegations inherit the launching Run's.
       const selection = isDelegatedModelRole(role)
-        ? resolveDelegatedModelRole(config, { role, projectId: selectedProject })
-        : resolveModelRole(config, { role, projectId: selectedProject });
-      if (!selection) return { role, wired, host, project, effective: null };
+        ? resolveDelegatedModelRole(config, { role })
+        : resolveModelRole(config, { role });
+      if (!selection) return { role, wired, host, effective: null };
       return {
         role,
         wired,
         host,
-        project,
         // Nothing runnable is configured yet; a pending API key is not an effective connection.
         effective: selection.baseUrl && selection.apiKey ? modelRoleSnapshot(selection) : null
       };
@@ -404,21 +353,19 @@ export function publicModelRoles(config: CoworkConfig, projectId?: string): Publ
         role,
         wired,
         host,
-        project,
         effective: null,
         error: error instanceof Error ? error.message : String(error)
       };
     }
   });
-  return { projectId: selectedProject ?? null, roles };
+  return { roles };
 }
 
 /**
- * Write one role binding (or clear it with an empty `profileId`).
+ * Write one host role binding (or clear it with an empty `profileId`).
  *
- * A project override is scoped by an explicit project id; omitting it edits the
- * host default. Unknown references are refused here so the UI cannot create a
- * broken configuration.
+ * Unknown references are refused here so the UI cannot create a broken
+ * configuration.
  */
 export function saveRoleModelBinding(config: CoworkConfig, input: Record<string, unknown>): CoworkConfig {
   if (!isRoleKey(input.role)) throw new Error("请选择有效的模型角色");
@@ -431,32 +378,11 @@ export function saveRoleModelBinding(config: CoworkConfig, input: Record<string,
     if (!registry.profiles.some((profile) => profile.id === profileId))
       throw new Error("模型连接不存在，请刷新设置后重试");
   }
-  const projectId = input.projectId === undefined ? undefined : parseProjectId(input.projectId);
-  const next: CoworkConfig = {
-    ...config,
-    roleModels: {
-      version: 1,
-      ...(config.roleModels?.host ? { host: { ...config.roleModels.host } } : {}),
-      ...(config.roleModels?.projects ? { projects: { ...config.roleModels.projects } } : {})
-    }
-  };
-  const roleModels = next.roleModels!;
-  if (projectId === undefined) {
-    const host = roleModels.host ?? {};
-    if (profileId) host[role] = { profileId };
-    else delete host[role];
-    if (Object.keys(host).length) roleModels.host = host;
-    else delete roleModels.host;
-  } else {
-    const projects = roleModels.projects ?? {};
-    const bindings = { ...projects[projectId] };
-    if (profileId) bindings[role] = { profileId };
-    else delete bindings[role];
-    if (Object.keys(bindings).length) projects[projectId] = bindings;
-    else delete projects[projectId];
-    if (Object.keys(projects).length) roleModels.projects = projects;
-    else delete roleModels.projects;
-  }
-  if (!roleModels.host && !roleModels.projects) delete next.roleModels;
+  const host = { ...config.roleModels?.host };
+  if (profileId) host[role] = { profileId };
+  else delete host[role];
+  const next: CoworkConfig = { ...config };
+  if (Object.keys(host).length) next.roleModels = { version: 1, host };
+  else delete next.roleModels;
   return next;
 }

@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+import { dismissModelSetup } from "./model-provider-ui.js";
 
 const taskId = "titlebar-task";
 const taskGoal = "标题栏验收会话";
@@ -36,15 +37,8 @@ async function bootDesktop() {
   });
   const page = await native.firstWindow();
   await expect(page.locator("#composer-input")).toBeAttached();
-  await dismissModelSetup(page);
+  await dismissModelSetup(page, { wait: 5_000 });
   return { native, page, root };
-}
-
-async function dismissModelSetup(page) {
-  const close = page.locator("[data-model-close]");
-  await close.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
-  if (await close.isVisible()) await close.click();
-  await expect(page.locator(".settings-backdrop:not([hidden])")).toHaveCount(0);
 }
 
 async function createTaskThroughHost(page) {

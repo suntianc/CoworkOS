@@ -10,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-request-store.js";
+import { providerConfig } from "./model-provider-fixture.mjs";
 const readSnapshot = (path) => new MainRequestStore(path, "retry-task").read();
 
 async function fixture(t, api, handle) {
@@ -156,25 +157,20 @@ for (const api of ["openai-completions", "openai-responses"]) {
         JSON.stringify({
           api: api === "openai-completions" ? "openai-responses" : "openai-completions",
           mainMaxTokens: 128,
-          modelConnections: {
-            version: 1,
-            activeId: "rotated-test-connection",
-            profiles: [
-              {
-                id: "rotated-test-connection",
-                name: "isolated rotated provider",
-                contextId: "rotated-test-context",
-                baseUrl: f.received[0].snapshot.model.baseUrl,
-                model: "different-model",
-                api: api === "openai-completions" ? "openai-responses" : "openai-completions",
-                reasoningEffort: "off",
-                supportsReasoningEffort: false,
-                supportsImages: false,
-                mainMaxTokens: 128,
-                subagentMaxTokens: 64
-              }
-            ]
-          }
+          ...providerConfig([
+            {
+              id: "rotated-test-context",
+              name: "isolated rotated provider",
+              baseUrl: f.received[0].snapshot.model.baseUrl,
+              model: "different-model",
+              api: api === "openai-completions" ? "openai-responses" : "openai-completions",
+              reasoningEffort: "off",
+              supportsReasoningEffort: false,
+              supportsImages: false,
+              mainMaxTokens: 128,
+              subagentMaxTokens: 64
+            }
+          ])
         })
       );
       await f.dashboard.restart({ newPort: true });

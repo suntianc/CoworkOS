@@ -1,15 +1,21 @@
 import { existsSync } from "node:fs";
-import { chmod, copyFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { coworkConfigPath, readCoworkConfig, type CoworkConfig } from "../runtime/config.js";
 import { withFileLock } from "../storage/file-lock.js";
-import { configuredSupportsImages } from "../runtime/runtime-settings.js";
 import { testModelConnection } from "../runtime/model-connection.js";
-import { publicConnections, saveConnection, selectedConnection } from "../runtime/model-connections.js";
-import { connectionProfile, parseConnectionProfile } from "../runtime/model-profile.js";
+import {
+  deleteProvider,
+  providerDraft,
+  publicProviders,
+  saveProvider,
+  saveProviderModels,
+  withActiveConnection
+} from "../runtime/model-providers.js";
+import { NEW_CONNECTION_PROFILE } from "../runtime/model-profile.js";
 import { availableModels as catalogModels } from "../runtime/model-catalog.js";
-import { isOfficialAddress, modelLevels } from "../runtime/model-levels.js";
+import { isOfficialAddress, modelLevels, officialModel } from "../runtime/model-levels.js";
 import { publicModelRoles, saveRoleModelBinding } from "../runtime/role-models.js";
 import {
   applyHostCredentials,
@@ -17,16 +23,28 @@ import {
   HostCredentialStore,
   hostCredentialsPath,
   mergeHostCredentials,
+  retainProviderCredentials,
   takeHostCredentials
 } from "../security/host-credentials.js";
 
+const ENVIRONMENT_KEYS = [
+  "COWORK_API_BASE",
+  "COWORK_API_KEY",
+  "COWORK_MODEL",
+  "COWORK_SUPPORTS_IMAGES",
+  "COWORK_MODEL_API",
+  "COWORK_SUPPORTS_PROMPT_CACHE_KEY",
+  "COWORK_THINKING_FORMAT",
+  "COWORK_CONTEXT_WINDOW"
+];
+
 /**
- * Local settings for the execution host.
+ * Model providers and role bindings on the execution host.
  *
- * The response never carries a secret: keys are written to the host credential
- * store, the public configuration keeps only what a connection needs to be
- * described. A connection whose key is missing here is reported as unconfigured
- * and becomes usable again when a key is submitted.
+ * The response never carries a secret: provider keys are written to the host
+ * credential store and the public configuration only describes the providers
+ * and their models. A provider whose key is missing is reported as
+ * unconfigured and becomes usable again when a key is submitted.
  */
 export function createModelSettings(
   root: string,
@@ -37,39 +55,20 @@ export function createModelSettings(
   const path = coworkConfigPath(root);
   const store = new HostCredentialStore(options.credentialsPath ?? hostCredentialsPath(path));
   if (!store.error) applyHostCredentials(config, store.value);
-  const status = (projectId?: string) => {
+  const managed = () =>
+    ENVIRONMENT_KEYS.some((key) => process.env[key] !== undefined && process.env[key] !== "");
+  const status = () => {
     const error = store.error;
     return {
-      ...connectionProfile(config),
-      ...publicConnections(config),
-      baseUrl: process.env.COWORK_API_BASE || config.baseUrl || config.apiBase || "",
+      ...publicProviders(config),
       model: process.env.COWORK_MODEL || config.model || "",
       configured: Boolean(
         (process.env.COWORK_API_BASE || config.baseUrl || config.apiBase) &&
         (process.env.COWORK_API_KEY || config.apiKey)
       ),
-      supportsImages:
-        process.env.COWORK_SUPPORTS_IMAGES !== undefined ||
-        [
-          "COWORK_REASONING_EFFORT",
-          "COWORK_SUPPORTS_REASONING_EFFORT",
-          "COWORK_MAIN_MAX_TOKENS",
-          "COWORK_MAX_TOKENS"
-        ].some((key) => process.env[key] !== undefined)
-          ? configuredSupportsImages()
-          : config.supportsImages === true,
-      managedByEnvironment: Boolean(
-        process.env.COWORK_API_BASE ||
-        process.env.COWORK_API_KEY ||
-        process.env.COWORK_MODEL ||
-        process.env.COWORK_SUPPORTS_IMAGES !== undefined ||
-        process.env.COWORK_MODEL_API !== undefined ||
-        process.env.COWORK_SUPPORTS_PROMPT_CACHE_KEY !== undefined ||
-        process.env.COWORK_THINKING_FORMAT !== undefined ||
-        process.env.COWORK_CONTEXT_WINDOW !== undefined
-      ),
+      managedByEnvironment: managed(),
       ...(error ? { credentialError: error } : {}),
-      modelRoles: publicModelRoles(config, projectId)
+      modelRoles: publicModelRoles(config)
     };
   };
   /**
@@ -81,100 +80,145 @@ export function createModelSettings(
   const persist = async (next: CoworkConfig) => {
     const persisted = structuredClone(next);
     const extracted = takeHostCredentials(persisted);
-    const credentials = mergeHostCredentials(store.value, extracted);
-    if (hasHostCredentials(credentials)) await store.write(credentials);
+    const credentials = retainProviderCredentials(mergeHostCredentials(store.value, extracted), persisted);
+    if (hasHostCredentials(credentials) || existsSync(store.path)) await store.write(credentials);
     await mkdir(dirname(path), { recursive: true });
     const temporary = `${path}.tmp-${randomUUID()}`;
     await writeFile(temporary, JSON.stringify(persisted, null, 2) + "\n", { mode: 0o600 });
     await rename(temporary, path);
     await chmod(path, 0o600);
+    for (const key of ["baseUrl", "apiBase", "model", "apiKey", "reasoningLevels", "autoLimits"] as const)
+      delete config[key];
     Object.assign(config, persisted);
     if (persisted.roleModels) config.roleModels = persisted.roleModels;
     else delete config.roleModels;
     applyHostCredentials(config, credentials);
   };
+  /** Read the saved file with its keys, change it and write it back under the file lock. */
+  const update = async (change: (previous: CoworkConfig) => CoworkConfig, runSafe = false) => {
+    if (!runSafe && (await active())) throw new Error("请先停止运行中的任务，再修改模型供应商");
+    if (managed()) throw new Error("当前模型连接由启动环境管理，请在启动配置中修改");
+    await withFileLock(path, async () => {
+      store.reload();
+      if (store.error) throw new Error(store.error);
+      const previous = existsSync(path) ? readCoworkConfig(root, { COWORK_CONFIG: path }) : config;
+      applyHostCredentials(previous, store.value);
+      await persist(change(previous));
+    });
+  };
+  /** A draft provider's address, format and key: form values over the saved provider. */
+  const draft = (value: Record<string, unknown>) => {
+    if (store.error && !(typeof value.apiKey === "string" && value.apiKey.trim()))
+      throw new Error(store.error);
+    return providerDraft(config, value);
+  };
   return {
     status,
+    saveProvider: async (value: Record<string, unknown>) => {
+      await update((previous) => saveProvider(previous, value));
+      return status();
+    },
+    deleteProvider: async (value: Record<string, unknown>) => {
+      await update((previous) => deleteProvider(previous, value));
+      return status();
+    },
+    saveModels: async (value: Record<string, unknown>) => {
+      await update((previous) => saveProviderModels(previous, value));
+      return status();
+    },
+    /**
+     * The models a provider offers, with what its listing and Pi's catalog say
+     * about each, for the "fetch model list" dialog. Nothing is saved.
+     */
+    async listModels(value: Record<string, unknown>) {
+      const provider = draft(value);
+      if (!provider.apiKey) throw new Error("请先填写 API Key");
+      const listed = (
+        await catalogModels({
+          ...config,
+          baseUrl: provider.baseUrl,
+          apiKey: provider.apiKey,
+          api: provider.api,
+          model: ""
+        })
+      ).filter((entry) => entry.id);
+      const added = new Set(provider.saved?.models.map((model) => model.id));
+      return {
+        models: await Promise.all(
+          listed.map(async (entry) => {
+            const known = await officialModel(provider.baseUrl, entry.id);
+            const name = entry.name ?? known?.name;
+            const facts = {
+              contextWindow: entry.limits?.contextWindow ?? known?.contextWindow,
+              maxTokens: entry.limits?.maxOutputTokens ?? known?.maxTokens,
+              images: entry.limits?.images ?? known?.images,
+              reasoning:
+                known?.reasoning ?? (entry.levels ? entry.levels.some((level) => level !== "off") : undefined)
+            };
+            return {
+              id: entry.id,
+              ...(name && name !== entry.id ? { name } : {}),
+              ...Object.fromEntries(Object.entries(facts).filter(([, value]) => value !== undefined)),
+              added: added.has(entry.id)
+            };
+          })
+        )
+      };
+    },
+    /** Probe one model of a provider with the real request path. */
     async test(value: Record<string, unknown>) {
-      const current = status();
-      const managed = current.managedByEnvironment;
-      const selected = managed ? config : selectedConnection(config, value) || {};
-      if (value.supportsImages !== undefined && typeof value.supportsImages !== "boolean")
-        throw new Error("图像能力设置必须为布尔值");
-      const supplied = typeof value.apiKey === "string" && Boolean(value.apiKey.trim());
-      if (!managed && !supplied && store.error) throw new Error(store.error);
+      if (managed()) throw new Error("当前模型连接由启动环境管理，请在启动配置中修改");
+      const provider = draft(value);
+      const model = typeof value.model === "string" ? value.model.trim() : "";
+      const saved = provider.saved?.models.find((entry) => entry.id === model);
       return testModelConnection({
-        ...parseConnectionProfile(managed ? {} : value, connectionProfile(selected)),
-        baseUrl: managed
-          ? current.baseUrl
-          : typeof value.baseUrl === "string"
-            ? value.baseUrl.trim()
-            : selected.baseUrl || "",
-        model: managed
-          ? current.model
-          : typeof value.model === "string"
-            ? value.model.trim()
-            : selected.model || "",
-        apiKey:
-          !managed && supplied
-            ? String(value.apiKey).trim()
-            : (managed ? process.env.COWORK_API_KEY || config.apiKey : selected.apiKey) || "",
-        supportsImages:
-          managed || value.supportsImages === undefined
-            ? managed
-              ? current.supportsImages
-              : selected.supportsImages === true
-            : value.supportsImages === true
+        ...(saved ?? NEW_CONNECTION_PROFILE),
+        api: provider.api,
+        thinkingFormat: provider.thinkingFormat,
+        supportsPromptCacheKey: provider.saved?.supportsPromptCacheKey ?? false,
+        baseUrl: provider.baseUrl,
+        model,
+        apiKey: provider.apiKey,
+        supportsImages: saved?.supportsImages ?? false
       });
     },
     /**
-     * The reasoning levels a connection's model accepts and where they come
-     * from (#27), for the connection form: the provider's `/models` entry, then
-     * Pi's table for a known provider address, else the connection's choice.
-     * Reads the provider only with a key the form or the saved profile holds.
+     * The reasoning levels a provider's model accepts and where they come
+     * from (#27), plus the model's own limits for the advanced settings: the
+     * provider's `/models` entry, then Pi's table for a known provider address,
+     * else the model's saved choice.
      */
     async levels(value: Record<string, unknown>) {
-      const selected = selectedConnection(config, value);
-      const baseUrl = typeof value.baseUrl === "string" ? value.baseUrl.trim() : selected?.baseUrl || "";
-      const model = typeof value.model === "string" ? value.model.trim() : selected?.model || "";
-      const supplied = typeof value.apiKey === "string" ? value.apiKey.trim() : "";
-      const apiKey = supplied || (store.error ? "" : selected?.apiKey || "");
+      const provider = draft(value);
+      const model = typeof value.model === "string" ? value.model.trim() : "";
+      const saved = provider.saved?.models.find((entry) => entry.id === model);
       const catalog =
-        baseUrl && model && apiKey ? await catalogModels({ ...config, baseUrl, model, apiKey }) : [];
+        model && provider.apiKey
+          ? await catalogModels({
+              ...config,
+              baseUrl: provider.baseUrl,
+              apiKey: provider.apiKey,
+              api: provider.api,
+              model
+            })
+          : [];
+      const listed = catalog.find((entry) => entry.id === model);
+      const known = await officialModel(provider.baseUrl, model);
       return {
         ...(await modelLevels({
-          baseUrl,
+          baseUrl: provider.baseUrl,
           model,
-          endpoint: catalog.find((entry) => entry.id === model)?.levels,
-          manual: selected?.reasoningLevels
+          endpoint: listed?.levels,
+          manual: saved?.reasoningLevels
         })),
-        // The model's own context window, output and image input, for the form's defaults.
-        limits: catalog.find((entry) => entry.id === model)?.limits ?? {},
-        official: await isOfficialAddress(baseUrl)
+        limits: {
+          ...(known
+            ? { contextWindow: known.contextWindow, maxOutputTokens: known.maxTokens, images: known.images }
+            : {}),
+          ...listed?.limits
+        },
+        official: await isOfficialAddress(provider.baseUrl)
       };
-    },
-    async save(value: Record<string, unknown>) {
-      // Only a turn that is producing an answer holds the connection; a
-      // resident Main between turns reads the next connection when it starts.
-      if (await active()) throw new Error("请先停止运行中的任务，再修改模型连接");
-      if (status().managedByEnvironment) throw new Error("当前连接由启动环境管理，请在启动配置中修改");
-      await withFileLock(path, async () => {
-        store.reload();
-        if (store.error) throw new Error(store.error);
-        const previous = existsSync(path) ? readCoworkConfig(root, { COWORK_CONFIG: path }) : config;
-        applyHostCredentials(previous, store.value);
-        const next = saveConnection(previous, value);
-        // The single-connection file the CLI writes is copied before its first profile save.
-        if (!previous.modelConnections && existsSync(path)) {
-          await copyFile(path, `${path}.before-model-profiles`, 1).catch((error) => {
-            if (error.code !== "EEXIST") throw error;
-          });
-          await chmod(`${path}.before-model-profiles`, 0o600);
-        }
-        // One write commits the public connection and its host-owned key together.
-        await persist(next);
-      });
-      return status();
     },
     /**
      * Save one role binding on this execution host.
@@ -183,17 +227,8 @@ export function createModelSettings(
      * next Run and never rewrite the snapshot the current process was given.
      */
     async saveRole(value: Record<string, unknown>) {
-      if (status().managedByEnvironment) throw new Error("当前连接由启动环境管理，请在启动配置中修改");
-      await withFileLock(path, async () => {
-        store.reload();
-        if (store.error) throw new Error(store.error);
-        const previous = existsSync(path) ? readCoworkConfig(root, { COWORK_CONFIG: path }) : config;
-        applyHostCredentials(previous, store.value);
-        await persist(saveRoleModelBinding(previous, value));
-      });
-      const projectId =
-        typeof value.projectId === "string" && value.projectId.trim() ? value.projectId.trim() : undefined;
-      return status(projectId);
+      await update((previous) => withActiveConnection(saveRoleModelBinding(previous, value)), true);
+      return status();
     }
   };
 }

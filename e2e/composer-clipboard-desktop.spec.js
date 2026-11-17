@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
+import { dismissModelSetup } from "./model-provider-ui.js";
 
 test("Electron editable context menu uses native clipboard editing and saves the selected draft", async () => {
   test.skip(process.platform !== "darwin", "Native desktop test requires macOS");
@@ -31,9 +32,7 @@ test("Electron editable context menu uses native clipboard editing and saves the
     });
     const page = await native.firstWindow();
     page.on("pageerror", (error) => errors.push(error.message));
-    const dialog = page.getByRole("dialog", { name: "连接模型" });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await dismissModelSetup(page);
     // Observe the real native Menu.popup after an actual renderer right click.
     await native.evaluate(({ Menu }) => {
       const original = Menu.prototype.popup;

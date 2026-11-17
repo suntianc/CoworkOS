@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { pageRequest, saveTestConnection } from "../test/model-provider-fixture.mjs";
 
 for (const slowModels of [true, false]) {
   test(
@@ -14,11 +15,12 @@ for (const slowModels of [true, false]) {
       });
       let modelsStarted = false;
       try {
-        const saved = await page.request.post(`${dashboard.base}/api/model-settings`, {
-          data: { baseUrl: "http://127.0.0.1:1/v1", model: "new-default", apiKey: "local-fixture" }
+        const profile = await saveTestConnection(pageRequest(page, dashboard.base), {
+          baseUrl: "http://127.0.0.1:1/v1",
+          model: "new-default",
+          apiKey: "local-fixture"
         });
-        expect(saved.ok()).toBe(true);
-        const profile = await saved.json();
+        expect(profile.status).toBe(200);
         for (const taskId of ["old-a", "old-b"]) {
           await page.request.post(`${dashboard.base}/api/tasks`, { data: { taskId, goal: taskId } });
           await page.route(`**/api/tasks/${taskId}`, async (route) => {

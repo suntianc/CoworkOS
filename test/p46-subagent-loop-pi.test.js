@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 import { DurableScheduler } from "../dist/src/runtime/scheduler.js";
+import { saveTestConnection } from "./model-provider-fixture.mjs";
 
 /**
  * Delegation through the backend: execute, review, rework, re-review.
@@ -129,7 +130,7 @@ async function fixture(t, { handle, taskId = "loop-task", goal = "完成需求�
     await rm(root, { recursive: true, force: true });
   });
   const request = client(dashboard);
-  const saved = await request("/api/model-settings", {
+  const saved = await saveTestConnection(request, {
     profileName: "本地夹具",
     baseUrl: provider.baseUrl,
     model: "protocol-fixture",
@@ -138,7 +139,7 @@ async function fixture(t, { handle, taskId = "loop-task", goal = "完成需求�
     supportsImages: false,
     apiKey: "local-fixture-key"
   });
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal(saved.status, 200, JSON.stringify(saved));
   const created = await request("/api/projects", {
     projectName: "派单闭环项目",
     projectDirectory: repository

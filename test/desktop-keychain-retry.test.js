@@ -7,8 +7,6 @@ import { tmpdir } from "node:os";
 
 const require = createRequire(import.meta.url);
 const { createRetryableStorage } = require("../desktop/retryable-storage.cjs");
-const { createModelSettings } = require("../desktop/model-settings.cjs");
-const { desktopPaths } = require("../desktop/paths.cjs");
 
 // A real pipe/process fixture models OSCrypt's process-local failure cache.
 // It does not claim to exercise macOS authorization.
@@ -48,29 +46,18 @@ lines.on('line',line=>{
   return { root, storage, counter };
 }
 
-test("saving again starts a fresh keychain attempt and preserves settings on cancellation", async (t) => {
-  const { root, storage, counter } = await fixture(t);
-  const paths = desktopPaths("/fixture/install", root, {});
-  await writeFile(paths.configPath, "{}\n");
-  const settings = createModelSettings(paths, storage);
-  const input = { baseUrl: "https://example.com/v1", model: "fixture", apiKey: "private-synthetic-key" };
-  await assert.rejects(settings.save(input), /再次点击保存重试/);
-  assert.equal(await readFile(paths.configPath, "utf8"), "{}\n");
+test("an explicit retry starts a fresh keychain attempt instead of looping on a failure", async (t) => {
+  const { storage, counter } = await fixture(t);
+  assert.equal(await storage.isEncryptionAvailable(), false);
   assert.equal(await storage.isEncryptionAvailable(), false);
   assert.equal(await readFile(counter, "utf8"), "1", "no automatic retry/prompt loop");
-  const status = await settings.save(input);
-  assert.equal(status.configured, true);
-  assert.equal(await readFile(counter, "utf8"), "2", "second click uses a fresh process");
-  assert.equal((await settings.read()).apiKey, input.apiKey);
-  assert.equal((await readFile(paths.configPath, "utf8")).includes(input.apiKey), false);
-  assert.equal((await stat(paths.configPath)).mode & 0o777, 0o600);
-  assert.equal(JSON.stringify(status).includes(input.apiKey), false);
+  await storage.retry();
+  assert.equal(await storage.isEncryptionAvailable(), true);
+  assert.equal(await readFile(counter, "utf8"), "2", "a retry uses a fresh process");
+  const encrypted = await storage.encryptString("private-synthetic-key");
+  assert.equal(await storage.decryptString(encrypted), "private-synthetic-key");
   await assert.rejects(storage.decryptString(Buffer.from("corrupt-ciphertext")), /存储访问失败/);
-  assert.equal(
-    (await settings.read()).apiKey,
-    input.apiKey,
-    "corrupt optional secret cannot poison model access"
-  );
+  assert.equal(await storage.decryptString(encrypted), "private-synthetic-key", "a bad ciphertext keeps the helper");
   assert.equal(await readFile(counter, "utf8"), "2", "ordinary reads do not automatically retry");
 });
 

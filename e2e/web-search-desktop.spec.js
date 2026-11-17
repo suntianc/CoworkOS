@@ -7,6 +7,7 @@ import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 import { openWebSearchSettings } from "./settings-helper.js";
 import { exaMcpFixture, sourceConversationFixture } from "../test/exa-mcp-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+import { connectModelThroughUi, setupDialog } from "./model-provider-ui.js";
 
 test("native App after normal model setup performs anonymous search and source fetch without a search key", async () => {
   test.skip(process.platform !== "darwin", "Native App acceptance requires macOS");
@@ -35,14 +36,12 @@ test("native App after normal model setup performs anonymous search and source f
       env
     });
     const page = await native.firstWindow();
-    const dialog = page.getByRole("dialog", { name: "连接模型", exact: true });
-    await expect(dialog).toBeVisible();
-    await dialog.locator('[name="baseUrl"]').fill(provider.baseUrl);
-    await dialog.locator('[name="api"]').selectOption("openai-completions");
-    await dialog.locator('[name="model"]').fill("protocol-fixture");
-    await dialog.locator('[name="apiKey"]').fill("synthetic-model-key");
-    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(dialog).toBeHidden();
+    await expect(setupDialog(page)).toBeVisible();
+    await connectModelThroughUi(page, {
+      baseUrl: provider.baseUrl,
+      model: "protocol-fixture",
+      apiKey: "synthetic-model-key"
+    });
     await expect(page.locator("#composer-input")).toBeVisible();
     const status = await page.evaluate(async () =>
       (

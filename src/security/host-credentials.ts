@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { CoworkConfig } from "../runtime/config.js";
+import { modelConnections } from "../runtime/model-providers.js";
 import { withFileLock } from "../storage/file-lock.js";
 
 /**
@@ -15,7 +16,8 @@ import { withFileLock } from "../storage/file-lock.js";
  */
 export interface HostCredentials {
   version: 1;
-  modelConnections: Record<string, string>;
+  /** Provider keys by provider id; `default` holds a single-connection host's key. */
+  modelProviders: Record<string, string>;
   webSearch?: { exaApiKey?: string };
 }
 
@@ -23,7 +25,7 @@ const unavailable = (path: string) =>
   new Error(`凭据存储无法读取（${path}），请从备份恢复或删除该文件后重新填写密钥`);
 
 export function emptyHostCredentials(): HostCredentials {
-  return { version: 1, modelConnections: {} };
+  return { version: 1, modelProviders: {} };
 }
 
 /** `COWORK_CREDENTIALS` supports an isolated host; the default sits beside the configuration. */
@@ -43,7 +45,7 @@ function parseCredentials(path: string, raw: string): HostCredentials {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw unavailable(path);
   const record = value as Record<string, unknown>;
   if (record.version !== 1) throw unavailable(path);
-  const models: unknown = record.modelConnections ?? {};
+  const models: unknown = record.modelProviders ?? {};
   if (!models || typeof models !== "object" || Array.isArray(models)) throw unavailable(path);
   const entries: Array<[string, string]> = [];
   for (const [id, secret] of Object.entries(models as Record<string, unknown>)) {
@@ -62,7 +64,7 @@ function parseCredentials(path: string, raw: string): HostCredentials {
   }
   return {
     version: 1,
-    modelConnections: Object.fromEntries(entries),
+    modelProviders: Object.fromEntries(entries),
     ...(exaApiKey ? { webSearch: { exaApiKey } } : {})
   };
 }
@@ -132,16 +134,18 @@ export class HostCredentialStore {
 
 /** Overlay host-owned secrets on a loaded configuration in memory only. */
 export function applyHostCredentials(config: CoworkConfig, credentials: HostCredentials): void {
-  const registry = config.modelConnections;
-  if (registry?.profiles.length) {
-    for (const profile of registry.profiles) {
-      const secret = credentials.modelConnections[profile.id];
-      if (secret) profile.apiKey = secret;
+  const providers = config.modelProviders?.providers;
+  if (providers?.length) {
+    for (const provider of providers) {
+      const secret = credentials.modelProviders[provider.id];
+      if (secret) provider.apiKey = secret;
     }
+    // The single-connection fields mirror the default connection, key included.
+    const registry = modelConnections(config);
     const active = registry.profiles.find((profile) => profile.id === registry.activeId);
     if (active?.apiKey) config.apiKey = active.apiKey;
-  } else if (credentials.modelConnections.default) {
-    config.apiKey = credentials.modelConnections.default;
+  } else if (credentials.modelProviders.default) {
+    config.apiKey = credentials.modelProviders.default;
   }
   const exaApiKey = credentials.webSearch?.exaApiKey;
   if (exaApiKey) config.webSearch = { provider: config.webSearch?.provider ?? "exa", exaApiKey };
@@ -153,20 +157,17 @@ export function applyHostCredentials(config: CoworkConfig, credentials: HostCred
  */
 export function takeHostCredentials(config: CoworkConfig): HostCredentials {
   const credentials = emptyHostCredentials();
-  const profiles = config.modelConnections?.profiles;
-  if (profiles?.length) {
-    for (const profile of profiles) {
-      if (!profile.apiKey) continue;
-      credentials.modelConnections[profile.id] = profile.apiKey;
-      delete profile.apiKey;
+  const providers = config.modelProviders?.providers;
+  if (providers?.length) {
+    for (const provider of providers) {
+      if (!provider.apiKey) continue;
+      credentials.modelProviders[provider.id] = provider.apiKey;
+      delete provider.apiKey;
     }
-    // The top-level copy mirrors the active profile; keep a stray copy under that id.
-    const activeId = config.modelConnections?.activeId ?? "default";
-    if (config.apiKey && !credentials.modelConnections[activeId])
-      credentials.modelConnections[activeId] = config.apiKey;
+    // The top-level copy only mirrors the default connection's provider key.
     delete config.apiKey;
   } else if (config.apiKey) {
-    credentials.modelConnections.default = config.apiKey;
+    credentials.modelProviders.default = config.apiKey;
     delete config.apiKey;
   }
   const exaApiKey = config.webSearch?.exaApiKey;
@@ -177,10 +178,26 @@ export function takeHostCredentials(config: CoworkConfig): HostCredentials {
   return credentials;
 }
 
+/** Drop keys of providers the configuration no longer has. */
+export function retainProviderCredentials(
+  credentials: HostCredentials,
+  config: CoworkConfig
+): HostCredentials {
+  const providers = config.modelProviders?.providers;
+  if (!providers) return credentials;
+  const keep = new Set(providers.map((provider) => provider.id));
+  return {
+    ...credentials,
+    modelProviders: Object.fromEntries(
+      Object.entries(credentials.modelProviders).filter(([id]) => keep.has(id))
+    )
+  };
+}
+
 export function mergeHostCredentials(current: HostCredentials, incoming: HostCredentials): HostCredentials {
   return {
     version: 1,
-    modelConnections: { ...current.modelConnections, ...incoming.modelConnections },
+    modelProviders: { ...current.modelProviders, ...incoming.modelProviders },
     ...(incoming.webSearch?.exaApiKey
       ? { webSearch: { exaApiKey: incoming.webSearch.exaApiKey } }
       : current.webSearch
@@ -190,5 +207,5 @@ export function mergeHostCredentials(current: HostCredentials, incoming: HostCre
 }
 
 export function hasHostCredentials(credentials: HostCredentials): boolean {
-  return Object.keys(credentials.modelConnections).length > 0 || Boolean(credentials.webSearch?.exaApiKey);
+  return Object.keys(credentials.modelProviders).length > 0 || Boolean(credentials.webSearch?.exaApiKey);
 }

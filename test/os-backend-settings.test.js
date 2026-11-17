@@ -14,6 +14,7 @@ import { createModelSettings } from "../dist/src/dashboard/model-settings.js";
 import { createWebSearchSettings } from "../dist/src/dashboard/web-search-settings.js";
 import { HostCredentialStore } from "../dist/src/security/host-credentials.js";
 import { readCoworkConfig } from "../dist/src/runtime/config.js";
+import { connectionsOf, providerConfig, saveTestConnection } from "./model-provider-fixture.mjs";
 
 const configureTimeout = { timeout: 120_000 };
 const execute = promisify(execFile);
@@ -79,6 +80,11 @@ function api(dashboard) {
   };
 }
 
+/** Save a connection (a provider with one model) with this file's client. */
+const saveConnection = (call, value) =>
+  saveTestConnection(async (path, body) => ({ status: 200, body: await call(path, body) }), value);
+const providerOf = (profileId) => profileId.split("#")[0];
+
 test(
   "standalone backend stores a host model connection and runs real Pi without exposing the key",
   configureTimeout,
@@ -101,7 +107,7 @@ test(
     assert.equal(initial.configured, false);
     assert.equal(JSON.stringify(initial).includes(sentinel), false);
 
-    const saved = await call("/api/model-settings", {
+    const saved = await saveConnection(call, {
       profileName: "主机连接",
       baseUrl: model.baseUrl,
       model: "host-fixture",
@@ -119,7 +125,7 @@ test(
     const credentialsPath = join(dashboard.root, "credentials.json");
     const credentials = JSON.parse(await readFile(credentialsPath, "utf8"));
     assert.equal(credentials.version, 1);
-    assert.equal(credentials.modelConnections[saved.activeProfileId], sentinel);
+    assert.equal(credentials.modelProviders[providerOf(saved.activeProfileId)], sentinel);
     assert.equal((await stat(credentialsPath)).mode & 0o777, 0o600);
 
     await call("/api/tasks", {
@@ -157,7 +163,7 @@ test("host settings keep multi-connection, default model, image input and search
   t.after(() => dashboard.stop());
   const call = api(dashboard);
 
-  const first = await call("/api/model-settings", {
+  const first = await saveConnection(call, {
     profileName: "主连接",
     baseUrl: model.baseUrl,
     model: "a-model",
@@ -168,7 +174,7 @@ test("host settings keep multi-connection, default model, image input and search
     mainMaxTokens: 4096
   });
   const firstId = first.activeProfileId;
-  const second = await call("/api/model-settings", {
+  const second = await saveConnection(call, {
     profileId: "",
     profileName: "备用连接",
     baseUrl: model.baseUrl,
@@ -183,7 +189,7 @@ test("host settings keep multi-connection, default model, image input and search
   assert.equal(second.activeProfileId, firstId, "saving an inactive connection keeps the active one");
   assert.equal(second.profiles.length, 2);
   assert.equal(second.model, "a-model");
-  assert.equal(second.contextWindow, 64000);
+  assert.equal(connectionsOf(second).find((profile) => profile.id === firstId).contextWindow, 64000);
   assert.equal(second.profiles.find((profile) => profile.id === secondId).supportsImages, true);
   assert.equal(JSON.stringify(second).includes("connection-key"), false);
 
@@ -195,8 +201,8 @@ test("host settings keep multi-connection, default model, image input and search
   assert.equal(JSON.stringify(config).includes("connection-key"), false);
   assert.equal(JSON.stringify(config).includes("search-key"), false);
   const stored = new HostCredentialStore(join(dashboard.root, "credentials.json"));
-  assert.equal(stored.value.modelConnections[firstId], "main-connection-key");
-  assert.equal(stored.value.modelConnections[secondId], "review-connection-key");
+  assert.equal(stored.value.modelProviders[providerOf(firstId)], "main-connection-key");
+  assert.equal(stored.value.modelProviders[providerOf(secondId)], "review-connection-key");
   assert.equal(stored.value.webSearch.exaApiKey, "search-key");
 
   await dashboard.restart();
@@ -204,9 +210,10 @@ test("host settings keep multi-connection, default model, image input and search
   assert.equal(restarted.configured, true);
   assert.equal(restarted.activeProfileId, firstId);
   assert.equal(restarted.model, "a-model");
-  assert.equal(restarted.contextWindow, 64000);
-  assert.equal(restarted.mainMaxTokens, 4096);
-  assert.equal(restarted.profiles.length, 2);
+  const active = connectionsOf(restarted).find((profile) => profile.id === firstId);
+  assert.equal(active.contextWindow, 64000);
+  assert.equal(active.mainMaxTokens, 4096);
+  assert.equal(connectionsOf(restarted).length, 2);
   assert.equal(JSON.stringify(restarted).includes("connection-key"), false);
   assert.equal((await call("/api/web-search-settings")).authenticated, true);
 });
@@ -229,19 +236,9 @@ test("a damaged host credential store is reported and left for recovery", async 
   await writeFile(
     path,
     JSON.stringify({
-      modelConnections: {
-        version: 1,
-        activeId: "a",
-        profiles: [
-          {
-            id: "a",
-            name: "连接 A",
-            baseUrl: "https://a.example/v1",
-            model: "a-model",
-            api: "openai-responses"
-          }
-        ]
-      }
+      ...providerConfig([
+        { id: "a", name: "连接 A", baseUrl: "https://a.example/v1", model: "a-model", api: "openai-responses" }
+      ])
     })
   );
   await writeFile(credentialsPath, "{not json");
@@ -250,12 +247,7 @@ test("a damaged host credential store is reported and left for recovery", async 
   assert.equal(model.status().configured, false);
   assert.match(model.status().credentialError, /凭据存储无法读取/);
   await assert.rejects(
-    model.save({
-      profileId: "a",
-      baseUrl: "https://a.example/v1",
-      model: "a-model",
-      apiKey: "another-key"
-    }),
+    model.saveProvider({ id: "a", apiKey: "another-key" }),
     /凭据存储无法读取/
   );
   assert.equal(await readFile(credentialsPath, "utf8"), "{not json");
@@ -276,35 +268,31 @@ test("session export redacts host-stored connection and search keys", async (t) 
       baseUrl: "http://unused.test",
       model: "fixture-model",
       workspaceRoot: join(root, "workspace"),
-      modelConnections: {
-        version: 1,
-        activeId: "main",
-        profiles: [
-          {
-            id: "main",
-            name: "Main",
-            baseUrl: "http://unused.test",
-            model: "fixture-model",
-            api: "openai-completions",
-            supportsImages: false
-          },
-          {
-            id: "review",
-            name: "Reviewer",
-            baseUrl: "http://review.test/v1",
-            model: "review-model",
-            api: "openai-completions",
-            supportsImages: true
-          }
-        ]
-      }
+      ...providerConfig([
+        {
+          id: "main",
+          name: "Main",
+          baseUrl: "http://unused.test",
+          model: "fixture-model",
+          api: "openai-completions",
+          supportsImages: false
+        },
+        {
+          id: "review",
+          name: "Reviewer",
+          baseUrl: "http://review.test/v1",
+          model: "review-model",
+          api: "openai-completions",
+          supportsImages: true
+        }
+      ])
     })
   );
   await writeFile(
     join(root, "credentials.json"),
     JSON.stringify({
       version: 1,
-      modelConnections: { main: sentinels[0], review: sentinels[1] },
+      modelProviders: { main: sentinels[0], review: sentinels[1] },
       webSearch: { exaApiKey: sentinels[2] }
     }),
     { mode: 0o600 }
@@ -387,26 +375,22 @@ test("the CLI config writer never copies a host-stored key into the public confi
     JSON.stringify({
       baseUrl: "http://unused.test/v1",
       model: "fixture-model",
-      modelConnections: {
-        version: 1,
-        activeId: "main",
-        profiles: [
-          {
-            id: "main",
-            name: "Main",
-            baseUrl: "http://unused.test/v1",
-            model: "fixture-model",
-            api: "openai-completions",
-            supportsImages: false
-          }
-        ]
-      }
+      ...providerConfig([
+        {
+          id: "main",
+          name: "Main",
+          baseUrl: "http://unused.test/v1",
+          model: "fixture-model",
+          api: "openai-completions",
+          supportsImages: false
+        }
+      ])
     })
   );
   const credentialsPath = join(root, "credentials.json");
   const credentials = {
     version: 1,
-    modelConnections: { main: "host-store-writer-sentinel" }
+    modelProviders: { main: "host-store-writer-sentinel" }
   };
   await writeFile(credentialsPath, JSON.stringify(credentials), { mode: 0o600 });
   const env = Object.fromEntries(

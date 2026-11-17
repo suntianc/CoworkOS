@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+import { connectModelThroughUi, setupDialog } from "./model-provider-ui.js";
 
 test("desktop appearance applies natively and preserves the live backend across normal quit", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -63,14 +64,12 @@ test("desktop appearance applies natively and preserves the live backend across 
   try {
     let page = await launch();
     await expectSystemAppearance(page);
-    const model = page.getByRole("dialog", { name: "连接模型" });
-    await expect(model).toBeVisible();
-    await model.locator('[name="baseUrl"]').fill(provider.baseUrl);
-    await model.locator('[name="api"]').selectOption("openai-completions");
-    await model.locator('[name="model"]').fill("appearance-fixture");
-    await model.locator('[name="apiKey"]').fill("local-appearance-fixture");
-    await model.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(model).toBeHidden();
+    await expect(setupDialog(page)).toBeVisible();
+    await connectModelThroughUi(page, {
+      baseUrl: provider.baseUrl,
+      model: "appearance-fixture",
+      apiKey: "local-appearance-fixture"
+    });
     await page.locator("#new-project").click();
     await page.locator("#add-project-name").fill("外观验收");
     await page.locator("#add-project-directory").fill(root);
@@ -81,6 +80,8 @@ test("desktop appearance applies natively and preserves the live backend across 
     const origin = page.url();
     await page.locator("#composer-input").fill("退出后保留的外观草稿");
     await page.locator("#user-menu-button").click();
+    // Settings reopen on the section last shown, which first use left on models.
+    await page.locator('[data-settings-section="general"]').click();
     await page.locator('[data-appearance-value="dark"]').click();
     await expect.poll(nativeState).toEqual({ source: "dark", dark: true, background: "#000000" });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

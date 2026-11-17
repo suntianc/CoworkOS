@@ -14,6 +14,7 @@ import {
   removeBackendInstance,
   writeBackendInstance
 } from "../dist/src/dashboard/backend-instance.js";
+import { dismissModelSetup } from "./model-provider-ui.js";
 
 // Exercise the production routes and desktop IPC with an in-process native-auth dependency.
 // No production environment switch or HTTP endpoint grants approval.
@@ -177,10 +178,7 @@ test("native three-button settings grant both windows to new tasks, persists acr
     });
     const page = await native.firstWindow();
     await expect(page.locator("#composer-input")).toBeAttached();
-    const model = page.getByRole("dialog", { name: "连接模型", exact: true });
-    await expect(model).toBeVisible();
-    await model.getByRole("button", { name: "关闭设置", exact: true }).click();
-    await expect(model).toBeHidden();
+    await dismissModelSetup(page);
     return page;
   };
   // Sign requests with the token this isolated backend published. A renderer fetch
@@ -414,9 +412,7 @@ test("denying either system permission keeps access disabled and opens only its 
       };
     });
     const page = await native.firstWindow();
-    const model = page.getByRole("dialog", { name: "连接模型", exact: true });
-    await expect(model).toBeVisible();
-    await model.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await dismissModelSetup(page);
     await openWindowSettings(page);
     const toggle = page.locator("#computer-access-enabled");
     const screen = page.locator('[data-computer-permission="screenRecording"]');

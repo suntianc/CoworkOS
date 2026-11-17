@@ -47,7 +47,7 @@ export function createWebSearchSettings(
         // An explicit clear removes the stored key instead of retaining it for a later re-enable.
         const credentials =
           input.clearExaApiKey === true
-            ? { version: 1 as const, modelConnections: merged.modelConnections }
+            ? { version: 1 as const, modelProviders: merged.modelProviders }
             : merged;
         if (hasHostCredentials(credentials) || (input.clearExaApiKey === true && existsSync(store.path)))
           await store.write(credentials);

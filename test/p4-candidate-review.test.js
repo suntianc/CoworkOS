@@ -20,6 +20,7 @@ import { backendPaths, readBackendInstance } from "../dist/src/dashboard/backend
 import { createProjectDevelopmentService } from "../dist/src/dashboard/project-development-service.js";
 import { prepareDevelopmentWorkspace } from "../dist/src/workspace/development-workspace.js";
 import { prepareWorkItemSite } from "../dist/src/workspace/work-item-workspace.js";
+import { saveTestConnection } from "./model-provider-fixture.mjs";
 
 const run = promisify(execFile);
 const git = (cwd, args) =>
@@ -721,7 +722,7 @@ test(
     t.after(async () => {
       await provider.close();
     });
-    const saved = await request("/api/model-settings", {
+    const saved = await saveTestConnection(request, {
       profileName: "本地夹具",
       baseUrl: provider.baseUrl,
       model: "protocol-fixture",
@@ -730,7 +731,7 @@ test(
       supportsImages: false,
       apiKey: "native-execution-local-key"
     });
-    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(saved.status, 200, JSON.stringify(saved));
 
     const started = await request(`/api/tasks/${taskId}/run`, {
       prompt: "完成报表导出需求：先实现，再冻结候选做独立审查，有发现时在原执行会话返修并复审。"

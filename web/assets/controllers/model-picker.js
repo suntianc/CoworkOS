@@ -14,16 +14,11 @@ export const LEVEL_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", 
 /** Offered when nothing says which levels a model accepts. */
 export const DEFAULT_LEVELS = ["off", "low", "medium", "high", "xhigh", "max"];
 
-export const LEVEL_LABELS = {
-  // As a level 关闭 reads Off, not the Close of a window.
-  off: language === "en" ? "Off" : "关闭",
-  minimal: ui("最少"),
-  low: ui("低"),
-  medium: ui("中"),
-  high: ui("高"),
-  xhigh: ui("极高"),
-  max: ui("最大")
-};
+// English names stay short so six or seven fit under the rail without colliding.
+export const LEVEL_LABELS =
+  language === "en"
+    ? { off: "Off", minimal: "Min", low: "Low", medium: "Med", high: "High", xhigh: "XHigh", max: "Max" }
+    : { off: "关闭", minimal: "最少", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最大" };
 
 /** The accepted level nearest to `level`; a tie goes to the lower, cheaper one. */
 export function nearestLevel(level, levels) {

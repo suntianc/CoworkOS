@@ -370,7 +370,6 @@ export function delegatedEnv(input: {
   const fallback = bound
     ? undefined
     : input.resolveMainModel({
-        ...(input.delegation.projectId ? { projectId: input.delegation.projectId } : {}),
         ...(input.delegation.model ? { model: input.delegation.model } : {}),
         ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {})
       });

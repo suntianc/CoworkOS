@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
+import { providerConfig } from "./model-provider-fixture.mjs";
 
 const exec = promisify(execFile);
 const pixel = Buffer.from(
@@ -48,25 +49,21 @@ for (const api of ["openai-completions", "openai-responses"])
         supportsImages: true,
         reasoningEffort: "off",
         supportsReasoningEffort: false,
-        modelConnections: {
-          version: 1,
-          activeId: "main",
-          profiles: [
-            {
-              id: "main",
-              name: "Main",
-              baseUrl: main.baseUrl,
-              apiKey: "local-main-key",
-              model: "fixture-main",
-              supportsImages: true,
-              api,
-              reasoningEffort: "off",
-              supportsReasoningEffort: false,
-              mainMaxTokens: 8192,
-              subagentMaxTokens: 8192
-            }
-          ]
-        }
+        ...providerConfig([
+          {
+            id: "main",
+            name: "Main",
+            baseUrl: main.baseUrl,
+            apiKey: "local-main-key",
+            model: "fixture-main",
+            supportsImages: true,
+            api,
+            reasoningEffort: "off",
+            supportsReasoningEffort: false,
+            mainMaxTokens: 8192,
+            subagentMaxTokens: 8192
+          }
+        ])
       };
       const configPath = join(root, "config.json");
       await writeFile(configPath, JSON.stringify(config));

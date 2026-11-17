@@ -2,7 +2,7 @@ import { validateWebSearchConfig, type WebSearchConfig } from "./web-search-conf
 import { proxyEnvironment } from "./http-transport.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { modelConnections, type ModelConnections } from "./model-connections.js";
+import { modelProviders, type ModelProviders } from "./model-providers.js";
 import { parseReasoningLevels } from "./model-profile.js";
 import { parseAutoLimits } from "./model-limits.js";
 import { validateRoleModelConfig, type RoleModelConfig } from "./role-models.js";
@@ -22,7 +22,7 @@ import type { ProjectDataConfig } from "../storage/project-data/config.js";
 import { mainCapacitySettings, type MainCapacitySettings } from "../domain/main-capacity.js";
 
 export interface CoworkConfig extends RuntimeSettingsConfig, WebSearchConfig {
-  modelConnections?: ModelConnections;
+  modelProviders?: ModelProviders;
   /** Execution-host role bindings; project overrides stay in this local file. */
   roleModels?: RoleModelConfig;
   baseUrl?: string;
@@ -77,7 +77,7 @@ export function readCoworkConfig(root = process.cwd(), env: NodeJS.ProcessEnv = 
   normalizeThinkingFormat(config.thinkingFormat);
   normalizeContextWindow(config.contextWindow);
   proxyEnvironment(config, {});
-  if (config.modelConnections) modelConnections(config);
+  if (config.modelProviders) modelProviders(config);
   // An explicit external configuration is either valid or an error: guessing
   // would silently change how many Mains this host runs.
   if (config.mainCapacity !== undefined) config.mainCapacity = mainCapacitySettings(config.mainCapacity);

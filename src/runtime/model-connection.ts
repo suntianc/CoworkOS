@@ -95,13 +95,18 @@ export async function testModelConnection(input: ModelConnectionInput, options: 
   }
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash)
     throw new Error("API 地址需为不含凭据、查询参数或片段的 HTTP(S) 地址");
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(input.model)) throw new Error("请填写有效的模型 ID");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(input.model)) throw new Error("请填写有效的模型 ID");
   if (!input.apiKey || input.apiKey.length > 4096 || /[\r\n\0]/.test(input.apiKey))
     throw new Error("请填写有效的 API Key");
   if (input.supportsImages !== undefined && typeof input.supportsImages !== "boolean")
     throw new Error("图像能力设置必须为布尔值");
   const profile = parseConnectionProfile({ ...input }, connectionProfile(input));
-  const format = profile.api === "openai-responses" ? "Responses" : "Chat Completions";
+  const format =
+    profile.api === "openai-responses"
+      ? "Responses"
+      : profile.api === "anthropic-messages"
+        ? "Anthropic Messages"
+        : "Chat Completions";
   const fixture = input.supportsImages ? (options.imageFixture ?? createImageFixture)() : undefined;
   const started = Date.now();
   const content: Array<TextContent | ImageContent> = [

@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 import { MainRequestStore, mainRequestPath } from "../dist/src/storage/main-request-store.js";
+import { saveTestConnection } from "./model-provider-fixture.mjs";
 
 for (const api of ["openai-completions", "openai-responses"]) {
   test(
@@ -92,7 +93,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
       };
       assert.equal(
         (
-          await call("/api/model-settings", {
+          await saveTestConnection(call, {
             baseUrl: `http://127.0.0.1:${provider.address().port}/v1`,
             api,
             apiKey: "local-fixture-key",

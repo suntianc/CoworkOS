@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
+import { dismissModelSetup } from "./model-provider-ui.js";
 
 test("host authorization recovery preserves drafts through backend switches and restart", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -45,9 +46,7 @@ test("host authorization recovery preserves drafts through backend switches and 
   let native, page, primary;
   const errors = [];
   const closeModel = async () => {
-    const model = page.getByRole("dialog", { name: "连接模型" });
-    await model.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
-    if (await model.isVisible()) await model.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await dismissModelSetup(page, { wait: 10_000 });
   };
   const launch = async () => {
     native = await electron.launch({
@@ -84,9 +83,7 @@ test("host authorization recovery preserves drafts through backend switches and 
     await page.waitForURL(`${instance.url}/**`, { timeout: 30_000 });
     // A switched backend without a connection shows the first-use dialog; close it
     // before reading the node row again.
-    const setup = page.getByRole("dialog", { name: "连接模型" });
-    await setup.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
-    await closeModel();
+    await dismissModelSetup(page, { wait: 10_000 });
     await page.locator("#user-menu-button").click();
     await page.locator('[data-settings-section="nodes"]').click();
     await expect(page.locator("[data-backend-status]")).toContainText(
@@ -115,8 +112,9 @@ test("host authorization recovery preserves drafts through backend switches and 
     });
     await post("/api/tasks", { taskId: "recovery-task", goal: "Earlier task", projectId: project.projectId });
     await page.reload();
-    await expect(page.locator('.conversation-item[data-task="recovery-task"]')).toBeVisible();
+    // Model setup covers the sidebar with the settings page until it is closed.
     await closeModel();
+    await expect(page.locator('.conversation-item[data-task="recovery-task"]')).toBeVisible();
     await page.locator('.conversation-item[data-task="recovery-task"]').click();
     await page.evaluate(() => {
       localStorage.setItem(

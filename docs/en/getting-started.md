@@ -25,11 +25,9 @@ Updating or uninstalling the npm CLI affects only the CLI/installer; it does not
 
 ## Connect a model
 
-Open Settings → Model connections and enter your provider's API URL, model ID and API key. Use a root URL or `/v1`, such as `https://your-service.example/v1`.
+On first launch the App opens Settings → Models and roles with the Add provider dialog. Pick your provider (a preset only needs the API key), or choose Custom, enter the API address and pick the format (Chat Completions, Responses or Anthropic Messages). Select Add and fetch models, then tick the models you want. The service must support streaming and tool calls in the selected format.
 
-New connections default to Responses; Chat Completions is also available. The service must support streaming and tool calls in the selected format. Native Anthropic endpoints cannot be used directly.
-
-Select Test connection, then Save connection after the test passes. Testing uses model quota. See [model settings](configuration.md) for more options.
+Select Check in the provider's detail to confirm the connection; a check uses a little quota. See [model settings](configuration.md) for more options.
 
 ## Create a project
 

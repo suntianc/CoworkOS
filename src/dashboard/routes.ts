@@ -555,6 +555,25 @@ export function createDashboardHandler(
         else sendJson(response, 405, { error: "method not allowed" });
         return;
       }
+      const modelSettingsActions = {
+        "/api/model-settings/providers": "saveProvider",
+        "/api/model-settings/providers/delete": "deleteProvider",
+        "/api/model-settings/models": "saveModels",
+        "/api/model-settings/models/list": "listModels"
+      } as const;
+      const modelSettingsAction = Object.hasOwn(modelSettingsActions, url.pathname)
+        ? modelSettingsActions[url.pathname as keyof typeof modelSettingsActions]
+        : undefined;
+      if (modelSettingsAction) {
+        if (request.method !== "POST") sendJson(response, 405, { error: "method not allowed" });
+        else
+          sendJson(
+            response,
+            200,
+            await ports.modelSettings[modelSettingsAction](await readJsonBody(request))
+          );
+        return;
+      }
       if (url.pathname === "/api/model-settings/levels" && request.method === "POST") {
         sendJson(response, 200, await ports.modelSettings.levels(await readJsonBody(request)));
         return;
@@ -578,11 +597,7 @@ export function createDashboardHandler(
         return;
       }
       if (url.pathname === "/api/model-settings") {
-        const scopedProject = url.searchParams.get("projectId") ?? "";
-        if (request.method === "GET")
-          sendJson(response, 200, ports.modelSettings.status(scopedProject || undefined));
-        else if (request.method === "POST")
-          sendJson(response, 200, await ports.modelSettings.save(await readJsonBody(request)));
+        if (request.method === "GET") sendJson(response, 200, ports.modelSettings.status());
         else sendJson(response, 405, { error: "method not allowed" });
         return;
       }

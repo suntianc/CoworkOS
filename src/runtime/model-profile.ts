@@ -142,11 +142,25 @@ export function parseConnectionProfile(
   };
 }
 
+/**
+ * The base URL requests are sent under.
+ *
+ * An address with a path is used as written, so `/api/v3`, `/v1beta/openai` and
+ * similar provider paths are not rewritten; a bare host gets the usual `/v1`.
+ * Anthropic's SDK adds `/v1` itself, so its address is never extended.
+ */
+export function requestBaseUrl(baseUrl: string, api: CoworkModelApi = "openai-completions"): string {
+  const base = baseUrl.trim().replace(/\/+$/, "");
+  if (api === "anthropic-messages") return base;
+  if (!URL.canParse(base)) return base;
+  const path = new URL(base).pathname;
+  return path === "/" || path === "" ? `${base}/v1` : base;
+}
+
 /** Distinguish service/account contexts even when both advertise the same model ID. */
 export function coworkProviderId(baseUrl: string, connectionId = process.env.COWORK_CONNECTION_ID): string {
   if (!connectionId) return "cowork-glm"; // Existing CLI integrations retain their provider name.
-  const base = baseUrl.replace(/\/+$/, "");
-  const endpoint = base.endsWith("/v1") ? base : `${base}/v1`;
+  const endpoint = requestBaseUrl(baseUrl);
   return `cowork-${createHash("sha256")
     .update(JSON.stringify([endpoint, connectionId]))
     .digest("hex")
@@ -175,11 +189,7 @@ export function createCoworkModel(options: {
     name: model,
     api,
     provider: coworkProviderId(base, options.connectionId),
-    baseUrl: /^https:\/\/open\.bigmodel\.cn\/api\/(?:coding\/)?paas\/v4$/i.test(base)
-      ? base
-      : base.endsWith("/v1")
-        ? base
-        : `${base}/v1`,
+    baseUrl: requestBaseUrl(base, api),
     reasoning: api === "openai-completions" || options.supportsReasoningEffort,
     // Off must remain selectable by Pi. Its wire omission is handled by model-provider.
     thinkingLevelMap: { xhigh: "xhigh", max: "max" },

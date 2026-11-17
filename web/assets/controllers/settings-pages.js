@@ -777,7 +777,7 @@ export function createSettingsPages({
     state: () => ({ open: opened, section }),
     /** A sub-page steps back to the page it was opened from, never closing it. */
     host: {
-      open: () => open(),
+      open: (next) => open(next),
       close: () => true,
       onSection
     }

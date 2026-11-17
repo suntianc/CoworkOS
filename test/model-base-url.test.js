@@ -65,7 +65,7 @@ for (const path of ["/api/paas/v4", "/api/coding/paas/v4"]) {
   }
 }
 
-test("other API endpoints retain their existing v1 routing", async (t) => {
+test("a bare host gets /v1 and an address with a path is used as written", async (t) => {
   const requests = [];
   t.mock.method(globalThis, "fetch", async (input) => {
     requests.push(String(input));
@@ -80,7 +80,7 @@ test("other API endpoints retain their existing v1 routing", async (t) => {
   for (const [baseUrl, expected] of [
     ["https://api.deepseek.com", "https://api.deepseek.com/v1"],
     ["https://api.deepseek.com/v1/", "https://api.deepseek.com/v1"],
-    ["https://gateway.example/api/paas/v4", "https://gateway.example/api/paas/v4/v1"],
+    ["https://gateway.example/api/paas/v4", "https://gateway.example/api/paas/v4"],
     ["https://open.bigmodel.cn/v1", "https://open.bigmodel.cn/v1"]
   ]) {
     assert.equal(

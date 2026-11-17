@@ -8,7 +8,6 @@ const require = createRequire(import.meta.url);
 const { connectBackend, backendEnvironment } = require("../desktop/backend.cjs");
 const { desktopBackendEnvironment } = require("../desktop/backend-environment.cjs");
 const { desktopPaths, prepareDesktopData } = require("../desktop/paths.cjs");
-const { createModelSettings } = require("../desktop/model-settings.cjs");
 
 /** Create the empty configuration a fresh installation starts with. */
 async function prepare(paths) {
@@ -111,49 +110,3 @@ test("an unavailable native runtime reports startup failure without hanging shut
   }
 });
 
-test("an unreadable saved secret still starts an unconfigured backend for connection recovery", async () => {
-  const root = await mkdtemp(join(tmpdir(), "atria-backend-key-recovery-"));
-  const paths = desktopPaths(resolve("."), root, {});
-  let backend;
-  try {
-    await prepare(paths);
-    await writeFile(
-      paths.configPath,
-      JSON.stringify({
-        modelConnections: {
-          version: 1,
-          activeId: "fixture",
-          profiles: [
-            {
-              id: "fixture",
-              name: "fixture",
-              baseUrl: "http://127.0.0.1:1/v1",
-              model: "fixture",
-              api: "openai-responses",
-              encryptedApiKey: Buffer.from("unreadable-secret").toString("base64")
-            }
-          ]
-        }
-      })
-    );
-    const settings = createModelSettings(paths, {
-      isEncryptionAvailable: () => true,
-      decryptString: () => {
-        throw new Error("old secret is unavailable");
-      }
-    });
-    await assert.rejects(settings.read(), /无法解密/);
-    const launchSettings = await settings.read({ allowUnavailableSecret: true });
-    assert.equal(launchSettings.apiKey, undefined);
-    backend = await connectBackend(paths, launchSettings, process.execPath);
-    const response = await fetch(`${backend.url}/api/models`, {
-      headers: { "x-atria-token": backend.token }
-    });
-    assert.equal(response.status, 200);
-    assert.equal((await response.json()).configured, false);
-    assert.equal((await settings.status()).configured, false, "native model setup remains reachable");
-  } finally {
-    await backend?.stop();
-    await rm(root, { recursive: true, force: true });
-  }
-});

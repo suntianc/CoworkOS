@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { startDashboard } from "./dashboard-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
+import { profileId as connectionId, providerConfig, saveTestConnection } from "./model-provider-fixture.mjs";
 
 /**
  * What a real Main process is actually asked.
@@ -89,15 +90,17 @@ async function createProject(request, dashboard, name) {
 }
 
 async function saveConnection(request, value) {
-  const saved = await request("/api/model-settings", {
+  const saved = await saveTestConnection(request, {
     api: "openai-completions",
     supportsImages: false,
     supportsReasoningEffort: true,
     ...value
   });
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  return saved.body;
+  assert.equal(saved.status, 200, JSON.stringify(saved));
+  return saved;
 }
+
+const providerOf = (profileId) => profileId.split("#")[0];
 
 async function createTask(request, projectId, taskId) {
   const created = await request("/api/tasks", { taskId, goal: `${taskId} 的目标`, projectId });
@@ -142,7 +145,7 @@ const waitFor = async (check, message, timeout = 20_000) => {
 };
 
 test(
-  "real Main runs use the host default, project override and one-off connection without changing in-flight work",
+  "real Main runs use the host default and a one-off connection without changing in-flight work",
   { timeout: 180_000 },
   async (t) => {
     const a = await provider(t, "连接A");
@@ -196,13 +199,13 @@ test(
     assert.match(userText(a.requests[0].body), /role-default/);
 
     const configText = await readFile(join(dashboard.root, "config.json"), "utf8");
-    const storedProfiles = JSON.parse(configText).modelConnections.profiles;
-    const contextA = storedProfiles.find((profile) => profile.id === profileA.id).contextId;
-    const contextB = storedProfiles.find((profile) => profile.id === profileB.id).contextId;
+    // A provider's models share its account context: the provider id.
+    const contextA = providerOf(profileA.id);
+    const contextB = providerOf(profileB.id);
     const credentialsText = await readFile(join(dashboard.root, "credentials.json"), "utf8");
     assert.equal(configText.includes(keyA) || configText.includes(keyB), false);
-    assert.equal(JSON.parse(credentialsText).modelConnections[profileA.id], keyA);
-    assert.equal(JSON.parse(credentialsText).modelConnections[profileB.id], keyB);
+    assert.equal(JSON.parse(credentialsText).modelProviders[contextA], keyA);
+    assert.equal(JSON.parse(credentialsText).modelProviders[contextB], keyB);
     const publicText = JSON.stringify(await request("/api/model-settings"));
     assert.equal(publicText.includes(keyA) || publicText.includes(keyB), false);
 
@@ -224,56 +227,36 @@ test(
       role: "main",
       source: "host",
       connectionId: contextB,
-      connectionName: "连接 B",
+      connectionName: "连接 B / model-b",
       model: "model-b",
       api: "openai-responses",
       thinkingLevel: "high",
-      supportsImages: false,
-      projectId: projectA.projectId
+      supportsImages: false
     });
     assert.equal(hostSnapshot.raw.includes(keyB), false, "the Run record never stores a key");
 
-    // Project override: project A moves to connection A while project B keeps the host default.
-    await request("/api/model-settings/roles", {
-      role: "main",
-      projectId: projectA.projectId,
-      profileId: profileA.id
-    });
-    await createTask(request, projectA.projectId, "role-project-a");
-    await startRun(request, "role-project-a");
-    await settle(request, "role-project-a");
-    assert.equal(a.requests.length, 2);
-    assert.equal(a.requests[1].body.model, "model-a");
-    assert.equal(a.requests[1].body.reasoning_effort, "low");
-    assert.equal(b.requests.length, 1);
-    await createTask(request, projectB.projectId, "role-project-b");
-    await startRun(request, "role-project-b");
-    await settle(request, "role-project-b");
-    assert.equal(b.requests.length, 2, "project B is unaffected by project A's override");
-    assert.equal(b.requests[1].body.model, "model-b");
-
-    // Two sessions in one project: a one-off selection never rewrites the project.
+    // A one-off selection runs on its own connection and never rewrites the host default.
     await createTask(request, projectA.projectId, "role-once");
-    const onceRun = await startRun(request, "role-once", { profileId: profileB.id, model: "model-once" });
+    const onceRun = await startRun(request, "role-once", { profileId: profileA.id, model: "model-once" });
     await settle(request, "role-once");
-    assert.equal(b.requests.length, 3);
-    assert.equal(b.requests[2].body.model, "model-once");
-    assert.equal(a.requests.length, 2, "the explicit session did not leak onto the other provider");
+    assert.equal(a.requests.length, 2);
+    assert.equal(a.requests[1].body.model, "model-once");
+    assert.equal(b.requests.length, 1, "the explicit session did not leak onto the other provider");
     const onceSnapshot = await spawnedPayload(dashboard, "role-once", onceRun.runId);
     assert.equal(onceSnapshot.payload.modelSelection.source, "explicit");
-    assert.equal(onceSnapshot.payload.modelSelection.connectionId, contextB);
+    assert.equal(onceSnapshot.payload.modelSelection.connectionId, contextA);
     assert.equal(onceSnapshot.payload.modelSelection.model, "model-once");
-    const scoped = await request(`/api/model-settings?projectId=${projectA.projectId}`);
+    const settings = await request("/api/model-settings");
     assert.equal(
-      scoped.body.modelRoles.roles.find((role) => role.role === "main").project.profileId,
-      profileA.id,
-      "a one-off choice leaves the saved project override alone"
+      settings.body.modelRoles.roles.find((role) => role.role === "main").host.profileId,
+      profileB.id,
+      "a one-off choice leaves the saved host default alone"
     );
-    await createTask(request, projectA.projectId, "role-after-once");
+    await createTask(request, projectB.projectId, "role-after-once");
     await startRun(request, "role-after-once");
     await settle(request, "role-after-once");
-    assert.equal(a.requests.length, 3, "the next default Run returns to the project override");
-    assert.equal(a.requests[2].body.model, "model-a");
+    assert.equal(b.requests.length, 2, "the next default Run returns to the host default");
+    assert.equal(b.requests[1].body.model, "model-b");
 
     // An explicit reference that no longer exists refuses the launch instead of switching accounts.
     await createTask(request, projectA.projectId, "role-missing");
@@ -284,8 +267,8 @@ test(
     assert.equal(refused.status, 400, JSON.stringify(refused.body));
     assert.match(refused.body.error, /deleted-connection/);
     assert.match(refused.body.error, /不存在/);
-    assert.equal(a.requests.length, 3);
-    assert.equal(b.requests.length, 3);
+    assert.equal(a.requests.length, 2);
+    assert.equal(b.requests.length, 2);
     const missing = await request("/api/tasks/role-missing");
     assert.equal(missing.body.runtime.active, false);
     assert.notEqual(missing.body.task.status, "running");
@@ -323,12 +306,12 @@ test(
     release();
     await settle(request, "role-in-flight");
     const inFlightSnapshot = await spawnedPayload(dashboard, "role-in-flight", inFlight.runId);
-    assert.equal(inFlightSnapshot.payload.modelSelection.connectionName, "连接 B 挂起");
+    assert.equal(inFlightSnapshot.payload.modelSelection.connectionName, "连接 B 挂起 / model-held");
     await createTask(request, projectB.projectId, "role-next");
     await startRun(request, "role-next");
     await settle(request, "role-next");
-    assert.equal(a.requests.length, 4, "the next Run uses the new host default");
-    assert.equal(a.requests[3].body.model, "model-a");
+    assert.equal(a.requests.length, 3, "the next Run uses the new host default");
+    assert.equal(a.requests[2].body.model, "model-a");
 
     assert.deepEqual(heldProvider.failures, []);
     assert.deepEqual(a.failures, []);
@@ -351,45 +334,41 @@ test(
       configPath,
       JSON.stringify(
         {
-          modelConnections: {
-            version: 1,
-            activeId: "cli-a",
-            profiles: [
-              {
-                id: "cli-a",
-                name: "连接 A",
-                baseUrl: a.base,
-                model: "model-a",
-                apiKey: "{{SECRET_clikeya1}}",
-                api: "openai-completions",
-                thinkingFormat: "auto",
-                reasoningEffort: "low",
-                supportsReasoningEffort: true,
-                supportsPromptCacheKey: false,
-                mainMaxTokens: 8192,
-                subagentMaxTokens: 8192,
-                contextWindow: 128000,
-                supportsImages: false
-              },
-              {
-                id: "cli-b",
-                name: "连接 B",
-                baseUrl: b.base,
-                model: "model-b",
-                apiKey: "{{SECRET_clikeyb2}}",
-                api: "openai-completions",
-                thinkingFormat: "auto",
-                reasoningEffort: "high",
-                supportsReasoningEffort: true,
-                supportsPromptCacheKey: false,
-                mainMaxTokens: 4096,
-                subagentMaxTokens: 2048,
-                contextWindow: 64000,
-                supportsImages: false
-              }
-            ]
-          },
-          roleModels: { version: 1, host: { main: { profileId: "cli-b" } } }
+          ...providerConfig([
+            {
+              id: "cli-a",
+              name: "连接 A",
+              baseUrl: a.base,
+              model: "model-a",
+              apiKey: "{{SECRET_clikeya1}}",
+              api: "openai-completions",
+              thinkingFormat: "auto",
+              reasoningEffort: "low",
+              supportsReasoningEffort: true,
+              supportsPromptCacheKey: false,
+              mainMaxTokens: 8192,
+              subagentMaxTokens: 8192,
+              contextWindow: 128000,
+              supportsImages: false
+            },
+            {
+              id: "cli-b",
+              name: "连接 B",
+              baseUrl: b.base,
+              model: "model-b",
+              apiKey: "{{SECRET_clikeyb2}}",
+              api: "openai-completions",
+              thinkingFormat: "auto",
+              reasoningEffort: "high",
+              supportsReasoningEffort: true,
+              supportsPromptCacheKey: false,
+              mainMaxTokens: 4096,
+              subagentMaxTokens: 2048,
+              contextWindow: 64000,
+              supportsImages: false
+            }
+          ]),
+          roleModels: { version: 1, host: { main: { profileId: "cli-b#model-b" } } }
         },
         null,
         2
@@ -442,26 +421,22 @@ test(
     await writeFile(
       join(root, "config.json"),
       JSON.stringify({
-        modelConnections: {
-          version: 1,
-          activeId: "cli-a",
-          profiles: [
-            {
-              id: "cli-a",
-              name: "连接 A",
-              baseUrl: a.base,
-              model: "model-a",
-              apiKey: "{{SECRET_clibroken}}",
-              api: "openai-completions",
-              reasoningEffort: "low",
-              supportsReasoningEffort: true,
-              supportsPromptCacheKey: false,
-              mainMaxTokens: 8192,
-              subagentMaxTokens: 8192,
-              contextWindow: 128000
-            }
-          ]
-        },
+        ...providerConfig([
+          {
+            id: "cli-a",
+            name: "连接 A",
+            baseUrl: a.base,
+            model: "model-a",
+            apiKey: "{{SECRET_clibroken}}",
+            api: "openai-completions",
+            reasoningEffort: "low",
+            supportsReasoningEffort: true,
+            supportsPromptCacheKey: false,
+            mainMaxTokens: 8192,
+            subagentMaxTokens: 8192,
+            contextWindow: 128000
+          }
+        ]),
         roleModels: { version: 1, host: { main: { profileId: "gone" } } }
       })
     );

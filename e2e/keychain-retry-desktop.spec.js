@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { desktopSmokeEnvironment } from "../scripts/desktop-smoke-env.mjs";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+import { addProviderThroughUi } from "./model-provider-ui.js";
 
 test("fresh Keychain helpers preserve the existing Electron ciphertext format", async () => {
   test.skip(process.platform !== "darwin", "macOS Keychain process acceptance");
@@ -58,13 +59,14 @@ test("fresh Keychain helpers preserve the existing Electron ciphertext format", 
       retainedReadable: true,
       version: "v10"
     });
-    const dialog = page.getByRole("dialog", { name: "连接模型", exact: true });
-    if (!(await dialog.isVisible())) await page.locator("#model-setup-button").click();
-    await dialog.locator('[name="baseUrl"]').fill("http://127.0.0.1:9/v1");
-    await dialog.locator('[name="model"]').fill("keychain-fixture");
-    await dialog.locator('[name="apiKey"]').fill("synthetic-compatibility-marker");
-    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(dialog).toBeHidden();
+    if (!(await page.locator(".provider-dialog.is-add").isVisible()))
+      await page.locator("#model-setup-button").click();
+    await addProviderThroughUi(page, {
+      name: "钥匙串夹具",
+      baseUrl: "http://127.0.0.1:9/v1",
+      model: "keychain-fixture",
+      apiKey: "synthetic-compatibility-marker"
+    });
     await page.reload();
     await expect
       .poll(() =>
@@ -82,7 +84,6 @@ test("fresh Keychain helpers preserve the existing Electron ciphertext format", 
         )
       )
       .toBe(true);
-    await expect(dialog).toBeHidden();
     await expect(page.locator("#composer-input")).toBeVisible();
   } finally {
     await native?.close();

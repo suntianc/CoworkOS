@@ -97,7 +97,7 @@ export async function validateCuaLive(args = process.argv.slice(2)) {
   const diagnostics = await mkdtemp(join(tmpdir(), `atria-cua-live-${id}-`));
   const deadline = Date.now() + opts.timeoutMs;
   const receipt = { version: 1, validationId: id, startedAt: new Date().toISOString(), passed: false };
-  let storage, backend, fixture, taskId;
+  let backend, fixture, taskId;
   let phase = "prerequisites";
   const remaining = () => Math.max(1, deadline - Date.now());
   const bounded = async (operation) => {
@@ -120,20 +120,19 @@ export async function validateCuaLive(args = process.argv.slice(2)) {
     await access(chromium.executablePath());
     const { desktopPaths, prepareDesktopData } = require("../desktop/paths.cjs");
     const { atriaHome } = require("./data-home.cjs");
-    const { createRetryableStorage } = require("../desktop/retryable-storage.cjs");
-    const { createModelSettings } = require("../desktop/model-settings.cjs");
     const { startBackend } = require("../desktop/backend.cjs");
-    const { selectedConnection } = await import("../dist/src/runtime/model-connections.js");
+    const { selectedConnection } = await import("../dist/src/runtime/model-providers.js");
     const { connectionProfile } = await import("../dist/src/runtime/model-profile.js");
+    const { readCoworkConfig } = await import("../dist/src/runtime/config.js");
+    const { applyHostCredentials, HostCredentialStore, hostCredentialsPath } =
+      await import("../dist/src/security/host-credentials.js");
     phase = "default_model_keychain";
-    storage = createRetryableStorage({
-      executable: electron,
-      args: [root],
-      timeout: Math.min(60_000, remaining())
-    });
-    // Production settings reader and Electron Safe Storage worker only. No direct secret-file reads or copies.
+    // The execution host's own configuration and credential store readers. No secret copies.
     const originalPaths = desktopPaths(root, process.env.COWORK_DESKTOP_DATA || atriaHome(), process.env);
-    const settings = await bounded(createModelSettings(originalPaths, storage).read());
+    const settings = readCoworkConfig(root, { COWORK_CONFIG: originalPaths.configPath });
+    const credentials = new HostCredentialStore(hostCredentialsPath(originalPaths.configPath));
+    if (credentials.error) throw new Error("default_model_keychain");
+    applyHostCredentials(settings, credentials.value);
     const selected = selectedConnection(settings, {}) ?? settings;
     if (typeof selected.model === "string") receipt.model = selected.model;
     if (!selected.model || !selected.baseUrl || !selected.apiKey)
@@ -267,7 +266,6 @@ export async function validateCuaLive(args = process.argv.slice(2)) {
       }).catch(() => {});
     await backend?.stop();
     await fixture?.close();
-    await storage?.close();
     receipt.finishedAt = new Date().toISOString();
     await writeFile(join(evidenceDir, `${id}.json`), JSON.stringify(receipt, null, 2) + "\n", {
       mode: 0o600,

@@ -152,7 +152,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
       process.env.EXA_API_KEY,
       config.webSearch?.exaApiKey,
       web?.exaApiKey,
-      ...(config.modelConnections?.profiles.map((profile) => profile.apiKey) ?? [])
+      ...(config.modelProviders?.providers.map((provider) => provider.apiKey) ?? [])
     ].filter((value): value is string => Boolean(value))
   });
   let projectDefaultIdentity = true;
@@ -1147,7 +1147,6 @@ async function registerMainExtension(pi: ExtensionAPI) {
       // An exact retry resends the archived connection; changing it would
       // change the request the retry exists to prove.
       if (retry.isReplaying) return;
-      const task = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId);
       const saved = loadConfig();
       const identity = event.messageType === "user" ? readQueuedUserTurn(event.prompt) : undefined;
       // An explicit level belongs to the message that opened this turn. The
@@ -1162,10 +1161,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
           })
         : undefined;
       const explicitLevel = accepted?.thinkingLevel;
-      const selection = resolveMainTurnModel(saved, {
-        projectId: task.projectId,
-        ...(explicitLevel ? { thinkingLevel: explicitLevel } : {})
-      });
+      const selection = resolveMainTurnModel(saved, explicitLevel ? { thinkingLevel: explicitLevel } : {});
       if (!selection) return;
       // The launch applied the endpoint's own limits to this connection; the
       // turn must not re-resolve from the host file alone, which would drop the

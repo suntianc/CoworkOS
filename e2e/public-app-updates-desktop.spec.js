@@ -27,6 +27,7 @@ import {
   releaseAssetUrl,
   validatePublicReleaseFeed
 } from "../scripts/update-release.mjs";
+import { dismissModelSetup } from "./model-provider-ui.js";
 
 const execute = promisify(execFile);
 const readJson = async (file) => JSON.parse(await readFile(file, "utf8"));
@@ -254,9 +255,7 @@ test("a packaged App checks the public feed, downloads in the background and ins
     });
     await routeFixture(native, fixture.routes);
     page = await native.firstWindow();
-    const onboarding = page.getByRole("dialog", { name: "连接模型", exact: true });
-    await expect(onboarding).toBeVisible();
-    await onboarding.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await dismissModelSetup(page);
     await expect(page.locator("#composer-input")).toBeVisible();
     await page.locator("#new-project").click();
     await page.locator("#add-project-name").fill("Native public update fixture");
@@ -358,9 +357,7 @@ test("a packaged App checks the public feed, downloads in the background and ins
     });
     await routeFixture(native, fixture.routes);
     page = await native.firstWindow();
-    const reopenedOnboarding = page.getByRole("dialog", { name: "连接模型", exact: true });
-    await expect(reopenedOnboarding).toBeVisible();
-    await reopenedOnboarding.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await dismissModelSetup(page);
     await expect(page.locator("#composer-input")).toHaveValue(draft, { timeout: 30_000 });
     await page.locator("#user-menu-button").click();
     await expect(page.locator("[data-update-version]")).toHaveText(`当前版本 ${nextVersion}`);

@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
+import { dismissModelSetup } from "./model-provider-ui.js";
 
 test("desktop draft migration, switching and recovery survive restart", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -47,13 +48,10 @@ test("desktop draft migration, switching and recovery survive restart", async ()
   let page;
   const errors = [];
   const closeModel = async () => {
-    const model = page.getByRole("dialog", { name: "连接模型" });
-    // The first-use dialog opens once the window learns there is no model connection,
-    // which can land after navigation; give it a moment, then make sure nothing covers
+    // First use opens model setup once the window learns there is no model, which
+    // can land after navigation; give it a moment, then make sure nothing covers
     // the page before the next click.
-    await model.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
-    if (await model.isVisible()) await model.getByRole("button", { name: "关闭设置", exact: true }).click();
-    await expect(model).toBeHidden();
+    await dismissModelSetup(page, { wait: 5_000 });
   };
   const launch = async () => {
     native = await electron.launch({
@@ -90,9 +88,7 @@ test("desktop draft migration, switching and recovery survive restart", async ()
     await page.waitForURL(`${instance.url}/**`, { timeout: 30_000 });
     // A switched backend without a connection shows the first-use dialog; close it
     // before reading the node row again.
-    const setup = page.getByRole("dialog", { name: "连接模型" });
-    await setup.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
-    await closeModel();
+    await dismissModelSetup(page, { wait: 10_000 });
     await page.locator("#user-menu-button").click();
     await page.locator('[data-settings-section="nodes"]').click();
     await expect(page.locator("[data-backend-status]")).toContainText(

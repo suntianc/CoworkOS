@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readCoworkConfig } from "../dist/src/runtime/config.js";
-import { modelConnections, saveConnection } from "../dist/src/runtime/model-connections.js";
+import { modelConnections, saveProvider, saveProviderModels } from "../dist/src/runtime/model-providers.js";
 import { configuredContextWindow, runtimeSettingsEnv } from "../dist/src/runtime/runtime-settings.js";
 
 test("context capacity resolves config and environment independently of output limits", (t) => {
@@ -29,15 +29,11 @@ test("a stored connection capacity is readable and an invalid one is rejected wi
   const root = await mkdtemp(join(tmpdir(), "atria-context-window-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const path = join(root, "config.json");
-  const config = saveConnection(
-    {},
-    {
-      baseUrl: "https://example.com/v1",
-      model: "fixture",
-      apiKey: "local-fixture"
-    }
-  );
-  config.modelConnections.profiles[0].contextWindow = 64000;
+  const created = saveProvider({}, { name: "fixture", baseUrl: "https://example.com/v1", apiKey: "local-fixture" });
+  const config = saveProviderModels(created, {
+    providerId: created.modelProviders.providers[0].id,
+    models: [{ id: "fixture", contextWindow: 64000 }]
+  });
   await writeFile(path, JSON.stringify(config));
   const loaded = readCoworkConfig(root, { COWORK_CONFIG: path });
   assert.equal(modelConnections(loaded).profiles[0].contextWindow, 64000);
@@ -47,7 +43,7 @@ test("a stored connection capacity is readable and an invalid one is rejected wi
     await writeFile(path, rejected);
     assert.throws(() => readCoworkConfig(root, { COWORK_CONFIG: path }), /上下文窗口/);
     const invalid = structuredClone(config);
-    invalid.modelConnections.profiles[0].contextWindow = contextWindow;
+    invalid.modelProviders.providers[0].models[0].contextWindow = contextWindow;
     rejected = JSON.stringify(invalid);
     await writeFile(path, rejected);
     assert.throws(() => readCoworkConfig(root, { COWORK_CONFIG: path }), /上下文窗口/);

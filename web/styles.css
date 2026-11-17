@@ -4521,3 +4521,15 @@ body {
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* A message on its way leaves the composer looking empty until the send settles. */
+#composer-input.is-sent {
+  color: transparent;
+  caret-color: transparent;
+}
+#composer-input.is-sent::selection {
+  background: transparent;
+}
+.attachment-strip.is-sent {
+  display: none;
+}
