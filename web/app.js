@@ -1937,6 +1937,7 @@ async function interject(taskId, text, delivery = "followUp") {
   const model = state.model || state.defaultModel || undefined;
   const savedUsers = (state.detail?.messages || []).filter((message) => message.role === "user").length;
   const submission = beginSubmission(taskId);
+  submission.draft = draft;
   updateSendButton();
   try {
     let result;
@@ -2031,6 +2032,30 @@ function submissionDraft() {
   };
 }
 
+/**
+ * While a message is on its way, the composer that still holds it looks empty:
+ * starting Main can take seconds and the message already shows above. The
+ * value stays, so navigation keeps the draft and a failure shows it again.
+ */
+function showSentDraft(draft) {
+  const input = $("#composer-input");
+  const sent = Boolean(
+    draft &&
+      composerSession.currentToken === draft.token &&
+      input.value === draft.input &&
+      JSON.stringify(state.attachments) === draft.attachments
+  );
+  if (input.classList.contains("is-sent") === sent) return;
+  input.classList.toggle("is-sent", sent);
+  $("#attachment-strip").classList.toggle("is-sent", sent);
+}
+
+// Typing while a message is on its way starts the next one in an empty box
+// instead of editing the hidden text that is being sent.
+$("#composer-input").addEventListener("beforeinput", (event) => {
+  if (event.target.classList.contains("is-sent")) event.target.value = "";
+});
+
 function clearSubmittedDraft(taskId, draft) {
   const input = $("#composer-input");
   if (
@@ -2120,6 +2145,7 @@ function updateSendButton() {
   messageEdit.sync();
   const pendingSubmission = currentSubmission();
   const isSending = Boolean(pendingSubmission);
+  showSentDraft(pendingSubmission?.draft);
   state.submittingTaskId = pendingSubmission?.launching ? state.selected : null;
   // While working, new messages wait in the queue and can be promoted explicitly.
   const running = Boolean(state.detail?.task?.taskId === state.selected && state.detail?.runtime?.active);
@@ -2243,6 +2269,7 @@ async function sendMessage({ queue = false } = {}) {
   }
   const draft = submissionDraft();
   const submission = beginSubmission();
+  submission.draft = draft;
   updateSendButton();
   const selectedTask = state.selected;
   const detail = state.detail?.task?.taskId === selectedTask ? state.detail : null;

@@ -28,10 +28,11 @@ test("language switches both shell and dynamic settings, retains drafts and pers
     const english = await settings(page);
     await expect(english.getByLabel("Interface language", { exact: true })).toHaveValue("en");
     await page.locator('[data-settings-section="models"]').click();
-    await english.getByRole("button", { name: "Add connection", exact: true }).click();
-    const model = page.getByRole("dialog", { name: "Connect model", exact: true });
-    await expect(model.getByRole("button", { name: "Save connection", exact: true })).toBeVisible();
-    await model.getByRole("button", { name: "Back to settings", exact: true }).click();
+    await english.getByRole("button", { name: "Add provider", exact: true }).click();
+    const add = page.getByRole("dialog", { name: "Add provider", exact: true });
+    await expect(add).toBeVisible();
+    await add.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(add).toBeHidden();
     await expect(page.locator("#settings-entry")).toBeVisible();
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
