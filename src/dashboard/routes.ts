@@ -609,8 +609,8 @@ export function createDashboardHandler(
         const mainRole = status.modelRoles.roles.find((entry) => entry.role === "main")?.effective;
         const mainEffort = mainRole?.thinkingLevel;
         // Whose models these are, so the composer can show the provider's mark.
-        const profileId = mainRole?.connectionId || status.activeProfileId;
-        const owner = status.providers.find((provider) => profileId.startsWith(`${provider.id}#`));
+        const mainProviderId = (mainRole?.connectionId || status.activeProfileId).split("#")[0];
+        const owner = status.providers.find((provider) => provider.id === mainProviderId);
         const models = await availableModels();
         sendJson(response, 200, {
           current: runtimeValue("COWORK_MODEL"),
@@ -619,6 +619,24 @@ export function createDashboardHandler(
           ...(owner
             ? { provider: { name: owner.name, ...(owner.preset ? { preset: owner.preset } : {}) } }
             : {}),
+          // Every usable provider's models, so the composer can switch a run to
+          // another provider by its profile id.
+          mainProviderId,
+          providers: status.providers
+            .filter((provider) => provider.enabled && provider.configured && provider.models.length)
+            .map((provider) => ({
+              id: provider.id,
+              name: provider.name,
+              ...(provider.preset ? { preset: provider.preset } : {}),
+              models: provider.models.map((model) => ({
+                id: model.id,
+                profileId: model.profileId,
+                reasoningEffort: model.reasoningEffort,
+                levels: model.supportsReasoningEffort
+                  ? (model.reasoningLevels ?? ["off", "low", "medium", "high", "xhigh", "max"])
+                  : ["off"]
+              }))
+            })),
           models: models.map((model) => model.id),
           // Each model's reasoning levels and where they came from (#27).
           levels: Object.fromEntries(models.map(({ id, levels, source }) => [id, { levels, source }])),

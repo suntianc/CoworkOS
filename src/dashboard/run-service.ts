@@ -251,6 +251,11 @@ export function createDashboardRunService({
     /** The exit was already handled; a late spawn must not re-register it. */
     settled: boolean;
     requestId?: string;
+    /**
+     * The connection a launch pinned with an explicit profile. A pinned process
+     * keeps it for its life; an unpinned one follows the host file each turn.
+     */
+    pinnedConnection?: string;
   }
   const residentMains = new Map<string, ResidentMain>();
   // A turn accepted for delivery but not yet recorded by the extension. The
@@ -874,6 +879,12 @@ export function createDashboardRunService({
       return undefined;
     }
     if (input.requestedModel && normalizeModel(input.requestedModel) !== (task.model || "")) return undefined;
+    // Another provider, or back to the host's own connection, needs a process
+    // started on that connection.
+    const wanted = submission?.profileId
+      ? (resolveMainModel({ profileId: submission.profileId }).connectionId ?? submission.profileId)
+      : undefined;
+    if (wanted !== resident.pinnedConnection) return undefined;
     if (prompt.includes("\0")) throw new Error("消息包含不支持的二进制字符，请移除附件后重试");
     if (Buffer.byteLength(prompt, "utf8") > 512 * 1024) throw new Error("消息及附件合计不能超过 512 KB");
     if (!prompt.trim() && !continuation) throw new Error("prompt must not be empty");
@@ -1557,7 +1568,8 @@ export function createDashboardRunService({
       observed: true,
       replacing: false,
       settled: false,
-      ...(admission.requestId ? { requestId: admission.requestId } : {})
+      ...(admission.requestId ? { requestId: admission.requestId } : {}),
+      ...(roleRequest.profileId ? { pinnedConnection: selection.connectionId ?? roleRequest.profileId } : {})
     };
     const host = new AgentProcessHost({
       workspaceRoot: taskWorkspace,
