@@ -48,6 +48,7 @@ export const maintainedDocumentation = [
   "docs/pitfalls/evidence/os-p3-project-foundation/checks.md",
   "docs/pitfalls/evidence/os-p4-native-development/checks.md",
   "docs/pitfalls/evidence/os-p46/retro.md",
+  "docs/pitfalls/evidence/os-test-trim/retro.md",
   "docs/code-map.md",
   "docs/architecture.md",
   "docs/module-ownership.md",

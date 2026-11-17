@@ -31,3 +31,11 @@
 - **Confirm：** `ps -Ao pcpu,command -r | head` 看 `fseventsd` 占用；关闭文件监听（`COWORK_DISABLE_FILE_WATCH=1`）后相关真实进程测试仍应通过。
 - **Avoid：** 送达以回合边界重读收件箱（`turn_end`）和写入方直接唤醒（`src/runtime/agent-wake.ts`，`COWORK_WAKE_ENDPOINT`）为准，文件监听只作补充；不要新增只靠文件事件的路径。
 - **Sources：** 2026-11-16 [P4.6 摘录](evidence/os-p46/retro.md#文件事件不可靠第三轮)。
+
+## Unix socket 路径超过 sun_path 上限
+
+- **Trigger：** 新增或改动 Unix socket、IPC 端点的路径，尤其是拼在 `tmpdir()`、运行根目录或项目目录下的路径。
+- **What happens：** macOS 的 `sun_path` 上限为 104 字节（含结尾）。Electron 内置的 Node 上 `listen` 报 `EINVAL`；普通 Node 上 `listen` 报成功但静默截断，socket 不在预期路径上，写入方若连同一截断名也能连上，因此 Node 测试看起来正常，只有桌面应用里失效。
+- **Confirm：** 打印端点并 `Buffer.byteLength(path)`，超过 103 即越界；在 Electron 运行时下实际 `listen` 一次，并确认 socket 文件在记录路径上。
+- **Avoid：** 端点在一处计算并写入进程记录，读取方用记录值不重算；长度越界时退到固定短目录（现行做法见 `src/runtime/agent-wake.ts` 与 `test/agent-wake.test.js`）。新增 socket 时复用这一处，不要另拼路径。
+- **Sources：** 2026-11-17 [测试精简摘录](evidence/os-test-trim/retro.md#唤醒-socket-路径超过-sun_path-上限)。
