@@ -250,6 +250,9 @@ test("cancel asks before it stops the run and keeps the run on 继续运行", as
 
     await stop.click();
     await dialog.getByRole("button", { name: "中断本回合" }).click();
+    // The notice is transient (about 3.2s): read it as soon as the interrupt
+    // lands, before the waits below outlast it.
+    await expect(page.locator("#toast")).toContainText("本回合已中断");
     await expect(bar).toBeHidden({ timeout: 30_000 });
     // The turn stops; the session and its Main process stay for the next message.
     await waitForTask(
@@ -259,7 +262,6 @@ test("cancel asks before it stops the run and keeps the run on 继续运行", as
       (detail) => detail.runtime.active === false && detail.runtime.mainRunning === true
     );
     expect((await taskState(page, local, taskId)).task.status).not.toBe("cancelled");
-    await expect(page.locator("#toast")).toContainText("本回合已中断");
   } finally {
     await page.unrouteAll({ behavior: "ignoreErrors" }).catch(() => {});
     await local.stop();
