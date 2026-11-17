@@ -46,15 +46,29 @@ function createSessionCredentialStore({ userData, storage }) {
         if (!entry) return undefined;
         if (typeof entry.sessionId !== "string" || typeof entry.ciphertext !== "string")
           throw new Error("客户端凭据存储格式无效");
+        const unavailable = () => new Error("系统密钥存储无法读取客户端凭据，请检查系统授权后重试");
+        // The system key no longer opens this ciphertext (e.g. the keychain was reset by an OS
+        // reinstall). The caller replaces it with a newly issued session.
+        const unreadable = () =>
+          Object.assign(new Error("保存的客户端凭据已无法解密，需要重新授权"), {
+            code: "client_credential_unreadable"
+          });
+        let available;
         try {
-          if (!(await storage.isEncryptionAvailable())) throw new Error();
-          const token = await storage.decryptString(Buffer.from(entry.ciphertext, "base64"));
-          if (typeof token !== "string" || !token) throw new Error();
-          await storage.release?.();
-          return { sessionId: entry.sessionId, token };
+          available = await storage.isEncryptionAvailable();
         } catch {
-          throw new Error("系统密钥存储无法读取客户端凭据，请检查系统授权后重试");
+          throw unavailable();
         }
+        if (!available) throw unavailable();
+        let token;
+        try {
+          token = await storage.decryptString(Buffer.from(entry.ciphertext, "base64"));
+        } catch {
+          throw unreadable();
+        }
+        if (typeof token !== "string" || !token) throw unreadable();
+        await storage.release?.();
+        return { sessionId: entry.sessionId, token };
       });
     },
     write(backendId, session) {

@@ -84,7 +84,7 @@ The standalone execution host keeps model and search keys in `credentials.json` 
 
 A single-connection configuration appears as the Default connection; the first profile save copies the file to `.before-model-profiles`, and a configuration recorded at an unknown version cannot be overwritten. Quit before restoring a backup.
 
-Client sessions use the `CoworkOS Client` encryption identity through a separate Keychain process. Keys encrypted under the previous development identity may need re-entry. Original ciphertext and source directories remain available. Native Keychain and signing compatibility require separate acceptance checks.
+Client sessions use the `CoworkOS Client` encryption identity through a separate Keychain process. Keys encrypted under the previous development identity may need re-entry. Original ciphertext and source directories remain available. When the system Keychain is reset (for example by an OS reinstall), a saved client session can no longer be decrypted; the App requests a new session from the backend and replaces that entry instead of stopping on an authorization error. If the Keychain itself is unavailable, it still asks you to check system authorization. Native Keychain and signing compatibility require separate acceptance checks.
 
 ## Model roles
 

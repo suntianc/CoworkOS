@@ -142,7 +142,13 @@ function createBackendAuthorization({ appRoot, fetchImpl = fetch, sessionStore }
       const instance = await inspect(selection.home);
       if (!current() || !matches(instance, selection)) throw new Error("后端身份或地址已经改变，请重新选择");
       if (sessionStore && input.reuse) {
-        const saved = await sessionStore.read(selection.backendId);
+        let saved;
+        try {
+          saved = await sessionStore.read(selection.backendId);
+        } catch (error) {
+          // An unreadable credential is replaced below by a newly issued session.
+          if (error.code !== "client_credential_unreadable") throw error;
+        }
         if (!current()) throw new Error("后端已切换，请重新授权");
         if (saved) {
           const check = await fetchImpl(`${instance.url}/api/session`, {

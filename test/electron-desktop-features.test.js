@@ -125,13 +125,17 @@ test("host keeps the session secret, reuses it after restart, and reports revoca
   const { join } = await import("node:path");
   const root = await mkdtemp(join(tmpdir(), "cowork-client-auth-"));
   t.after(() => rm(root, { recursive: true, force: true }));
+  let systemKey = 0x5a;
   const storage = {
     isEncryptionAvailable: async () => true,
-    encryptString: async (value) => Buffer.from(value).map((byte) => byte ^ 0x5a),
-    decryptString: async (value) =>
-      Buffer.from(value)
-        .map((byte) => byte ^ 0x5a)
-        .toString()
+    encryptString: async (value) => Buffer.from(value).map((byte) => byte ^ systemKey),
+    decryptString: async (value) => {
+      const plain = Buffer.from(value)
+        .map((byte) => byte ^ systemKey)
+        .toString();
+      if (!plain.startsWith("secret-")) throw new Error("wrong system key");
+      return plain;
+    }
   };
   const sessions = createSessionCredentialStore({ userData: root, storage });
   let revoked = false,
@@ -207,6 +211,14 @@ test("host keeps the session secret, reuses it after restart, and reports revoca
   assert.equal(next.requestToken(reselected), undefined);
   revoked = false;
   assert.equal((await next.authorize(input)).session.sessionId, "session-2");
+  // A reset system keychain (OS reinstall) cannot open the saved ciphertext: issue and save a new session.
+  systemKey = 0x33;
+  await assert.rejects(sessions.read("backend-a"), { code: "client_credential_unreadable" });
+  const renewed = createBackendAuthorization({ appRoot: process.cwd(), sessionStore: sessions });
+  const renewedSelection = await renewed.select(root);
+  assert.equal((await renewed.authorize({ ...input, reuse: true })).session.sessionId, "session-3");
+  assert.equal(renewed.requestToken(renewedSelection), "secret-3");
+  assert.equal((await sessions.read("backend-a")).token, "secret-3");
 });
 
 test("host injects credentials only for the current desktop capability and selected backend", () => {
