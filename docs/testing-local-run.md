@@ -56,7 +56,7 @@ Node 测试自动发现 `test/` 下 `.test.js`、`.test.mjs`、`.test.ts`；Type
 
 `npm test` 和 `npm run check` 继续保留，分别用于已有 Node 回归和静态门槛；两者连跑会重复构建，显式完整检查用 `verify:full`。
 
-GitHub 常规检查仅手动触发，不随 push/PR 自动执行；手动运行轻量 `npm run check:ci`，只做 CLI 构建、lint、类型、增量格式、文档链接与源码卫生检查。完整 Node、浏览器、原生、实际模型与本页的发布 runner 在本地执行；轻量 CI 通过不代表这些行为已验收。触发范围见 [开发指南](development.md#github-actions)。
+GitHub 常规检查在 PR 和推送到 main 时自动运行轻量 `npm run check:ci`，也可手动触发；只做 CLI 构建、lint、类型、增量格式、文档链接与源码卫生检查。完整 Node、浏览器、原生、实际模型与本页的发布 runner 在本地执行；轻量 CI 通过不代表这些行为已验收。触发范围见 [开发指南](development.md#github-actions)。
 
 版本 tag / Release 工作流修改可先执行 `npm run test:unit -- --file test/release-metadata.test.js`。该用例使用临时 Git 仓库校验版本、tag、提交身份与 Actions 输出，不访问远端 Release；上传/草稿重试以实际 Actions 日志另行验收，流程见 [Mac 发布](mac-release.md#版本-tag-与-release-草稿)。
 

@@ -112,7 +112,7 @@ npm run verify
 
 [ESLint 配置](../eslint.config.mjs) 在现有检查上启用以下规则：TypeScript/Pi 的 `no-unnecessary-condition`、`no-unnecessary-type-assertion` 和 `no-useless-catch`，以及 TypeScript、Pi、Web、Electron 和脚本中的定向 `no-restricted-syntax`。后者检查不绑定错误且未抛出的 catch、空 catch，以及相应的 `.catch()` 回调。绑定错误后仅记录日志或返回默认值等处理语义仍需审查。
 
-单独运行 lint 前先 `npm run build:cli`，使 `.pi` 引用的 `dist` 类型与当前源码一致，再执行 `npm run lint`；`verify` 和 `check:ci` 已按这个顺序运行。日常 GitHub 检查仍为手动触发。
+单独运行 lint 前先 `npm run build:cli`，使 `.pi` 引用的 `dist` 类型与当前源码一致，再执行 `npm run lint`；`verify` 和 `check:ci` 已按这个顺序运行。
 
 2026-11-09 将旧配置接入已验收的 `583cbb4` 代码时，仅为这次新增规则校准 [文件级基线](../eslint-suppressions.json)，记录 237 个文件、1037 项：多余条件 321、丢弃错误语法 641、多余类型断言 75。随后清理这些存量并清空基线：能证明冗余的条件和断言直接删除；工具参数、持久化读取、闭包写入的标记位等真实边界，以及预期内的 best-effort 清理，改为逐处 `eslint-disable-next-line <规则> -- <运行时依据>`。基线保持空对象，日常改动维持零新增；确有运行时依据的局部例外必须写明依据并接受审查，不以未使用绑定的 catch、等价吞错包装或扩充基线绕过检查。
 
@@ -126,7 +126,7 @@ npm run verify
 | `npm run verify`                                          | CLI 与 Web 资源构建、源码卫生、lint、扩展类型、增量格式、文档链接和发布执行器自测；其余行为测试不运行 | 完成一项修改后的默认本地门槛                                |
 | `npm run verify:full`                                     | 一次完整构建、静态检查、发布执行器自测和全量 Node 回归                                                | 发布验收或影响范围广的修改                                  |
 | `npm test` / `npm run check`                              | 保留的 Node 回归 / 构建与静态检查入口                                                                 | 兼容现有本地脚本；已执行 verify:full 时无需为同一源码重复跑 |
-| `npm run check:ci`                                        | CLI 构建、源码卫生、lint、扩展类型、增量格式和文档链接                                                | 手动 GitHub 轻量检查；本地 verify 与相关测试仍是完成门槛    |
+| `npm run check:ci`                                        | CLI 构建、源码卫生、lint、扩展类型、增量格式和文档链接                                                | GitHub 轻量检查；本地 verify 与相关测试仍是完成门槛         |
 | `npm run check:source`                                    | 当前受版本管理及非忽略的源码文件；检查私有配置、凭据、个人路径和不应提交的产物/旧文档                 | 提交和发行前；不扫描 Git 历史                               |
 | `npm run check:docs`                                      | 现行导航的本地 Markdown 文件链接和标题锚点；不请求外部网站                                            | 文档和代码路径修改，可 `-- --list` 查看范围                 |
 | `npx playwright install chromium`                         | 安装 Chromium                                                                                         | 首次浏览器测试准备                                          |
@@ -182,9 +182,9 @@ npm run verify
 
 仓库只保留 main 一条长期主分支，功能/修复临时分支经 PR 合入后删除。main 是已评审集成代码；发布版本由固定 tag/Release 标识，完整流程见 [版本管理](beta-release-process.md)。
 
-[常规工作流](../.github/workflows/test.yml) 仅通过 Actions 手动触发，使用单组 Ubuntu + Node 24；push 和 PR 不自动执行静态检查。安装时跳过 Electron 二进制下载，然后执行 `npm run check:ci`：`build:cli`、源码卫生、lint、扩展类型、增量格式和现行文档链接检查。
+[常规工作流](../.github/workflows/test.yml) 在 PR 和推送到 main 时自动运行，也可在 Actions 手动触发，使用单组 Ubuntu + Node 24；增量格式检查以 PR 基准或推送前的提交为对比基准。安装时跳过 Electron 二进制下载，然后执行 `npm run check:ci`：`build:cli`、源码卫生、lint、扩展类型、增量格式和现行文档链接检查。
 
-完整 Node 回归、浏览器、原生引擎、实际模型和安装包体验在本地完成；日常使用轻量 `npm run verify` 与相关测试；发布或广泛影响的修改用 `npm run verify:full`，按改动增加对应层的验收。手动 GitHub 常规检查只提供构建与静态反馈，相关行为验证证据随 PR 提交。
+完整 Node 回归、浏览器、原生引擎、实际模型和安装包体验在本地完成；日常使用轻量 `npm run verify` 与相关测试；发布或广泛影响的修改用 `npm run verify:full`，按改动增加对应层的验收。GitHub 常规检查只提供构建与静态反馈，相关行为验证证据随 PR 提交。
 
 [Internal Mac package](../.github/workflows/internal-mac.yml) 仅手动生成并上传 arm64 内测 DMG/校验文件，不承担完整回归、浏览器或桌面 smoke。[Release Mac DMG](../.github/workflows/release-mac.yml) 则在版本 tag 推送后构建 DMG/CLI 与校验文件，并上传 GitHub Release 草稿，由维护者审阅后 Publish；只有显式配置并验证 Developer ID 签名时，另生成 ZIP、校验文件与 Mac 更新 feed。当前未配置签名，默认仍为 arm64 未签名候选。候选包生成后按 [Mac 发布指南](mac-release.md) 本地安装验收。发布前须完成安装与实际任务验收；分支保护需单独配置。
 

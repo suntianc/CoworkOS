@@ -26,7 +26,7 @@ git push origin main
 git push origin v0.1.2-beta.7
 ```
 
-GitHub 日常静态检查仍只手动触发；为准确的 PR SHA 运行 check:ci，完整回归和安装验收在本地记录。不要设置从未触发的 required checks。公开仓库可使用免费保护分支；私有仓库的可用规则取决于 GitHub 套餐。当前配置与命令见 [开发指南](development.md#github-actions)。
+GitHub 日常静态检查在 PR 和推送到 main 时自动运行 check:ci，完整回归和安装验收在本地记录。分支保护可把该工作流的 `checks` 任务设为 required check。公开仓库可使用免费保护分支；私有仓库的可用规则取决于 GitHub 套餐。当前配置与命令见 [开发指南](development.md#github-actions)。
 
 ## 构建与草稿
 
