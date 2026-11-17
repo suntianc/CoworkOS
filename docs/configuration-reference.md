@@ -6,20 +6,20 @@
 
 ## 模型参数
 
-| JSON 字段                             | 取值与默认行为                                                                   |
-| ------------------------------------- | -------------------------------------------------------------------------------- |
-| `baseUrl`                             | 服务根地址或 `/v1`；兼容旧字段 `apiBase`                                         |
-| `model`                               | 服务商模型 ID                                                                    |
-| `apiKey`                              | 私有配置中的密钥，也可用 `COWORK_API_KEY`                                        |
-| `api`                                 | `openai-responses` 或 `openai-completions`；新连接默认前者，旧配置缺失时保留后者 |
-| `supportsImages`                      | 新连接默认 `false`                                                               |
-| `thinkingFormat`                      | `auto`（默认）、`openai` 或 `zai`，仅影响 Chat Completions                       |
-| `reasoningEffort`                     | `off`、`low`、`medium`、`high`、`xhigh`、`max`；服务需支持所选值                 |
-| `supportsReasoningEffort`             | 新连接默认 `false`，不发送强度字段                                               |
-| `supportsPromptCacheKey`              | 第三方服务默认 `false`，确认支持后开启                                           |
-| `contextWindow`                       | 默认 256000 token，需为正的安全整数                                              |
-| `mainMaxTokens` / `subagentMaxTokens` | 新连接均为 8192；整数 1 至 65536，且不超过服务上限                               |
-| `workspaceRoot`                       | 持久任务目录，建议绝对路径                                                       |
+| JSON 字段                             | 取值与默认行为                                                                                  |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `baseUrl`                             | 服务根地址或 `/v1`；兼容旧字段 `apiBase`                                                        |
+| `model`                               | 服务商模型 ID                                                                                   |
+| `apiKey`                              | 私有配置中的密钥，也可用 `COWORK_API_KEY`                                                       |
+| `api`                                 | `openai-responses`、`openai-completions` 或 `anthropic-messages`；缺失时为 `openai-completions` |
+| `supportsImages`                      | 新连接默认 `false`                                                                              |
+| `thinkingFormat`                      | `auto`（默认）、`openai` 或 `zai`，仅影响 Chat Completions                                      |
+| `reasoningEffort`                     | `off`、`low`、`medium`、`high`、`xhigh`、`max`；服务需支持所选值                                |
+| `supportsReasoningEffort`             | 新连接默认 `false`，不发送强度字段                                                              |
+| `supportsPromptCacheKey`              | 第三方服务默认 `false`，确认支持后开启                                                          |
+| `contextWindow`                       | 默认 256000 token，需为正的安全整数                                                             |
+| `mainMaxTokens` / `subagentMaxTokens` | 新连接均为 8192；整数 1 至 65536，且不超过服务上限                                              |
+| `workspaceRoot`                       | 持久任务目录，建议绝对路径                                                                      |
 
 `contextWindow` 用于 Main、子智能体及恢复任务的上下文预算和自动压缩，不作为模型请求参数发送。新连接使用 256000，保存过的连接沿用其容量。输出上限另行设置。
 
@@ -30,6 +30,47 @@
 自定义 GLM 网关未被 SDK 识别时，可选“GLM 格式”或设置 `thinkingFormat: "zai"`：开启思考发送 `thinking: {type: "enabled", clear_thinking: false}`；关闭发送 `thinking: {type: "disabled"}` 并省略 `reasoning_effort`。`openai` 使用标准强度字段，`auto` 使用 SDK 自动识别。此设置随连接传递给 Main、子智能体和恢复任务；Responses 协议不变。
 
 `supportsPromptCacheKey` 控制第三方服务的 `prompt_cache_key`。开启后发送稳定会话键，超过 64 个字符时使用 SHA-256；默认省略。`api.openai.com` 保留 SDK 默认行为，程序化的 `cacheRetention: "none"` 始终省略该键。键随连接用于 Main、子智能体和恢复任务，但不能启用服务端缓存或保证命中；自动前缀缓存也可能不依赖此键。
+
+## 模型供应商
+
+App 与 Web 的“设置 → 模型与角色”按供应商保存模型，写在执行主机配置的 `modelProviders` 中；上表的顶层字段是 CLI 单连接写法，两者同时存在时以 `modelProviders` 为准。
+
+```json
+{
+  "modelProviders": {
+    "version": 1,
+    "providers": [
+      {
+        "id": "<供应商 ID>",
+        "name": "DeepSeek",
+        "preset": "deepseek",
+        "baseUrl": "https://api.deepseek.com",
+        "api": "openai-completions",
+        "thinkingFormat": "auto",
+        "supportsPromptCacheKey": false,
+        "enabled": true,
+        "models": [
+          {
+            "id": "deepseek-chat",
+            "supportsImages": false,
+            "reasoningEffort": "off",
+            "supportsReasoningEffort": false,
+            "contextWindow": 256000,
+            "mainMaxTokens": 8192,
+            "subagentMaxTokens": 8192
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+- 供应商保存地址、接口格式、思考模式格式、缓存键开关与启用状态；密钥不写入此文件，按供应商 ID 保存在主机凭据中（见下节）。`preset` 只决定界面的标志与预置地址。
+- 每个模型单独保存上表的模型参数；可选 `name` 为显示名称，`reasoningLevels`、`autoLimits` 含义见 [Product API](product-api.md#global-apis)。
+- 模型在角色绑定中以 `<供应商 ID>#<模型 ID>` 引用。没有绑定时 Main 使用第一个启用供应商的第一个模型。正被角色使用的模型或供应商不能删除或停用。
+- 只填域名的地址自动补 `/v1`，带路径的地址原样使用（如 `/api/v3`、`/v1beta/openai`）；`anthropic-messages` 的地址不补路径。
+- `anthropic-messages` 使用 Anthropic Messages 接口，模型列表读取 `/v1/models`，不支持 `supportsPromptCacheKey`。
 
 ## CLI 配置文件
 
@@ -80,30 +121,30 @@ Finder/Dock 启动的 macOS App 会将存在的 `~/.local/bin`、Homebrew `bin`/
 
 App 使用 Electron safeStorage 加密客户端会话凭据，保存在桌面数据目录的 `client-sessions.json`；系统授权失败时显示错误，重试不会覆盖已保存凭据。模型和搜索密钥属于所选执行主机。
 
-独立执行主机把模型与搜索密钥保存在配置文件旁的 `credentials.json`（0600，可用 `COWORK_CREDENTIALS` 指定路径）。设置接口只返回 `configured` 及具体 `credentialError`，不返回密钥；空白密钥保留原值，显式清除搜索密钥会删除保存项。凭据文件损坏时报告具体错误并保留原文件，不覆盖。设置页和真实运行使用同一份主机凭据，密钥不会进入界面状态、日志或事件。
+独立执行主机把模型与搜索密钥保存在配置文件旁的 `credentials.json`（0600，可用 `COWORK_CREDENTIALS` 指定路径；模型密钥按供应商 ID 保存在 `modelProviders` 下，CLI 单连接写在 `default`）。设置接口只返回 `configured` 及具体 `credentialError`，不返回密钥；空白密钥保留原值，显式清除搜索密钥会删除保存项。凭据文件损坏时报告具体错误并保留原文件，不覆盖。设置页和真实运行使用同一份主机凭据，密钥不会进入界面状态、日志或事件。
 
-旧单组连接显示为“默认配置”；首次保存多组配置前把原文件复制为 `.before-model-profiles`，未知版本拒绝覆盖，恢复备份前先退出应用。
+删除供应商时同时删除它的密钥。
 
 客户端会话使用独立钥匙串进程的 `CoworkOS Client` 加密标识，旧开发标识加密的密钥可能需要重新输入，原密文与源目录保留。系统钥匙串被重置（如重装系统）后，保存的客户端会话密文无法再解开，App 自动向后端申请新会话并覆盖该条记录，不再停在授权错误；钥匙串本身不可用时仍提示检查系统授权。原生钥匙串和签名兼容需单独验收。
 
 ## 角色模型
 
-`roleModels` 只在执行主机的本地配置中保存角色绑定；连接和密钥仍由 `modelConnections` 与主机凭据管理。
+`roleModels` 只在执行主机的本地配置中保存角色绑定；模型和密钥由 `modelProviders` 与主机凭据管理。
 
 ```json
 {
   "roleModels": {
     "version": 1,
-    "host": { "main": { "profileId": "<连接 ID>" } },
-    "projects": { "project_<uuid>": { "main": { "profileId": "<连接 ID>" } } }
+    "host": { "main": { "profileId": "<供应商 ID>#<模型 ID>" } },
+    "projects": { "project_<uuid>": { "main": { "profileId": "<供应商 ID>#<模型 ID>" } } }
   }
 }
 ```
 
 - `host` 是本机所有项目的角色默认；`projects` 是按共享项目稳定 ID 索引的本机覆盖。两者都不进入共享项目数据，其他后端不会继承。
-- 解析优先级为单次/会话显式选择、当前执行主机的项目覆盖、主机角色默认、现有启用连接。旧 Task 的显式 `model` 仍在没有连接组时作为回退，连接切换与推理参数语义不变。
+- 解析优先级为单次/会话显式选择、当前执行主机的项目覆盖、主机角色默认、第一个启用供应商的第一个模型。没有配置供应商时使用 CLI 单连接字段。
 - 每次 Run 在准入时固定连接、模型、消息格式与推理参数，并把非敏感来源记录为 `main.run_spawned.modelSelection`；之后修改设置只影响下一次 Run，在途 Run 和原请求重试继续使用已保存的执行归属。
-- 已保存的角色引用找不到连接时给出包含角色、范围和连接 ID 的错误，并拒绝启动，不会改用其他账号。保存接口拒绝新建失效引用。
+- 已保存的角色引用找不到模型时给出包含角色、范围和模型引用的错误，并拒绝启动，不会改用其他账号。保存接口拒绝新建失效引用。
 - Main 在每次 Run 准入时读取角色；`executor`、`reviewer` 在每次委派工作项实际启动时读取（包括排队等待前置的工作项），因此修改绑定作用于尚未启动的工作项，已启动的尝试保持不变。两者都没有绑定时工作项沿用 Main 本次 Run 的连接，状态视图不报告固定生效连接。`router` 仍是后续路径的配置键，不由当前运行路径读取。
 
 ## 图片输入

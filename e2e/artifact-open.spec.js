@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { configureMerge, seedArtifact, seedRequirement } from "./p45-requirement-fixture.js";
+import { dismissModelSetup, setupDialog } from "./model-provider-ui.js";
 
 const repository = resolve(new URL("..", import.meta.url).pathname);
 const { startBackend, stopBackend } = await import(
@@ -131,8 +132,7 @@ test("artifact open displays authorized bytes for each isolated backend", async 
         .toContain(instance.backendId.replace(/^backend_/, "").slice(0, 8));
       await context.clearCookies();
       await page.evaluate(() => localStorage.setItem("artifact-attack", "untouched"));
-      const model = page.locator('[aria-labelledby="model-settings-title"]');
-      if (await model.isVisible()) await model.locator("[data-model-close]").click();
+      if (await setupDialog(page).isVisible()) await dismissModelSetup(page);
       await page.locator("#output-pane-toggle").click();
       await page.locator('[data-artifact="report.md"]').click();
       const drawer = page.locator("#artifact-drawer");

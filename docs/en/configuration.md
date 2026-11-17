@@ -58,16 +58,18 @@ After all checks pass and the model connection line reads `OK  流式模型连�
 
 ## App and Web model connections
 
-Stop running tasks, then open Settings → Model connections.
+Open Settings → Models and roles. The page has two tabs, Providers and Role assignment. Stop running tasks before changing providers or models; role assignment may change at any time.
 
-1. Choose a saved connection or select “＋ 新增配置” (Add configuration).
-2. Enter the configuration name, model ID, API URL, message format and API key. A blank key preserves an existing connection's key; a new connection requires one.
-3. Select Test connection to check the current form. The test uses model quota; you still need to save afterward.
-4. Save connection activates the first connection automatically. Select Save and enable to switch to another connection, or Save connection to keep it for later.
+1. Select Add provider and pick one from China, International or Local and custom. A preset fills in the API address and wire format, so you only enter the API key. For any other service that speaks the OpenAI or Anthropic API, choose Custom, enter a name and the API address, and pick the format (Chat Completions, Responses or Anthropic Messages).
+2. Select Add and fetch models. The App reads the provider's model list; tick the models you want and select Add models. If the provider offers no list, close the dialog and use Add manually with the model ID.
+3. Select Check in the provider's detail to verify the connection and tool calls with its first model. A check uses a little quota.
+4. A model row's settings button opens its context window, output limits, reasoning levels and image input. Values marked Auto come from the provider's listing or the built-in catalog; a value you edit wins from then on.
 
-Saving changes to the active connection applies them to subsequent messages. Switching services preserves conversations; the next turn sends the history to the new service.
+A bare host address gets `/v1`; an address with a path is used as written. After changing a provider's name, address, key or format, select Save at the bottom, or Discard to revert; unsaved edits survive switching to another provider.
 
-The execution host stores keys and the UI only shows whether a connection is configured. See [connection storage](configuration-reference.md#connection-storage-and-compatibility) for the location, one-time conversion of an old desktop configuration and failure handling.
+Role assignment picks one model each for Main, Executor and Reviewer from a list grouped by provider, and Main can be overridden for the current project. Without a choice Main uses the first model of the first enabled provider, and Executor and Reviewer keep the model of the Run that started them. Reasoning effort belongs to the chosen model and is adjusted beside the role. Role changes apply to Runs started afterward; a running Run keeps the model and reasoning it was admitted with. Switching models preserves conversations; the next turn sends the history to the new service. A model or provider that a role uses cannot be removed or disabled until the role picks another.
+
+The execution host stores keys and the UI only shows whether a provider is configured. See [connection storage](configuration-reference.md#connection-storage-and-compatibility) for the location and failure handling, and [model providers](configuration-reference.md#model-providers) for the configuration shape.
 
 ## Connection errors
 
@@ -75,12 +77,12 @@ The execution host stores keys and the UI only shows whether a connection is con
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 401 / 403, authentication or access error        | Check the API key, model ID and your account's model access.                                                                                                                                             |
 | 404, URL or model not found                      | Check the API root and model ID against the provider's documentation; remove a trailing `/responses` or `/chat/completions` from the URL.                                                                |
-| Unsupported message format or parameter          | Use the service's supported Responses / Chat Completions format; disable image, reasoning or cache parameters that the provider does not support.                                                        |
+| Unsupported message format or parameter          | Switch to the format the service supports (Chat Completions, Responses or Anthropic Messages); disable image, reasoning or cache parameters that the provider does not support.                          |
 | CLI reports `FAIL 模型配置`                      | Fix the JSON and required fields at the path printed by `doctor`. Run `coworkos init` if no configuration exists. See [CLI troubleshooting](installation-reference.md#troubleshooting) for other errors. |
 | CLI still uses old values after editing the file | Check `COWORK_API_BASE`, `COWORK_MODEL`, `COWORK_API_KEY` and `COWORK_MODEL_API`. Environment variables override the file; remove obsolete overrides and retry.                                          |
-| App reports “保存未完成” (Save incomplete)       | Follow the save error. If macOS requests Keychain authorization, authorize it and select Save again. Canceling preserves the previous configuration and form.                                            |
+| App save fails                                   | Follow the save error and select Save again; unsaved edits are kept.                                                                                                                                     |
 
-Test again after fixing the error. In the App, save after the test passes. In the CLI, rerun `coworkos doctor --test-connection`.
+Check again after fixing the error. In the App, select Check in the provider's detail. In the CLI, rerun `coworkos doctor --test-connection`.
 
 <details>
 <summary>Other configuration references</summary>

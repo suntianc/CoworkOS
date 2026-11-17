@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { connectModelThroughUi } from "./model-provider-ui.js";
 
 async function seed(page, base, id, goal) {
   await page.request.post(`${base}/api/tasks`, { data: { taskId: id, goal } });
@@ -78,13 +79,11 @@ test("unconfigured Web offers model setup and an authentication failure can be r
     await page.goto(dashboard.base);
     await page.locator("#composer-input").fill("配置后再完成这条请求");
     await page.locator("#model-setup-button").click();
-    await page
-      .getByRole("textbox", { name: "API 地址", exact: true })
-      .fill(`http://127.0.0.1:${provider.address().port}/v1`);
-    await page.getByRole("textbox", { name: "模型 ID", exact: true }).fill("recovery-fixture");
-    await page.locator('[name="apiKey"]').fill("synthetic-local-fixture-key");
-    await page.locator('[name="api"]').selectOption("openai-completions");
-    await page.getByRole("button", { name: "保存连接", exact: true }).click();
+    await connectModelThroughUi(page, {
+      baseUrl: `http://127.0.0.1:${provider.address().port}/v1`,
+      model: "recovery-fixture",
+      apiKey: "synthetic-local-fixture-key"
+    });
     await expect(page.locator("#model-setup-button")).toBeHidden();
     await expect(page.locator("#composer-input")).toHaveValue("配置后再完成这条请求");
     await page.locator("#send-button").click();

@@ -6,20 +6,20 @@ For everyday setup, see [model and runtime configuration](configuration.md).
 
 ## Model parameters
 
-| JSON field                            | Values and defaults                                                                                                                 |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `baseUrl`                             | Service root or `/v1`; legacy `apiBase` is supported                                                                                |
-| `model`                               | Provider model ID                                                                                                                   |
-| `apiKey`                              | Private configuration key, or use `COWORK_API_KEY`                                                                                  |
-| `api`                                 | `openai-responses` or `openai-completions`; new connections default to the former, legacy files without the field retain the latter |
-| `supportsImages`                      | `false` for new connections                                                                                                         |
-| `thinkingFormat`                      | `auto` (default), `openai` or `zai`; affects Chat Completions only                                                                  |
-| `reasoningEffort`                     | `off`, `low`, `medium`, `high`, `xhigh`, `max`; requires service support                                                            |
-| `supportsReasoningEffort`             | `false` for new connections, omitting effort fields                                                                                 |
-| `supportsPromptCacheKey`              | `false` for third-party services; enable after confirming support                                                                   |
-| `contextWindow`                       | 256000 tokens by default; must be a positive safe integer                                                                           |
-| `mainMaxTokens` / `subagentMaxTokens` | 8192 each for new connections; integer 1 to 65536, within service limits                                                            |
-| `workspaceRoot`                       | Persistent task data directory; prefer an absolute path                                                                             |
+| JSON field                            | Values and defaults                                                                                |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `baseUrl`                             | Service root or `/v1`; legacy `apiBase` is supported                                               |
+| `model`                               | Provider model ID                                                                                  |
+| `apiKey`                              | Private configuration key, or use `COWORK_API_KEY`                                                 |
+| `api`                                 | `openai-responses`, `openai-completions` or `anthropic-messages`; `openai-completions` when absent |
+| `supportsImages`                      | `false` for new connections                                                                        |
+| `thinkingFormat`                      | `auto` (default), `openai` or `zai`; affects Chat Completions only                                 |
+| `reasoningEffort`                     | `off`, `low`, `medium`, `high`, `xhigh`, `max`; requires service support                           |
+| `supportsReasoningEffort`             | `false` for new connections, omitting effort fields                                                |
+| `supportsPromptCacheKey`              | `false` for third-party services; enable after confirming support                                  |
+| `contextWindow`                       | 256000 tokens by default; must be a positive safe integer                                          |
+| `mainMaxTokens` / `subagentMaxTokens` | 8192 each for new connections; integer 1 to 65536, within service limits                           |
+| `workspaceRoot`                       | Persistent task data directory; prefer an absolute path                                            |
 
 `contextWindow` controls context budgets and automatic compaction for Main, subagents and recovered tasks. It is not sent as a request parameter. New connections use 256000 and a saved connection keeps its own capacity. Output limits are separate.
 
@@ -30,6 +30,47 @@ Connection tests, Main and subagents share capability clamping and request seria
 For custom GLM gateways the SDK does not recognize, select GLM format or set `thinkingFormat: "zai"`. Enabled thinking sends `thinking: {type: "enabled", clear_thinking: false}`; disabled thinking sends `thinking: {type: "disabled"}` and omits `reasoning_effort`. `openai` uses standard effort fields, while `auto` uses SDK detection. The choice follows the connection through Main, subagents and recovery; Responses is unchanged.
 
 `supportsPromptCacheKey` controls `prompt_cache_key` for third-party services. Opting in sends a stable session key, hashed with SHA-256 when longer than 64 characters; the default omits it. `api.openai.com` retains SDK defaults, and programmatic `cacheRetention: "none"` always omits the key. Main, subagents and recovery share the setting. Sending a key cannot enable server caching or guarantee a hit; automatic prefix caching may work without it.
+
+## Model providers
+
+The App and Web "Settings → Models and roles" page saves models per provider in the execution host's `modelProviders`. The top-level fields above are the CLI's single-connection form; when both exist, `modelProviders` wins.
+
+```json
+{
+  "modelProviders": {
+    "version": 1,
+    "providers": [
+      {
+        "id": "<provider id>",
+        "name": "DeepSeek",
+        "preset": "deepseek",
+        "baseUrl": "https://api.deepseek.com",
+        "api": "openai-completions",
+        "thinkingFormat": "auto",
+        "supportsPromptCacheKey": false,
+        "enabled": true,
+        "models": [
+          {
+            "id": "deepseek-chat",
+            "supportsImages": false,
+            "reasoningEffort": "off",
+            "supportsReasoningEffort": false,
+            "contextWindow": 256000,
+            "mainMaxTokens": 8192,
+            "subagentMaxTokens": 8192
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+- A provider holds the address, wire format, thinking format, cache-key switch and enabled state. Its key is not written here: the host credential store keeps it under the provider id (next section). `preset` only picks the page's logo and preset address.
+- Each model keeps the model parameters above; an optional `name` is its display name, and `reasoningLevels` and `autoLimits` are described in the [Product API](../product-api.md#global-apis).
+- Role bindings name a model as `<provider id>#<model id>`. With no binding Main uses the first model of the first enabled provider. A model or provider a role uses cannot be removed or disabled.
+- A bare host address gets `/v1`; an address with a path is used as written (for example `/api/v3` or `/v1beta/openai`). An `anthropic-messages` address is never extended.
+- `anthropic-messages` speaks the Anthropic Messages API, lists models from `/v1/models`, and does not support `supportsPromptCacheKey`.
 
 ## CLI files
 
@@ -80,17 +121,17 @@ On macOS, Finder/Dock launches add existing `~/.local/bin`, Homebrew `bin`/`sbin
 
 The App encrypts client session credentials with Electron safeStorage in `client-sessions.json` in the desktop data directory. A system authorization failure is displayed and a retry preserves the saved credentials. Model and search keys belong to the selected execution host.
 
-The standalone execution host keeps model and search keys in `credentials.json` (mode 0600) beside its configuration; `COWORK_CREDENTIALS` selects another path. Settings responses carry only `configured` and a concrete `credentialError`; they never return a key. A blank key keeps the stored value, and explicitly clearing the search key removes it. A damaged credential file is reported and left in place instead of being overwritten. The settings page and real runs share this host store, and keys never enter renderer state, logs or events.
+The standalone execution host keeps model and search keys in `credentials.json` (mode 0600) beside its configuration; `COWORK_CREDENTIALS` selects another path. Model keys are stored per provider id under `modelProviders`; the CLI's single connection uses `default`. Settings responses carry only `configured` and a concrete `credentialError`; they never return a key. A blank key keeps the stored value, and explicitly clearing the search key removes it. A damaged credential file is reported and left in place instead of being overwritten. The settings page and real runs share this host store, and keys never enter renderer state, logs or events.
 
-A single-connection configuration appears as the Default connection; the first profile save copies the file to `.before-model-profiles`, and a configuration recorded at an unknown version cannot be overwritten. Quit before restoring a backup.
+Deleting a provider deletes its key.
 
 Client sessions use the `CoworkOS Client` encryption identity through a separate Keychain process. Keys encrypted under the previous development identity may need re-entry. Original ciphertext and source directories remain available. When the system Keychain is reset (for example by an OS reinstall), a saved client session can no longer be decrypted; the App requests a new session from the backend and replaces that entry instead of stopping on an authorization error. If the Keychain itself is unavailable, it still asks you to check system authorization. Native Keychain and signing compatibility require separate acceptance checks.
 
 ## Model roles
 
-`roleModels` in the execution host's configuration names one saved connection per role: `host` defaults for every project on the machine, and `projects` overrides indexed by the shared project's stable id. Neither travels with shared project data, so another backend never inherits them. Resolution prefers an explicit per-launch selection, then the project override, then the host default, then the deployment's active connection.
+`roleModels` in the execution host's configuration names one saved model per role, as `<provider id>#<model id>`: `host` defaults for every project on the machine, and `projects` overrides indexed by the shared project's stable id. Neither travels with shared project data, so another backend never inherits them. Resolution prefers an explicit per-launch selection, then the project override, then the host default, then the first model of the first enabled provider (or the CLI's single connection when no provider is configured).
 
-Main reads its role when a Run is admitted and records the non-sensitive source as `main.run_spawned.modelSelection`; a later settings change affects the next Run while an in-flight Run and a saved request retry keep their recorded selection. `executor` and `reviewer` are read each time a delegated work item actually starts — including an item still queued behind its prerequisites — so a binding change applies to items that have not started while a started attempt keeps its choice. With no binding the item keeps the launching Run's connection, which is why the settings view reports no fixed effective connection for them. `router` remains a later path's configuration key. A saved role referencing a missing connection reports the role, scope and connection id and is refused rather than falling back to another account.
+Main reads its role when a Run is admitted and records the non-sensitive source as `main.run_spawned.modelSelection`; a later settings change affects the next Run while an in-flight Run and a saved request retry keep their recorded selection. `executor` and `reviewer` are read each time a delegated work item actually starts — including an item still queued behind its prerequisites — so a binding change applies to items that have not started while a started attempt keeps its choice. With no binding the item keeps the launching Run's connection, which is why the settings view reports no fixed effective connection for them. `router` remains a later path's configuration key. A saved role referencing a missing model reports the role, scope and model reference and is refused rather than falling back to another account.
 
 ## Image input
 

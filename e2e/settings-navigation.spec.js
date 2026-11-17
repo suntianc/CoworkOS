@@ -10,23 +10,21 @@ test("settings navigation returns from a subpage to the page that opened it", as
   const dashboard = await startDashboard();
   try {
     await page.goto(dashboard.base);
-    const overview = await openOverview(page, "models");
-    await overview.locator("#settings-model-add").click();
-    const model = page.getByRole("dialog", { name: "连接模型", exact: true });
-    await expect(model.getByRole("button", { name: "返回设置", exact: true })).toBeVisible();
-    await model.getByRole("button", { name: "返回设置", exact: true }).click();
+    const overview = await openOverview(page, "tools");
+    await overview.locator("[data-search-open]").click();
+    const search = page.getByRole("dialog", { name: "联网搜索", exact: true });
+    await expect(search.getByRole("button", { name: "返回设置", exact: true })).toBeVisible();
+    await search.getByRole("button", { name: "返回设置", exact: true }).click();
     await expect(overview).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(overview.locator("#settings-model-add")).toBeFocused();
+    await expect(overview.locator("[data-search-open]")).toBeFocused();
   } finally {
     await dashboard.stop();
   }
 });
 
-const settingsPages = [
-  { section: "models", entry: "#settings-model-add", title: "连接模型" },
-  { section: "tools", entry: "[data-search-open]", title: "联网搜索" }
-];
+// The model page edits in place; web search is the settings page that opens a sub-page.
+const settingsPages = [{ section: "tools", entry: "[data-search-open]", title: "联网搜索" }];
 
 async function assertNavigation(dialog) {
   const heading = dialog.locator(".settings-heading");
@@ -77,25 +75,11 @@ for (const theme of ["dark", "light"]) {
   });
 }
 
-test("returning from model and search settings preserves unsaved fields and secret drafts", async ({
-  page
-}) => {
+test("returning from search settings preserves unsaved fields and secret drafts", async ({ page }) => {
   const dashboard = await startDashboard();
   try {
     await page.goto(dashboard.base);
-    const overview = await openOverview(page, "models");
-    await overview.locator("#settings-model-add").click();
-    const model = page.getByRole("dialog", { name: "连接模型", exact: true });
-    await model.locator('[name="baseUrl"]').fill("https://draft.example/v1");
-    await model.locator('[name="model"]').fill("unsaved-navigation-model");
-    await model.locator('[name="apiKey"]').fill("synthetic-model-navigation-key");
-    await model.getByRole("button", { name: "返回设置", exact: true }).click();
-    await overview.locator("#settings-model-add").click();
-    await expect(model.locator('[name="baseUrl"]')).toHaveValue("https://draft.example/v1");
-    await expect(model.locator('[name="model"]')).toHaveValue("unsaved-navigation-model");
-    await expect(model.locator('[name="apiKey"]')).toHaveValue("synthetic-model-navigation-key");
-    await model.getByRole("button", { name: "返回设置", exact: true }).click();
-    await page.locator('[data-settings-section="tools"]').click();
+    const overview = await openOverview(page, "tools");
     await overview.locator("[data-search-open]").click();
     const search = page.getByRole("dialog", { name: "联网搜索", exact: true });
     await search.locator('[name="provider"]').selectOption("off");
@@ -119,26 +103,20 @@ test("returning from model and search settings preserves unsaved fields and secr
   }
 });
 
-test("direct model setup can return to the overview and exits to its original control", async ({ page }) => {
+test("direct model setup opens the model page and exits to its original control", async ({ page }) => {
   const dashboard = await startDashboard();
   try {
     await page.goto(dashboard.base);
     const entry = page.locator("#model-setup-button");
-    const model = page.getByRole("dialog", { name: "连接模型", exact: true });
+    const add = page.locator(".provider-dialog.is-add");
     await entry.click();
-    await model.getByRole("button", { name: "返回设置", exact: true }).click();
-    const overview = page.locator("#settings-entry");
-    await expect(overview).toBeVisible();
-    await expect(page.locator('[data-settings-section="general"]')).toBeFocused();
-    await page.locator("#settings-back").click();
-    await expect(entry).toBeFocused();
-    await entry.click();
-    await model.getByRole("button", { name: "关闭设置", exact: true }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(entry).toBeFocused();
-    await entry.click();
+    await expect(add).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(add).toBeHidden();
+    const overview = page.locator("#settings-entry");
+    await expect(page.locator('[data-settings-panel="models"]')).toBeVisible();
+    await page.locator("#settings-back").click();
+    await expect(overview).toBeHidden();
     await expect(entry).toBeFocused();
   } finally {
     await dashboard.stop();
@@ -146,13 +124,6 @@ test("direct model setup can return to the overview and exits to its original co
 });
 
 for (const { section, entry, title, endpoint, field } of [
-  {
-    section: "models",
-    entry: "#settings-model-add",
-    title: "连接模型",
-    endpoint: "model-settings",
-    field: "model"
-  },
   {
     section: "tools",
     entry: "[data-search-open]",
@@ -225,20 +196,14 @@ for (const { section, entry, title, endpoint, field } of [
       const dialog = page.getByRole("dialog", { name: title, exact: true });
       const input = dialog.locator(`[name="${field}"]`);
       await expect(input).toBeEnabled();
-      if (title === "连接模型") {
-        await dialog.locator('[name="baseUrl"]').fill("https://save.example/v1");
-        await input.fill("saved-navigation-model");
-        await dialog.locator('[name="apiKey"]').fill("synthetic-save-navigation-key");
-      } else await input.selectOption("off");
+      await input.selectOption("off");
       await page.route(`**/api/${endpoint}*`, async (route) => {
         if (route.request().method() !== "POST") return route.continue();
         requested();
         await pending;
         await route.continue();
       });
-      await dialog
-        .getByRole("button", { name: title === "连接模型" ? "保存连接" : "保存设置", exact: true })
-        .click();
+      await dialog.getByRole("button", { name: "保存设置", exact: true }).click();
       await started;
       await expect(input).toBeDisabled();
       await dialog.getByRole("button", { name: "返回设置", exact: true }).click();
@@ -248,11 +213,7 @@ for (const { section, entry, title, endpoint, field } of [
       );
       release();
       await response;
-      await expect(
-        page.locator(
-          `[aria-labelledby="${title === "连接模型" ? "model-settings-title" : "web-search-title"}"] [name="${field}"]`
-        )
-      ).toBeEnabled();
+      await expect(page.locator(`[aria-labelledby="web-search-title"] [name="${field}"]`)).toBeEnabled();
       await expect(overview).toBeVisible();
       await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(overview.locator(entry)).toBeFocused();

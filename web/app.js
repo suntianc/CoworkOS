@@ -1715,7 +1715,7 @@ const firstUse = createFirstUseView({
   state,
   $,
   projectCount: () => projectController.visibleProjects().length,
-  onConnectModel: () => settingsPages.open("models"),
+  onConnectModel: () => void modelSettings.open(),
   onAddProject: () => projectController.openCreate()
 });
 $("#titlebar-search").addEventListener("click", openTaskSearch);

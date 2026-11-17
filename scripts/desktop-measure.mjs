@@ -496,12 +496,13 @@ async function oneRun(options, executable, runIndex) {
     if (!peakKb) throw new Error("no startup memory samples");
     marks.startupPeakClientRssKb = peakKb;
     const settled = await sample(rootPid, instance, options);
-    const modelSettings = page.locator('[aria-labelledby="model-settings-title"]');
-    const modelSettingsClosed = await modelSettings.isVisible();
+    const modelSetup = page.locator(".provider-dialog.is-add");
+    const modelSettingsClosed = await modelSetup.isVisible();
     if (modelSettingsClosed) {
-      await modelSettings.locator("[data-model-close]").click();
-      await modelSettings.waitFor({ state: "hidden", timeout: options.timeout });
-      process.stdout.write("closed initial model settings through its close button\n");
+      await modelSetup.locator("[data-dialog-close]").click();
+      await modelSetup.waitFor({ state: "hidden", timeout: options.timeout });
+      if (await page.locator("#settings-entry").isVisible()) await page.locator("#settings-back").click();
+      process.stdout.write("closed initial model setup through its close button\n");
     }
     const longHistoryView = await selectHistory(
       page,

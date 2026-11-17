@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
+import { dismissModelSetup, setupDialog } from "./model-provider-ui.js";
 
 test("desktop restores drafts saved before the first backend binding", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -37,9 +38,8 @@ test("desktop restores drafts saved before the first backend binding", async () 
     page.on("pageerror", (error) => errors.push(error.message));
     await expect(page.locator("#composer-input")).toBeAttached();
     await expect(page.locator("[data-backend-status]")).not.toContainText("正在连接", { timeout: 30_000 });
-    const model = page.getByRole("dialog", { name: "连接模型" });
-    await expect(model).toBeVisible({ timeout: 30_000 });
-    await model.getByRole("button", { name: "关闭设置", exact: true }).click();
+    await expect(setupDialog(page)).toBeVisible({ timeout: 30_000 });
+    await dismissModelSetup(page);
     primary ??= JSON.parse(await readFile(join(profile, "runtime/backend-instance.json"), "utf8"));
     console.log(
       JSON.stringify({

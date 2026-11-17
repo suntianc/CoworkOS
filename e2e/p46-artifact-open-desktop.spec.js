@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { stopNativeBackend } from "../test/native-backend-fixture.mjs";
+import { dismissModelSetup } from "./model-provider-ui.js";
 
 test("桌面版用系统默认应用打开产物，并且只接受后端解析到的本地文件", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -31,9 +32,7 @@ test("桌面版用系统默认应用打开产物，并且只接受后端解析�
     });
     const page = await native.firstWindow();
     await expect(page.locator("#composer-input")).toBeAttached();
-    const close = page.locator("[data-model-close]");
-    await close.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
-    if (await close.isVisible()) await close.click();
+    await dismissModelSetup(page, { wait: 5_000 });
 
     // The host authorizes the renderer's requests once the selected backend is up.
     const created = await page.evaluate(async () => {

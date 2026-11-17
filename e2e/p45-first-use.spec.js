@@ -2,12 +2,13 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
+import { connectModelThroughUi, setupDialog } from "./model-provider-ui.js";
 
 /**
  * A fresh data directory: no model connection and no project.
  *
  * The three steps are derived from those two facts, so this walks the same path
- * a person takes: connect the model from settings, add a project from the
+ * a person takes: add a model provider from settings, add a project from the
  * guide, then start the first session.
  */
 test("a fresh data directory walks the guide from the model to a working session", async ({ page }) => {
@@ -36,24 +37,20 @@ test("a fresh data directory walks the guide from the model to a working session
       "连接模型并添加项目后即可开始…"
     );
 
-    // Step 1 sends the person to the models section, where the connection is saved.
+    // Step 1 sends the person to the models section, where the add dialog is already open.
     await modelStep.getByRole("button", { name: "前往设置" }).click();
     await expect(page.locator("#settings-entry")).toBeVisible();
     await expect(page.locator('[data-settings-panel="models"]')).toBeVisible();
-    await page.locator("#settings-model-add").click();
-    const dialog = page.getByRole("dialog", { name: "连接模型" });
-    await expect(dialog).toBeVisible();
-    await dialog.locator('[name="profileName"]').fill("本地夹具");
-    await dialog.getByRole("textbox", { name: "模型 ID", exact: true }).fill("first-use-fixture");
-    await dialog.getByRole("textbox", { name: "API 地址", exact: true }).fill("http://127.0.0.1:1/v1");
-    await dialog.locator('[name="apiKey"]').fill("local-fixture");
-    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(dialog).toBeHidden();
-
-    await page.locator("#settings-back").click();
+    await expect(setupDialog(page)).toBeVisible();
+    await connectModelThroughUi(page, {
+      name: "本地夹具",
+      baseUrl: "http://127.0.0.1:1/v1",
+      model: "first-use-fixture",
+      apiKey: "local-fixture"
+    });
     await expect(page.locator("#app-layout")).toBeVisible();
 
-    // The saved connection completes the first step and makes adding a project current.
+    // The saved provider completes the first step and makes adding a project current.
     await expect(modelStep).toHaveAttribute("data-state", "done");
     await expect(modelStep.locator(".first-use-num")).toHaveAttribute("aria-label", "已完成");
     await expect(projectStep).toHaveAttribute("data-state", "current");

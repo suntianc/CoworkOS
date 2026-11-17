@@ -202,7 +202,7 @@ export function installModelProviders({
       <div class="provider-quick">${quick
         .map(
           (preset) =>
-            `<button type="button" class="provider-quick-item" data-preset="${preset.id}">${providerLogo({ preset: preset.id, name: preset.name }, 30)}<span>${esc(preset.name)}</span></button>`
+            `<button type="button" class="provider-quick-item" data-preset="${preset.id}">${providerLogo({ preset: preset.id, name: preset.name }, 30)}<span>${esc(ui(preset.name))}</span></button>`
         )
         .join("")}</div>
       <button type="button" class="settings-link" data-provider-add>${icon("plus")}<span>${ui("其他供应商或自定义地址")}</span></button>
@@ -327,13 +327,17 @@ export function installModelProviders({
       ? `${providerLogo(found.provider, 22)}<span class="role-picker-text"><span>${esc(found.model.name || found.model.id)}</span><small>${esc(found.provider.name)}</small></span>`
       : `<span class="role-picker-text is-empty"><span>${esc(fallback)}</span></span>`;
   };
+  /** The model a role runs on: its binding, or for Main the first available model. */
+  const roleModelOf = (role) =>
+    roleOf(role)?.host?.profileId || (role === "main" ? snapshot?.activeProfileId : undefined);
   const renderRoles = () => {
     const rows = $("[data-role-rows]");
     const locked = managed() || busy;
     rows.innerHTML = ROLES.map(({ role, label, icon: name, hint }) => {
       const entry = roleOf(role);
       const bound = entry?.host?.profileId;
-      const model = bound && findModel(bound)?.model;
+      const used = roleModelOf(role);
+      const model = used && findModel(used)?.model;
       const effort = model?.reasoningEffort ?? "off";
       const levels = model?.reasoningLevels?.length ? model.reasoningLevels : LEVELS;
       const fallback = role === "main" ? ui("未选择（使用第一个可用模型）") : ui("沿用 Main 的模型");
@@ -471,7 +475,7 @@ export function installModelProviders({
           )
             .map(
               (entry) =>
-                `<button type="button" class="preset-item" data-add-preset="${entry.id}" aria-pressed="${entry.id === addPreset}">${providerLogo({ preset: entry.id, name: entry.name }, 24)}<span>${esc(entry.name)}</span></button>`
+                `<button type="button" class="preset-item" data-add-preset="${entry.id}" aria-pressed="${entry.id === addPreset}">${providerLogo({ preset: entry.id, name: entry.name }, 24)}<span>${esc(ui(entry.name))}</span></button>`
             )
             .join("")}${
             region === "local"
@@ -495,7 +499,7 @@ export function installModelProviders({
             : ""
         }
         <label class="provider-field"><span class="provider-field-label">API Key</span><span class="provider-input"><input data-add="apiKey" type="password" autocomplete="off" spellcheck="false" value="${esc(preset?.apiKey || "")}" placeholder="${esc(ui("填写 API Key"))}"></span>
-          ${preset?.keyUrl ? `<small><a href="${esc(preset.keyUrl)}" target="_blank" rel="noreferrer">${esc(ui`前往 ${preset.name} 获取 API Key`)} ↗</a></small>` : ""}</label>
+          ${preset?.keyUrl ? `<small><a href="${esc(preset.keyUrl)}" target="_blank" rel="noreferrer">${esc(ui`前往 ${ui(preset.name)} 获取 API Key`)} ↗</a></small>` : ""}</label>
         ${preset ? `<small class="provider-preview">${esc(ui`API 地址：${preset.baseUrl}`)} · ${esc(API_LABELS[preset.api])}</small>` : ""}
       </div>`;
     addDialog.foot.innerHTML = `<span data-add-error class="provider-dialog-error" role="alert"></span><span class="settings-row-spacer"></span>
@@ -521,7 +525,7 @@ export function installModelProviders({
     const body = preset
       ? {
           preset: preset.id,
-          name: preset.name,
+          name: ui(preset.name),
           baseUrl: preset.baseUrl,
           api: preset.api,
           apiKey: field("apiKey")
@@ -537,8 +541,9 @@ export function installModelProviders({
     const before = new Set(providers().map((provider) => provider.id));
     busy = true;
     try {
-      apply(await post("/api/model-settings/providers", body));
+      const next = await post("/api/model-settings/providers", body);
       busy = false;
+      apply(next);
       selectedId = providers().find((provider) => !before.has(provider.id))?.id || selectedId;
       tab = "providers";
       render();
@@ -693,13 +698,13 @@ export function installModelProviders({
     error.textContent = "";
     busy = true;
     try {
-      apply(
-        await post("/api/model-settings/models", {
-          providerId: selectedId,
-          models: [{ id, ...(name ? { name } : {}) }]
-        })
-      );
+      const next = await post("/api/model-settings/models", {
+        providerId: selectedId,
+        models: [{ id, ...(name ? { name } : {}) }]
+      });
+      // The panel re-renders from the answer, so it must no longer read as busy.
       busy = false;
+      apply(next);
       manualDialog.close();
       onSaved?.();
     } catch (failure) {
@@ -718,7 +723,14 @@ export function installModelProviders({
     const model = provider?.models.find((entry) => entry.id === modelId);
     if (!model) return;
     modelDialog.title(model.id);
-    modelAuto = new Set(model.autoLimits || []);
+    // A model saved without `autoLimits` follows the endpoint while a field still holds its default.
+    modelAuto = new Set(
+      model.autoLimits ?? [
+        ...(model.contextWindow === 256000 ? ["contextWindow"] : []),
+        ...(model.mainMaxTokens === 8192 && model.subagentMaxTokens === 8192 ? ["maxTokens"] : []),
+        ...(model.supportsImages ? [] : ["images"])
+      ]
+    );
     modelLimits = {};
     modelSource = "manual";
     const chosen = model.reasoningLevels?.length ? model.reasoningLevels : LEVELS;
@@ -838,8 +850,9 @@ export function installModelProviders({
     error.textContent = "";
     busy = true;
     try {
-      apply(await post("/api/model-settings/models", { providerId: selectedId, models: [entry] }));
+      const next = await post("/api/model-settings/models", { providerId: selectedId, models: [entry] });
       busy = false;
+      apply(next);
       modelDialog.close();
       onSaved?.();
     } catch (failure) {
@@ -1051,7 +1064,7 @@ export function installModelProviders({
   panel.addEventListener("change", (event) => {
     const effort = event.target.closest("[data-role-effort]");
     if (effort) {
-      const found = findModel(roleOf(effort.dataset.roleEffort)?.host?.profileId);
+      const found = findModel(roleModelOf(effort.dataset.roleEffort));
       if (!found) return;
       void run(
         () =>

@@ -1430,5 +1430,9 @@ export default {
   中国: "China",
   国际: "International",
   本地与自定义: "Local and custom",
+  "智谱 GLM": "Zhipu GLM",
+  阿里云百炼: "Alibaba Cloud Bailian",
+  火山方舟: "Volcengine Ark",
+  硅基流动: "SiliconFlow CN",
   " 个模型。": " models."
 };

@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
+import { connectModelThroughUi, setupDialog } from "./model-provider-ui.js";
 
 test("desktop response links leave through the system browser and local viewers stay unprivileged", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -38,14 +39,13 @@ test("desktop response links leave through the system browser and local viewers 
     });
     const page = await native.firstWindow();
     page.on("pageerror", (error) => errors.push(error.message));
-    const dialog = page.getByRole("dialog", { name: "连接模型" });
-    await dialog.locator('[name="api"]').selectOption("openai-completions");
-    await dialog.locator('[name="baseUrl"]').fill(provider.baseUrl);
-    await dialog.locator('[name="model"]').fill("protocol-fixture");
-    await dialog.locator('[name="apiKey"]').fill("local-external-link-fixture");
-    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    // Saving applies the connection in place; the window keeps its origin.
-    await expect(dialog).toBeHidden();
+    // Saving applies the provider in place; the window keeps its origin.
+    await expect(setupDialog(page)).toBeVisible();
+    await connectModelThroughUi(page, {
+      baseUrl: provider.baseUrl,
+      model: "protocol-fixture",
+      apiKey: "local-external-link-fixture"
+    });
     await expect(page.locator("#model-select")).toContainText("protocol-fixture");
     await page.locator("#new-project").click();
     await page.locator("#add-project-name").fill("链接验收项目");

@@ -25,11 +25,9 @@ npm 更新或卸载 CLI 仅影响 CLI/安装器，不会卸载独立 App 或删�
 
 ## 连接模型
 
-打开“设置 → 模型连接”，填写服务商提供的 API 地址、模型 ID 和 API Key。地址填根地址或 `/v1`，例如 `https://your-service.example/v1`。
+首次打开 App 会进入“设置 → 模型与角色”并弹出“添加供应商”。选择你的服务商（预置的只需填 API Key），或选“自定义”填写 API 地址并选择接口格式（Chat Completions、Responses 或 Anthropic Messages）。点击“添加并获取模型”，勾选要用的模型后加入。服务需要支持所选格式的流式响应和工具调用。
 
-新连接默认使用 Responses，也可选择 Chat Completions。服务需要支持所选格式的流式响应和工具调用；原生 Anthropic 接口不能直接使用。
-
-点击“测试连接”，通过后点击“保存连接”。测试会消耗模型额度。更多选项见 [模型设置](configuration.md)。
+在供应商详情点击“检查”确认连接可用，检查会消耗少量额度。更多选项见 [模型设置](configuration.md)。
 
 ## 创建项目
 

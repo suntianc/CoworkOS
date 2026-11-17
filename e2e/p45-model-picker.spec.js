@@ -1,7 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
-import { openModelConnectionEditor } from "./settings-helper.js";
+import { pageRequest, saveTestConnection } from "../test/model-provider-fixture.mjs";
+import { activeModelOf, leaveSettings, openModelParams, selectProvider } from "./model-provider-ui.js";
 
 /**
  * The composer's model and reasoning popover (#27). The rail shows only the
@@ -85,69 +86,65 @@ test("the reasoning rail follows each model's levels, keys move it, and a model 
   }
 });
 
-test("a connection's supported levels are checked by hand for a relay and read from Pi for an official address", async ({
+test("a model's supported levels are checked by hand for a relay and read from Pi for an official address", async ({
   page
 }) => {
   const provider = await modelProtocolFixture("openai-completions", () => ({ text: "档位已确认" }));
   const dashboard = await startDashboard();
+  const request = pageRequest(page, dashboard.base);
   try {
-    const saved = await page.request.post(`${dashboard.base}/api/model-settings`, {
-      data: {
-        baseUrl: provider.baseUrl,
-        api: "openai-completions",
-        model: "relay-model",
-        apiKey: "synthetic-levels-key",
-        reasoningEffort: "high",
-        supportsReasoningEffort: true
-      }
+    const saved = await saveTestConnection(request, {
+      profileName: "中转",
+      baseUrl: provider.baseUrl,
+      model: "relay-model",
+      apiKey: "synthetic-levels-key",
+      reasoningEffort: "high",
+      supportsReasoningEffort: true
     });
-    expect(saved.ok()).toBe(true);
+    expect(saved.status).toBe(200);
     await page.goto(dashboard.base);
-    const dialog = await openModelConnectionEditor(page);
-    await dialog.getByText("高级连接参数", { exact: true }).click();
-    const field = dialog.locator("[data-model-levels]");
-    const chips = field.locator('[name="reasoningLevels"]');
+    await selectProvider(page, "中转");
+    let params = await openModelParams(page, "relay-model");
+    const chips = params.locator("[data-level-chips] input");
     await expect(chips).toHaveCount(6);
-    await expect(field.locator("[data-levels-source]")).toBeHidden();
+    await expect(params.locator("[data-levels-source]")).toBeHidden();
 
-    // A relay names no levels: unchecked ones leave the default's choices too.
-    await field.locator('.settings-level-chip:has([value="xhigh"])').click();
-    await field.locator('.settings-level-chip:has([value="max"])').click();
-    const effort = dialog.locator('[name="reasoningEffort"]');
-    expect(
-      await effort.locator("option:not(:disabled)").evaluateAll((nodes) => nodes.map((n) => n.value))
-    ).toEqual(["off", "low", "medium", "high"]);
-    await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
-    await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
-    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(dialog).toBeHidden();
-    const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
-    expect(status.profiles.find((profile) => profile.active).reasoningLevels).toEqual([
-      "off",
-      "low",
-      "medium",
-      "high"
-    ]);
-    await page.locator("#settings-back").click();
+    // A relay names no levels: the person narrows them by hand.
+    await params.locator('.level-chip:has([value="xhigh"])').click();
+    await params.locator('.level-chip:has([value="max"])').click();
+    await params.locator("[data-model-save]").click();
+    await expect(params).toBeHidden();
+    const status = (await request("/api/model-settings")).body;
+    expect(activeModelOf(status).reasoningLevels).toEqual(["off", "low", "medium", "high"]);
+    await leaveSettings(page);
     await page.locator("#model-select").click();
     await expect(page.locator("#model-menu [data-thinking-level]")).toHaveText(["关闭", "低", "中", "高"]);
     await page.keyboard.press("Escape");
 
     // An official address is read from Pi's table and cannot be narrowed by hand.
-    const again = await openModelConnectionEditor(page);
-    await again.getByText("高级连接参数", { exact: true }).click();
-    await again.locator('[name="baseUrl"]').fill("https://api.deepseek.com");
-    await again.locator('[name="model"]').fill("deepseek-v4-pro");
-    await expect(field.locator("[data-levels-source]")).toHaveText("官方 · 自动");
-    await expect(field.locator("[data-levels-value]")).toHaveText("关闭 · 高 · 最大");
-    await expect(field.locator("[data-levels-chips]")).toBeHidden();
+    await saveTestConnection(request, {
+      profileName: "DeepSeek 官方",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-pro",
+      apiKey: "synthetic-official-key",
+      activate: false
+    });
+    await page.reload();
+    await selectProvider(page, "DeepSeek 官方");
+    params = await openModelParams(page, "deepseek-v4-pro");
+    await expect(params.locator("[data-levels-source]")).toHaveText("官方 · 自动");
+    await expect(chips.and(page.locator(":checked"))).toHaveCount(3);
+    for (const level of ["off", "high", "max"]) {
+      await expect(params.locator(`[data-level-chips] input[value="${level}"]`)).toBeChecked();
+      await expect(params.locator(`[data-level-chips] input[value="${level}"]`)).toBeDisabled();
+    }
   } finally {
     await dashboard.stop();
     await provider.close();
   }
 });
 
-test("a model's /models limits fill the connection form and reach the run, until a field is edited by hand", async ({
+test("a model's /models limits fill its parameters and reach the run, until a field is edited by hand", async ({
   page
 }) => {
   const provider = await modelProtocolFixture("openai-completions", () => ({ text: "按模型识别已生效" }), {
@@ -161,16 +158,15 @@ test("a model's /models limits fill the connection form and reach the run, until
     ]
   });
   const dashboard = await startDashboard();
+  const request = pageRequest(page, dashboard.base);
   try {
-    const saved = await page.request.post(`${dashboard.base}/api/model-settings`, {
-      data: {
-        baseUrl: provider.baseUrl,
-        api: "openai-completions",
-        model: "limits-model",
-        apiKey: "synthetic-limits-key"
-      }
+    const saved = await saveTestConnection(request, {
+      profileName: "按模型识别",
+      baseUrl: provider.baseUrl,
+      model: "limits-model",
+      apiKey: "synthetic-limits-key"
     });
-    expect(saved.ok()).toBe(true);
+    expect(saved.status).toBe(200);
     await page.goto(dashboard.base);
 
     // Untouched defaults follow the model: the run asks for half the 40k window.
@@ -184,27 +180,24 @@ test("a model's /models limits fill the connection form and reach the run, until
     expect(asked).toBeGreaterThan(8192);
     expect(asked).toBeLessThanOrEqual(20000);
 
-    const dialog = await openModelConnectionEditor(page);
-    await dialog.getByText("高级连接参数", { exact: true }).click();
-    const context = dialog.locator('[name="contextWindow"]');
+    await selectProvider(page, "按模型识别");
+    const params = await openModelParams(page, "limits-model");
+    const context = params.locator('[data-model-field="contextWindow"]');
     await expect(context).toHaveValue("40000");
-    await expect(dialog.locator('[data-limit-tag="contextWindow"]')).toBeVisible();
-    await expect(dialog.locator('[name="mainMaxTokens"]')).toHaveValue("20000");
-    await expect(dialog.locator('[name="supportsImages"]')).toBeChecked();
-    await expect(dialog.locator('[data-limit-tag="images"]')).toBeVisible();
+    await expect(params.locator('[data-auto-tag="contextWindow"]')).toBeVisible();
+    await expect(params.locator('[data-model-field="mainMaxTokens"]')).toHaveValue("65536");
+    const images = params.locator('[data-model-switch="supportsImages"]');
+    await expect(images).toHaveAttribute("aria-checked", "true");
+    await expect(params.locator('[data-auto-tag="images"]')).toBeVisible();
 
     // A value typed by hand wins from then on; the other fields keep following.
     await context.fill("32000");
-    await expect(dialog.locator('[data-limit-tag="contextWindow"]')).toBeHidden();
-    // Unticking image input by hand also wins (and keeps this text-only fixture's check passing).
-    await dialog.locator('[name="supportsImages"]').uncheck();
-    await expect(dialog.locator('[data-limit-tag="images"]')).toBeHidden();
-    await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
-    await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
-    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    await expect(dialog).toBeHidden();
-    const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
-    const active = status.profiles.find((profile) => profile.active);
+    await expect(params.locator('[data-auto-tag="contextWindow"]')).toBeHidden();
+    await images.click();
+    await expect(params.locator('[data-auto-tag="images"]')).toBeHidden();
+    await params.locator("[data-model-save]").click();
+    await expect(params).toBeHidden();
+    const active = activeModelOf((await request("/api/model-settings")).body);
     expect(active.contextWindow).toBe(32000);
     expect(active.supportsImages).toBe(false);
     expect(active.autoLimits).toEqual(["maxTokens"]);

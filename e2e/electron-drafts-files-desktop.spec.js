@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
+import { dismissModelSetup } from "./model-provider-ui.js";
 
 test("desktop keeps drafts and selected file bytes with their backend", async () => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -71,13 +72,10 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
     return readFile(record.target);
   };
   const closeModel = async () => {
-    const model = page.getByRole("dialog", { name: "连接模型" });
-    // The first-use dialog opens once the window learns there is no model connection,
-    // which can land after navigation; give it a moment, then make sure nothing covers
+    // First use opens model setup once the window learns there is no model, which
+    // can land after navigation; give it a moment, then make sure nothing covers
     // the page before the next click.
-    await model.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
-    if (await model.isVisible()) await model.getByRole("button", { name: "关闭设置", exact: true }).click();
-    await expect(model).toBeHidden();
+    await dismissModelSetup(page, { wait: 5_000 });
   };
   const launch = async () => {
     native = await electron.launch({
@@ -133,9 +131,7 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
     await page.waitForURL(`${instance.url}/**`, { timeout: 30_000 });
     // A switched backend without a connection shows the first-use dialog; close it
     // before reading the node row again.
-    const setup = page.getByRole("dialog", { name: "连接模型" });
-    await setup.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
-    await closeModel();
+    await dismissModelSetup(page, { wait: 10_000 });
     await page.locator("#user-menu-button").click();
     await page.locator('[data-settings-section="nodes"]').click();
     await expect(page.locator("[data-backend-status]")).toContainText(
@@ -151,8 +147,7 @@ test("desktop keeps drafts and selected file bytes with their backend", async ()
     await seed(primary, join(profile, "workspace"), "A");
     await seed(other, otherWorkspace, "B");
     await page.reload();
-    await expect(page.getByRole("dialog", { name: "连接模型" })).toBeVisible();
-    await closeModel();
+    await dismissModelSetup(page);
     await page.locator('.conversation-item[data-task="shared-task"]').click();
     await page.locator("#composer-input").fill("draft A survives restart");
     const firstFile = join(root, "first", "same.txt");

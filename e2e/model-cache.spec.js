@@ -3,7 +3,13 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { startDashboard } from "../test/dashboard-fixture.mjs";
 import { protocolStream } from "../test/model-protocol-fixture.mjs";
-import { openModelConnectionEditor } from "./settings-helper.js";
+import {
+  addProviderThroughUi,
+  checkProvider,
+  leaveSettings,
+  openModelSettings,
+  saveProviderEdits
+} from "./model-provider-ui.js";
 
 for (const api of ["openai-completions", "openai-responses"]) {
   test(`${api}: the cache opt-in persists and every turn sends the same cache key`, async ({ page }) => {
@@ -58,28 +64,28 @@ for (const api of ["openai-completions", "openai-responses"]) {
     try {
       await page.goto(dashboard.base);
       await page.locator("#model-setup-button").click();
-      const dialog = page.getByRole("dialog", { name: "连接模型" });
-      await dialog.locator('[name="baseUrl"]').fill(`http://127.0.0.1:${provider.address().port}/v1`);
-      await dialog.locator('[name="model"]').fill("protocol-fixture");
-      await dialog.locator('[name="apiKey"]').fill("local-test-key");
-      await dialog.locator('[name="api"]').selectOption(api);
-      await dialog.getByText("高级连接参数", { exact: true }).click();
-      await expect(dialog.locator('[name="supportsPromptCacheKey"]')).not.toBeChecked();
-      await dialog.locator('[name="supportsPromptCacheKey"]').check();
-      await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
-      await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
+      await addProviderThroughUi(page, {
+        baseUrl: `http://127.0.0.1:${provider.address().port}/v1`,
+        api,
+        model: "protocol-fixture",
+        apiKey: "local-test-key"
+      });
+      const advanced = page.locator(".provider-advanced > summary");
+      const cacheKey = page.locator('[data-field-switch="supportsPromptCacheKey"]');
+      await advanced.click();
+      await expect(cacheKey).toHaveAttribute("aria-checked", "false");
+      await cacheKey.click();
+      await saveProviderEdits(page);
+      await expect(page.locator("[data-provider-save]")).toBeHidden();
+      await expect(await checkProvider(page)).toContainText("连接通过");
       expect(requests[0].prompt_cache_key).toBe("atria-connection-check");
-      await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-      await expect(dialog).toBeHidden();
       await page.reload();
       const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
-      expect(status.supportsPromptCacheKey).toBe(true);
-      expect(status.profiles[0].supportsPromptCacheKey).toBe(true);
-      await openModelConnectionEditor(page);
-      await dialog.getByText("高级连接参数", { exact: true }).click();
-      await expect(dialog.locator('[name="supportsPromptCacheKey"]')).toBeChecked();
-      await dialog.getByRole("button", { name: "关闭设置", exact: true }).click();
-      await page.locator("#settings-back").click();
+      expect(status.providers[0].supportsPromptCacheKey).toBe(true);
+      await openModelSettings(page);
+      await advanced.click();
+      await expect(cacheKey).toHaveAttribute("aria-checked", "true");
+      await leaveSettings(page);
       await page.locator("#composer-input").fill("验证缓存第一轮");
       await page.locator("#composer-input").press("Enter");
       await expect(

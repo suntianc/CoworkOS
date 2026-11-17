@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { developmentExecutable } from "./desktop-runtime-helper.js";
 import { modelProtocolFixture } from "../test/model-protocol-fixture.mjs";
+import { addProviderThroughUi, checkProvider, leaveSettings, setupDialog } from "./model-provider-ui.js";
 
 test("native edit restores an attachment-only message and survives relaunch with its original unsent draft", async ({}, testInfo) => {
   test.skip(process.platform !== "darwin", "Native desktop acceptance requires macOS");
@@ -38,17 +39,16 @@ test("native edit restores an attachment-only message and survives relaunch with
   };
   try {
     let page = await launch();
-    const dialog = page.getByRole("dialog", { name: "连接模型" });
-    await dialog.locator('[name="baseUrl"]').fill(provider.baseUrl);
-    await dialog.locator('[name="model"]').fill("native-edit-fixture");
-    await dialog.locator('[name="apiKey"]').fill("local-native-fixture");
-    await dialog.locator('[name="api"]').selectOption("openai-completions");
-    await dialog.getByRole("button", { name: "测试连接", exact: true }).click();
-    await expect(dialog.locator("[data-model-result]")).toContainText("连接通过");
-    await dialog.getByRole("button", { name: "保存连接", exact: true }).click();
-    // Saving applies the connection in place; the window keeps its origin.
+    await expect(setupDialog(page)).toBeVisible();
+    await addProviderThroughUi(page, {
+      baseUrl: provider.baseUrl,
+      model: "native-edit-fixture",
+      apiKey: "local-native-fixture"
+    });
+    await expect(await checkProvider(page)).toContainText("连接通过");
+    await leaveSettings(page);
+    // Saving applies the provider in place; the window keeps its origin.
     await expect(page.locator(".model-select")).toContainText("native-edit-fixture");
-    await expect(page.getByRole("dialog", { name: "连接模型" })).toBeHidden();
     await page.locator("#new-project").click();
     await page.locator("#add-project-name").fill("修改重发验收");
     await page.locator("#add-project-directory").fill(root);

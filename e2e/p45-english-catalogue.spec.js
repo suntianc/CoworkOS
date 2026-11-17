@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { startConfiguredDashboard, startDashboard } from "../test/dashboard-fixture.mjs";
+import { providerConfig } from "../test/model-provider-fixture.mjs";
 import { configureMerge, seedArtifact, seedRequirement, seedRun } from "./p45-requirement-fixture.js";
 import { createProject, createTask, markTaskRunning } from "./p45-work-helpers.js";
 import { pulseClock, seedCapacitySlots, seedPulseLane } from "./p45-pulse-fixture.js";
@@ -15,26 +16,18 @@ import { pulseClock, seedCapacitySlots, seedPulseLane } from "./p45-pulse-fixtur
  * English catalogue does not cover.
  */
 const HAN = /[\u3400-\u9fff]/;
-/** A configured connection whose profile name is ASCII, like any name a person types. */
-const MODEL_CONFIG = {
-  modelConnections: {
-    version: 1,
-    activeId: "fixture",
-    profiles: [
-      {
-        id: "fixture",
-        name: "Fixture",
-        api: "openai-completions",
-        baseUrl: "http://127.0.0.1:1/v1",
-        model: "browser-fixture",
-        supportsImages: false,
-        reasoningEffort: "off",
-        supportsReasoningEffort: true,
-        apiKey: "local-fixture"
-      }
-    ]
+/** A configured provider whose name is ASCII, like any name a person types. */
+const MODEL_CONFIG = providerConfig([
+  {
+    id: "fixture",
+    name: "Fixture",
+    baseUrl: "http://127.0.0.1:1/v1",
+    model: "browser-fixture",
+    reasoningEffort: "off",
+    supportsReasoningEffort: true,
+    apiKey: "local-fixture"
   }
-};
+]);
 const IGNORED_TAGS = ["SCRIPT", "STYLE", "TEXTAREA"];
 const NAMES = ["aria-label", "title", "placeholder", "aria-placeholder", "alt"];
 
@@ -220,12 +213,28 @@ test("all six settings sections and their dialogs read English", async ({ page }
     await closeDialog(page, "Add node");
 
     await page.locator('[data-settings-section="models"]').click();
-    await page.locator("#settings-model-add").click();
-    const model = page.getByRole("dialog", { name: "Connect model", exact: true });
-    await expect(model.getByRole("button", { name: "Save connection", exact: true })).toBeVisible();
-    await expectEnglish(page, "the model connection dialog");
-    await model.getByRole("button", { name: "Close settings", exact: true }).click();
-    await expect(model).toBeHidden();
+    const models = page.locator('[data-settings-panel="models"]');
+    await models.locator("[data-provider-add]").first().click();
+    const add = page.getByRole("dialog", { name: "Add provider", exact: true });
+    await expect(add.locator('[data-add-preset="zhipu"]')).toContainText("Zhipu GLM");
+    await expectEnglish(page, "the add-provider dialog");
+    await add.locator('[data-add-preset="custom"]').click();
+    await expectEnglish(page, "the custom provider form");
+    await add.locator("[data-dialog-close]").click();
+    await expect(add).toBeHidden();
+
+    await models.locator('[data-model-settings="browser-fixture"]').click();
+    const params = page.locator(".provider-dialog.is-model");
+    await expect(params.locator("[data-model-save]")).toHaveText("Save");
+    await expectEnglish(page, "the model parameters dialog");
+    await params.locator("[data-model-cancel]").click();
+    await expect(params).toBeHidden();
+
+    await models.locator('[data-model-tab="roles"]').click();
+    await models.locator('[data-role-picker="executor"]').click();
+    await expect(page.locator(".role-menu")).toBeVisible();
+    await expectEnglish(page, "the role assignment tab and its model menu");
+    await page.keyboard.press("Escape");
   } finally {
     await dashboard.stop();
   }

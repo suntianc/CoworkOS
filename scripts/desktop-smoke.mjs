@@ -8,6 +8,12 @@ import { tmpdir } from "node:os";
 import { join, resolve, basename } from "node:path";
 import { startNativeApplicationMonitor } from "./native-application-monitor.mjs";
 import { desktopSmokeEnvironment } from "./desktop-smoke-env.mjs";
+import {
+  addProviderThroughUi,
+  dismissModelSetup,
+  leaveSettings,
+  setupDialog
+} from "../e2e/model-provider-ui.js";
 import { signAsync } from "@electron/osx-sign";
 
 import { HumanRequestStore } from "../dist/src/runtime/human.js";
@@ -406,10 +412,10 @@ async function verifySettingsDuringRun(page, expectedBackend) {
   const identity = (await desktopRequest(page, "/api/backend")).body;
   expect(identity.backendId).toBe(expectedBackend.backendId);
   expect(identity.pid).toBe(expectedBackend.pid);
-  const modelSave = await desktopRequest(page, "/api/model-settings", {
+  const modelSave = await desktopRequest(page, "/api/model-settings/providers", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ baseUrl: "https://invalid.example", model: "other" })
+    body: JSON.stringify({ name: "other", baseUrl: "https://invalid.example", apiKey: "other-key" })
   });
   const searchSave = await desktopRequest(page, "/api/web-search-settings", {
     method: "POST",
@@ -451,26 +457,21 @@ async function runSmoke() {
   expect(applicationMonitor.initial.monitorPolicy).toBe(2);
   console.log("Desktop smoke: first install");
   let page = await launch();
-  await expect(page.getByRole("heading", { name: "连接模型" })).toBeVisible();
+  await expect(setupDialog(page)).toBeVisible();
   expect((await fetch(`${new URL(page.url()).origin}/api/tasks`)).status).toBe(401);
-  await page.locator("[data-model-close]").click();
+  await dismissModelSetup(page);
   const setupDraft = "连接模型之前准备的任务草稿 😀";
   await page.locator("#composer-input").fill(setupDraft);
   await page.locator("#model-setup-button").click();
-  const modelDialog = page.getByRole("dialog", { name: "连接模型", exact: true });
-  await modelDialog.locator('[name="baseUrl"]').fill(endpoint);
-  await modelDialog.locator('[name="model"]').fill("desktop-fixture");
-  await modelDialog.locator('[name="apiKey"]').fill("desktop-fake-key");
-  await modelDialog.locator('[name="api"]').selectOption("openai-completions");
-  const saving = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname === "/api/model-settings" && response.request().method() === "POST"
-  );
-  await page.getByRole("button", { name: "保存连接" }).click();
-  const saved = await saving;
-  expect(saved.status()).toBe(200);
+  await expect(setupDialog(page)).toBeVisible();
+  await addProviderThroughUi(page, {
+    name: "桌面夹具",
+    baseUrl: endpoint,
+    model: "desktop-fixture",
+    apiKey: "desktop-fake-key"
+  });
+  await leaveSettings(page);
   await expect(page.locator("#apps-nav")).toBeHidden();
-  await expect(page.getByRole("heading", { name: "连接模型" })).not.toBeVisible();
   await expect(page.locator("#composer-input")).toHaveValue(setupDraft);
   const response = await desktopRequest(page, "/api/model-settings");
   expect(response.status).toBe(200);
@@ -486,29 +487,30 @@ async function runSmoke() {
     "Desktop settings smoke: selected backend",
     JSON.stringify({ backendId: selectedBackend.backendId, pid: selectedBackend.pid })
   );
-  const expectedConnection = {
-    api: "openai-completions",
-    baseUrl: endpoint,
-    model: "desktop-fixture",
-    configured: true,
-    supportsImages: false,
-    reasoningEffort: "off",
-    supportsReasoningEffort: false,
-    supportsPromptCacheKey: false,
-    thinkingFormat: "auto",
-    contextWindow: 256000,
-    mainMaxTokens: 8192,
-    subagentMaxTokens: 8192
-  };
   expect(modelStatus).toMatchObject({
-    ...expectedConnection,
+    configured: true,
+    model: "desktop-fixture",
     activeProfileId: expect.any(String),
-    profiles: [
+    providers: [
       {
-        ...expectedConnection,
-        id: modelStatus.activeProfileId,
-        name: "新配置",
-        active: true
+        name: "桌面夹具",
+        api: "openai-completions",
+        baseUrl: endpoint,
+        configured: true,
+        supportsPromptCacheKey: false,
+        thinkingFormat: "auto",
+        models: [
+          {
+            id: "desktop-fixture",
+            profileId: modelStatus.activeProfileId,
+            supportsImages: false,
+            reasoningEffort: "off",
+            supportsReasoningEffort: false,
+            contextWindow: 256000,
+            mainMaxTokens: 8192,
+            subagentMaxTokens: 8192
+          }
+        ]
       }
     ]
   });
@@ -673,7 +675,7 @@ async function runSmoke() {
   await quit();
   console.log("Desktop smoke: restart");
   page = await launch();
-  await expect(page.getByRole("heading", { name: "连接模型" })).not.toBeVisible();
+  await expect(setupDialog(page)).toBeHidden();
   await focusConversation(page, taskId);
   await expect(page.locator("#composer-input")).toHaveValue(conversationDraft);
   await expect(page.getByRole("button", { name: "移除 未发送的说明.txt", exact: true })).toBeVisible();
@@ -786,10 +788,10 @@ async function runSmoke() {
   await page.locator("#composer-input").fill("等待退出恢复验证");
   await page.locator("#send-button").click();
   await expect.poll(() => held.length, { timeout: 30_000 }).toBeGreaterThan(0);
-  const configError = await desktopRequest(page, "/api/model-settings", {
+  const configError = await desktopRequest(page, "/api/model-settings/providers", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ baseUrl: "https://invalid.example", model: "other" })
+    body: JSON.stringify({ name: "other", baseUrl: "https://invalid.example", apiKey: "other-key" })
   });
   expect(configError.status).toBe(400);
   expect(configError.body.error).toContain("运行中");

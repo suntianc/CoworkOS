@@ -25,12 +25,13 @@ export async function closeSettings(page) {
   await expect(page.locator("#settings-entry")).toBeHidden();
 }
 
-export async function openModelConnectionEditor(page, { add = false } = {}) {
+/** Open the add-provider dialog from the model page. */
+export async function openAddProvider(page) {
   const settings = await openSettings(page, "models");
-  await (
-    add ? settings.locator("#settings-model-add") : settings.locator("[data-model-edit]").first()
-  ).click();
-  return page.getByRole("dialog", { name: "连接模型", exact: true });
+  await settings.locator("[data-provider-add]:visible").first().click();
+  const dialog = page.getByRole("dialog", { name: "添加供应商", exact: true });
+  await expect(dialog).toBeVisible();
+  return dialog;
 }
 
 export async function openWebSearchSettings(page) {
