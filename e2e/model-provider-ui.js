@@ -47,7 +47,7 @@ export async function addProviderThroughUi(
   await expect(add).toBeHidden();
   const fetch = page.locator(".provider-dialog.is-fetch");
   await expect(fetch).toBeVisible();
-  await expect(fetch.locator("[data-fetch-lead]")).not.toHaveText(/正在从服务商读取/);
+  await expect(fetch.locator(".fetch-loading")).toHaveCount(0);
   const listed = fetch.locator(`.fetch-item input[value="${model}"]`);
   if (await listed.count()) {
     await listed.check();

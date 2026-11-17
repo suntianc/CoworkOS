@@ -111,6 +111,7 @@ export function installModelProviders({
         <button type="button" role="tab" data-model-tab="providers" aria-checked="true" aria-selected="true">${ui("供应商")}</button>
         <button type="button" role="tab" data-model-tab="roles" aria-checked="false" aria-selected="false">${ui("角色分配")}</button>
       </div>
+      <p class="model-settings-hint">${icon("info")}<span data-model-hint></span></p>
     </div>
     <p class="model-settings-notice" data-model-notice role="alert" hidden></p>
     <div class="provider-layout" data-model-view="providers">
@@ -374,6 +375,10 @@ export function installModelProviders({
     }
     $('[data-model-view="providers"]').hidden = tab !== "providers";
     $('[data-model-view="roles"]').hidden = tab !== "roles";
+    $("[data-model-hint]").textContent =
+      tab === "providers"
+        ? ui("配置供应商后获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型")
+        : ui("每个角色从已启用供应商的模型中选择；推理强度属于所选模型");
     showNotice();
     renderList();
     renderDetail();
@@ -539,10 +544,17 @@ export function installModelProviders({
     const error = addDialog.foot.querySelector("[data-add-error]");
     error.textContent = "";
     const before = new Set(providers().map((provider) => provider.id));
+    const submit = addDialog.foot.querySelector("[data-add-submit]");
+    const pending = (on) => {
+      submit.setAttribute("aria-busy", String(on));
+      submit.disabled = on;
+    };
     busy = true;
+    pending(true);
     try {
       const next = await post("/api/model-settings/providers", body);
       busy = false;
+      pending(false);
       apply(next);
       selectedId = providers().find((provider) => !before.has(provider.id))?.id || selectedId;
       tab = "providers";
@@ -552,6 +564,7 @@ export function installModelProviders({
       void openFetch();
     } catch (failure) {
       busy = false;
+      pending(false);
       error.textContent = errorMessage(failure);
     }
   });
@@ -566,6 +579,7 @@ export function installModelProviders({
   /* Fetch the provider's model list and pick what to add. */
   const fetchDialog = createDialog("is-fetch", ui("获取模型列表"));
   let listing = [];
+  let listingLoading = false;
   let picked = new Set();
   let filter = { text: "", kind: "all" };
   const renderFetch = () => {
@@ -576,19 +590,21 @@ export function installModelProviders({
           (filter.kind === "reasoning" && model.reasoning) ||
           (filter.kind === "vision" && model.images))
     );
-    fetchDialog.body.querySelector("[data-fetch-list]").innerHTML = shown.length
-      ? shown
-          .map(
-            (model) => `<label class="fetch-item${model.added ? " is-added" : ""}">
+    fetchDialog.body.querySelector("[data-fetch-list]").innerHTML = listingLoading
+      ? `<div class="fetch-loading" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>${ui("正在读取模型列表…")}</span></div>`
+      : shown.length
+        ? shown
+            .map(
+              (model) => `<label class="fetch-item${model.added ? " is-added" : ""}">
               <input type="checkbox" value="${esc(model.id)}"${model.added || picked.has(model.id) ? " checked" : ""}${model.added ? " disabled" : ""}>
               <span class="fetch-item-text"><span class="provider-model-id">${esc(model.id)}</span>${model.name ? `<small>${esc(model.name)}</small>` : ""}</span>
               <span class="model-tags">${capabilityTags({ ...model, supportsImages: model.images })}</span>
               <span class="settings-row-spacer"></span>
               ${model.added ? `<small>${ui("已加入")}</small>` : ""}
             </label>`
-          )
-          .join("")
-      : `<p class="provider-empty-list">${listing.length ? ui("没有匹配的模型") : ui("服务商没有返回模型。请检查 API Key 和地址，或关闭后手动添加。")}</p>`;
+            )
+            .join("")
+        : `<p class="provider-empty-list">${listing.length ? ui("没有匹配的模型") : ui("服务商没有返回模型。请检查 API Key 和地址，或关闭后手动添加。")}</p>`;
     fetchDialog.foot.querySelector("[data-fetch-count]").textContent = picked.size
       ? ui`新选 ${picked.size} 个模型`
       : "";
@@ -600,10 +616,11 @@ export function installModelProviders({
     const provider = selected();
     if (!provider || managed()) return;
     listing = [];
+    listingLoading = true;
     picked = new Set();
     filter = { text: "", kind: "all" };
     fetchDialog.title(ui`${provider.name} 的可用模型`);
-    fetchDialog.body.innerHTML = `<p class="provider-dialog-lead" data-fetch-lead>${ui("正在从服务商读取模型列表…")}</p>
+    fetchDialog.body.innerHTML = `<p class="provider-dialog-lead" data-fetch-lead></p>
       <div class="fetch-toolbar"><label class="provider-search">${icon("search")}<input type="search" data-fetch-filter placeholder="${esc(ui("筛选"))}"></label>
       <div class="settings-segmented" role="radiogroup">${[
         ["all", ui("全部")],
@@ -629,6 +646,7 @@ export function installModelProviders({
     } catch (error) {
       fetchDialog.body.querySelector("[data-fetch-lead]").textContent = errorMessage(error);
     }
+    listingLoading = false;
     renderFetch();
   };
   fetchDialog.backdrop.addEventListener("input", (event) => {

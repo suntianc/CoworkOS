@@ -1434,5 +1434,14 @@ export default {
   阿里云百炼: "Alibaba Cloud Bailian",
   火山方舟: "Volcengine Ark",
   硅基流动: "SiliconFlow CN",
+  腾讯混元: "Tencent Hunyuan",
+  百度千帆: "Baidu Qianfan",
+  "小米 MiMo": "Xiaomi MiMo",
+  讯飞星火: "iFlytek Spark",
+  "配置供应商后获取模型，再到「角色分配」为 Main、Executor、Reviewer 选模型":
+    "Add a provider to fetch its models, then pick models for Main, Executor and Reviewer under Role assignment",
+  "每个角色从已启用供应商的模型中选择；推理强度属于所选模型":
+    "Each role picks a model from enabled providers; reasoning effort belongs to the chosen model",
+  "正在读取模型列表…": "Reading the model list…",
   " 个模型。": " models."
 };

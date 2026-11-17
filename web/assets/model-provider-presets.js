@@ -66,6 +66,37 @@ export const PROVIDER_PRESETS = [
     keyUrl: "https://platform.minimaxi.com/user-center/basic-information/interface-key"
   },
   {
+    id: "hunyuan",
+    name: "腾讯混元",
+    region: "cn",
+    baseUrl: "https://tokenhub.tencentmaas.com/v1",
+    api: "openai-completions"
+  },
+  {
+    id: "qianfan",
+    name: "百度千帆",
+    region: "cn",
+    baseUrl: "https://qianfan.baidubce.com/v2",
+    api: "openai-completions",
+    keyUrl: "https://console.bce.baidu.com/iam/#/iam/apikey/list"
+  },
+  {
+    id: "xiaomimimo",
+    name: "小米 MiMo",
+    region: "cn",
+    baseUrl: "https://api.xiaomimimo.com/v1",
+    api: "openai-completions",
+    mono: true
+  },
+  {
+    id: "spark",
+    name: "讯飞星火",
+    region: "cn",
+    baseUrl: "https://spark-api-open.xf-yun.com/v1",
+    api: "openai-completions",
+    keyUrl: "https://console.xfyun.cn/services/cbm"
+  },
+  {
     id: "openai",
     name: "OpenAI",
     region: "global",
@@ -194,6 +225,14 @@ export const PROVIDER_PRESETS = [
     baseUrl: "https://api.minimax.io/v1",
     api: "openai-completions",
     keyUrl: "https://platform.minimax.io/user-center/basic-information/interface-key"
+  },
+  {
+    id: "hunyuan-global",
+    logo: "hunyuan",
+    name: "Hunyuan Global",
+    region: "global",
+    baseUrl: "https://tokenhub-intl.tencentcloudmaas.com/v1",
+    api: "openai-completions"
   },
   {
     id: "ollama",
