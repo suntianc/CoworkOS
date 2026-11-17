@@ -27,11 +27,7 @@ function createWebSearchSettings(paths, safeStorage) {
     async status() {
       const { publicWebSearchStatus } = await import("../dist/src/runtime/web-search-config.js");
       const config = await read();
-      const decrypted = await decryptedWebSearch(config, safeStorage, true);
-      return {
-        ...publicWebSearchStatus(decrypted),
-        secretUnavailable: Boolean(config.webSearch?.encryptedExaApiKey && !decrypted.webSearch?.exaApiKey)
-      };
+      return publicWebSearchStatus(await decryptedWebSearch(config, safeStorage, true));
     },
     async save(input) {
       const { saveWebSearchConfig } = await import("../dist/src/runtime/web-search-config.js");

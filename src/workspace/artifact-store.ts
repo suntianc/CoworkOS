@@ -1,8 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createWriteStream, type Stats } from "node:fs";
 import {
-  copyFile,
-  link,
   lstat,
   mkdir,
   open,

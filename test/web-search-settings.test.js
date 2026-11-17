@@ -104,8 +104,8 @@ test("Desktop unavailable encrypted key can be cleared without system key access
     JSON.stringify({ webSearch: { provider: "exa", encryptedExaApiKey: "unavailable" } })
   );
   const settings = desktopSearch(paths, { isEncryptionAvailable: () => false });
-  assert.equal((await settings.status()).secretUnavailable, true);
+  assert.equal((await settings.status()).authenticated, false);
   await assert.rejects(settings.save({ provider: "exa", exaApiKey: "new" }), /密钥存储/);
   await settings.save({ provider: "exa", clearExaApiKey: true });
-  assert.equal((await settings.status()).secretUnavailable, false);
+  assert.equal(JSON.parse(await readFile(paths.configPath, "utf8")).webSearch.encryptedExaApiKey, undefined);
 });

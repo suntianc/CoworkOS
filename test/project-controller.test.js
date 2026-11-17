@@ -272,7 +272,7 @@ test("an existing global draft moves into its first project without losing attac
   assert.equal(input.value, "");
 });
 
-test("first project activation after reload recovers a legacy global draft without overwriting project drafts", () => {
+test("first project activation after reload recovers the pre-connection draft without overwriting project drafts", () => {
   for (const active of ["new", "new:a"]) {
     const records = new Map([
       ["atria.composer.v1:active", JSON.stringify(active)],
@@ -323,7 +323,7 @@ test("first project activation after reload recovers a legacy global draft witho
   }
 });
 
-test("legacy draft migration retains its durable source through quota failures and clears it after recovery", () => {
+test("pre-connection draft migration retains its durable source through quota failures and clears it after recovery", () => {
   const source = JSON.stringify({
     text: "必须恢复的旧草稿",
     attachments: [{ name: "恢复.txt", text: "完整附件" }]
@@ -431,7 +431,7 @@ test("a recovered migration preserves a newer global draft written while its des
   }
 });
 
-test("an existing project draft prevents legacy source cleanup even after a failed storage write recovers", () => {
+test("an existing project draft prevents pre-connection source cleanup even after a failed storage write recovers", () => {
   const source = JSON.stringify({ text: "独立旧草稿", attachments: [] });
   const records = new Map([
     ["atria.composer.v1:new", source],

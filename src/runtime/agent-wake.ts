@@ -63,12 +63,12 @@ export function agentWakeEndpoint(processDirectory: string, token: string): stri
   // process-local, same-user channel under the same digest.
   if (process.platform === "win32") return `\\\\.\\pipe\\cowork-wake-${digest}`;
   const name = `wake-${digest}.sock`;
-  const [preferred, shortest] = wakeDirectories();
+  const { preferred, fallback } = wakeDirectories();
   const endpoint = join(preferred, name);
   // A temporary directory can be deep enough that this name no longer fits the
   // OS address. The process record is what a writer reads, so the reader follows
   // this choice instead of recomputing one of its own.
-  return Buffer.byteLength(endpoint) <= MAX_SOCKET_PATH_BYTES ? endpoint : join(shortest, name);
+  return Buffer.byteLength(endpoint) <= MAX_SOCKET_PATH_BYTES ? endpoint : join(fallback, name);
 }
 
 /**
@@ -205,10 +205,10 @@ async function nudge(processDirectory: string): Promise<void> {
  * your records again", and only its bind and its writer need to agree on the
  * location.
  */
-function wakeDirectories(): [string, string] {
+function wakeDirectories(): { preferred: string; fallback: string } {
   // Per-user on Linux (a shared /tmp) and already per-user under macOS
   // `$TMPDIR`; the socket mode is the second lock on the same door.
   const uid = process.getuid?.();
   const name = uid === undefined ? "cowork-wake" : `cowork-wake-${uid}`;
-  return [join(tmpdir(), name), join("/tmp", name)];
+  return { preferred: join(tmpdir(), name), fallback: join("/tmp", name) };
 }
