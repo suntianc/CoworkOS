@@ -196,6 +196,25 @@ export function buildConversationExchanges(messages, events) {
   }));
 }
 
+/** The position of a runtime event in its run's log, from its event id. */
+export function runtimeLogIndex(record) {
+  if (record?.type !== "runtime_event" || typeof record.eventId !== "string") return undefined;
+  const prefix = `runtime-${record.runId}-`;
+  if (!record.eventId.startsWith(prefix)) return undefined;
+  const index = Number(record.eventId.slice(prefix.length));
+  return Number.isSafeInteger(index) ? index : undefined;
+}
+
+/** The last log position each run's saved history covers. */
+export function runtimeLogMarks(records = []) {
+  const marks = new Map();
+  for (const record of records) {
+    const index = runtimeLogIndex(record);
+    if (index !== undefined && index > (marks.get(record.runId) ?? -1)) marks.set(record.runId, index);
+  }
+  return marks;
+}
+
 export function streamRecordKey(record) {
   if (!record || typeof record !== "object") return "";
   if (record.eventId) return `${record.runId || ""}:${record.eventId}`;
@@ -221,10 +240,15 @@ const savedKind = (record) => record?.type === "runtime_event" || SAVED_LEDGER.t
 // round stayed unfolded until the conversation was reopened.
 export function mergeRuntimeEvents(saved = [], streamed = []) {
   const keys = new Set(saved.map(streamRecordKey));
+  const covered = runtimeLogMarks(saved);
   return [
     ...saved,
     ...streamed.filter((record) => {
       if (!savedKind(record)) return false;
+      // A saved history leaves out the deltas of messages that have ended; a
+      // streamed delta it no longer lists is covered, not missing.
+      const index = runtimeLogIndex(record);
+      if (index !== undefined && index <= (covered.get(record.runId) ?? -1)) return false;
       const key = streamRecordKey(record);
       if (keys.has(key)) return false;
       keys.add(key);

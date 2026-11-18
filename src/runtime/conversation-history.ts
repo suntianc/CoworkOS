@@ -214,6 +214,44 @@ export function messagesWithRuntimeHistory(
     .sort((a, b) => (a.timestamp !== undefined && b.timestamp !== undefined ? a.timestamp - b.timestamp : 0));
 }
 
+function isStreamDelta(record: Record<string, unknown>): boolean {
+  if (record.type !== "runtime_event") return false;
+  const payload = record.payload as
+    { type?: unknown; assistantMessageEvent?: { type?: unknown } } | undefined;
+  const update = payload?.assistantMessageEvent?.type;
+  return payload?.type === "message_update" && typeof update === "string" && update.endsWith("_delta");
+}
+
+/**
+ * A saved history without the token deltas of messages that have ended.
+ *
+ * Every delta is logged, so a long conversation is mostly deltas, and the
+ * page replaces them with the message snapshot once the message ends. Only the
+ * deltas of a message still being written are kept, for the live view. Event
+ * ids keep their log index, so a stream resumes after the last one sent here.
+ */
+export function settledRuntimeEvents(
+  records: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  const dropped = new Set<number>();
+  const pending = new Map<string, number[]>();
+  records.forEach((record, index) => {
+    if (record.type !== "runtime_event") return;
+    const stream = `${String(record.runId)}:${String(record.agentId)}`;
+    if (isStreamDelta(record)) {
+      const open = pending.get(stream);
+      if (open) open.push(index);
+      else pending.set(stream, [index]);
+      return;
+    }
+    const type = (record.payload as { type?: unknown } | undefined)?.type;
+    if (type !== "message_end" && type !== "turn_end") return;
+    for (const settled of pending.get(stream) ?? []) dropped.add(settled);
+    pending.delete(stream);
+  });
+  return dropped.size ? records.filter((_record, index) => !dropped.has(index)) : records;
+}
+
 /**
  * A runtime event as the conversation view needs it.
  *

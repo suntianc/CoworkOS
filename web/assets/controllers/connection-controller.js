@@ -1,4 +1,4 @@
-import { streamRecordKey } from "../conversation.js";
+import { runtimeLogMarks, streamRecordKey } from "../conversation.js";
 
 /** Owns the selected conversation's SSE. */
 export function createConnectionController({ state, renderConversation, loadDetail, openStream }) {
@@ -64,9 +64,12 @@ export function createConnectionController({ state, renderConversation, loadDeta
     // The stream replays the current run history on connect. Keep O(1) keys so
     // that replaying a long transcript does not scan thousands of DOM records
     // for every token-sized event.
-    const seenKeys = (eventStreamKeys = new Set(
-      state.detail?.task?.taskId === taskId ? (state.detail.runtimeEvents || []).map(streamRecordKey) : []
-    ));
+    const saved = state.detail?.task?.taskId === taskId ? state.detail.runtimeEvents || [] : [];
+    const seenKeys = (eventStreamKeys = new Set(saved.map(streamRecordKey)));
+    // The saved history already covers this run's log up to its last event;
+    // the stream continues from there instead of replaying every delta.
+    const after = (runtimeLogMarks(saved).get(runId) ?? -1) + 1;
+    const streamPath = `/api/tasks/${encodeURIComponent(taskId)}/stream${after ? `?after=${after}` : ""}`;
     const applyRecord = (record, isCurrent) => {
       if (
         !isCurrent() ||
@@ -105,7 +108,7 @@ export function createConnectionController({ state, renderConversation, loadDeta
       streamTaskId = taskId;
       streamRunId = runId;
       const isCurrent = () => streamAbort === controller;
-      void openStream(`/api/tasks/${encodeURIComponent(taskId)}/stream`, {
+      void openStream(streamPath, {
         signal: controller.signal,
         onOpen: () => {
           if (isCurrent()) streamOpened = true;
@@ -129,7 +132,7 @@ export function createConnectionController({ state, renderConversation, loadDeta
     if (!window.EventSource) return;
     eventStreamTaskId = taskId;
     eventStreamRunId = runId;
-    const stream = (eventStream = new EventSource(`/api/tasks/${encodeURIComponent(taskId)}/stream`));
+    const stream = (eventStream = new EventSource(streamPath));
     stream.onopen = () => {
       if (eventStream === stream) streamOpened = true;
     };

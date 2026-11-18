@@ -7,7 +7,8 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   messagesWithRuntimeHistory,
   readTaskRuntimeEvents,
-  runtimeEventRecord
+  runtimeEventRecord,
+  settledRuntimeEvents
 } from "../dist/src/runtime/conversation-history.js";
 import { conversationMessages } from "../dist/src/runtime/conversation-view.js";
 import {
@@ -16,6 +17,7 @@ import {
   isMachineTurn,
   mergeRuntimeEvents,
   exchangeExecutionState,
+  runtimeLogMarks,
   streamRecordKey,
   SUPERVISOR_WAKE_TURN
 } from "../web/assets/conversation.js";
@@ -672,11 +674,65 @@ test("a re-read history keeps streamed ledger news it saves, not a pause it neve
   const answer = runtimeEventRecord("task", "one", 0, { type: "turn_end", message: { role: "assistant" } });
   const completed = ledger("3", "main.run_completed");
   // Live: paused, resumed, then completed. The saved history has the completion only.
-  const streamed = [ledger("1", "main.run_pause_requested"), ledger("2", "main.run_paused"), answer, completed];
+  const streamed = [
+    ledger("1", "main.run_pause_requested"),
+    ledger("2", "main.run_paused"),
+    answer,
+    completed
+  ];
   const merged = mergeRuntimeEvents([answer, completed], streamed);
   assert.deepEqual(merged, [answer, completed]);
   assert.equal(exchangeExecutionState(merged).terminal, "completed");
   // News the history does save still survives a read that started before it.
   const late = ledger("4", "main.run_waiting");
   assert.deepEqual(mergeRuntimeEvents([answer], [answer, late]), [answer, late]);
+});
+
+test("a saved history drops the deltas of ended messages and draws the same conversation", () => {
+  const delta = (type, text, contentIndex) => ({
+    type: "message_update",
+    assistantMessageEvent: { type, contentIndex, delta: text }
+  });
+  const call = { type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.md" } };
+  const ended = {
+    role: "assistant",
+    timestamp: 1,
+    content: [{ type: "thinking", thinking: "look first" }, call]
+  };
+  const payloads = [
+    { type: "turn_start" },
+    { type: "message_start", message: { role: "assistant", timestamp: 1, content: [] } },
+    delta("thinking_delta", "look ", 0),
+    delta("thinking_delta", "first", 0),
+    {
+      type: "message_update",
+      assistantMessageEvent: { type: "toolcall_start", contentIndex: 1, toolCall: call }
+    },
+    delta("toolcall_delta", '{"path":', 1),
+    delta("toolcall_delta", '"a.md"}', 1),
+    { type: "message_end", message: ended },
+    { type: "turn_end", message: ended },
+    { type: "turn_start" },
+    { type: "message_start", message: { role: "assistant", timestamp: 2, content: [] } },
+    delta("text_delta", "still ", 0),
+    delta("text_delta", "writing", 0)
+  ];
+  const full = payloads.map((payload, index) => runtimeEventRecord("task", "run", index, payload));
+  const saved = settledRuntimeEvents(full);
+  assert.equal(saved.length, full.length - 4);
+  // The message being written keeps its deltas for the live view.
+  assert.deepEqual(
+    saved.slice(-2).map((record) => record.payload.assistantMessageEvent.delta),
+    ["still ", "writing"]
+  );
+  assert.deepEqual(buildLiveActivity(saved), buildLiveActivity(full));
+  assert.equal(runtimeLogMarks(saved).get("run"), full.length - 1);
+
+  // Deltas streamed before the message ended are covered by the saved
+  // history; the page neither keeps them nor appends them a second time.
+  const streamed = full.slice(2, 4);
+  const merged = mergeRuntimeEvents(saved, streamed);
+  assert.deepEqual(merged, saved);
+  const later = runtimeEventRecord("task", "run", full.length, delta("text_delta", "!", 0));
+  assert.deepEqual(mergeRuntimeEvents(saved, [...streamed, later]), [...saved, later]);
 });

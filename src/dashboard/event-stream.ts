@@ -177,7 +177,8 @@ export function streamRunEvents(
   response: ServerResponse,
   taskId: string,
   runId: string,
-  taskWorkspace: string
+  taskWorkspace: string,
+  { runtimeAfter = 0 }: { runtimeAfter?: number } = {}
 ): void {
   const eventsPath = join(taskWorkspace, taskId, "runs", runId, "run_events.jsonl");
   const runtimePath = join(taskWorkspace, taskId, "runs", runId, "runtime-output.log");
@@ -245,8 +246,10 @@ export function streamRunEvents(
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，读取运行日志期间连接可能已断开
       if (closed) return;
       for (const event of runtimeEvents) {
-        const record = viewRuntimeEvent(runtimeEventRecord(taskId, runId, runtimeCursor, event));
-        response.write(`id: ${record.eventId}\ndata: ${JSON.stringify(record)}\n\n`);
+        if (runtimeCursor >= runtimeAfter) {
+          const record = viewRuntimeEvent(runtimeEventRecord(taskId, runId, runtimeCursor, event));
+          response.write(`id: ${record.eventId}\ndata: ${JSON.stringify(record)}\n\n`);
+        }
         runtimeCursor += 1;
       }
       // eslint-disable-next-line no-restricted-syntax -- 运行文件要到第一条事件落盘才存在，这一轮按无新事件处理，下一次 tick 重试

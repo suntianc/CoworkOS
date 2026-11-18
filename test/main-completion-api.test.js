@@ -524,6 +524,10 @@ for (const mode of ["wait tool", "premature answer"]) {
       assert.equal(detail.task.completion.signal, mode === "wait tool" ? "finish_task" : "natural_stop");
       assert.deepEqual(detail.coordination.pending, []);
       assert.deepEqual(detail.coordination.callbackPending, []);
+      // A settled task reads the same twice, so a poll does not redraw it.
+      const { statistics: _first, ...again } = await f.detail();
+      const { statistics: _second, ...settled } = detail;
+      assert.deepEqual(again, settled);
       const events = detail.runtimeEvents.map((event) => event.payload);
       const names = detail.coordination.calls.map((call) => call.name);
       assert.equal(new Set(names).size, 2);
