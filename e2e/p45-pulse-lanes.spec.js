@@ -279,6 +279,21 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await expect(reviewer).toContainText("Reviewer");
     await expect(reviewer).toContainText("Circinus");
     await expect(reviewer.locator(".runs-head")).toHaveCount(1);
+
+    // A Main's Subagent rows fold into its lane and come back; while one is
+    // still at work they start open, and the person's choice survives repaints.
+    const subsToggle = pulseLane.locator("[data-runs-subs]");
+    await expect(subsToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(subsToggle).toContainText("个子代理");
+    await subsToggle.click();
+    await expect(subsToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(executor).toHaveCount(0);
+    await expect(reviewer).toHaveCount(0);
+    await page.waitForTimeout(2_500);
+    await expect(reviewer).toHaveCount(0);
+    await subsToggle.click();
+    await expect(subsToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(reviewer).toHaveCount(1);
     await expect(localCard.locator(`[data-runs-lane="${document.taskId}"]`)).toContainText(/1[23] 分/);
 
     // External node: usage bars, empty slots as flat lines, and the four lanes.
@@ -376,7 +391,25 @@ test("a Main that finished inside the window keeps a still waveform", async ({ p
       projectId: project.projectId,
       title: "很早以前"
     });
+    const archived = await createPulseSession(page, dashboard, {
+      projectId: project.projectId,
+      title: "已归档"
+    });
     const clock = pulseClock();
+    // An archived session whose idle Main left it waiting is out of view.
+    await seedPulseLane(dashboard, {
+      taskId: archived.taskId,
+      runId: "run-archived",
+      clock,
+      createdAt: clock.ago(-20),
+      title: "已归档",
+      main: { from: -20, to: -10 },
+      status: "waiting"
+    });
+    const archiving = await page.request.patch(`${dashboard.base}/api/tasks/${archived.taskId}`, {
+      data: { archived: true }
+    });
+    expect(archiving.status(), await archiving.text()).toBe(200);
     await seedPulseLane(dashboard, {
       taskId: finished.taskId,
       runId: "run-finished",
@@ -405,6 +438,7 @@ test("a Main that finished inside the window keeps a still waveform", async ({ p
     const lane = page.locator(`[data-runs-lane="${finished.taskId}"]`);
     await expect(lane).toBeVisible({ timeout: 20_000 });
     await expect(lane).toHaveAttribute("data-finished", "true");
+    await expect(page.locator(`[data-runs-lane="${archived.taskId}"]`)).toHaveCount(0);
     await expect(lane.locator(".runs-pill")).toHaveText("已完成");
     // The history stays drawn but stops where the run ended, with no live head.
     await expect(lane.locator(".runs-pulse.is-dev")).toHaveCount(1);

@@ -1,5 +1,6 @@
 import { ui } from "./language.js";
 import { icon } from "./icons.js";
+import { reducedMotion } from "./motion.js";
 
 /** Writes text to the clipboard; false when the browser refuses. */
 export async function copyText(text) {
@@ -13,18 +14,36 @@ export async function copyText(text) {
   }
 }
 
-/** A copy button says 已复制 for a moment, then returns to its label. */
+/**
+ * A copy button says 已复制 for a moment, then returns to its label. Its copy
+ * icon turns into a check that pops in, so a button without a label still
+ * answers the click.
+ */
 export function confirmCopied(button, label) {
   const target = label || button;
   const previous = button.dataset.copyLabel ?? target.textContent;
+  const glyph = button.querySelector('svg.ui-icon use[href="#i-copy"], svg.ui-icon use[href="#i-check"]');
   button.dataset.copyLabel = previous;
   button.classList.add("is-copied");
   if (label) target.textContent = ui("已复制");
+  if (glyph) {
+    glyph.setAttribute("href", "#i-check");
+    if (!reducedMotion())
+      glyph.parentElement.animate(
+        [
+          { transform: "scale(0.6)", opacity: 0.4 },
+          { transform: "scale(1.12)", opacity: 1, offset: 0.6 },
+          { transform: "scale(1)" }
+        ],
+        { duration: 220, easing: "ease-out" }
+      );
+  }
   clearTimeout(Number(button.dataset.copyTimer));
   button.dataset.copyTimer = String(
     setTimeout(() => {
       button.classList.remove("is-copied");
       if (label) target.textContent = previous;
+      glyph?.setAttribute("href", "#i-copy");
       delete button.dataset.copyLabel;
       delete button.dataset.copyTimer;
     }, 1500)

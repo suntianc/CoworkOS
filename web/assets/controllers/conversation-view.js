@@ -70,16 +70,42 @@ function latestModelRetry(events) {
   return retry && Number.isInteger(retry.attempt) && retry.attempt > 0 ? retry : undefined;
 }
 
+/**
+ * What the person typed, shown as typed. Read as Markdown, a pasted list with
+ * indented, hard-wrapped items turned every number into "1." and split
+ * sentences into paragraphs; like Codex, the prompt keeps its own lines.
+ */
+function typedText(text) {
+  const shown = text.replace(/\s+$/, "");
+  return shown ? `<div class="user-text">${esc(shown)}</div>` : "";
+}
+
+/**
+ * A sent message's parts: the typed words for the bubble, and its uploads,
+ * which sit above the bubble as cards (an image as its thumbnail), as Codex
+ * shows a prompt with files.
+ */
 function renderUserText(text, markdown) {
   const uploaded = splitUploadedFiles(text);
   if (uploaded.files.length)
-    return `${markdown(uploaded.text)}<div class="message-attachments">${uploaded.files.map((file) => `<button type="button" data-upload-preview="${esc(file.uploadId)}">${file.kind === "image" ? `<img data-upload-src="${esc(file.uploadId)}" alt="" />` : icon("paperclip")}<span>${esc(file.name)}</span></button>`).join("")}</div>`;
+    return {
+      body: typedText(uploaded.text),
+      uploads: `<div class="message-attachments message-uploads">${uploaded.files
+        .map(
+          (file) =>
+            `<button type="button" class="${file.kind === "image" ? "upload-card is-image" : "upload-card"}" data-upload-preview="${esc(file.uploadId)}" title="${esc(file.name)}">${file.kind === "image" ? `<img data-upload-src="${esc(file.uploadId)}" alt="" />` : icon("paperclip")}<span>${esc(file.name)}</span></button>`
+        )
+        .join("")}</div>`
+    };
 
   const marker = "\n\nAttached files:\n";
   const boundary = text.indexOf(marker);
-  if (boundary < 0) return markdown(text);
+  if (boundary < 0) return { body: typedText(text), uploads: "" };
   const attachments = text.slice(boundary + marker.length);
-  return ui`${markdown(text.slice(0, boundary))}<details class="message-attachments"><summary>查看附件内容</summary>${markdown(attachments)}</details>`;
+  return {
+    body: ui`${typedText(text.slice(0, boundary))}<details class="message-attachments"><summary>查看附件内容</summary>${markdown(attachments)}</details>`,
+    uploads: ""
+  };
 }
 
 function stoppedRequestFailure(task, detail, exchange, submitting) {
@@ -218,6 +244,20 @@ export function createConversationView({
    * from it, and when it was written. The latest reply keeps it in full view;
    * earlier ones show it faintly until the reply is hovered.
    */
+  // Under a sent message, as Codex shows it: when it was sent, copy, and edit
+  // for the one message that can still be edited.
+  const userActions = (message, editable) => {
+    const time = Number.isFinite(message.timestamp) ? replyTime(message.timestamp) : undefined;
+    return `<div class="user-message-actions" role="toolbar" aria-label="${ui("消息操作")}">${
+      time
+        ? `<time class="user-message-time" datetime="${esc(time.iso)}" title="${esc(time.full)}">${esc(time.short)}</time>`
+        : ""
+    }<button type="button" class="app-button" data-user-copy aria-label="${ui("复制消息")}" title="${ui("复制消息")}">${icon("copy")}</button>${
+      editable
+        ? `<button type="button" class="app-button" data-edit-message="${esc(message.id)}" aria-label="${ui("编辑消息")}" title="${ui("编辑消息")}">${icon("pencil")}</button>`
+        : ""
+    }</div>`;
+  };
   const replyActions = (message, latest) => {
     const time = Number.isFinite(message.timestamp) ? replyTime(message.timestamp) : undefined;
     return `<div class="reply-actions${latest ? " is-latest" : ""}" role="toolbar" aria-label="${ui("回复操作")}"><button type="button" class="reply-action" data-reply-copy title="${ui("复制回复")}" aria-label="${ui("复制回复")}">${icon("copy")}</button>${
@@ -236,6 +276,34 @@ export function createConversationView({
   // What the conversation's children were built from: one markup string per
   // exchange, how many top-level nodes each became, and the trailing parts.
   let lastRender;
+  // The messages already on screen for the conversation shown, so only a
+  // message that arrives while it is open slides in. Opening a conversation
+  // fades it in as a whole instead of replaying every message.
+  let shownMessages = { taskId: undefined, keys: new Set(), count: 0 };
+  function animateArrivals(scroll, taskId) {
+    const articles = [...scroll.querySelectorAll(".chat-message[data-view-key]")];
+    const keys = articles.map((article) => article.dataset.viewKey);
+    const opened = shownMessages.taskId !== taskId;
+    const grew = !opened && articles.length > shownMessages.count;
+    const arrived = opened
+      ? []
+      : articles.filter((article) => !shownMessages.keys.has(article.dataset.viewKey));
+    shownMessages = { taskId, keys: new Set(keys), count: articles.length };
+    if (reducedMotion()) return;
+    if (opened && articles.length)
+      scroll.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
+    // A message whose key changed in place (a local message confirmed by the
+    // server) does not add to the count and stays still.
+    if (grew)
+      for (const article of arrived)
+        article.animate(
+          [
+            { opacity: 0, transform: "translateY(6px)" },
+            { opacity: 1, transform: "none" }
+          ],
+          { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" }
+        );
+  }
   let historyMarkup = new Map();
   let renderedEditTask;
   // The newest message sent from this page that the view has already scrolled
@@ -306,6 +374,13 @@ export function createConversationView({
   };
   const projectExchanges = createConversationProjection(normalizeMessages);
   $("#conversation")?.addEventListener("click", async (event) => {
+    const userCopy = event.target.closest?.("[data-user-copy]");
+    if (userCopy) {
+      const typed = userCopy.closest(".chat-message.user")?.querySelector(".user-text")?.textContent ?? "";
+      if (await copyText(typed)) confirmCopied(userCopy);
+      else showToast(ui("当前环境不支持复制"));
+      return;
+    }
     const button = event.target.closest?.("[data-reply-copy], [data-reply-fork]");
     const article = button?.closest(".chat-message.main");
     if (!article) return;
@@ -515,7 +590,12 @@ export function createConversationView({
               const editor = messageEdit?.markup(task.taskId, message.id) || "";
               if (editor) inlineEditorRendered = true;
               const editable = message.id && message.id === state.detail?.editableMessage?.messageId;
-              return `<article class="chat-message user${editor ? " is-editing" : ""}" data-view-key="${esc(`${historyKey}:user:${message.id || index}`)}"><div class="message-copy"><div class="user-message-bubble"><div class="markdown-body">${renderUserText(text, markdown)}</div>${editor}${editor ? messageEdit.actions?.(task.taskId, message.id) || "" : ""}</div>${!editor && editable ? ui`<div class="user-message-actions"><button type="button" class="app-button" data-edit-message="${esc(message.id)}" aria-label="编辑消息" title="编辑消息">${icon("pencil")}</button></div>` : ""}</div></article>`;
+              const typed = renderUserText(text, markdown);
+              // An attachment-only message has no words, so no empty bubble under its cards.
+              const bubble = editor
+                ? `<div class="markdown-body">${typed.body}</div>${editor}${messageEdit.actions?.(task.taskId, message.id) || ""}`
+                : typed.body && `<div class="markdown-body">${typed.body}</div>`;
+              return `<article class="chat-message user${editor ? " is-editing" : ""}" data-view-key="${esc(`${historyKey}:user:${message.id || index}`)}"><div class="message-copy">${editor ? "" : typed.uploads}${bubble ? `<div class="user-message-bubble">${bubble}</div>` : ""}${editor ? "" : userActions(message, editable)}</div></article>`;
             }
             if (index !== finalIndex) return "";
             return `${index === workflowIndex ? workflow : ""}<article class="chat-message main" data-answer-kind="final"${message.id ? ` data-message-id="${esc(message.id)}"` : ""}><div class="message-copy"><div class="markdown-body">${markdown(text)}</div>${active ? "" : replyActions(message, isCurrent)}</div></article>${index === workflowIndex ? endLine : ""}`;
@@ -566,6 +646,7 @@ export function createConversationView({
       const offset = kept.reduce((sum, count) => sum + count, 0);
       const counts = reconcileParts(scroll, parts.slice(kept.length), scroll.childNodes[offset] ?? null);
       lastRender = { taskId: task.taskId, parts, counts: [...kept, ...counts] };
+      animateArrivals(scroll, task.taskId);
       streamReveal.apply(scroll);
       syncLiveClocks(scroll);
       const ownsRecovery = () => state.selected === task.taskId && state.detail?.task?.taskId === task.taskId;

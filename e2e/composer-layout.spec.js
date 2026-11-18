@@ -235,7 +235,7 @@ test("the running composer switches one primary action and preserves the draft t
     await expect.poll(() => followUps.length).toBe(1);
     // Sending while Main runs inserts the message into its next step.
     expect(followUps[0].delivery).toBe("steer");
-    expect(followUps[0].message).toBe("请查看这些附件。");
+    expect(followUps[0].message).toBe("");
     expect(followUps[0].attachmentIds).toHaveLength(1);
     await expect(page.locator(".attachment-chip")).toHaveCount(0);
     await expect(stop).toBeVisible();

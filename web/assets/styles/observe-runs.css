@@ -284,6 +284,34 @@ html[data-theme="light"] .observe-view[data-observe-panel="runs"] {
   min-width: 0;
 }
 
+.runs-subs-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  height: 19px;
+  padding: 0 4px 0 6px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-3);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.runs-subs-toggle:hover {
+  color: var(--color-text-2);
+  background: var(--color-surface-3);
+}
+.runs-subs-toggle .ui-icon {
+  width: 12px;
+  height: 12px;
+  transition: transform 120ms ease;
+}
+.runs-subs-toggle[aria-expanded="true"] .ui-icon {
+  transform: rotate(90deg);
+}
+
 .runs-session {
   overflow: hidden;
   color: var(--color-text);

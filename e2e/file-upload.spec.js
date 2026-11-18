@@ -55,7 +55,10 @@ for (const width of [1440, 900, 640])
       });
       await page.locator("#send-button").click();
       await expect.poll(() => submitted?.attachmentIds?.length).toBe(2);
-      expect(submitted.prompt).toBe("请查看这些附件。");
+      // Attachments alone go as they are; nothing is typed on the person's behalf.
+      expect(submitted.prompt).toBe("");
+      // With no words, the new session is named by its files.
+      await expect(page.locator(".conversation-item.active")).toContainText("截图.png");
       const chips = page.locator("#attachment-strip");
       await expect(chips).toBeHidden();
       expect(errors).toEqual([]);

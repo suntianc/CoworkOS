@@ -4,6 +4,7 @@ import { requirementProgress } from "../requirement-stages.js";
 import { formatRunDuration, runElapsed } from "../run-overview.js";
 import { icon } from "../ui/icons.js";
 import { ui } from "../ui/language.js";
+import { reducedMotion } from "../ui/motion.js";
 import { escapeHtml as esc } from "../ui/html.js";
 
 const SOURCE_LABELS = { internal: "内部", external: "外部", legacy: "遗留" };
@@ -484,6 +485,46 @@ export function createRequirementPanel({
     });
   }
 
+  /** What kind of content the body shows and which phases and criteria are done. */
+  function bodyMarks(body) {
+    return {
+      kind: `${state.selected}|${loaded?.requirement?.requirementId ?? (loaded ? "work" : "none")}`,
+      done: new Set(
+        [...body.querySelectorAll('.rp-step[data-state="done"]')].map((step) => step.dataset.step)
+      ),
+      checked: [...body.querySelectorAll(".rp-check")].map((check) => check.dataset.checked === "true")
+    };
+  }
+
+  /**
+   * New content fades in; on the same requirement, a phase that just finished
+   * pops its check and newly met criteria light up one after another.
+   */
+  function animateBody(body, before) {
+    if (reducedMotion()) return;
+    const after = bodyMarks(body);
+    if (after.kind !== before.kind) {
+      body.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
+      return;
+    }
+    const pop = (node, delay = 0) =>
+      node?.animate(
+        [
+          { transform: "scale(0.5)", opacity: 0.3 },
+          { transform: "scale(1.15)", opacity: 1, offset: 0.6 },
+          { transform: "scale(1)" }
+        ],
+        { duration: 260, delay, easing: "ease-out", fill: "backwards" }
+      );
+    for (const step of body.querySelectorAll('.rp-step[data-state="done"]'))
+      if (!before.done.has(step.dataset.step)) pop(step.querySelector(".rp-node"));
+    let order = 0;
+    body.querySelectorAll(".rp-check").forEach((check, index) => {
+      if (check.dataset.checked === "true" && before.checked[index] === false)
+        pop(check.querySelector(".ui-icon"), 70 * order++);
+    });
+  }
+
   function render() {
     if (!$("[data-requirement-panel]")) return;
     // The selected requirement's phase also labels the run bar, so the records
@@ -521,10 +562,12 @@ export function createRequirementPanel({
     ]);
     if (signature !== bodySignature) {
       bodySignature = signature;
+      const before = bodyMarks(body);
       const scrollTop = body.scrollTop;
       body.innerHTML = bodyMarkup();
       body.scrollTop = scrollTop;
       bindBody();
+      animateBody(body, before);
     }
     const nextUsage = JSON.stringify([
       model.available,

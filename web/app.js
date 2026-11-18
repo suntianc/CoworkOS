@@ -2395,8 +2395,9 @@ async function sendMessage({ queue = false } = {}) {
   if (!$("#human-questions").hidden) return;
   if (firstUse.blocksSending()) return;
   const input = $("#composer-input");
-  const text = input.value.trim() || (state.attachments.length ? ui("请查看这些附件。") : "");
-  if (!text) return;
+  // Attachments alone are a message: nothing is typed on the person's behalf.
+  const text = input.value.trim();
+  if (!text && !state.attachments.length) return;
   if (currentSubmission() || readingAttachments || !state.online) return;
   if (isTaskStopping()) return;
   if (composerSession.editing) {
@@ -2438,7 +2439,9 @@ async function sendMessage({ queue = false } = {}) {
     return;
   }
   try {
-    const taskId = selectedTask || (await createTask(text, undefined, submission));
+    // A new session is named by its words, or by its files when there are none.
+    const title = text || state.attachments.map((file) => file.name).join("、");
+    const taskId = selectedTask || (await createTask(title, undefined, submission));
     associateSubmission(submission, taskId);
     await launchPrompt(taskId, prompt, runOptions);
     clearSubmittedDraft(taskId, draft);

@@ -409,6 +409,11 @@ export function createObserveRuns({
   let hydrating = false;
   let dirty = false;
   let motion = false;
+  // Each Main's Subagent rows fold into its own lane. The person's choice per
+  // session wins; otherwise they show while any of them is still at work.
+  const subsChoice = new Map();
+  const subsLive = (lane) => lane.subs.some((agent) => agent.state === "running" || agent.state === "queued");
+  const subsShown = (lane) => subsChoice.get(lane.task.taskId) ?? subsLive(lane);
 
   const sessionsFor = (origin, projectId) => {
     const key = `${origin}|${projectId}`;
@@ -552,6 +557,9 @@ export function createObserveRuns({
     // waveform is history, not something that vanished with the last answer.
     const lanes = scopedTasks
       .filter((task) => {
+        // An archived session left the person's view; its last status (often
+        // the waiting an idle Main leaves behind) is not live work.
+        if (task.archived) return false;
         if (LIVE_TASK_STATUSES.includes(task.status)) return true;
         const ended = finishedAt(task);
         return Boolean(task.activity) && ended !== undefined && ended >= windowStart;
@@ -824,6 +832,7 @@ export function createObserveRuns({
         <div class="runs-lane-head">
           <span class="runs-session">${esc(lane.title)}</span>
           ${stagePill(lane.stage)}
+          ${subsToggle(lane)}
         </div>
         <div class="runs-lane-sub">${subline(lane)}</div>
       </div>
@@ -832,7 +841,14 @@ export function createObserveRuns({
         <span class="runs-duration">${esc(formatSpan(lane.duration))}</span>
       </div>
     </div>
-    ${lane.subs.map((agent) => subLaneMarkup(lane, agent, plan)).join("")}`;
+    ${subsShown(lane) ? lane.subs.map((agent) => subLaneMarkup(lane, agent, plan)).join("") : ""}`;
+  }
+
+  function subsToggle(lane) {
+    if (!lane.subs.length) return "";
+    const shown = subsShown(lane);
+    const label = shown ? ui`收起 ${lane.subs.length} 个子代理` : ui`展开 ${lane.subs.length} 个子代理`;
+    return `<button type="button" class="runs-subs-toggle" data-runs-subs="${esc(lane.task.taskId)}" aria-expanded="${shown}" aria-label="${esc(label)}" title="${esc(label)}">${esc(ui`${lane.subs.length} 个子代理`)}${icon("chevron-right")}</button>`;
   }
 
   function subLaneMarkup(lane, agent, plan) {
@@ -1105,6 +1121,57 @@ export function createObserveRuns({
   };
   header?.addEventListener("click", onHeaderClick);
 
+  /** The Subagent rows rendered right under one Main's lane. */
+  const sublanesOf = (taskId) => {
+    const lane = [...root.querySelectorAll("[data-runs-lane]")].find(
+      (node) => node.dataset.runsLane === taskId
+    );
+    const rows = [];
+    for (
+      let row = lane?.nextElementSibling;
+      row?.classList.contains("runs-sublane");
+      row = row.nextElementSibling
+    )
+      rows.push(row);
+    return rows;
+  };
+  // Folding eases the rows' height instead of jumping: closing shrinks them
+  // before the render drops them, opening grows the rows the render added.
+  const FOLD_MS = 200;
+  const FOLD_EASE = "cubic-bezier(0.2, 0, 0, 1)";
+  const fold = (row, open) => {
+    const height = `${row.getBoundingClientRect().height}px`;
+    const shut = { height: "0px", marginTop: "0px", opacity: 0 };
+    const full = { height, marginTop: getComputedStyle(row).marginTop, opacity: 1 };
+    row.style.overflow = "hidden";
+    const animation = row.animate(open ? [shut, full] : [full, shut], {
+      duration: FOLD_MS,
+      easing: FOLD_EASE,
+      fill: "forwards"
+    });
+    // A Web Animation is cancelled only by this code, so `finished` resolves.
+    if (open)
+      animation.finished.then(() => {
+        row.style.overflow = "";
+        animation.cancel();
+      });
+    return animation.finished;
+  };
+  const onRootClick = async (event) => {
+    const button = event.target.closest("[data-runs-subs]");
+    if (!button) return;
+    const taskId = button.dataset.runsSubs;
+    const open = button.getAttribute("aria-expanded") !== "true";
+    subsChoice.set(taskId, open);
+    if (!motion && !open) {
+      button.setAttribute("aria-expanded", "false");
+      await Promise.all(sublanesOf(taskId).map((row) => fold(row, false)));
+    }
+    render();
+    if (!motion && open) for (const row of sublanesOf(taskId)) fold(row, true);
+  };
+  root.addEventListener("click", onRootClick);
+
   const unsubscribe = data.subscribe(() => {
     const next = data.filter();
     if (motion && sameFilter(next, filter)) return;
@@ -1141,6 +1208,7 @@ export function createObserveRuns({
       if (timer) clearInterval(timer);
       visibilityObserver?.disconnect();
       header?.removeEventListener("click", onHeaderClick);
+      root.removeEventListener("click", onRootClick);
       media?.removeEventListener?.("change", onMedia);
       stopPreferences?.();
       unsubscribe();

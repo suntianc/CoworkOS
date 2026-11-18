@@ -1,9 +1,15 @@
-/* Scrollbars show only while their area scrolls (`ui/scrollbars.js` marks
-   it), then go back out of sight. These outrank every area's own color
-   (the strongest is `html[data-theme] .chat-scroll`), so all of them follow. */
-:root[data-theme] *:not(.is-scrolling) {
-  scrollbar-color: transparent transparent;
+/* Scrollbars fade in while their area is scrolled by the person and fade out
+   after (`ui/scrollbars.js` animates `--scroll-reveal`). The property does not
+   inherit, so a nested area stays hidden while its parent scrolls. These
+   outrank every area's own color (the strongest is
+   `html[data-theme] .chat-scroll`; `:not(.no-scroll-reveal)` only lifts the
+   specificity above it), so all of them follow. */
+@property --scroll-reveal {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
 }
-:root[data-theme] .is-scrolling {
-  scrollbar-color: var(--ui-border-hover) transparent;
+:root[data-theme] *:not(.no-scroll-reveal) {
+  scrollbar-color: color-mix(in srgb, var(--ui-border-hover) calc(var(--scroll-reveal) * 100%), transparent)
+    transparent;
 }

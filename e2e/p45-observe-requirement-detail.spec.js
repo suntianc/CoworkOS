@@ -71,7 +71,7 @@ test("the detail shows the recorded requirement and offers no session or diff", 
     await expect(facts.nth(2).locator(".or-fact-value")).toHaveText(/^main · [0-9a-f]{8}$/);
     await expect(facts.nth(3).locator(".or-fact-value")).toHaveText(/^v\d+ · 已记录交付$/);
 
-    // Completion criteria are checked by the recorded passing checks.
+    // A passed review and the merge confirm every completion criterion.
     const criteria = detail.locator('[data-or-section="criteria"]');
     await expect(criteria.locator(".or-label")).toHaveText("完成标准 3/3");
     expect(

@@ -1847,9 +1847,7 @@ export function createDashboardRunService({
           ? `\n\nAttached files:\n${textAttachments.map((file) => `--- ${file.name} ---\n${file.text}`).join("\n\n")}`
           : "";
         const prompt =
-          (body.trim() ? body : files.length || textAttachments.length ? "请查看这些附件。" : "") +
-          inline +
-          inputPrompt(join(location.workspaceRoot, taskId), files);
+          (body.trim() ? body : "") + inline + inputPrompt(join(location.workspaceRoot, taskId), files);
         if (!prompt.trim()) throw new Error("请输入消息或保留至少一个附件。");
         let rollback: (() => Promise<void>) | undefined;
         let acceptedMessageId: string | undefined;

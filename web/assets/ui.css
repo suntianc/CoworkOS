@@ -1813,8 +1813,8 @@ body {
 .chat-pane .chat-message.user {
   display: block;
   width: fit-content;
-  max-width: min(760px, 88%);
-  margin: 0 0 20px auto;
+  max-width: min(720px, 78%);
+  margin: 0 0 34px auto;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -1830,34 +1830,62 @@ body {
 .chat-pane .user-message-bubble .markdown-body {
   line-height: 1.55;
 }
+/* The prompt as typed: its own line breaks and indentation, long tokens wrapped. */
+.user-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .user-message-bubble .markdown-body > :first-child {
   margin-top: 0;
 }
 .user-message-bubble .markdown-body > :last-child {
   margin-bottom: 0;
 }
-/* The edit key sits beside the bubble, outside the flow: it is only added
-   once the message is saved, and taking room under the bubble then pushed
-   the reply down a step after it had started. */
+/* The edit key sits under the bubble's right edge, as Codex places its
+   message actions, but outside the flow: it is only added once the message is
+   saved, and taking room under the bubble then pushed the reply down a step
+   after it had started. The message's bottom margin is the room it shows in. */
 .chat-pane .chat-message.user:not(.is-editing) {
   position: relative;
 }
 .user-message-actions {
   position: absolute;
-  right: calc(100% + 4px);
-  bottom: 2px;
+  top: calc(100% + 6px);
+  right: 2px;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  height: 32px;
+  gap: 2px;
+  height: 24px;
   margin: 0;
+  white-space: nowrap;
+}
+.user-message-time {
+  margin-right: 6px;
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.user-message-actions > .user-message-time,
+.user-message-actions .app-button {
+  opacity: 0;
+}
+.chat-message.user:hover .user-message-actions > .user-message-time,
+.chat-message.user:focus-within .user-message-actions > .user-message-time {
+  opacity: 1;
 }
 .user-message-actions .app-button {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 6px;
   color: var(--ui-muted);
   opacity: 0;
+}
+.user-message-actions .app-button .ui-icon {
+  width: 15px;
+  height: 15px;
 }
 .chat-message.user:hover .user-message-actions .app-button,
 .chat-message.user:focus-within .user-message-actions .app-button,
@@ -1912,8 +1940,8 @@ body {
 }
 .chat-message.is-editing .user-message-actions {
   position: relative;
+  top: auto;
   right: auto;
-  bottom: auto;
   height: auto;
   margin: 12px 0 0;
 }
@@ -2601,4 +2629,9 @@ body {
 }
 .desktop-updates [hidden] {
   display: none !important;
+}
+.user-message-actions .app-button.is-copied,
+.user-message-actions .app-button.is-copied:hover {
+  color: var(--ui-accent);
+  opacity: 1;
 }
