@@ -64,6 +64,22 @@ export async function assertRepository(repository: string): Promise<void> {
   }
 }
 
+/**
+ * The branch a project folder has checked out, when the folder is a Git
+ * repository whose current branch has a commit; undefined otherwise.
+ */
+export async function checkedOutBranch(directory: string): Promise<string | undefined> {
+  try {
+    const branch = await git(directory, ["symbolic-ref", "--short", "-q", "HEAD"]);
+    if (!branch) return undefined;
+    await git(directory, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`]);
+    return branch;
+    // eslint-disable-next-line no-restricted-syntax -- 不是 Git 仓库、分离 HEAD 或分支还没有提交都表示没有可用的当前分支，调用方据此要求人来配置
+  } catch {
+    return undefined;
+  }
+}
+
 /** Resolve the baseline branch's current commit; a missing branch is named. */
 export async function resolveDevelopmentBaseline(input: {
   repository: string;

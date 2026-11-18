@@ -348,7 +348,9 @@ export function createRequirementPanel({
   }
 
   function modelName() {
-    const model = state.detail?.runtime?.model;
+    // The model this session's Main ran on. `runtime.model` names the model the
+    // next run would use once the session is idle, so it is only a fallback.
+    const model = state.detail?.task?.model || state.detail?.runtime?.model;
     return model ? String(model).split("/").pop() : "";
   }
 

@@ -158,6 +158,30 @@ async function declaredRequest(base, token, path, body, backendId) {
   return { status: response.status, body: await response.json() };
 }
 
+test("a project folder that is a Git repository merges into the branch it has checked out", async (t) => {
+  const f = await startProjectDataDashboard(t, "sqlite", { postgres });
+  const request = client(f);
+  const repository = await makeRepository(join(f.root, "repository"));
+  await git(repository, ["checkout", "-q", "-b", "release"]);
+  const project = await createProject(f, request, "auto", repository);
+  const requirement = await createRequirement(request, project.projectId, "自动合入入口");
+  const path = `/api/projects/${encodeURIComponent(project.projectId)}/merge-config`;
+  assert.equal((await request(path)).body.mergeConfig, null);
+
+  const created = await request(developmentPath(project.projectId), {
+    action: "create",
+    requirementId: requirement.requirementId,
+    goal: "不设置合入入口也能开发",
+    completionCriteria: ["开发记录建立在当前分支上"],
+    route: "direct"
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const config = (await request(path)).body.mergeConfig;
+  assert.equal(config.repository, repository);
+  assert.equal(config.targetBranch, "release");
+  assert.ok(config.executionBackendId, "the serving backend owns the inferred entry");
+});
+
 for (const engine of PROJECT_DATA_ENGINES) {
   test(`${engine}: two requirements get independent isolated workspaces that survive restart`, async (t) => {
     const f = await startProjectDataDashboard(t, engine, { postgres });
@@ -168,18 +192,23 @@ for (const engine of PROJECT_DATA_ENGINES) {
     const second = await createRequirement(request, project.projectId, "导出月度报表");
     const base = await repositoryState(repository);
 
-    // No merge configuration is a locatable refusal, not a guess.
-    const missing = await request(developmentPath(project.projectId), {
+    // A folder that is not a Git repository leaves nothing to infer: the
+    // refusal tells Main to ask the person, not to work around it.
+    const other = await createProject(f, request, "invalid");
+    const otherRequirement = await createRequirement(request, other.projectId, "无仓库的需求");
+    const missing = await request(developmentPath(other.projectId), {
       action: "create",
-      requirementId: first.requirementId,
+      requirementId: otherRequirement.requirementId,
       goal: "同一设备 30 天内免验证",
       completionCriteria: ["同一设备第二次登录不再要求验证码"],
       route: "direct"
     });
     assert.equal(missing.status, 409, JSON.stringify(missing.body));
     assert.equal(missing.body.code, "project_git_missing");
-    assert.match(missing.body.error, /repository/);
-    assert.match(missing.body.error, /targetBranch/);
+    assert.match(missing.body.error, /告诉用户/);
+    assert.match(missing.body.error, /不要查找、读取或修改 CoworkOS/);
+    const unset = await request(`/api/projects/${encodeURIComponent(other.projectId)}/merge-config`);
+    assert.equal(unset.body.mergeConfig, null);
 
     const configured = await request(`/api/projects/${encodeURIComponent(project.projectId)}/merge-config`, {
       repository,
@@ -199,7 +228,6 @@ for (const engine of PROJECT_DATA_ENGINES) {
     );
 
     // An inapplicable repository or branch is refused where it is named.
-    const other = await createProject(f, request, "invalid");
     const badRepository = await request(`/api/projects/${encodeURIComponent(other.projectId)}/merge-config`, {
       repository: join(f.root, "not-a-repository"),
       targetBranch: "main"

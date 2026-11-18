@@ -109,7 +109,8 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
         basis: {
           type: "string",
           maxLength: 2000,
-          description: "review_plan/rule_finding: why this channel or ruling is justified."
+          description:
+            "review_plan: why this channel is justified. rule_finding: required for fix and dismiss alike."
         },
         checks: {
           type: "array",
@@ -151,7 +152,7 @@ export function createProjectDevelopmentTool(options: ProjectDevelopmentToolOpti
           type: "string",
           enum: ["fix", "dismiss"],
           description:
-            "rule_finding: fix it, or dismiss it with a recorded basis. Findings of failed or drifted reviews stay rulable; a passed review is closed."
+            "rule_finding: fix it or dismiss it; every ruling needs basis — for fix, how it is or will be fixed; for dismiss, why it is not a defect. Findings of failed or drifted reviews stay rulable; a passed review is closed."
         },
         category: {
           type: "string",
