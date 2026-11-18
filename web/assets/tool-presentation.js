@@ -177,6 +177,26 @@ function resultSummary(name, data, completed, failed) {
   return "";
 }
 
+/** Who a delegation went to and how it is doing, from the run's progress. */
+function delegatedAgent(args, data, detail = {}) {
+  const callId = data.callId;
+  const entry = callId
+    ? [...(detail.progress?.agents || []), ...(detail.coordination?.calls || [])].find(
+        (agent) => agent.callId === callId
+      )
+    : undefined;
+  const outcome = String(entry?.lastAssistantText || "")
+    .trim()
+    .split(/\n|(?<=[。！？.!?])\s*/u)[0];
+  return {
+    name: firstString(args.agentName, args.name, data.name, data.agentName, entry?.name) || ui("子助手"),
+    role: (entry?.role || args.role) === "reviewer" ? ui("审查") : ui("执行"),
+    task: concise(firstString(args.task, entry?.task), 120),
+    elapsedMs: typeof entry?.elapsedMs === "number" ? entry.elapsedMs : undefined,
+    outcome: concise(outcome, 120)
+  };
+}
+
 /** Every returned field is plain text and must be escaped before HTML
  * insertion. No file/credential/network access occurs. A script's name never
  * proves its intended output exists. Optional timing requires actual evidence. */
@@ -261,6 +281,7 @@ export function presentToolCall(call = {}, options = {}) {
     durationMs,
     durationLabel,
     details: detailSections.map((section) => `${section.label}\n${section.text}`).join("\n\n"),
-    detailSections
+    detailSections,
+    ...(name === "call_subagent" ? { agent: delegatedAgent(args, result.data, options.detail) } : {})
   };
 }

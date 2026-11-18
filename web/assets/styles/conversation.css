@@ -345,18 +345,6 @@ html[data-theme] .composer .queued-message {
 
 /* ------------------------------------------------------------ process steps */
 
-/* While the run pill shows, it names what Main is doing; the transcript
-   heading would only repeat it above the steps. */
-body:has(#run-control:not([hidden])) .live-workflow[aria-live] > .live-workflow-head {
-  display: none;
-}
-.live-workflow[aria-live] :is(.workflow-heading > span, .live-caption) {
-  display: none;
-}
-.live-workflow-head .workflow-heading strong {
-  font-weight: 500;
-}
-
 /* Every step is one row on the same grid: a 16px mark, then its words in
    one tone. What follows a row (a note, its details) starts under the words. */
 html[data-theme] .workflow-rail {
@@ -495,7 +483,7 @@ html[data-theme] .reasoning-details > summary .reasoning-chevron {
   margin-left: 0;
 }
 
-/* A finished turn folds into one line: 用时 · 操作数 ›, opening onto a guide rail. */
+/* A finished turn folds into one line: 处理过程 · 操作数 · 子助手数 ›, opening onto a guide rail. */
 html[data-theme] .execution-history > summary {
   gap: 6px;
   color: var(--color-text-2);
@@ -528,6 +516,103 @@ html[data-theme] .execution-history[open] > .live-workflow {
   padding-left: 14px;
   border-left: 1px solid var(--color-line-strong);
 }
+/* The line under a finished round's answer: how long the whole round took. */
+html[data-theme] .turn-endline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 8px;
+  color: var(--color-text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-theme] .turn-endline::before,
+html[data-theme] .turn-endline::after {
+  content: "";
+  flex: 1 1 auto;
+  border-top: 1px solid var(--color-line);
+}
+
+/* Subagents a step sent out: one row for the dispatch, then each Subagent
+   indented under it with its role, its task (its result once done) and state. */
+html[data-theme] .subagent-group .activity-step-head,
+html[data-theme] .turn-stopped .activity-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+html[data-theme] :is(.subagent-group, .turn-stopped) .activity-step-head > strong {
+  color: var(--color-text-2);
+  font-weight: 500;
+}
+html[data-theme]
+  :is(.subagent-group, .turn-stopped)
+  > .activity-step-content
+  > .activity-step-head
+  > .tool-status-dot,
+html[data-theme] .subagent-step:not(.is-running) .tool-status-dot {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  background: radial-gradient(circle closest-side, var(--dot, var(--color-text-3)) 2.5px, transparent 3.2px);
+}
+html[data-theme] .subagent-step.is-failed {
+  --dot: var(--color-danger, #e5484d);
+}
+html[data-theme] .subagent-nest {
+  margin-left: 7px;
+  padding-left: 14px;
+  border-left: 1px solid var(--color-line);
+}
+html[data-theme] .subagent-step > summary .tool-progress-spinner {
+  flex: 0 0 16px;
+}
+html[data-theme] .subagent-step .tool-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+html[data-theme] .subagent-step .tool-action strong {
+  flex: 0 0 auto;
+  color: var(--color-text-2);
+  font-weight: 500;
+}
+html[data-theme] .subagent-step .subagent-role-tag {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--color-surface-3);
+  color: var(--color-text-3);
+  font-size: 11px;
+  line-height: 18px;
+}
+html[data-theme] .subagent-step .tool-subject {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme] .subagent-step .subagent-status {
+  flex: 0 0 auto;
+  color: var(--color-text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-theme] .subagent-step.is-failed .subagent-status {
+  color: var(--color-danger, #e5484d);
+}
+html[data-theme] .subagent-step .tool-details-body {
+  margin-left: 24px;
+}
+html[data-theme] .turn-stopped .turn-stopped-note {
+  color: var(--color-text-3);
+}
+
 .composer-bar:has(#model-setup-button:not([hidden])) #model-select {
   display: none;
 }

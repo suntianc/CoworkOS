@@ -28,9 +28,6 @@ async function renderFixture(page, base) {
         typeof content === "string" ? content : (content || []).map((part) => part.text || "").join(""),
       retry: () => {
         window.recoveryRetries = (window.recoveryRetries || 0) + 1;
-      },
-      openSettings: () => {
-        window.recoverySettings = (window.recoverySettings || 0) + 1;
       }
     });
     const update = (type, contentIndex, rest = {}) => ({
@@ -140,7 +137,7 @@ test("partial output, empty tool completion and stopped calls retain truthful vi
   try {
     await renderFixture(page, dashboard.base);
     const tools = page.locator(".tool-step");
-    await expect(page.locator(".live-workflow-head")).toHaveCount(1);
+    await expect(page.locator(".live-workflow-head")).toHaveCount(0);
     await expect(tools.first()).toHaveClass(/is-running/);
     await expect(tools.first().locator(".activity-status")).toHaveText("执行中");
     await page.evaluate(() => window.integrityFixture.emptyResult());
@@ -177,15 +174,13 @@ test("zero-output stream errors expose safe keyboard recovery without automatic 
     await expect(page.locator('[data-answer-kind="final"]')).toHaveCount(0);
     await expect(page.locator(".thinking-spinner")).toHaveCount(0);
     expect(await page.evaluate(() => window.recoveryRetries || 0)).toBe(0);
-    const retry = page.getByRole("button", { name: "从中断步骤继续" });
+    const retry = page.getByRole("button", { name: "重试" });
     await retry.focus();
     await page.evaluate(() => window.integrityFixture.failure({ partial: true }));
     await expect(retry).toBeFocused();
     await page.keyboard.press("Enter");
     expect(await page.evaluate(() => window.recoveryRetries)).toBe(1);
-    await page.getByRole("button", { name: "切换模型" }).focus();
-    await page.keyboard.press("Enter");
-    expect(await page.evaluate(() => window.recoverySettings)).toBe(1);
+    await expect(alert.getByRole("button")).toHaveText(["重试", "查看详情"]);
     await page.evaluate(() =>
       window.integrityFixture.failure({
         status: "failed",
@@ -217,7 +212,7 @@ test("partial errored thoughts stay readable and cancellation or completion clea
     await page.evaluate(() => window.integrityFixture.poll());
     await expect(page.locator(".reasoning-details > summary")).toBeFocused();
     await expect(page.locator(".reasoning-details")).toHaveAttribute("open", "");
-    await expect(page.locator(".live-workflow-head")).toContainText("执行已停止");
+    await expect(page.locator(".execution-history, .turn-endline")).toHaveCount(0);
     await expect(page.getByRole("alert")).toContainText("模型连接中断");
     await expect(page.locator('[data-answer-kind="final"]')).toHaveCount(0);
     await page
@@ -257,7 +252,7 @@ test("split final text stays readable during persistence and appears once after 
     await expect(page.locator(".live-answer")).toHaveCount(0);
     await page.locator(".execution-history > summary").click();
     await expect(page.locator(".execution-history .live-workflow-head")).toHaveCount(0);
-    await expect(page.locator(".execution-history > summary strong")).toHaveText("处理完成");
+    await expect(page.locator(".execution-history > summary strong")).toHaveText("处理过程");
     await expect(page.locator(".reasoning-copy")).toBeVisible();
     await page.locator("#conversation").screenshot({ path: testInfo.outputPath("split-final-1440.png") });
     await page.evaluate(() => window.integrityFixture.stoppedPlainText());

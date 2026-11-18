@@ -398,8 +398,9 @@ test("provider thinking envelopes, failure evidence, raw details and keyboard st
     await page.evaluate(() => window.executionFixture.finish());
     const history = page.locator(".execution-history");
     await expect(history).not.toHaveAttribute("open", "");
-    await expect(history.locator(":scope > summary")).toContainText("用时 3分钟1秒");
+    await expect(history.locator(":scope > summary > strong")).toHaveText("处理过程");
     await expect(history.locator(":scope > summary")).toContainText("2 次调用未成功");
+    await expect(page.locator(".turn-endline")).toHaveText("用时 3分钟1秒");
     await expect(history.locator(":scope > summary")).toBeFocused();
     await expect(page.locator(".thinking-spinner, .tool-progress-spinner")).toHaveCount(0);
     await expect(page.locator('[data-answer-kind="final"]')).toContainText(
@@ -438,7 +439,8 @@ for (const width of [1440, 768, 320]) {
       await completeFixture(page);
       const history = page.locator(".execution-history");
       await expect(history).not.toHaveAttribute("open", "");
-      await expect(history.locator(":scope > summary > strong")).toHaveText("用时 3分钟1秒");
+      await expect(history.locator(":scope > summary > strong")).toHaveText("处理过程");
+      await expect(page.locator(".turn-endline")).toHaveText("用时 3分钟1秒");
       await expectCompactClean(page);
       await saveEvidence(page, `completed-folded-${width}`);
       await history.locator(":scope > summary").click();
@@ -550,7 +552,7 @@ test("reduced motion retains actual busy state and tool progress without rotatin
     await completeFixture(page);
     await expect(page.locator(".thinking-spinner, .tool-progress-spinner")).toHaveCount(0);
     await expect(page.locator('[data-answer-kind="pending"]')).toHaveCount(0);
-    await expect(page.locator(".execution-history > summary")).toContainText("用时 3分钟1秒");
+    await expect(page.locator(".turn-endline")).toHaveText("用时 3分钟1秒");
     expect(requests).toEqual({ api: [], external: [] });
   } finally {
     await dashboard.stop();

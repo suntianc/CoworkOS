@@ -429,9 +429,6 @@ const conversationView = createConversationView({
   $,
   textContent,
   openArtifact,
-  // The recovery card's model action switches the composer's model; the
-  // settings surface remains one click away from the composer selector.
-  openSettings: () => setTimeout(() => void toggleModelMenu({ page: "models" }), 0),
   retry: (taskId) => void retryFailedRequest(taskId),
   messageEdit,
   edit: (taskId, target) => messageEdit.begin(taskId, target),

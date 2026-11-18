@@ -87,9 +87,9 @@ test("a mid-run instruction separates earlier activity from the continuing respo
   );
   assert.equal(document.querySelector(".reasoning-details"), before);
   assert.equal(before.open, true);
-  assert.equal(document.querySelectorAll(".workflow-progress-spinner").length, 1);
+  assert.equal(document.querySelectorAll(".thinking-spinner").length, 1);
   assert.equal(document.querySelectorAll('[data-answer-kind="final"]').length, 0);
-  assert.doesNotMatch(rows[1].textContent, /整轮任务已完成|等待继续/);
+  assert.doesNotMatch(rows[1].textContent, /处理过程|用时/);
 
   const answer = {
     role: "assistant",
@@ -105,7 +105,7 @@ test("a mid-run instruction separates earlier activity from the continuing respo
   state.detail.task.status = "completed";
   render([user, instruction, answer]);
   assert.equal(document.querySelectorAll('[data-answer-kind="final"]').length, 1);
-  assert.equal(document.querySelectorAll(".workflow-progress-spinner").length, 0);
+  assert.equal(document.querySelectorAll("[data-thinking-key]").length, 0);
   assert.equal(document.querySelector(".reasoning-details"), before);
   assert.equal(before.open, true);
   assert.equal(document.querySelectorAll(".chat-message.user").length, 2);
@@ -208,14 +208,14 @@ test("continuous thought deltas retain the disclosure, spinner and existing para
   assert.match(paragraph.textContent, /然后读取约束，继续检查。/);
 });
 
-test("waiting between reasoning, returned tools and the next model response keeps a continuous progress indicator", () => {
+test("between steps the next step's thinking row waits at the end of the steps", () => {
   const { document, state, render } = fixture("model-gaps");
+  const waiting = () =>
+    document.querySelector(".workflow-rail > .reasoning-step:last-child .assistant-thinking");
   state.detail.runtimeEvents.push(update("thinking_end", 0, { content: "先核对第一部分。" }));
   render();
-  const progress = document.querySelector(".workflow-progress-spinner");
-  assert.ok(progress);
-  assert.match(document.querySelector(".workflow-heading").textContent, /等待模型响应/);
-  assert.equal(document.querySelectorAll(".thinking-spinner").length, 0);
+  assert.match(waiting()?.textContent || "", /思考中/);
+  assert.equal(document.querySelectorAll(".live-workflow-head").length, 0);
   state.detail.runtimeEvents.push(
     update("toolcall_end", 1, {
       toolCall: { id: "attachment", name: "read_attachment", arguments: { path: "input.txt" } }
@@ -223,9 +223,10 @@ test("waiting between reasoning, returned tools and the next model response keep
     { type: "tool_execution_start", toolCallId: "attachment", toolName: "read_attachment" }
   );
   render();
-  assert.equal(document.querySelector(".workflow-progress-spinner"), progress);
-  assert.match(document.querySelector(".workflow-heading").textContent, /读取附件/);
+  // A running tool is the moving row; nothing waits after it.
+  assert.equal(waiting(), null);
   assert.match(document.querySelector(".tool-action").textContent, /读取附件/);
+  assert.equal(document.querySelectorAll(".tool-progress-spinner").length, 1);
   state.detail.runtimeEvents.push({
     type: "tool_execution_end",
     toolCallId: "attachment",
@@ -233,16 +234,15 @@ test("waiting between reasoning, returned tools and the next model response keep
     result: { content: [] }
   });
   render();
-  assert.equal(document.querySelector(".workflow-progress-spinner"), progress);
-  assert.match(document.querySelector(".workflow-heading").textContent, /等待模型响应/);
+  assert.match(waiting()?.textContent || "", /思考中/);
   state.detail.runtime.active = false;
   state.detail.task.status = "cancelled";
   render();
-  assert.equal(document.querySelector(".workflow-progress-spinner"), null);
+  assert.equal(waiting(), null);
   assert.equal(document.querySelectorAll("[data-thinking-key]").length, 0);
 });
 
-test("a genuinely parked run says it will wait for the next wake", () => {
+test("a parked or unfinished round keeps its steps without folding or a heading", () => {
   const { document, state, render } = fixture("parked-run", "本轮变化已核实。");
   state.detail.runtimeEvents.push(update("thinking_end", 0, { content: "本轮变化已核实。" }), {
     type: "main.run_waiting"
@@ -251,28 +251,15 @@ test("a genuinely parked run says it will wait for the next wake", () => {
   state.detail.task.status = "waiting";
   state.detail.parked = { wakeAt: "2099-01-01T00:00:00Z", reason: "等待新变化" };
   render();
-  assert.match(document.querySelector(".workflow-heading").textContent, /等待继续/);
-  assert.match(document.querySelector(".live-caption").textContent, /本轮已处理/);
-  assert.equal(document.querySelectorAll(".workflow-progress-spinner").length, 0);
+  // What Main is waiting for is the composer's status line, not a heading here.
+  assert.equal(document.querySelectorAll(".live-workflow-head, .execution-history, .turn-endline").length, 0);
+  assert.equal(document.querySelectorAll("[data-thinking-key]").length, 0);
   assert.match(document.querySelector(".reasoning-copy").textContent, /本轮变化已核实/);
   state.detail.runtime.active = true;
   state.detail.task.status = "running";
   state.detail.runtimeEvents.push({ type: "turn_start" });
   render();
-  assert.doesNotMatch(document.querySelector(".workflow-heading").textContent, /等待继续/);
-  assert.equal(document.querySelectorAll(".workflow-progress-spinner").length, 1);
-});
-
-test("an unfinished stop without a park still says the round is incomplete", () => {
-  const { document, state, render } = fixture("unfinished-stop", "只完成了第一步。");
-  state.detail.runtimeEvents.push(update("thinking_end", 0, { content: "只完成了第一步。" }), {
-    type: "main.run_waiting"
-  });
-  state.detail.runtime.active = false;
-  state.detail.task.status = "waiting";
-  render();
-  assert.match(document.querySelector(".live-caption").textContent, /整轮任务未完成/);
-  assert.doesNotMatch(document.querySelector(".live-caption").textContent, /本轮已处理/);
+  assert.match(document.querySelector(".assistant-thinking").textContent, /思考中/);
 });
 
 test("no first token and an automatic retry both keep a visible waiting animation", () => {
@@ -431,12 +418,14 @@ test("tool rows show delegation purpose and avoid repeating an already visible s
     });
   }
   render();
-  assert.equal(document.querySelectorAll(".tool-step")[0].querySelector(".tool-context"), null);
-  assert.equal(document.querySelectorAll(".tool-context").length, 1);
-  assert.equal(
-    document.querySelectorAll(".tool-step")[1].querySelector(".tool-context").textContent,
-    "核对文稿的引用和文件链接"
-  );
+  assert.equal(document.querySelectorAll(".tool-step").length, 1);
+  assert.equal(document.querySelector(".tool-step .tool-context"), null);
+  const group = document.querySelector(".subagent-group");
+  assert.match(group.querySelector(".activity-step-head").textContent, /派出 1 个子助手/);
+  const agent = group.querySelector(".subagent-step > summary");
+  assert.equal(agent.querySelector("strong").textContent, "Ara");
+  assert.equal(agent.querySelector(".subagent-role-tag").textContent, "执行");
+  assert.equal(agent.querySelector(".tool-subject").textContent, "核对文稿的引用和文件链接");
   assert.equal(document.querySelectorAll(".activity-status")[0].textContent, "完成");
   assert.doesNotMatch(
     [...document.querySelectorAll(".tool-details > summary")].map((node) => node.textContent).join(""),
@@ -491,7 +480,6 @@ test("a rejected finish acknowledgement remains waiting in the visible tool row"
   assert.equal(document.querySelector(".activity-status").textContent, "等待中");
   assert.equal(document.querySelector(".tool-step").classList.contains("is-done"), false);
   assert.equal(document.querySelectorAll(".tool-progress-spinner").length, 0);
-  assert.equal(document.querySelector(".live-caption").textContent, "1/1 项调用已返回");
 });
 
 test("command exit evidence marks a failed tool while counting its returned call", () => {
@@ -514,15 +502,12 @@ test("command exit evidence marks a failed tool while counting its returned call
   assert.equal(document.querySelector(".tool-step").classList.contains("is-failed"), true);
   assert.equal(document.querySelector(".tool-context").textContent, "Python 语法错误");
   assert.match(document.querySelector(".tool-details-body").textContent, /SyntaxError: invalid syntax/);
-  assert.equal(document.querySelector(".live-caption").textContent, "1/1 项调用已返回");
 });
 
 test("zero-output HTTP stream failure shows a safe recovery card instead of an empty waiting workflow", () => {
   let retries = 0;
-  let settings = 0;
   const { document, state, render } = fixture("zero-error", "", {
-    retry: () => retries++,
-    openSettings: () => settings++
+    retry: () => retries++
   });
   const error = {
     role: "assistant",
@@ -548,10 +533,12 @@ test("zero-output HTTP stream failure shows a safe recovery card instead of an e
   assert.equal(document.querySelectorAll('[data-answer-kind="final"]').length, 0);
   assert.equal(document.querySelectorAll(".thinking-spinner").length, 0);
   assert.equal(retries, 0);
+  assert.deepEqual(
+    [...alert.querySelectorAll("button")].map((button) => button.textContent.trim()),
+    ["重试", "查看详情"]
+  );
   document.querySelector("[data-retry-request]").click();
-  document.querySelector("[data-error-settings]").click();
   assert.equal(retries, 1);
-  assert.equal(settings, 1);
 });
 
 test("a latest stopped assistant error exposes recovery before task status polling catches up and retains partial thought", () => {
@@ -575,16 +562,14 @@ test("a latest stopped assistant error exposes recovery before task status polli
   assert.equal(document.querySelector(".reasoning-details").open, true);
   assert.equal(document.querySelector(".reasoning-copy").textContent, "已经读取输入约束。");
   assert.match(document.querySelector(".reasoning-state").textContent, /思考已停止/);
-  assert.doesNotMatch(document.querySelector(".live-workflow-head").textContent, /等待继续|已完成/);
+  assert.equal(document.querySelectorAll(".execution-history, .turn-endline").length, 0);
   assert.equal(document.querySelectorAll('[data-answer-kind="final"]').length, 0);
 });
 
 test("recovery buttons belong to their rendered task and cannot act on a newer selection", () => {
   const retries = [];
-  let settings = 0;
   const { document, state, render } = fixture("recovery-owner-a", "", {
-    retry: (taskId) => retries.push(taskId),
-    openSettings: () => settings++
+    retry: (taskId) => retries.push(taskId)
   });
   const error = {
     role: "assistant",
@@ -597,7 +582,6 @@ test("recovery buttons belong to their rendered task and cannot act on a newer s
   state.detail.task.status = "failed";
   render([user, error]);
   const staleRetry = document.querySelector("[data-retry-request]");
-  const staleSettings = document.querySelector("[data-error-settings]");
   staleRetry.click();
   assert.deepEqual(retries, ["recovery-owner-a"]);
   state.selected = "recovery-owner-b";
@@ -607,9 +591,7 @@ test("recovery buttons belong to their rendered task and cannot act on a newer s
     runtimeEvents: []
   };
   staleRetry.click();
-  staleSettings.click();
   assert.deepEqual(retries, ["recovery-owner-a"]);
-  assert.equal(settings, 0);
   render([user, error]);
   assert.equal(document.querySelector("[data-recovery-task]").dataset.recoveryTask, "recovery-owner-b");
   document.querySelector("[data-retry-request]").click();
@@ -707,7 +689,6 @@ test("typed model failures use only actual HTTP evidence and hide private unclas
     render();
     assert.equal(document.querySelector('[role="alert"] strong').textContent, "模型请求未完成");
     assert.ok(document.querySelector('[role="alert"]').textContent.includes(message));
-    assert.equal(document.querySelectorAll("[data-error-settings]").length, 1);
     assert.doesNotMatch(
       document.querySelector('[role="alert"]').textContent,
       /Bearer|sk-test-synthetic|private/
@@ -731,7 +712,6 @@ test("another run's typed failure cannot classify the selected run's legacy erro
   ];
   render();
   assert.equal(document.querySelector('[role="alert"] strong').textContent, "任务失败");
-  assert.equal(document.querySelectorAll("[data-error-settings]").length, 1);
   assert.doesNotMatch(document.querySelector('[role="alert"]').textContent, /private detail/);
 });
 
@@ -1055,6 +1035,47 @@ test("a final answer split into text blocks appears once after persistence catch
   assert.equal(document.querySelector('[data-answer-kind="final"]').textContent.includes("核对完成。"), true);
 });
 
+test("a finished round folds into 处理过程 with its counts and ends with a 用时 line", () => {
+  const { document, state, render } = fixture("folded-round", "");
+  const answer = {
+    role: "assistant",
+    timestamp: 5,
+    stopReason: "stop",
+    content: [{ type: "text", text: "做好了。" }]
+  };
+  state.detail.runtimeEvents = [
+    { type: "turn_start", runId: "run-one" },
+    { type: "message_start", message: user },
+    { type: "message_start", message: { role: "assistant", timestamp: 2, content: [] } },
+    ...[
+      { id: "read", name: "read", arguments: { path: "summarize.sh" } },
+      { id: "test", name: "bash", arguments: { command: "bash test/run.sh" } },
+      { id: "apus", name: "call_subagent", arguments: { name: "Apus", task: "写测试", mode: "async" } },
+      { id: "pavo", name: "call_subagent", arguments: { name: "Pavo", task: "检查参数", mode: "async" } }
+    ].flatMap((toolCall, index) => [
+      update("toolcall_end", index + 1, { toolCall }),
+      { type: "tool_execution_end", toolCallId: toolCall.id, result: { content: [] } }
+    ]),
+    { type: "message_end", message: answer },
+    { type: "turn_end", message: answer }
+  ];
+  state.detail.events = [
+    { runId: "run-one", type: "main.run_spawned", occurredAt: "2026-11-18T10:00:00Z" },
+    { runId: "run-one", type: "main.run_completed", occurredAt: "2026-11-18T10:03:12Z" }
+  ];
+  state.detail.runtime.active = false;
+  state.detail.task.status = "completed";
+  render([user, answer]);
+  const summary = document.querySelector(".execution-history > summary");
+  assert.equal(summary.querySelector("strong").textContent, "处理过程");
+  assert.equal(summary.querySelector("small").textContent, "2 项操作 · 2 个子助手");
+  const rows = [...document.querySelector("#conversation").children].map((node) => node.className);
+  assert.deepEqual(rows.slice(-3), ["execution-history", "chat-message main", "turn-endline"]);
+  assert.equal(document.querySelector(".turn-endline").textContent, "用时 3分钟12秒");
+  document.querySelector(".execution-history").open = true;
+  assert.match(document.querySelector(".subagent-group").textContent, /派出 2 个子助手/);
+});
+
 test("tool progress, empty completion and interruption render their actual lifecycle", () => {
   const { document, state, render } = fixture();
   state.detail.runtimeEvents.push(
@@ -1164,27 +1185,41 @@ test("an async delegation row follows real progress without changing its disclos
     }
   );
   state.detail.coordination = { calls: [{ callId: "call-one", status: "running" }], pending: ["call-one"] };
-  render();
-  let row = document.querySelector(".tool-details");
-  row.open = true;
-  assert.equal(row.querySelector(".activity-status").textContent, "协作运行中");
-  assert.match(document.querySelector(".live-caption").textContent, /1 项协作未结束/);
-  state.detail.runtime.active = false;
-  render();
-  row = document.querySelector(".tool-details");
-  assert.equal(row.open, true);
-  assert.equal(document.querySelector(".live-workflow-head strong").textContent, "仍有工作未结束");
-  state.detail.coordination = {
-    calls: [{ callId: "call-one", status: "completed" }],
-    callbackPending: ["call-one"]
+  state.detail.progress = {
+    agents: [{ callId: "call-one", status: "running", role: "reviewer", elapsedMs: 36_000 }]
   };
   render();
-  assert.equal(row.querySelector(".activity-status").textContent, "结果待接收");
-  state.detail.coordination.callbackPending = [];
+  let row = document.querySelector(".subagent-step");
+  row.open = true;
+  assert.equal(row.querySelector("strong").textContent, "Ara");
+  assert.equal(row.querySelector(".subagent-role-tag").textContent, "审查");
+  assert.equal(row.querySelector(".subagent-status").textContent, "运行中 36秒");
+  assert.equal(row.querySelectorAll(".tool-progress-spinner").length, 1);
+  // Main's own turn ends while Ara works; Ara's row keeps moving.
+  state.detail.runtime.active = false;
   render();
-  assert.equal(document.querySelector(".tool-details"), row);
+  row = document.querySelector(".subagent-step");
   assert.equal(row.open, true);
-  assert.equal(row.querySelector(".activity-status").textContent, "协作完成");
+  assert.equal(row.querySelectorAll(".tool-progress-spinner").length, 1);
+  assert.equal(document.querySelectorAll(".live-workflow-head, .execution-history").length, 0);
+  state.detail.progress.agents[0] = {
+    ...state.detail.progress.agents[0],
+    status: "succeeded",
+    elapsedMs: 84_000,
+    callbackPending: true,
+    lastAssistantText: "机构名称全部核对无误。另附两处拼写建议。"
+  };
+  render();
+  assert.equal(row.querySelector(".subagent-status").textContent, "完成 1分钟24秒");
+  // Once done the row says what came back instead of what was asked.
+  assert.equal(row.querySelector(".tool-subject").textContent, "机构名称全部核对无误。");
+  assert.equal(row.querySelectorAll(".tool-progress-spinner").length, 0);
+  state.detail.progress.agents[0].callbackPending = false;
+  state.detail.coordination = { calls: [{ callId: "call-one", status: "completed" }] };
+  render();
+  assert.equal(document.querySelector(".subagent-step"), row);
+  assert.equal(row.open, true);
+  assert.equal(row.querySelector(".subagent-status").textContent, "完成 1分钟24秒");
 });
 
 test("an ended question and queued message use action-specific labels", () => {
@@ -1247,9 +1282,9 @@ test("cancelled earlier requests stay incomplete after a later request succeeds"
   );
   render([user, partial, followup, answer]);
   const workflows = document.querySelectorAll(".live-workflow");
-  assert.match(workflows[0].textContent, /执行已停止/);
-  assert.match(workflows[0].textContent, /整轮任务未完成/);
-  assert.doesNotMatch(workflows[0].textContent, /整轮任务已完成/);
+  assert.match(workflows[0].querySelector(".turn-stopped").textContent, /已停止/);
+  assert.equal(workflows[0].closest(".execution-history"), null);
+  assert.equal(document.querySelectorAll(".turn-stopped").length, 1);
   assert.match(document.querySelector('[data-answer-kind="final"]').textContent, /已创建/);
 });
 

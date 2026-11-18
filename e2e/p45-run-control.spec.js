@@ -268,7 +268,7 @@ test("cancel asks before it stops the run and keeps the run on 继续运行", as
   }
 });
 
-test("an interrupted step continues once and the error card offers another model", async ({
+test("an interrupted step continues once and another model can be picked from the composer", async ({
   page
 }, testInfo) => {
   test.setTimeout(150_000);
@@ -309,9 +309,8 @@ test("an interrupted step continues once and the error card offers another model
     await expect(error).toBeVisible({ timeout: 60_000 });
     await expect(error.locator(".run-error-head strong")).toHaveText("模型请求未完成");
     await expect(error.locator(".run-error-retry")).toContainText("已自动重试");
-    await expect(error.getByRole("button", { name: "从中断步骤继续" })).toBeVisible();
-    await expect(error.getByRole("button", { name: "切换模型" })).toBeVisible();
-    const details = error.getByRole("button", { name: "查看错误详情" });
+    await expect(error.getByRole("button")).toHaveText(["重试", "查看详情"]);
+    const details = error.getByRole("button", { name: "查看详情" });
     await expect(error.locator("[data-error-detail]")).toBeHidden();
     await page.screenshot({ path: testInfo.outputPath("run-error-collapsed-1440.png") });
     await details.click();
@@ -319,15 +318,17 @@ test("an interrupted step continues once and the error card offers another model
     await expect(error.locator("[data-error-type]")).toContainText("HTTP 400");
     await page.screenshot({ path: testInfo.outputPath("run-error-1440.png") });
 
-    await error.getByRole("button", { name: "切换模型" }).click();
+    // Switching models is the composer's own picker; the card has no shortcut.
+    await page.locator("#model-select").click();
     const menu = page.locator("#model-menu");
     await expect(menu).toBeVisible();
+    await menu.locator(".effort-model").click();
     await menu.locator('[data-model="fixture-alt"]').click();
     await expect(page.locator("#model-select .model-name")).toHaveText("fixture-alt");
     await expect(error).toBeVisible();
 
     work.recovered = true;
-    await error.getByRole("button", { name: "从中断步骤继续" }).click();
+    await error.getByRole("button", { name: "重试" }).click();
     await waitForTask(page, local, taskId, (detail) => detail.task.status === "completed");
     await expect(error).toHaveCount(0);
     expect(await readFile(work.marker, "utf8")).toBe("done\n");
