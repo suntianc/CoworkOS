@@ -1,21 +1,22 @@
 import { formatRunDuration, runElapsed } from "../run-overview.js";
 import { requestErrorMessage } from "../request-error.js";
+import { runPhase } from "../run-phase.js";
 import { ui } from "../ui/language.js";
 
-const ACTIVE_AGENT_STATES = new Set(["running", "waiting", "queued"]);
-
 /**
- * The run strip on the composer's top edge.
+ * The status line above the composer.
  *
- * It says what Main is doing, or which Subagents it waits for, how many steps
- * this round has taken and for how long, all from the progress the catalog and
- * the conversation already carry. It disappears when nothing runs. Pause asks
- * the backend to stop at the next step boundary; the button stays disabled
- * until that boundary is recorded, so a second click cannot look like a new
- * request. A paused round keeps the strip, amber, with 继续 as its one action.
+ * It names only the round's coarse state and how long it has run: Main 工作中,
+ * Main 在等子助手 · N 个在工作, Main 在问你, 模型重连中, 已暂停. What exactly
+ * is happening is the transcript's to say. It disappears when nothing runs.
+ * With a question or queued messages it is the first row of the tray they
+ * share on the composer's top edge.
  *
- * Interrupting lives on the composer's stop key; it is confirmed in place,
- * because the confirmation is a choice about the current turn.
+ * While Main works its one action is stop (Esc); while it waits for its
+ * Subagents the composer stays a send box, so pause and stop sit here. Pause
+ * asks the backend to stop at the next step boundary; the button stays
+ * disabled until that boundary is recorded. A paused round offers 继续.
+ * Stopping is confirmed in place, because it ends the current round.
  */
 export function createRunControl({
   state,
@@ -30,37 +31,26 @@ export function createRunControl({
   const root = $("#run-control");
   const confirm = $("#run-interrupt-confirm");
   const pauseButton = root?.querySelector("[data-run-pause]");
+  const stopButton = root?.querySelector("[data-run-stop]");
   const continueButton = root?.querySelector("[data-run-continue]");
   const label = root?.querySelector("[data-run-label]");
   const detail = root?.querySelector("[data-run-detail]");
-  const step = root?.querySelector("[data-run-step]");
   const time = root?.querySelector("[data-run-time]");
   let ticker;
   let busy = false;
-  let stage = "";
   let confirmTrigger;
 
   const selectedTask = () =>
     state.detail?.task?.taskId === state.selected
       ? state.detail.task
       : state.tasks.find((task) => task.taskId === state.selected);
-  // Subagent progress is part of the catalog row; the detail read omits it.
-  const waitingFor = () =>
-    (state.tasks.find((task) => task.taskId === state.selected)?.activity?.agents || []).filter(
-      (agent) => agent.role === "subagent" && ACTIVE_AGENT_STATES.has(agent.state)
-    );
-  /** Model calls this round has finished: assistant turns since the user's last own message. */
-  const finishedSteps = () => {
-    const messages = state.detail?.task?.taskId === state.selected ? state.detail.messages || [] : [];
-    let steps = 0;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message.role === "user" && !message.interjected && message.delivery !== "steer") break;
-      // A step the pause or a failure cut short is not a finished step.
-      if (message.role === "assistant" && !["aborted", "error"].includes(message.stopReason)) steps += 1;
-    }
-    return steps;
-  };
+  /** The selected conversation's coarse state; Subagent progress is part of the catalog row. */
+  const phase = () =>
+    runPhase({
+      task: selectedTask(),
+      detail: state.detail,
+      agents: state.tasks.find((task) => task.taskId === state.selected)?.activity?.agents || []
+    });
 
   const stopTicker = () => {
     if (ticker === undefined) return;
@@ -74,7 +64,7 @@ export function createRunControl({
   function renderTime() {
     if (!root || root.hidden) return;
     const elapsed = runElapsed(state.detail?.statistics);
-    time.textContent = Number.isFinite(elapsed) ? formatRunDuration(elapsed) : "";
+    time.textContent = Number.isFinite(elapsed) ? `· ${formatRunDuration(elapsed)}` : "";
   }
 
   function closeConfirm({ restoreFocus = false } = {}) {
@@ -122,35 +112,20 @@ export function createRunControl({
     await interruptRun?.(task.taskId);
   }
 
-  function renderLabel() {
-    if (!root || root.hidden) return;
-    let name, text;
-    if (root.dataset.state === "paused") {
-      const steps = finishedSteps();
-      name = ui("已暂停");
-      text = steps ? ui`停在第 ${steps} 步之后` : "";
-    } else {
-      const agents = waitingFor();
-      name = agents.length ? ui("等待子代理") : ui("Main 正在工作");
-      text = agents.length
-        ? agents.map((agent) => agent.name || agent.agentId).join(ui("、"))
-        : stage
-          ? ui(stage)
-          : "";
-    }
-    label.textContent = name;
-    detail.textContent = text;
-    detail.hidden = !text;
-    root.setAttribute("aria-label", text ? `${name} · ${text}` : name);
-  }
+  const LABELS = {
+    working: () => ui("Main 工作中"),
+    pausing: () => ui("正在暂停"),
+    waiting: (current) => ui`Main 在等子助手 · ${current.agents} 个在工作`,
+    asking: () => ui("Main 在问你"),
+    retrying: () => ui("模型重连中"),
+    paused: () => ui("已暂停")
+  };
 
   function render() {
     if (!root) return;
     const task = selectedTask();
-    const current = Boolean(task) && task.taskId === state.selected;
-    const running = current && task.status === "running" && Boolean(state.detail?.runtime?.active);
-    const paused = current && task.status === "paused" && !state.detail?.runtime?.active;
-    if (!running && !paused) {
+    const current = phase();
+    if (!current) {
       root.hidden = true;
       delete root.dataset.state;
       root.removeAttribute("data-run-paused");
@@ -158,32 +133,40 @@ export function createRunControl({
       stopTicker();
       return;
     }
+    const paused = current.kind === "paused";
     root.hidden = false;
-    root.dataset.state = paused ? "paused" : task.pause ? "pausing" : "running";
+    root.dataset.state = current.kind;
     root.toggleAttribute("data-run-paused", paused);
-    renderLabel();
+    const name = LABELS[current.kind](current);
+    label.textContent = name;
+    detail.hidden = true;
+    root.setAttribute("aria-label", name);
     renderTime();
     if (paused) stopTicker();
     else startTicker();
-    const steps = finishedSteps() + (paused ? 0 : 1);
-    step.hidden = paused || steps < 1;
-    step.textContent = ui`第 ${steps} 步`;
-    pauseButton.hidden = paused;
     continueButton.hidden = !paused;
     if (paused) {
+      pauseButton.hidden = true;
+      stopButton.hidden = true;
       continueButton.disabled = Boolean(isContinuing?.(task.taskId));
       closeConfirm();
       return;
     }
-    const pausing = Boolean(task.pause);
+    // Waiting for Subagents leaves the composer a send box, so stop is a
+    // button here; while Main works the composer's own key stops it (Esc).
+    const waiting = current.kind === "waiting";
+    stopButton.hidden = current.kind === "asking";
+    stopButton.classList.toggle("is-hint", !waiting);
+    stopButton.querySelector("[data-run-stop-key]").hidden = waiting;
+    pauseButton.hidden = current.kind === "asking";
+    const pausing = current.kind === "pausing";
     pauseButton.disabled = busy || pausing;
-    // Pause stops at the step boundary and keeps the process; the session and
-    // its queued work wait for the resume.
     pauseButton.title = pausing ? ui("当前步骤结束后暂停") : ui("暂停，当前步骤结束后生效");
     pauseButton.setAttribute("aria-label", pausing ? ui("暂停中") : ui("暂停"));
   }
 
   pauseButton?.addEventListener("click", () => void pause());
+  stopButton?.addEventListener("click", () => confirmInterrupt(stopButton));
   continueButton?.addEventListener("click", async () => {
     const task = selectedTask();
     if (!task) return;
@@ -196,9 +179,26 @@ export function createRunControl({
     ?.addEventListener("click", () => closeConfirm({ restoreFocus: true }));
   confirm?.querySelector("[data-confirm-interrupt]")?.addEventListener("click", () => void applyInterrupt());
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || confirm?.hidden) return;
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (!confirm?.hidden) {
+      event.preventDefault();
+      closeConfirm({ restoreFocus: true });
+      return;
+    }
+    // Esc stops a working Main from the composer or the page itself, never
+    // from inside a menu, dialog or field that has its own Escape.
+    const focus = document.activeElement;
+    const fromComposer = !focus || focus === document.body || focus.id === "composer-input";
+    const kind = phase()?.kind;
+    if (!fromComposer || !root || root.hidden || !["working", "retrying", "waiting"].includes(kind)) return;
+    if (
+      document.querySelector(
+        '[role="dialog"]:not([hidden]):not(#run-interrupt-confirm), [role="menu"]:not([hidden])'
+      )
+    )
+      return;
     event.preventDefault();
-    closeConfirm({ restoreFocus: true });
+    confirmInterrupt(stopButton);
   });
   document.addEventListener("pointerdown", (event) => {
     if (confirm?.hidden) return;
@@ -209,15 +209,11 @@ export function createRunControl({
   return {
     render,
     confirmInterrupt,
-    /** The requirement panel publishes its phase after its own read settles. */
-    setRequirementStage(value) {
-      stage = value || "";
-      renderLabel();
-    },
+    /** Whether Main is waiting on its Subagents rather than working itself. */
+    waiting: () => phase()?.kind === "waiting",
     reset() {
       stopTicker();
       closeConfirm();
-      stage = "";
     }
   };
 }

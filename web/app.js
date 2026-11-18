@@ -419,10 +419,7 @@ requirementPanel = createRequirementPanel({
   onCollapse: () => void toggleOutputPane(),
   openArtifact,
   openPreview,
-  onRendered: (stage) => {
-    runControl?.setRequirementStage(stage);
-    paintTopbarContext();
-  }
+  onRendered: () => paintTopbarContext()
 });
 const conversationView = createConversationView({
   state,
@@ -2276,7 +2273,9 @@ function updateSendButton() {
   const running = Boolean(state.detail?.task?.taskId === state.selected && state.detail?.runtime?.active);
   const stopping = isTaskStopping();
   const hasDraft = Boolean($("#composer-input").value.trim() || state.attachments.length);
-  const showStop = stopping || (running && !hasDraft);
+  // Main waiting on its Subagents is not Main working: the composer stays a
+  // send box and the status line carries pause and stop.
+  const showStop = stopping || (running && !hasDraft && !runControl?.waiting());
   renderMessageQueue($("#queued-messages"), {
     taskId: state.selected,
     messages:

@@ -5,12 +5,10 @@
 :root {
   --composer-highlight: #ffffff0f;
   --composer-lift: 0 2px 6px #0000002e, 0 14px 40px #00000052;
-  --pill-shadow: 0 6px 20px #00000059;
 }
 html[data-theme="light"] {
   --composer-highlight: #ffffff;
   --composer-lift: 0 2px 6px #18181b0d, 0 14px 40px #18181b14;
-  --pill-shadow: 0 6px 20px #18181b1a;
 }
 
 /* ------------------------------------------------------------ working ant */
@@ -246,63 +244,8 @@ html[data-theme] .composer .model-picker {
   left: auto;
 }
 
-/* Run pill: what Main is doing floats above the composer, not inside it. */
-html[data-theme] .composer-wrap:has(#run-control:not([hidden])) {
-  padding-top: 46px;
-}
-html[data-theme] .composer .run-control {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 50%;
-  gap: 10px;
-  width: max-content;
-  max-width: calc(100% - 24px);
-  height: 34px;
-  margin: 0;
-  padding: 0 5px 0 12px;
-  border: 1px solid var(--color-line-strong);
-  border-radius: 999px;
-  background: var(--popover-fill);
-  box-shadow:
-    inset 0 1px 0 var(--composer-highlight),
-    var(--pill-shadow);
-  color: var(--color-text-2);
-  font-size: 12.5px;
-  transform: translateX(-50%);
-  animation: pill-rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-html[data-theme] .composer .run-control[data-state="paused"] {
-  border-color: color-mix(in srgb, var(--color-warn) 40%, transparent);
-  background: color-mix(in srgb, var(--color-warn) 10%, var(--popover-fill));
-}
-.composer .run-control .run-control-label {
-  color: var(--color-text);
-}
-.composer .run-control .run-control-spacer {
-  display: none;
-}
-.composer .run-control :is(.run-control-step, .run-control-time)::before {
-  content: "·";
-  margin-right: 10px;
-  color: var(--color-text-3);
-}
-.composer .run-control .run-control-button {
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--color-surface-2);
-  color: var(--color-text);
-  font-size: 12px;
-}
-@keyframes pill-rise {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 6px) scale(0.98);
-  }
-}
-
 /* Queued messages wait as dashed rows above the text. */
-html[data-theme] .composer .queued-message {
+html[data-theme] .composer-tray .queued-message {
   border: 1px dashed var(--color-line-strong);
   border-radius: 14px;
   background: var(--color-surface);

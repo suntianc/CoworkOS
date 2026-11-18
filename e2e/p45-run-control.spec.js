@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { startConfiguredDashboard, startDashboard } from "../test/dashboard-fixture.mjs";
 import { readFixtureRequestBody } from "../test/http-request-body-fixture.mjs";
 import { createTask, markTaskRunning } from "./p45-work-helpers.js";
-import { seedRequirement } from "./p45-requirement-fixture.js";
 
 function stream(response, delta, finishReason = null) {
   response.write(
@@ -111,12 +110,11 @@ test("the run bar pauses at the step boundary and continues from that point", as
 
     const bar = page.locator("#run-control");
     await expect(bar).toBeVisible();
-    await expect(bar.locator("[data-run-label]")).toContainText("Main 正在工作");
-    await expect(bar.locator("[data-run-time]")).toHaveText(/\d\d:\d\d/);
-    await expect(bar.locator("[data-run-step]")).toHaveText("第 1 步");
+    // Only the coarse state and the time; what Main does is the transcript's.
+    await expect(bar.locator("[data-run-label]")).toHaveText("Main 工作中");
+    await expect(bar.locator("[data-run-time]")).toHaveText(/· \d\d:\d\d/);
     await expect(bar.getByRole("button", { name: "暂停" })).toBeVisible();
-    // Stopping moved to the composer's stop key; the strip only pauses.
-    await expect(bar.getByRole("button", { name: "中断本回合" })).toHaveCount(0);
+    await expect(bar.getByRole("button", { name: "停止" })).toContainText("Esc");
     await expect(page.locator("#stop-button")).toBeVisible();
     await expect
       .poll(async () =>
@@ -130,7 +128,6 @@ test("the run bar pauses at the step boundary and continues from that point", as
     const paused = page.locator("#run-control[data-run-paused]");
     await expect(paused).toBeVisible({ timeout: 30_000 });
     await expect(paused.locator("[data-run-label]")).toHaveText("已暂停");
-    await expect(paused.locator("[data-run-detail]")).toHaveText("停在第 1 步之后");
     await expect(page.locator(".request-error")).toHaveCount(0);
     await expect(paused.getByRole("button", { name: "继续" })).toBeVisible();
     await expect(paused.getByRole("button", { name: "暂停" })).toBeHidden();
@@ -155,42 +152,6 @@ test("the run bar pauses at the step boundary and continues from that point", as
     await expect(paused).toHaveCount(0);
     expect(local.requests).toHaveLength(2);
     expect(await readFile(work.marker, "utf8")).toBe("step-1\n");
-  } finally {
-    await page.unrouteAll({ behavior: "ignoreErrors" }).catch(() => {});
-    await local.stop();
-  }
-});
-
-test("the run bar names the requirement phase the panel records", async ({ page }, testInfo) => {
-  test.setTimeout(120_000);
-  const work = {};
-  const local = await setup(({ response, requests }) => {
-    if (requests.length === 1) {
-      toolCall(response, {
-        id: "browser-stage-step",
-        command: `mkdir -p ${shellQuote(join(work.task, "agents", "main", "work"))}; sleep 2`
-      });
-      return;
-    }
-    complete(response, "审查阶段完成。");
-  });
-  try {
-    const seeded = await seedRequirement(page, local, local.project, {
-      title: "评分汇总验收",
-      phase: "review"
-    });
-    const taskId = seeded.session.taskId;
-    work.task = join(local.workspaceRoot, taskId);
-    await page.goto(local.base);
-    await page.locator(`.conversation-item[data-task="${taskId}"]`).click();
-    await page.locator("#composer-input").fill("开始审查这一需求。");
-    await page.locator("#send-button").click();
-    const bar = page.locator("#run-control");
-    await expect(bar).toBeVisible();
-    await expect(bar.locator("[data-run-detail]")).toContainText("审查", { timeout: 20_000 });
-    await expect(bar.locator("[data-run-label]")).toHaveText("Main 正在工作");
-    await page.screenshot({ path: testInfo.outputPath("run-stage-1440.png") });
-    await waitForTask(page, local, taskId, (detail) => detail.task.status === "completed");
   } finally {
     await page.unrouteAll({ behavior: "ignoreErrors" }).catch(() => {});
     await local.stop();
@@ -344,7 +305,7 @@ test("an interrupted step continues once and another model can be picked from th
   }
 });
 
-test("while Main waits the strip names the Subagents it waits for, and the model button holds the effort", async ({
+test("while Main waits for Subagents the composer stays a send box, and the model button holds the effort", async ({
   page
 }) => {
   const dashboard = await startConfiguredDashboard();
@@ -364,16 +325,30 @@ test("while Main waits the strip names the Subagents it waits for, and the model
       if (route.request().method() !== "GET") return route.fallback();
       const response = await route.fetch();
       const detail = await response.json();
-      await route.fulfill({ response, json: { ...detail, runtime: { ...detail.runtime, active: true } } });
+      // Main sits in wait_for_subagents.
+      const runtimeEvents = [
+        ...(detail.runtimeEvents || []),
+        { type: "tool_execution_start", toolCallId: "wait", toolName: "wait_for_subagents" }
+      ];
+      await route.fulfill({
+        response,
+        json: { ...detail, runtimeEvents, runtime: { ...detail.runtime, active: true } }
+      });
     });
     await page.goto(`${dashboard.base}/?task=${taskId}`);
     const bar = page.locator("#run-control");
     await expect(bar).toBeVisible();
-    await expect(bar.locator("[data-run-label]")).toHaveText("等待子代理");
-    const name = await page.locator('.subagent-row[data-agent="subagent_1"] .subagent-name').textContent();
-    await expect(bar.locator("[data-run-detail]")).toHaveText(name.trim());
-    // No command text is shown, and the strip offers no second cancel.
-    await expect(bar.getByRole("button", { name: "中断本回合" })).toHaveCount(0);
+    await expect(bar).toHaveAttribute("data-state", "waiting");
+    await expect(bar.locator("[data-run-label]")).toHaveText("Main 在等子助手 · 1 个在工作");
+    // Waiting is not working: a send key in the composer, pause and stop here.
+    await expect(page.locator("#send-button")).toBeVisible();
+    await expect(page.locator("#stop-button")).toBeHidden();
+    await expect(bar.getByRole("button", { name: "暂停" })).toBeVisible();
+    await expect(bar.locator("[data-run-stop-key]")).toBeHidden();
+    await bar.getByRole("button", { name: "停止" }).click();
+    await expect(page.locator("#run-interrupt-confirm")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#run-interrupt-confirm")).toBeHidden();
 
     // One button and one menu hold both the model and the reasoning effort.
     await expect(page.locator("#reasoning-select")).toHaveCount(0);

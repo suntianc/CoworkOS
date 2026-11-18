@@ -668,23 +668,16 @@
                 </div>
               </section>
               <div class="composer-wrap">
-                <section
-                  id="human-questions"
-                  class="human-questions"
-                  aria-label="需要你的回复"
-                  hidden
-                ></section>
-                <div class="composer">
+                <div id="composer-tray" class="composer-tray">
                   <section id="run-control" class="run-control" aria-label="运行状态" hidden>
                     <span class="run-control-dot" aria-hidden="true"></span>
                     <svg class="ui-icon run-control-paused-icon" aria-hidden="true">
                       <use href="#i-pause" />
                     </svg>
-                    <span class="run-control-label" data-run-label>Main 正在工作</span>
+                    <span class="run-control-label" data-run-label>Main 工作中</span>
                     <span class="run-control-detail" data-run-detail hidden></span>
-                    <span class="run-control-spacer"></span>
-                    <span class="run-control-step" data-run-step hidden></span>
                     <span class="run-control-time" data-run-time></span>
+                    <span class="run-control-spacer"></span>
                     <button
                       class="run-control-button"
                       type="button"
@@ -692,12 +685,31 @@
                       title="暂停"
                       aria-label="暂停"
                     >
-                      <svg class="ui-icon" aria-hidden="true"><use href="#i-pause" /></svg><span>暂停</span>
+                      暂停
+                    </button>
+                    <button
+                      class="run-control-button"
+                      type="button"
+                      data-run-stop
+                      title="停止"
+                      aria-label="停止"
+                      aria-keyshortcuts="Escape"
+                    >
+                      <kbd data-run-stop-key>Esc</kbd><span>停止</span>
                     </button>
                     <button class="run-control-button is-primary" type="button" data-run-continue hidden>
                       <svg class="ui-icon" aria-hidden="true"><use href="#i-play" /></svg><span>继续</span>
                     </button>
                   </section>
+                  <section
+                    id="human-questions"
+                    class="human-questions"
+                    aria-label="需要你的回复"
+                    hidden
+                  ></section>
+                  <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
+                </div>
+                <div class="composer">
                   <div
                     id="run-interrupt-confirm"
                     class="run-interrupt-confirm"
@@ -718,7 +730,6 @@
                       </button>
                     </div>
                   </div>
-                  <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
                   <textarea
                     id="composer-input"
                     rows="1"

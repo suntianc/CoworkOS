@@ -1,26 +1,45 @@
 /* P4.5 run feedback: run bar, paused boundary, cancel confirmation, error card
    and notifications. Geometry and type follow the「工作 · 运行反馈」board. */
 
-/* The run strip sits on the composer's top edge as part of the same card: it
-   never takes room from the input and disappears when nothing runs. */
-html[data-theme] .composer .run-control {
+/* Above the composer, at most one thing: the status line alone is one plain
+   row of words; with a question or queued messages it heads a tray that sits
+   on the composer's top edge, the question and the queue under it. */
+html[data-theme] .composer-tray {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0 14px;
+}
+html[data-theme] .composer-tray:has(> #human-questions:not([hidden]), > #queued-messages:not([hidden])) {
+  margin-bottom: -18px;
+  padding: 4px 12px 26px;
+  border: 1px solid var(--color-line-strong);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: var(--color-surface-2);
+}
+html[data-theme] .composer-wrap > .composer {
+  position: relative;
+  z-index: 1;
+}
+html[data-theme] .composer-tray .run-control {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  height: 38px;
-  margin: -16px -16px 12px;
-  padding: 0 10px 0 18px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent);
-  border-radius: 17px 17px 0 0;
-  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
-  color: var(--color-text);
-  font-size: 13px;
-  line-height: 19px;
+  height: 30px;
+  padding: 0 4px;
+  color: var(--color-text-2);
+  font-size: 12.5px;
+  line-height: 18px;
 }
 .run-control[hidden] {
   display: none !important;
 }
+/* The mark says which state: a soft pulse while Main works, a still ring
+   while it waits, an amber dot when it asks, a pause glyph when paused. */
 .run-control-dot {
   flex: none;
   width: 7px;
@@ -34,50 +53,59 @@ html[data-theme] .composer .run-control {
     opacity: 0.35;
   }
 }
+/* The ant walks only while Main does its own work or reconnects. */
+html[data-theme]
+  .run-control:is([data-state="waiting"], [data-state="asking"], [data-state="pausing"])
+  .run-control-dot {
+  flex: 0 0 14px;
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50%;
+  background: radial-gradient(circle closest-side, var(--mark) 3.5px, transparent 4px);
+  animation: none;
+}
+html[data-theme]
+  .run-control:is([data-state="waiting"], [data-state="asking"], [data-state="pausing"])
+  .ant-mark-svg {
+  display: none;
+}
+html[data-theme] .run-control[data-state="waiting"] .run-control-dot {
+  background: radial-gradient(
+    circle closest-side,
+    transparent 2.6px,
+    var(--color-text-3) 3px,
+    var(--color-text-3) 4.2px,
+    transparent 4.6px
+  );
+}
+.run-control:is([data-state="asking"], [data-state="pausing"]) {
+  --mark: var(--color-warn);
+}
+.run-control[data-state="retrying"] .run-control-dot {
+  color: var(--color-warn);
+}
 .run-control-paused-icon {
   display: none;
   flex: none;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 .run-control-label {
   flex: none;
   color: var(--color-text-2);
   font-weight: 500;
 }
-.run-control-detail {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.run-control-detail::before {
-  content: "·";
-  margin-right: 8px;
-  color: var(--color-text-3);
-}
 .run-control-detail[hidden] {
   display: none;
 }
-.run-control-step,
 .run-control-time {
   flex: none;
   color: var(--color-text-3);
-  font-size: 12px;
   font-variant-numeric: tabular-nums;
-}
-.run-control-step[hidden] {
-  display: none;
 }
 .run-control-spacer {
   flex: 1;
   min-width: 8px;
-}
-/* A paused round turns amber and offers 继续 as its one primary action. */
-html[data-theme] .composer .run-control[data-state="paused"] {
-  border-bottom-color: color-mix(in srgb, var(--color-warn) 30%, transparent);
-  background: color-mix(in srgb, var(--color-warn) 11%, transparent);
 }
 .run-control[data-state="paused"] .run-control-dot {
   display: none;
@@ -89,17 +117,28 @@ html[data-theme] .composer .run-control[data-state="paused"] {
 .run-control[data-state="paused"] .run-control-label {
   color: var(--color-warn);
 }
-.run-control[data-state="pausing"] .run-control-dot {
-  background: var(--color-warn);
-  animation: none;
-}
 .run-control .run-control-button {
-  padding: 4px 8px;
+  padding: 3px 8px;
   background: transparent;
   color: var(--color-text-2);
 }
+/* While Main works, stop reads as the key hint it is. */
+.run-control .run-control-button.is-hint {
+  color: var(--color-text-3);
+}
+.run-control .run-control-button kbd {
+  padding: 0 4px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 15px;
+}
+.run-control .run-control-button kbd[hidden] {
+  display: none;
+}
 .run-control .run-control-button.is-primary {
-  padding: 4px 10px;
+  padding: 3px 10px;
   background: var(--color-warn);
   color: #17130a;
   font-weight: 600;
@@ -387,7 +426,6 @@ html[data-theme] #toast.toast {
   .run-control {
     gap: 6px;
   }
-  .run-control-step,
   .run-control-time {
     display: none;
   }
@@ -396,9 +434,6 @@ html[data-theme] #toast.toast {
   .run-control-button {
     gap: 0;
     padding: 6px 9px;
-  }
-  .run-control-button span {
-    display: none;
   }
   .run-control-button svg {
     width: 14px;
@@ -410,19 +445,20 @@ html[data-theme] #toast.toast {
   animation: none;
 }
 
-/* Queued messages: one row each, sent when the round ends, with insert-now and withdraw. */
-html[data-theme] .composer .queued-messages {
-  margin: 0 0 8px;
+/* Queued messages: one row each in the tray, sent when the round ends, with
+   insert-now and withdraw. */
+html[data-theme] .composer-tray .queued-messages {
+  margin: 4px 0 0;
   padding: 0;
   border-bottom: 0;
 }
-html[data-theme] .composer .queued-message {
+html[data-theme] .composer-tray .queued-message {
   gap: 8px;
   padding: 6px 10px;
   border-radius: 10px;
   background: var(--color-surface-2, var(--color-surface-3));
 }
-html[data-theme] .composer .queued-message + .queued-message {
+html[data-theme] .composer-tray .queued-message + .queued-message {
   margin-top: 4px;
 }
 .queued-message-icon {
@@ -436,10 +472,10 @@ html[data-theme] .composer .queued-message + .queued-message {
   font-weight: 500;
   white-space: nowrap;
 }
-html[data-theme] .composer .queued-message-text {
+html[data-theme] .composer-tray .queued-message-text {
   color: var(--color-text-2);
 }
-html[data-theme] .composer .queued-message .queued-message-action {
+html[data-theme] .composer-tray .queued-message .queued-message-action {
   justify-content: center;
   width: 26px;
   height: 26px;
@@ -448,7 +484,7 @@ html[data-theme] .composer .queued-message .queued-message-action {
   border-radius: 6px;
   color: var(--color-text-2);
 }
-html[data-theme] .composer .queued-message .queued-message-action:hover:not(:disabled) {
+html[data-theme] .composer-tray .queued-message .queued-message-action:hover:not(:disabled) {
   color: var(--color-text);
   background: var(--color-surface-3);
 }
@@ -474,4 +510,29 @@ html[data-theme] .composer .reasoning-label {
   .composer .reasoning-label {
     display: none;
   }
+}
+
+/* A question in the tray: the status row already says Main 在问你, so the
+   card drops its own heading and frame and keeps only its paging. */
+html[data-theme] .composer-tray .human-questions {
+  max-height: min(50vh, 460px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-theme] .composer-tray .human-card-heading {
+  padding: 0 4px;
+}
+html[data-theme] .composer-tray .human-card-heading:not(:has(.human-question-pages)) {
+  display: none;
+}
+html[data-theme] .composer-tray .human-card-heading > :is(.human-waiting-dot, strong) {
+  display: none;
+}
+html[data-theme] .composer-tray .human-card-body {
+  padding: 4px 4px 0;
+}
+html[data-theme] .composer-tray .human-card-footer {
+  padding: 10px 4px 0;
 }
