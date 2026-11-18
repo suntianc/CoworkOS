@@ -466,7 +466,7 @@ export function createConversationView({
         historyKey,
         (interrupted && !waiting && !paused) || (isCurrent && Boolean(failure)),
         isCurrent,
-        execution.terminal === "cancelled" && !(isCurrent && failure)
+        execution.stopped ?? (execution.terminal === "cancelled" && !(isCurrent && failure) ? {} : undefined)
       );
       // The line under a finished round says how long the whole round took.
       const endLine = settled
@@ -659,7 +659,7 @@ export function createConversationView({
     historyKey = "",
     failed = false,
     isCurrent = true,
-    stopped = false
+    stopped = undefined
   ) {
     const turns = buildLiveActivity(events);
     const retry = active && exchangeExecutionState(events).retry;
@@ -775,7 +775,7 @@ export function createConversationView({
       active && !tailLive ? thinkingRow(historyKey, retry ? ui("正在恢复模型连接…") : undefined, !retry) : "";
     const stoppedRow =
       stopped && !working
-        ? `<div class="activity-step turn-stopped" data-view-key="${esc(`${historyKey}:stopped`)}"><div class="activity-step-content"><div class="activity-step-head"><span class="tool-status-dot" aria-hidden="true"></span><strong>${ui("已停止")}</strong><span class="turn-stopped-note">${ui("做完的步骤和结果已保留")}</span></div></div></div>`
+        ? `<div class="activity-step turn-stopped" data-view-key="${esc(`${historyKey}:stopped`)}"><div class="activity-step-content"><div class="activity-step-head"><span class="tool-status-dot" aria-hidden="true"></span><strong>${ui("已停止")}</strong><span class="turn-stopped-note">${esc(stopped.subagents ? ui`Main 和 ${stopped.subagents} 个子助手都已停下，做完的结果保留` : ui("做完的步骤和结果已保留"))}</span></div></div></div>`
         : "";
     const content = `<section class="live-workflow ${working ? "is-active" : "is-complete"}"${active ? ' aria-live="polite"' : ""}>
     <div class="workflow-rail">${compactActivity.map((item) => (item.type === "subagents" ? renderSubagentGroup(item, presentations) : item.type === "tools" ? renderToolGroup(item, active, presentations) : item.type === "reasoning" ? renderReasoningStep(item.text, { done: !active || item.done, interrupted: (!active || item.done) && !item.complete }, item.key, item.rawText) : item.type === "answer" ? (active && item === compactActivity.at(-1) && !item.done ? `<div class="live-answer" data-activity-key="${esc(item.key)}" data-streaming-answer><div class="markdown-body">${markdown(completeMarkdown(item.text))}</div></div>` : `<div class="live-answer" data-activity-key="${esc(item.key)}"><div class="markdown-body">${markdown(item.text)}</div></div>`) : renderToolStep(item.call, active, item.key, presentations.get(item.call)))).join("")}${nextStep}${stoppedRow}</div>

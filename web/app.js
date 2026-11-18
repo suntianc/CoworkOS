@@ -446,7 +446,7 @@ runControl = createRunControl({
   api,
   showToast,
   onChanged: () => refresh(),
-  interruptRun: (taskId) => interruptTask(taskId),
+  interruptRun: (taskId) => stopRound(taskId),
   continueRun: (taskId) => continuePausedRun(taskId),
   isContinuing: (taskId) => continuingTasks.has(taskId)
 });
@@ -1610,7 +1610,8 @@ createConversationLayout($("#conversation"));
  * The session, its Subagents and everything already done stay; the process
  * waits for the next message.
  */
-async function interruptTask(taskId = state.selected) {
+/** Stop the round: Main's turn and its working Subagents, all at once; the session stays. */
+async function stopRound(taskId = state.selected) {
   if (!taskId || isTaskStopping(taskId)) return;
   stopEpochs.set(taskId, (stopEpochs.get(taskId) || 0) + 1);
   stoppingTasks.add(taskId);
@@ -1619,10 +1620,10 @@ async function interruptTask(taskId = state.selected) {
     await api(`/api/tasks/${encodeURIComponent(taskId)}/action`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "interrupt" })
+      body: JSON.stringify({ action: "stop" })
     });
     await refresh();
-    showToast(ui("本回合已中断，会话保留"));
+    showToast(ui("已停止，做完的步骤和结果保留"));
   } catch (error) {
     showToast(requestErrorMessage(error));
   } finally {
@@ -2296,8 +2297,8 @@ function updateSendButton() {
   $("#stop-button").hidden = !showStop;
   $("#stop-button").disabled = stopping;
   $("#stop-button").setAttribute("aria-busy", String(stopping));
-  $("#stop-button").setAttribute("aria-label", stopping ? ui("正在中断本回合") : ui("中断本回合"));
-  $("#stop-button").title = stopping ? ui("正在中断本回合…") : ui("中断本回合");
+  $("#stop-button").setAttribute("aria-label", stopping ? ui("正在停止") : ui("停止"));
+  $("#stop-button").title = stopping ? ui("正在停止…") : ui("停止（Esc）");
   $("#model-setup-button").hidden = state.modelConfigured !== false;
   $("#send-button").title = awaitingSetup
     ? firstUse.lockReason()

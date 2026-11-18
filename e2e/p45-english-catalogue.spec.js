@@ -290,7 +290,7 @@ test("run controls, notifications, the requirement panel and the preview drawer 
     const bar = page.locator("#run-control");
     await expect(bar.locator("[data-run-label]")).toContainText("Main is");
     await expect(bar.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
-    await expect(page.locator("#stop-button")).toHaveAccessibleName("Interrupt turn");
+    await expect(page.locator("#stop-button")).toHaveAccessibleName("Stop");
     await expectEnglish(page, "a running conversation");
 
     await page.locator("#output-pane-toggle").click();

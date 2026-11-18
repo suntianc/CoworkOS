@@ -192,15 +192,15 @@ test("cancel asks before it stops the run and keeps the run on 继续运行", as
 
     // The stop key asks first.
     const stop = page.locator("#stop-button");
-    await expect(stop).toHaveAccessibleName("中断本回合");
+    await expect(stop).toHaveAccessibleName("停止");
     await stop.click();
     const dialog = page.locator("#run-interrupt-confirm");
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("中断本回合？");
-    await expect(dialog).toContainText("会话、子代理和已完成的内容都保留");
+    await expect(dialog).toContainText("停止这一轮？");
+    await expect(dialog).toContainText("Main 和正在工作的子助手都会停下");
     await expect(dialog.getByRole("button")).toHaveCount(2);
     await expect(dialog.getByRole("button", { name: "继续运行" })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "中断本回合" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "停止", exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("cancel-confirm-1440.png") });
 
     await dialog.getByRole("button", { name: "继续运行" }).click();
@@ -210,10 +210,10 @@ test("cancel asks before it stops the run and keeps the run on 继续运行", as
     await waitForTask(page, local, taskId, (detail) => detail.task.status === "running");
 
     await stop.click();
-    await dialog.getByRole("button", { name: "中断本回合" }).click();
-    // The notice is transient (about 3.2s): read it as soon as the interrupt
+    await dialog.getByRole("button", { name: "停止", exact: true }).click();
+    // The notice is transient (about 3.2s): read it as soon as the stop
     // lands, before the waits below outlast it.
-    await expect(page.locator("#toast")).toContainText("本回合已中断");
+    await expect(page.locator("#toast")).toContainText("已停止");
     await expect(bar).toBeHidden({ timeout: 30_000 });
     // The turn stops; the session and its Main process stay for the next message.
     await waitForTask(

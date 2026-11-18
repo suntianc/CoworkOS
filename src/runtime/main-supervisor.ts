@@ -8,6 +8,7 @@ import { JsonlEventStore } from "../storage/event-store.js";
 import { id, now } from "../domain/types.js";
 import { mainIsAlive, readHeartbeat } from "./main-heartbeat.js";
 import { clearSleep, readSleep } from "./main-sleep.js";
+import { isCancelledCallback } from "./main-inbox-delivery.js";
 import { AgentProcessHost, agentProcessDirectory, type AgentProcessRecord } from "./agent-process.js";
 
 /**
@@ -170,7 +171,11 @@ export class MainSupervisor {
     // leaves it that way, and it still needs someone to read it. Inbox work is
     // checked before the park: a callback or external event that arrives while
     // a Task sleeps means the condition it parked on has been met.
-    const pending = (await inbox.list("main")).filter((entry) => entry.state !== "consumed");
+    // A cancelled Subagent's callback records a stop; it is read with the next
+    // turn and never starts one, so it does not bring a Main back either.
+    const pending = (await inbox.list("main")).filter(
+      (entry) => entry.state !== "consumed" && !isCancelledCallback(entry)
+    );
     if (pending.length === 0) {
       if (parked) return { taskId, action: "skipped", reason: "parked" };
       return { taskId, action: "skipped", reason: "no_pending_work" };

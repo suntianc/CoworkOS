@@ -26,7 +26,11 @@ import {
 import { HEARTBEAT_STALE_MS, writeHeartbeat } from "../../dist/src/runtime/main-heartbeat.js";
 import { onProcessWake, startAgentWake, stopAgentWake } from "../../dist/src/runtime/agent-wake.js";
 import { watchFiles, type StopWatching } from "../../dist/src/runtime/file-watch.js";
-import { MainInboxDelivery, type MainControlType } from "../../dist/src/runtime/main-inbox-delivery.js";
+import {
+  MainInboxDelivery,
+  isCancelledCallback,
+  type MainControlType
+} from "../../dist/src/runtime/main-inbox-delivery.js";
 import { pauseSubagents, resumeSubagents } from "../../dist/src/runtime/subagent-pause.js";
 import {
   MAIN_CONTINUATION_TYPE,
@@ -254,6 +258,8 @@ async function registerMainExtension(pi: ExtensionAPI) {
       }
       if (message.kind === "human_command" && payload?.type === "human.message")
         return payload.initial === true;
+      // A cancelled Subagent's callback never starts a turn.
+      if (isCancelledCallback(message)) continue;
       return true;
     }
     return false;

@@ -409,7 +409,7 @@ test(
 );
 
 test(
-  "AC3: cancel interrupts the turn without ending the process or cancelling delegated work",
+  "AC3: stop ends the turn and cancels delegated work without ending the session, and the cancellation wakes no one",
   { timeout: 180_000 },
   async (t) => {
     let heldStarted = false;
@@ -442,24 +442,46 @@ test(
       payload: {
         task: "keep running",
         projectDirectory: f.dashboard.workspaceRoot,
-        // Outstanding but not runnable: the backend must not settle it, so the
-        // interrupt's effect on delegated work is what this case observes.
+        // Outstanding but not runnable: only the stop settles it.
         dependsOn: ["kept-prerequisite"]
       },
       maxAttempts: 1
     });
-    await f.api("/api/tasks/resident-interrupt/action", { action: "interrupt" });
-    const interrupted = await waitFor(
+    const stop = await f.api("/api/tasks/resident-interrupt/action", { action: "stop" });
+    assert.equal(stop.subagents, 1);
+    const stopped = await waitFor(
       async () => {
         const value = await f.detail("resident-interrupt");
         return !value.runtime.active ? value : undefined;
       },
-      "the interrupted turn to stop",
+      "the stopped turn to end",
       60_000
     );
-    assert.notEqual(interrupted.task.status, "cancelled", "an interrupt does not end the Task");
+    assert.notEqual(stopped.task.status, "cancelled", "a stop does not end the session");
     assert.equal(alive(record.pid), true, "the process stays for the next message");
-    assert.equal((await scheduler.list()).find((item) => item.stepId === "kept-delegation").status, "queued");
+    await waitFor(
+      async () =>
+        (await scheduler.list()).find((item) => item.stepId === "kept-delegation").status === "cancelled",
+      "the stop to cancel the delegated work",
+      30_000
+    );
+    const events = await readFile(
+      join(f.dashboard.workspaceRoot, "resident-interrupt", "runs", run.runId, "run_events.jsonl"),
+      "utf8"
+    );
+    assert.match(events, /"type":"main\.run_stopped"/);
+    // The cancelled work's callback is a record of the stop, not a new turn.
+    await new Promise((done) => setTimeout(done, 3_000));
+    assert.equal(f.requests.length, 1, "the cancellation does not wake Main");
+    await f.api("/api/tasks/resident-interrupt/run", { prompt: "AFTER_STOP_INPUT" });
+    await f.settleTurn("resident-interrupt");
+    assert.equal(f.requests.length, 2);
+    assert.match(JSON.stringify(f.requests[1].messages), /AFTER_STOP_INPUT/);
+    assert.match(
+      JSON.stringify(f.requests[1].messages),
+      /cancelled/,
+      "Main reads the cancellation with the next turn"
+    );
   }
 );
 
@@ -615,10 +637,10 @@ test(
     });
     assert.equal(injected.delivered, true);
 
-    // Interrupting must find the in-flight turn even though this backend never
+    // Stopping must find the in-flight turn even though this backend never
     // saw its stdout: the process's heartbeat is the durable turn record.
-    const interrupted = await f.api("/api/tasks/resident-adopted-turn/action", { action: "interrupt" });
-    assert.equal(interrupted.interrupted, true);
+    const stopped = await f.api("/api/tasks/resident-adopted-turn/action", { action: "stop" });
+    assert.equal(stopped.stopped, true);
     const idle = await waitFor(
       async () => {
         const value = await f.detail("resident-adopted-turn");
@@ -627,12 +649,12 @@ test(
       "the adopted turn to settle",
       60_000
     );
-    assert.equal(alive(record.pid), true, "the process stays after the interrupt");
+    assert.equal(alive(record.pid), true, "the process stays after the stop");
     assert.notEqual(idle.task.status, "cancelled");
     // With the turn over, the adopted process must read as idle rather than
     // staying "active" for the life of the process.
-    await f.api("/api/tasks/resident-adopted-turn/action", { action: "interrupt" }).then(
-      () => assert.fail("an idle adopted Main has no turn to interrupt"),
+    await f.api("/api/tasks/resident-adopted-turn/action", { action: "stop" }).then(
+      () => assert.fail("an idle adopted Main has no turn to stop"),
       (error) => assert.match(error.message, /409|没有正在运行的回合/)
     );
     release();

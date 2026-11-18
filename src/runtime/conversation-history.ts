@@ -73,7 +73,8 @@ export async function readTaskRuntimeEvents(
               "user.message_promoted",
               "user.message_cancelled",
               "inbox.consumed"
-            ].includes(value.type) || /^main\.run_(completed|failed|waiting|cancelled)$/.test(value.type)
+            ].includes(value.type) ||
+              /^main\.run_(completed|failed|waiting|cancelled|stopped)$/.test(value.type)
               ? [value]
               : [];
             // eslint-disable-next-line no-restricted-syntax -- 账本是追加写的，末行可能不完整；单行解析失败不能让整个会话历史丢失
@@ -85,10 +86,28 @@ export async function readTaskRuntimeEvents(
       })
   );
   runs.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.runId.localeCompare(b.runId));
-  return runs.flatMap((run) => [
-    ...run.events.map((event, index) => runtimeEventRecord(taskId, run.runId, index, event)),
-    ...run.ledgerEvents
-  ]);
+  return runs.flatMap((run) => {
+    const records: Array<Record<string, unknown>> = run.events.map((event, index) =>
+      runtimeEventRecord(taskId, run.runId, index, event)
+    );
+    // A resident Main serves several rounds in one Run. A stop belongs to the
+    // round it stopped, so it is placed after the last message written before
+    // it rather than at the end of the Run, where a later round would claim it.
+    const ledger = run.ledgerEvents.filter((event) => event.type !== "main.run_stopped");
+    for (const stop of run.ledgerEvents.filter((event) => event.type === "main.run_stopped")) {
+      const at = Date.parse(String(stop.occurredAt ?? ""));
+      let before = -1;
+      if (Number.isFinite(at))
+        records.forEach((record, index) => {
+          const time = (record.payload as { message?: { timestamp?: unknown } } | undefined)?.message
+            ?.timestamp;
+          if (typeof time === "number" && time <= at) before = index;
+        });
+      if (before < 0) ledger.push(stop);
+      else records.splice(before + 1, 0, stop);
+    }
+    return [...records, ...ledger];
+  });
 }
 
 /** Recover older messages from immutable run logs when an earlier version

@@ -719,14 +719,14 @@
                     aria-describedby="run-interrupt-detail"
                     hidden
                   >
-                    <h2 id="run-interrupt-title">中断本回合？</h2>
+                    <h2 id="run-interrupt-title">停止这一轮？</h2>
                     <p id="run-interrupt-detail">
-                      Main 会停止输出。会话、子代理和已完成的内容都保留，可以继续发消息。
+                      Main 和正在工作的子助手都会停下。做完的步骤和结果都保留，可以继续发消息。
                     </p>
                     <div class="run-interrupt-actions">
                       <button class="run-control-button" type="button" data-confirm-continue>继续运行</button>
                       <button class="run-control-button is-danger" type="button" data-confirm-interrupt>
-                        中断本回合
+                        停止
                       </button>
                     </div>
                   </div>
@@ -789,8 +789,8 @@
                         id="stop-button"
                         class="stop-button"
                         type="button"
-                        aria-label="中断本回合"
-                        title="中断本回合"
+                        aria-label="停止"
+                        title="停止（Esc）"
                         hidden
                       >
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-stop" /></svg>

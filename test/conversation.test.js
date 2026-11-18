@@ -629,3 +629,39 @@ test("queued user identity is removed from both live and replayed runtime events
   assert.match(payload.message.content, /atria-queued-user/, "the original durable record is unchanged");
   assert.equal(conversationMessages([record.payload.message])[0].id, "queue-1");
 });
+
+test("a stop in a resident Run belongs to the round it stopped, not the Run's last round", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atria-conversation-"));
+  try {
+    const at = Date.parse("2026-11-18T10:00:00Z");
+    const stopped = [user("stopped request", at), assistant("partial", at + 1_000)];
+    const next = [user("next request", at + 60_000), assistant("next answer", at + 61_000)];
+    const directory = join(root, "task", "runs", "resident");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "run.json"), JSON.stringify({ createdAt: "2026-11-18" }));
+    await writeFile(
+      join(directory, "runtime-output.log"),
+      [...runEvents(...stopped), ...runEvents(...next)].map(JSON.stringify).join("\n")
+    );
+    await writeFile(
+      join(directory, "run_events.jsonl"),
+      `${JSON.stringify({
+        eventId: "stop",
+        type: "main.run_stopped",
+        runId: "resident",
+        occurredAt: new Date(at + 2_000).toISOString(),
+        payload: { subagents: 2 }
+      })}\n`
+    );
+    const events = await readTaskRuntimeEvents(root, "task");
+    const exchanges = buildConversationExchanges(
+      messagesWithRuntimeHistory(conversationMessages([...stopped, ...next]), events),
+      events
+    );
+    assert.equal(exchanges.length, 2);
+    assert.ok(exchanges[0].events.some((event) => event.type === "main.run_stopped"));
+    assert.ok(!exchanges[1].events.some((event) => event.type === "main.run_stopped"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

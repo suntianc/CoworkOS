@@ -50,21 +50,35 @@ export async function readRunMetrics(input: ReadMetricsInput): Promise<MetricsRe
 
   for (const path of candidates) {
     let raw: string;
-    try { raw = await readFile(path, "utf8"); }
-    catch (error) {
+    try {
+      raw = await readFile(path, "utf8");
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      return { problem: `could not read ${displayPath(input.taskDirectory, path)}: ${(error as Error).message}` };
+      return {
+        problem: `could not read ${displayPath(input.taskDirectory, path)}: ${(error as Error).message}`
+      };
     }
     let parsed: unknown;
-    try { parsed = JSON.parse(raw); }
-    catch (error) { return { problem: `${displayPath(input.taskDirectory, path)} is not valid JSON: ${(error as Error).message}` }; }
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      return {
+        problem: `${displayPath(input.taskDirectory, path)} is not valid JSON: ${(error as Error).message}`
+      };
+    }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { problem: `${displayPath(input.taskDirectory, path)} must contain a JSON object of metric names to values` };
+      return {
+        problem: `${displayPath(input.taskDirectory, path)} must contain a JSON object of metric names to values`
+      };
     }
     const record = parsed as Record<string, unknown>;
     const refKey = REF_KEYS.find((key) => typeof record[key] === "string" && record[key]);
     const metrics = Object.fromEntries(Object.entries(record).filter(([key]) => !REF_KEYS.includes(key)));
-    return { metrics, source: displayPath(input.taskDirectory, path), ref: refKey ? String(record[refKey]) : undefined };
+    return {
+      metrics,
+      source: displayPath(input.taskDirectory, path),
+      ref: refKey ? String(record[refKey]) : undefined
+    };
   }
   return {};
 }

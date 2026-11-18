@@ -111,7 +111,7 @@ export interface DashboardRoutePorts {
   runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
   startMainRun: RunService["startMainRun"];
   pauseTask: RunService["pauseTask"];
-  interruptTask: RunService["interruptTask"];
+  stopTask: RunService["stopTask"];
   launchMainRun: MainRunLauncher;
   editMainMessage: RunService["editMainMessage"];
   forkConversation(
@@ -152,7 +152,7 @@ export function createDashboardHandler(
     runtimeValue,
     startMainRun,
     pauseTask,
-    interruptTask,
+    stopTask,
     activeRuns,
     cancelTask,
     resumeHumanAnswers,
@@ -1131,7 +1131,7 @@ export function createDashboardHandler(
         const action = body.action;
         if (
           action !== "pause" &&
-          action !== "interrupt" &&
+          action !== "stop" &&
           action !== "cancel" &&
           action !== "resume" &&
           action !== "complete"
@@ -1148,13 +1148,15 @@ export function createDashboardHandler(
           sendJson(response, 200, await publishTask(await taskListItem({ ...location, task: paused.task })));
           return;
         }
-        if (action === "interrupt") {
-          const interrupted = await interruptTask(taskId);
-          if (interrupted.refused) {
-            sendJson(response, 409, { error: "当前没有正在运行的回合" });
+        if (action === "stop") {
+          const stopped = await stopTask(taskId);
+          if (stopped.refused) {
+            sendJson(response, 409, {
+              error: stopped.refused === "paused" ? "已暂停的会话请先继续" : "当前没有正在运行的回合"
+            });
             return;
           }
-          sendJson(response, 202, interrupted);
+          sendJson(response, 202, stopped);
           return;
         }
         if (action === "complete") {

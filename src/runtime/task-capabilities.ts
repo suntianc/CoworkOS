@@ -45,9 +45,13 @@ export function resolveCapabilities(
 }
 
 function environmentPreset(env: NodeJS.ProcessEnv): ResolvedCapabilities {
-  const evalPaths = (env.COWORK_EVAL_PATHS ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+  const evalPaths = (env.COWORK_EVAL_PATHS ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
   const projectWrite = flag(env.COWORK_PROJECT_WRITE);
-  const configured = projectWrite !== undefined || env.COWORK_MAX_ATTEMPTS !== undefined || evalPaths.length > 0;
+  const configured =
+    projectWrite !== undefined || env.COWORK_MAX_ATTEMPTS !== undefined || evalPaths.length > 0;
   const maxAttempts = positive(env.COWORK_MAX_ATTEMPTS) ?? DEFAULT_MAX_ATTEMPTS;
   return {
     projectWrite: projectWrite === true,

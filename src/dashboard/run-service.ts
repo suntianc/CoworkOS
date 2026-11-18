@@ -18,7 +18,8 @@ import {
 } from "../runtime/main-message-edit.js";
 import { InputStore, inputPrompt, readTaskInput } from "../workspace/input-store.js";
 import { queuedUserTurn, readQueuedUserTurn } from "../runtime/queued-user-turn.js";
-import { MainInboxDelivery, isMainControlType } from "../runtime/main-inbox-delivery.js";
+import { MainInboxDelivery, isCancelledCallback, isMainControlType } from "../runtime/main-inbox-delivery.js";
+import { resumeSubagents } from "../runtime/subagent-pause.js";
 import { mainContextPaths } from "../runtime/main-context.js";
 import { mainInputPath, readMainInput, saveMainInput, type MainInput } from "../runtime/main-continuation.js";
 import { appendFile, readdir, realpath } from "node:fs/promises";
@@ -842,7 +843,9 @@ export function createDashboardRunService({
         // would leave the new process idle with nothing to do.
         (message.state === "ready" ||
           (message.state === "leased" && Date.parse(message.lease?.expiresAt ?? "") <= at)) &&
-        !isMainControlType((message.payload as { type?: unknown } | undefined)?.type)
+        !isMainControlType((message.payload as { type?: unknown } | undefined)?.type) &&
+        // A cancelled Subagent's callback is read with a turn but never starts one.
+        !isCancelledCallback(message)
     );
   }
 
@@ -2177,47 +2180,73 @@ export function createDashboardRunService({
   }
 
   /**
-   * Stop the turn Main is producing, leaving the session and its work alone.
+   * Stop the round: Main's turn and every Subagent still working, at once.
    *
-   * The command travels through the process's own durable Inbox like every
-   * other message, so it needs no second control channel: Main aborts the run
-   * where Pi next checks its signal and stays available for the next message.
-   * Subagents already running are not cancelled; the Task is not ended.
+   * Nothing is asked of Main here. The backend cancels the Run's working
+   * Subagents itself (the same cancel closing a session uses, but the
+   * session stays open), drops a pause that has not taken effect, and aborts
+   * the turn Main is producing where Pi next checks its signal. Finished steps
+   * and results stay. A cancelled Subagent's callback does not start a turn of
+   * its own (see `main-inbox-delivery.ts` and `main-supervisor.ts`), so the
+   * stopped round is not woken again by its own Subagents.
    */
-  function interruptTask(taskId: string) {
+  function stopTask(taskId: string) {
     return serialize(taskId, async () => {
       const location = await locateTask(taskId);
+      if (location.task.status === "paused") return { refused: "paused" as const };
       // The adopted process reports its turn through the durable heartbeat;
       // a process this backend observes reports its event stream.
-      // Adoption is only used for the Run identity; the turn decision below
-      // reads the durable record and does not need the takeover to succeed.
       // eslint-disable-next-line no-restricted-syntax -- 接管失败时仍按持久回合记录判断，消息留给下一个 Main 读取
       const resident = await adoptResidentMain(taskId, location).catch(() => undefined);
-      // Both this decision and `runtime.active` read the same durable record.
-      const turnActive = await taskTurnActive(taskId);
       const runId = resident?.runId ?? location.task.activeRunId;
-      if (!turnActive || !runId) return { refused: "no_active_turn" as const };
-      const inbox = new InboxStore(
-        join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
-      );
-      const messageId = `main-interrupt-${randomUUID()}`;
-      await inbox.enqueue({
-        messageId,
-        recipientAgentId: "main",
-        kind: "human_command",
-        eventId: `main-interrupt-event-${messageId}`,
-        // Ahead of callbacks and external events, but behind a user insertion
-        // enqueued before it: the person's message belongs to the turn the
-        // interrupt then stops, not to a fresh turn after it.
-        priority: 110,
-        state: "ready",
-        payload: { type: "main.interrupt" },
-        createdAt: now()
+      if (!runId) return { refused: "no_active_turn" as const };
+      const turnActive = await taskTurnActive(taskId);
+      const coordination = await coordinator.waitForSubagents({
+        taskId,
+        runId,
+        workspaceRoot: location.workspaceRoot,
+        timeoutMs: 0
       });
-      await appendRunEvent(location.workspaceRoot, taskId, runId, "main.interrupt_requested", {
-        messageId
+      if (!turnActive && !coordination.pending.length) return { refused: "no_active_turn" as const };
+      // A pause still waiting for its boundary would otherwise be recorded
+      // when the aborted turn settles.
+      if (location.task.pause) await location.store.updateTask(taskId, { pause: undefined });
+      await appendRunEvent(location.workspaceRoot, taskId, runId, "main.run_stopped", {
+        reason: "ui_stop",
+        subagents: coordination.pending.length
       });
-      return { taskId, runId, interrupted: true };
+      await resumeSubagents(location.workspaceRoot, taskId, runId);
+      if (subagents) {
+        const results = await Promise.allSettled(
+          coordination.pending.map((callId) =>
+            subagents.cancel({ taskId, runId, callId, reason: "User stopped the round" })
+          )
+        );
+        const rejected = results.find((result) => result.status === "rejected");
+        if (rejected?.status === "rejected") throw rejected.reason;
+      }
+      if (turnActive) {
+        const messageId = `main-interrupt-${randomUUID()}`;
+        await new InboxStore(
+          join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
+        ).enqueue({
+          messageId,
+          recipientAgentId: "main",
+          kind: "human_command",
+          eventId: `main-interrupt-event-${messageId}`,
+          // Ahead of callbacks and external events, but behind a user insertion
+          // enqueued before it: the person's message belongs to the turn the
+          // stop then ends, not to a fresh turn after it.
+          priority: 110,
+          state: "ready",
+          payload: { type: "main.interrupt" },
+          createdAt: now()
+        });
+        await appendRunEvent(location.workspaceRoot, taskId, runId, "main.interrupt_requested", {
+          messageId
+        });
+      }
+      return { taskId, runId, stopped: true, subagents: coordination.pending.length };
     });
   }
 
@@ -2492,7 +2521,7 @@ export function createDashboardRunService({
     isBusy: () => activeRuns.size > 0 || taskOperations.size > 0 || finalizations.size > 0,
     startMainRun,
     pauseTask,
-    interruptTask,
+    stopTask,
     editMainMessage,
     interjectionTarget,
     queueInterjection,
