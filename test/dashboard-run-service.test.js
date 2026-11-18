@@ -35,6 +35,19 @@ test("project reassignment and run startup are serialized and cannot change a ru
   assert.equal((await f.store.readTask("task")).projectDirectory, "/tmp/selected-project");
 });
 
+test("a stopped conversation's unread Subagent results do not hold the project, a working Subagent does", async (t) => {
+  let coordination = { pending: [], callbackPending: ["call-finished"] };
+  const f = await fixture(t, { coordinator: { waitForSubagents: async () => coordination } });
+  await mkdir(join(f.workspaceRoot, "task", "runs", "stopped-run"), { recursive: true });
+  // Main failed before reading the result; the result waits in its Inbox.
+  assert.equal(await f.service.withIdleProjectTasks(["task"], async () => "removed", "移除项目"), "removed");
+  coordination = { pending: ["call-working"], callbackPending: [] };
+  await assert.rejects(
+    f.service.withIdleProjectTasks(["task"], async () => "removed", "移除项目"),
+    /请先停止项目中的后台协作，再移除项目/
+  );
+});
+
 /** A corrupt park record: the file exists but holds nothing readable. */
 async function corruptSleep(workspaceRoot) {
   const directory = join(workspaceRoot, "task", "agents", "main");

@@ -2101,7 +2101,10 @@ export function createDashboardRunService({
             workspaceRoot: location.workspaceRoot,
             timeoutMs: 0
           });
-          if (coordination.pending.length || coordination.callbackPending.length)
+          // Only a Subagent still working holds the project. A finished one's
+          // result waiting for a stopped Main is a record, not activity: it
+          // stays in the Inbox and reaches Main when the conversation resumes.
+          if (coordination.pending.length)
             throw new ProjectCatalogError(`请先停止项目中的后台协作，再${change}`, 409);
           const agents = join(location.workspaceRoot, taskId, "runs", runId, "agents");
           // eslint-disable-next-line no-restricted-syntax -- 该 Run 可能从未启动子代理，subagents 目录缺失按空列表继续
