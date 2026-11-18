@@ -141,8 +141,10 @@ export function buildLiveActivity(events) {
         const item = ensureBlock(textType, index);
         if (update.type.endsWith("_delta") && !item.complete && !message.closed)
           item.text += String(update.delta || "");
-        if (update.type.endsWith("_end") && typeof update.content === "string") {
-          item.text = update.content;
+        // A saved history drops an ended block's text, which the message
+        // snapshot that follows carries.
+        if (update.type.endsWith("_end")) {
+          if (typeof update.content === "string") item.text = update.content;
           item.complete = true;
         }
       }

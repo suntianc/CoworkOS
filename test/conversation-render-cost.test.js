@@ -26,6 +26,30 @@ test("the conversation view drops the system prompt and agent_end bodies, nothin
     assert.equal(viewRuntimeEvent(record), record);
 });
 
+test("a callback's start keeps only what identifies it; its end keeps the report", () => {
+  const message = {
+    role: "custom",
+    customType: "cowork-callback",
+    content: "report".repeat(1000),
+    details: { callId: "call-1", status: "completed", review: "long".repeat(1000) },
+    timestamp: 3
+  };
+  assert.deepEqual(
+    viewRuntimeEvent(runtime({ type: "message_start", message })),
+    runtime({
+      type: "message_start",
+      message: {
+        role: "custom",
+        customType: "cowork-callback",
+        timestamp: 3,
+        details: { callId: "call-1", status: "completed" }
+      }
+    })
+  );
+  const end = runtime({ type: "message_end", message });
+  assert.equal(viewRuntimeEvent(end), end);
+});
+
 test("patching from a later part leaves the earlier children untouched", () => {
   const { document } = parseHTML("<!doctype html><html><body><div id=list></div></body></html>");
   const list = document.getElementById("list");

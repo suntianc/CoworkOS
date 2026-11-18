@@ -8,7 +8,8 @@ import {
   messagesWithRuntimeHistory,
   readTaskRuntimeEvents,
   runtimeEventRecord,
-  settledRuntimeEvents
+  settledRuntimeEvents,
+  viewRuntimeEvent
 } from "../dist/src/runtime/conversation-history.js";
 import { conversationMessages } from "../dist/src/runtime/conversation-view.js";
 import {
@@ -686,6 +687,89 @@ test("a re-read history keeps streamed ledger news it saves, not a pause it neve
   // News the history does save still survives a read that started before it.
   const late = ledger("4", "main.run_waiting");
   assert.deepEqual(mergeRuntimeEvents([answer], [answer, late]), [answer, late]);
+});
+
+test("a saved history keeps one copy of what an ended message, turn and tool repeat", () => {
+  const call = { type: "toolCall", id: "call-1", name: "bash", arguments: { command: "ls" } };
+  const ended = {
+    role: "assistant",
+    timestamp: 1,
+    stopReason: "toolUse",
+    content: [{ type: "thinking", thinking: "list it", thinkingSignature: "sig".repeat(100) }, call]
+  };
+  const result = { content: [{ type: "text", text: "a.md" }] };
+  const toolResult = {
+    role: "toolResult",
+    toolCallId: "call-1",
+    toolName: "bash",
+    content: result.content,
+    timestamp: 2
+  };
+  const update = (assistantMessageEvent) => ({
+    type: "message_update",
+    usage: { totalTokens: 9 },
+    assistantMessageEvent
+  });
+  const payloads = [
+    { type: "turn_start" },
+    { type: "message_start", message: { role: "assistant", timestamp: 1, content: [] } },
+    update({ type: "thinking_start", contentIndex: 0 }),
+    update({ type: "thinking_delta", contentIndex: 0, delta: "list it" }),
+    update({ type: "thinking_end", contentIndex: 0, content: "list it" }),
+    update({ type: "toolcall_start", contentIndex: 1, id: "call-1", toolName: "bash" }),
+    update({ type: "toolcall_end", contentIndex: 1, toolCall: call }),
+    { type: "message_end", message: ended },
+    { type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: call.arguments },
+    { type: "tool_execution_update", toolCallId: "call-1", toolName: "bash", partialResult: { content: [] } },
+    { type: "tool_execution_end", toolCallId: "call-1", toolName: "bash", result, isError: false },
+    { type: "message_start", message: toolResult },
+    { type: "message_end", message: toolResult },
+    { type: "turn_end", message: ended, toolResults: [toolResult] },
+    { type: "turn_start" },
+    { type: "message_start", message: { role: "assistant", timestamp: 3, content: [] } },
+    update({ type: "thinking_start", contentIndex: 0 }),
+    update({ type: "thinking_delta", contentIndex: 0, delta: "next" }),
+    update({ type: "thinking_end", contentIndex: 0, content: "next" }),
+    { type: "tool_execution_start", toolCallId: "call-2", toolName: "bash", args: {} },
+    { type: "tool_execution_update", toolCallId: "call-2", toolName: "bash", partialResult: { content: [] } }
+  ];
+  const full = payloads.map((payload, index) => runtimeEventRecord("task", "run", index, payload));
+  const saved = settledRuntimeEvents(full).map(viewRuntimeEvent);
+  const payload = (type, from = saved) =>
+    from.filter((record) => record.payload.type === type).map((record) => record.payload);
+
+  assert.deepEqual(buildLiveActivity(saved), buildLiveActivity(full.map(viewRuntimeEvent)));
+  assert.deepEqual(payload("turn_end")[0], {
+    type: "turn_end",
+    message: { role: "assistant", id: undefined, timestamp: 1, stopReason: "toolUse" }
+  });
+  // An ended block keeps its place but not its text; an open one keeps both.
+  assert.deepEqual(
+    payload("message_update").map((entry) => entry.assistantMessageEvent),
+    [
+      { type: "thinking_start", contentIndex: 0 },
+      { type: "thinking_end", contentIndex: 0 },
+      { type: "toolcall_start", contentIndex: 1, id: "call-1", toolName: "bash" },
+      { type: "toolcall_end", contentIndex: 1, toolCall: { type: "toolCall", id: "call-1", name: "bash" } },
+      { type: "thinking_start", contentIndex: 0 },
+      { type: "thinking_delta", contentIndex: 0, delta: "next" },
+      { type: "thinking_end", contentIndex: 0, content: "next" }
+    ]
+  );
+  assert.ok(payload("message_update").every((entry) => !("usage" in entry)));
+  // Progress is dropped once the tool's result is in.
+  assert.deepEqual(
+    payload("tool_execution_update").map((entry) => entry.toolCallId),
+    ["call-2"]
+  );
+  assert.deepEqual(
+    payload("message_end").map((entry) => entry.message),
+    [
+      { ...ended, content: [{ type: "thinking", thinking: "list it" }, call] },
+      { role: "toolResult", toolCallId: "call-1", toolName: "bash", isError: undefined, timestamp: 2 }
+    ]
+  );
+  assert.equal(runtimeLogMarks(saved).get("run"), full.length - 1);
 });
 
 test("a saved history drops the deltas of ended messages and draws the same conversation", () => {
