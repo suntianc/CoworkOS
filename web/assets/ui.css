@@ -1836,12 +1836,20 @@ body {
 .user-message-bubble .markdown-body > :last-child {
   margin-bottom: 0;
 }
-.user-message-actions {
+/* The edit key sits beside the bubble, outside the flow: it is only added
+   once the message is saved, and taking room under the bubble then pushed
+   the reply down a step after it had started. */
+.chat-pane .chat-message.user:not(.is-editing) {
   position: relative;
+}
+.user-message-actions {
+  position: absolute;
+  right: calc(100% + 4px);
+  bottom: 2px;
   display: flex;
   justify-content: flex-end;
   height: 32px;
-  margin: 4px 2px 0;
+  margin: 0;
 }
 .user-message-actions .app-button {
   width: 32px;
@@ -1903,6 +1911,9 @@ body {
   }
 }
 .chat-message.is-editing .user-message-actions {
+  position: relative;
+  right: auto;
+  bottom: auto;
   height: auto;
   margin: 12px 0 0;
 }

@@ -115,7 +115,8 @@ export function createRunControl({
   const LABELS = {
     working: () => ui("Main 工作中"),
     pausing: () => ui("正在暂停"),
-    waiting: (current) => ui`Main 在等子助手 · ${current.agents} 个在工作`,
+    waiting: (current) =>
+      current.agents ? ui`Main 在等子助手 · ${current.agents} 个在工作` : ui("Main 在等子助手"),
     asking: () => ui("Main 在问你"),
     retrying: () => ui("模型重连中"),
     // Main paused its Subagents before itself; the line says so by name.

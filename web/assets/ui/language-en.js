@@ -671,6 +671,7 @@ export default {
   "Main 和 ": "Main and ",
   " 个子助手都已停下，做完的结果保留": " Subagents stopped; finished results are kept",
   "Main 在等子助手 · ": "Main is waiting for Subagents · ",
+  "Main 在等子助手": "Main is waiting for Subagents",
   " 个在工作": " working",
   "Main 在问你": "Main is asking you",
   模型重连中: "Reconnecting to the model",

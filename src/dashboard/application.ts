@@ -865,6 +865,7 @@ export function createDashboardApplication(
     mainProcessRunning: runs.mainProcessRunning,
     mainTurnActive: runs.taskTurnActive,
     ensureMainProcess: runs.ensureMainProcess,
+    closeIdleMain: runs.closeIdleMain,
     cancelTask: runs.cancelTask,
     queuedMessageAction: runs.queuedMessageAction,
     queueInterjection: runs.queueInterjection,

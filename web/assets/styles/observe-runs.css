@@ -460,24 +460,6 @@ html[data-theme="light"] .observe-view[data-observe-panel="runs"] {
   }
 }
 
-.runs-done {
-  position: absolute;
-  top: 50%;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  color: var(--color-ok);
-  background: var(--color-ok-soft);
-  transform: translate(-100%, -50%);
-}
-
-.runs-done .ui-icon {
-  width: 10px;
-  height: 10px;
-}
-
 .runs-stall {
   position: absolute;
   top: 0;

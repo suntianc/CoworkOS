@@ -208,7 +208,7 @@ test("runs renders Main lanes, Subagent branches and the stage colouring", async
   assert.match(sub.textContent, /Executor/);
   assert.match(sub.textContent, /Ara/);
   assert.match(sub.textContent, /已完成/);
-  assert.ok(sub.querySelector(".runs-done"));
+  assert.equal(sub.querySelector(".runs-done, .runs-head"), null);
   assert.equal(sub.dataset.state, "completed");
 
   const reviewBranch = card.querySelector('[data-runs-agent="subagent_3"]');

@@ -38,6 +38,8 @@ export interface SubagentProgress {
   turns: number;
   messageCount: number;
   elapsedMs?: number;
+  /** When it was handed out; the page counts a running one's time from here. */
+  startedAt?: string;
   lastTool?: string;
   lastAssistantText?: string;
 }
@@ -167,6 +169,7 @@ export async function readSubagentProgress(input: {
           turns: trace.turns,
           messageCount: trace.messageCount,
           elapsedMs,
+          ...(item.createdAt ? { startedAt: item.createdAt } : {}),
           lastTool: trace.lastTool,
           lastAssistantText: trace.lastAssistantText
         };

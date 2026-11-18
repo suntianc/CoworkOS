@@ -38,6 +38,8 @@ import { createManagedMedia } from "./assets/controllers/managed-media.js";
 import { createConversationView } from "./assets/controllers/conversation-view.js";
 import { createConversationLayout } from "./assets/controllers/conversation-layout.js";
 import { createConnectionController } from "./assets/controllers/connection-controller.js";
+import { revealScrollbarsWhileScrolling } from "./assets/ui/scrollbars.js";
+import { rememberedTaskMap } from "./assets/remembered-choices.js";
 import { createManagementClient } from "./assets/controllers/management-client.js";
 import { createTaskNotifications } from "./assets/controllers/task-notifications.js";
 import { createBackendConnection } from "./assets/controllers/backend-connection.js";
@@ -65,6 +67,8 @@ import { installCodeBlockActions } from "./assets/ui/code-blocks.js";
 import { animateLayout, installSelectionGlide } from "./assets/ui/motion.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
 
+revealScrollbarsWhileScrolling();
+
 localizeShell(document.body);
 // The run pill walks the Formicand ant while Main works.
 for (const dot of document.querySelectorAll(".run-control-dot")) {
@@ -88,7 +92,8 @@ const state = {
    * that run uses that provider. Null follows the Main connection.
    */
   profileId: null,
-  profileByTask: new Map(),
+  // Remembered per conversation across restarts (`remembered-choices.js`).
+  profileByTask: rememberedTaskMap(() => draftStorage, "atria.model.profile-by-task"),
   /** Usable providers and their models, from /api/models. */
   modelProviders: [],
   mainProviderId: "",
@@ -98,7 +103,7 @@ const state = {
    * inherited level must never be sent as if it were a choice.
    */
   thinkingLevel: null,
-  thinkingLevelByTask: new Map(),
+  thinkingLevelByTask: rememberedTaskMap(() => draftStorage, "atria.model.level-by-task"),
   /** Per model: the reasoning levels it accepts and where they came from (#27). */
   modelLevels: {},
   /** The Main connection's saved level, reported by the server for the label. */
@@ -673,8 +678,8 @@ function paintModelProvider(provider) {
   if (provider !== undefined) state.modelProvider = provider || null;
   const slot = $("#model-select .model-logo");
   const shown = pickedProfile()?.provider || state.modelProvider;
-  if (!slot || !shown) return;
-  slot.innerHTML = providerLogo(shown, 18);
+  if (!slot) return;
+  slot.innerHTML = providerLogo(shown, 18, state.model || state.defaultModel);
 }
 /** One button names the model and the reasoning level this Run will send. */
 function paintModelButton() {
@@ -744,13 +749,19 @@ function syncModelConnection(model, profileId, mainEffort) {
   // omits it and must not erase what the composer is showing.
   if (mainEffort !== undefined) state.mainThinkingLevel = mainEffort;
   if (state.connectionProfileId !== profileId || state.defaultModel !== model) {
+    // The first read after start is not a switch: each conversation keeps the
+    // level and provider remembered for it. A real switch of the Main
+    // connection starts every conversation's choices over.
+    if (state.connectionProfileId !== undefined) {
+      state.profileByTask.clear();
+      state.thinkingLevelByTask.clear();
+    }
     state.connectionProfileId = profileId;
     state.modelByTask.clear();
-    state.profileByTask.clear();
-    state.thinkingLevelByTask.clear();
-    state.profileId = null;
-    state.model = model;
-    state.thinkingLevel = null;
+    state.profileId = state.selected ? (state.profileByTask.get(state.selected) ?? null) : null;
+    // A remembered model of another provider is that provider's, not the default.
+    state.model = pickedProfile()?.model.id ?? model;
+    state.thinkingLevel = state.selected ? (state.thinkingLevelByTask.get(state.selected) ?? null) : null;
   }
   state.defaultModel = model;
   state.model ||= model;
@@ -771,9 +782,10 @@ async function loadModels() {
       typeof data.current === "string" && data.current.trim()
         ? data.current.trim()
         : state.models[0] || "glm-5.3";
-    syncModelConnection(defaultModel, data.connectionProfileId, data.reasoningEffort ?? null);
+    // Providers first: restoring a remembered provider looks its model up.
     state.modelProviders = Array.isArray(data.providers) ? data.providers : [];
     state.mainProviderId = typeof data.mainProviderId === "string" ? data.mainProviderId : "";
+    syncModelConnection(defaultModel, data.connectionProfileId, data.reasoningEffort ?? null);
     if (state.profileId && !pickedProfile()) state.profileId = null;
     paintModelProvider(data.provider);
     // eslint-disable-next-line no-restricted-syntax -- /api/models is unavailable while the backend restarts or is offline; the picker keeps a usable model instead of an empty list
@@ -1023,7 +1035,6 @@ function resetBackendView() {
   state.artifactCache.clear();
   state.viewerTaskId = null;
   state.modelByTask.clear();
-  state.thinkingLevelByTask.clear();
   state.mainThinkingLevel = null;
   state.models = [];
   state.model = null;
@@ -1467,7 +1478,10 @@ const modelPicker = createModelPicker({
     fallback: fallbackThinkingLevel(),
     notice: modelNotice,
     provider: state.modelProvider
-      ? { name: state.modelProvider.name, mark: providerLogo(state.modelProvider, 18) }
+      ? {
+          name: state.modelProvider.name,
+          mark: providerLogo(state.modelProvider, 18, state.model || state.defaultModel)
+        }
       : null,
     groups: pickerGroups()
   }),
@@ -1521,6 +1535,7 @@ function pickerGroups() {
     mark: providerLogo(provider, 18),
     models: provider.models.map((entry) => ({
       id: entry.id,
+      mark: providerLogo(provider, 18, entry.id),
       profileId: entry.profileId,
       active: state.profileId
         ? entry.profileId === state.profileId
@@ -1990,6 +2005,11 @@ async function createTaskFromDraft(
     return task.taskId;
   }
   state.selected = task.taskId;
+  // The new conversation keeps what the composer had picked; reading its
+  // detail would otherwise put the model and level back to the defaults.
+  if (state.model) state.modelByTask.set(task.taskId, state.model);
+  state.profileByTask.set(task.taskId, state.profileId);
+  state.thinkingLevelByTask.set(task.taskId, state.thinkingLevel);
   state.composingNew = false;
   state.detail = { task, messages: [] };
   state.localMessages = [];

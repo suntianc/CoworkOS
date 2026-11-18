@@ -286,7 +286,7 @@ App 将外观偏好保存在用户数据目录的 `appearance.json`，Web 按浏
 | `subagentMaxTokens`         | `COWORK_MAX_TOKENS`                   | 65536；新连接 8192                               |
 | `contextWindow`             | `COWORK_CONTEXT_WINDOW`               | 256000 token                                     |
 | `mainTimeoutMs`             | `COWORK_MAIN_TIMEOUT_MS`              | 0，不限时                                        |
-| `mainIdleTimeoutMs`         | `COWORK_MAIN_IDLE_TIMEOUT_MS`         | 1800000（30 分钟）；0 不因空闲退出               |
+| `mainIdleTimeoutMs`         | `COWORK_MAIN_IDLE_TIMEOUT_MS`         | 300000（5 分钟）；0 不因空闲退出                 |
 | `subagentTimeoutMs`         | `COWORK_SUBAGENT_TIMEOUT_MS`          | 0，不限时；旧 `COWORK_TIMEOUT_MS` 仅兼容子智能体 |
 | `commandTimeoutMs`          | `COWORK_COMMAND_TIMEOUT_MS`           | 1800000（30 分钟）；0 不限时                     |
 | `maxAttempts`               | `COWORK_MAX_ATTEMPTS`                 | 3，含首次委派；1 关闭委派重试                    |

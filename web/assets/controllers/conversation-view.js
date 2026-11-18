@@ -184,6 +184,10 @@ function stoppedRequestFailure(task, detail, exchange, submitting) {
 }
 
 /** Renders conversation history; networking and application windows are supplied by the page. */
+function liveClockText(label, since) {
+  return [label, formatExecutionDuration(Math.max(0, Date.now() - since))].filter(Boolean).join(" ");
+}
+
 export function createConversationView({
   state,
   $,
@@ -341,6 +345,23 @@ export function createConversationView({
   function allPreservedMessage(task) {
     return task.taskId && state.detail?.messages?.length ? ui("你发送的内容和已有过程已保留。") : "";
   }
+  // Running Subagent rows count their own time between renders.
+  let liveClockTimer;
+  function syncLiveClocks(scroll) {
+    const tick = () => {
+      const clocks = scroll.querySelectorAll("[data-live-since]");
+      if (!clocks.length) {
+        clearInterval(liveClockTimer);
+        liveClockTimer = undefined;
+        return;
+      }
+      for (const clock of clocks)
+        clock.textContent = liveClockText(clock.dataset.liveLabel, Number(clock.dataset.liveSince));
+    };
+    if (liveClockTimer === undefined && scroll.querySelector("[data-live-since]"))
+      liveClockTimer = setInterval(tick, 1000);
+  }
+
   function renderConversation(messages, task) {
     const scroll = $("#conversation");
     // Capture live blocks as well as saved history, including before an empty
@@ -546,6 +567,7 @@ export function createConversationView({
       const counts = reconcileParts(scroll, parts.slice(kept.length), scroll.childNodes[offset] ?? null);
       lastRender = { taskId: task.taskId, parts, counts: [...kept, ...counts] };
       streamReveal.apply(scroll);
+      syncLiveClocks(scroll);
       const ownsRecovery = () => state.selected === task.taskId && state.detail?.task?.taskId === task.taskId;
       for (const [selector, action] of [
         ["[data-edit-message]", () => edit?.(task.taskId, state.detail?.editableMessage)],
@@ -819,12 +841,19 @@ export function createConversationView({
                       .filter(Boolean)
                       .join(" ");
       const running = !finished && !held && status === "running";
+      // A running one counts up in the page from when it was handed out,
+      // rather than showing the time of the last snapshot.
+      const since = running && presentation.statusLabel !== "协作排队中" ? Date.parse(agent.startedAt) : NaN;
+      const liveClock = Number.isFinite(since)
+        ? ` data-live-since="${since}" data-live-label="${esc(ui("运行中"))}"`
+        : "";
+      const statusText = liveClock ? liveClockText(ui("运行中"), since) : right;
       const mark = running
         ? `<span class="tool-progress-spinner ant-mark" data-thinking-key="${esc(`${item.key}:agent`)}" aria-hidden="true">${antMarkSvg}</span>`
         : '<span class="tool-status-dot" aria-hidden="true"></span>';
       const text = finished && agent.outcome ? agent.outcome : agent.task;
       const sections = presentation.detailSections || [];
-      return `<details class="tool-details subagent-step is-${finished ? "done" : status === "failed" ? "failed" : running ? "running" : "waiting"}" data-activity-key="${esc(item.key)}" data-view-key="${esc(item.key)}"><summary class="activity-step-head">${mark}<span class="tool-action"><strong>${esc(agent.name)}</strong><span class="subagent-role-tag">${esc(agent.role)}</span>${text ? `<span class="tool-subject" title="${esc(text)}">${esc(text)}</span>` : ""}</span><span class="subagent-status">${esc(right)}</span><span class="tool-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="tool-details-body">${sections.map((section) => `<section><span class="activity-data-label">${esc(section.label)}</span><pre class="tool-copy" data-reading-key="${esc(section.label)}">${esc(section.text)}</pre></section>`).join("")}</div></details>`;
+      return `<details class="tool-details subagent-step is-${finished ? "done" : status === "failed" ? "failed" : running ? "running" : "waiting"}" data-activity-key="${esc(item.key)}" data-view-key="${esc(item.key)}"><summary class="activity-step-head">${mark}<span class="tool-action"><strong>${esc(agent.name)}</strong><span class="subagent-role-tag">${esc(agent.role)}</span>${text ? `<span class="tool-subject" title="${esc(text)}">${esc(text)}</span>` : ""}</span><span class="subagent-status"${liveClock}>${esc(statusText)}</span><span class="tool-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="tool-details-body">${sections.map((section) => `<section><span class="activity-data-label">${esc(section.label)}</span><pre class="tool-copy" data-reading-key="${esc(section.label)}">${esc(section.text)}</pre></section>`).join("")}</div></details>`;
     });
     return `<div class="activity-step subagent-group" data-view-key="${esc(group.key)}"><div class="activity-step-content"><div class="activity-step-head"><span class="tool-status-dot" aria-hidden="true"></span><strong>${esc(ui`派出 ${group.items.length} 个子助手`)}</strong></div><div class="subagent-nest">${rows.join("")}</div></div></div>`;
   }

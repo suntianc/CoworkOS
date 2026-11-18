@@ -44,16 +44,47 @@ export function requestPreview(baseUrl, api) {
   return `${root}${API_PATHS[api] || API_PATHS["openai-completions"]}`;
 }
 
-/** A provider's mark: its preset logo, or the first letter of its name. */
-export function providerLogo(provider, size = 28) {
-  const preset = presetById(provider?.preset);
+/** Model families a custom provider's model ids are recognized by. */
+const MODEL_FAMILIES = [
+  [/^(gpt|o\d|chatgpt|codex)/i, "openai"],
+  [/deepseek/i, "deepseek"],
+  [/claude/i, "anthropic"],
+  [/gemini|gemma/i, "gemini"],
+  [/^(glm|chatglm)/i, "zhipu"],
+  [/kimi|moonshot/i, "moonshot"],
+  [/qwen|qwq/i, "bailian"],
+  [/grok/i, "xai"],
+  [/mistral|mixtral|codestral|devstral/i, "mistral"],
+  [/minimax|abab/i, "minimax"],
+  [/hunyuan/i, "hunyuan"],
+  [/doubao|seed-/i, "volcengine"],
+  [/ernie/i, "qianfan"],
+  [/mimo/i, "xiaomimimo"]
+];
+
+/** The preset whose logo a model id belongs to, e.g. `gpt-5` or `openai/gpt-5` → openai. */
+export function modelFamily(model) {
+  const id = String(model || "").trim();
+  if (!id) return undefined;
+  const name = id.split("/").pop();
+  const match = MODEL_FAMILIES.find(([pattern]) => pattern.test(name) || pattern.test(id));
+  return match ? presetById(match[1]) : undefined;
+}
+
+/**
+ * A provider's mark: its preset logo. A custom provider has none, so the mark
+ * follows the model it serves (a gpt model shows OpenAI's), and a model of no
+ * known family shows a plain chip mark.
+ */
+export function providerLogo(provider, size = 28, model) {
+  const preset = presetById(provider?.preset) || modelFamily(model);
   const style = `--logo-size:${size}px`;
   if (!preset)
-    return `<span class="provider-logo is-letter" style="${style}" aria-hidden="true">${esc((provider?.name || "?").trim().slice(0, 1).toUpperCase())}</span>`;
+    return `<span class="provider-logo is-generic" data-logo="generic" style="${style}" aria-hidden="true">${icon("cpu")}</span>`;
   const url = `/assets/brand/providers/${preset.logo ?? preset.id}.svg`;
   return preset.mono
-    ? `<span class="provider-logo" style="${style}" aria-hidden="true"><span class="provider-logo-mono" style="--logo:url('${url}')"></span></span>`
-    : `<span class="provider-logo" style="${style}" aria-hidden="true"><img src="${url}" alt=""></span>`;
+    ? `<span class="provider-logo" data-logo="${preset.id}" style="${style}" aria-hidden="true"><span class="provider-logo-mono" style="--logo:url('${url}')"></span></span>`
+    : `<span class="provider-logo" data-logo="${preset.id}" style="${style}" aria-hidden="true"><img src="${url}" alt=""></span>`;
 }
 
 const formatTokens = (value) =>
@@ -319,7 +350,7 @@ export function installModelProviders({
   const pickerLabel = (profileId, fallback) => {
     const found = profileId && findModel(profileId);
     return found
-      ? `${providerLogo(found.provider, 22)}<span class="role-picker-text"><span>${esc(found.model.name || found.model.id)}</span><small>${esc(found.provider.name)}</small></span>`
+      ? `${providerLogo(found.provider, 22, found.model.id)}<span class="role-picker-text"><span>${esc(found.model.name || found.model.id)}</span><small>${esc(found.provider.name)}</small></span>`
       : `<span class="role-picker-text is-empty"><span>${esc(fallback)}</span></span>`;
   };
   /** The model a role runs on: its binding, or for Main the first available model. */

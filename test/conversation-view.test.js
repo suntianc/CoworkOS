@@ -1379,3 +1379,30 @@ test("cached earlier replies refresh after edits, disclosure changes and externa
   render([{ role: "user", content: "other request", timestamp: 10 }]);
   assert.doesNotMatch(document.querySelector("#conversation").textContent, /revised answer/);
 });
+
+test("a running Subagent's time counts from when it was handed out, not from the last snapshot", () => {
+  const { document, state, render } = fixture("live-subagent-clock");
+  const startedAt = new Date(Date.now() - 65_000).toISOString();
+  state.detail.progress = {
+    agents: [{ callId: "call-vela", name: "Vela", status: "running", elapsedMs: 3_000, startedAt }]
+  };
+  state.detail.runtimeEvents.push(
+    update("toolcall_end", 1, {
+      toolCall: { id: "vela", name: "call_subagent", arguments: { name: "Vela", task: "跑一分钟", mode: "async" } }
+    }),
+    {
+      type: "tool_execution_end",
+      toolCallId: "vela",
+      result: { content: [], details: { callId: "call-vela", accepted: true } }
+    }
+  );
+  render();
+  const status = document.querySelector(".subagent-step .subagent-status");
+  assert.equal(status.dataset.liveSince, String(Date.parse(startedAt)));
+  assert.match(status.textContent, /运行中 1分钟[5-9]秒/);
+  // Once it finishes nothing counts any more, and the page's clock stops itself.
+  state.detail.progress.agents[0].status = "succeeded";
+  state.detail.runtime.active = false;
+  render();
+  assert.equal(document.querySelector("[data-live-since]"), null);
+});

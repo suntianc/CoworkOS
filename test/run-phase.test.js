@@ -49,3 +49,17 @@ test("Main waiting on its Subagents is waiting, not working", () => {
     undefined
   );
 });
+
+test("Main sitting in a wait reads as waiting before the sampled Subagent count arrives", () => {
+  const waitTool = [{ type: "tool_execution_start", toolCallId: "w", toolName: "wait_for_subagents" }];
+  // The catalog sample has no Subagents yet, and the conversation's progress has none either.
+  assert.deepEqual(runPhase({ task: task(), detail: detail(true, waitTool), agents: [] }), {
+    kind: "waiting",
+    agents: 0
+  });
+  // The conversation's own progress counts the Subagents the sample has not seen.
+  const progressed = detail(true, waitTool, {
+    progress: { agents: [{ status: "running" }, { status: "queued" }, { status: "succeeded" }] }
+  });
+  assert.deepEqual(runPhase({ task: task(), detail: progressed, agents: [] }), { kind: "waiting", agents: 2 });
+});

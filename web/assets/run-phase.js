@@ -2,6 +2,7 @@ import { exchangeExecutionState } from "./conversation.js";
 
 const LIVE_AGENT_STATES = new Set(["running", "waiting", "queued"]);
 // Main calling these is Main waiting on its Subagents, not Main working.
+const LIVE_PROGRESS_STATES = new Set(["running", "queued"]);
 const WAITING_TOOLS = new Set(["wait_for_subagents", "call_subagent"]);
 
 /** The tool Main started last and has not returned from, if any. */
@@ -35,7 +36,12 @@ export function runPhase({ task, detail, agents = [] }) {
   const own = detail?.task?.taskId === task.taskId ? detail : undefined;
   const active = Boolean(own?.runtime?.active);
   const live = agents.filter((agent) => agent.role === "subagent" && LIVE_AGENT_STATES.has(agent.state));
-  const working = live.length;
+  // The catalog's activity is sampled; the conversation's own progress is
+  // read with it and may already know of Subagents the sample has not seen.
+  const progressed = (own?.progress?.agents || []).filter((agent) =>
+    LIVE_PROGRESS_STATES.has(agent.status)
+  ).length;
+  const working = Math.max(live.length, progressed);
   if (task.status === "paused" && !active)
     return { kind: "paused", agents: working, names: live.map((agent) => agent.name || agent.agentId) };
   if ((own?.humanRequests || []).some((request) => request.status === "pending"))
@@ -44,7 +50,9 @@ export function runPhase({ task, detail, agents = [] }) {
   if (active && task.pause) return { kind: "pausing", agents: working };
   if (active && exchangeExecutionState(own.runtimeEvents || []).retry)
     return { kind: "retrying", agents: working };
-  if (working && (!active || WAITING_TOOLS.has(openTool(own?.runtimeEvents))))
-    return { kind: "waiting", agents: working };
+  // Main sitting in a wait for its Subagents is waiting even before any
+  // count of working Subagents reaches the page.
+  const waitingTool = active && WAITING_TOOLS.has(openTool(own?.runtimeEvents));
+  if ((working && !active) || waitingTool) return { kind: "waiting", agents: working };
   return active ? { kind: "working", agents: working } : undefined;
 }

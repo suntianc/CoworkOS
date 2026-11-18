@@ -2512,9 +2512,23 @@ export function createDashboardRunService({
     return resident !== undefined;
   }
 
+  /**
+   * End a resident Main that sits idle, before its conversation is archived or
+   * deleted. A finished round leaves its Main resident for the next message;
+   * that process is no reason to refuse. The Task keeps its state and outcome.
+   * Returns false, ending nothing, while a turn is still producing.
+   */
+  async function closeIdleMain(taskId: string): Promise<boolean> {
+    if (!(await ensureMainProcess(taskId))) return true;
+    if ((await taskTurnActive(taskId)) === true) return false;
+    await stopResidentMain(taskId);
+    return !mainProcessRunning(taskId);
+  }
+
   return {
     activeRuns,
     taskTurnActive,
+    closeIdleMain,
     mainProcessRunning,
     ensureMainProcess,
     adoptExistingMains,

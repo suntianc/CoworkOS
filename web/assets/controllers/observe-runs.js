@@ -855,14 +855,14 @@ export function createObserveRuns({
       ? Math.max(windowStart, Math.min(agent.startedAt ?? lane.startedAt ?? end, end))
       : undefined;
     const left = end === undefined ? 100 : percentOf(end, windowStart, windowEnd);
+    // Only a running branch gets a mark at its end; a finished one says so in
+    // its state column, and a mark there sat on top of the line.
     const head =
       agent.state === "running"
         ? `<span class="runs-head is-${degraded ? color : (segments.at(-1)?.kind ?? "dev")}" style="left:${left.toFixed(
             2
           )}%"></span>`
-        : agent.state === "completed" && end !== undefined
-          ? `<span class="runs-done" style="left:${left.toFixed(2)}%">${icon("check")}</span>`
-          : "";
+        : "";
     const wave = degraded
       ? `<div class="runs-wave is-sub is-degraded" data-degraded="true" data-state="${esc(agent.state)}">
           <span class="runs-flat is-baseline"></span>

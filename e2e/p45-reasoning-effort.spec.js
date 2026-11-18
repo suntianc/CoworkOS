@@ -96,6 +96,16 @@ test("the composer shows and sends the Main connection's reasoning strength, and
     await expect.poll(() => provider.requests.length, { timeout: 30_000 }).toBe(beforeSecond + 1);
     expect(provider.requests.at(-1).body.reasoning_effort).toBe("high");
 
+    // The pick belongs to this conversation and outlives a restart of the page.
+    await expect(page.locator("#stop-button")).toBeHidden({ timeout: 30_000 });
+    await page.reload();
+    await expect(reasoning).toHaveText("高");
+    const beforeThird = provider.requests.length;
+    await page.locator("#composer-input").fill("重启后仍用这个会话选的推理强度");
+    await page.locator("#send-button").click();
+    await expect.poll(() => provider.requests.length, { timeout: 30_000 }).toBe(beforeThird + 1);
+    expect(provider.requests.at(-1).body.reasoning_effort).toBe("high");
+
     const status = await (await page.request.get(`${dashboard.base}/api/model-settings`)).json();
     expect(connectionsOf(status).find((profile) => profile.name === "低连接").reasoningEffort).toBe("low");
   } finally {
