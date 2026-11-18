@@ -25,7 +25,7 @@ async function waitFor(check) {
   }
 }
 
-function stream(t, root) {
+function stream(t, root, options) {
   const request = new EventEmitter();
   const response = new EventEmitter();
   const records = [],
@@ -50,7 +50,7 @@ function stream(t, root) {
     response.emit("close");
   };
   t.after(close);
-  streamRunEvents(request, response, "task", "run", root);
+  streamRunEvents(request, response, "task", "run", root, options);
   return { records, afterClose, close };
 }
 
@@ -373,4 +373,25 @@ test("runtime replacement preserving a pending UTF-8 prefix delivers only append
   } finally {
     opened.close();
   }
+});
+
+test("a stream opened after a saved history continues from its last runtime event", async (t) => {
+  const f = await fixture(t);
+  const delta = (text) => ({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: text }
+  });
+  await fs.writeFile(f.runtime, jsonl(delta("a")) + jsonl(delta("b")) + jsonl(delta("c")));
+  const opened = stream(t, f.root, { runtimeAfter: 2 });
+  await fs.appendFile(f.runtime, jsonl(delta("d")));
+  await waitFor(() => opened.records.at(-1)?.payload?.assistantMessageEvent?.delta === "d");
+  const runtime = opened.records.filter((record) => record.type === "runtime_event");
+  assert.deepEqual(
+    runtime.map((record) => [record.eventId, record.payload.assistantMessageEvent.delta]),
+    [
+      ["runtime-run-2", "c"],
+      ["runtime-run-3", "d"]
+    ]
+  );
+  opened.close();
 });

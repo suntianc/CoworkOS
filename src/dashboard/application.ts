@@ -21,6 +21,7 @@ import { atriaDataPaths } from "../../scripts/data-home.cjs";
 import {
   messagesWithRuntimeHistory,
   readTaskRuntimeEvents,
+  settledRuntimeEvents,
   viewRuntimeEvent
 } from "../runtime/conversation-history.js";
 import { conversationMessages } from "../runtime/conversation-view.js";
@@ -630,7 +631,9 @@ export function createDashboardApplication(
     const { task } = location;
     const taskWorkspace = location.workspaceRoot;
     const runId = task.activeRunId;
-    const coordination = runId
+    // The page reads the calls, not how long this zero-timeout check took: a
+    // timing that differed on every read made each poll redraw the conversation.
+    const { waitedMs: _waited, ...coordination } = runId
       ? await coordinator.waitForSubagents({ taskId, runId, workspaceRoot: taskWorkspace, timeoutMs: 0 })
       : { calls: [], pending: [], callbackPending: [], timedOut: false, waitedMs: 0 };
     const events = runId
@@ -709,7 +712,7 @@ export function createDashboardApplication(
       projectDirectory: location.projectDirectory,
       coordination,
       events,
-      runtimeEvents: runtimeEvents.map(viewRuntimeEvent),
+      runtimeEvents: settledRuntimeEvents(runtimeEvents).map(viewRuntimeEvent),
       artifacts,
       messages,
       editableMessage,

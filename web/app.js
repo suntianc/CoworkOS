@@ -48,7 +48,7 @@ import { createConversationMenu } from "./assets/controllers/conversation-menu.j
 import { createConversationOperations } from "./assets/controllers/conversation-operations.js";
 import { createConversationReadState, conversationTaskId } from "./assets/conversation-actions.js";
 import { renderMarkdown } from "./assets/markdown.js";
-import { mergeRuntimeEvents } from "./assets/conversation.js";
+import { mergeRuntimeEvents, streamRecordKey } from "./assets/conversation.js";
 import { createEntryController } from "./assets/controllers/entry-controller.js";
 import { createSettingsPages } from "./assets/controllers/settings-pages.js";
 import { createObserveData } from "./assets/controllers/observe-data.js";
@@ -1110,9 +1110,18 @@ function applyCatalogEvent(record) {
   observeData.localChanged();
 }
 
+// Whether a polled detail would draw anything new. The history arrays are
+// compared by their length and last entries: serializing a long conversation
+// on every poll cost more than drawing it.
 function detailViewSignature(detail) {
-  const { elapsedMs: _elapsed, observedAt: _observed, ...statistics } = detail.statistics || {};
-  return JSON.stringify({ ...detail, statistics });
+  const { statistics: allStatistics, messages = [], runtimeEvents = [], ...rest } = detail;
+  const { elapsedMs: _elapsed, observedAt: _observed, ...statistics } = allStatistics || {};
+  return JSON.stringify({
+    ...rest,
+    statistics,
+    messages: [messages.length, messages.slice(-2)],
+    runtimeEvents: [runtimeEvents.length, runtimeEvents.slice(-3).map(streamRecordKey)]
+  });
 }
 
 function loadDetail(taskId, options) {

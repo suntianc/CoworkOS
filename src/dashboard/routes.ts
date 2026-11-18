@@ -788,7 +788,12 @@ export function createDashboardHandler(
           sendJson(response, 409, { error: "Task has no active run" });
           return;
         }
-        streamRunEvents(request, response, taskId, task.activeRunId, location.workspaceRoot);
+        // The page already holds the history up to `after`; replaying the whole
+        // run's log from the start resent every delta of a long resident run.
+        const after = Number(url.searchParams.get("after") ?? 0);
+        streamRunEvents(request, response, taskId, task.activeRunId, location.workspaceRoot, {
+          runtimeAfter: Number.isSafeInteger(after) && after > 0 ? after : 0
+        });
         return;
       }
       const editMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/messages\/edit$/);
