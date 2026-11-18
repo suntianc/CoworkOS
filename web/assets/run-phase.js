@@ -34,10 +34,10 @@ export function runPhase({ task, detail, agents = [] }) {
   if (!task) return undefined;
   const own = detail?.task?.taskId === task.taskId ? detail : undefined;
   const active = Boolean(own?.runtime?.active);
-  const working = agents.filter(
-    (agent) => agent.role === "subagent" && LIVE_AGENT_STATES.has(agent.state)
-  ).length;
-  if (task.status === "paused" && !active) return { kind: "paused", agents: working };
+  const live = agents.filter((agent) => agent.role === "subagent" && LIVE_AGENT_STATES.has(agent.state));
+  const working = live.length;
+  if (task.status === "paused" && !active)
+    return { kind: "paused", agents: working, names: live.map((agent) => agent.name || agent.agentId) };
   if ((own?.humanRequests || []).some((request) => request.status === "pending"))
     return { kind: "asking", agents: working };
   if (!active && !working) return undefined;

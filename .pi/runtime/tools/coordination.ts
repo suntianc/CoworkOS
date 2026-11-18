@@ -590,7 +590,13 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         timeoutMs,
         waitForCallbackConsumption: false,
         consumeCompletedCallbacks: true,
-        isCallbackQueued: (messageId) => context.inboxDelivery.isQueued(messageId)
+        isCallbackQueued: (messageId) => context.inboxDelivery.isQueued(messageId),
+        // A pause is taken at Main's next step boundary; waiting out the full
+        // timeout first would leave the Subagents running that much longer.
+        stopWaiting: async () =>
+          new LocalWorkspaceStore(context.workspaceRoot)
+            .readTask(context.taskId)
+            .then((task) => Boolean(task.pause) || task.status === "paused")
       });
       // Unrelated callbacks remain durable for a later poll. A failed send
       // must not discard the only wait result carrying our claimed evidence.

@@ -38,6 +38,7 @@ import { registerSubagentTools } from "./tools/subagent.ts";
 import { registerLoadSkillTool } from "./tools/workspace.ts";
 import { registerWebSearchTools } from "./tools/web-search.ts";
 import { SubagentQuestionStore } from "../../dist/src/runtime/subagent-questions.js";
+import { readSubagentPause } from "../../dist/src/runtime/subagent-pause.js";
 
 /**
  * The delegated process half of the shared agent extension.
@@ -273,6 +274,41 @@ export function registerSubagentAgent(pi: ExtensionAPI, role: AgentRole): void {
   // Main's guidance and a peer's message reach this process through its own
   // durable Inbox; nothing about that channel is Main-specific.
   registerSubagentInbox(pi, { workspaceRoot, taskId, runId, agentId });
+
+  // A paused Main holds its Subagents. The hold is read at the end of each
+  // step, so the step in flight finishes and the next one waits here until
+  // Main's next turn lifts the hold (or the process is stopped).
+  pi.on("turn_end", async (_event, ctx) => {
+    let held: string | undefined;
+    while (!ctx.signal?.aborted) {
+      // eslint-disable-next-line no-restricted-syntax -- 暂停记录读不到时按未暂停处理，子助手继续工作而不是卡住
+      const pause = await readSubagentPause(workspaceRoot, taskId, runId).catch(() => undefined);
+      if (!pause) break;
+      if (!held) {
+        held = new Date().toISOString();
+        await recordHold("subagent.paused", { pausedAt: pause.pausedAt });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if (held) await recordHold("subagent.resumed", { heldSince: held });
+  });
+  const recordHold = async (type: string, payload: Record<string, unknown>): Promise<void> => {
+    try {
+      await guardEvents.append({
+        eventId: `${type}-${randomUUID()}`,
+        type,
+        taskId,
+        runId,
+        agentId,
+        callId,
+        occurredAt: new Date().toISOString(),
+        payload
+      });
+      // eslint-disable-next-line no-restricted-syntax -- 暂停的记录只是事后诊断，写不进去不影响暂停本身
+    } catch {
+      /* diagnostics only */
+    }
+  };
 
   // `agent_end` is the last hook Pi awaits before a --print host may dispose the
   // session, so the record is durable before the process can exit.

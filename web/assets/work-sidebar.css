@@ -462,6 +462,9 @@ html[data-theme] .subagent-state.is-running {
 html[data-theme] .subagent-state.is-review {
   color: var(--color-review);
 }
+html[data-theme] .subagent-state.is-paused {
+  color: var(--color-text-3);
+}
 html[data-theme] .subagent-state:is(.is-running, .is-review) .ui-icon {
   animation: ui-spin 1.2s linear infinite;
 }

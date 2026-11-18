@@ -27,6 +27,7 @@ import { HEARTBEAT_STALE_MS, writeHeartbeat } from "../../dist/src/runtime/main-
 import { onProcessWake, startAgentWake, stopAgentWake } from "../../dist/src/runtime/agent-wake.js";
 import { watchFiles, type StopWatching } from "../../dist/src/runtime/file-watch.js";
 import { MainInboxDelivery, type MainControlType } from "../../dist/src/runtime/main-inbox-delivery.js";
+import { pauseSubagents, resumeSubagents } from "../../dist/src/runtime/subagent-pause.js";
 import {
   MAIN_CONTINUATION_TYPE,
   isMainContinuationMessage,
@@ -354,7 +355,56 @@ async function registerMainExtension(pi: ExtensionAPI) {
    * They are not model input: they act on the local turn loop, so they are
    * consumed rather than appended to the conversation.
    */
+  /**
+   * Main pausing: first its Subagents, then itself.
+   *
+   * The Subagents of this Run are held at the end of their current step, then
+   * the Task records the boundary it stopped at and reports itself paused.
+   * Main's next turn lifts the hold (see `agent_start`).
+   */
+  const recordPause = async (pause: { requestedAt: string }) => {
+    const taskStore = new LocalWorkspaceStore(workspaceRoot);
+    await pauseSubagents(workspaceRoot, taskId, mainRunId);
+    // Record when the turn stopped before the Task reports itself paused:
+    // a reader that sees `paused` must already find the boundary time.
+    const current = await taskStore.readTask(taskId);
+    if (current.pause && !current.pause.pausedAt)
+      await taskStore.updateTask(taskId, {
+        pause: { ...current.pause, pausedAt: new Date().toISOString() }
+      });
+    await taskStore.transitionTask(taskId, "paused", { runId: mainRunId, reason: "ui_pause" });
+    // The Turn stopped at this boundary; the Run keeps the pause on
+    // record even though a resident process stays alive for the resume.
+    try {
+      await new JsonlEventStore(join(workspaceRoot, taskId, "runs", mainRunId, "run_events.jsonl")).append({
+        eventId: `pause-${randomUUID()}`,
+        type: "main.run_paused",
+        taskId,
+        runId: mainRunId,
+        agentId: "main",
+        occurredAt: new Date().toISOString(),
+        payload: { reason: "ui_pause", requestedAt: pause.requestedAt }
+      });
+      // eslint-disable-next-line no-restricted-syntax -- 暂停已写入 Task；事件只是记录，写不进去不影响暂停
+    } catch {
+      /* the Task's pause is the durable fact */
+    }
+    await updateRuntime({
+      runtimePhase: "waiting",
+      runtimeLastEvent: { type: "main_turn_settled", summary: "paused" }
+    });
+  };
+
   const handleMainControl = async (type: MainControlType): Promise<boolean> => {
+    if (type === "main.pause") {
+      // A pause asked for while Main has no turn (it waits for its Subagents
+      // between turns) is taken here, at once; a turn in flight takes it at
+      // its next step boundary instead.
+      const task = await new LocalWorkspaceStore(workspaceRoot).readTask(taskId);
+      if (task.pause && task.status !== "paused" && (sessionContext?.isIdle() ?? true))
+        await recordPause(task.pause);
+      return true;
+    }
     if (type === "main.interrupt") {
       // Interrupting stops the turn in flight and nothing else: the process,
       // the Task and the Subagents already running stay as they are.
@@ -823,35 +873,7 @@ async function registerMainExtension(pi: ExtensionAPI) {
         )
           return;
         if (task.pause && task.status === "running") {
-          // Record when the turn stopped before the Task reports itself paused:
-          // a reader that sees `paused` must already find the boundary time.
-          if (!task.pause.pausedAt)
-            await taskStore.updateTask(taskId, {
-              pause: { ...task.pause, pausedAt: new Date().toISOString() }
-            });
-          await taskStore.transitionTask(taskId, "paused", { runId: mainRunId, reason: "ui_pause" });
-          // The Turn stopped at this boundary; the Run keeps the pause on
-          // record even though a resident process stays alive for the resume.
-          try {
-            await new JsonlEventStore(
-              join(workspaceRoot, taskId, "runs", mainRunId, "run_events.jsonl")
-            ).append({
-              eventId: `pause-${randomUUID()}`,
-              type: "main.run_paused",
-              taskId,
-              runId: mainRunId,
-              agentId: "main",
-              occurredAt: new Date().toISOString(),
-              payload: { reason: "ui_pause", requestedAt: task.pause.requestedAt }
-            });
-            // eslint-disable-next-line no-restricted-syntax -- 暂停已写入 Task；事件只是记录，写不进去不影响暂停
-          } catch {
-            /* the Task's pause is the durable fact */
-          }
-          await updateRuntime({
-            runtimePhase: "waiting",
-            runtimeLastEvent: { type: "main_turn_settled", summary: "paused" }
-          });
+          await recordPause(task.pause);
         } else if (task.status === "running" && !task.pause) {
           const pending = await coordinator.waitForSubagents({
             taskId,
@@ -976,6 +998,10 @@ async function registerMainExtension(pi: ExtensionAPI) {
         runId: mainRunId,
         reason: "main_turn_started"
       });
+    // Resuming: Main's turn has started, so its Subagents go on from where
+    // they were held. A turn the pause has not lifted keeps them held.
+    if (startedTask.status !== "cancelled" && !startedTask.pause)
+      await resumeSubagents(workspaceRoot, taskId, mainRunId);
     await updateRuntime({
       runtimePhase: "active",
       runtimeRouting: { strategy: "undecided", reason: "Main turn started" },

@@ -40,7 +40,7 @@ interface ContextMessage {
  * live here because the backend must not depend on this process's stdin or on
  * a second control channel.
  */
-export const MAIN_CONTROL_TYPES = ["main.interrupt", "main.resume"] as const;
+export const MAIN_CONTROL_TYPES = ["main.interrupt", "main.resume", "main.pause"] as const;
 export type MainControlType = (typeof MAIN_CONTROL_TYPES)[number];
 
 export function isMainControlType(value: unknown): value is MainControlType {

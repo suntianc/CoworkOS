@@ -800,20 +800,25 @@ export function createConversationView({
       const elapsed = formatExecutionDuration(agent.elapsedMs);
       const status = presentation.status;
       const finished = status === "completed" || presentation.statusLabel === "结果待接收";
+      // A paused conversation's Subagents are held at their step boundary.
+      const held =
+        !finished && ["running", "waiting"].includes(status) && state.detail?.task?.status === "paused";
       const right = finished
         ? [ui("完成"), elapsed].filter(Boolean).join(" ")
         : status === "failed"
           ? presentation.statusLabel
-          : status === "interrupted"
-            ? ui("已停止")
-            : status === "recorded"
-              ? ui("已派发")
-              : status === "waiting"
-                ? ui("等待中")
-                : [presentation.statusLabel === "协作排队中" ? ui("排队中") : ui("运行中"), elapsed]
-                    .filter(Boolean)
-                    .join(" ");
-      const running = !finished && status === "running";
+          : held
+            ? ui("已暂停")
+            : status === "interrupted"
+              ? ui("已停止")
+              : status === "recorded"
+                ? ui("已派发")
+                : status === "waiting"
+                  ? ui("等待中")
+                  : [presentation.statusLabel === "协作排队中" ? ui("排队中") : ui("运行中"), elapsed]
+                      .filter(Boolean)
+                      .join(" ");
+      const running = !finished && !held && status === "running";
       const mark = running
         ? `<span class="tool-progress-spinner ant-mark" data-thinking-key="${esc(`${item.key}:agent`)}" aria-hidden="true">${antMarkSvg}</span>`
         : '<span class="tool-status-dot" aria-hidden="true"></span>';

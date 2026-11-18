@@ -665,6 +665,8 @@ export default {
   处理过程: "Process",
   "Main 工作中": "Main is working",
   正在暂停: "Pausing",
+  "已暂停 · ": "Paused · ",
+  " 也已暂停": " paused too",
   停止: "Stop",
   "Main 在等子助手 · ": "Main is waiting for Subagents · ",
   " 个在工作": " working",

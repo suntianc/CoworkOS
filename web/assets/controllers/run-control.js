@@ -118,7 +118,9 @@ export function createRunControl({
     waiting: (current) => ui`Main 在等子助手 · ${current.agents} 个在工作`,
     asking: () => ui("Main 在问你"),
     retrying: () => ui("模型重连中"),
-    paused: () => ui("已暂停")
+    // Main paused its Subagents before itself; the line says so by name.
+    paused: (current) =>
+      current.names?.length ? ui`已暂停 · ${current.names.join(ui("、"))} 也已暂停` : ui("已暂停")
   };
 
   function render() {

@@ -63,10 +63,11 @@ export function createProjectController({
     );
   const roleLabel = (agent) =>
     agent.workRole === "reviewer" ? "Reviewer" : agent.workRole === "executor" ? "Executor" : "";
-  const subagentRow = (agent) => {
-    const tone = agent.workRole === "reviewer" ? "is-review" : "is-running";
+  // A paused conversation holds its Subagents too: they show the pause, still.
+  const subagentRow = (agent, paused) => {
+    const tone = paused ? "is-paused" : agent.workRole === "reviewer" ? "is-review" : "is-running";
     const role = roleLabel(agent);
-    return `<div class="subagent-row" data-agent="${esc(agent.agentId)}" data-state="${esc(agent.state)}"><span class="subagent-guide" aria-hidden="true"></span><span class="subagent-state ${tone}" aria-hidden="true">${icon("loader-circle")}</span><span class="subagent-name">${esc(agent.name || agent.agentId)}</span>${role ? `<span class="subagent-role">${role}</span>` : ""}</div>`;
+    return `<div class="subagent-row" data-agent="${esc(agent.agentId)}" data-state="${esc(paused ? "paused" : agent.state)}"><span class="subagent-guide" aria-hidden="true"></span><span class="subagent-state ${tone}" aria-hidden="true">${icon(paused ? "pause" : "loader-circle")}</span><span class="subagent-name">${esc(agent.name || agent.agentId)}</span>${role ? `<span class="subagent-role">${role}</span>` : ""}</div>`;
   };
   const taskLabel = (task) =>
     `<span class="conversation-item-title">${task.pendingQuestion ? `<span class="conversation-question" role="img" aria-label="${esc(ui("有待回答的问题"))}"></span>` : ""}<span class="conversation-title-text">${esc(conversationTitle(task))}</span>${isUnread(task.taskId) ? ui('<span class="conversation-unread" role="img" aria-label="未读"></span>') : ""}</span>`;
@@ -79,7 +80,7 @@ export function createProjectController({
       : '<span class="conversation-indent" aria-hidden="true"></span>';
     const subagents =
       expanded && agents.length
-        ? `<div class="subagent-list" aria-label="${esc(ui`${conversationTitle(task)}的子 Agent`)}">${agents.map(subagentRow).join("")}</div>`
+        ? `<div class="subagent-list" aria-label="${esc(ui`${conversationTitle(task)}的子 Agent`)}">${agents.map((agent) => subagentRow(agent, task.status === "paused")).join("")}</div>`
         : "";
     return ui`<div class="conversation-row${task.archived ? " is-archived" : ""}">${disclosure}<button class="conversation-item ${task.taskId === state.selected ? "active" : ""} ${isUnread(task.taskId) ? "is-unread" : ""}" data-task="${id}" data-status="${esc(task.status || "created")}" title="${esc(conversationTitle(task))}" aria-haspopup="menu" aria-keyshortcuts="Shift+F10" ${task.taskId === state.selected ? 'aria-current="page"' : ""}>${taskLabel(task)}</button>${task.pinned ? `<span class="conversation-pin" role="img" aria-label="${esc(ui("已置顶"))}">${icon("pin")}</span>` : ""}<span class="conversation-quick"><button type="button" data-quick-action="pin" data-quick-task="${id}" aria-label="${esc(task.pinned ? ui("取消置顶") : ui("置顶"))}" title="${esc(task.pinned ? ui("取消置顶") : ui("置顶"))}">${icon("pin")}</button><button type="button" data-quick-action="archive" data-quick-task="${id}" aria-label="${esc(ui("归档"))}" title="${esc(ui("归档"))}">${icon("archive")}</button></span></div>${subagents}`;
   };

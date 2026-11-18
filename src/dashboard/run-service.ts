@@ -2069,8 +2069,7 @@ export function createDashboardRunService({
         // change can fork the session, exactly as an edit does. A turn that is
         // still producing an answer keeps the refusal.
         if (resident) {
-          if (await taskTurnActive(taskId))
-            throw refuse("会话及后台工作");
+          if (await taskTurnActive(taskId)) throw refuse("会话及后台工作");
           await stopResidentMain(taskId, { replacing: true });
         }
         if (
@@ -2114,8 +2113,7 @@ export function createDashboardRunService({
           // Only a Subagent still working holds the project. A finished one's
           // result waiting for a stopped Main is a record, not activity: it
           // stays in the Inbox and reaches Main when the conversation resumes.
-          if (coordination.pending.length)
-            throw refuse("后台协作");
+          if (coordination.pending.length) throw refuse("后台协作");
           const agents = join(location.workspaceRoot, taskId, "runs", runId, "agents");
           // eslint-disable-next-line no-restricted-syntax -- 该 Run 可能从未启动子代理，subagents 目录缺失按空列表继续
           const subagents = await readdir(join(agents, "subagents")).catch(() => []);
@@ -2134,11 +2132,13 @@ export function createDashboardRunService({
   }
 
   /**
-   * Ask the running Main to stop after its current step.
+   * Ask Main to pause: its Subagents first, then itself.
    *
-   * The request is durable on the Task record, which the Main process reads at
-   * the next tool/model boundary. It changes no Run state by itself: the close
-   * path records the pause only after the in-flight step has settled.
+   * The request is durable on the Task record. A turn in flight reads it at
+   * its next tool/model boundary; a Main between turns (waiting for its
+   * Subagents) is sent a `main.pause` command and takes it at once. Either
+   * way Main's runtime holds the Run's Subagents at the end of their current
+   * step before it records the pause (see `subagent-pause.ts`).
    */
   function pauseTask(taskId: string) {
     return serialize(taskId, async () => {
@@ -2147,22 +2147,32 @@ export function createDashboardRunService({
       // Take over a Main the previous backend left running before deciding
       // whether a turn is in flight.
       if (!(await adoptResidentMain(taskId, location))) return { refused: "no_active_run" as const };
-      if (location.task.status !== "running" || !location.task.activeRunId)
+      const runId = location.task.activeRunId;
+      if (!["running", "waiting"].includes(location.task.status) || !runId)
         return { refused: "no_active_run" as const };
-      if (!location.task.pause) {
-        const task = await location.store.updateTask(taskId, {
-          pause: { requestedAt: new Date().toISOString(), requestedBy: "user" }
+      if (location.task.pause) return { task: location.task };
+      const task = await location.store.updateTask(taskId, {
+        pause: { requestedAt: new Date().toISOString(), requestedBy: "user" }
+      });
+      await appendRunEvent(location.workspaceRoot, taskId, runId, "main.run_pause_requested", {
+        reason: "ui_pause"
+      });
+      if (!(await taskTurnActive(taskId))) {
+        const messageId = `main-pause-${randomUUID()}`;
+        await new InboxStore(
+          join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
+        ).enqueue({
+          messageId,
+          recipientAgentId: "main",
+          kind: "human_command",
+          eventId: `main-pause-event-${messageId}`,
+          priority: 110,
+          state: "ready",
+          payload: { type: "main.pause" },
+          createdAt: now()
         });
-        await appendRunEvent(
-          location.workspaceRoot,
-          taskId,
-          location.task.activeRunId,
-          "main.run_pause_requested",
-          { reason: "ui_pause" }
-        );
-        return { task };
       }
-      return { task: location.task };
+      return { task };
     });
   }
 
