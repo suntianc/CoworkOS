@@ -4,6 +4,7 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { runtimeEventRecord, viewRuntimeEvent } from "../runtime/conversation-history.js";
+import { liveRuntimeOutput, RuntimeLogPositions, type PositionedEvent } from "../runtime/runtime-output.js";
 
 export async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
   try {
@@ -78,6 +79,8 @@ interface JsonlReadCursor {
   decoder: StringDecoder;
   identity?: string;
   prefixHash?: Hash;
+  /** Set for a runtime log, whose lines are read with their positions. */
+  positions?: RuntimeLogPositions;
 }
 
 async function matchesReadPrefix(handle: FileHandle, cursor: JsonlReadCursor, isClosed: () => boolean) {
@@ -134,12 +137,17 @@ async function readRuntimeEventsSince(
       cursor.pending = "";
       cursor.decoder = new StringDecoder("utf8");
       if (cursor.prefixHash) cursor.prefixHash = createHash("sha256");
+      if (cursor.positions) cursor.positions = new RuntimeLogPositions();
     }
     cursor.identity = identity;
     const decode = (chunk: Buffer) => {
       const lines = (cursor.pending + cursor.decoder.write(chunk)).split(/\r?\n/);
       cursor.pending = lines.pop() || "";
       for (const line of lines) {
+        if (cursor.positions) {
+          parsed.push(...(cursor.positions.read(line) as unknown as Array<Record<string, unknown>>));
+          continue;
+        }
         try {
           const value = JSON.parse(line);
           if (value && typeof value === "object") parsed.push(value as Record<string, unknown>);
@@ -195,7 +203,8 @@ export function streamRunEvents(
     offset: 0,
     pending: "",
     decoder: new StringDecoder("utf8"),
-    prefixHash: createHash("sha256")
+    prefixHash: createHash("sha256"),
+    positions: new RuntimeLogPositions()
   };
   const ledgerReadCursor: JsonlReadCursor = {
     offset: 0,
@@ -203,7 +212,13 @@ export function streamRunEvents(
     decoder: new StringDecoder("utf8")
   };
   let ledgerStarted = false;
-  let runtimeCursor = 0;
+  // The highest log position sent; a delta of the message being written is
+  // sent from memory before the log notes it was left out.
+  let runtimeSent = runtimeAfter - 1;
+  // A replaced or truncated log starts its positions again; the connection's
+  // ids continue after what it already sent instead of repeating them.
+  let runtimePositions = runtimeReadCursor.positions;
+  let runtimeBase = 0;
   let closed = false;
   let emitting = false;
   let ledgerReadAt = -Infinity;
@@ -245,12 +260,18 @@ export function streamRunEvents(
       });
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- closed 由 close() 在 request/response 的 close 监听里置位，读取运行日志期间连接可能已断开
       if (closed) return;
-      for (const event of runtimeEvents) {
-        if (runtimeCursor >= runtimeAfter) {
-          const record = viewRuntimeEvent(runtimeEventRecord(taskId, runId, runtimeCursor, event));
-          response.write(`id: ${record.eventId}\ndata: ${JSON.stringify(record)}\n\n`);
-        }
-        runtimeCursor += 1;
+      if (runtimeReadCursor.positions !== runtimePositions) {
+        runtimePositions = runtimeReadCursor.positions;
+        runtimeBase = runtimeSent + 1;
+      }
+      const open = liveRuntimeOutput(runtimePath)?.openDeltas(runtimeReadCursor.positions!.next) ?? [];
+      for (const entry of [...(runtimeEvents as unknown as PositionedEvent[]), ...open]) {
+        const index = runtimeBase + entry.index;
+        const { event } = entry;
+        if (index <= runtimeSent) continue;
+        runtimeSent = index;
+        const record = viewRuntimeEvent(runtimeEventRecord(taskId, runId, index, event));
+        response.write(`id: ${record.eventId}\ndata: ${JSON.stringify(record)}\n\n`);
       }
       // eslint-disable-next-line no-restricted-syntax -- 运行文件要到第一条事件落盘才存在，这一轮按无新事件处理，下一次 tick 重试
     } catch {
