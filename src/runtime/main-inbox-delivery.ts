@@ -51,6 +51,17 @@ export function isCancelledCallback(message: Pick<InboxMessage, "kind" | "payloa
   );
 }
 
+/** A message the person sent into the running turn, not one queued for after it. */
+export function isSteeredHumanMessage(message: Pick<InboxMessage, "kind" | "payload">): boolean {
+  const payload = message.payload as { type?: unknown; delivery?: unknown; cancelled?: unknown } | undefined;
+  return (
+    message.kind === "human_command" &&
+    payload?.type === "human.message" &&
+    payload.delivery !== "followUp" &&
+    payload.cancelled !== true
+  );
+}
+
 export function isMainControlType(value: unknown): value is MainControlType {
   return typeof value === "string" && (MAIN_CONTROL_TYPES as readonly string[]).includes(value);
 }

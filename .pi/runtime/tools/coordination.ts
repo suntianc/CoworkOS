@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { metricSeries } from "../../../dist/src/domain/experiment.js";
 import { clearSleep, readSleep, writeSleep } from "../../../dist/src/runtime/main-sleep.js";
+import { isSteeredHumanMessage } from "../../../dist/src/runtime/main-inbox-delivery.js";
 import { readSubagentProgress } from "../../../dist/src/runtime/progress.js";
 import { configuredHumanAnswerTimeout } from "../../../dist/src/runtime/runtime-settings.js";
 import { assessTaskCompletion } from "../../../dist/src/runtime/task-completion.js";
@@ -582,6 +583,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         typeof value.timeoutMs === "number" && Number.isFinite(value.timeoutMs)
           ? Math.max(0, value.timeoutMs)
           : 30_000;
+      const waitStarted = new Date().toISOString();
       const { claimedCallbacks, ...result } = await context.coordinator.waitForSubagents({
         taskId: context.taskId,
         runId: context.mainRunId,
@@ -593,10 +595,16 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         isCallbackQueued: (messageId) => context.inboxDelivery.isQueued(messageId),
         // A pause is taken at Main's next step boundary; waiting out the full
         // timeout first would leave the Subagents running that much longer.
+        // A message the person sends now reaches Main only at that boundary
+        // too, so one that arrives during the wait ends it instead of sitting
+        // out the timeout.
         stopWaiting: async () =>
-          new LocalWorkspaceStore(context.workspaceRoot)
+          (await new LocalWorkspaceStore(context.workspaceRoot)
             .readTask(context.taskId)
-            .then((task) => Boolean(task.pause) || task.status === "paused")
+            .then((task) => Boolean(task.pause) || task.status === "paused")) ||
+          (await context.inboxDelivery.pending()).some(
+            (message) => message.createdAt >= waitStarted && isSteeredHumanMessage(message)
+          )
       });
       // Unrelated callbacks remain durable for a later poll. A failed send
       // must not discard the only wait result carrying our claimed evidence.

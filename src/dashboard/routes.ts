@@ -126,6 +126,8 @@ export interface DashboardRoutePorts {
   mainTurnActive?: RunService["taskTurnActive"];
   /** Resolve a Main this backend has not met yet before a destructive change. */
   ensureMainProcess?: RunService["ensureMainProcess"];
+  /** End an idle resident Main; false while its turn is still producing. */
+  closeIdleMain?: RunService["closeIdleMain"];
   cancelTask: RunService["cancelTask"];
   queuedMessageAction: RunService["queuedMessageAction"];
   queueInterjection: RunService["queueInterjection"];
@@ -168,6 +170,16 @@ export function createDashboardHandler(
       : ports.mainProcessRunning
         ? ports.mainProcessRunning(taskId)
         : activeRuns.has(taskId);
+  /**
+   * Archiving or deleting needs the round to be over: no turn producing and
+   * nothing it waits on or was paused in. A Main left resident after that is
+   * closed first rather than counted as running.
+   */
+  const releaseFinishedMain = async (taskId: string, status: string | undefined, refusal: string) => {
+    if (["running", "waiting", "paused"].includes(status ?? "")) throw new Error(refusal);
+    if (!(await mainRunning(taskId))) return;
+    if (!ports.closeIdleMain || !(await ports.closeIdleMain(taskId))) throw new Error(refusal);
+  };
   /** A turn is producing right now; an idle resident Main is not. */
   const mainTurnActive = async (taskId: string) =>
     ports.mainTurnActive ? await ports.mainTurnActive(taskId) : mainRunning(taskId);
@@ -1090,7 +1102,7 @@ export function createDashboardHandler(
       }
       if (request.method === "DELETE") {
         const location = await locateTask(taskId);
-        if (await mainRunning(taskId)) throw new Error("请先停止任务，再删除会话");
+        await releaseFinishedMain(taskId, location.task.status, "请先停止任务，再删除会话");
         await location.store.deleteTask(taskId);
         await ports.events?.taskDeleted(taskId);
         sendJson(response, 200, { taskId, deleted: true });
@@ -1116,7 +1128,8 @@ export function createDashboardHandler(
             patch[field] = body[field];
           }
         }
-        if (patch.archived && (await mainRunning(taskId))) throw new Error("请先停止任务，再归档会话");
+        if (patch.archived)
+          await releaseFinishedMain(taskId, location.task.status, "请先停止任务，再归档会话");
         sendJson(
           response,
           200,
