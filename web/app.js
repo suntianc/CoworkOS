@@ -748,19 +748,21 @@ function syncModelConnection(model, profileId, mainEffort) {
   // Only the model list reports the Main connection's level; a catalog refresh
   // omits it and must not erase what the composer is showing.
   if (mainEffort !== undefined) state.mainThinkingLevel = mainEffort;
-  // The first read after start is not a switch: the conversation on screen
-  // keeps what was remembered for it. A real switch of the Main connection
-  // starts every conversation's choices over.
-  const first = state.connectionProfileId === undefined;
-  if (!first && (state.connectionProfileId !== profileId || state.defaultModel !== model)) {
-    state.profileByTask.clear();
-    state.thinkingLevelByTask.clear();
+  if (state.connectionProfileId !== profileId || state.defaultModel !== model) {
+    // The first read after start is not a switch: each conversation keeps the
+    // level and provider remembered for it. A real switch of the Main
+    // connection starts every conversation's choices over.
+    if (state.connectionProfileId !== undefined) {
+      state.profileByTask.clear();
+      state.thinkingLevelByTask.clear();
+    }
+    state.connectionProfileId = profileId;
     state.modelByTask.clear();
-    state.profileId = null;
-    state.model = model;
-    state.thinkingLevel = null;
+    state.profileId = state.selected ? (state.profileByTask.get(state.selected) ?? null) : null;
+    // A remembered model of another provider is that provider's, not the default.
+    state.model = pickedProfile()?.model.id ?? model;
+    state.thinkingLevel = state.selected ? (state.thinkingLevelByTask.get(state.selected) ?? null) : null;
   }
-  state.connectionProfileId = profileId;
   state.defaultModel = model;
   state.model ||= model;
   setModelLabel(state.model);
@@ -780,9 +782,10 @@ async function loadModels() {
       typeof data.current === "string" && data.current.trim()
         ? data.current.trim()
         : state.models[0] || "glm-5.3";
-    syncModelConnection(defaultModel, data.connectionProfileId, data.reasoningEffort ?? null);
+    // Providers first: restoring a remembered provider looks its model up.
     state.modelProviders = Array.isArray(data.providers) ? data.providers : [];
     state.mainProviderId = typeof data.mainProviderId === "string" ? data.mainProviderId : "";
+    syncModelConnection(defaultModel, data.connectionProfileId, data.reasoningEffort ?? null);
     if (state.profileId && !pickedProfile()) state.profileId = null;
     paintModelProvider(data.provider);
     // eslint-disable-next-line no-restricted-syntax -- /api/models is unavailable while the backend restarts or is offline; the picker keeps a usable model instead of an empty list

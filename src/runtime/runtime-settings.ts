@@ -218,7 +218,7 @@ export function configuredMainTimeout(env: NodeJS.ProcessEnv = process.env): num
  * resident Main holds a capacity slot and a model process while it waits, so
  * "forever" is the wrong default for a session nobody is using.
  */
-export const DEFAULT_MAIN_IDLE_TIMEOUT_MS = 30 * 60_000;
+export const DEFAULT_MAIN_IDLE_TIMEOUT_MS = 5 * 60_000;
 
 export function configuredMainIdleTimeout(env: NodeJS.ProcessEnv = process.env): number {
   return nonNegativeEnv(env, "COWORK_MAIN_IDLE_TIMEOUT_MS", DEFAULT_MAIN_IDLE_TIMEOUT_MS);

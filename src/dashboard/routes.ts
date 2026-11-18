@@ -54,7 +54,7 @@ import { ProjectCloneError, type ProjectCloneService } from "./project-clone-ser
 import { handleProjectCloneRequest } from "./project-clone-routes.js";
 import { handleSubagentRequest } from "./subagent-routes.js";
 import type { SubagentBackend } from "./subagent-backend.js";
-import type { createWorkspaceDirectory } from "./workspace-directory.js";
+import type { createWorkspaceDirectory, TaskLocation } from "./workspace-directory.js";
 import { normalizeReasoningEffort } from "../runtime/runtime-settings.js";
 
 type WorkspaceDirectory = ReturnType<typeof createWorkspaceDirectory>;
@@ -171,14 +171,25 @@ export function createDashboardHandler(
         ? ports.mainProcessRunning(taskId)
         : activeRuns.has(taskId);
   /**
-   * Archiving or deleting needs the round to be over: no turn producing and
-   * nothing it waits on or was paused in. A Main left resident after that is
-   * closed first rather than counted as running.
+   * Archiving or deleting needs the round to be over, judged by what is
+   * actually running rather than the status field: no Subagent still at work,
+   * and a Main, if one is alive, neither producing a turn nor paused. A Main
+   * left resident after that is closed first rather than counted as running.
    */
-  const releaseFinishedMain = async (taskId: string, status: string | undefined, refusal: string) => {
-    if (["running", "waiting", "paused"].includes(status ?? "")) throw new Error(refusal);
-    if (!(await mainRunning(taskId))) return;
-    if (!ports.closeIdleMain || !(await ports.closeIdleMain(taskId))) throw new Error(refusal);
+  const releaseFinishedMain = async (location: TaskLocation, refusal: string) => {
+    const { task, workspaceRoot } = location;
+    if (task.activeRunId) {
+      const work = await ports.coordinator.waitForSubagents({
+        taskId: task.taskId,
+        runId: task.activeRunId,
+        workspaceRoot,
+        timeoutMs: 0
+      });
+      if (work.pending.length) throw new Error(refusal);
+    }
+    if (!(await mainRunning(task.taskId))) return;
+    if (task.status === "paused") throw new Error(refusal);
+    if (!ports.closeIdleMain || !(await ports.closeIdleMain(task.taskId))) throw new Error(refusal);
   };
   /** A turn is producing right now; an idle resident Main is not. */
   const mainTurnActive = async (taskId: string) =>
@@ -1102,7 +1113,7 @@ export function createDashboardHandler(
       }
       if (request.method === "DELETE") {
         const location = await locateTask(taskId);
-        await releaseFinishedMain(taskId, location.task.status, "请先停止任务，再删除会话");
+        await releaseFinishedMain(location, "请先停止任务，再删除会话");
         await location.store.deleteTask(taskId);
         await ports.events?.taskDeleted(taskId);
         sendJson(response, 200, { taskId, deleted: true });
@@ -1129,7 +1140,7 @@ export function createDashboardHandler(
           }
         }
         if (patch.archived)
-          await releaseFinishedMain(taskId, location.task.status, "请先停止任务，再归档会话");
+          await releaseFinishedMain(location, "请先停止任务，再归档会话");
         sendJson(
           response,
           200,

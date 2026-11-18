@@ -891,6 +891,50 @@ test(
 );
 
 test(
+  "a session whose idle Main exited archives, while one with a Subagent at work does not",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fixture(t, {
+      idleTimeoutMs: 1_200,
+      handle: ({ response }) => complete(response, "done for now")
+    });
+    await f.createTask("resident-idle-archive", "Idle exit then archive");
+    const run = await f.api("/api/tasks/resident-idle-archive/run", { prompt: "IDLE_ARCHIVE_INPUT" });
+    await f.settleTurn("resident-idle-archive");
+    const record = await f.mainRecord("resident-idle-archive");
+    await waitFor(() => !alive(record.pid), "the idle Main to exit", 30_000);
+
+    const { DurableScheduler } = await import("../dist/src/runtime/scheduler.js");
+    const scheduler = new DurableScheduler(
+      join(f.dashboard.workspaceRoot, "resident-idle-archive", "runs", run.runId, "queue.json")
+    );
+    await scheduler.enqueue({
+      stepId: "still-working",
+      taskId: "resident-idle-archive",
+      runId: run.runId,
+      agentId: "subagent_1",
+      importance: "normal",
+      payload: {
+        task: "outstanding work",
+        projectDirectory: f.dashboard.workspaceRoot,
+        dependsOn: ["never-arrives"]
+      },
+      maxAttempts: 1
+    });
+    const archive = () =>
+      fetch(`${f.dashboard.base}/api/tasks/resident-idle-archive`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ archived: true })
+      });
+    assert.equal((await archive()).status, 400, "a Subagent at work keeps the round open");
+    await scheduler.cancel("still-working");
+    assert.equal((await archive()).status, 200);
+    assert.equal((await f.detail("resident-idle-archive")).task.archived, true);
+  }
+);
+
+test(
   "a session whose Main was adopted after a restart is not deletable or archivable",
   { timeout: 180_000 },
   async (t) => {

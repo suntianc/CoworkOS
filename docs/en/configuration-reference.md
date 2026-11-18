@@ -274,7 +274,7 @@ These are underlying Runtime defaults, overridden by files or environment settin
 | `contextWindow`             | `COWORK_CONTEXT_WINDOW`               | 256000 tokens                                                   |
 | `mainTimeoutMs`             | `COWORK_MAIN_TIMEOUT_MS`              | 0, unlimited                                                    |
 | `subagentTimeoutMs`         | `COWORK_SUBAGENT_TIMEOUT_MS`          | 0, unlimited; legacy `COWORK_TIMEOUT_MS` affects subagents only |
-| `mainIdleTimeoutMs`         | `COWORK_MAIN_IDLE_TIMEOUT_MS`         | 1800000 (30 minutes); 0 never exits while idle                  |
+| `mainIdleTimeoutMs`         | `COWORK_MAIN_IDLE_TIMEOUT_MS`         | 300000 (5 minutes); 0 never exits while idle                    |
 | `commandTimeoutMs`          | `COWORK_COMMAND_TIMEOUT_MS`           | 1800000 (30 minutes); 0 is unlimited                            |
 | `maxAttempts`               | `COWORK_MAX_ATTEMPTS`                 | 3 including the first delegation; 1 disables delegation retries |
 | `subagentQuestionTimeoutMs` | `COWORK_SUBAGENT_QUESTION_TIMEOUT_MS` | 180000 (3 minutes); 0 disables questions to Main                |
