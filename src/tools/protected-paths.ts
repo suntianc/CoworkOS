@@ -51,8 +51,9 @@ export const DEFAULT_PROTECTED_PATHS: readonly string[] = [
   "benchmarks/",
   "benchmark/",
   "bench/",
-  "tests/",
-  "test/",
+  // Not test/ or tests/: in ordinary development the tests are what the agent
+  // is asked to write, and locking them sent every Executor back to the user.
+  // A project whose tests are its scorer declares them in COWORK_EVAL_PATHS.
   // Version-control metadata, so history and hooks stay outside the loop.
   ".git/"
 ];

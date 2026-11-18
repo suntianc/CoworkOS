@@ -57,7 +57,16 @@ export function protectedCallRefusal(
 ): ProtectedCallRefusal | undefined {
   for (const write of writeTargets(toolName, input)) {
     const pattern = patternFor(write, guard, projectDirectory);
-    if (pattern) return { path: write.path, pattern, reason: protectedPathReason(write.path, pattern) };
+    if (!pattern) continue;
+    // A relative write after `cd "$DIR"` is refused for where it might land,
+    // not because the named file is protected; say so, or the model is told a
+    // plain source file is read-only and goes looking for why.
+    const reason =
+      !isAbsolute(write.path) && write.unresolved
+        ? `${write.path} is written after a directory change that cannot be followed (such as cd "$DIR"), so it might land in the protected "${pattern}". ` +
+          `Use an absolute path, or cd to a literal directory, and run the command again.`
+        : protectedPathReason(write.path, pattern);
+    return { path: write.path, pattern, reason };
   }
   return undefined;
 }
