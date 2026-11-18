@@ -2,6 +2,7 @@ import { agentDisplayName } from "../agent-names.js";
 import { escapeHtml as esc } from "../ui/html.js";
 import { icon } from "../ui/icons.js";
 import { ui } from "../ui/language.js";
+import { animate } from "../ui/motion.js";
 import { formatStamp } from "../ui/time-format.js";
 
 /**
@@ -1144,7 +1145,7 @@ export function createObserveRuns({
     const shut = { height: "0px", marginTop: "0px", opacity: 0 };
     const full = { height, marginTop: getComputedStyle(row).marginTop, opacity: 1 };
     row.style.overflow = "hidden";
-    const animation = row.animate(open ? [shut, full] : [full, shut], {
+    const animation = animate(row, open ? [shut, full] : [full, shut], {
       duration: FOLD_MS,
       easing: FOLD_EASE,
       fill: "forwards"

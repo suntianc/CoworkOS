@@ -1,6 +1,6 @@
 import { ui } from "./language.js";
 import { icon } from "./icons.js";
-import { reducedMotion } from "./motion.js";
+import { animate } from "./motion.js";
 
 /** Writes text to the clipboard; false when the browser refuses. */
 export async function copyText(text) {
@@ -28,15 +28,15 @@ export function confirmCopied(button, label) {
   if (label) target.textContent = ui("已复制");
   if (glyph) {
     glyph.setAttribute("href", "#i-check");
-    if (!reducedMotion())
-      glyph.parentElement.animate(
-        [
-          { transform: "scale(0.6)", opacity: 0.4 },
-          { transform: "scale(1.12)", opacity: 1, offset: 0.6 },
-          { transform: "scale(1)" }
-        ],
-        { duration: 220, easing: "ease-out" }
-      );
+    animate(
+      glyph.parentElement,
+      [
+        { transform: "scale(0.6)", opacity: 0.4 },
+        { transform: "scale(1.12)", opacity: 1, offset: 0.6 },
+        { transform: "scale(1)" }
+      ],
+      { duration: 220, easing: "ease-out" }
+    );
   }
   clearTimeout(Number(button.dataset.copyTimer));
   button.dataset.copyTimer = String(

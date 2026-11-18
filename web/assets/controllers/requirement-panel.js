@@ -4,7 +4,7 @@ import { requirementProgress } from "../requirement-stages.js";
 import { formatRunDuration, runElapsed } from "../run-overview.js";
 import { icon } from "../ui/icons.js";
 import { ui } from "../ui/language.js";
-import { reducedMotion } from "../ui/motion.js";
+import { animate } from "../ui/motion.js";
 import { escapeHtml as esc } from "../ui/html.js";
 
 const SOURCE_LABELS = { internal: "内部", external: "外部", legacy: "遗留" };
@@ -501,14 +501,15 @@ export function createRequirementPanel({
    * pops its check and newly met criteria light up one after another.
    */
   function animateBody(body, before) {
-    if (reducedMotion()) return;
     const after = bodyMarks(body);
     if (after.kind !== before.kind) {
-      body.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
+      animate(body, [{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
       return;
     }
     const pop = (node, delay = 0) =>
-      node?.animate(
+      node &&
+      animate(
+        node,
         [
           { transform: "scale(0.5)", opacity: 0.3 },
           { transform: "scale(1.15)", opacity: 1, offset: 0.6 },

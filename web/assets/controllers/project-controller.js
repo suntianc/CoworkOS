@@ -1,7 +1,7 @@
 import { ui } from "../ui/language.js";
 import { icon } from "../ui/icons.js";
 import { createModal } from "../ui/modal.js";
-import { reducedMotion } from "../ui/motion.js";
+import { animate, reducedMotion } from "../ui/motion.js";
 import { createMenu } from "../ui/menu.js";
 import { escapeHtml as esc } from "../ui/html.js";
 
@@ -143,7 +143,10 @@ export function createProjectController({
         { height: "0px", opacity: 0 },
         { height, opacity: 1 }
       ];
-      const animation = row.animate(open ? frames : frames.reverse(), { duration: ROW_MS, easing: ROW_EASE });
+      const animation = animate(row, open ? frames : frames.reverse(), {
+        duration: ROW_MS,
+        easing: ROW_EASE
+      });
       return animation.finished.then(() => row.style.removeProperty("overflow"));
     };
     for (const id of added) resize(after.get(id), true);

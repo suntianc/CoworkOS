@@ -12,6 +12,20 @@ export function reducedMotion() {
   return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
 }
 
+/** What `animate` hands back when nothing moves: already finished. */
+const STILL = Object.freeze({ finished: Promise.resolve(), cancel() {} });
+
+/**
+ * Runs a Web Animation on `node`, or nothing. Under reduced motion, and in a
+ * DOM without the Web Animations API (the Node test DOM), the element simply
+ * shows its end state; either way the result has `finished` and `cancel`, so
+ * a caller can wait on it the same way.
+ */
+export function animate(node, keyframes, options) {
+  if (typeof node.animate !== "function" || reducedMotion()) return STILL;
+  return node.animate(keyframes, options);
+}
+
 /** A token's duration in milliseconds, so scripted motion keeps the CSS timing. */
 export function motionDuration(name, fallback) {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();

@@ -19,6 +19,7 @@ import { escapeHtml as esc } from "../ui/html.js";
 import { icon } from "../ui/icons.js";
 import { executionElapsedMs, formatExecutionDuration } from "../execution-time.js";
 import { reconcileParts } from "../ui/reconcile.js";
+import { animate } from "../ui/motion.js";
 import { antMarkSvg } from "../ui/thinking-mark.js";
 import { completeMarkdown, createStreamReveal } from "../ui/stream-reveal.js";
 
@@ -291,12 +292,13 @@ export function createConversationView({
     shownMessages = { taskId, keys: new Set(keys), count: articles.length };
     if (reducedMotion()) return;
     if (opened && articles.length)
-      scroll.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
+      animate(scroll, [{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
     // A message whose key changed in place (a local message confirmed by the
     // server) does not add to the count and stays still.
     if (grew)
       for (const article of arrived)
-        article.animate(
+        animate(
+          article,
           [
             { opacity: 0, transform: "translateY(6px)" },
             { opacity: 1, transform: "none" }

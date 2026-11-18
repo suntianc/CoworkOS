@@ -1,4 +1,4 @@
-import { reducedMotion } from "./motion.js";
+import { animate } from "./motion.js";
 
 /**
  * Shows an area's scrollbar while the person scrolls it and fades it out a
@@ -38,8 +38,8 @@ export function revealScrollbarsWhileScrolling(doc = document) {
     area.style.setProperty("--scroll-reveal", String(to));
     fades.set(
       area,
-      area.animate([{ "--scroll-reveal": from }, { "--scroll-reveal": to }], {
-        duration: reducedMotion() ? 0 : duration * Math.abs(to - from),
+      animate(area, [{ "--scroll-reveal": from }, { "--scroll-reveal": to }], {
+        duration: duration * Math.abs(to - from),
         easing: "ease-out"
       })
     );
