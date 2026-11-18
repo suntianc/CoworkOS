@@ -883,6 +883,9 @@ test(
       body: JSON.stringify({ archived: true })
     });
     assert.equal(archived.status, 200);
+    // The archive answers before the Main has finished closing; the close
+    // settles behind it and must not take the archive flag back.
+    assert.equal((await archived.json()).archived, true);
     await waitFor(() => !alive(record.pid), "the idle Main to exit", 30_000);
     const detail = await f.detail("resident-archivable");
     assert.equal(detail.task.archived, true);

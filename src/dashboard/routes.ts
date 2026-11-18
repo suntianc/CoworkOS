@@ -174,9 +174,19 @@ export function createDashboardHandler(
    * Archiving or deleting needs the round to be over, judged by what is
    * actually running rather than the status field: no Subagent still at work,
    * and a Main, if one is alive, neither producing a turn nor paused. A Main
-   * left resident after that is closed first rather than counted as running.
+   * left resident after that is closed rather than counted as running.
+   *
+   * Deleting waits for that close: the files go next and nothing may still
+   * write them. Archiving only hides the session, so it answers at once: with
+   * `background` the checks run here and the close is returned, to start once
+   * the archive is written (the close settles the Task too, and running both
+   * at once could drop the archive flag).
    */
-  const releaseFinishedMain = async (location: TaskLocation, refusal: string) => {
+  const releaseFinishedMain = async (
+    location: TaskLocation,
+    refusal: string,
+    { background = false }: { background?: boolean } = {}
+  ) => {
     const { task, workspaceRoot } = location;
     if (task.activeRunId) {
       const work = await ports.coordinator.waitForSubagents({
@@ -187,9 +197,23 @@ export function createDashboardHandler(
       });
       if (work.pending.length) throw new Error(refusal);
     }
-    if (!(await mainRunning(task.taskId))) return;
-    if (task.status === "paused") throw new Error(refusal);
-    if (!ports.closeIdleMain || !(await ports.closeIdleMain(task.taskId))) throw new Error(refusal);
+    if (!(await mainRunning(task.taskId))) return undefined;
+    const close = ports.closeIdleMain;
+    if (task.status === "paused" || !close) throw new Error(refusal);
+    if (!background) {
+      if (!(await close(task.taskId))) throw new Error(refusal);
+      return undefined;
+    }
+    if ((await mainTurnActive(task.taskId)) === true) throw new Error(refusal);
+    return () =>
+      void close(task.taskId).catch((error: unknown) =>
+        // An idle Main the close misses still exits on its own idle timeout.
+        console.error(
+          `[cowork] closing the Main of archived ${task.taskId} failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        )
+      );
   };
   /** A turn is producing right now; an idle resident Main is not. */
   const mainTurnActive = async (taskId: string) =>
@@ -1139,15 +1163,12 @@ export function createDashboardHandler(
             patch[field] = body[field];
           }
         }
-        if (patch.archived)
-          await releaseFinishedMain(location, "请先停止任务，再归档会话");
-        sendJson(
-          response,
-          200,
-          await publishTask(
-            await taskListItem({ ...location, task: await location.store.updateTask(taskId, patch) })
-          )
-        );
+        const closeMain = patch.archived
+          ? await releaseFinishedMain(location, "请先停止任务，再归档会话", { background: true })
+          : undefined;
+        const updated = await location.store.updateTask(taskId, patch);
+        closeMain?.();
+        sendJson(response, 200, await publishTask(await taskListItem({ ...location, task: updated })));
         return;
       }
       if (request.method === "POST" && url.pathname.endsWith("/action")) {
