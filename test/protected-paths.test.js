@@ -32,9 +32,15 @@ async function project(t) {
 test("the guard protects the referee and version control, but not the project's own code", async (t) => {
   const { root } = await project(t);
   const guard = new ProtectedPaths({ root });
-  for (const path of ["eval/score.py", "benchmarks/run.sh", "tests/fixtures/a.json", ".git/config"]) {
+  for (const path of ["eval/score.py", "benchmarks/run.sh", ".git/config"]) {
     assert.ok(guard.match(join(root, path)), `${path} must be protected`);
   }
+  // Tests are a deliverable of ordinary development; a project whose tests
+  // are its scorer declares them.
+  for (const path of ["test/cli.test.js", "tests/fixtures/a.json"])
+    assert.equal(guard.match(join(root, path)), undefined, `${path} must stay writable by default`);
+  const declared = configuredProtectedPaths(root, { COWORK_EVAL_PATHS: "tests/" });
+  assert.ok(declared.match(join(root, "tests/fixtures/a.json")), "a declared test scorer is protected");
   // The patterns resolve against the user's project, so a project that happens
   // to keep its code in src/ must not find it locked: that is what the agent
   // is here to change.

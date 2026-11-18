@@ -878,7 +878,6 @@ test(
       ["cd eval && rm score.py", "score.py"],
       ["cd eval && printf x > score.py", "score.py"],
       ["git -C eval rm score.py", "score.py"],
-      ['cd "$D" && rm score.py', "score.py"],
       ["pushd eval && rm score.py", "score.py"],
       ["(cd eval && rm score.py)", "score.py"],
       ['cd eval && bash -c "rm score.py"', "score.py"],
@@ -897,6 +896,18 @@ test(
         refusal(path),
         `${command} must resolve relative to the directory it reached`
       );
+    }
+    // After a directory change it cannot follow, a relative write is refused
+    // for where it might land, and the refusal says so instead of calling the
+    // named file protected.
+    for (const [command, path] of [
+      ['cd "$D" && rm score.py', "score.py"],
+      ['cd "$DEV"; cp "$A/bin/run.js" bin/run.js', "bin/run.js"]
+    ]) {
+      const refused = protectedCallRefusal("bash", { command }, guard, site);
+      assert.equal(refused?.path, path, command);
+      assert.equal(refused?.pattern, "eval/", command);
+      assert.match(refused.reason, /cannot be followed .* absolute path/, command);
     }
     for (const command of [
       "cd eval && cd .. && rm score.py",
@@ -1037,11 +1048,18 @@ test(
         const index = requests.length - 1;
         if (index > 0 && index <= commands.length) {
           const previous = commands[index - 1];
-          assert.equal(
-            refusalText(requests),
-            protectedPathReason(previous.path, "eval/"),
-            `${previous.command} is refused like Main`
-          );
+          if (previous.command.includes("$D"))
+            assert.match(
+              refusalText(requests),
+              /cannot be followed/,
+              `${previous.command} is refused like Main`
+            );
+          else
+            assert.equal(
+              refusalText(requests),
+              protectedPathReason(previous.path, "eval/"),
+              `${previous.command} is refused like Main`
+            );
         }
         if (index < commands.length) return { name: "bash", arguments: { command: commands[index].command } };
         return { text: "Done" };
