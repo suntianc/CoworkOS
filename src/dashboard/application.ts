@@ -854,7 +854,7 @@ export function createDashboardApplication(
     runtimeValue,
     startMainRun,
     pauseTask: runs.pauseTask,
-    interruptTask: runs.interruptTask,
+    stopTask: runs.stopTask,
     editMainMessage: runs.editMainMessage,
     forkConversation,
     messageVersion: async (taskId, versionId) => {

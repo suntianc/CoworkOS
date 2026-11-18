@@ -37,45 +37,59 @@ export function nearestLevel(level, levels) {
 export function createModelPicker({ panel, view, chooseModel, chooseLevel }) {
   let page = "effort";
 
+  // "Off" is not offered on the rail: a run either reasons at some level or
+  // follows the connection's own setting.
+  const railLevels = () => view().levels.filter((value) => value !== "off");
+  const levelLabel = (level) => LEVEL_LABELS[level] || level || ui("自动");
+
   const effortPage = () => {
-    const { model, levels, chosen, fallback, notice } = view();
+    const { model, chosen, fallback, notice } = view();
+    const levels = railLevels();
     const level = chosen || fallback;
     const at = Math.max(0, levels.indexOf(level));
-    const label = LEVEL_LABELS[level] || level || ui("自动");
-    const foot =
-      notice ||
-      (chosen
-        ? ui("只影响这个会话。")
-        : fallback
-          ? ui`默认跟随 Main 连接的设置（${LEVEL_LABELS[fallback] || fallback}），只影响这个会话。`
-          : ui("默认跟随 Main 连接的设置，只影响这个会话。"));
+    const label = levelLabel(level);
+    const reset = ui("恢复默认");
+    const rail = levels.length
+      ? `<div class="effort-rail" role="slider" tabindex="0" aria-label="${esc(ui("推理强度"))}" aria-valuemin="0" aria-valuemax="${levels.length - 1}" aria-valuenow="${at}" aria-valuetext="${esc(label)}" style="--steps: ${levels.length}; --at: ${at}">
+        <span class="effort-fill" aria-hidden="true"></span>
+        ${levels.map((value, index) => `<span class="effort-notch${index < at ? " is-passed" : ""}" data-thinking-level="${esc(value)}" style="--i: ${index}" aria-hidden="true"></span>`).join("")}
+        <span class="effort-knob" aria-hidden="true"></span>
+      </div>`
+      : "";
     return `<div class="effort-head">
-        <span class="effort-level">${esc(label)}${chosen ? "" : `<small>${esc(ui("默认"))}</small>`}</span>
-        <button type="button" class="effort-reset" data-effort-reset${chosen ? "" : " hidden"}>${icon("rotate-ccw")}<span>${esc(ui("恢复默认"))}</span></button>
+        <span class="effort-level"><span class="effort-level-name">${esc(label)}</span>${chosen ? "" : `<small>${esc(ui("默认"))}</small>`}</span>
+        <button type="button" class="effort-reset" data-effort-reset aria-label="${esc(reset)}" title="${esc(reset)}"${chosen ? "" : " hidden"}>${icon("rotate-ccw")}</button>
         <button type="button" class="effort-model" data-picker-page="models" aria-label="${esc(ui`选择模型，当前 ${model}`)}"><span>${esc(model)}</span>${icon("chevron-right")}</button>
       </div>
-      <div class="effort-rail" role="slider" tabindex="0" aria-label="${esc(ui("推理强度"))}" aria-valuemin="0" aria-valuemax="${levels.length - 1}" aria-valuenow="${at}" aria-valuetext="${esc(label)}" style="--steps: ${levels.length}; --at: ${at}">
-        <span class="effort-fill" aria-hidden="true"></span>
-        ${levels.map((_, index) => `<span class="effort-notch${index < at ? " is-passed" : ""}" style="--i: ${index}" aria-hidden="true"></span>`).join("")}
-        <span class="effort-knob" aria-hidden="true"></span>
-      </div>
-      <div class="effort-labels" style="--steps: ${levels.length}">
-        ${levels.map((value, index) => `<button type="button" data-thinking-level="${esc(value)}" style="--i: ${index}" aria-pressed="${value === level}" tabindex="-1">${esc(LEVEL_LABELS[value] || value)}</button>`).join("")}
-      </div>
-      <p class="effort-foot" role="status">${esc(foot)}</p>`;
+      ${rail}${notice ? `<p class="effort-foot" role="status">${esc(notice)}</p>` : ""}`;
   };
 
+  /**
+   * Models grouped by provider. `groups` lists every usable provider with each
+   * model's profile id; without it the Main connection's models form one group.
+   */
   const modelsPage = () => {
-    const { model, defaultModel, models } = view();
+    const { model, defaultModel, models, provider, groups } = view();
+    const sections = groups?.length
+      ? groups
+      : [
+          {
+            name: provider?.name,
+            mark: provider?.mark,
+            models: models.map((id) => ({ id, active: id === model, isDefault: id === defaultModel }))
+          }
+        ];
+    const option = (group, entry) =>
+      `<button type="button" class="model-option${entry.active ? " active" : ""}" data-model="${esc(entry.id)}"${entry.profileId ? ` data-profile="${esc(entry.profileId)}"` : ""} role="option" aria-selected="${entry.active}">${group.mark || ""}<span class="model-option-name">${esc(entry.id)}</span>${entry.isDefault ? `<small>${esc(ui("默认"))}</small>` : ""}<span class="model-option-check">${entry.active ? icon("check") : ""}</span></button>`;
     return `<div class="picker-head">
         <button type="button" class="picker-back" data-picker-page="effort" aria-label="${esc(ui("返回推理强度"))}">${icon("chevron-left")}</button>
         <span class="picker-title">${esc(ui("选择模型"))}</span>
       </div>
       <div class="picker-models" role="listbox" aria-label="${esc(ui("选择模型"))}">
-        ${models
+        ${sections
           .map(
-            (id) =>
-              `<button type="button" class="model-option${id === model ? " active" : ""}" data-model="${esc(id)}" role="option" aria-selected="${id === model}"><span class="model-option-name">${esc(id)}</span>${id === defaultModel ? `<small>${esc(ui("默认"))}</small>` : ""}<span class="model-option-check">${id === model ? icon("check") : ""}</span></button>`
+            (group) =>
+              `${group.name ? `<div class="picker-group" role="presentation">${esc(group.name)}</div>` : ""}${group.models.map((entry) => option(group, entry)).join("")}`
           )
           .join("")}
       </div>`;
@@ -92,7 +106,7 @@ export function createModelPicker({ panel, view, chooseModel, chooseLevel }) {
     target?.focus();
   }
 
-  const levels = () => view().levels;
+  const levels = railLevels;
   const indexAt = (rail, clientX) => {
     const box = rail.getBoundingClientRect();
     const knob = box.height;
@@ -100,8 +114,11 @@ export function createModelPicker({ panel, view, chooseModel, chooseLevel }) {
     return Math.round(Math.min(1, Math.max(0, share)) * (levels().length - 1));
   };
   // While dragging only the rail moves; the choice is made when the pointer lets go.
+  // The heading names the level under the knob as it moves.
   const preview = (rail, index) => {
     rail.style.setProperty("--at", String(index));
+    const name = panel.querySelector(".effort-level-name");
+    if (name) name.textContent = levelLabel(levels()[index]);
     rail
       .querySelectorAll(".effort-notch")
       .forEach((notch, at) => notch.classList.toggle("is-passed", at < index));
@@ -118,11 +135,10 @@ export function createModelPicker({ panel, view, chooseModel, chooseLevel }) {
       page = target.dataset.pickerPage;
       render({ focus: true });
     } else if (target.dataset.model) {
-      chooseModel(target.dataset.model);
+      chooseModel(target.dataset.model, target.dataset.profile || null);
       page = "effort";
       render({ focus: true });
-    } else if (target.dataset.thinkingLevel) chooseLevel(target.dataset.thinkingLevel);
-    else if (target.hasAttribute("data-effort-reset")) chooseLevel(null);
+    } else if (target.hasAttribute("data-effort-reset")) chooseLevel(null);
   });
 
   panel.addEventListener("pointerdown", (event) => {

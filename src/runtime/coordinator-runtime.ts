@@ -59,6 +59,8 @@ export interface WaitForSubagentsInput {
   resultCallIds?: string[];
   /** A live Main delivery may already have queued this callback in Pi. */
   isCallbackQueued?: (messageId: string) => boolean;
+  /** Ends the wait early with the state as it is, e.g. once Main is asked to pause. */
+  stopWaiting?: () => Promise<boolean>;
 }
 
 export interface WaitForSubagentsResult {
@@ -127,6 +129,7 @@ export class CoordinatorRuntime {
       )
         break;
       if (Date.now() - started >= timeoutMs) break;
+      if (input.stopWaiting && (await input.stopWaiting())) break;
       await new Promise((resolve) =>
         setTimeout(resolve, Math.min(250, Math.max(25, timeoutMs - (Date.now() - started))))
       );

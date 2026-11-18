@@ -13,7 +13,15 @@ export interface CompletionDependencies {
 
 export interface CompletionAssessment {
   ready: boolean;
-  reason: "ready" | "pending_jobs" | "pending_subagents" | "pending_callbacks" | "pending_human" | "pending_subagent_questions" | "parked_for_wake" | "incomplete_response";
+  reason:
+    | "ready"
+    | "pending_jobs"
+    | "pending_subagents"
+    | "pending_callbacks"
+    | "pending_human"
+    | "pending_subagent_questions"
+    | "parked_for_wake"
+    | "incomplete_response";
 }
 
 /**
@@ -31,7 +39,8 @@ export function assessTaskCompletion(dependencies: CompletionDependencies = {}):
   // A blocked Subagent is usually also an outstanding call, so this rarely
   // decides the outcome on its own. It is reported separately because "waiting
   // for your answer" and "still working" call for different actions from Main.
-  if ((dependencies.pendingSubagentQuestions ?? 0) > 0) return { ready: false, reason: "pending_subagent_questions" };
+  if ((dependencies.pendingSubagentQuestions ?? 0) > 0)
+    return { ready: false, reason: "pending_subagent_questions" };
   // A recorded park is an outstanding obligation like any other: Main stated it
   // expects a later event. Checking that the record exists is not judging a
   // result — the gate still never asks whether the work was any good.
@@ -46,6 +55,9 @@ export function isFinalAssistantMessage(value: unknown): boolean {
   const message = value as { role?: string; stopReason?: string; content?: unknown };
   if (message.role !== "assistant" || message.stopReason !== "stop") return false;
   if (typeof message.content === "string") return Boolean(message.content.trim());
-  return Array.isArray(message.content) && !message.content.some((part) => part?.type === "toolCall") &&
-    message.content.some((part) => part?.type === "text" && typeof part.text === "string" && part.text.trim());
+  return (
+    Array.isArray(message.content) &&
+    !message.content.some((part) => part?.type === "toolCall") &&
+    message.content.some((part) => part?.type === "text" && typeof part.text === "string" && part.text.trim())
+  );
 }

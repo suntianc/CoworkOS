@@ -267,8 +267,8 @@ test("the running composer switches one primary action and preserves the draft t
     await expect(stop).toBeVisible();
     await expect(send).toBeHidden();
     await stop.click();
-    await page.locator("#run-interrupt-confirm").getByRole("button", { name: "中断本回合" }).click();
-    await expect(stop).toHaveAttribute("aria-label", "正在中断本回合");
+    await page.locator("#run-interrupt-confirm").getByRole("button", { name: "停止", exact: true }).click();
+    await expect(stop).toHaveAttribute("aria-label", "正在停止");
     await expect(stop).toBeDisabled();
     await expect(stop).toHaveAttribute("aria-busy", "true");
     await input.fill("停止等待期间写的草稿");
@@ -281,7 +281,7 @@ test("the running composer switches one primary action and preserves the draft t
     await expect(stop).toBeDisabled();
     await expect(stop.locator("svg use")).toHaveAttribute("href", "#i-stop");
     expect(followUps).toHaveLength(3);
-    expect(cancellations).toEqual([{ action: "interrupt" }]);
+    expect(cancellations).toEqual([{ action: "stop" }]);
     if (process.env.COWORK_KEEP_STOP_PROBE === "1")
       await page.locator(".composer").screenshot({
         path: test.info().outputPath("composer-stopping-draft-1440.png")
@@ -302,7 +302,7 @@ test("the running composer switches one primary action and preserves the draft t
     await expect(send).toHaveAttribute("aria-label", "发送");
     await expect(input).toHaveValue("停止等待期间写的草稿");
     expect(followUps).toHaveLength(3);
-    expect(cancellations).toEqual([{ action: "interrupt" }, { action: "cancel" }]);
+    expect(cancellations).toEqual([{ action: "stop" }, { action: "cancel" }]);
   } finally {
     releaseCancel();
     await page.unrouteAll({ behavior: "ignoreErrors" }).catch(() => {});

@@ -58,9 +58,11 @@ test("returned async tools retain real work status through progress, callbacks a
       window.lifecycleFixture = { state, render: () => view.renderConversation([user], state.detail.task) };
       window.lifecycleFixture.render();
     });
-    await expect(page.locator(".activity-status")).toHaveText(["未答复，已继续", "协作运行中", "已入队"]);
-    await expect(page.locator(".live-caption")).toContainText("1 项协作未结束");
-    await page.locator(".tool-details").nth(1).locator("summary").first().click();
+    await expect(page.locator(".tool-step .activity-status")).toHaveText(["未答复，已继续", "已入队"]);
+    const agent = page.locator(".subagent-step");
+    await expect(page.locator(".subagent-group")).toContainText("派出 1 个子助手");
+    await expect(agent.locator(".subagent-status")).toHaveText("运行中");
+    await agent.locator("summary").first().click();
     await mkdir(".tmp/status-verification", { recursive: true });
     await page.screenshot({ path: test.info().outputPath("running.png"), fullPage: true });
     await page.evaluate(() => {
@@ -72,15 +74,16 @@ test("returned async tools retain real work status through progress, callbacks a
       };
       fixture.render();
     });
-    await expect(page.locator(".activity-status").nth(1)).toHaveText("结果待接收");
-    await expect(page.locator(".live-workflow-head strong")).toHaveText("仍有工作未结束");
-    await expect(page.locator(".tool-details").nth(1)).toHaveAttribute("open", "");
+    // Done but not yet read by Main is still done for the person.
+    await expect(agent.locator(".subagent-status")).toHaveText("完成");
+    await expect(page.locator(".live-workflow-head")).toHaveCount(0);
+    await expect(agent).toHaveAttribute("open", "");
     await page.evaluate(() => {
       window.lifecycleFixture.state.detail.coordination.callbackPending = [];
       window.lifecycleFixture.render();
     });
-    await expect(page.locator(".activity-status").nth(1)).toHaveText("协作完成");
-    await expect(page.locator(".live-caption")).toHaveText("整轮任务未完成");
+    await expect(agent.locator(".subagent-status")).toHaveText("完成");
+    await expect(page.locator(".execution-history")).toHaveCount(0);
   } finally {
     await dashboard.stop();
   }

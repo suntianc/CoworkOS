@@ -27,6 +27,7 @@
     <link rel="stylesheet" href="/assets/styles/observe-runs.css" />
     <link rel="stylesheet" href="/assets/styles/observe-overview.css" />
     <link rel="stylesheet" href="/assets/styles/motion.css" />
+    <link rel="stylesheet" href="/assets/styles/conversation.css" />
   </head>
   <body class="output-collapsed">
     <svg aria-hidden="true" class="icon-defs">
@@ -667,23 +668,16 @@
                 </div>
               </section>
               <div class="composer-wrap">
-                <section
-                  id="human-questions"
-                  class="human-questions"
-                  aria-label="需要你的回复"
-                  hidden
-                ></section>
-                <div class="composer">
+                <div id="composer-tray" class="composer-tray">
                   <section id="run-control" class="run-control" aria-label="运行状态" hidden>
                     <span class="run-control-dot" aria-hidden="true"></span>
                     <svg class="ui-icon run-control-paused-icon" aria-hidden="true">
                       <use href="#i-pause" />
                     </svg>
-                    <span class="run-control-label" data-run-label>Main 正在工作</span>
+                    <span class="run-control-label" data-run-label>Main 工作中</span>
                     <span class="run-control-detail" data-run-detail hidden></span>
-                    <span class="run-control-spacer"></span>
-                    <span class="run-control-step" data-run-step hidden></span>
                     <span class="run-control-time" data-run-time></span>
+                    <span class="run-control-spacer"></span>
                     <button
                       class="run-control-button"
                       type="button"
@@ -691,12 +685,31 @@
                       title="暂停"
                       aria-label="暂停"
                     >
-                      <svg class="ui-icon" aria-hidden="true"><use href="#i-pause" /></svg><span>暂停</span>
+                      暂停
+                    </button>
+                    <button
+                      class="run-control-button"
+                      type="button"
+                      data-run-stop
+                      title="停止"
+                      aria-label="停止"
+                      aria-keyshortcuts="Escape"
+                    >
+                      <kbd data-run-stop-key>Esc</kbd><span>停止</span>
                     </button>
                     <button class="run-control-button is-primary" type="button" data-run-continue hidden>
                       <svg class="ui-icon" aria-hidden="true"><use href="#i-play" /></svg><span>继续</span>
                     </button>
                   </section>
+                  <section
+                    id="human-questions"
+                    class="human-questions"
+                    aria-label="需要你的回复"
+                    hidden
+                  ></section>
+                  <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
+                </div>
+                <div class="composer">
                   <div
                     id="run-interrupt-confirm"
                     class="run-interrupt-confirm"
@@ -706,21 +719,20 @@
                     aria-describedby="run-interrupt-detail"
                     hidden
                   >
-                    <h2 id="run-interrupt-title">中断本回合？</h2>
+                    <h2 id="run-interrupt-title">停止这一轮？</h2>
                     <p id="run-interrupt-detail">
-                      Main 会停止输出。会话、子代理和已完成的内容都保留，可以继续发消息。
+                      Main 和正在工作的子助手都会停下。做完的步骤和结果都保留，可以继续发消息。
                     </p>
                     <div class="run-interrupt-actions">
                       <button class="run-control-button" type="button" data-confirm-continue>继续运行</button>
                       <button class="run-control-button is-danger" type="button" data-confirm-interrupt>
-                        中断本回合
+                        停止
                       </button>
                     </div>
                   </div>
-                  <div id="queued-messages" class="queued-messages" aria-label="排队消息" hidden></div>
                   <textarea
                     id="composer-input"
-                    rows="3"
+                    rows="1"
                     readonly
                     aria-busy="true"
                     aria-label="任务描述"
@@ -754,6 +766,8 @@
                         ></span>
                       </button>
                       <button id="model-setup-button" type="button" hidden>连接模型</button>
+                    </div>
+                    <div class="composer-right">
                       <button
                         class="model-select"
                         id="model-select"
@@ -771,14 +785,12 @@
                           ><svg class="ui-icon" aria-hidden="true"><use href="#i-chevron-down" /></svg
                         ></span>
                       </button>
-                    </div>
-                    <div class="composer-right">
                       <button
                         id="stop-button"
                         class="stop-button"
                         type="button"
-                        aria-label="中断本回合"
-                        title="中断本回合"
+                        aria-label="停止"
+                        title="停止（Esc）"
                         hidden
                       >
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-stop" /></svg>
@@ -802,6 +814,13 @@
                     aria-label="会话项目"
                     hidden
                   ></div>
+                </div>
+                <div class="composer-hint" aria-hidden="true">
+                  <span class="composer-hint-idle">文件可以直接拖进来或粘贴截图</span>
+                  <span class="composer-hint-running">运行中发出的消息会交给正在工作的 Main</span>
+                  <span class="composer-keys"
+                    ><kbd>Enter</kbd> 发送，<kbd>Shift</kbd> + <kbd>Enter</kbd> 另起一行</span
+                  >
                 </div>
               </div>
             </div>

@@ -76,6 +76,10 @@ test(
     assert.equal(current.path, baseline.path, "the provider endpoint is unchanged");
     assert.deepEqual(current.envelope, baseline.envelope, "request envelope and message roles");
 
+    // OpenAI's strict tool schemas reject `uniqueItems` with a 400 before any
+    // turn runs, so no tool may declare it; duplicates are removed in the tool.
+    assert.doesNotMatch(JSON.stringify(current.tools), /"uniqueItems"/);
+
     const currentNames = current.tools.map((tool) => tool.name);
     assert.deepEqual(
       currentNames,

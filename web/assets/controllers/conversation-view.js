@@ -19,6 +19,15 @@ import { escapeHtml as esc } from "../ui/html.js";
 import { icon } from "../ui/icons.js";
 import { executionElapsedMs, formatExecutionDuration } from "../execution-time.js";
 import { reconcileParts } from "../ui/reconcile.js";
+import { antMarkSvg } from "../ui/thinking-mark.js";
+import { completeMarkdown, createStreamReveal } from "../ui/stream-reveal.js";
+
+const reducedMotion = () => {
+  const preference = globalThis.window?.atriaPreferences?.motion?.();
+  if (preference === "on") return true;
+  if (preference === "off") return false;
+  return Boolean(globalThis.window?.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+};
 
 const replyClock = new Intl.DateTimeFormat(language, {
   hour: "2-digit",
@@ -105,8 +114,7 @@ function stoppedRequestFailure(task, detail, exchange, submitting) {
   if (failureKind === "main_process")
     return {
       title: ui("执行进程退出"),
-      message: ui("本次执行进程未能正常结束。"),
-      showModelSettings: false
+      message: ui("本次执行进程未能正常结束。")
     };
   const raw = String((task.status === "failed" && task.lastError) || latest?.errorMessage || "");
   const errorType = modelErrorDiagnostic(raw, terminal?.payload?.failure?.httpStatus);
@@ -116,7 +124,6 @@ function stoppedRequestFailure(task, detail, exchange, submitting) {
       title: ui("模型服务安全策略拒绝"),
       errorType,
       message: policy,
-      showModelSettings: false,
       suggestRetry: false
     };
   const httpStatus = terminal?.payload?.failure?.httpStatus;
@@ -172,8 +179,7 @@ function stoppedRequestFailure(task, detail, exchange, submitting) {
           ? ui("本次请求未能完成。")
           : failureKind === "model_request"
             ? ui("本次模型请求未能完成，原因尚未确定。")
-            : ui("本次运行未能完成，请检查模型连接后重试。")),
-    showModelSettings: true
+            : ui("本次运行未能完成，请检查模型连接后重试。"))
   };
 }
 
@@ -185,12 +191,12 @@ export function createConversationView({
   retry,
   edit,
   messageEdit,
-  openSettings,
   openArtifact,
   fork,
   resolveFile,
   showToast = () => {}
 }) {
+  const streamReveal = createStreamReveal({ reducedMotion });
   const markdown = (source, options = {}) =>
     renderMarkdown(source, {
       resolveLocalLink: (path) => resolveArtifactLink(state.detail, path),
@@ -243,7 +249,8 @@ export function createConversationView({
       thinkingStartedAt.set(key, startedAt);
       // innerHTML replaces the spinner on new deltas. Reuse its elapsed time
       // without adding style attributes that would invalidate markup equality.
-      for (const animation of node.getAnimations?.() || []) animation.currentTime = now - startedAt;
+      for (const animation of node.getAnimations?.({ subtree: true }) || [])
+        animation.currentTime = now - startedAt;
     }
     for (const key of thinkingStartedAt.keys()) if (!activeKeys.has(key)) thinkingStartedAt.delete(key);
   };
@@ -322,9 +329,8 @@ export function createConversationView({
     return ui`<div class="request-error" role="alert" data-recovery-task="${esc(task.taskId)}">
       <div class="run-error-head">${icon("circle-alert")}<strong>${esc(failure.title)}</strong>${failure.retryCount ? ui`<span class="run-error-retry">${ui("已自动重试 ")}${failure.retryCount}${ui("次")}</span>` : ""}</div>
       <div class="request-error-actions">
-        <button data-retry-request type="button">${icon("rotate-ccw")}<span>从中断步骤继续</span></button>
-        ${failure.showModelSettings ? ui`<button data-error-settings type="button">${icon("cpu")}<span>切换模型</span></button>` : ""}
-        <button data-error-details type="button" aria-expanded="${open}">${icon("chevron-down")}<span>查看错误详情</span></button>
+        <button data-retry-request type="button" title="${ui("从中断的步骤继续")}">${icon("rotate-ccw")}<span>重试</span></button>
+        <button data-error-details type="button" aria-expanded="${open}">${icon("chevron-down")}<span>查看详情</span></button>
       </div>
       <div class="run-error-detail" data-error-detail ${open ? "" : "hidden"}>
         ${failure.errorType ? ui`<p data-error-type>错误类型：${esc(failure.errorType)}</p>` : ""}
@@ -350,9 +356,7 @@ export function createConversationView({
       focused?.closest?.("[data-recovery-task]")?.dataset.recoveryTask === task.taskId
         ? focused?.hasAttribute?.("data-retry-request")
           ? "[data-retry-request]"
-          : focused?.hasAttribute?.("data-error-settings")
-            ? "[data-error-settings]"
-            : undefined
+          : undefined
         : undefined;
     const all = [
       ...(messages || []).filter(
@@ -453,18 +457,21 @@ export function createConversationView({
         interrupted || exchange.continued ? -1 : finalAnswerIndex(exchange.messages, state.detail, isCurrent);
       const finalText = finalIndex >= 0 ? visibleText(exchange.messages[finalIndex].content).trim() : "";
       const historyKey = `${task.taskId}:${exchange.key}`;
-      const workflow = renderLiveActivity(
+      const { markup: workflow, settled } = renderLiveActivity(
         exchange.events,
         active,
         finalIndex >= 0,
         finalText,
         historyOpen,
         historyKey,
-        finalIndex < 0,
         (interrupted && !waiting && !paused) || (isCurrent && Boolean(failure)),
         isCurrent,
-        exchange.continued
+        execution.stopped ?? (execution.terminal === "cancelled" && !(isCurrent && failure) ? {} : undefined)
       );
+      // The line under a finished round says how long the whole round took.
+      const endLine = settled
+        ? `<div class="turn-endline" role="separator" aria-label="${esc(ui`用时 ${settled}`)}"><span>${esc(ui`用时 ${settled}`)}</span></div>`
+        : "";
       const workflowIndex = !active && finalIndex >= 0 ? finalIndex : -1;
       const rendered =
         exchange.messages
@@ -487,12 +494,10 @@ export function createConversationView({
               const editor = messageEdit?.markup(task.taskId, message.id) || "";
               if (editor) inlineEditorRendered = true;
               const editable = message.id && message.id === state.detail?.editableMessage?.messageId;
-              const status =
-                message.delivery === "followUp" ? ui("排队消息") : message.interjected ? ui("补充指令") : "";
-              return `<article class="chat-message user${editor ? " is-editing" : ""}" data-view-key="${esc(`${historyKey}:user:${message.id || index}`)}"><div class="message-copy"><div class="user-message-bubble">${status ? `<div class="message-meta">${status}</div>` : ""}<div class="markdown-body">${renderUserText(text, markdown)}</div>${editor}${editor ? messageEdit.actions?.(task.taskId, message.id) || "" : ""}</div>${!editor && editable ? ui`<div class="user-message-actions"><button type="button" class="app-button" data-edit-message="${esc(message.id)}" aria-label="编辑消息" title="编辑消息">${icon("pencil")}</button></div>` : ""}</div></article>`;
+              return `<article class="chat-message user${editor ? " is-editing" : ""}" data-view-key="${esc(`${historyKey}:user:${message.id || index}`)}"><div class="message-copy"><div class="user-message-bubble"><div class="markdown-body">${renderUserText(text, markdown)}</div>${editor}${editor ? messageEdit.actions?.(task.taskId, message.id) || "" : ""}</div>${!editor && editable ? ui`<div class="user-message-actions"><button type="button" class="app-button" data-edit-message="${esc(message.id)}" aria-label="编辑消息" title="编辑消息">${icon("pencil")}</button></div>` : ""}</div></article>`;
             }
             if (index !== finalIndex) return "";
-            return `${index === workflowIndex ? workflow : ""}<article class="chat-message main" data-answer-kind="final"${message.id ? ` data-message-id="${esc(message.id)}"` : ""}><div class="message-copy"><div class="markdown-body">${markdown(text)}</div>${active ? "" : replyActions(message, isCurrent)}</div></article>`;
+            return `${index === workflowIndex ? workflow : ""}<article class="chat-message main" data-answer-kind="final"${message.id ? ` data-message-id="${esc(message.id)}"` : ""}><div class="message-copy"><div class="markdown-body">${markdown(text)}</div>${active ? "" : replyActions(message, isCurrent)}</div></article>${index === workflowIndex ? endLine : ""}`;
           })
           .join("") +
         (workflowIndex < 0
@@ -540,11 +545,11 @@ export function createConversationView({
       const offset = kept.reduce((sum, count) => sum + count, 0);
       const counts = reconcileParts(scroll, parts.slice(kept.length), scroll.childNodes[offset] ?? null);
       lastRender = { taskId: task.taskId, parts, counts: [...kept, ...counts] };
+      streamReveal.apply(scroll);
       const ownsRecovery = () => state.selected === task.taskId && state.detail?.task?.taskId === task.taskId;
       for (const [selector, action] of [
         ["[data-edit-message]", () => edit?.(task.taskId, state.detail?.editableMessage)],
-        ["[data-retry-request]", () => retry?.(task.taskId)],
-        ["[data-error-settings]", () => openSettings?.()]
+        ["[data-retry-request]", () => retry?.(task.taskId)]
       ]) {
         const node = scroll.querySelector(selector);
         if (!node || boundNodes.has(node)) continue;
@@ -638,6 +643,13 @@ export function createConversationView({
     resumeThinkingAnimations(scroll);
   }
 
+  /**
+   * One round's working steps. While the round runs they are listed as they
+   * happen; once it has a settled answer they fold into one "处理过程" row.
+   * What Main is doing overall is the composer's status line, so the steps
+   * carry no heading of their own. `settled` is the round's duration once it
+   * has folded, for the line under the answer.
+   */
   function renderLiveActivity(
     events,
     active,
@@ -645,10 +657,9 @@ export function createConversationView({
     finalText = "",
     historyOpen = false,
     historyKey = "",
-    pending = false,
     failed = false,
     isCurrent = true,
-    continued = false
+    stopped = undefined
   ) {
     const turns = buildLiveActivity(events);
     const retry = active && exchangeExecutionState(events).retry;
@@ -656,13 +667,13 @@ export function createConversationView({
     const retryBanner = retry
       ? ui`<div class="request-retry" role="status" aria-live="polite"><strong>模型连接异常${retryCode ? `（HTTP ${retryCode}）` : ""}，正在重试</strong><p>第 ${esc(retry.attempt)} / ${esc(retry.maxAttempts)} 次自动重试，已有内容已保留。可以等待恢复或停止本轮。</p></div>`
       : "";
-    if (!turns.length)
-      return (
-        retryBanner +
+    const placeholder = () => ({
+      markup:
         (active
           ? renderThinkingPlaceholder(historyKey, retry ? ui("正在恢复模型连接…") : undefined, !retry)
-          : "")
-      );
+          : "") + retryBanner
+    });
+    if (!turns.length) return placeholder();
     const calls = turns.flatMap((turn) => turn.calls);
     const presentations = new Map(
       calls.map((call) => [
@@ -679,16 +690,9 @@ export function createConversationView({
       ? outstandingWork(state.detail)
       : { agents: 0, callbacks: 0, jobs: 0, human: 0 };
     const working = active || Object.values(pendingWork).some((count) => count > 0);
-    const outstandingLabels = [
-      pendingWork.agents ? ui`${pendingWork.agents} 项协作未结束` : "",
-      pendingWork.callbacks ? ui`${pendingWork.callbacks} 个结果待接收` : "",
-      pendingWork.jobs ? ui`${pendingWork.jobs} 个后台任务运行中` : "",
-      pendingWork.human ? ui("等待你的答复") : ""
-    ].filter(Boolean);
-    const callCount = calls.length;
-    const returnedCalls = calls.filter((call) => call.completed).length;
+    const delegations = calls.filter((call) => call.name === "call_subagent").length;
+    const operations = calls.length - delegations;
     const failedCalls = calls.filter((call) => presentations.get(call)?.status === "failed").length;
-    const stepLabel = ui`${turns.reduce((total, turn) => total + turn.items.filter((item) => item.type !== "answer").length, 0)} 个步骤`;
     const streamedAnswer = turns.at(-1)?.answer?.trim() || "";
     // Do not collapse the streamed answer until the persisted transcript has
     // caught up. A completion event can arrive just before messages.json is
@@ -731,81 +735,98 @@ export function createConversationView({
         previous.text += item.text;
       else activity.push({ ...item });
     }
-    if (!activity.length)
-      return (
-        retryBanner +
-        (active
-          ? renderThinkingPlaceholder(historyKey, retry ? ui("正在恢复模型连接…") : undefined, !retry)
-          : "")
-      );
+    if (!activity.length) return placeholder();
+    // Consecutive completed reads, edits and commands fold into one row, and
+    // consecutive delegations into one "派出 N 个子助手" row.
     const compactActivity = [];
     let batch = [];
     const flush = () => {
-      if (batch.length > 1)
+      if (batch[0]?.call.name === "call_subagent")
+        compactActivity.push({ type: "subagents", items: batch, key: `${batch[0].key}:agents` });
+      else if (batch.length > 1)
         compactActivity.push({ type: "tools", items: batch, key: `${batch[0].key}:group` });
       else compactActivity.push(...batch);
       batch = [];
     };
+    const batchKind = (item) =>
+      item.type !== "tool"
+        ? undefined
+        : item.call.name === "call_subagent"
+          ? "agents"
+          : toolKinds.has(item.call.name) && presentations.get(item.call)?.status === "completed"
+            ? "tools"
+            : undefined;
     for (const item of activity) {
-      if (
-        item.type === "tool" &&
-        toolKinds.has(item.call.name) &&
-        presentations.get(item.call)?.status === "completed"
-      )
-        batch.push(item);
-      else {
-        flush();
-        compactActivity.push(item);
-      }
+      const kind = batchKind(item);
+      if (batch.length && kind !== batchKind(batch[0])) flush();
+      if (kind) batch.push(item);
+      else compactActivity.push(item);
     }
     flush();
-    if (failed && !activity.some((item) => item.type === "tool" || item.text?.trim())) return "";
+    if (failed && !activity.some((item) => item.type === "tool" || item.text?.trim())) return { markup: "" };
     const collapsible = !working && hasFinalAnswer && persistedAnswerMatches;
-    const waitingForWake =
-      isCurrent && pending && !continued && !failed && !working && Boolean(state.detail?.parked);
-    const latest = activity.at(-1);
-    const currentTool = latest?.type === "tool" ? presentations.get(latest.call) : undefined;
-    const phase = retry
-      ? ui("正在恢复模型连接…")
-      : latest?.type === "reasoning" && !latest.done
-        ? ui("正在思考…")
-        : latest?.type === "answer" && !latest.done
-          ? ui("正在生成回复…")
-          : currentTool?.status === "running"
-            ? `${currentTool.title}…`
-            : pendingWork.human
-              ? ui("等待你的答复")
-              : pendingWork.agents || pendingWork.callbacks
-                ? ui("等待协作结果…")
-                : pendingWork.jobs
-                  ? ui("等待后台任务…")
-                  : ui("等待模型响应…");
-    const progress = active
-      ? `<span class="workflow-progress-spinner" data-thinking-key="${esc(`${historyKey}:progress`)}" aria-hidden="true"></span>`
-      : '<span class="live-pulse" aria-hidden="true"></span>';
-    const caption = working
-      ? [callCount ? ui`${returnedCalls}/${callCount} 项调用已返回` : "", ...outstandingLabels]
-          .filter(Boolean)
-          .join(" · ")
-      : waitingForWake
-        ? ui("本轮已处理，持续等待新进展")
-        : continued
-          ? ui("后续过程见补充指令下方")
-          : pending || failed
-            ? ui("整轮任务未完成")
-            : ui("整轮任务已完成");
-    const heading = collapsible
-      ? ""
-      : `<div class="live-workflow-head">${progress}<div class="workflow-heading"><strong>${esc(working ? (active ? phase : ui("仍有工作未结束")) : failed ? ui("执行已停止") : pending && !continued ? ui("等待继续") : ui("执行过程"))}</strong><span>${esc(stepLabel)}</span></div>${caption ? `<span class="live-caption">${esc(caption)}</span>` : ""}</div>`;
+    // Main is working but nothing at the end is moving: the model is on its
+    // way to the next step, so that step's row waits there.
+    const tail = compactActivity.at(-1);
+    const tailLive =
+      (["reasoning", "answer"].includes(tail?.type) && !tail.done) ||
+      (tail?.type === "tool" && presentations.get(tail.call)?.status === "running");
+    const nextStep =
+      active && !tailLive ? thinkingRow(historyKey, retry ? ui("正在恢复模型连接…") : undefined, !retry) : "";
+    const stoppedRow =
+      stopped && !working
+        ? `<div class="activity-step turn-stopped" data-view-key="${esc(`${historyKey}:stopped`)}"><div class="activity-step-content"><div class="activity-step-head"><span class="tool-status-dot" aria-hidden="true"></span><strong>${ui("已停止")}</strong><span class="turn-stopped-note">${esc(stopped.subagents ? ui`Main 和 ${stopped.subagents} 个子助手都已停下，做完的结果保留` : ui("做完的步骤和结果已保留"))}</span></div></div></div>`
+        : "";
     const content = `<section class="live-workflow ${working ? "is-active" : "is-complete"}"${active ? ' aria-live="polite"' : ""}>
-    ${heading}
-    <div class="workflow-rail">${compactActivity.map((item) => (item.type === "tools" ? renderToolGroup(item, active, presentations) : item.type === "reasoning" ? renderReasoningStep(item.text, { done: !active || item.done, interrupted: (!active || item.done) && !item.complete }, item.key, item.rawText) : item.type === "answer" ? `<div class="live-answer" data-activity-key="${esc(item.key)}"><div class="markdown-body">${markdown(item.text)}</div></div>` : renderToolStep(item.call, active, item.key, presentations.get(item.call)))).join("")}</div>
+    <div class="workflow-rail">${compactActivity.map((item) => (item.type === "subagents" ? renderSubagentGroup(item, presentations) : item.type === "tools" ? renderToolGroup(item, active, presentations) : item.type === "reasoning" ? renderReasoningStep(item.text, { done: !active || item.done, interrupted: (!active || item.done) && !item.complete }, item.key, item.rawText) : item.type === "answer" ? (active && item === compactActivity.at(-1) && !item.done ? `<div class="live-answer" data-activity-key="${esc(item.key)}" data-streaming-answer><div class="markdown-body">${markdown(completeMarkdown(item.text))}</div></div>` : `<div class="live-answer" data-activity-key="${esc(item.key)}"><div class="markdown-body">${markdown(item.text)}</div></div>`) : renderToolStep(item.call, active, item.key, presentations.get(item.call)))).join("")}${nextStep}${stoppedRow}</div>
   </section>`;
-    if (!collapsible) return retryBanner + content;
-    const duration = formatExecutionDuration(executionElapsedMs(events, state.detail?.events));
-    const title = duration ? ui`用时 ${duration}` : ui("处理完成");
-    const operations = callCount ? ui`${callCount} 项操作` : "";
-    return `<details class="execution-history" data-task="${esc(state.selected)}" data-history-key="${esc(historyKey)}"${historyOpen ? " open" : ""}><summary aria-label="${esc(ui`执行过程：${title}${operations ? `，${operations}` : ""}`)}"><strong>${esc(title)}</strong><span class="history-chevron" aria-hidden="true">${icon("chevron-down")}</span>${operations ? `<small>${esc(operations)}</small>` : ""}${failedCalls ? ui`<em class="history-failures">${failedCalls} 次调用未成功</em>` : ""}</summary>${content}</details>`;
+    if (!collapsible) return { markup: content + retryBanner };
+    const counts = [
+      operations ? ui`${operations} 项操作` : "",
+      delegations ? ui`${delegations} 个子助手` : ""
+    ].filter(Boolean);
+    const label = [ui("处理过程"), ...counts].join(" · ");
+    return {
+      markup: `<details class="execution-history" data-task="${esc(state.selected)}" data-history-key="${esc(historyKey)}"${historyOpen ? " open" : ""}><summary aria-label="${esc(label)}"><strong>${ui("处理过程")}</strong>${counts.length ? `<small>${esc(counts.join(" · "))}</small>` : ""}${failedCalls ? ui`<em class="history-failures">${failedCalls} 次调用未成功</em>` : ""}<span class="history-chevron" aria-hidden="true">${icon("chevron-down")}</span></summary>${content}</details>`,
+      settled: formatExecutionDuration(executionElapsedMs(events, state.detail?.events)) || undefined
+    };
+  }
+
+  /** The Subagents one step sent out: a header row, then one indented row each. */
+  function renderSubagentGroup(group, presentations) {
+    const rows = group.items.map((item) => {
+      const presentation = presentations.get(item.call);
+      const agent = presentation.agent;
+      const elapsed = formatExecutionDuration(agent.elapsedMs);
+      const status = presentation.status;
+      const finished = status === "completed" || presentation.statusLabel === "结果待接收";
+      // A paused conversation's Subagents are held at their step boundary.
+      const held =
+        !finished && ["running", "waiting"].includes(status) && state.detail?.task?.status === "paused";
+      const right = finished
+        ? [ui("完成"), elapsed].filter(Boolean).join(" ")
+        : status === "failed"
+          ? presentation.statusLabel
+          : held
+            ? ui("已暂停")
+            : status === "interrupted"
+              ? ui("已停止")
+              : status === "recorded"
+                ? ui("已派发")
+                : status === "waiting"
+                  ? ui("等待中")
+                  : [presentation.statusLabel === "协作排队中" ? ui("排队中") : ui("运行中"), elapsed]
+                      .filter(Boolean)
+                      .join(" ");
+      const running = !finished && !held && status === "running";
+      const mark = running
+        ? `<span class="tool-progress-spinner ant-mark" data-thinking-key="${esc(`${item.key}:agent`)}" aria-hidden="true">${antMarkSvg}</span>`
+        : '<span class="tool-status-dot" aria-hidden="true"></span>';
+      const text = finished && agent.outcome ? agent.outcome : agent.task;
+      const sections = presentation.detailSections || [];
+      return `<details class="tool-details subagent-step is-${finished ? "done" : status === "failed" ? "failed" : running ? "running" : "waiting"}" data-activity-key="${esc(item.key)}" data-view-key="${esc(item.key)}"><summary class="activity-step-head">${mark}<span class="tool-action"><strong>${esc(agent.name)}</strong><span class="subagent-role-tag">${esc(agent.role)}</span>${text ? `<span class="tool-subject" title="${esc(text)}">${esc(text)}</span>` : ""}</span><span class="subagent-status">${esc(right)}</span><span class="tool-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="tool-details-body">${sections.map((section) => `<section><span class="activity-data-label">${esc(section.label)}</span><pre class="tool-copy" data-reading-key="${esc(section.label)}">${esc(section.text)}</pre></section>`).join("")}</div></details>`;
+    });
+    return `<div class="activity-step subagent-group" data-view-key="${esc(group.key)}"><div class="activity-step-content"><div class="activity-step-head"><span class="tool-status-dot" aria-hidden="true"></span><strong>${esc(ui`派出 ${group.items.length} 个子助手`)}</strong></div><div class="subagent-nest">${rows.join("")}</div></div></div>`;
   }
 
   function renderReasoningStep(reasoning, turn, key, rawReasoning = reasoning) {
@@ -815,16 +836,22 @@ export function createConversationView({
     const label = turn.interrupted ? ui("思考已停止") : turn.done ? ui("思考完成") : ui("思考中");
     const spinner = turn.done
       ? ""
-      : `<span class="thinking-spinner" data-thinking-key="${esc(key)}" aria-hidden="true"></span>`;
+      : `<span class="thinking-spinner ant-mark" data-thinking-key="${esc(key)}" aria-hidden="true">${antMarkSvg}</span>`;
     return `<div class="activity-step reasoning-step" data-view-key="${esc(key)}">
     <div class="activity-step-content">
-      ${preview ? `<details class="reasoning-details" data-activity-key="${esc(key)}"><summary>${spinner}<span class="reasoning-preview">${esc(preview)}</span><span class="reasoning-state">${label}</span><span class="reasoning-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="reasoning-copy markdown-body">${markdown(normalized)}</div>${original !== normalized || /\*\*|```/.test(original) ? ui`<details class="activity-raw" data-activity-key="${esc(`${key}:source`)}"><summary>原始内容</summary><pre class="activity-raw-copy">${esc(original)}</pre></details>` : ""}</details>` : `<div class="activity-step-head">${spinner}<strong>${label}</strong></div>`}
+      ${preview ? `<details class="reasoning-details" data-activity-key="${esc(key)}"><summary>${spinner}<span class="reasoning-state${turn.done ? "" : " shimmer-text"}">${label}</span><span class="reasoning-preview">${esc(preview)}</span><span class="reasoning-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="reasoning-copy markdown-body">${markdown(normalized)}</div>${original !== normalized || /\*\*|```/.test(original) ? ui`<details class="activity-raw" data-activity-key="${esc(`${key}:source`)}"><summary>原始内容</summary><pre class="activity-raw-copy">${esc(original)}</pre></details>` : ""}</details>` : `<div class="activity-step-head">${spinner}<strong>${label}</strong></div>`}
     </div>
   </div>`;
   }
 
-  function renderThinkingPlaceholder(key, label = ui("正在思考…"), announce = true) {
-    return `<div class="assistant-thinking"${announce ? ' role="status"' : ""}><span class="thinking-spinner" data-thinking-key="${esc(`${key}:pending`)}" aria-hidden="true"></span><span>${esc(label)}</span></div>`;
+  // Before the first token, the turn shows the row its first thought will
+  // take: same place, mark and words, so nothing jumps when the thought arrives.
+  // Between steps the same row waits at the end of the steps.
+  function thinkingRow(key, label = ui("思考中"), announce = true) {
+    return `<div class="activity-step reasoning-step"><div class="activity-step-content"><div class="activity-step-head assistant-thinking"${announce ? ' role="status"' : ""}><span class="thinking-spinner ant-mark" data-thinking-key="${esc(`${key}:pending`)}" aria-hidden="true">${antMarkSvg}</span><strong class="reasoning-state shimmer-text">${esc(label)}</strong></div></div></div>`;
+  }
+  function renderThinkingPlaceholder(key, label, announce) {
+    return `<section class="live-workflow is-active"><div class="workflow-rail">${thinkingRow(key, label, announce)}</div></section>`;
   }
 
   function renderToolGroup(group, active, presentations) {
@@ -877,7 +904,7 @@ export function createConversationView({
     const sections = presentation.detailSections || [];
     const indicator =
       statusClass === "running"
-        ? `<span class="tool-progress-spinner" data-thinking-key="${esc(`${key}:tool`)}" aria-hidden="true"></span>`
+        ? `<span class="tool-progress-spinner ant-mark" data-thinking-key="${esc(`${key}:tool`)}" aria-hidden="true">${antMarkSvg}</span>`
         : '<span class="tool-status-dot" aria-hidden="true"></span>';
     return `<div class="activity-step tool-step is-${statusClass}" data-view-key="${esc(key)}">
     <div class="activity-step-content">

@@ -300,6 +300,33 @@ export function createRequirementPanel({
     )}</div></section>`;
   }
 
+  const AGENT_STATES = { running: "运行中", waiting: "等待中", queued: "排队中", completed: "已完成" };
+
+  /**
+   * A conversation with no requirement still has work to show: the Subagents
+   * Main delegated to, from the same activity the sidebar lists.
+   */
+  const workAgents = () =>
+    (state.tasks?.find((entry) => entry.taskId === state.selected)?.activity?.agents || []).filter(
+      (agent) => agent.role === "subagent"
+    );
+  const workSignature = () =>
+    workAgents().map((agent) => [agent.agentId, agent.name, agent.workRole, agent.state]);
+
+  function renderWork() {
+    const agents = workAgents();
+    const note = `<p class="rp-empty">${ui("这个会话没有关联需求。开发类任务开始后，这里会显示阶段、完成标准和改动。")}</p>`;
+    if (!agents.length) return note;
+    return `<section class="rp-section"><h3 class="rp-label">${ui("子 Agent")}</h3><ul class="rp-agents">${agents
+      .map((agent) => {
+        const active = ["running", "waiting", "queued"].includes(agent.state);
+        const role =
+          agent.workRole === "reviewer" ? "Reviewer" : agent.workRole === "executor" ? "Executor" : "";
+        return `<li class="rp-agent" data-state="${esc(agent.state)}"><span class="rp-agent-mark${active ? " is-active" : ""}" aria-hidden="true">${icon(active ? "loader-circle" : "circle-check")}</span><span class="rp-agent-name">${esc(agent.name || agent.agentId)}</span>${role ? `<span class="rp-agent-role">${role}</span>` : ""}<span class="rp-spacer"></span><span class="rp-agent-state">${esc(ui(AGENT_STATES[agent.state] || agent.state || ""))}</span></li>`;
+      })
+      .join("")}</ul></section>${note}`;
+  }
+
   function bodyMarkup() {
     if (!state.selected) return "";
     // Files published by the conversation are its own records, so they stay
@@ -308,7 +335,7 @@ export function createRequirementPanel({
     if (!loaded) return attachments;
     if (loaded.error)
       return `<p class="rp-error" role="alert">${esc(loaded.error)}<button type="button" class="rp-link" data-retry>${ui("重试")}</button></p>${attachments}`;
-    if (!loaded.requirement) return attachments;
+    if (!loaded.requirement) return renderWork() + attachments;
     const progress = progressOf();
     const values = tagValues(loaded.requirement, loaded.view, loaded.session);
     return `<div class="rp-identity"><h3 class="rp-title" title="${esc(loaded.requirement.title)}">${esc(
@@ -487,7 +514,8 @@ export function createRequirementPanel({
             loaded.view.board?.assignment
           ]
         : null,
-      (state.detail?.artifacts ?? []).map((row) => [row.relativePath, artifactVersion(row)])
+      (state.detail?.artifacts ?? []).map((row) => [row.relativePath, artifactVersion(row)]),
+      loaded?.requirement ? null : workSignature()
     ]);
     if (signature !== bodySignature) {
       bodySignature = signature;

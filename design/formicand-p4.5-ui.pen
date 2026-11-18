@@ -101532,6 +101532,3334 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "JBeDj",
+      "x": 4640,
+      "y": 0,
+      "name": "工作 · 对话面板打磨（深色）",
+      "width": 1640,
+      "fill": "$bg",
+      "layout": "vertical",
+      "gap": 40,
+      "padding": 56,
+      "children": [
+        {
+          "type": "frame",
+          "id": "L5hkCr",
+          "name": "Head",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "DGl13",
+              "name": "Eyebrow",
+              "fill": "$v2-text-3",
+              "content": "P4.5 · 对话面板打磨",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "zC62t",
+              "name": "Title",
+              "fill": "$v2-text",
+              "content": "输入框 · 运行状态 · 过程步骤 · Thinking 动效",
+              "fontFamily": "Inter",
+              "fontSize": 26,
+              "fontWeight": "600"
+            },
+            {
+              "type": "text",
+              "id": "SmHCK",
+              "name": "Lede",
+              "fill": "$v2-text-2",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "输入框只负责「说什么」；Main 在做什么由输入框上方的运行胶囊和对话流里的蚂蚁动效表达。完成的一轮收成「用时 · 操作数」一行。",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "R31jy6",
+          "name": "Section 输入框 · 对话式",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 16,
+          "children": [
+            {
+              "type": "text",
+              "id": "w1ioy",
+              "name": "SectionTitle",
+              "fill": "$v2-text",
+              "content": "输入框 · 对话式",
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "xtHLk",
+              "name": "ComposerGrid",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "VdKkU",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 24,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Z4bxmu",
+                      "name": "State 空闲",
+                      "width": 752,
+                      "height": 440,
+                      "fill": "$v2-main",
+                      "cornerRadius": 16,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 12,
+                      "padding": [
+                        24,
+                        28,
+                        20,
+                        28
+                      ],
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "IvgZ3",
+                          "name": "StateLabel",
+                          "fill": "$v2-text-3",
+                          "content": "空闲",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "AhM4x",
+                          "name": "Composer",
+                          "width": "fill_container",
+                          "fill": "$v2-composer",
+                          "cornerRadius": 24,
+                          "stroke": "$v2-line-strong",
+                          "strokeWidth": 1,
+                          "effect": {
+                            "type": "shadow",
+                            "shadowType": "outer",
+                            "color": "#00000052",
+                            "offset": {
+                              "x": 0,
+                              "y": 14
+                            },
+                            "blur": 40
+                          },
+                          "layout": "vertical",
+                          "gap": 10,
+                          "padding": [
+                            14,
+                            10,
+                            10,
+                            18
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "PtcoG",
+                              "name": "Input",
+                              "fill": "$v2-text-3",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "描述任务，或添加后续要求…",
+                              "lineHeight": 1.6,
+                              "fontFamily": "Inter",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "r3vqz",
+                              "name": "Tools",
+                              "width": "fill_container",
+                              "gap": 4,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Ob3L0",
+                                  "name": "Add",
+                                  "width": 34,
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "stroke": "$v2-line-strong",
+                                  "strokeWidth": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "iBvTg",
+                                      "name": "Plus",
+                                      "fill": "$v2-text-2",
+                                      "content": "+",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 17,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "oDYuM",
+                                  "name": "Project",
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "gap": 6,
+                                  "padding": [
+                                    0,
+                                    10,
+                                    0,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "u4B9v",
+                                      "name": "Icon",
+                                      "fill": "$v2-text-2",
+                                      "content": "▭",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 14,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "I9p9Vq",
+                                      "name": "Label",
+                                      "fill": "$v2-text-2",
+                                      "content": "测试项目",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "yboBm",
+                                  "name": "Spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "u7vzp",
+                                  "name": "Model",
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "gap": 6,
+                                  "padding": [
+                                    0,
+                                    10,
+                                    0,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "oBsAG",
+                                      "name": "ProviderLogo",
+                                      "width": 18,
+                                      "height": 18,
+                                      "fill": {
+                                        "type": "image",
+                                        "enabled": true,
+                                        "url": "assets/providers/dark/openai.png",
+                                        "mode": "contain"
+                                      },
+                                      "cornerRadius": 5
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "hQv0g",
+                                      "name": "Label",
+                                      "fill": "$v2-text-2",
+                                      "content": "gpt-6.1-terra",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "F3QNH",
+                                      "name": "Effort",
+                                      "fill": "$v2-text-3",
+                                      "content": "· 高",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "nTrSg",
+                                      "name": "Chevron",
+                                      "fill": "$v2-text-3",
+                                      "content": "⌄",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "XEfaO",
+                                  "name": "Send",
+                                  "width": 34,
+                                  "height": 34,
+                                  "fill": "$v2-hover",
+                                  "cornerRadius": 17,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "tytH2",
+                                      "name": "Arrow",
+                                      "fill": "$v2-text-3",
+                                      "content": "↑",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 16,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "UgNiN",
+                          "name": "Hint",
+                          "width": "fill_container",
+                          "padding": [
+                            0,
+                            18
+                          ],
+                          "justifyContent": "space_between",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Y0DRc",
+                              "name": "HintLeft",
+                              "fill": "$v2-text-3",
+                              "content": "文件可以直接拖进来或粘贴截图",
+                              "fontFamily": "Inter",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "CnvyN",
+                              "name": "Keys",
+                              "fill": "$v2-text-3",
+                              "content": "Enter 发送，Shift + Enter 另起一行",
+                              "fontFamily": "Inter",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "cPp9l",
+                      "name": "State 输入 + 附件",
+                      "width": 752,
+                      "height": 440,
+                      "fill": "$v2-main",
+                      "cornerRadius": 16,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 12,
+                      "padding": [
+                        24,
+                        28,
+                        20,
+                        28
+                      ],
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "z3DMk",
+                          "name": "StateLabel",
+                          "fill": "$v2-text-3",
+                          "content": "输入 + 附件",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "AhYMM",
+                          "name": "Composer",
+                          "width": "fill_container",
+                          "fill": "$v2-composer",
+                          "cornerRadius": 24,
+                          "stroke": "$v2-focus",
+                          "strokeWidth": 1,
+                          "effect": {
+                            "type": "shadow",
+                            "shadowType": "outer",
+                            "color": "#00000052",
+                            "offset": {
+                              "x": 0,
+                              "y": 14
+                            },
+                            "blur": 40
+                          },
+                          "layout": "vertical",
+                          "gap": 10,
+                          "padding": [
+                            14,
+                            10,
+                            10,
+                            18
+                          ],
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "D0Jzq",
+                              "name": "Files",
+                              "gap": 8,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "KcMXk",
+                                  "name": "File summarize.sh",
+                                  "fill": "$v2-hover",
+                                  "cornerRadius": 12,
+                                  "stroke": "$v2-line",
+                                  "strokeWidth": 1,
+                                  "gap": 10,
+                                  "padding": [
+                                    6,
+                                    10,
+                                    6,
+                                    6
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "syHDT",
+                                      "name": "FileIcon",
+                                      "width": 34,
+                                      "height": 34,
+                                      "fill": "$v2-line-strong",
+                                      "cornerRadius": 9,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "l91Q9K",
+                                          "name": "Ext",
+                                          "fill": "$v2-text",
+                                          "content": "SH",
+                                          "fontFamily": "JetBrains Mono",
+                                          "fontSize": 10,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "I0bBN5",
+                                      "name": "Meta",
+                                      "layout": "vertical",
+                                      "gap": 1,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "ajBFK",
+                                          "name": "Name",
+                                          "fill": "$v2-text",
+                                          "content": "summarize.sh",
+                                          "fontFamily": "Inter",
+                                          "fontSize": 12.5,
+                                          "fontWeight": "500"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "rJstf",
+                                          "name": "Size",
+                                          "fill": "$v2-text-3",
+                                          "content": "脚本 · 2.1 KB",
+                                          "fontFamily": "Inter",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "xksFK",
+                                  "name": "File 终端截图.png",
+                                  "fill": "$v2-hover",
+                                  "cornerRadius": 12,
+                                  "stroke": "$v2-line",
+                                  "strokeWidth": 1,
+                                  "gap": 10,
+                                  "padding": [
+                                    6,
+                                    10,
+                                    6,
+                                    6
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "K8ZxBw",
+                                      "name": "FileIcon",
+                                      "width": 34,
+                                      "height": 34,
+                                      "fill": "$v2-line-strong",
+                                      "cornerRadius": 9,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "J8Qm9Q",
+                                          "name": "Ext",
+                                          "fill": "$v2-text",
+                                          "content": "IMG",
+                                          "fontFamily": "JetBrains Mono",
+                                          "fontSize": 10,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "mbsXN",
+                                      "name": "Meta",
+                                      "layout": "vertical",
+                                      "gap": 1,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "ajz9j",
+                                          "name": "Name",
+                                          "fill": "$v2-text",
+                                          "content": "终端截图.png",
+                                          "fontFamily": "Inter",
+                                          "fontSize": 12.5,
+                                          "fontWeight": "500"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "X56Tr",
+                                          "name": "Size",
+                                          "fill": "$v2-text-3",
+                                          "content": "图片 · 184 KB",
+                                          "fontFamily": "Inter",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "ANxjI",
+                              "name": "Input",
+                              "fill": "$v2-text",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "给 summarize.sh 再补一个 --max 参数，\n顺便把 --help 的说明更新一下",
+                              "lineHeight": 1.6,
+                              "fontFamily": "Inter",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "BXoZo",
+                              "name": "Tools",
+                              "width": "fill_container",
+                              "gap": 4,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "t22CYH",
+                                  "name": "Add",
+                                  "width": 34,
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "stroke": "$v2-line-strong",
+                                  "strokeWidth": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "bp03U",
+                                      "name": "Plus",
+                                      "fill": "$v2-text-2",
+                                      "content": "+",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 17,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "W4EsVr",
+                                  "name": "Project",
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "gap": 6,
+                                  "padding": [
+                                    0,
+                                    10,
+                                    0,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "rTPD3",
+                                      "name": "Icon",
+                                      "fill": "$v2-text-2",
+                                      "content": "▭",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 14,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "Kb2n1",
+                                      "name": "Label",
+                                      "fill": "$v2-text-2",
+                                      "content": "测试项目",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "cujNU",
+                                  "name": "Spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "o5yZU",
+                                  "name": "Model",
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "gap": 6,
+                                  "padding": [
+                                    0,
+                                    10,
+                                    0,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "ZkxyI",
+                                      "name": "ProviderLogo",
+                                      "width": 18,
+                                      "height": 18,
+                                      "fill": {
+                                        "type": "image",
+                                        "enabled": true,
+                                        "url": "assets/providers/dark/openai.png",
+                                        "mode": "contain"
+                                      },
+                                      "cornerRadius": 5
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "z23Zn",
+                                      "name": "Label",
+                                      "fill": "$v2-text-2",
+                                      "content": "gpt-6.1-terra",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "tOgkt",
+                                      "name": "Effort",
+                                      "fill": "$v2-text-3",
+                                      "content": "· 高",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "Q4OmeN",
+                                      "name": "Chevron",
+                                      "fill": "$v2-text-3",
+                                      "content": "⌄",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "u38Dkq",
+                                  "name": "Send",
+                                  "width": 34,
+                                  "height": 34,
+                                  "fill": "$v2-primary",
+                                  "cornerRadius": 17,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "qzfhM",
+                                      "name": "Arrow",
+                                      "fill": "$v2-on-primary",
+                                      "content": "↑",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 16,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "kqqrg",
+                          "name": "Hint",
+                          "width": "fill_container",
+                          "padding": [
+                            0,
+                            18
+                          ],
+                          "justifyContent": "space_between",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "reIb5",
+                              "name": "HintLeft",
+                              "fill": "$v2-text-3",
+                              "content": "文件可以直接拖进来或粘贴截图",
+                              "fontFamily": "Inter",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "dTKIg",
+                              "name": "Keys",
+                              "fill": "$v2-text-3",
+                              "content": "Enter 发送，Shift + Enter 另起一行",
+                              "fontFamily": "Inter",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "cS5ru",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 24,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "hsllF",
+                      "name": "State 运行中 · 排队",
+                      "width": 752,
+                      "height": 440,
+                      "fill": "$v2-main",
+                      "cornerRadius": 16,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 12,
+                      "padding": [
+                        24,
+                        28,
+                        20,
+                        28
+                      ],
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "xaSlW",
+                          "name": "StateLabel",
+                          "fill": "$v2-text-3",
+                          "content": "运行中 · 排队",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "e3e2hm",
+                          "name": "Tail",
+                          "gap": 8,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "MDIld",
+                              "name": "AntMark",
+                              "width": 14,
+                              "height": 14,
+                              "layout": "none",
+                              "children": [
+                                {
+                                  "type": "ellipse",
+                                  "id": "Du3oo",
+                                  "x": 2.3690624999999996,
+                                  "y": 2.3690624999999996,
+                                  "name": "Head",
+                                  "opacity": 0.4,
+                                  "fill": "$v2-text-2",
+                                  "width": 1.9293749999999998,
+                                  "height": 1.9293749999999998
+                                },
+                                {
+                                  "type": "ellipse",
+                                  "id": "EkUjQ",
+                                  "x": 3.9659374999999994,
+                                  "y": 3.9659374999999994,
+                                  "name": "Thorax",
+                                  "fill": "$v2-text-2",
+                                  "width": 4.134375,
+                                  "height": 4.134375
+                                },
+                                {
+                                  "type": "ellipse",
+                                  "id": "d4uvLF",
+                                  "x": 7.427904166666666,
+                                  "y": 7.427904166666666,
+                                  "name": "Abdomen",
+                                  "opacity": 0.6,
+                                  "fill": "$v2-text-2",
+                                  "width": 4.828775000000001,
+                                  "height": 4.828775000000001
+                                },
+                                {
+                                  "type": "ellipse",
+                                  "id": "Er61H",
+                                  "x": 8.4765625,
+                                  "y": 1.2126041666666665,
+                                  "name": "Feeler",
+                                  "opacity": 0.45,
+                                  "fill": "$v2-text-2",
+                                  "width": 1.5035416666666668,
+                                  "height": 1.5035416666666668
+                                },
+                                {
+                                  "type": "ellipse",
+                                  "id": "dSiSP",
+                                  "x": 1.2126041666666665,
+                                  "y": 8.4765625,
+                                  "name": "Feeler",
+                                  "opacity": 0.45,
+                                  "fill": "$v2-text-2",
+                                  "width": 1.5035416666666668,
+                                  "height": 1.5035416666666668
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "zLWNT",
+                              "name": "Verb",
+                              "fill": "$v2-text-2",
+                              "content": "运行命令",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "p9kN4j",
+                              "name": "Obj",
+                              "fill": "$v2-text-3",
+                              "content": "bash -n summarize.sh",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "OImzV",
+                          "name": "PillRow",
+                          "width": "fill_container",
+                          "justifyContent": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "Qz0gG",
+                              "name": "RunPill",
+                              "height": 34,
+                              "fill": "$v2-overlay",
+                              "cornerRadius": 999,
+                              "stroke": "$v2-line-strong",
+                              "strokeWidth": 1,
+                              "gap": 10,
+                              "padding": [
+                                0,
+                                5,
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "K5dWXS",
+                                  "name": "AntMark",
+                                  "width": 14,
+                                  "height": 14,
+                                  "layout": "none",
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "xsfq9",
+                                      "x": 2.3690624999999996,
+                                      "y": 2.3690624999999996,
+                                      "name": "Head",
+                                      "opacity": 0.4,
+                                      "fill": "$v2-text-2",
+                                      "width": 1.9293749999999998,
+                                      "height": 1.9293749999999998
+                                    },
+                                    {
+                                      "type": "ellipse",
+                                      "id": "SZ4gp",
+                                      "x": 3.9659374999999994,
+                                      "y": 3.9659374999999994,
+                                      "name": "Thorax",
+                                      "fill": "$v2-text-2",
+                                      "width": 4.134375,
+                                      "height": 4.134375
+                                    },
+                                    {
+                                      "type": "ellipse",
+                                      "id": "ZEHRb",
+                                      "x": 7.427904166666666,
+                                      "y": 7.427904166666666,
+                                      "name": "Abdomen",
+                                      "opacity": 0.6,
+                                      "fill": "$v2-text-2",
+                                      "width": 4.828775000000001,
+                                      "height": 4.828775000000001
+                                    },
+                                    {
+                                      "type": "ellipse",
+                                      "id": "m3Z1yB",
+                                      "x": 8.4765625,
+                                      "y": 1.2126041666666665,
+                                      "name": "Feeler",
+                                      "opacity": 0.45,
+                                      "fill": "$v2-text-2",
+                                      "width": 1.5035416666666668,
+                                      "height": 1.5035416666666668
+                                    },
+                                    {
+                                      "type": "ellipse",
+                                      "id": "O8cIL5",
+                                      "x": 1.2126041666666665,
+                                      "y": 8.4765625,
+                                      "name": "Feeler",
+                                      "opacity": 0.45,
+                                      "fill": "$v2-text-2",
+                                      "width": 1.5035416666666668,
+                                      "height": 1.5035416666666668
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "eQzA6",
+                                  "name": "Who",
+                                  "fill": "$v2-text",
+                                  "content": "Main 正在工作",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12.5,
+                                  "fontWeight": "500"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "b1EIs",
+                                  "name": "Step",
+                                  "fill": "$v2-text-3",
+                                  "content": "·  第 2 步  ·  00:12",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12.5,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "wohML",
+                                  "name": "Pause",
+                                  "height": 24,
+                                  "fill": "$v2-hover",
+                                  "cornerRadius": 999,
+                                  "padding": [
+                                    0,
+                                    10
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "GgQKW",
+                                      "name": "PauseLabel",
+                                      "fill": "$v2-text",
+                                      "content": "Ⅱ 暂停",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "DNwMh",
+                          "name": "Composer",
+                          "width": "fill_container",
+                          "fill": "$v2-composer",
+                          "cornerRadius": 24,
+                          "stroke": "$v2-line-strong",
+                          "strokeWidth": 1,
+                          "effect": {
+                            "type": "shadow",
+                            "shadowType": "outer",
+                            "color": "#00000052",
+                            "offset": {
+                              "x": 0,
+                              "y": 14
+                            },
+                            "blur": 40
+                          },
+                          "layout": "vertical",
+                          "gap": 10,
+                          "padding": [
+                            14,
+                            10,
+                            10,
+                            18
+                          ],
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "h3gPIg",
+                              "name": "Queued",
+                              "width": "fill_container",
+                              "fill": "$v2-hover",
+                              "cornerRadius": 14,
+                              "stroke": "$v2-line-strong",
+                              "strokeWidth": 1,
+                              "gap": 10,
+                              "padding": [
+                                8,
+                                8,
+                                8,
+                                14
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "uJOJ9",
+                                  "name": "QState",
+                                  "fill": "$v2-text-3",
+                                  "content": "排队 1 · 本轮结束后发送",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "u6wAiB",
+                                  "name": "QText",
+                                  "fill": "$v2-text-2",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "顺便把 --help 的说明更新一下",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "apzNW",
+                                  "name": "QActions",
+                                  "fill": "$v2-text-2",
+                                  "content": "↳  ✕",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "xVYMG",
+                              "name": "Input",
+                              "fill": "$v2-text-3",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "继续输入，会交给正在工作的 Main…",
+                              "lineHeight": 1.6,
+                              "fontFamily": "Inter",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Bvdqj",
+                              "name": "Tools",
+                              "width": "fill_container",
+                              "gap": 4,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "j2basE",
+                                  "name": "Add",
+                                  "width": 34,
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "stroke": "$v2-line-strong",
+                                  "strokeWidth": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "xGD6w",
+                                      "name": "Plus",
+                                      "fill": "$v2-text-2",
+                                      "content": "+",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 17,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "AgP6I",
+                                  "name": "Project",
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "gap": 6,
+                                  "padding": [
+                                    0,
+                                    10,
+                                    0,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "yGiYA",
+                                      "name": "Icon",
+                                      "fill": "$v2-text-2",
+                                      "content": "▭",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 14,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "In6y1",
+                                      "name": "Label",
+                                      "fill": "$v2-text-2",
+                                      "content": "测试项目",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "rH42X",
+                                  "name": "Spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "s6ZH6",
+                                  "name": "Model",
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "gap": 6,
+                                  "padding": [
+                                    0,
+                                    10,
+                                    0,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "p2XQms",
+                                      "name": "ProviderLogo",
+                                      "width": 18,
+                                      "height": 18,
+                                      "fill": {
+                                        "type": "image",
+                                        "enabled": true,
+                                        "url": "assets/providers/dark/openai.png",
+                                        "mode": "contain"
+                                      },
+                                      "cornerRadius": 5
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "BQC8H",
+                                      "name": "Label",
+                                      "fill": "$v2-text-2",
+                                      "content": "gpt-6.1-terra",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "w3OgIy",
+                                      "name": "Effort",
+                                      "fill": "$v2-text-3",
+                                      "content": "· 高",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "pt6HW",
+                                      "name": "Chevron",
+                                      "fill": "$v2-text-3",
+                                      "content": "⌄",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "v9Dn8c",
+                                  "name": "Stop",
+                                  "width": 34,
+                                  "height": 34,
+                                  "fill": "$v2-primary",
+                                  "cornerRadius": 17,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "XcFlm",
+                                      "name": "Square",
+                                      "width": 11,
+                                      "height": 11,
+                                      "fill": "$v2-on-primary",
+                                      "cornerRadius": 3
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "USxEM",
+                          "name": "Hint",
+                          "width": "fill_container",
+                          "padding": [
+                            0,
+                            18
+                          ],
+                          "justifyContent": "space_between",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "fx5Ic",
+                              "name": "HintLeft",
+                              "fill": "$v2-text-3",
+                              "content": "运行中发出的消息会交给正在工作的 Main",
+                              "fontFamily": "Inter",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "USPfy",
+                              "name": "Keys",
+                              "fill": "$v2-text-3",
+                              "content": "Enter 发送，Shift + Enter 另起一行",
+                              "fontFamily": "Inter",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "TIAuU",
+                      "name": "State 选择模型",
+                      "width": 752,
+                      "height": 440,
+                      "fill": "$v2-main",
+                      "cornerRadius": 16,
+                      "stroke": "$v2-line",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 12,
+                      "padding": [
+                        24,
+                        28,
+                        20,
+                        28
+                      ],
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "nCcV6",
+                          "name": "StateLabel",
+                          "fill": "$v2-text-3",
+                          "content": "选择模型",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "lwPdD",
+                          "name": "MenuRow",
+                          "width": "fill_container",
+                          "padding": [
+                            0,
+                            52,
+                            0,
+                            0
+                          ],
+                          "justifyContent": "end",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "dQHsF",
+                              "name": "ModelMenu",
+                              "width": 320,
+                              "fill": "$v2-overlay",
+                              "cornerRadius": 16,
+                              "stroke": "$v2-line-strong",
+                              "strokeWidth": 1,
+                              "layout": "vertical",
+                              "gap": 2,
+                              "padding": 6,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "c3EvgF",
+                                  "name": "Group",
+                                  "fill": "$v2-text-3",
+                                  "content": "OpenAI",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "VmS5i",
+                                  "name": "Option gpt-6.1-terra",
+                                  "width": "fill_container",
+                                  "fill": "$v2-hover",
+                                  "cornerRadius": 10,
+                                  "gap": 10,
+                                  "padding": [
+                                    8,
+                                    10
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "AaGmO",
+                                      "name": "ProviderLogo",
+                                      "width": 18,
+                                      "height": 18,
+                                      "fill": {
+                                        "type": "image",
+                                        "enabled": true,
+                                        "url": "assets/providers/dark/openai.png",
+                                        "mode": "contain"
+                                      },
+                                      "cornerRadius": 5
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "N2Cco",
+                                      "name": "Model",
+                                      "fill": "$v2-text",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "gpt-6.1-terra",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "d8zv6",
+                                      "name": "Check",
+                                      "fill": "$v2-text",
+                                      "content": "✓",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "S7Il78",
+                                  "name": "Option gpt-6.1-mini",
+                                  "width": "fill_container",
+                                  "cornerRadius": 10,
+                                  "gap": 10,
+                                  "padding": [
+                                    8,
+                                    10
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "W9WhO4",
+                                      "name": "ProviderLogo",
+                                      "width": 18,
+                                      "height": 18,
+                                      "fill": {
+                                        "type": "image",
+                                        "enabled": true,
+                                        "url": "assets/providers/dark/openai.png",
+                                        "mode": "contain"
+                                      },
+                                      "cornerRadius": 5
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "a03Jc",
+                                      "name": "Model",
+                                      "fill": "$v2-text",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "gpt-6.1-mini",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "LmqcH",
+                                  "name": "Option o5-pro",
+                                  "width": "fill_container",
+                                  "cornerRadius": 10,
+                                  "gap": 10,
+                                  "padding": [
+                                    8,
+                                    10
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "U3M9k",
+                                      "name": "ProviderLogo",
+                                      "width": 18,
+                                      "height": 18,
+                                      "fill": {
+                                        "type": "image",
+                                        "enabled": true,
+                                        "url": "assets/providers/dark/openai.png",
+                                        "mode": "contain"
+                                      },
+                                      "cornerRadius": 5
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "XCbja",
+                                      "name": "Model",
+                                      "fill": "$v2-text",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "o5-pro",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "j2vCb",
+                          "name": "Composer",
+                          "width": "fill_container",
+                          "fill": "$v2-composer",
+                          "cornerRadius": 24,
+                          "stroke": "$v2-line-strong",
+                          "strokeWidth": 1,
+                          "effect": {
+                            "type": "shadow",
+                            "shadowType": "outer",
+                            "color": "#00000052",
+                            "offset": {
+                              "x": 0,
+                              "y": 14
+                            },
+                            "blur": 40
+                          },
+                          "layout": "vertical",
+                          "gap": 10,
+                          "padding": [
+                            14,
+                            10,
+                            10,
+                            18
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "o17lVO",
+                              "name": "Input",
+                              "fill": "$v2-text-3",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "描述任务，或添加后续要求…",
+                              "lineHeight": 1.6,
+                              "fontFamily": "Inter",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "tVhly",
+                              "name": "Tools",
+                              "width": "fill_container",
+                              "gap": 4,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "bOfSR",
+                                  "name": "Add",
+                                  "width": 34,
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "stroke": "$v2-line-strong",
+                                  "strokeWidth": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "wjNyP",
+                                      "name": "Plus",
+                                      "fill": "$v2-text-2",
+                                      "content": "+",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 17,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "MnvU5",
+                                  "name": "Project",
+                                  "height": 34,
+                                  "cornerRadius": 17,
+                                  "gap": 6,
+                                  "padding": [
+                                    0,
+                                    10,
+                                    0,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "q3qM1",
+                                      "name": "Icon",
+                                      "fill": "$v2-text-2",
+                                      "content": "▭",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 14,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "BVqnW",
+                                      "name": "Label",
+                                      "fill": "$v2-text-2",
+                                      "content": "测试项目",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "h31lv",
+                                  "name": "Spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "nHVWI",
+                                  "name": "Model",
+                                  "height": 34,
+                                  "fill": "$v2-hover",
+                                  "cornerRadius": 17,
+                                  "gap": 6,
+                                  "padding": [
+                                    0,
+                                    10,
+                                    0,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "e5KbC",
+                                      "name": "ProviderLogo",
+                                      "width": 18,
+                                      "height": 18,
+                                      "fill": {
+                                        "type": "image",
+                                        "enabled": true,
+                                        "url": "assets/providers/dark/openai.png",
+                                        "mode": "contain"
+                                      },
+                                      "cornerRadius": 5
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "H1ON3m",
+                                      "name": "Label",
+                                      "fill": "$v2-text-2",
+                                      "content": "gpt-6.1-terra",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "bk7YN",
+                                      "name": "Effort",
+                                      "fill": "$v2-text-3",
+                                      "content": "· 高",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "j4HL02",
+                                      "name": "Chevron",
+                                      "fill": "$v2-text-3",
+                                      "content": "⌄",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Jz9Th",
+                                  "name": "Send",
+                                  "width": 34,
+                                  "height": 34,
+                                  "fill": "$v2-hover",
+                                  "cornerRadius": 17,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "GVkey",
+                                      "name": "Arrow",
+                                      "fill": "$v2-text-3",
+                                      "content": "↑",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 16,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "l0xEfo",
+                          "name": "Hint",
+                          "width": "fill_container",
+                          "padding": [
+                            0,
+                            18
+                          ],
+                          "justifyContent": "space_between",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "VmdSt",
+                              "name": "HintLeft",
+                              "fill": "$v2-text-3",
+                              "content": "文件可以直接拖进来或粘贴截图",
+                              "fontFamily": "Inter",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "nTkKw",
+                              "name": "Keys",
+                              "fill": "$v2-text-3",
+                              "content": "Enter 发送，Shift + Enter 另起一行",
+                              "fontFamily": "Inter",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "BGTbP",
+          "name": "Section 过程步骤 · 一轮多步",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 16,
+          "children": [
+            {
+              "type": "text",
+              "id": "gQXQ3",
+              "name": "SectionTitle",
+              "fill": "$v2-text",
+              "content": "过程步骤 · 一轮多步",
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "SeT4s",
+              "name": "ProcessRow",
+              "width": "fill_container",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "g3r81",
+                  "name": "Process 运行中：每步一行，进行中的那行是蚂蚁动效",
+                  "width": "fill_container",
+                  "fill": "$v2-main",
+                  "cornerRadius": 16,
+                  "stroke": "$v2-line",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": [
+                    20,
+                    24
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "fTNB7",
+                      "name": "StateLabel",
+                      "fill": "$v2-text-3",
+                      "content": "运行中：每步一行，进行中的那行是蚂蚁动效",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "oJFzV",
+                      "name": "UserRow",
+                      "width": "fill_container",
+                      "padding": [
+                        0,
+                        0,
+                        8,
+                        0
+                      ],
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "A95aH",
+                          "name": "UserBubble",
+                          "fill": "$v2-hover",
+                          "cornerRadius": 18,
+                          "padding": [
+                            8,
+                            15
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Rzk6j",
+                              "name": "UserText",
+                              "fill": "$v2-text",
+                              "content": "给 summarize.sh 加一个 --avg 参数，改完跑一下检查",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "wV6Dc",
+                      "name": "Step 思考了 3 秒",
+                      "width": "fill_container",
+                      "height": 30,
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "fXP1v",
+                          "name": "Done",
+                          "fill": "$v2-text-3",
+                          "content": "✓",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "JkOAT",
+                          "name": "Verb",
+                          "fill": "$v2-text",
+                          "content": "思考了 3 秒",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "hE9ci",
+                          "name": "Obj",
+                          "fill": "$v2-text-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "需要先读一遍脚本，再决定 --avg 放在哪里。",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "GOCer",
+                          "name": "Duration",
+                          "fill": "$v2-text-3",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "BrDjA",
+                      "name": "Step 读取",
+                      "width": "fill_container",
+                      "height": 30,
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "w6ZfEg",
+                          "name": "Done",
+                          "fill": "$v2-text-3",
+                          "content": "✓",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "rtQMQ",
+                          "name": "Verb",
+                          "fill": "$v2-text",
+                          "content": "读取",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "yzJai",
+                          "name": "Obj",
+                          "fill": "$v2-text-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "summarize.sh",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "zQ6fS",
+                          "name": "Duration",
+                          "fill": "$v2-text-3",
+                          "content": "0.9s",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ofOOJ",
+                      "name": "Step 搜索",
+                      "width": "fill_container",
+                      "height": 30,
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "bcjYe",
+                          "name": "Done",
+                          "fill": "$v2-text-3",
+                          "content": "✓",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "h8jjmF",
+                          "name": "Verb",
+                          "fill": "$v2-text",
+                          "content": "搜索",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "XnkSP",
+                          "name": "Obj",
+                          "fill": "$v2-text-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "\"total\" in scripts/",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "WItpu",
+                          "name": "Duration",
+                          "fill": "$v2-text-3",
+                          "content": "0.7s",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "p1fBg",
+                      "name": "Interim",
+                      "fill": "$v2-text",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "脚本结构确认了：累加在 while read 里完成，结尾只打印总和。",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "KFcNu",
+                      "name": "Step 思考中",
+                      "width": "fill_container",
+                      "height": 30,
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "MOgT8",
+                          "name": "AntMark",
+                          "width": 14,
+                          "height": 14,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "WFrQH",
+                              "x": 2.3690624999999996,
+                              "y": 2.3690624999999996,
+                              "name": "Head",
+                              "opacity": 0.4,
+                              "fill": "$v2-text-2",
+                              "width": 1.9293749999999998,
+                              "height": 1.9293749999999998
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "P2dDpL",
+                              "x": 3.9659374999999994,
+                              "y": 3.9659374999999994,
+                              "name": "Thorax",
+                              "fill": "$v2-text-2",
+                              "width": 4.134375,
+                              "height": 4.134375
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "RO7p0",
+                              "x": 7.427904166666666,
+                              "y": 7.427904166666666,
+                              "name": "Abdomen",
+                              "opacity": 0.6,
+                              "fill": "$v2-text-2",
+                              "width": 4.828775000000001,
+                              "height": 4.828775000000001
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "PmC22",
+                              "x": 8.4765625,
+                              "y": 1.2126041666666665,
+                              "name": "Feeler",
+                              "opacity": 0.45,
+                              "fill": "$v2-text-2",
+                              "width": 1.5035416666666668,
+                              "height": 1.5035416666666668
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "FSdcd",
+                              "x": 1.2126041666666665,
+                              "y": 8.4765625,
+                              "name": "Feeler",
+                              "opacity": 0.45,
+                              "fill": "$v2-text-2",
+                              "width": 1.5035416666666668,
+                              "height": 1.5035416666666668
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "Wxywe",
+                          "name": "Verb",
+                          "fill": "$v2-text-3",
+                          "content": "思考中",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "isG9q",
+                          "name": "Obj",
+                          "fill": "$v2-text-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "行数为 0 时不能除，要单独处理。",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Ktz7h",
+                          "name": "Duration",
+                          "fill": "$v2-text-3",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "OpRxE",
+                  "name": "Process 完成：整段过程收成一行",
+                  "width": "fill_container",
+                  "fill": "$v2-main",
+                  "cornerRadius": 16,
+                  "stroke": "$v2-line",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": [
+                    20,
+                    24
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "bXOAc",
+                      "name": "StateLabel",
+                      "fill": "$v2-text-3",
+                      "content": "完成：整段过程收成一行",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "azIH1",
+                      "name": "UserRow",
+                      "width": "fill_container",
+                      "padding": [
+                        0,
+                        0,
+                        8,
+                        0
+                      ],
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Cznj3",
+                          "name": "UserBubble",
+                          "fill": "$v2-hover",
+                          "cornerRadius": 18,
+                          "padding": [
+                            8,
+                            15
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "M8WDml",
+                              "name": "UserText",
+                              "fill": "$v2-text",
+                              "content": "给 summarize.sh 加一个 --avg 参数，改完跑一下检查",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "R3OtJ",
+                      "name": "Summary",
+                      "height": 30,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "P33okx",
+                          "name": "Took",
+                          "fill": "$v2-text-2",
+                          "content": "用时 13 秒",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "T9TKe1",
+                          "name": "Count",
+                          "fill": "$v2-text-3",
+                          "content": "· 思考 2 次 · 5 项操作  ›",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "D3QKfs",
+                      "name": "Answer",
+                      "fill": "$v2-text",
+                      "content": "我先看了一下脚本结构，下面是修改方案：",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "v0hrfV",
+                      "name": "H2",
+                      "fill": "$v2-text",
+                      "content": "改动",
+                      "fontFamily": "Inter",
+                      "fontSize": 16,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "Jtwpp",
+                      "name": "List",
+                      "fill": "$v2-text",
+                      "content": "1. 增加 --avg 参数，默认关闭\n2. 在汇总时同时累计行数与总和\n3. 结束时打印平均值，保留两位小数",
+                      "lineHeight": 1.8,
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "t0i5Vl",
+                  "name": "Process 展开：左侧导轨回看每一步",
+                  "width": "fill_container",
+                  "fill": "$v2-main",
+                  "cornerRadius": 16,
+                  "stroke": "$v2-line",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": [
+                    20,
+                    24
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "CIfwZ",
+                      "name": "StateLabel",
+                      "fill": "$v2-text-3",
+                      "content": "展开：左侧导轨回看每一步",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Z88I9",
+                      "name": "UserRow",
+                      "width": "fill_container",
+                      "padding": [
+                        0,
+                        0,
+                        8,
+                        0
+                      ],
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "O0g0WW",
+                          "name": "UserBubble",
+                          "fill": "$v2-hover",
+                          "cornerRadius": 18,
+                          "padding": [
+                            8,
+                            15
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Fb21n",
+                              "name": "UserText",
+                              "fill": "$v2-text",
+                              "content": "给 summarize.sh 加一个 --avg 参数，改完跑一下检查",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "z0o0W",
+                      "name": "Summary",
+                      "height": 30,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "pAAZb",
+                          "name": "Took",
+                          "fill": "$v2-text-2",
+                          "content": "用时 13 秒",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "UyInS",
+                          "name": "Count",
+                          "fill": "$v2-text-3",
+                          "content": "· 思考 2 次 · 5 项操作  ⌄",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "rZblG",
+                      "name": "Rail",
+                      "width": "fill_container",
+                      "stroke": "$v2-line-strong",
+                      "strokeWidth": {
+                        "left": 1
+                      },
+                      "layout": "vertical",
+                      "padding": [
+                        4,
+                        0,
+                        6,
+                        14
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "vjJ8U",
+                          "name": "Step 思考了 3 秒",
+                          "width": "fill_container",
+                          "height": 30,
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "OWwQl",
+                              "name": "Done",
+                              "fill": "$v2-text-3",
+                              "content": "✓",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "E8FjV",
+                              "name": "Verb",
+                              "fill": "$v2-text",
+                              "content": "思考了 3 秒",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "qWhB4",
+                              "name": "Obj",
+                              "fill": "$v2-text-3",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "需要先读一遍脚本，再决定 --avg 放在哪里。",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "ftXlT",
+                              "name": "Duration",
+                              "fill": "$v2-text-3",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "O2lr89",
+                          "name": "Step 读取",
+                          "width": "fill_container",
+                          "height": 30,
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "R7FXe",
+                              "name": "Done",
+                              "fill": "$v2-text-3",
+                              "content": "✓",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "SnaMs",
+                              "name": "Verb",
+                              "fill": "$v2-text",
+                              "content": "读取",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "XsDc3",
+                              "name": "Obj",
+                              "fill": "$v2-text-2",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "summarize.sh",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "k5c5cV",
+                              "name": "Duration",
+                              "fill": "$v2-text-3",
+                              "content": "0.9s",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "k90mTk",
+                          "name": "Step 搜索",
+                          "width": "fill_container",
+                          "height": 30,
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "YN7MZ",
+                              "name": "Done",
+                              "fill": "$v2-text-3",
+                              "content": "✓",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "p5m5xC",
+                              "name": "Verb",
+                              "fill": "$v2-text",
+                              "content": "搜索",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "PPhow",
+                              "name": "Obj",
+                              "fill": "$v2-text-2",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "\"total\" in scripts/",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "BFnBY",
+                              "name": "Duration",
+                              "fill": "$v2-text-3",
+                              "content": "0.7s",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "e1r8aw",
+                          "name": "Step 思考了 2 秒",
+                          "width": "fill_container",
+                          "height": 30,
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "JXw3X",
+                              "name": "Done",
+                              "fill": "$v2-text-3",
+                              "content": "✓",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "dMRyd",
+                              "name": "Verb",
+                              "fill": "$v2-text",
+                              "content": "思考了 2 秒",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "A5ka3",
+                              "name": "Obj",
+                              "fill": "$v2-text-3",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "保留两位小数用 awk 比 bc 更稳。",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "fDDGh",
+                              "name": "Duration",
+                              "fill": "$v2-text-3",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "rQcAr",
+                          "name": "Step 编辑",
+                          "width": "fill_container",
+                          "height": 30,
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "c49DN9",
+                              "name": "Done",
+                              "fill": "$v2-text-3",
+                              "content": "✓",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "gTqts",
+                              "name": "Verb",
+                              "fill": "$v2-text",
+                              "content": "编辑",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "EZ2Cp",
+                              "name": "Obj",
+                              "fill": "$v2-text-2",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "summarize.sh",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "E0vje9",
+                              "name": "Add",
+                              "fill": "$v2-ok",
+                              "content": "+12",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "ESfUB",
+                              "name": "Del",
+                              "fill": "$v2-danger",
+                              "content": "−2",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "GtEao",
+                              "name": "Duration",
+                              "fill": "$v2-text-3",
+                              "content": "1.1s",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "AV8Ru",
+                          "name": "Step 运行",
+                          "width": "fill_container",
+                          "height": 30,
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "jpKzt",
+                              "name": "Done",
+                              "fill": "$v2-text-3",
+                              "content": "✓",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "iNM1Z",
+                              "name": "Verb",
+                              "fill": "$v2-text",
+                              "content": "运行",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "tfZbc",
+                              "name": "Obj",
+                              "fill": "$v2-text-2",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "bash -n summarize.sh",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "uzPWZ",
+                              "name": "Duration",
+                              "fill": "$v2-text-3",
+                              "content": "0.8s",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "CMt9Q",
+                          "name": "Output",
+                          "width": "fill_container",
+                          "fill": "$v2-hover",
+                          "cornerRadius": 10,
+                          "stroke": "$v2-line",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "padding": [
+                            8,
+                            12
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "c6rb9k",
+                              "name": "OutText",
+                              "fill": "$v2-text-2",
+                              "content": "total 12\naverage 4.00",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "aoBkJ",
+          "name": "Section Thinking 动效 · 蚂蚁爬行",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 16,
+          "children": [
+            {
+              "type": "text",
+              "id": "ZYmu8",
+              "name": "SectionTitle",
+              "fill": "$v2-text",
+              "content": "Thinking 动效 · 蚂蚁爬行",
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "jlS2c",
+              "name": "MotionRow",
+              "width": "fill_container",
+              "fill": "$v2-main",
+              "cornerRadius": 16,
+              "stroke": "$v2-line",
+              "strokeWidth": 1,
+              "gap": 48,
+              "padding": [
+                24,
+                28
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "OaRS7",
+                  "name": "Phase 0% 头",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "wuJUP",
+                      "name": "AntMark",
+                      "width": 64,
+                      "height": 64,
+                      "layout": "none",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "dzPbO",
+                          "x": 8.94,
+                          "y": 8.94,
+                          "name": "Head",
+                          "fill": "$v2-text",
+                          "width": 12.599999999999998,
+                          "height": 12.599999999999998
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "A4v11c",
+                          "x": 19.830999999999996,
+                          "y": 19.830999999999996,
+                          "name": "Thorax",
+                          "opacity": 0.6,
+                          "fill": "$v2-text",
+                          "width": 15.498,
+                          "height": 15.498
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "RiyOR",
+                          "x": 35.57133333333333,
+                          "y": 35.57133333333333,
+                          "name": "Abdomen",
+                          "opacity": 0.4,
+                          "fill": "$v2-text",
+                          "width": 18.843999999999998,
+                          "height": 18.843999999999998
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "fEAlX",
+                          "x": 38.75,
+                          "y": 5.543333333333331,
+                          "name": "Feeler",
+                          "opacity": 0.45,
+                          "fill": "$v2-text",
+                          "width": 6.873333333333333,
+                          "height": 6.873333333333333
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "AOCs2",
+                          "x": 5.543333333333331,
+                          "y": 38.75,
+                          "name": "Feeler",
+                          "opacity": 0.45,
+                          "fill": "$v2-text",
+                          "width": 6.873333333333333,
+                          "height": 6.873333333333333
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "CzsQ9",
+                      "name": "PhaseLabel",
+                      "fill": "$v2-text-3",
+                      "content": "0% 头",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "xmh6B",
+                  "name": "Phase 35% 胸",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "V64DNV",
+                      "name": "AntMark",
+                      "width": 64,
+                      "height": 64,
+                      "layout": "none",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "fhxgR",
+                          "x": 10.829999999999998,
+                          "y": 10.829999999999998,
+                          "name": "Head",
+                          "opacity": 0.4,
+                          "fill": "$v2-text",
+                          "width": 8.819999999999999,
+                          "height": 8.819999999999999
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "jgMjK",
+                          "x": 18.129999999999995,
+                          "y": 18.129999999999995,
+                          "name": "Thorax",
+                          "fill": "$v2-text",
+                          "width": 18.9,
+                          "height": 18.9
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "sJyBD",
+                          "x": 33.95613333333333,
+                          "y": 33.95613333333333,
+                          "name": "Abdomen",
+                          "opacity": 0.6,
+                          "fill": "$v2-text",
+                          "width": 22.0744,
+                          "height": 22.0744
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "anmNH",
+                          "x": 38.75,
+                          "y": 5.543333333333331,
+                          "name": "Feeler",
+                          "opacity": 0.45,
+                          "fill": "$v2-text",
+                          "width": 6.873333333333333,
+                          "height": 6.873333333333333
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "QOcgP",
+                          "x": 5.543333333333331,
+                          "y": 38.75,
+                          "name": "Feeler",
+                          "opacity": 0.45,
+                          "fill": "$v2-text",
+                          "width": 6.873333333333333,
+                          "height": 6.873333333333333
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "MK0Kj",
+                      "name": "PhaseLabel",
+                      "fill": "$v2-text-3",
+                      "content": "35% 胸",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "nr4Te",
+                  "name": "Phase 70% 腹",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "LJkmJ",
+                      "name": "AntMark",
+                      "width": 64,
+                      "height": 64,
+                      "layout": "none",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "bfb1K",
+                          "x": 10.074,
+                          "y": 10.074,
+                          "name": "Head",
+                          "opacity": 0.6,
+                          "fill": "$v2-text",
+                          "width": 10.331999999999997,
+                          "height": 10.331999999999997
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "Oo0lK",
+                          "x": 20.964999999999996,
+                          "y": 20.964999999999996,
+                          "name": "Thorax",
+                          "opacity": 0.4,
+                          "fill": "$v2-text",
+                          "width": 13.229999999999999,
+                          "height": 13.229999999999999
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "YIwJR",
+                          "x": 31.53333333333333,
+                          "y": 31.53333333333333,
+                          "name": "Abdomen",
+                          "fill": "$v2-text",
+                          "width": 26.92,
+                          "height": 26.92
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "QOEVF",
+                          "x": 38.75,
+                          "y": 5.543333333333331,
+                          "name": "Feeler",
+                          "opacity": 0.45,
+                          "fill": "$v2-text",
+                          "width": 6.873333333333333,
+                          "height": 6.873333333333333
+                        },
+                        {
+                          "type": "ellipse",
+                          "id": "wMyv0",
+                          "x": 5.543333333333331,
+                          "y": 38.75,
+                          "name": "Feeler",
+                          "opacity": 0.45,
+                          "fill": "$v2-text",
+                          "width": 6.873333333333333,
+                          "height": 6.873333333333333
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "SbQaH",
+                      "name": "PhaseLabel",
+                      "fill": "$v2-text-3",
+                      "content": "70% 腹",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "tLEQo",
+                  "name": "Sizes",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "sx8gt",
+                      "name": "Size 14",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "mT9XD",
+                          "name": "AntMark",
+                          "width": 14,
+                          "height": 14,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "sYrZF",
+                              "x": 2.3690624999999996,
+                              "y": 2.3690624999999996,
+                              "name": "Head",
+                              "opacity": 0.4,
+                              "fill": "$v2-text-2",
+                              "width": 1.9293749999999998,
+                              "height": 1.9293749999999998
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "qxLBc",
+                              "x": 3.9659374999999994,
+                              "y": 3.9659374999999994,
+                              "name": "Thorax",
+                              "fill": "$v2-text-2",
+                              "width": 4.134375,
+                              "height": 4.134375
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "DpqCu",
+                              "x": 7.427904166666666,
+                              "y": 7.427904166666666,
+                              "name": "Abdomen",
+                              "opacity": 0.6,
+                              "fill": "$v2-text-2",
+                              "width": 4.828775000000001,
+                              "height": 4.828775000000001
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "gLcU2",
+                              "x": 8.4765625,
+                              "y": 1.2126041666666665,
+                              "name": "Feeler",
+                              "opacity": 0.45,
+                              "fill": "$v2-text-2",
+                              "width": 1.5035416666666668,
+                              "height": 1.5035416666666668
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "j1g57Z",
+                              "x": 1.2126041666666665,
+                              "y": 8.4765625,
+                              "name": "Feeler",
+                              "opacity": 0.45,
+                              "fill": "$v2-text-2",
+                              "width": 1.5035416666666668,
+                              "height": 1.5035416666666668
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "iijC8",
+                          "name": "SizeLabel",
+                          "fill": "$v2-text-3",
+                          "content": "14px",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "CIEah",
+                      "name": "Size 16",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "P9Pqz2",
+                          "name": "AntMark",
+                          "width": 16,
+                          "height": 16,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "d1DZLi",
+                              "x": 2.7074999999999996,
+                              "y": 2.7074999999999996,
+                              "name": "Head",
+                              "opacity": 0.4,
+                              "fill": "$v2-text-2",
+                              "width": 2.2049999999999996,
+                              "height": 2.2049999999999996
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "zHgBo",
+                              "x": 4.532499999999999,
+                              "y": 4.532499999999999,
+                              "name": "Thorax",
+                              "fill": "$v2-text-2",
+                              "width": 4.725,
+                              "height": 4.725
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "wOgbZ",
+                              "x": 8.489033333333332,
+                              "y": 8.489033333333332,
+                              "name": "Abdomen",
+                              "opacity": 0.6,
+                              "fill": "$v2-text-2",
+                              "width": 5.5186,
+                              "height": 5.5186
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "g9m9Q",
+                              "x": 9.6875,
+                              "y": 1.3858333333333328,
+                              "name": "Feeler",
+                              "opacity": 0.45,
+                              "fill": "$v2-text-2",
+                              "width": 1.7183333333333333,
+                              "height": 1.7183333333333333
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "STTvP",
+                              "x": 1.3858333333333328,
+                              "y": 9.6875,
+                              "name": "Feeler",
+                              "opacity": 0.45,
+                              "fill": "$v2-text-2",
+                              "width": 1.7183333333333333,
+                              "height": 1.7183333333333333
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "i2eqmi",
+                          "name": "SizeLabel",
+                          "fill": "$v2-text-3",
+                          "content": "16px",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "UoXVP",
+                      "name": "Size 20",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "E7iaf",
+                          "name": "AntMark",
+                          "width": 20,
+                          "height": 20,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "ILqd5",
+                              "x": 3.3843749999999995,
+                              "y": 3.3843749999999995,
+                              "name": "Head",
+                              "opacity": 0.4,
+                              "fill": "$v2-text-2",
+                              "width": 2.7562499999999996,
+                              "height": 2.7562499999999996
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "oNVSC",
+                              "x": 5.665624999999999,
+                              "y": 5.665624999999999,
+                              "name": "Thorax",
+                              "fill": "$v2-text-2",
+                              "width": 5.906250000000001,
+                              "height": 5.906250000000001
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "A9Lsnh",
+                              "x": 10.611291666666665,
+                              "y": 10.611291666666665,
+                              "name": "Abdomen",
+                              "opacity": 0.6,
+                              "fill": "$v2-text-2",
+                              "width": 6.898250000000001,
+                              "height": 6.898250000000001
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "ttwY2",
+                              "x": 12.109375,
+                              "y": 1.7322916666666663,
+                              "name": "Feeler",
+                              "opacity": 0.45,
+                              "fill": "$v2-text-2",
+                              "width": 2.1479166666666667,
+                              "height": 2.1479166666666667
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "N2ThG",
+                              "x": 1.7322916666666663,
+                              "y": 12.109375,
+                              "name": "Feeler",
+                              "opacity": 0.45,
+                              "fill": "$v2-text-2",
+                              "width": 2.1479166666666667,
+                              "height": 2.1479166666666667
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "Z81ssd",
+                          "name": "SizeLabel",
+                          "fill": "$v2-text-3",
+                          "content": "20px",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "hR5XM",
+                  "name": "MotionSpec",
+                  "fill": "$v2-text-2",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "头、胸、腹三个圆依次放大（0.7 → 1 → 0.82），透明度 0.4 → 1 → 0.6；周期 1.2s，相邻错开 0.15s；触角 45% 常亮。用于：等待首字的「正在思考」、正文末尾、运行中的工具、运行胶囊。「减少动态效果」时静止。思考中的文字带一道 2.2s 的高光扫过。",
+                  "lineHeight": 1.7,
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "themes": {

@@ -3,6 +3,8 @@ import { installLanguageSettings } from "./assets/controllers/language-settings.
 import { createCoalescedRead } from "./assets/controllers/coalesced-read.js";
 import { createMessageEditController } from "./assets/controllers/message-edit.js";
 import { createComposerClipboard } from "./assets/controllers/composer-clipboard.js";
+import { providerLogo } from "./assets/controllers/model-providers.js";
+import { antMarkSvg } from "./assets/ui/thinking-mark.js";
 import { createComposerSession } from "./assets/controllers/composer-session.js";
 import { createDraftRecovery } from "./assets/controllers/draft-recovery.js";
 import { createComposerLayout } from "./assets/controllers/composer-layout.js";
@@ -64,6 +66,11 @@ import { animateLayout, installSelectionGlide } from "./assets/ui/motion.js";
 import { formatArtifactSize, artifactParentPath, invalidateArtifactCache } from "./assets/artifacts.js";
 
 localizeShell(document.body);
+// The run pill walks the Formicand ant while Main works.
+for (const dot of document.querySelectorAll(".run-control-dot")) {
+  dot.classList.add("ant-mark");
+  dot.innerHTML = antMarkSvg;
+}
 
 const state = {
   online: true,
@@ -76,6 +83,15 @@ const state = {
   defaultModel: null,
   model: null,
   modelByTask: new Map(),
+  /**
+   * A model picked from another provider: its profile id, sent with each run so
+   * that run uses that provider. Null follows the Main connection.
+   */
+  profileId: null,
+  profileByTask: new Map(),
+  /** Usable providers and their models, from /api/models. */
+  modelProviders: [],
+  mainProviderId: "",
   /**
    * The level the user picked for the current conversation, or null to let the
    * Main connection's saved level govern. The two are separate on purpose: an
@@ -275,6 +291,25 @@ function writePreferredModel(model) {
     /* storage may be disabled */
   }
 }
+const PREFERRED_PROFILE_KEY = "atria.model.preferred-profile";
+function readPreferredProfile() {
+  try {
+    return (draftStorage && draftStorage.getItem(PREFERRED_PROFILE_KEY)) || "";
+    // eslint-disable-next-line no-restricted-syntax -- getItem throws when the browser blocks storage; the composer then follows the Main connection
+  } catch {
+    return "";
+  }
+}
+function writePreferredProfile(profileId) {
+  try {
+    if (!draftStorage) return;
+    if (profileId) draftStorage.setItem(PREFERRED_PROFILE_KEY, profileId);
+    else draftStorage.removeItem(PREFERRED_PROFILE_KEY);
+    // eslint-disable-next-line no-restricted-syntax -- best-effort preference write: blocked or full storage only loses the remembered provider
+  } catch {
+    /* storage may be disabled */
+  }
+}
 const composerSession = createComposerSession({
   input: $("#composer-input"),
   storage: draftStorage,
@@ -384,19 +419,13 @@ requirementPanel = createRequirementPanel({
   onCollapse: () => void toggleOutputPane(),
   openArtifact,
   openPreview,
-  onRendered: (stage) => {
-    runControl?.setRequirementStage(stage);
-    paintTopbarContext();
-  }
+  onRendered: () => paintTopbarContext()
 });
 const conversationView = createConversationView({
   state,
   $,
   textContent,
   openArtifact,
-  // The recovery card's model action switches the composer's model; the
-  // settings surface remains one click away from the composer selector.
-  openSettings: () => setTimeout(() => void toggleModelMenu({ page: "models" }), 0),
   retry: (taskId) => void retryFailedRequest(taskId),
   messageEdit,
   edit: (taskId, target) => messageEdit.begin(taskId, target),
@@ -417,7 +446,7 @@ runControl = createRunControl({
   api,
   showToast,
   onChanged: () => refresh(),
-  interruptRun: (taskId) => interruptTask(taskId),
+  interruptRun: (taskId) => stopRound(taskId),
   continueRun: (taskId) => continuePausedRun(taskId),
   isContinuing: (taskId) => continuingTasks.has(taskId)
 });
@@ -636,7 +665,16 @@ function setModelLabel(value) {
   const name = $(".model-name");
   if (name) name.textContent = label;
   else $(".model-select").textContent = label;
+  paintModelProvider();
   paintModelButton();
+}
+/** The composer's model button carries the mark of the provider the models come from. */
+function paintModelProvider(provider) {
+  if (provider !== undefined) state.modelProvider = provider || null;
+  const slot = $("#model-select .model-logo");
+  const shown = pickedProfile()?.provider || state.modelProvider;
+  if (!slot || !shown) return;
+  slot.innerHTML = providerLogo(shown, 18);
 }
 /** One button names the model and the reasoning level this Run will send. */
 function paintModelButton() {
@@ -650,21 +688,36 @@ function paintModelButton() {
 
 const THINKING_LEVEL_LABELS = LEVEL_LABELS;
 /** The reasoning levels the selected model accepts (#27). */
+/** The model entry of a profile picked from another provider, with its provider. */
+function pickedProfile(profileId = state.profileId) {
+  if (!profileId) return null;
+  for (const provider of state.modelProviders) {
+    const model = provider.models.find((entry) => entry.profileId === profileId);
+    if (model) return { provider, model };
+  }
+  return null;
+}
 function modelLevelsFor(model = state.model || state.defaultModel) {
+  const picked = pickedProfile();
+  if (picked && picked.model.id === model) return picked.model.levels || DEFAULT_LEVELS;
   return state.modelLevels[model]?.levels || DEFAULT_LEVELS;
+}
+/** The level the connection this run uses applies when nothing is picked. */
+function baseThinkingLevel() {
+  return pickedProfile()?.model.reasoningEffort || state.mainThinkingLevel || null;
 }
 /**
  * The level used when nothing is picked: the Main connection's saved level,
  * or the nearest one this model accepts when it does not take that one.
  */
 function fallbackThinkingLevel() {
-  return nearestLevel(state.mainThinkingLevel || null, modelLevelsFor());
+  return nearestLevel(baseThinkingLevel(), modelLevelsFor());
 }
 /** What a run sends: the pick, or the fallback only when it had to move. */
 function sentThinkingLevel() {
   if (state.thinkingLevel) return state.thinkingLevel;
   const fallback = fallbackThinkingLevel();
-  return fallback && fallback !== state.mainThinkingLevel ? fallback : undefined;
+  return fallback && fallback !== baseThinkingLevel() ? fallback : undefined;
 }
 function setThinkingLabel(value) {
   // An unpicked level is not a choice: the label names what this Run will
@@ -673,6 +726,8 @@ function setThinkingLabel(value) {
   const label = effective ? THINKING_LEVEL_LABELS[effective] || effective : ui("自动");
   const name = $(".reasoning-name");
   if (name) name.textContent = label;
+  // No reasoning reads as just the model's name, not "model · Off".
+  $(".reasoning-label")?.classList.toggle("is-off", !effective || effective === "off");
   paintModelButton();
 }
 
@@ -691,7 +746,9 @@ function syncModelConnection(model, profileId, mainEffort) {
   if (state.connectionProfileId !== profileId || state.defaultModel !== model) {
     state.connectionProfileId = profileId;
     state.modelByTask.clear();
+    state.profileByTask.clear();
     state.thinkingLevelByTask.clear();
+    state.profileId = null;
     state.model = model;
     state.thinkingLevel = null;
   }
@@ -715,6 +772,10 @@ async function loadModels() {
         ? data.current.trim()
         : state.models[0] || "glm-5.3";
     syncModelConnection(defaultModel, data.connectionProfileId, data.reasoningEffort ?? null);
+    state.modelProviders = Array.isArray(data.providers) ? data.providers : [];
+    state.mainProviderId = typeof data.mainProviderId === "string" ? data.mainProviderId : "";
+    if (state.profileId && !pickedProfile()) state.profileId = null;
+    paintModelProvider(data.provider);
     // eslint-disable-next-line no-restricted-syntax -- /api/models is unavailable while the backend restarts or is offline; the picker keeps a usable model instead of an empty list
   } catch {
     state.models = state.model ? [state.model] : ["glm-5.3"];
@@ -1057,6 +1118,7 @@ function loadDetail(taskId, options) {
         (state.connectionProfileId ? state.defaultModel : task.model) ||
         state.defaultModel ||
         state.model;
+      state.profileId = state.profileByTask.get(taskId) ?? null;
       setModelLabel(state.model);
       state.thinkingLevel = state.thinkingLevelByTask.get(taskId) ?? null;
       setThinkingLabel(state.thinkingLevel);
@@ -1097,6 +1159,7 @@ async function readDetail(taskId, { poll = false, isCurrent = () => true } = {})
     if (taskModel && !state.modelByTask.has(taskId)) state.modelByTask.set(taskId, taskModel);
     if (state.selected === taskId) {
       state.model = state.modelByTask.get(taskId) || taskModel || state.model;
+      state.profileId = state.profileByTask.get(taskId) ?? null;
       setModelLabel(state.model);
       state.thinkingLevel = state.thinkingLevelByTask.get(taskId) ?? null;
       setThinkingLabel(state.thinkingLevel);
@@ -1290,6 +1353,8 @@ function beginNewConversation(projectId) {
   state.composingNew = true;
   runControl?.reset();
   state.model = defaultModelForNewConversation();
+  state.profileId =
+    pickedProfile(readPreferredProfile())?.model.id === state.model ? readPreferredProfile() : null;
   setModelLabel(state.model);
   state.thinkingLevel = null;
   setThinkingLabel(state.thinkingLevel);
@@ -1400,7 +1465,11 @@ const modelPicker = createModelPicker({
     levels: modelLevelsFor(),
     chosen: state.thinkingLevel,
     fallback: fallbackThinkingLevel(),
-    notice: modelNotice
+    notice: modelNotice,
+    provider: state.modelProvider
+      ? { name: state.modelProvider.name, mark: providerLogo(state.modelProvider, 18) }
+      : null,
+    groups: pickerGroups()
   }),
   chooseModel,
   chooseLevel: chooseThinkingLevel
@@ -1435,13 +1504,46 @@ async function toggleModelMenu({ page = "effort" } = {}) {
   renderModelMenu(page);
 }
 
+/**
+ * Every usable provider's models for the picker. The Main connection's own
+ * provider comes first; the active entry is the picked profile, or the model
+ * on that provider when nothing else was picked.
+ */
+function pickerGroups() {
+  if (!state.modelProviders.length) return null;
+  const mainProvider = state.mainProviderId;
+  const model = state.model || state.defaultModel;
+  const ordered = [...state.modelProviders].sort(
+    (left, right) => Number(right.id === mainProvider) - Number(left.id === mainProvider)
+  );
+  return ordered.map((provider) => ({
+    name: provider.name,
+    mark: providerLogo(provider, 18),
+    models: provider.models.map((entry) => ({
+      id: entry.id,
+      profileId: entry.profileId,
+      active: state.profileId
+        ? entry.profileId === state.profileId
+        : provider.id === mainProvider && entry.id === model,
+      isDefault: provider.id === mainProvider && entry.id === state.defaultModel
+    }))
+  }));
+}
+
 /** Picking a model keeps the popover open; a pick it does not accept moves to the nearest level. */
-function chooseModel(model) {
+function chooseModel(model, profileId = null) {
   const selected = String(model || "").trim();
   if (!selected) return;
   state.model = selected;
-  if (state.selected) state.modelByTask.set(state.selected, selected);
+  // A model of the Main connection's own provider follows that connection.
+  const mainProvider = state.mainProviderId;
+  state.profileId = profileId && !profileId.startsWith(`${mainProvider}#`) ? profileId : null;
+  if (state.selected) {
+    state.modelByTask.set(state.selected, selected);
+    state.profileByTask.set(state.selected, state.profileId);
+  }
   writePreferredModel(selected);
+  writePreferredProfile(state.profileId);
   setModelLabel(selected);
   const picked = state.thinkingLevel;
   const kept = nearestLevel(picked, modelLevelsFor(selected));
@@ -1508,7 +1610,8 @@ createConversationLayout($("#conversation"));
  * The session, its Subagents and everything already done stay; the process
  * waits for the next message.
  */
-async function interruptTask(taskId = state.selected) {
+/** Stop the round: Main's turn and its working Subagents, all at once; the session stays. */
+async function stopRound(taskId = state.selected) {
   if (!taskId || isTaskStopping(taskId)) return;
   stopEpochs.set(taskId, (stopEpochs.get(taskId) || 0) + 1);
   stoppingTasks.add(taskId);
@@ -1517,10 +1620,10 @@ async function interruptTask(taskId = state.selected) {
     await api(`/api/tasks/${encodeURIComponent(taskId)}/action`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "interrupt" })
+      body: JSON.stringify({ action: "stop" })
     });
     await refresh();
-    showToast(ui("本回合已中断，会话保留"));
+    showToast(ui("已停止，做完的步骤和结果保留"));
   } catch (error) {
     showToast(requestErrorMessage(error));
   } finally {
@@ -1963,6 +2066,7 @@ async function interject(taskId, text, delivery = "followUp") {
       await launchPrompt(taskId, text, {
         submission,
         model,
+        profileId: state.profileId || undefined,
         thinkingLevel: sentThinkingLevel(),
         resume: false,
         savedUsers,
@@ -2041,9 +2145,9 @@ function showSentDraft(draft) {
   const input = $("#composer-input");
   const sent = Boolean(
     draft &&
-      composerSession.currentToken === draft.token &&
-      input.value === draft.input &&
-      JSON.stringify(state.attachments) === draft.attachments
+    composerSession.currentToken === draft.token &&
+    input.value === draft.input &&
+    JSON.stringify(state.attachments) === draft.attachments
   );
   if (input.classList.contains("is-sent") === sent) return;
   input.classList.toggle("is-sent", sent);
@@ -2080,7 +2184,17 @@ function clearSubmittedDraft(taskId, draft) {
 async function launchPrompt(
   taskId,
   prompt,
-  { model, thinkingLevel, resume, retryRequestId, savedUsers, attachmentIds = [], submission, body }
+  {
+    model,
+    profileId,
+    thinkingLevel,
+    resume,
+    retryRequestId,
+    savedUsers,
+    attachmentIds = [],
+    submission,
+    body
+  }
 ) {
   if (submission) submission.launching = true;
   let optimisticMessage;
@@ -2094,7 +2208,16 @@ async function launchPrompt(
     const run = await api(`/api/tasks/${encodeURIComponent(taskId)}/run`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt, body, resume, model, thinkingLevel, attachmentIds, retryRequestId })
+      body: JSON.stringify({
+        prompt,
+        body,
+        resume,
+        model,
+        ...(profileId ? { profileId } : {}),
+        thinkingLevel,
+        attachmentIds,
+        retryRequestId
+      })
     });
     // A queued demand is accepted but not running: keeping the optimistic
     // running state would route the next message into interject instead of
@@ -2151,7 +2274,9 @@ function updateSendButton() {
   const running = Boolean(state.detail?.task?.taskId === state.selected && state.detail?.runtime?.active);
   const stopping = isTaskStopping();
   const hasDraft = Boolean($("#composer-input").value.trim() || state.attachments.length);
-  const showStop = stopping || (running && !hasDraft);
+  // Main waiting on its Subagents is not Main working: the composer stays a
+  // send box and the status line carries pause and stop.
+  const showStop = stopping || (running && !hasDraft && !runControl?.waiting());
   renderMessageQueue($("#queued-messages"), {
     taskId: state.selected,
     messages:
@@ -2172,8 +2297,8 @@ function updateSendButton() {
   $("#stop-button").hidden = !showStop;
   $("#stop-button").disabled = stopping;
   $("#stop-button").setAttribute("aria-busy", String(stopping));
-  $("#stop-button").setAttribute("aria-label", stopping ? ui("正在中断本回合") : ui("中断本回合"));
-  $("#stop-button").title = stopping ? ui("正在中断本回合…") : ui("中断本回合");
+  $("#stop-button").setAttribute("aria-label", stopping ? ui("正在停止") : ui("停止"));
+  $("#stop-button").title = stopping ? ui("正在停止…") : ui("停止（Esc）");
   $("#model-setup-button").hidden = state.modelConfigured !== false;
   $("#send-button").title = awaitingSetup
     ? firstUse.lockReason()
@@ -2279,6 +2404,7 @@ async function sendMessage({ queue = false } = {}) {
     attachmentIds: uploadedFileIds(JSON.parse(draft.attachments)),
     resume: detail?.task?.status === "waiting",
     model: state.model || state.defaultModel || undefined,
+    profileId: state.profileId || undefined,
     thinkingLevel: sentThinkingLevel(),
     savedUsers: (detail?.messages || []).filter((message) => message.role === "user").length
   };

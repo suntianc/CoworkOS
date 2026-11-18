@@ -456,16 +456,13 @@ html[data-theme] .subagent-state .ui-icon {
   width: 13px;
   height: 13px;
 }
-html[data-theme] .subagent-state.is-done {
-  color: var(--ui-success);
-}
 html[data-theme] .subagent-state.is-running {
   color: var(--color-accent);
 }
 html[data-theme] .subagent-state.is-review {
   color: var(--color-review);
 }
-html[data-theme] .subagent-state.is-idle {
+html[data-theme] .subagent-state.is-paused {
   color: var(--color-text-3);
 }
 html[data-theme] .subagent-state:is(.is-running, .is-review) .ui-icon {

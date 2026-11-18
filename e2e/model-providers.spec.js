@@ -368,6 +368,64 @@ test("moving Main to another model during a run leaves that turn alone and takes
   }
 });
 
+test("the composer switches one conversation to another provider's model and back", async ({ page }) => {
+  const alpha = await modelProtocolFixture("openai-completions", (body) => ({ text: `${body.model} 来自甲` }));
+  const beta = await modelProtocolFixture("openai-completions", (body) => ({ text: `${body.model} 来自乙` }));
+  const dashboard = await startDashboard();
+  const request = pageRequest(page, dashboard.base);
+  try {
+    await saveTestConnection(request, {
+      profileName: "甲供应商",
+      baseUrl: alpha.baseUrl,
+      model: "alpha-model",
+      apiKey: "local-alpha-key"
+    });
+    const other = await saveTestConnection(request, {
+      profileName: "乙供应商",
+      baseUrl: beta.baseUrl,
+      model: "beta-model",
+      apiKey: "local-beta-key",
+      activate: false
+    });
+    await page.goto(dashboard.base);
+    await expect(page.locator("#model-select .model-name")).toHaveText("alpha-model");
+    await expect(page.locator("#model-select .model-logo .provider-logo")).toHaveText("甲");
+    await page.locator("#composer-input").fill("第一轮走 Main 的连接");
+    await page.locator("#send-button").click();
+    await expect(page.locator("#conversation")).toContainText("alpha-model 来自甲", { timeout: 30_000 });
+    await expect(page.locator("#stop-button")).toBeHidden();
+
+    // The picker lists both providers; a model of the other one pins its connection.
+    await page.locator("#model-select").click();
+    await page.locator('#model-menu [data-picker-page="models"]').click();
+    await expect(page.locator("#model-menu .picker-group")).toHaveText(["甲供应商", "乙供应商"]);
+    await page.locator(`#model-menu [data-profile="${other.profileId}"]`).click();
+    await expect(page.locator("#model-select .model-name")).toHaveText("beta-model");
+    await expect(page.locator("#model-select .model-logo .provider-logo")).toHaveText("乙");
+    await page.keyboard.press("Escape");
+    await page.locator("#composer-input").fill("第二轮换到乙");
+    await page.locator("#send-button").click();
+    await expect(page.locator("#conversation")).toContainText("beta-model 来自乙", { timeout: 30_000 });
+    expect(beta.requests.at(-1).body.model).toBe("beta-model");
+    await expect(page.locator("#stop-button")).toBeHidden();
+
+    // Back on the Main connection's model, the next turn returns to it.
+    await page.locator("#model-select").click();
+    await page.locator('#model-menu [data-picker-page="models"]').click();
+    await page.locator('#model-menu .model-option[data-model="alpha-model"]').click();
+    await page.keyboard.press("Escape");
+    const alphaBefore = alpha.requests.length;
+    await page.locator("#composer-input").fill("第三轮回到甲");
+    await page.locator("#send-button").click();
+    await expect.poll(() => alpha.requests.length, { timeout: 30_000 }).toBeGreaterThan(alphaBefore);
+    expect(alpha.requests.at(-1).body.model).toBe("alpha-model");
+  } finally {
+    await dashboard.stop();
+    await alpha.close();
+    await beta.close();
+  }
+});
+
 test("composer reasoning level is sent with the selected Main request", async ({ page }) => {
   const provider = await modelProtocolFixture("openai-completions", () => ({ text: "推理档位已生效" }));
   const dashboard = await startDashboard({
@@ -381,7 +439,7 @@ test("composer reasoning level is sent with the selected Main request", async ({
     await page.locator("#model-select").click();
     await expect(page.locator("#model-menu")).toBeVisible();
     // A relay address that names no levels offers the default six.
-    await expect(page.locator("#model-menu [data-thinking-level]")).toHaveCount(6);
+    await expect(page.locator("#model-menu [data-thinking-level]")).toHaveCount(5);
     await page.locator('#model-menu [data-thinking-level="high"]').click();
     await expect(page.locator("#model-select .reasoning-name")).toHaveText("高");
     await page.locator("#composer-input").fill("用高推理强度完成这条消息");

@@ -24,8 +24,10 @@ test("projects hold their Main sessions and Subagents, folds persist, and no sta
       taskId: "tree-rating",
       runId: "run-tree",
       subagents: [
-        { agentId: "subagent_1", role: "executor" },
-        { agentId: "subagent_2", role: "reviewer" }
+        { agentId: "subagent_1", role: "executor", state: "running" },
+        { agentId: "subagent_2", role: "reviewer", state: "queued" },
+        // A finished Subagent leaves the tree; the conversation still shows its work.
+        { agentId: "subagent_3", role: "executor" }
       ]
     });
     await page.goto(dashboard.base);

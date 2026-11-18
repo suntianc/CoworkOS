@@ -61,7 +61,11 @@ test("human replies use the shared palette and retain answers through a visible 
       const colors = await palette(page);
       for (const width of [1440, 320]) {
         await page.setViewportSize({ width, height: 760 });
-        await expect(card).toHaveCSS("background-color", colors.panel);
+        // The question sits in the composer's tray, which is its surface.
+        await expect(card).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+        expect(
+          await page.locator("#composer-tray").evaluate((node) => getComputedStyle(node).backgroundColor)
+        ).not.toBe("rgba(0, 0, 0, 0)");
         await expect(card).toHaveCSS("color", colors.text);
         await expect(submit).toHaveCSS("background-color", colors.accent);
         await expect(answer).toHaveCSS("font-size", "14px");

@@ -18,7 +18,8 @@ import {
 } from "../runtime/main-message-edit.js";
 import { InputStore, inputPrompt, readTaskInput } from "../workspace/input-store.js";
 import { queuedUserTurn, readQueuedUserTurn } from "../runtime/queued-user-turn.js";
-import { MainInboxDelivery, isMainControlType } from "../runtime/main-inbox-delivery.js";
+import { MainInboxDelivery, isCancelledCallback, isMainControlType } from "../runtime/main-inbox-delivery.js";
+import { resumeSubagents } from "../runtime/subagent-pause.js";
 import { mainContextPaths } from "../runtime/main-context.js";
 import { mainInputPath, readMainInput, saveMainInput, type MainInput } from "../runtime/main-continuation.js";
 import { appendFile, readdir, realpath } from "node:fs/promises";
@@ -251,6 +252,11 @@ export function createDashboardRunService({
     /** The exit was already handled; a late spawn must not re-register it. */
     settled: boolean;
     requestId?: string;
+    /**
+     * The connection a launch pinned with an explicit profile. A pinned process
+     * keeps it for its life; an unpinned one follows the host file each turn.
+     */
+    pinnedConnection?: string;
   }
   const residentMains = new Map<string, ResidentMain>();
   // A turn accepted for delivery but not yet recorded by the extension. The
@@ -837,7 +843,9 @@ export function createDashboardRunService({
         // would leave the new process idle with nothing to do.
         (message.state === "ready" ||
           (message.state === "leased" && Date.parse(message.lease?.expiresAt ?? "") <= at)) &&
-        !isMainControlType((message.payload as { type?: unknown } | undefined)?.type)
+        !isMainControlType((message.payload as { type?: unknown } | undefined)?.type) &&
+        // A cancelled Subagent's callback is read with a turn but never starts one.
+        !isCancelledCallback(message)
     );
   }
 
@@ -874,6 +882,12 @@ export function createDashboardRunService({
       return undefined;
     }
     if (input.requestedModel && normalizeModel(input.requestedModel) !== (task.model || "")) return undefined;
+    // Another provider, or back to the host's own connection, needs a process
+    // started on that connection.
+    const wanted = submission?.profileId
+      ? (resolveMainModel({ profileId: submission.profileId }).connectionId ?? submission.profileId)
+      : undefined;
+    if (wanted !== resident.pinnedConnection) return undefined;
     if (prompt.includes("\0")) throw new Error("消息包含不支持的二进制字符，请移除附件后重试");
     if (Buffer.byteLength(prompt, "utf8") > 512 * 1024) throw new Error("消息及附件合计不能超过 512 KB");
     if (!prompt.trim() && !continuation) throw new Error("prompt must not be empty");
@@ -1557,7 +1571,8 @@ export function createDashboardRunService({
       observed: true,
       replacing: false,
       settled: false,
-      ...(admission.requestId ? { requestId: admission.requestId } : {})
+      ...(admission.requestId ? { requestId: admission.requestId } : {}),
+      ...(roleRequest.profileId ? { pinnedConnection: selection.connectionId ?? roleRequest.profileId } : {})
     };
     const host = new AgentProcessHost({
       workspaceRoot: taskWorkspace,
@@ -2044,14 +2059,20 @@ export function createDashboardRunService({
     async function inspect() {
       for (const taskId of ids) {
         const location = await locateTask(taskId);
+        // A refusal names the conversation, so the person knows which one to stop.
+        const name = (location.task.title ?? location.task.goal ?? "").trim().slice(0, 40);
+        const refuse = (what: string) =>
+          new ProjectCatalogError(
+            `请先停止项目中的${what}，再${change}${name ? `（会话「${name}」）` : ""}`,
+            409
+          );
         // eslint-disable-next-line no-restricted-syntax -- 接管失败只表示这里不认识该进程，后续的活进程检查仍会读心跳与执行记录
         const resident = await adoptResidentMain(taskId, location).catch(() => undefined);
         // A resident Main between turns is not activity: stop it so the folder
         // change can fork the session, exactly as an edit does. A turn that is
         // still producing an answer keeps the refusal.
         if (resident) {
-          if (await taskTurnActive(taskId))
-            throw new ProjectCatalogError(`请先停止项目中的会话及后台工作，再${change}`, 409);
+          if (await taskTurnActive(taskId)) throw refuse("会话及后台工作");
           await stopResidentMain(taskId, { replacing: true });
         }
         if (
@@ -2060,12 +2081,15 @@ export function createDashboardRunService({
           // not stop is still an owner.
           residentMains.has(taskId) ||
           taskFinalizations.has(taskId) ||
-          ["running", "paused", "waiting"].includes(location.task.status) ||
+          // Paused and waiting runs have nothing working: they wait for the
+          // person to continue. What could still be working — a park, a live
+          // process, a Subagent or a job — is checked on its own below.
+          location.task.status === "running" ||
           // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏时按未停泊处理，读不出的记录不冒充活动中的会话
           (await readSleep(location.workspaceRoot, taskId).catch(() => undefined)) ||
           (await projectExecutionIsAlive(location.workspaceRoot, taskId))
         )
-          throw new ProjectCatalogError(`请先停止项目中的会话及后台工作，再${change}`, 409);
+          throw refuse("会话及后台工作");
         const privateAgents = join(location.workspaceRoot, taskId, "agents", "subagents");
         // eslint-disable-next-line no-restricted-syntax -- 没有 subagents 目录表示该会话没有私有子代理，按空列表继续检查
         for (const agent of await readdir(privateAgents).catch(() => [])) {
@@ -2074,7 +2098,7 @@ export function createDashboardRunService({
               (job) => job.state === "running"
             )
           )
-            throw new ProjectCatalogError(`请先停止项目中的后台命令，再${change}`, 409);
+            throw refuse("后台命令");
         }
         const runIds = await readdir(join(location.workspaceRoot, taskId, "runs")).catch(
           (error: NodeJS.ErrnoException) => {
@@ -2089,8 +2113,10 @@ export function createDashboardRunService({
             workspaceRoot: location.workspaceRoot,
             timeoutMs: 0
           });
-          if (coordination.pending.length || coordination.callbackPending.length)
-            throw new ProjectCatalogError(`请先停止项目中的后台协作，再${change}`, 409);
+          // Only a Subagent still working holds the project. A finished one's
+          // result waiting for a stopped Main is a record, not activity: it
+          // stays in the Inbox and reaches Main when the conversation resumes.
+          if (coordination.pending.length) throw refuse("后台协作");
           const agents = join(location.workspaceRoot, taskId, "runs", runId, "agents");
           // eslint-disable-next-line no-restricted-syntax -- 该 Run 可能从未启动子代理，subagents 目录缺失按空列表继续
           const subagents = await readdir(join(agents, "subagents")).catch(() => []);
@@ -2099,7 +2125,7 @@ export function createDashboardRunService({
             ...subagents.map((subagent) => join(agents, "subagents", subagent))
           ]) {
             if ((await listJobs({ directory: join(agent, "jobs") })).some((job) => job.state === "running"))
-              throw new ProjectCatalogError(`请先停止项目中的后台命令，再${change}`, 409);
+              throw refuse("后台命令");
           }
         }
       }
@@ -2109,11 +2135,13 @@ export function createDashboardRunService({
   }
 
   /**
-   * Ask the running Main to stop after its current step.
+   * Ask Main to pause: its Subagents first, then itself.
    *
-   * The request is durable on the Task record, which the Main process reads at
-   * the next tool/model boundary. It changes no Run state by itself: the close
-   * path records the pause only after the in-flight step has settled.
+   * The request is durable on the Task record. A turn in flight reads it at
+   * its next tool/model boundary; a Main between turns (waiting for its
+   * Subagents) is sent a `main.pause` command and takes it at once. Either
+   * way Main's runtime holds the Run's Subagents at the end of their current
+   * step before it records the pause (see `subagent-pause.ts`).
    */
   function pauseTask(taskId: string) {
     return serialize(taskId, async () => {
@@ -2122,67 +2150,103 @@ export function createDashboardRunService({
       // Take over a Main the previous backend left running before deciding
       // whether a turn is in flight.
       if (!(await adoptResidentMain(taskId, location))) return { refused: "no_active_run" as const };
-      if (location.task.status !== "running" || !location.task.activeRunId)
+      const runId = location.task.activeRunId;
+      if (!["running", "waiting"].includes(location.task.status) || !runId)
         return { refused: "no_active_run" as const };
-      if (!location.task.pause) {
-        const task = await location.store.updateTask(taskId, {
-          pause: { requestedAt: new Date().toISOString(), requestedBy: "user" }
+      if (location.task.pause) return { task: location.task };
+      const task = await location.store.updateTask(taskId, {
+        pause: { requestedAt: new Date().toISOString(), requestedBy: "user" }
+      });
+      await appendRunEvent(location.workspaceRoot, taskId, runId, "main.run_pause_requested", {
+        reason: "ui_pause"
+      });
+      if (!(await taskTurnActive(taskId))) {
+        const messageId = `main-pause-${randomUUID()}`;
+        await new InboxStore(
+          join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
+        ).enqueue({
+          messageId,
+          recipientAgentId: "main",
+          kind: "human_command",
+          eventId: `main-pause-event-${messageId}`,
+          priority: 110,
+          state: "ready",
+          payload: { type: "main.pause" },
+          createdAt: now()
         });
-        await appendRunEvent(
-          location.workspaceRoot,
-          taskId,
-          location.task.activeRunId,
-          "main.run_pause_requested",
-          { reason: "ui_pause" }
-        );
-        return { task };
       }
-      return { task: location.task };
+      return { task };
     });
   }
 
   /**
-   * Stop the turn Main is producing, leaving the session and its work alone.
+   * Stop the round: Main's turn and every Subagent still working, at once.
    *
-   * The command travels through the process's own durable Inbox like every
-   * other message, so it needs no second control channel: Main aborts the run
-   * where Pi next checks its signal and stays available for the next message.
-   * Subagents already running are not cancelled; the Task is not ended.
+   * Nothing is asked of Main here. The backend cancels the Run's working
+   * Subagents itself (the same cancel closing a session uses, but the
+   * session stays open), drops a pause that has not taken effect, and aborts
+   * the turn Main is producing where Pi next checks its signal. Finished steps
+   * and results stay. A cancelled Subagent's callback does not start a turn of
+   * its own (see `main-inbox-delivery.ts` and `main-supervisor.ts`), so the
+   * stopped round is not woken again by its own Subagents.
    */
-  function interruptTask(taskId: string) {
+  function stopTask(taskId: string) {
     return serialize(taskId, async () => {
       const location = await locateTask(taskId);
+      if (location.task.status === "paused") return { refused: "paused" as const };
       // The adopted process reports its turn through the durable heartbeat;
       // a process this backend observes reports its event stream.
-      // Adoption is only used for the Run identity; the turn decision below
-      // reads the durable record and does not need the takeover to succeed.
       // eslint-disable-next-line no-restricted-syntax -- 接管失败时仍按持久回合记录判断，消息留给下一个 Main 读取
       const resident = await adoptResidentMain(taskId, location).catch(() => undefined);
-      // Both this decision and `runtime.active` read the same durable record.
-      const turnActive = await taskTurnActive(taskId);
       const runId = resident?.runId ?? location.task.activeRunId;
-      if (!turnActive || !runId) return { refused: "no_active_turn" as const };
-      const inbox = new InboxStore(
-        join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
-      );
-      const messageId = `main-interrupt-${randomUUID()}`;
-      await inbox.enqueue({
-        messageId,
-        recipientAgentId: "main",
-        kind: "human_command",
-        eventId: `main-interrupt-event-${messageId}`,
-        // Ahead of callbacks and external events, but behind a user insertion
-        // enqueued before it: the person's message belongs to the turn the
-        // interrupt then stops, not to a fresh turn after it.
-        priority: 110,
-        state: "ready",
-        payload: { type: "main.interrupt" },
-        createdAt: now()
+      if (!runId) return { refused: "no_active_turn" as const };
+      const turnActive = await taskTurnActive(taskId);
+      const coordination = await coordinator.waitForSubagents({
+        taskId,
+        runId,
+        workspaceRoot: location.workspaceRoot,
+        timeoutMs: 0
       });
-      await appendRunEvent(location.workspaceRoot, taskId, runId, "main.interrupt_requested", {
-        messageId
+      if (!turnActive && !coordination.pending.length) return { refused: "no_active_turn" as const };
+      // A pause still waiting for its boundary would otherwise be recorded
+      // when the aborted turn settles.
+      if (location.task.pause) await location.store.updateTask(taskId, { pause: undefined });
+      await appendRunEvent(location.workspaceRoot, taskId, runId, "main.run_stopped", {
+        reason: "ui_stop",
+        subagents: coordination.pending.length
       });
-      return { taskId, runId, interrupted: true };
+      await resumeSubagents(location.workspaceRoot, taskId, runId);
+      if (subagents) {
+        const results = await Promise.allSettled(
+          coordination.pending.map((callId) =>
+            subagents.cancel({ taskId, runId, callId, reason: "User stopped the round" })
+          )
+        );
+        const rejected = results.find((result) => result.status === "rejected");
+        if (rejected?.status === "rejected") throw rejected.reason;
+      }
+      if (turnActive) {
+        const messageId = `main-interrupt-${randomUUID()}`;
+        await new InboxStore(
+          join(location.workspaceRoot, taskId, "runs", runId, "agents", "main", "inbox-store.json")
+        ).enqueue({
+          messageId,
+          recipientAgentId: "main",
+          kind: "human_command",
+          eventId: `main-interrupt-event-${messageId}`,
+          // Ahead of callbacks and external events, but behind a user insertion
+          // enqueued before it: the person's message belongs to the turn the
+          // stop then ends, not to a fresh turn after it.
+          priority: 110,
+          state: "ready",
+          payload: { type: "main.interrupt" },
+          createdAt: now()
+        });
+        await appendRunEvent(location.workspaceRoot, taskId, runId, "main.interrupt_requested", {
+          messageId
+        });
+      }
+      return { taskId, runId, stopped: true, subagents: coordination.pending.length };
     });
   }
 
@@ -2457,7 +2521,7 @@ export function createDashboardRunService({
     isBusy: () => activeRuns.size > 0 || taskOperations.size > 0 || finalizations.size > 0,
     startMainRun,
     pauseTask,
-    interruptTask,
+    stopTask,
     editMainMessage,
     interjectionTarget,
     queueInterjection,

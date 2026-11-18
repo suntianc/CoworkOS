@@ -398,8 +398,9 @@ test("provider thinking envelopes, failure evidence, raw details and keyboard st
     await page.evaluate(() => window.executionFixture.finish());
     const history = page.locator(".execution-history");
     await expect(history).not.toHaveAttribute("open", "");
-    await expect(history.locator(":scope > summary")).toContainText("用时 3分钟1秒");
+    await expect(history.locator(":scope > summary > strong")).toHaveText("处理过程");
     await expect(history.locator(":scope > summary")).toContainText("2 次调用未成功");
+    await expect(page.locator(".turn-endline")).toHaveText("用时 3分钟1秒");
     await expect(history.locator(":scope > summary")).toBeFocused();
     await expect(page.locator(".thinking-spinner, .tool-progress-spinner")).toHaveCount(0);
     await expect(page.locator('[data-answer-kind="final"]')).toContainText(
@@ -438,7 +439,8 @@ for (const width of [1440, 768, 320]) {
       await completeFixture(page);
       const history = page.locator(".execution-history");
       await expect(history).not.toHaveAttribute("open", "");
-      await expect(history.locator(":scope > summary > strong")).toHaveText("用时 3分钟1秒");
+      await expect(history.locator(":scope > summary > strong")).toHaveText("处理过程");
+      await expect(page.locator(".turn-endline")).toHaveText("用时 3分钟1秒");
       await expectCompactClean(page);
       await saveEvidence(page, `completed-folded-${width}`);
       await history.locator(":scope > summary").click();
@@ -450,7 +452,8 @@ for (const width of [1440, 768, 320]) {
       await expect(page.locator(".tool-context").last()).toContainText("Python 第 226 行语法错误");
       const summary = await page.locator(".tool-details > summary").first().boundingBox();
       const action = await page.locator(".tool-action").first().boundingBox();
-      expect(action.x).toBeCloseTo(summary.x, 0);
+      // The verb starts after the row's 16px status mark and its 8px gap.
+      expect(action.x).toBeCloseTo(summary.x + 24, 0);
       await expect(page.locator(".tool-step").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(page.locator(".tool-step .activity-status").first()).toHaveCSS(
         "background-color",
@@ -549,7 +552,7 @@ test("reduced motion retains actual busy state and tool progress without rotatin
     await completeFixture(page);
     await expect(page.locator(".thinking-spinner, .tool-progress-spinner")).toHaveCount(0);
     await expect(page.locator('[data-answer-kind="pending"]')).toHaveCount(0);
-    await expect(page.locator(".execution-history > summary")).toContainText("用时 3分钟1秒");
+    await expect(page.locator(".turn-endline")).toHaveText("用时 3分钟1秒");
     expect(requests).toEqual({ api: [], external: [] });
   } finally {
     await dashboard.stop();

@@ -40,8 +40,16 @@ interface ContextMessage {
  * live here because the backend must not depend on this process's stdin or on
  * a second control channel.
  */
-export const MAIN_CONTROL_TYPES = ["main.interrupt", "main.resume"] as const;
+export const MAIN_CONTROL_TYPES = ["main.interrupt", "main.resume", "main.pause"] as const;
 export type MainControlType = (typeof MAIN_CONTROL_TYPES)[number];
+
+/** The callback of a Subagent call that was cancelled (by a stop or a close). */
+export function isCancelledCallback(message: Pick<InboxMessage, "kind" | "payload">): boolean {
+  return (
+    message.kind === "callback" &&
+    (message.payload as { status?: unknown } | undefined)?.status === "cancelled"
+  );
+}
 
 export function isMainControlType(value: unknown): value is MainControlType {
   return typeof value === "string" && (MAIN_CONTROL_TYPES as readonly string[]).includes(value);
@@ -328,7 +336,12 @@ export class MainInboxDelivery {
               }
             },
             {
-              triggerTurn: trigger === undefined ? true : message.messageId === trigger.messageId,
+              // A cancelled Subagent's result is a record of the stop that
+              // cancelled it, not new work: it reaches Main's context without
+              // starting a turn, so a stopped round stays stopped.
+              triggerTurn:
+                !isCancelledCallback(message) &&
+                (trigger === undefined ? true : message.messageId === trigger.messageId),
               deliverAs: followUp ? "followUp" : "steer",
               ...(initialTurn ? { userTurn: { messageId: message.messageId } } : {})
             }
@@ -509,7 +522,7 @@ function startupTrigger(messages: readonly InboxMessage[]): InboxMessage | undef
     const payload = message.payload as { type?: unknown } | undefined;
     return isMainControlType(payload?.type);
   });
-  return control ?? messages[messages.length - 1];
+  return control ?? [...messages].reverse().find((message) => !isCancelledCallback(message));
 }
 
 function runtimeEventReference(

@@ -242,7 +242,6 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         attachments: Type.Optional(
           Type.Array(Type.String(), {
             maxItems: 10,
-            uniqueItems: true,
             description: "Explicit upload IDs this delegate may inspect with read_attachment."
           })
         ),
@@ -259,7 +258,6 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         dependsOn: Type.Optional(
           Type.Array(Type.String(), {
             maxItems: 16,
-            uniqueItems: true,
             description:
               "callIds from this Run that must finish first. A work item with unfinished prerequisites does not start until they are terminal, and does not run at all when one of them failed or was cancelled."
           })
@@ -337,7 +335,7 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
           : {}),
         ...(continueCallId ? { continueCallId } : {}),
         ...(requestedReview ? { reviewId: requestedReview } : {}),
-        ...(params.attachments === undefined ? {} : { attachments: params.attachments }),
+        ...(params.attachments === undefined ? {} : { attachments: [...new Set(params.attachments)] }),
         ...(typeof params.profileId === "string" && params.profileId.trim()
           ? { profileId: params.profileId.trim() }
           : {}),
@@ -592,7 +590,13 @@ export function registerCoordinationTools(pi: ExtensionAPI, context: CoworkToolC
         timeoutMs,
         waitForCallbackConsumption: false,
         consumeCompletedCallbacks: true,
-        isCallbackQueued: (messageId) => context.inboxDelivery.isQueued(messageId)
+        isCallbackQueued: (messageId) => context.inboxDelivery.isQueued(messageId),
+        // A pause is taken at Main's next step boundary; waiting out the full
+        // timeout first would leave the Subagents running that much longer.
+        stopWaiting: async () =>
+          new LocalWorkspaceStore(context.workspaceRoot)
+            .readTask(context.taskId)
+            .then((task) => Boolean(task.pause) || task.status === "paused")
       });
       // Unrelated callbacks remain durable for a later poll. A failed send
       // must not discard the only wait result carrying our claimed evidence.

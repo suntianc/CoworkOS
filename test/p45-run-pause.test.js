@@ -257,3 +257,110 @@ test("pausing a task with no running Main is refused", { timeout: 30_000 }, asyn
   assert.equal(response.status, 409);
   assert.equal((await local.status("idle-pause")).status, "created");
 });
+
+function callTool(response, { id, name, args }) {
+  response.writeHead(200, { "content-type": "text/event-stream" });
+  stream(response, { role: "assistant" });
+  stream(response, {
+    tool_calls: [{ index: 0, id, type: "function", function: { name, arguments: JSON.stringify(args) } }]
+  });
+  stream(response, {}, "tool_calls");
+  response.end("data: [DONE]\n\n");
+}
+
+test(
+  "pausing goes through Main: its Subagent finishes the current step and holds, and both continue on resume",
+  { timeout: 120_000 },
+  async (t) => {
+    const work = {};
+    const main = [];
+    const sub = [];
+    const local = await fixture(t, ({ body, response }) => {
+      const isMain = (body.tools || []).some((tool) => tool.function?.name === "call_subagent");
+      if (isMain) {
+        main.push(body);
+        if (main.length === 1)
+          return callTool(response, {
+            id: "dispatch",
+            name: "call_subagent",
+            args: { task: "分两步记录进度", mode: "async" }
+          });
+        const last = JSON.stringify(body.messages.at(-1)?.content ?? "");
+        if (last.includes('\\"pending\\":[]') || last.includes('"pending":[]'))
+          return complete(response, "子助手的两步都完成了。");
+        return callTool(response, {
+          id: `wait-${main.length}`,
+          name: "wait_for_subagents",
+          args: { timeoutMs: 60_000 }
+        });
+      }
+      sub.push(body);
+      if (sub.length === 1)
+        return toolCall(response, {
+          id: "sub-step-one",
+          command: `touch ${shellQuote(work.started)}; sleep 1.5; printf 'sub-1\\n' >> ${shellQuote(work.marker)}`
+        });
+      if (sub.length === 2)
+        return toolCall(response, {
+          id: "sub-step-two",
+          command: `printf 'sub-2\\n' >> ${shellQuote(work.marker)}`
+        });
+      complete(response, "两步记录完成。");
+    });
+    const taskId = "pause-with-subagent";
+    work.started = join(local.workspaceRoot, `${taskId}-sub-started`);
+    work.marker = join(local.workspaceRoot, `${taskId}-sub-steps.txt`);
+    await local.api("/api/tasks", { taskId, goal: "派子助手分两步记录" });
+    const started = await local.api(`/api/tasks/${taskId}/run`, { prompt: "派子助手分两步记录。" });
+    await local.waitFor(
+      async () =>
+        main.length >= 2 &&
+        (await readFile(work.started, "utf8")
+          .then(() => true)
+          .catch(() => false)),
+      "the Subagent's first step never started while Main waited"
+    );
+
+    await local.api(`/api/tasks/${taskId}/action`, { action: "pause" });
+    const paused = await local.settle(taskId, "paused");
+    assert.equal(paused.task.status, "paused");
+    const hold = join(local.workspaceRoot, taskId, "runs", started.runId, "subagents-paused.json");
+    assert.equal(
+      typeof JSON.parse(await readFile(hold, "utf8")).pausedAt,
+      "string",
+      "Main holds its Subagents"
+    );
+    // The step in flight finishes; the next one does not start.
+    await local.waitFor(
+      async () => (await readFile(work.marker, "utf8").catch(() => "")) === "sub-1\n",
+      "the Subagent's current step did not finish"
+    );
+    await delay(2_000);
+    assert.equal(sub.length, 1, "a held Subagent asks the model for nothing more");
+    assert.equal(await readFile(work.marker, "utf8"), "sub-1\n");
+    const events = (
+      await readFile(join(local.workspaceRoot, taskId, "runs", started.runId, "run_events.jsonl"), "utf8")
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).type);
+    assert.ok(events.includes("subagent.paused"), "the Subagent records where it was held");
+    assert.ok(
+      events.indexOf("subagent.paused") > -1 && events.includes("main.run_paused"),
+      `events: ${events.join(", ")}`
+    );
+
+    await local.api(`/api/tasks/${taskId}/run`, { resume: true });
+    const completed = await local.settle(taskId, "completed");
+    assert.equal(completed.task.status, "completed", JSON.stringify(completed.task));
+    assert.equal(await readFile(work.marker, "utf8"), "sub-1\nsub-2\n", "each step ran once");
+    await assert.rejects(readFile(hold, "utf8"), { code: "ENOENT" }, "Main's resume lifts the hold");
+    const after = (
+      await readFile(join(local.workspaceRoot, taskId, "runs", started.runId, "run_events.jsonl"), "utf8")
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).type);
+    assert.ok(after.includes("subagent.resumed"));
+  }
+);

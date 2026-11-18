@@ -111,7 +111,7 @@ export interface DashboardRoutePorts {
   runtimeValue(name: "COWORK_API_BASE" | "COWORK_API_KEY" | "COWORK_MODEL"): string | undefined;
   startMainRun: RunService["startMainRun"];
   pauseTask: RunService["pauseTask"];
-  interruptTask: RunService["interruptTask"];
+  stopTask: RunService["stopTask"];
   launchMainRun: MainRunLauncher;
   editMainMessage: RunService["editMainMessage"];
   forkConversation(
@@ -152,7 +152,7 @@ export function createDashboardHandler(
     runtimeValue,
     startMainRun,
     pauseTask,
-    interruptTask,
+    stopTask,
     activeRuns,
     cancelTask,
     resumeHumanAnswers,
@@ -606,13 +606,37 @@ export function createDashboardHandler(
         // The effort of the connection the next Main run resolves to, so the
         // composer can show it instead of an assumed default. Read from the same
         // role resolution the launch uses; absent when that connection is unusable.
-        const mainEffort = status.modelRoles.roles.find((entry) => entry.role === "main")?.effective
-          ?.thinkingLevel;
+        const mainRole = status.modelRoles.roles.find((entry) => entry.role === "main")?.effective;
+        const mainEffort = mainRole?.thinkingLevel;
+        // Whose models these are, so the composer can show the provider's mark.
+        const mainProviderId = (mainRole?.connectionId || status.activeProfileId).split("#")[0];
+        const owner = status.providers.find((provider) => provider.id === mainProviderId);
         const models = await availableModels();
         sendJson(response, 200, {
           current: runtimeValue("COWORK_MODEL"),
           connectionProfileId: status.activeProfileId,
           ...(mainEffort ? { reasoningEffort: mainEffort } : {}),
+          ...(owner
+            ? { provider: { name: owner.name, ...(owner.preset ? { preset: owner.preset } : {}) } }
+            : {}),
+          // Every usable provider's models, so the composer can switch a run to
+          // another provider by its profile id.
+          mainProviderId,
+          providers: status.providers
+            .filter((provider) => provider.enabled && provider.configured && provider.models.length)
+            .map((provider) => ({
+              id: provider.id,
+              name: provider.name,
+              ...(provider.preset ? { preset: provider.preset } : {}),
+              models: provider.models.map((model) => ({
+                id: model.id,
+                profileId: model.profileId,
+                reasoningEffort: model.reasoningEffort,
+                levels: model.supportsReasoningEffort
+                  ? (model.reasoningLevels ?? ["off", "low", "medium", "high", "xhigh", "max"])
+                  : ["off"]
+              }))
+            })),
           models: models.map((model) => model.id),
           // Each model's reasoning levels and where they came from (#27).
           levels: Object.fromEntries(models.map(({ id, levels, source }) => [id, { levels, source }])),
@@ -1107,7 +1131,7 @@ export function createDashboardHandler(
         const action = body.action;
         if (
           action !== "pause" &&
-          action !== "interrupt" &&
+          action !== "stop" &&
           action !== "cancel" &&
           action !== "resume" &&
           action !== "complete"
@@ -1124,13 +1148,15 @@ export function createDashboardHandler(
           sendJson(response, 200, await publishTask(await taskListItem({ ...location, task: paused.task })));
           return;
         }
-        if (action === "interrupt") {
-          const interrupted = await interruptTask(taskId);
-          if (interrupted.refused) {
-            sendJson(response, 409, { error: "当前没有正在运行的回合" });
+        if (action === "stop") {
+          const stopped = await stopTask(taskId);
+          if (stopped.refused) {
+            sendJson(response, 409, {
+              error: stopped.refused === "paused" ? "已暂停的会话请先继续" : "当前没有正在运行的回合"
+            });
             return;
           }
-          sendJson(response, 202, interrupted);
+          sendJson(response, 202, stopped);
           return;
         }
         if (action === "complete") {

@@ -233,14 +233,16 @@ test("progress animates before tokens, during retries and between tools until co
       await page.evaluate(() => window.thoughtFixture.beforeFirstToken());
       const placeholder = page.locator(".assistant-thinking");
       await expect(placeholder).toBeVisible();
-      await expect(placeholder).toContainText("正在思考");
+      await expect(placeholder).toContainText("思考中");
       await page.evaluate(() => window.thoughtFixture.retryBeforeToken());
       await expect(placeholder).toContainText("恢复模型连接");
       await expect(placeholder.locator(".thinking-spinner")).toBeVisible();
       await page.evaluate(() => window.thoughtFixture.endThought());
-      const progress = page.locator(".workflow-progress-spinner");
-      await expect(progress).toBeVisible();
-      await expect(page.locator(".workflow-heading")).toContainText("等待模型响应");
+      // Between steps the next step's row waits at the end, already moving.
+      const waiting = page.locator(".workflow-rail > .reasoning-step:last-child .assistant-thinking");
+      await expect(waiting).toContainText("思考中");
+      await expect(page.locator(".live-workflow-head")).toHaveCount(0);
+      const progress = waiting.locator(".thinking-spinner");
       const animationTime = await progress.evaluate((node) => node.getAnimations()[0]?.currentTime ?? 0);
       await expect
         .poll(() => progress.evaluate((node) => node.getAnimations()[0]?.currentTime ?? 0))
@@ -248,16 +250,17 @@ test("progress animates before tokens, during retries and between tools until co
       await progress.evaluate((node) => {
         window.savedProgressNode = node;
       });
-      await page.evaluate(() => window.thoughtFixture.attachmentTool());
-      await expect(page.locator(".tool-action")).toContainText("读取附件");
-      await expect(page.locator(".workflow-heading")).toContainText("读取附件");
-      await page.evaluate(() => window.thoughtFixture.attachmentReturned());
-      await expect(page.locator(".workflow-heading")).toContainText("等待模型响应");
-      expect(await progress.evaluate((node) => node === window.savedProgressNode)).toBe(true);
       await page.evaluate(() => window.thoughtFixture.poll());
       expect(await progress.evaluate((node) => node === window.savedProgressNode)).toBe(true);
+      await page.evaluate(() => window.thoughtFixture.attachmentTool());
+      await expect(page.locator(".tool-action")).toContainText("读取附件");
+      await expect(waiting).toHaveCount(0);
+      await expect(page.locator(".tool-progress-spinner")).toBeVisible();
+      await page.evaluate(() => window.thoughtFixture.attachmentReturned());
+      await expect(waiting).toContainText("思考中");
       await page.evaluate(() => window.thoughtFixture.streamReply());
-      await expect(page.locator(".workflow-heading")).toContainText("正在生成回复");
+      await expect(waiting).toHaveCount(0);
+      await expect(page.locator("[data-streaming-answer]")).toBeVisible();
       await page.screenshot({ path: test.info().outputPath(`continuous-progress-${width}.png`) });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.evaluate(() => window.thoughtFixture.finish());
@@ -460,9 +463,6 @@ test("reduced motion keeps the same real thought preview and running status with
     const spinner = page.locator(".thinking-spinner");
     await expect(spinner).toBeVisible();
     expect(await spinner.evaluate((node) => node.getAnimations().length)).toBe(0);
-    const progress = page.locator(".workflow-progress-spinner");
-    await expect(progress).toBeVisible();
-    expect(await progress.evaluate((node) => node.getAnimations().length)).toBe(0);
     await page.evaluate(() => window.thoughtFixture.delta());
     await expect(page.locator(".reasoning-preview")).toHaveText("先检查输入约束。");
     await page.locator(".reasoning-details > summary").click();

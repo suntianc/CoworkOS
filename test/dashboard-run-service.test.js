@@ -35,6 +35,27 @@ test("project reassignment and run startup are serialized and cannot change a ru
   assert.equal((await f.store.readTask("task")).projectDirectory, "/tmp/selected-project");
 });
 
+test("a stopped conversation's unread Subagent results do not hold the project, a working Subagent does", async (t) => {
+  let coordination = { pending: [], callbackPending: ["call-finished"] };
+  const f = await fixture(t, { coordinator: { waitForSubagents: async () => coordination } });
+  await mkdir(join(f.workspaceRoot, "task", "runs", "stopped-run"), { recursive: true });
+  // Main failed before reading the result; the result waits in its Inbox.
+  assert.equal(await f.service.withIdleProjectTasks(["task"], async () => "removed", "移除项目"), "removed");
+  coordination = { pending: ["call-working"], callbackPending: [] };
+  // The refusal names the conversation that holds the project.
+  await assert.rejects(
+    f.service.withIdleProjectTasks(["task"], async () => "removed", "移除项目"),
+    /请先停止项目中的后台协作，再移除项目（会话「只验证隔离子进程的状态归属。」）/
+  );
+});
+
+test("a conversation waiting for the person to continue does not hold its project", async (t) => {
+  const f = await fixture(t, {});
+  await f.service.startMainRun("task", "继续本次隔离请求。", "waiting-run");
+  assert.equal((await f.settle()).status, "waiting");
+  assert.equal(await f.service.withIdleProjectTasks(["task"], async () => "removed", "移除项目"), "removed");
+});
+
 /** A corrupt park record: the file exists but holds nothing readable. */
 async function corruptSleep(workspaceRoot) {
   const directory = join(workspaceRoot, "task", "agents", "main");

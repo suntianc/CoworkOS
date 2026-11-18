@@ -1,0 +1,630 @@
+/* P4.5 conversation polish: the composer, the run pill, the working ant and
+   the streaming reply. Loaded last; geometry follows the 对话面板打磨 boards in
+   design/formicand-p4.5-ui.pen. */
+
+:root {
+  --composer-highlight: #ffffff0f;
+  --composer-lift: 0 2px 6px #0000002e, 0 14px 40px #00000052;
+}
+html[data-theme="light"] {
+  --composer-highlight: #ffffff;
+  --composer-lift: 0 2px 6px #18181b0d, 0 14px 40px #18181b14;
+}
+
+/* ------------------------------------------------------------ working ant */
+
+html[data-theme]
+  :is(.thinking-spinner, .tool-progress-spinner, .workflow-progress-spinner, .run-control-dot).ant-mark,
+.stream-trail.ant-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 14px;
+  width: 14px !important;
+  height: 14px !important;
+  border: 0 !important;
+  border-radius: 0;
+  background: none;
+  color: var(--color-text-2);
+  /* The host keeps one running animation so a re-render can resume its phase. */
+  animation: ant-host 1.2s linear infinite;
+}
+.ant-mark::after {
+  content: none !important;
+}
+.ant-mark-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.ant-mark-svg * {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ant-mark-svg .ant-feeler {
+  opacity: 0.45;
+}
+.ant-mark-svg .ant-body {
+  animation: ant-crawl 1.2s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+}
+.ant-mark-svg .ant-thorax {
+  animation-delay: 0.15s;
+}
+.ant-mark-svg .ant-abdomen {
+  animation-delay: 0.3s;
+}
+@keyframes ant-host {
+  from,
+  to {
+    opacity: 1;
+  }
+}
+/* Head, thorax and abdomen swell in turn, as if the ant were walking. */
+@keyframes ant-crawl {
+  0%,
+  100% {
+    transform: scale(0.7);
+    opacity: 0.4;
+  }
+  35% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  70% {
+    transform: scale(0.82);
+    opacity: 0.6;
+  }
+}
+html[data-theme] .tool-step .activity-status .tool-progress-spinner.ant-mark {
+  flex-basis: 12px;
+  width: 12px !important;
+  height: 12px !important;
+}
+.stream-trail.ant-mark {
+  display: inline-grid;
+  margin-left: 6px;
+  vertical-align: -2px;
+  color: var(--color-text-3);
+}
+
+/* A label that is working gets a light sweeping across it. */
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-3) 0%,
+    var(--color-text-3) 40%,
+    var(--color-text) 50%,
+    var(--color-text-3) 60%,
+    var(--color-text-3) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  animation: shimmer-sweep 2.2s linear infinite;
+}
+@keyframes shimmer-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+
+/* ------------------------------------------------------------ streaming */
+
+/* New words fade in as they arrive; the delay spreads one network piece over
+   a short span so text flows instead of landing in blocks. */
+.stream-fade {
+  animation: stream-fade 220ms ease-out both;
+}
+@keyframes stream-fade {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+/* ------------------------------------------------------------ composer */
+
+html[data-theme] .composer {
+  position: relative;
+  padding: 14px 10px 10px 18px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 24px;
+  background-color: var(--composer-fill);
+  box-shadow:
+    inset 0 1px 0 var(--composer-highlight),
+    var(--composer-lift);
+  transition:
+    border-color var(--motion-fast, 0.15s),
+    box-shadow var(--motion-fast, 0.15s);
+}
+html[data-theme] .composer:focus-within {
+  border-color: color-mix(in srgb, var(--color-text) 28%, transparent);
+}
+html[data-theme] .composer textarea {
+  height: auto;
+  min-height: 24px;
+  max-height: min(12.8em, 30dvh);
+  margin-bottom: 10px;
+  padding: 0 8px 0 0;
+  font-size: 15px;
+  line-height: 1.6;
+}
+html[data-theme] .composer .composer-bar {
+  gap: 4px;
+}
+html[data-theme] .composer :is(.composer-left, .composer-right) {
+  gap: 4px;
+}
+html[data-theme] .composer .attach-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  padding: 0;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-2);
+}
+html[data-theme] .composer .attach-button:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+html[data-theme] .composer :is(.model-select, .composer-project) {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 17px;
+  background: transparent;
+  color: var(--color-text-2);
+  font-size: 13px;
+}
+html[data-theme] .composer :is(.model-select, .composer-project):hover,
+html[data-theme] .composer :is(.model-select, .composer-project)[aria-expanded="true"] {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+html[data-theme] .composer .model-select {
+  flex: 0 1 auto;
+  max-width: 280px;
+}
+html[data-theme] .composer .model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme] .composer .model-logo {
+  display: grid;
+  place-items: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+}
+html[data-theme] .composer .reasoning-label {
+  flex: none;
+  color: var(--color-text-3);
+}
+html[data-theme] .composer .reasoning-label::before {
+  content: "· ";
+}
+html[data-theme] .composer .reasoning-label.is-off {
+  display: none;
+}
+html[data-theme] .composer .model-chevron .ui-icon {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+html[data-theme] .composer :is(.send-button, .stop-button) {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  margin-left: 4px;
+  border-radius: 50%;
+}
+/* Nothing to send yet: the key rests on a quiet fill. */
+html[data-theme] .composer:has(#composer-input:placeholder-shown):not(:has(.attachment-chip)) .send-button {
+  border-color: transparent;
+  background: var(--color-surface-3);
+  color: var(--color-text-3);
+}
+html[data-theme] .composer .model-picker {
+  right: 0;
+  left: auto;
+}
+
+/* Queued messages wait as dashed rows above the text. */
+html[data-theme] .composer-tray .queued-message {
+  border: 1px dashed var(--color-line-strong);
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+
+/* Under the composer: where files go, and the keys. */
+.composer-hint {
+  display: flex;
+  font-family: var(--ui-font);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 18px 0;
+  color: var(--color-text-3);
+  font-size: 11.5px;
+  line-height: 16px;
+}
+.composer-hint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--color-line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: var(--color-text-2);
+  font: 11px var(--ui-font, inherit);
+}
+.composer-hint-running,
+.composer-wrap:has(#run-control:not([hidden])) .composer-hint-idle {
+  display: none;
+}
+.composer-wrap:has(#run-control:not([hidden])) .composer-hint-running {
+  display: inline;
+}
+.composer-wrap:has(#human-questions:not([hidden])) .composer-hint {
+  visibility: hidden;
+}
+@media (max-width: 720px) {
+  .composer-keys {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------ process steps */
+
+/* Every step is one row on the same grid: a 16px mark, then its words in
+   one tone. What follows a row (a note, its details) starts under the words. */
+html[data-theme] .workflow-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+html[data-theme] .workflow-rail > .activity-step,
+html[data-theme] .workflow-rail > .tool-step {
+  min-height: 0;
+  padding: 4px 0;
+}
+html[data-theme] .workflow-rail > .live-answer {
+  padding: 8px 0 10px;
+}
+html[data-theme] :is(.tool-details, .reasoning-details) > summary,
+html[data-theme] .reasoning-step .activity-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+html[data-theme] .reasoning-step .activity-step-head strong {
+  color: var(--color-text-2);
+  font-weight: 400;
+}
+
+/* One quiet line per tool call: status mark, verb, subject, duration. */
+html[data-theme] .tool-step .activity-status {
+  order: -1;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 16px;
+  width: 16px;
+  font-size: 0;
+}
+html[data-theme] .tool-step.is-failed .activity-status {
+  order: 0;
+  display: inline-flex;
+  width: auto;
+  flex-basis: auto;
+  gap: 5px;
+  font-size: 12px;
+}
+html[data-theme] .tool-step.is-done .tool-status-dot {
+  width: 12px;
+  height: 12px;
+  flex-basis: 12px;
+  border-radius: 0;
+  background: var(--color-text-3);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+html[data-theme] .tool-step .tool-action strong {
+  color: var(--color-text-2);
+  font-weight: 500;
+}
+html[data-theme] .tool-step .tool-subject {
+  color: var(--color-text-3);
+  font-family: var(--ui-mono);
+  font-size: 12px;
+}
+html[data-theme] .tool-step .tool-duration {
+  margin-left: auto;
+  color: var(--color-text-3);
+  font-variant-numeric: tabular-nums;
+}
+/* A tool's note (a delegated brief, a result line) is one muted line under
+   its words; the whole text is in the details. A failure keeps three. */
+html[data-theme] .tool-step .tool-context {
+  display: -webkit-box;
+  margin: 0;
+  padding-left: 24px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  color: var(--color-text-3);
+  font-size: 12.5px;
+  line-height: 20px;
+}
+html[data-theme] .tool-step .tool-context.is-failure {
+  -webkit-line-clamp: 3;
+}
+html[data-theme] .tool-step .tool-details-body,
+html[data-theme] .reasoning-details > .reasoning-copy {
+  margin-left: 24px;
+}
+
+/* A folded batch and a failed call keep the mark column too: a quiet dot for
+   the batch, a red one for the failure, and the batch opens onto a guide. */
+html[data-theme] :is(.tool-group-details, .tool-step.is-failed .tool-details) > summary::before {
+  content: "";
+  flex: 0 0 16px;
+  height: 16px;
+  background: radial-gradient(circle closest-side, var(--dot, var(--color-text-3)) 2.5px, transparent 3.2px);
+}
+html[data-theme] .tool-step.is-failed .tool-details > summary::before {
+  --dot: var(--color-danger, #e5484d);
+  order: -2;
+}
+html[data-theme] .tool-step.is-failed .tool-status-dot {
+  display: none;
+}
+html[data-theme] .tool-group-details > summary {
+  min-height: 26px;
+  color: var(--color-text-2);
+}
+html[data-theme] .tool-group-body {
+  margin-left: 7px;
+}
+
+/* A thought reads like a step: its mark, what it is on, then its state. */
+html[data-theme] .reasoning-details > summary .thinking-spinner {
+  order: -2;
+}
+html[data-theme] .reasoning-details > summary:not(:has(.thinking-spinner))::before {
+  content: "";
+  flex: 0 0 16px;
+  height: 16px;
+  background: radial-gradient(circle closest-side, var(--color-text-3) 2.5px, transparent 3.2px);
+}
+/* The state leads the row and keeps one size from the first wait to the end,
+   so "思考中" never changes size or place; what the thought is about follows. */
+html[data-theme] .reasoning-step .reasoning-state {
+  flex: 0 0 auto;
+  color: var(--color-text-2);
+  font-size: inherit;
+}
+html[data-theme] .reasoning-details > summary .reasoning-preview {
+  flex: 0 1 auto;
+  color: var(--color-text-3);
+}
+html[data-theme] .reasoning-details > summary .reasoning-chevron {
+  margin-left: 0;
+}
+
+/* A finished turn folds into one line: 处理过程 · 操作数 · 子助手数 ›, opening onto a guide rail. */
+html[data-theme] .execution-history > summary {
+  gap: 6px;
+  color: var(--color-text-2);
+}
+html[data-theme] .execution-history > summary strong {
+  font-weight: 500;
+}
+html[data-theme] .execution-history > summary small {
+  order: 1;
+  margin-left: 0;
+  color: var(--color-text-3);
+}
+html[data-theme] .execution-history > summary small::before {
+  content: "· ";
+}
+html[data-theme] .execution-history > summary .history-failures {
+  order: 2;
+}
+html[data-theme] .execution-history > summary .history-failures::before {
+  content: "· ";
+}
+html[data-theme] .execution-history > summary .history-chevron {
+  order: 3;
+}
+html[data-theme] .execution-history:not([open]) > summary .history-chevron {
+  transform: rotate(-90deg);
+}
+html[data-theme] .execution-history[open] > .live-workflow {
+  margin-left: 7px;
+  padding-left: 14px;
+  border-left: 1px solid var(--color-line-strong);
+}
+/* The line under a finished round's answer: how long the whole round took. */
+html[data-theme] .turn-endline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 8px;
+  color: var(--color-text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-theme] .turn-endline::before,
+html[data-theme] .turn-endline::after {
+  content: "";
+  flex: 1 1 auto;
+  border-top: 1px solid var(--color-line);
+}
+
+/* Subagents a step sent out: one row for the dispatch, then each Subagent
+   indented under it with its role, its task (its result once done) and state. */
+html[data-theme] .subagent-group .activity-step-head,
+html[data-theme] .turn-stopped .activity-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+html[data-theme] :is(.subagent-group, .turn-stopped) .activity-step-head > strong {
+  color: var(--color-text-2);
+  font-weight: 500;
+}
+html[data-theme]
+  :is(.subagent-group, .turn-stopped)
+  > .activity-step-content
+  > .activity-step-head
+  > .tool-status-dot,
+html[data-theme] .subagent-step:not(.is-running) .tool-status-dot {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  background: radial-gradient(circle closest-side, var(--dot, var(--color-text-3)) 2.5px, transparent 3.2px);
+}
+html[data-theme] .subagent-step.is-failed {
+  --dot: var(--color-danger, #e5484d);
+}
+html[data-theme] .subagent-nest {
+  margin-left: 7px;
+  padding-left: 14px;
+  border-left: 1px solid var(--color-line);
+}
+html[data-theme] .subagent-step > summary .tool-progress-spinner {
+  flex: 0 0 16px;
+}
+html[data-theme] .subagent-step .tool-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+html[data-theme] .subagent-step .tool-action strong {
+  flex: 0 0 auto;
+  color: var(--color-text-2);
+  font-weight: 500;
+}
+html[data-theme] .subagent-step .subagent-role-tag {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--color-surface-3);
+  color: var(--color-text-3);
+  font-size: 11px;
+  line-height: 18px;
+}
+html[data-theme] .subagent-step .tool-subject {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme] .subagent-step .subagent-status {
+  flex: 0 0 auto;
+  color: var(--color-text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-theme] .subagent-step.is-failed .subagent-status {
+  color: var(--color-danger, #e5484d);
+}
+html[data-theme] .subagent-step .tool-details-body {
+  margin-left: 24px;
+}
+html[data-theme] .turn-stopped .turn-stopped-note {
+  color: var(--color-text-3);
+}
+
+.composer-bar:has(#model-setup-button:not([hidden])) #model-select {
+  display: none;
+}
+
+/* Model picker: the models list under its provider's name and mark. */
+.model-picker .picker-group {
+  padding: 6px 8px 4px;
+  color: var(--color-text-3);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.model-picker .model-option .provider-logo {
+  flex: none;
+}
+
+/* Requirement panel without a requirement: the Subagents at work, then why
+   the phases are missing. */
+.rp-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rp-agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  color: var(--color-text-2);
+  font-size: 13px;
+}
+.rp-agent-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  color: var(--color-text-3);
+}
+.rp-agent-mark .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+.rp-agent-mark.is-active .ui-icon {
+  animation: ui-spin 1.1s linear infinite;
+}
+.rp-agent-name {
+  color: var(--color-text);
+  font-weight: 500;
+}
+.rp-agent-role,
+.rp-agent-state {
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+.rp-empty {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-agent-mark.is-active .ui-icon {
+    animation: none;
+  }
+}
+
+/* The heading's resting dot sits in the same 16px mark column as the steps. */
+html[data-theme] .live-workflow-head > .live-pulse {
+  flex: 0 0 5px;
+  margin: 0 5.5px;
+}
