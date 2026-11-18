@@ -1,3 +1,4 @@
+import { RuntimeOutputRecorder } from "../runtime/runtime-output.js";
 import {
   readyMessageEditTransaction,
   finishMessageEditTransaction
@@ -237,6 +238,8 @@ export function createDashboardRunService({
     host: AgentProcessHost;
     record: AgentProcessRecord;
     output: MainRunOutput;
+    /** Writes the process's runtime log; only a process this backend spawned. */
+    runtimeOutput?: RuntimeOutputRecorder;
     /**
      * Turn state from this process's own event stream.
      *
@@ -406,7 +409,10 @@ export function createDashboardRunService({
       const taskWorkspace = location.workspaceRoot;
       const replacing = resident?.replacing === true;
       const observed = resident?.observed === true;
-      if (observed) resident.output.finish();
+      if (observed) {
+        resident.output.finish();
+        await resident.runtimeOutput?.finish();
+      }
       await discardPendingInterrupts(location, taskId, runId);
       const settledTask = await location.store.readTask(taskId);
       if (replacing) return;
@@ -1523,6 +1529,7 @@ export function createDashboardRunService({
     const stderrPath = join(taskWorkspace, taskId, "runs", runId, "runtime-stderr.log");
     // The turn boundary is the Process's own event stream: a resident Main
     // starts and settles turns while the backend watches.
+    const runtimeOutput = new RuntimeOutputRecorder(outputPath);
     const runOutput = new MainRunOutput((type) => {
       const current = residentMains.get(taskId);
       if (!current || current.runId !== runId) return;
@@ -1543,8 +1550,8 @@ export function createDashboardRunService({
         void serialize(taskId, () => settleResidentTurn(current, current.requestId));
       }
     });
-    // Concurrent appendFile calls can reorder stream chunks. Preserve arrival
-    // order so message_start, deltas and final snapshots remain coherent.
+    // Concurrent appendFile calls can reorder chunks; diagnostics keep the
+    // order they arrived in. The runtime log has its own recorder.
     let outputWrites = Promise.resolve();
     const persistOutput = (path: string, chunk: Buffer) => {
       outputWrites = outputWrites
@@ -1565,6 +1572,7 @@ export function createDashboardRunService({
       host: undefined as unknown as AgentProcessHost,
       record: undefined as unknown as AgentProcessRecord,
       output: runOutput,
+      runtimeOutput,
       // The turn this launch enqueued has been accepted; it clears when Pi
       // reports the Run settled.
       turnActive: true,
@@ -1610,7 +1618,7 @@ export function createDashboardRunService({
             : { sessionArgs: ["--session-id", runId] }),
         onStdout: (chunk) => {
           runOutput.write(chunk);
-          persistOutput(outputPath, chunk);
+          runtimeOutput.write(chunk);
         },
         // A diagnostic can arrive between stdout fragments of one JSON event.
         // Preserve its original bytes without corrupting the model event stream.
@@ -1621,6 +1629,7 @@ export function createDashboardRunService({
       // failure is recorded here, once, with the cause the OS reported.
       const message = error instanceof Error ? error.message : String(error);
       runOutput.finish();
+      await runtimeOutput.finish();
       await appendRunEvent(taskWorkspace, taskId, runId, "main.run_failed", {
         error: message,
         code: null,

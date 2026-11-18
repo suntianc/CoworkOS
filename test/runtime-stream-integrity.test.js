@@ -177,7 +177,9 @@ test("a real child's stderr cannot split stdout JSON events and remains availabl
   await service.startMainRun("task", "synthetic-only", "run");
   const output = join(workspaceRoot, "task", "runs", "run", "runtime-output.log");
   const errors = join(workspaceRoot, "task", "runs", "run", "runtime-stderr.log");
-  await waitFor(async () => (await readFile(output, "utf8").catch(() => "")) === first);
+  // A line is written once it is complete, so the fragment is not yet on disk.
+  await delay(300);
+  assert.equal(await readFile(output, "utf8").catch(() => ""), "");
   const streamed = startStream(t, workspaceRoot);
   await writeFile(join(root, "allow-stderr"), "");
   await waitFor(
@@ -188,11 +190,18 @@ test("a real child's stderr cannot split stdout JSON events and remains availabl
   await writeFile(join(root, "allow-tail"), "");
   await waitFor(() => service.activeRuns.size === 0);
   assert.equal((await store.readTask("task")).status, "failed");
-  assert.equal(await readFile(output, "utf8"), encoded + line({ type: "turn_end" }));
+  // The ended turn's snapshot stands for its delta, which keeps its position.
+  assert.equal(
+    await readFile(output, "utf8"),
+    line({ type: "cowork_deltas_omitted", count: 1 }) + line({ type: "turn_end" })
+  );
   const history = await readTaskRuntimeEvents(workspaceRoot, "task");
-  assert.equal(history.length, 2, "a diagnostic between stdout fragments must not drop the thinking event");
-  assert.deepEqual(history[0].payload, event);
-  await waitFor(() => streamed.length === 2);
+  assert.deepEqual(
+    history.map((record) => [record.eventId, record.payload.type]),
+    [["runtime-run-1", "turn_end"]],
+    "a diagnostic between stdout fragments must not drop or shift an event"
+  );
+  await waitFor(() => streamed.length === 1);
   assert.deepEqual(streamed, history);
   assert.equal(
     await readFile(errors, "utf8"),

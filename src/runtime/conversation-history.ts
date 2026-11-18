@@ -1,5 +1,6 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { liveRuntimeOutput, runtimeLogEvents, type PositionedEvent } from "./runtime-output.js";
 import { readQueuedUserTurn } from "./queued-user-turn.js";
 import { conversationMessages, type ConversationMessage } from "./conversation-view.js";
 
@@ -20,6 +21,35 @@ export function runtimeEventRecord(
     agentId: "main",
     payload
   };
+}
+
+const parsedLogs = new Map<string, { key: string; events: PositionedEvent[]; next: number }>();
+const parsedLogLimit = 32;
+
+/**
+ * A run's runtime log with the deltas of a message still being written.
+ *
+ * An ended run's log no longer changes, and a running one changes only at its
+ * end; a log read before and unchanged since is not parsed again.
+ */
+async function readRuntimeLog(path: string): Promise<PositionedEvent[]> {
+  let parsed = parsedLogs.get(path);
+  try {
+    const info = await stat(path);
+    const key = `${info.ino}:${info.size}:${info.mtimeMs}`;
+    if (parsed?.key !== key) {
+      parsed = { key, ...runtimeLogEvents(await readFile(path, "utf8")) };
+      parsedLogs.delete(path);
+      if (parsedLogs.size >= parsedLogLimit) parsedLogs.delete(parsedLogs.keys().next().value!);
+    }
+    parsedLogs.set(path, parsed);
+  } catch (error) {
+    // A run that failed to start may have no runtime-output.log.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    parsed = { key: "", events: [], next: 0 };
+  }
+  const open = liveRuntimeOutput(path)?.openDeltas(parsed.next) ?? [];
+  return open.length ? [...parsed.events, ...open] : parsed.events;
 }
 
 /** A conversation outlives its active run. Replay every run in creation order,
@@ -44,8 +74,7 @@ export async function readTaskRuntimeEvents(
         const [metadata, output, ledger] = await Promise.all([
           // eslint-disable-next-line no-restricted-syntax -- 早期 Run 从未写过 run.json，缺失时按空元数据继续，createdAt 留空并由 runId 兜底排序
           readFile(join(path, "run.json"), "utf8").catch(() => "{}"),
-          // eslint-disable-next-line no-restricted-syntax -- 启动即失败的 Run 可能没有 runtime-output.log，缺失时按无事件继续回放其余 Run
-          readFile(join(path, "runtime-output.log"), "utf8").catch(() => ""),
+          readRuntimeLog(join(path, "runtime-output.log")),
           // eslint-disable-next-line no-restricted-syntax -- 同上，run_events.jsonl 可能尚未创建，缺失只表示该 Run 没有账本事件
           readFile(join(path, "run_events.jsonl"), "utf8").catch(() => "")
         ]);
@@ -56,15 +85,6 @@ export async function readTaskRuntimeEvents(
         } catch {
           /* older runs may lack metadata */
         }
-        const events = output.split(/\r?\n/).flatMap((line) => {
-          try {
-            const value = JSON.parse(line);
-            return value && typeof value === "object" ? [value as Record<string, unknown>] : [];
-            // eslint-disable-next-line no-restricted-syntax -- 日志按行追加，崩溃或并发写入可能留下半行，跳过它才能回放同一文件里其余完整事件
-          } catch {
-            return [];
-          }
-        });
         const ledgerEvents = ledger.split(/\r?\n/).flatMap((line) => {
           try {
             const value = JSON.parse(line);
@@ -82,12 +102,12 @@ export async function readTaskRuntimeEvents(
             return [];
           }
         });
-        return { runId: entry.name, createdAt, events, ledgerEvents };
+        return { runId: entry.name, createdAt, events: output, ledgerEvents };
       })
   );
   runs.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.runId.localeCompare(b.runId));
   return runs.flatMap((run) => {
-    const records: Array<Record<string, unknown>> = run.events.map((event, index) =>
+    const records: Array<Record<string, unknown>> = run.events.map(({ index, event }) =>
       runtimeEventRecord(taskId, run.runId, index, event)
     );
     // A resident Main serves several rounds in one Run. A stop belongs to the
