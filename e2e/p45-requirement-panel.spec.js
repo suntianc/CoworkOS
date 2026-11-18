@@ -26,7 +26,8 @@ const CASES = [
     title: "审查中的需求",
     stage: "review",
     steps: ["done", "done", "current", "pending", "pending"],
-    checks: ["true", "true"],
+    // Criteria are ticked together once a review passes; passing checks alone tick none.
+    checks: ["false", "false"],
     meta: { review: "Reviewer Norma" }
   },
   {
@@ -34,7 +35,7 @@ const CASES = [
     title: "待返修的需求",
     stage: "rework",
     steps: ["done", "done", "blocked", "pending", "pending"],
-    checks: ["true", "false"],
+    checks: ["false", "false"],
     meta: { review: "Reviewer Norma" }
   },
   {

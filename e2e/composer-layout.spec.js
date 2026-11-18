@@ -191,8 +191,8 @@ test("the running composer switches one primary action and preserves the draft t
     for (const width of [1440, 1280, 474, 320]) {
       await page.setViewportSize({ width, height: 900 });
       const box = await stop.boundingBox();
-      expect(box.width).toBe(32);
-      expect(box.height).toBe(32);
+      expect(box.width).toBe(34);
+      expect(box.height).toBe(34);
       expect(await stop.evaluate((node) => getComputedStyle(node).borderRadius)).toBe("50%");
       if (process.env.COWORK_KEEP_STOP_PROBE === "1")
         await page.locator(".composer").screenshot({
@@ -235,7 +235,7 @@ test("the running composer switches one primary action and preserves the draft t
     await expect.poll(() => followUps.length).toBe(1);
     // Sending while Main runs inserts the message into its next step.
     expect(followUps[0].delivery).toBe("steer");
-    expect(followUps[0].message).toBe("请查看这些附件。");
+    expect(followUps[0].message).toBe("");
     expect(followUps[0].attachmentIds).toHaveLength(1);
     await expect(page.locator(".attachment-chip")).toHaveCount(0);
     await expect(stop).toBeVisible();

@@ -1,6 +1,7 @@
 import { ui } from "../ui/language.js";
 import { icon } from "../ui/icons.js";
 import { createModal } from "../ui/modal.js";
+import { animate, reducedMotion } from "../ui/motion.js";
 import { createMenu } from "../ui/menu.js";
 import { escapeHtml as esc } from "../ui/html.js";
 
@@ -111,6 +112,69 @@ export function createProjectController({
     if (automatic) onSelectionChanged(project);
     return project;
   }
+  /** The conversation rows on screen, by Task id. */
+  const rowsById = (root) =>
+    new Map(
+      [...root.querySelectorAll(".conversation-row")]
+        .map((row) => [row.querySelector(".conversation-item[data-task]")?.dataset.task, row])
+        .filter(([id]) => id)
+    );
+
+  const ROW_MS = 200;
+  const ROW_EASE = "cubic-bezier(0.2, 0, 0, 1)";
+  /**
+   * A conversation that joins the list grows into place and one that leaves
+   * (archived, deleted) shrinks away, as a still copy of its row, instead of
+   * the rows below jumping. Only a change of one or two rows moves: switching
+   * projects or filters swaps many rows at once and stays instant.
+   */
+  function animateRowChanges(root, before) {
+    // The first rendering lays the list out; nothing joins or leaves it.
+    if (!before || reducedMotion()) return;
+    const after = rowsById(root);
+    const added = [...after.keys()].filter((id) => !before.has(id));
+    const removed = [...before.keys()].filter((id) => !after.has(id));
+    if (!added.length && !removed.length) return;
+    if (added.length + removed.length > 2) return;
+    const resize = (row, open) => {
+      const height = `${row.getBoundingClientRect().height}px`;
+      row.style.overflow = "hidden";
+      const frames = [
+        { height: "0px", opacity: 0 },
+        { height, opacity: 1 }
+      ];
+      const animation = animate(row, open ? frames : frames.reverse(), {
+        duration: ROW_MS,
+        easing: ROW_EASE
+      });
+      return animation.finished.then(() => row.style.removeProperty("overflow"));
+    };
+    for (const id of added) resize(after.get(id), true);
+    for (const id of removed) {
+      const old = before.get(id);
+      const previousId = old.previousElementSibling?.querySelector(".conversation-item[data-task]")?.dataset
+        .task;
+      const anchor = previousId ? after.get(previousId) : undefined;
+      const list = anchor
+        ? undefined
+        : root.querySelector(
+            `[data-project="${CSS.escape(old.closest("[data-project]")?.dataset.project ?? "")}"] .project-rail-head`
+          );
+      if (!anchor && !list) continue;
+      // The copy is inert and carries no Task id, so nothing can select it.
+      const ghost = old.cloneNode(true);
+      ghost.setAttribute("aria-hidden", "true");
+      ghost.inert = true;
+      ghost.classList.add("is-leaving");
+      for (const node of ghost.querySelectorAll("[data-task], .active")) {
+        node.removeAttribute("data-task");
+        node.classList.remove("active");
+      }
+      (anchor ?? list).after(ghost);
+      resize(ghost, false).then(() => ghost.remove());
+    }
+  }
+
   function render() {
     const root = $("#project-list");
     const focused = root.contains(document.activeElement) ? document.activeElement : null;
@@ -154,9 +218,11 @@ export function createProjectController({
         })
         .join("") || (temporary.length ? "" : ui('<div class="sidebar-empty-state">还没有项目</div>')));
     if (root.conversationMarkup === markup) return;
+    const rowsBefore = root.conversationMarkup === undefined ? undefined : rowsById(root);
     root.conversationMarkup = markup;
     root.innerHTML = markup;
     root.scrollTop = scrollTop;
+    animateRowChanges(root, rowsBefore);
     root.querySelectorAll("[data-session-toggle]").forEach((node) =>
       node.addEventListener("click", () => {
         const id = node.dataset.sessionToggle;

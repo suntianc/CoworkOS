@@ -1,4 +1,5 @@
 import { focusedControl } from "./focus.js";
+import { animate } from "./motion.js";
 
 /** Keep focus inside a shell dialog and return it to the control that opened it. */
 const openPanels = [];
@@ -60,6 +61,19 @@ export function createModal(panel, closeButton, { onClose = () => {} } = {}) {
       // cannot receive the next Tab or Escape. Listen while this dialog is open.
       document.addEventListener("keydown", keys, true);
       controls()[0]?.focus();
+      // The backdrop fades in and the card rises a little as it grows to size.
+      // Closing stays instant, so focus returns at once.
+      animate(panel, [{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
+      const card = panel.querySelector('[role="dialog"], .modal-card');
+      if (card)
+        animate(
+          card,
+          [
+            { opacity: 0, transform: "translateY(6px) scale(0.97)" },
+            { opacity: 1, transform: "none" }
+          ],
+          { duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" }
+        );
     },
     close
   };

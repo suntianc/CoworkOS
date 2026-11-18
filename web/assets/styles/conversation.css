@@ -163,6 +163,20 @@ html[data-theme] .composer .composer-bar {
 html[data-theme] .composer :is(.composer-left, .composer-right) {
   gap: 4px;
 }
+/* Both groups give way as the composer narrows, each by its own size, so the
+   project chip and the model button shorten their names instead of sliding
+   under one another; the round keys never shrink. */
+html[data-theme] .composer .composer-left {
+  flex: 1 1 auto;
+  min-width: 34px; /* the attach key */
+}
+html[data-theme] .composer .composer-right {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+html[data-theme] .composer :is(.model-select, .composer-project) {
+  min-width: 0;
+}
 html[data-theme] .composer .attach-button {
   display: grid;
   place-items: center;
@@ -398,7 +412,17 @@ html[data-theme] .tool-group-details > summary {
   color: var(--color-text-2);
 }
 html[data-theme] .tool-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
   margin-left: 7px;
+}
+/* A folded batch opens onto the same rhythm as the rail around it. Its calls
+   otherwise kept the old 48px tool row, twice the rail's step. */
+html[data-theme] .tool-group-body > .tool-step {
+  min-height: 0;
+  padding: 4px 0;
 }
 
 /* A thought reads like a step: its mark, what it is on, then its state. */
@@ -629,4 +653,78 @@ html[data-theme] .turn-stopped .turn-stopped-note {
 html[data-theme] .live-workflow-head > .live-pulse {
   flex: 0 0 5px;
   margin: 0 5.5px;
+}
+
+/* A sent message is a filled bubble in both themes (the raised surface is
+   nearly the page itself in light), with the room of a Codex prompt. */
+html[data-theme] .chat-pane .chat-message.user:not(.is-editing) .user-message-bubble {
+  padding: 12px 18px;
+  border-radius: 18px;
+  background: var(--color-surface-3);
+}
+
+/* A sent message stacks to the right: its uploads as cards, then the words. */
+html[data-theme] .chat-pane .chat-message.user:not(.is-editing) .message-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-end;
+}
+html[data-theme] .chat-pane .chat-message.user:not(.is-editing) .user-message-bubble {
+  max-width: 100%;
+}
+/* Many uploads wrap inside the message's width, newest row to the right;
+   right-aligned in a column, the row otherwise kept its full width and ran
+   off the conversation's left edge. */
+html[data-theme] .message-uploads {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  margin: 0 0 8px;
+}
+html[data-theme] .message-uploads .upload-card {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  max-width: 240px;
+  padding: 0 14px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+html[data-theme] .message-uploads .upload-card > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme] .message-uploads .upload-card:hover {
+  border-color: var(--color-text-3);
+}
+/* An image is its own thumbnail; its name stays for the reader and the preview. */
+html[data-theme] .message-uploads .upload-card.is-image {
+  width: 96px;
+  height: 96px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-surface-3);
+}
+html[data-theme] .message-uploads .upload-card.is-image img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+html[data-theme] .message-uploads .upload-card.is-image > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }

@@ -50,6 +50,7 @@ import type {
   ProjectDataRuntime
 } from "../workspace/project-data-service.js";
 import {
+  checkedOutBranch,
   developmentWorkspaceIsIntact,
   git,
   prepareDevelopmentWorkspace,
@@ -65,6 +66,16 @@ import {
   runMergeChecks,
   targetTip
 } from "../workspace/project-merge.js";
+
+/**
+ * The refusal when a project has no merge entry and none can be inferred.
+ * It is read by Main: it says what the person must do and forbids working
+ * around it, because a Main once went looking for the backend's credential.
+ */
+const MISSING_MERGE_CONFIG =
+  "项目合入配置缺失：项目文件夹不是带有已提交当前分支的 Git 仓库，无法确定合入到哪里。" +
+  "请停止开发并告诉用户：在项目文件夹初始化 Git 仓库、提交一次并切到要合入的分支后再继续。" +
+  "不要查找、读取或修改 CoworkOS 自己的数据、凭据或接口来绕过这一步。";
 
 export interface DevelopmentProject {
   projectId: string;
@@ -185,14 +196,37 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
    * updates the target. Preparation is therefore not an ownership refusal.
    */
   async function requiredMergeConfig(projectId: string): Promise<MergeConfig> {
-    const config = await (await gateway()).mergeConfig(projectId);
-    if (!config)
-      throw new ProjectDataConflictError(
-        "项目合入配置缺失：请先设置 repository、targetBranch 与 executionBackendId",
-        undefined,
-        "project_git_missing"
-      );
+    const service = await gateway();
+    const config = (await service.mergeConfig(projectId)) ?? (await defaultMergeConfig(projectId));
+    if (!config) throw new ProjectDataConflictError(MISSING_MERGE_CONFIG, undefined, "project_git_missing");
     return config;
+  }
+
+  /**
+   * A local project whose folder is a Git repository merges into the branch it
+   * has checked out, on this backend. Nothing in the app sets a merge entry, so
+   * without this default every new project stopped at its first development.
+   */
+  async function defaultMergeConfig(projectId: string): Promise<MergeConfig | undefined> {
+    const local = await ports.project(projectId);
+    if (!local?.projectDirectory) return undefined;
+    const branch = await checkedOutBranch(local.projectDirectory);
+    if (!branch) return undefined;
+    return saveMergeConfig(projectId, { repository: local.projectDirectory, targetBranch: branch });
+  }
+
+  async function saveMergeConfig(projectId: string, input: MergeConfigInput): Promise<MergeConfig> {
+    await project(projectId);
+    const repository = mergeRepository(input.repository);
+    const targetBranch = mergeTargetBranch(input.targetBranch);
+    const executionBackendId =
+      input.executionBackendId === undefined ? undefined : mergeExecutionBackendId(input.executionBackendId);
+    await resolveDevelopmentBaseline({ repository, branch: targetBranch });
+    return (await gateway()).setMergeConfig(
+      projectId,
+      { repository, targetBranch, executionBackendId },
+      ports.backendId
+    );
   }
 
   async function markFailed(
@@ -293,14 +327,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
     const directory = record.workspace?.directory ?? workspaceDirectory(record.developmentId);
     const branch = record.workspace?.branch ?? workspaceBranch(record.developmentId);
     const config = await service.mergeConfig(projectId);
-    if (!config)
-      return markFailed(
-        projectId,
-        record,
-        directory,
-        branch,
-        "项目合入配置缺失：请先设置 repository、targetBranch 与 executionBackendId"
-      );
+    if (!config) return markFailed(projectId, record, directory, branch, MISSING_MERGE_CONFIG);
     if (
       record.workspace &&
       (await developmentWorkspaceIsIntact({
@@ -1933,21 +1960,7 @@ export function createProjectDevelopmentService(ports: ProjectDevelopmentPorts) 
       return (await gateway()).mergeConfig(projectId);
     },
 
-    async setMergeConfig(projectId: string, input: MergeConfigInput) {
-      await project(projectId);
-      const repository = mergeRepository(input.repository);
-      const targetBranch = mergeTargetBranch(input.targetBranch);
-      const executionBackendId =
-        input.executionBackendId === undefined
-          ? undefined
-          : mergeExecutionBackendId(input.executionBackendId);
-      await resolveDevelopmentBaseline({ repository, branch: targetBranch });
-      return (await gateway()).setMergeConfig(
-        projectId,
-        { repository, targetBranch, executionBackendId },
-        ports.backendId
-      );
-    },
+    setMergeConfig: saveMergeConfig,
 
     async list(projectId: string, backendId = ports.backendId, options: DevelopmentReadOptions = {}) {
       await project(projectId);

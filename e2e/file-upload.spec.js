@@ -17,12 +17,13 @@ for (const width of [1440, 900, 640])
       await page
         .locator("#file-input")
         .setInputFiles({ name: "示例.txt", mimeType: "text/plain", buffer: Buffer.from(text) });
-      await expect(page.locator("#attachment-strip")).toContainText("已添加");
+      await expect(page.locator("#attachment-strip").locator("[data-upload-preview]").first()).toBeVisible();
+      // A short name shows whole; the one-line chip is as wide as it needs.
       expect(
         await page
           .locator("#attachment-strip .attachment-name")
-          .evaluate((node) => node.getBoundingClientRect().width)
-      ).toBeGreaterThan(60);
+          .evaluate((node) => node.scrollWidth <= node.clientWidth && node.clientWidth > 0)
+      ).toBe(true);
       await page.locator("[data-upload-preview]").click();
       await expect(page.locator(".attachment-preview")).toBeVisible();
       await expect(page.locator("[data-preview-content]")).toContainText("完整 UTF-8 😀");
@@ -48,6 +49,55 @@ for (const width of [1440, 900, 640])
       await expect
         .poll(() => page.locator("[data-preview-content] img").evaluate((img) => img.naturalWidth))
         .toBeGreaterThan(0);
+      // An image previews alone: no title, download or frame, only a small toolbar.
+      const viewer = page.locator(".attachment-preview");
+      const picture = page.locator("[data-preview-content] img");
+      const level = page.locator(".preview-zoom-level");
+      await expect(viewer).toHaveAttribute("data-kind", "image");
+      await expect(viewer).toHaveCSS("background-color", "rgba(0, 0, 0, 0.7)");
+      for (const selector of ["#attachment-preview-title", "[data-preview-download]", "[data-preview-close]"])
+        await expect(page.locator(selector)).toBeHidden();
+      expect(
+        await page
+          .locator(".attachment-preview-card")
+          .evaluate((node) => getComputedStyle(node).backgroundColor)
+      ).toBe("rgba(0, 0, 0, 0)");
+      await expect(page.locator("[data-preview-tools]")).toBeVisible();
+      await expect(level).toHaveText("100%");
+      // A click on the image or around it does not close it.
+      await picture.click();
+      await page.mouse.click(10, 300);
+      await expect(viewer).toBeVisible();
+      // The toolbar zooms in steps and the level returns to fit.
+      await page.getByRole("button", { name: "放大", exact: true }).click();
+      await expect(level).toHaveText("125%");
+      await page.getByRole("button", { name: "缩小", exact: true }).click();
+      await page.getByRole("button", { name: "缩小", exact: true }).click();
+      await expect(level).toHaveText("80%");
+      await level.click();
+      await expect(level).toHaveText("100%");
+      // A double click toggles 2x around the pointer; a zoomed image drags.
+      const box = await picture.boundingBox();
+      await picture.dblclick();
+      await expect(level).toHaveText("200%");
+      const before = await picture.evaluate((node) => node.style.transform);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 20, { steps: 4 });
+      await page.mouse.up();
+      expect(await picture.evaluate((node) => node.style.transform)).not.toBe(before);
+      // The wheel zooms; keys reach the same steps.
+      await page.mouse.wheel(0, 400);
+      await expect.poll(async () => parseInt(await level.textContent(), 10)).toBeLessThan(200);
+      await page.keyboard.press("0");
+      await expect(level).toHaveText("100%");
+      // The close key at the top right closes it.
+      await page.getByRole("button", { name: "关闭图片预览" }).click();
+      await expect(viewer).toBeHidden();
+      // A text file keeps its card with the name and the download.
+      await page.locator("#attachment-strip [data-upload-preview]").nth(0).click();
+      await expect(page.locator(".attachment-preview")).toHaveAttribute("data-kind", "file");
+      await expect(page.locator("[data-preview-download]")).toBeVisible();
       await page.keyboard.press("Escape");
       await page.route("**/run", (route) => {
         submitted = route.request().postDataJSON();
@@ -55,7 +105,10 @@ for (const width of [1440, 900, 640])
       });
       await page.locator("#send-button").click();
       await expect.poll(() => submitted?.attachmentIds?.length).toBe(2);
-      expect(submitted.prompt).toBe("请查看这些附件。");
+      // Attachments alone go as they are; nothing is typed on the person's behalf.
+      expect(submitted.prompt).toBe("");
+      // With no words, the new session is named by its files.
+      await expect(page.locator(".conversation-item.active")).toContainText("截图.png");
       const chips = page.locator("#attachment-strip");
       await expect(chips).toBeHidden();
       expect(errors).toEqual([]);

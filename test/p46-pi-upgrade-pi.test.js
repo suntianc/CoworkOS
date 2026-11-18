@@ -16,11 +16,28 @@ const harness = resolve(".");
 
 /**
  * Differences the 1.5.x upgrade is allowed to make against the recorded
- * pre-upgrade baseline. Every entry names the exact path, the change and why it
- * is the upstream fix rather than a CoworkOS behavior change. Any other
+ * pre-upgrade baseline, and the reviewed CoworkOS wording fixes made since.
+ * Every entry names the exact path, the change and why it was made. Any other
  * difference fails the comparison.
  */
 const EXPECTED_BASELINE_DIFFERENCES = [
+  {
+    path: "tools.project_development.parameters.properties.basis.description",
+    change:
+      '"review_plan/rule_finding: why this channel or ruling is justified." -> "review_plan: why this channel is justified. rule_finding: required for fix and dismiss alike."',
+    current: "review_plan: why this channel is justified. rule_finding: required for fix and dismiss alike.",
+    reason:
+      "A CoworkOS wording fix after the upgrade: the backend always required basis for a ruling, but the text read as if only a dismissal needed one, and a real-model Main was refused five times for omitting it on fix. The option name, type, required list and JSON Schema shape are unchanged."
+  },
+  {
+    path: "tools.project_development.parameters.properties.decision.description",
+    change:
+      '"rule_finding: fix it, or dismiss it with a recorded basis. Findings of failed or drifted reviews stay rulable; a passed review is closed." -> "rule_finding: fix it or dismiss it; every ruling needs basis \\u2014 for fix, how it is or will be fixed; for dismiss, why it is not a defect. Findings of failed or drifted reviews stay rulable; a passed review is closed."',
+    current:
+      "rule_finding: fix it or dismiss it; every ruling needs basis — for fix, how it is or will be fixed; for dismiss, why it is not a defect. Findings of failed or drifted reviews stay rulable; a passed review is closed.",
+    reason:
+      "A CoworkOS wording fix after the upgrade: the backend always required basis for a ruling, but the text read as if only a dismissal needed one, and a real-model Main was refused five times for omitting it on fix. The option name, type, required list and JSON Schema shape are unchanged."
+  },
   {
     path: "tools.grep.parameters.properties.glob.description",
     change:

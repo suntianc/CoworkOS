@@ -4,6 +4,7 @@ import {
   type ProtectedPaths
 } from "../../dist/src/tools/protected-paths.js";
 import { protectedCallRefusal, type ProtectedCallRefusal } from "../../dist/src/tools/protected-call.js";
+import { privateDataRefusal } from "../../dist/src/tools/private-data.js";
 import { LocalWorkspaceStore } from "../../dist/src/workspace/workspace-store.js";
 
 /**
@@ -27,12 +28,15 @@ export async function taskProtectedPaths(
   return configuredProtectedPaths(projectDirectory, process.env, [atriaInstallRoot()], granted);
 }
 
-/** The refusal for one tool call, or undefined when the call writes nothing protected. */
+/**
+ * The refusal for one tool call, or undefined when the call neither names
+ * CoworkOS's own data nor writes anything protected.
+ */
 export function blockedToolCall(
   toolName: string,
   input: unknown,
   guard: ProtectedPaths,
   projectDirectory: string
 ): ProtectedCallRefusal | undefined {
-  return protectedCallRefusal(toolName, input, guard, projectDirectory);
+  return privateDataRefusal(input) ?? protectedCallRefusal(toolName, input, guard, projectDirectory);
 }

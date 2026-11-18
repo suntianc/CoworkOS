@@ -1388,7 +1388,11 @@ test("a running Subagent's time counts from when it was handed out, not from the
   };
   state.detail.runtimeEvents.push(
     update("toolcall_end", 1, {
-      toolCall: { id: "vela", name: "call_subagent", arguments: { name: "Vela", task: "跑一分钟", mode: "async" } }
+      toolCall: {
+        id: "vela",
+        name: "call_subagent",
+        arguments: { name: "Vela", task: "跑一分钟", mode: "async" }
+      }
     }),
     {
       type: "tool_execution_end",
@@ -1405,4 +1409,19 @@ test("a running Subagent's time counts from when it was handed out, not from the
   state.detail.runtime.active = false;
   render();
   assert.equal(document.querySelector("[data-live-since]"), null);
+});
+
+test("a person's message keeps its own lines instead of being read as Markdown", () => {
+  const { document, state, render } = fixture("typed-user-text", "");
+  state.detail.runtimeEvents = [];
+  const typed =
+    '验收标准：\n  1. 组合写法 "1h30m"\n  等于 5400000。\n  2. 支持小数 **1.5h**\n<b>原样</b>\n\n';
+  render([{ role: "user", content: typed, timestamp: 1 }]);
+  const shown = document.querySelector(".chat-message.user .user-text");
+  assert.ok(shown);
+  assert.equal(shown.textContent, typed.trimEnd());
+  assert.equal(
+    document.querySelector(".chat-message.user ol, .chat-message.user strong, .chat-message.user b"),
+    null
+  );
 });

@@ -176,8 +176,12 @@ test("a delegated process inherits no backend credential", { timeout: 60_000 }, 
     }
   );
   t.after(() => model.close());
-  probePath = join(fixture.root, "delegate-probe.mjs");
-  resultPath = join(fixture.root, "delegate-result.json");
+  // The probe lives outside the data home: agents may not touch CoworkOS's
+  // own data (src/tools/private-data.ts), and the delegate must reach it.
+  const probeDirectory = await mkdtemp(join(tmpdir(), "cowork-delegate-probe-"));
+  t.after(() => rm(probeDirectory, { recursive: true, force: true }));
+  probePath = join(probeDirectory, "delegate-probe.mjs");
+  resultPath = join(probeDirectory, "delegate-result.json");
   await writeFile(
     probePath,
     `

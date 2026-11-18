@@ -14,6 +14,12 @@ License links below point to versioned upstream files or npm source archives con
 
 The application bundles the unmodified Inter Variable font from the linked `inter-ui 4.1.1` distribution of the official Inter typeface (`variable/InterVariable.woff2`), with the SHA-256 recorded above. It supports weights 100–900 and optical sizing. Copyright belongs to The Inter Project Authors under the **SIL Open Font License 1.1**; the complete license and copyright notice are retained alongside the font. The font loads locally without runtime network requests or additional npm dependencies.
 
+## Lucide 界面图标 / Interface icons
+
+界面图标（[web/index.html](web/index.html) 中的 `i-*` 符号与 [web/assets/ui/icons.js](web/assets/ui/icons.js) 的菜单图标）取自 [Lucide](https://lucide.dev) 的 [`lucide-static` 0.460.0 npm 发行](https://registry.npmjs.org/lucide-static/-/lucide-static-0.460.0.tgz)，适用 **ISC** 许可（部分图形源自 Feather，MIT），版权所有者为 Lucide Contributors 与 Cole Bemis。只取用各图标 SVG 内部的图形元素，按项目名称（如 `i-close` 对应 `x`）放进同一个符号表，线宽由界面样式统一设置，图形未改动；`stop` 实心方块与 Formicand 标志仍为项目自绘。完整[许可及版权声明](web/assets/ui/Lucide-LICENSE.txt)与图标一起保留。
+
+Interface icons (the `i-*` symbols in the shell and the menu icons in `icons.js`) come from the linked `lucide-static` 0.460.0 distribution of Lucide under the **ISC** license (portions from Feather, MIT; copyright Lucide Contributors and Cole Bemis). Only each SVG's inner shapes are used, under the project's own names, with the stroke width set by the interface styles; the artwork is unchanged. The filled `stop` square and the Formicand marks remain the project's own. The complete license and copyright notice are retained alongside the icons.
+
 ## 模型供应商标志 / Model provider logos
 
 设置页「模型与角色」中的供应商标志（[web/assets/brand/providers/](web/assets/brand/providers/)）取自 [lobe-icons](https://github.com/lobehub/lobe-icons) 的 [`@lobehub/icons-static-svg` 1.103.0 npm 发行](https://registry.npmjs.org/@lobehub/icons-static-svg/-/icons-static-svg-1.103.0.tgz)，适用 **MIT** 许可，版权所有者为 LobeHub。文件仅去掉了 SVG 根元素的 `width`、`height`、`style` 属性，图形未改动。各标志是对应厂商的商标，仅用于标识用户自行配置的服务，不表示与这些厂商存在合作或获得其认可。设计稿使用的 PNG 由同一组 SVG 渲染生成（[design/assets/providers/](design/assets/providers/)）。

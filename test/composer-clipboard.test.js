@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseHTML } from "linkedom";
-import { clipboardHtmlText, createComposerClipboard } from "../web/assets/controllers/composer-clipboard.js";
+import {
+  clipboardHtmlText,
+  createComposerClipboard,
+  numberPastedImages
+} from "../web/assets/controllers/composer-clipboard.js";
 
 function fixture() {
   const listeners = new Map();
@@ -34,7 +38,7 @@ function fixture() {
   };
   return { files, paste, controller, listeners, input, events };
 }
-const image = { name: "clipboard.png" };
+const image = new File(["png bytes"], "image.png", { type: "image/png" });
 const items = [{ kind: "file", type: "image/png", getAsFile: () => image }];
 
 test("mixed clipboard text including whitespace keeps the native insertion path", () => {
@@ -46,15 +50,32 @@ test("mixed clipboard text including whitespace keeps the native insertion path"
 test("image-only clipboard attaches files, ignores unavailable images and respects handled events", () => {
   const f = fixture();
   assert.equal(f.paste("", items).defaultPrevented, true);
-  assert.deepEqual(f.files, [image]);
+  assert.deepEqual(
+    f.files.map((file) => [file.name, file.type, file.size]),
+    [["image-1.png", "image/png", image.size]]
+  );
   assert.equal(
     f.paste("", [{ kind: "file", type: "image/png", getAsFile: () => null }]).defaultPrevented,
     false
   );
   f.paste("", items, true);
-  assert.deepEqual(f.files, [image]);
+  assert.equal(f.files.length, 1);
   f.controller.dispose();
   assert.equal(f.listeners.has("paste"), false);
+});
+
+test("pasted images take the next numbers the draft has not used, so the same picture can be pasted twice", () => {
+  const names = (images, attached) => numberPastedImages(images, attached).map((file) => file.name);
+  const jpeg = new File(["jpeg bytes"], "image.jpeg", { type: "image/jpeg" });
+  assert.deepEqual(names([image, image], []), ["image-1.png", "image-2.png"]);
+  // A copied file with a name of its own keeps it and takes no number.
+  const named = new File(["png bytes"], "设计稿.png", { type: "image/png" });
+  assert.deepEqual(names([named, image], []), ["设计稿.png", "image-1.png"]);
+  // A gap left by a removed attachment is filled before counting on; other names are not numbers.
+  assert.deepEqual(names([image, jpeg], ["image-1.png", "image-3.png", "image.png", "报告.pdf"]), [
+    "image-2.png",
+    "image-4.jpg"
+  ]);
 });
 
 test("inert HTML extraction preserves paragraphs and breaks without scripts or image placeholders", () => {

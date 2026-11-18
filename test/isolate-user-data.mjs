@@ -3,10 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Loaded before each test worker: changing defaults must never read or write a real user's home.
-// COWORK_PYTHON is the documented explicit interpreter for document fixtures, not user data.
+// COWORK_PYTHON (the explicit interpreter for document fixtures) and COWORK_TEST_ENGINES (which storage
+// engines run) choose how tests run; neither is user data.
 const home = mkdtempSync(join(tmpdir(), "atria-test-home-"));
 for (const key of Object.keys(process.env))
-  if (/^(?:COWORK_|ATRIA_|PI_)/.test(key) && !["ATRIA_TEST_CLI_ENTRY", "COWORK_PYTHON"].includes(key))
+  if (
+    /^(?:COWORK_|ATRIA_|PI_)/.test(key) &&
+    !["ATRIA_TEST_CLI_ENTRY", "COWORK_PYTHON", "COWORK_TEST_ENGINES"].includes(key)
+  )
     delete process.env[key];
 process.env.ATRIA_HOME = home;
 process.env.COWORK_CONFIG = join(home, "config.json");

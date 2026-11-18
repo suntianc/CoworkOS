@@ -16,7 +16,13 @@ import { startDashboard } from "./dashboard-fixture.mjs";
  */
 export const POSTGRES_IMAGE = "postgres:18.6-alpine3.24";
 
-export const PROJECT_DATA_ENGINES = ["sqlite", "postgres"];
+/**
+ * The engines the storage checks run against. `COWORK_TEST_ENGINES=sqlite`
+ * keeps a run off Docker; PostgreSQL then neither starts nor gets its cases.
+ */
+export const PROJECT_DATA_ENGINES = process.env.COWORK_TEST_ENGINES
+  ? ["sqlite", "postgres"].filter((engine) => process.env.COWORK_TEST_ENGINES.split(",").includes(engine))
+  : ["sqlite", "postgres"];
 
 async function freePort() {
   const probe = createServer();
@@ -45,6 +51,7 @@ function runDocker(args) {
 
 /** `postgresql://...` for the isolated fixture; the password is synthetic and test-only. */
 export async function startPostgresProjectDatabase() {
+  if (!PROJECT_DATA_ENGINES.includes("postgres")) return undefined;
   const suffix = randomBytes(5).toString("hex");
   const name = `coworkos-p3-${process.pid}-${suffix}`;
   const user = "coworkos_test";

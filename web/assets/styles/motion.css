@@ -83,3 +83,26 @@
     opacity: 0;
   }
 }
+
+/* Disclosure: a <details> eases its content's height open and closed instead
+   of jumping. A details inserted already open does not animate (there is no
+   earlier style to start from), so a re-render keeps its rows still. The
+   attachments menu is a popover, not a disclosure, and stays instant. */
+details:not(.inline-edit-attachments-menu) {
+  interpolate-size: allow-keywords;
+}
+details:not(.inline-edit-attachments-menu)::details-content {
+  block-size: 0;
+  overflow-y: clip;
+  transition:
+    block-size var(--motion-base) var(--ease-standard),
+    content-visibility var(--motion-base) allow-discrete;
+}
+details:not(.inline-edit-attachments-menu)[open]::details-content {
+  block-size: auto;
+}
+
+/* A conversation row on its way out of the sidebar (project-controller.js). */
+.conversation-row.is-leaving {
+  pointer-events: none;
+}

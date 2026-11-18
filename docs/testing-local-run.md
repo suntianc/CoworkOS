@@ -69,7 +69,7 @@ docker pull postgres:18.6-alpine3.24
 node scripts/test.mjs --skip-build --file test/p3-foundation-integration.test.js
 ```
 
-缺少 Docker、镜像或 PostgreSQL 时该文件必须失败，不能记为通过或跳过；`--skip-build` 需要当前源码的既有构建。组合界面流程使用真实后端和页面、本地假模型：
+缺少 Docker、镜像或 PostgreSQL 时该文件必须失败，不能记为通过或跳过；只有显式设置 `COWORK_TEST_ENGINES=sqlite` 时才不启动 PostgreSQL、只跑 SQLite 用例，适合本地按改动验证，合入前的全量仍跑两种引擎；`--skip-build` 需要当前源码的既有构建。组合界面流程使用真实后端和页面、本地假模型：
 
 ```sh
 npx playwright test e2e/p3-foundation-flow.spec.js --workers=1 --output=.tmp/browser-p3

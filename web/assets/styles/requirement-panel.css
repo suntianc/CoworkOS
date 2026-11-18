@@ -26,7 +26,9 @@ html[data-theme] .agent-pane {
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  padding: 0 20px 20px;
+  /* The side padding lives on each part, so the body's scroll area reaches the
+     panel's edge and its scrollbar sits there rather than 20px inside it. */
+  padding: 0 0 20px;
 }
 
 .requirement-panel-head {
@@ -35,6 +37,7 @@ html[data-theme] .agent-pane {
   align-items: center;
   gap: 8px;
   height: 56px;
+  padding: 0 20px;
 }
 .requirement-panel-head h2 {
   flex: 1 1 auto;
@@ -84,6 +87,8 @@ html[data-theme] .agent-pane {
   min-height: 0;
   gap: 22px;
   overflow-y: auto;
+  /* The thin scrollbar's own gutter makes up the rest of the right side. */
+  padding: 0 10px 0 20px;
   scrollbar-gutter: stable;
 }
 
@@ -410,6 +415,7 @@ html[data-theme] .agent-pane {
 .requirement-usage {
   flex: 0 0 auto;
   margin-top: auto;
+  padding: 0 20px;
 }
 .rp-usage {
   display: flex;

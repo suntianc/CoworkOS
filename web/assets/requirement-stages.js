@@ -63,29 +63,20 @@ function mergedOperation(merges) {
   return Array.isArray(merges) ? [...merges].reverse().find((entry) => MERGED.has(entry?.state)) : undefined;
 }
 
-/** The check set that proves the current candidate, newest evidence first. */
-function evidenceChecks({ plan, reviews, merges }) {
-  const merged = mergedOperation(merges);
-  if (merged?.checks?.length) return merged.checks;
-  const review = lastReview(reviews);
-  if (review?.verdict?.checks?.length) return review.verdict.checks;
-  if (plan?.checks?.length) return plan.checks;
-  return [];
+/**
+ * Whether the completion criteria have been confirmed as a whole.
+ *
+ * A passed review means the candidate satisfies every completion criterion, and
+ * a merge only happens after that acceptance. Checks are commands such as
+ * `npm test` that do not map onto individual criteria, so they never tick one.
+ */
+function criteriaMet({ reviews, merges }) {
+  return Boolean(mergedOperation(merges)) || lastReview(reviews)?.state === "passed";
 }
 
-/**
- * A criterion is met when the recorded check at the same position passed.
- *
- * The completion criteria are the agreed observable outcomes and the plan,
- * verdict and merge checks are recorded in that order, so position is the only
- * pairing the records carry. A missing or failing check stays unchecked.
- */
-export function requirementCriteria(criteria, checks) {
-  const recorded = Array.isArray(checks) ? checks : [];
-  return (Array.isArray(criteria) ? criteria : []).map((text, index) => ({
-    text,
-    checked: recorded[index]?.exitCode === 0
-  }));
+/** Every criterion takes the overall answer: all met, or none confirmed yet. */
+export function requirementCriteria(criteria, met) {
+  return (Array.isArray(criteria) ? criteria : []).map((text) => ({ text, checked: met === true }));
 }
 
 function stageOf(input) {
@@ -235,6 +226,6 @@ export function requirementProgress(input = {}) {
   return {
     ...stage,
     steps: requirementSteps(input),
-    criteria: requirementCriteria(input.development?.completionCriteria, evidenceChecks(input))
+    criteria: requirementCriteria(input.development?.completionCriteria, criteriaMet(input))
   };
 }

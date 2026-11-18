@@ -36,6 +36,15 @@ test("usage stays folded until asked, and diff and attachments preview inside th
       "# 验收记录\n\n三条完成标准通过。\n"
     );
     await seedRun(page, dashboard, records.session.taskId);
+    // An idle session's runtime names the default model for the next run; the
+    // usage row still names the model this session's Main ran on.
+    await page.route(`**/api/tasks/${encodeURIComponent(records.session.taskId)}`, async (route) => {
+      const response = await route.fetch();
+      const detail = await response.json();
+      detail.task.model = "relay/deepseek-v4.1-flash";
+      detail.runtime = { ...detail.runtime, active: false, model: "gpt-6.1-terra" };
+      await route.fulfill({ response, json: detail });
+    });
     await page.goto(`${dashboard.base}/?task=${encodeURIComponent(records.session.taskId)}`);
     await page.locator("#output-pane-toggle").click();
     const panel = page.locator("[data-requirement-panel]");
@@ -53,6 +62,7 @@ test("usage stays folded until asked, and diff and attachments preview inside th
     await expect(panel.locator(".rp-role")).toHaveCount(3);
     const roles = panel.locator(".rp-role");
     await expect(roles.nth(0)).toContainText("Main");
+    await expect(roles.nth(0).locator(".rp-role-agent")).toHaveText("deepseek-v4.1-flash");
     await expect(roles.nth(0).locator(".rp-role-value")).toHaveText("1.21M");
     await expect(roles.nth(1)).toContainText("Executor");
     await expect(roles.nth(1)).toContainText("Ara");

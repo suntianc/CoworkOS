@@ -143,3 +143,56 @@ test("trusted keyboard paste keeps mixed text, selections and per-session drafts
     await dashboard.stop();
   }
 });
+
+test("the same screenshot pasted twice becomes two numbered one-line attachments", async ({
+  page,
+  context
+}, testInfo) => {
+  const dashboard = await startDashboard();
+  try {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto(dashboard.base);
+    const input = page.locator("#composer-input");
+    await writeClipboard(page, { image: true });
+    for (let count = 1; count <= 2; count += 1) {
+      await input.press(pasteKey);
+      await expect(page.locator("#attachment-strip [data-upload-preview]")).toHaveCount(count);
+    }
+    await expect(page.locator("#attachment-strip .attachment-name")).toHaveText([
+      "image-1.png",
+      "image-2.png"
+    ]);
+    // Each attachment is one line: an icon, its name and its size, with no thumbnail or status.
+    const chips = page.locator("#attachment-strip .attachment-chip");
+    for (const chip of await chips.all()) {
+      expect((await chip.boundingBox()).height).toBeLessThanOrEqual(32);
+      await expect(chip.locator("img")).toHaveCount(0);
+      await expect(chip.locator("small")).toHaveText(/^\d+(\.\d+)? (B|KB|MB)$/);
+    }
+    // Hovering the name lights nothing up: the chip is one control.
+    const name = chips.first().locator(".attachment-name");
+    const resting = await name.evaluate((node) => getComputedStyle(node).color);
+    await name.hover();
+    await expect(name).toHaveCSS("color", resting);
+    await expect(name).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    // Anywhere on the chip opens the preview, not only its name.
+    const icon = chips.first().locator(".attachment-chip-icon");
+    await icon.click();
+    await expect(page.locator(".attachment-preview:not([hidden])")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".attachment-preview:not([hidden])")).toHaveCount(0);
+    await chips.first().locator("small").click();
+    await expect(page.locator(".attachment-preview:not([hidden])")).toBeVisible();
+    await page.keyboard.press("Escape");
+    // Removing the first frees its number for the next paste.
+    await chips.first().locator("[data-remove-attachment]").click();
+    await input.press(pasteKey);
+    await expect(page.locator("#attachment-strip .attachment-name")).toHaveText([
+      "image-2.png",
+      "image-1.png"
+    ]);
+    await page.locator(".composer").screenshot({ path: testInfo.outputPath("pasted-images.png") });
+  } finally {
+    await dashboard.stop();
+  }
+});

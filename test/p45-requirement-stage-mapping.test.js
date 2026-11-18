@@ -250,27 +250,30 @@ test("a merged board need awaiting release is 待发布 and waiting for a reply 
   assert.equal(requirementProgress(mergedBoard).waiting, false);
 });
 
-test("criteria are checked only by a recorded passing check at the same position", () => {
-  assert.deepEqual(requirementCriteria(["第一条", "第二条", "第三条"], [check(0), check(1)]), [
+test("criteria are ticked together once a review passes or the candidate merged", () => {
+  assert.deepEqual(requirementCriteria(["第一条", "第二条"], true), [
     { text: "第一条", checked: true },
-    { text: "第二条", checked: false },
-    { text: "第三条", checked: false }
+    { text: "第二条", checked: true }
   ]);
-  assert.deepEqual(requirementCriteria(["第一条"], []), [{ text: "第一条", checked: false }]);
-  // The newest recorded evidence decides, so a later failing run unchecks it.
-  const progress = requirementProgress({
-    development: development({ completionCriteria: ["第一条", "第二条"] }),
-    plan: {
-      channel: "independent",
-      checks: [check(0), check(0)],
-      candidate: review("in_review").candidate
-    },
-    reviews: [review("failed", { verdict: { summary: "未通过", checks: [check(0), check(1)] } })]
-  });
-  assert.deepEqual(progress.criteria, [
-    { text: "第一条", checked: true },
-    { text: "第二条", checked: false }
-  ]);
+  assert.deepEqual(requirementCriteria(["第一条"], false), [{ text: "第一条", checked: false }]);
+  const ticks = (input) =>
+    requirementProgress({
+      development: development({ completionCriteria: ["第一条", "第二条"] }),
+      ...input
+    }).criteria.map((entry) => entry.checked);
+  // Passing commands alone tick nothing: `npm test` does not say which criterion it proves.
+  assert.deepEqual(ticks({ plan: { channel: "independent", checks: [check(0), check(0)] } }), [false, false]);
+  assert.deepEqual(ticks({ reviews: [review("in_review")] }), [false, false]);
+  assert.deepEqual(
+    ticks({ reviews: [review("failed", { verdict: { summary: "未通过", checks: [check(0)] } })] }),
+    [false, false]
+  );
+  assert.deepEqual(
+    ticks({ reviews: [review("passed", { verdict: { summary: "通过", checks: [check(1)] } })] }),
+    [true, true]
+  );
+  // A later re-review that has not passed yet takes the ticks back.
+  assert.deepEqual(ticks({ reviews: [review("passed"), review("in_review")] }), [false, false]);
 });
 
 /**
