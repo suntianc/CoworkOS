@@ -2056,6 +2056,13 @@ export function createDashboardRunService({
     async function inspect() {
       for (const taskId of ids) {
         const location = await locateTask(taskId);
+        // A refusal names the conversation, so the person knows which one to stop.
+        const name = (location.task.title ?? location.task.goal ?? "").trim().slice(0, 40);
+        const refuse = (what: string) =>
+          new ProjectCatalogError(
+            `请先停止项目中的${what}，再${change}${name ? `（会话「${name}」）` : ""}`,
+            409
+          );
         // eslint-disable-next-line no-restricted-syntax -- 接管失败只表示这里不认识该进程，后续的活进程检查仍会读心跳与执行记录
         const resident = await adoptResidentMain(taskId, location).catch(() => undefined);
         // A resident Main between turns is not activity: stop it so the folder
@@ -2063,7 +2070,7 @@ export function createDashboardRunService({
         // still producing an answer keeps the refusal.
         if (resident) {
           if (await taskTurnActive(taskId))
-            throw new ProjectCatalogError(`请先停止项目中的会话及后台工作，再${change}`, 409);
+            throw refuse("会话及后台工作");
           await stopResidentMain(taskId, { replacing: true });
         }
         if (
@@ -2072,12 +2079,15 @@ export function createDashboardRunService({
           // not stop is still an owner.
           residentMains.has(taskId) ||
           taskFinalizations.has(taskId) ||
-          ["running", "paused", "waiting"].includes(location.task.status) ||
+          // Paused and waiting runs have nothing working: they wait for the
+          // person to continue. What could still be working — a park, a live
+          // process, a Subagent or a job — is checked on its own below.
+          location.task.status === "running" ||
           // eslint-disable-next-line no-restricted-syntax -- 停泊记录损坏时按未停泊处理，读不出的记录不冒充活动中的会话
           (await readSleep(location.workspaceRoot, taskId).catch(() => undefined)) ||
           (await projectExecutionIsAlive(location.workspaceRoot, taskId))
         )
-          throw new ProjectCatalogError(`请先停止项目中的会话及后台工作，再${change}`, 409);
+          throw refuse("会话及后台工作");
         const privateAgents = join(location.workspaceRoot, taskId, "agents", "subagents");
         // eslint-disable-next-line no-restricted-syntax -- 没有 subagents 目录表示该会话没有私有子代理，按空列表继续检查
         for (const agent of await readdir(privateAgents).catch(() => [])) {
@@ -2086,7 +2096,7 @@ export function createDashboardRunService({
               (job) => job.state === "running"
             )
           )
-            throw new ProjectCatalogError(`请先停止项目中的后台命令，再${change}`, 409);
+            throw refuse("后台命令");
         }
         const runIds = await readdir(join(location.workspaceRoot, taskId, "runs")).catch(
           (error: NodeJS.ErrnoException) => {
@@ -2105,7 +2115,7 @@ export function createDashboardRunService({
           // result waiting for a stopped Main is a record, not activity: it
           // stays in the Inbox and reaches Main when the conversation resumes.
           if (coordination.pending.length)
-            throw new ProjectCatalogError(`请先停止项目中的后台协作，再${change}`, 409);
+            throw refuse("后台协作");
           const agents = join(location.workspaceRoot, taskId, "runs", runId, "agents");
           // eslint-disable-next-line no-restricted-syntax -- 该 Run 可能从未启动子代理，subagents 目录缺失按空列表继续
           const subagents = await readdir(join(agents, "subagents")).catch(() => []);
@@ -2114,7 +2124,7 @@ export function createDashboardRunService({
             ...subagents.map((subagent) => join(agents, "subagents", subagent))
           ]) {
             if ((await listJobs({ directory: join(agent, "jobs") })).some((job) => job.state === "running"))
-              throw new ProjectCatalogError(`请先停止项目中的后台命令，再${change}`, 409);
+              throw refuse("后台命令");
           }
         }
       }
