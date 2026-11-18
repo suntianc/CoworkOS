@@ -1,12 +1,22 @@
 // Display-only projection of assistant messages. Callers must keep user
 // messages and the persisted provider content unchanged.
 
+// Sticky patterns match at one position without copying the rest of the
+// text; the scan visits every character, so a copy there grows with the
+// square of a long streamed thought.
+const fenceAt = /[ \t]*(`{3,}|~{3,})[^\n]*(?:\n|$)/y;
+const indentedAt = /(?: {4}|\t)[^\n]*(?:\n|$)/y;
+const backticksAt = /`+/y;
+const matchAt = (pattern, source, index) => {
+  pattern.lastIndex = index;
+  return pattern.exec(source);
+};
+
 function protectedRanges(source) {
   const ranges = [];
   for (let index = 0; index < source.length; index += 1) {
-    const fence =
-      (index === 0 || source[index - 1] === "\n") &&
-      /^[ \t]*(`{3,}|~{3,})[^\n]*(?:\n|$)/.exec(source.slice(index));
+    const lineStart = index === 0 || source[index - 1] === "\n";
+    const fence = lineStart && matchAt(fenceAt, source, index);
     if (fence) {
       const delimiter = fence[1];
       const closing = new RegExp(`^[ \\t]*${delimiter[0]}{${delimiter.length},}[ \\t]*(?:\\n|$)`, "gm");
@@ -17,8 +27,7 @@ function protectedRanges(source) {
       index = end - 1;
       continue;
     }
-    const indented =
-      (index === 0 || source[index - 1] === "\n") && /^(?: {4}|\t)[^\n]*(?:\n|$)/.exec(source.slice(index));
+    const indented = lineStart && matchAt(indentedAt, source, index);
     if (indented) {
       const end = index + indented[0].length;
       ranges.push([index, end]);
@@ -26,7 +35,7 @@ function protectedRanges(source) {
       continue;
     }
     const escaped = index > 0 && source[index - 1] === "\\";
-    const backticks = !escaped && /^`+/.exec(source.slice(index))?.[0];
+    const backticks = !escaped && source[index] === "`" && matchAt(backticksAt, source, index)[0];
     if (backticks) {
       let end = source.indexOf(backticks, index + backticks.length);
       end = end < 0 ? source.length : end + backticks.length;
@@ -156,9 +165,24 @@ function normalizeProse(source, removeEmptyMarkers) {
   return result;
 }
 
+// A streamed conversation redraws every frame, and each frame lays out the
+// same thoughts several times; only the one being written changes.
+const recentReasoning = [new Map(), new Map()];
+const rememberedLimit = 200;
+
 /** Readable Markdown for a known thinking block; never writes its original. */
 export function normalizeReasoningDisplay(reasoning, options = {}) {
   const source = String(reasoning ?? "");
+  const remembered = recentReasoning[options.streaming ? 1 : 0];
+  const known = remembered.get(source);
+  if (known !== undefined) return known;
+  const display = layoutReasoning(source, options);
+  if (remembered.size >= rememberedLimit) remembered.delete(remembered.keys().next().value);
+  remembered.set(source, display);
+  return display;
+}
+
+function layoutReasoning(source, options) {
   const parts = splitEnvelopes(source, options);
   const hasEnvelope = parts.some((part) => part.type === "thinking");
   const display = hasEnvelope

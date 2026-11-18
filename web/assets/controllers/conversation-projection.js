@@ -6,9 +6,21 @@ export function createConversationProjection(normalize = (messages) => messages)
     count = 0,
     tail,
     signature,
-    exchanges;
-  return (messages, localMessages, events) => {
-    const nextSignature = JSON.stringify([messages, localMessages]);
+    exchanges,
+    seenMessages,
+    seenLocal,
+    seenVersion;
+  return (messages, localMessages, events, version) => {
+    // The page replaces both lists rather than editing them, and a change
+    // made elsewhere arrives with a new conversation version, so the same
+    // lists need no second serialization on each streamed frame.
+    const nextSignature =
+      messages === seenMessages && localMessages === seenLocal && version === seenVersion
+        ? signature
+        : JSON.stringify([messages, localMessages]);
+    seenMessages = messages;
+    seenLocal = localMessages;
+    seenVersion = version;
     const current = exchanges?.at(-1);
     const appended =
       source === events &&
