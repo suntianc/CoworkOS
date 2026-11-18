@@ -163,6 +163,20 @@ html[data-theme] .composer .composer-bar {
 html[data-theme] .composer :is(.composer-left, .composer-right) {
   gap: 4px;
 }
+/* Both groups give way as the composer narrows, each by its own size, so the
+   project chip and the model button shorten their names instead of sliding
+   under one another; the round keys never shrink. */
+html[data-theme] .composer .composer-left {
+  flex: 1 1 auto;
+  min-width: 34px; /* the attach key */
+}
+html[data-theme] .composer .composer-right {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+html[data-theme] .composer :is(.model-select, .composer-project) {
+  min-width: 0;
+}
 html[data-theme] .composer .attach-button {
   display: grid;
   place-items: center;

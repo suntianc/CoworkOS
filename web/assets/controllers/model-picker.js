@@ -96,8 +96,21 @@ export function createModelPicker({ panel, view, chooseModel, chooseLevel }) {
   };
 
   function render({ focus = false } = {}) {
+    // A new level re-renders the page; the knob glides there from where it
+    // was (a notch, or wherever a drag let go) instead of appearing at it.
+    const before =
+      panel.dataset.page === "effort" && page === "effort"
+        ? panel.querySelector(".effort-rail")?.style.getPropertyValue("--at")
+        : "";
     panel.dataset.page = page;
     panel.innerHTML = page === "effort" ? effortPage() : modelsPage();
+    const rail = panel.querySelector(".effort-rail");
+    const goal = rail?.style.getPropertyValue("--at");
+    if (rail && before !== "" && before !== goal) {
+      rail.style.setProperty("--at", before);
+      rail.getBoundingClientRect();
+      rail.style.setProperty("--at", goal);
+    }
     if (!focus) return;
     const target =
       page === "effort"
@@ -107,16 +120,28 @@ export function createModelPicker({ panel, view, chooseModel, chooseLevel }) {
   }
 
   const levels = railLevels;
-  const indexAt = (rail, clientX) => {
+  /** Where the pointer sits on the rail, in levels: 0 to the last, unrounded. */
+  const positionAt = (rail, clientX) => {
     const box = rail.getBoundingClientRect();
     const knob = box.height;
     const share = (clientX - box.left - knob / 2) / Math.max(1, box.width - knob);
-    return Math.round(Math.min(1, Math.max(0, share)) * (levels().length - 1));
+    return Math.min(1, Math.max(0, share)) * (levels().length - 1);
   };
-  // While dragging only the rail moves; the choice is made when the pointer lets go.
-  // The heading names the level under the knob as it moves.
-  const preview = (rail, index) => {
-    rail.style.setProperty("--at", String(index));
+  /**
+   * The knob follows the pointer with a pull toward the nearest notch: close
+   * to one it lags and settles, halfway between it moves freely. The curve is
+   * continuous, so crossing a midpoint never jumps.
+   */
+  const damped = (position) => {
+    const notch = Math.round(position);
+    const offset = position - notch;
+    return notch + Math.sign(offset) * 0.5 * Math.abs(2 * offset) ** 1.8;
+  };
+  // While dragging only the rail moves; the choice is made when the pointer
+  // lets go, at the nearest notch. The heading names that notch as it moves.
+  const preview = (rail, position) => {
+    const index = Math.round(position);
+    rail.style.setProperty("--at", String(Number(damped(position).toFixed(4))));
     const name = panel.querySelector(".effort-level-name");
     if (name) name.textContent = levelLabel(levels()[index]);
     rail
@@ -147,17 +172,18 @@ export function createModelPicker({ panel, view, chooseModel, chooseLevel }) {
     event.preventDefault();
     rail.focus();
     rail.setPointerCapture(event.pointerId);
-    rail.classList.add("is-dragging");
-    let index = indexAt(rail, event.clientX);
-    preview(rail, index);
+    // A press glides to the notch under it; moving after that drags.
+    let position = positionAt(rail, event.clientX);
+    preview(rail, Math.round(position));
     const move = (next) => {
-      index = indexAt(rail, next.clientX);
-      preview(rail, index);
+      rail.classList.add("is-dragging");
+      position = positionAt(rail, next.clientX);
+      preview(rail, position);
     };
     const done = () => {
       rail.removeEventListener("pointermove", move);
       rail.classList.remove("is-dragging");
-      commit(index);
+      commit(Math.round(position));
     };
     rail.addEventListener("pointermove", move);
     rail.addEventListener("lostpointercapture", done, { once: true });

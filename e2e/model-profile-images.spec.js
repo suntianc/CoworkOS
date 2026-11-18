@@ -14,7 +14,9 @@ async function attachImage(page, name, buffer) {
       await page.locator("#file-input").setInputFiles({ name, mimeType: "image/png", buffer });
     await expect(strip).toContainText(name, { timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
-  await expect(strip.locator(".attachment-chip").filter({ hasText: name })).toContainText("已添加");
+  await expect(
+    strip.locator(".attachment-chip").filter({ hasText: name }).locator("[data-upload-preview]").first()
+  ).toBeVisible();
 }
 
 for (const imageApi of ["openai-completions", "openai-responses"]) {

@@ -167,7 +167,7 @@ test("attachment previews retain file content and styled page controls at deskto
       mimeType: "text/plain",
       buffer: Buffer.from("预览正文\n保留原文件内容。")
     });
-    await expect(page.locator("#attachment-strip")).toContainText("已添加");
+    await expect(page.locator("#attachment-strip").locator("[data-upload-preview]").first()).toBeVisible();
     let preview;
     await page.route("**/api/uploads/*/preview?*", async (route) => {
       const current = Number(new URL(route.request().url()).searchParams.get("page"));

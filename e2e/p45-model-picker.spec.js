@@ -50,6 +50,12 @@ test("the reasoning rail follows each model's levels, keys move it, and a model 
     await expect(rail).toHaveAttribute("aria-valuetext", "低");
     await page.keyboard.press("ArrowRight");
     await expect(rail).toHaveAttribute("aria-valuetext", "中");
+    // The new level re-renders the rail, and the knob glides over instead of jumping.
+    expect(
+      await rail
+        .locator(".effort-knob")
+        .evaluate((node) => node.getAnimations().some((animation) => animation.transitionProperty === "left"))
+    ).toBe(true);
     await expect(page.locator("#model-select .reasoning-name")).toHaveText("中");
     await expect(menu.locator("[data-effort-reset]")).toBeVisible();
     await expect(menu.locator("[data-effort-reset]")).toHaveText("");
@@ -80,6 +86,11 @@ test("the reasoning rail follows each model's levels, keys move it, and a model 
     const box = await rail.boundingBox();
     await page.mouse.move(box.x + box.width - 8, box.y + box.height / 2);
     await page.mouse.down();
+    // Between two notches the knob follows the pointer instead of snapping.
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height / 2);
+    const between = Number(await rail.evaluate((node) => node.style.getPropertyValue("--at")));
+    expect(between).toBeGreaterThan(0);
+    expect(between).toBeLessThan(1);
     await page.mouse.move(box.x + 8, box.y + box.height / 2);
     await expect(menu.locator(".effort-level-name")).toHaveText("高");
     await expect(page.locator("#model-select .reasoning-name")).toHaveText("最大");

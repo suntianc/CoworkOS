@@ -55,7 +55,7 @@ for (const firstProject of [false, true])
       releaseUpload();
       const strip = page.locator("#attachment-strip");
       await expect(strip).toContainText("late.txt");
-      await expect(strip).toContainText("已添加");
+      await expect(strip.locator("[data-upload-preview]").first()).toBeVisible();
       await expect(send).toBeEnabled();
       await expect(send).toHaveAttribute("title", "发送（Enter）");
       expect(sends).toEqual([]);

@@ -26,7 +26,7 @@ test("composer drafts and complete attachments survive conversations, refresh an
     await page
       .locator("#file-input")
       .setInputFiles({ name: "full.txt", mimeType: "text/plain", buffer: Buffer.from(text) });
-    await expect(page.locator("#attachment-strip")).toContainText("已添加");
+    await expect(page.locator("#attachment-strip").locator("[data-upload-preview]").first()).toBeVisible();
     await page.locator("#new-conversation").click();
     await expect(page.locator("#composer-input")).toHaveValue("");
     await page.locator("#composer-input").fill("新会话的独立草稿");

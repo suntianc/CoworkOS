@@ -44,8 +44,36 @@ export function clipboardHtmlText(html, document) {
   return text.trim() ? text.replace(/\n$/, "") : "";
 }
 
+const EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+
+/**
+ * A pasted screenshot arrives as `image.png` every time, so two of them read
+ * as one file to the person and to Main, and pasting the same picture again
+ * looked like adding a file that is already there. Each such image gets the
+ * next number the draft has not used: `image-1.png`, `image-2.png`. A copied
+ * file that has a name of its own keeps it.
+ */
+export function numberPastedImages(images, attachedNames) {
+  const used = new Set(
+    attachedNames.map((name) => Number(/^image-(\d+)\.[a-z]+$/.exec(name)?.[1])).filter(Boolean)
+  );
+  let next = 1;
+  return images.map((image) => {
+    // A copied file keeps its own name; only the browser's generic name for
+    // clipboard picture data is replaced.
+    if (image.name && !/^image\.[a-z0-9]+$/i.test(image.name)) return image;
+    while (used.has(next)) next += 1;
+    used.add(next);
+    const extension = EXTENSIONS[image.type] || image.type.split("/")[1]?.replace(/[^a-z0-9]/g, "") || "png";
+    return new File([image], `image-${next}.${extension}`, {
+      type: image.type,
+      lastModified: image.lastModified
+    });
+  });
+}
+
 /** Prefer editable text over a rich-text source's image representation. */
-export function createComposerClipboard({ input, addFiles }) {
+export function createComposerClipboard({ input, addFiles, attachedNames = () => [] }) {
   const paste = (event) => {
     if (event.defaultPrevented || event.clipboardData?.getData("text/plain")) return;
     const text = clipboardHtmlText(event.clipboardData?.getData("text/html"), input.ownerDocument);
@@ -61,7 +89,7 @@ export function createComposerClipboard({ input, addFiles }) {
       .filter(Boolean);
     if (!images.length) return;
     event.preventDefault();
-    void addFiles(images);
+    void addFiles(numberPastedImages(images, attachedNames()));
   };
   input.addEventListener("paste", paste);
   return { dispose: () => input.removeEventListener("paste", paste) };

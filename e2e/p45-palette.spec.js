@@ -80,6 +80,13 @@ for (const theme of ["dark", "light"])
       await page.addInitScript((value) => localStorage.setItem("atria.appearance", value), theme);
       await page.goto(dashboard.base);
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      // With nothing to send the key rests on a quiet fill; it becomes the
+      // primary action once there is a draft.
+      const resting = await page
+        .locator("#send-button")
+        .evaluate((node) => getComputedStyle(node).backgroundColor);
+      expect(resting).toBe(theme === "dark" ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.07)");
+      await page.locator("#composer-input").fill("草稿");
       const result = await paint(page);
 
       for (const [name, overlay] of Object.entries(result.overlays)) {

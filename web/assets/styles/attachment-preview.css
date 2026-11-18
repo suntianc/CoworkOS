@@ -85,3 +85,119 @@
     padding: 16px 12px;
   }
 }
+
+/* An image previews on its own: no title, download or frame, just the picture
+   on the dimmed page with a small toolbar at the top right to zoom and close
+   it (Esc closes too). The dialog keeps its accessible name from the hidden
+   title. */
+html[data-theme] .attachment-preview[data-kind="image"],
+html[data-theme] .attachment-preview[data-kind="loading"] {
+  background: #000000b3;
+}
+.attachment-preview:is([data-kind="image"], [data-kind="loading"]) .attachment-preview-card {
+  width: auto;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  backdrop-filter: none;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.attachment-preview:is([data-kind="image"], [data-kind="loading"]) .attachment-preview-card header {
+  display: none;
+}
+.attachment-preview:is([data-kind="image"], [data-kind="loading"]) [data-preview-content] {
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+html[data-theme] .attachment-preview[data-kind="image"] [data-preview-content] {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+.attachment-preview[data-kind="image"] [data-preview-content] img {
+  transform-origin: center;
+  will-change: transform;
+  user-select: none;
+}
+.attachment-preview[data-kind="image"] [data-preview-content] img.is-easing {
+  transition: transform var(--motion-base, 200ms) var(--ease-standard, ease-out);
+}
+.attachment-preview[data-kind="image"][data-zoomed="true"] [data-preview-content] img {
+  cursor: grab;
+}
+.attachment-preview[data-kind="image"][data-panning="true"] [data-preview-content] img {
+  cursor: grabbing;
+}
+.attachment-preview[data-kind="image"] [data-preview-content] img {
+  display: block;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100dvh - 48px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 24px 72px #00000080;
+}
+.attachment-preview[data-kind="loading"] .attachment-preview-message {
+  color: #ffffffb3;
+}
+
+/* The image toolbar: zoom out, the zoom level (back to fit), zoom in, close. */
+.preview-tools {
+  display: none;
+}
+html[data-theme] .attachment-preview[data-kind="image"] .preview-tools {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid #ffffff1f;
+  border-radius: 12px;
+  background: #1c1c1fe6;
+  color: #f4f4f5;
+  box-shadow: 0 8px 24px #00000066;
+}
+html[data-theme] .preview-tools button {
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: 500 12px/1 var(--ui-font);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+html[data-theme] .preview-tools button:hover {
+  background: #ffffff1a;
+}
+html[data-theme] .preview-tools button:focus-visible {
+  outline: 2px solid #ffffffb3;
+  outline-offset: -2px;
+}
+.preview-tools .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+.preview-tools .preview-zoom-level {
+  min-width: 48px;
+}
+.preview-tools-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: #ffffff26;
+}

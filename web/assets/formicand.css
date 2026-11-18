@@ -1639,6 +1639,9 @@ html[data-theme] .composer .model-picker {
 .effort-notch.is-passed {
   background: var(--color-on-accent);
 }
+.effort-notch {
+  transition: background-color var(--motion-fast, 120ms) ease-out;
+}
 .effort-knob {
   position: absolute;
   top: 4px;
@@ -1657,8 +1660,17 @@ html[data-theme] .composer .model-picker {
     width var(--motion-glide, 280ms) var(--ease-glide, ease-out),
     left var(--motion-glide, 280ms) var(--ease-glide, ease-out);
 }
+/* A drag follows the pointer through a short ease, which reads as weight
+   rather than lag; letting go glides to the notch on the longer curve. */
 .effort-rail.is-dragging :is(.effort-fill, .effort-knob) {
-  transition: none;
+  transition-duration: 90ms;
+  transition-timing-function: ease-out;
+}
+.effort-knob {
+  transition-property: left, transform;
+}
+.effort-rail.is-dragging .effort-knob {
+  transform: scale(1.08);
 }
 .effort-foot {
   margin: 0;

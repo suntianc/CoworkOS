@@ -1596,7 +1596,7 @@ function renderAttachments() {
   strip.innerHTML = state.attachments
     .map(
       (file, index) =>
-        ui`<span class="attachment-chip"><span class="attachment-chip-icon">${file.kind === "image" ? `<img data-upload-src="${encodeURIComponent(file.uploadId)}" alt="" />` : icon("paperclip")}</span>${file.uploadId ? ui`<button type="button" class="attachment-name" data-upload-preview="${esc(file.uploadId)}" title="预览 ${esc(file.name)}">${esc(file.name)}</button>` : `<span class="attachment-name">${esc(file.name)}</span>`} <small>${esc(formatArtifactSize(file.size ?? new TextEncoder().encode(file.text || "").length))} · ${file.uploadId ? ui("已添加") : ui("完整文本")}</small><button data-remove-attachment="${index}" aria-label="移除 ${esc(file.name)}">${icon("close")}</button></span>`
+        ui`<span class="attachment-chip"><span class="attachment-chip-icon">${icon(file.kind === "image" ? "image" : "paperclip")}</span>${file.uploadId ? ui`<button type="button" class="attachment-name" data-upload-preview="${esc(file.uploadId)}" title="预览 ${esc(file.name)}">${esc(file.name)}</button>` : `<span class="attachment-name">${esc(file.name)}</span>`}<small>${esc(formatArtifactSize(file.size ?? new TextEncoder().encode(file.text || "").length))}</small><button data-remove-attachment="${index}" aria-label="移除 ${esc(file.name)}">${icon("close")}</button></span>`
     )
     .join("");
   strip.hidden = state.attachments.length === 0;
@@ -1608,7 +1608,6 @@ function renderAttachments() {
       updateSendButton();
     })
   );
-  hydrateUploadImages(strip);
 }
 
 function clearAttachments() {
@@ -1881,7 +1880,11 @@ $("#file-input").addEventListener("change", (event) => {
   event.target.value = "";
   void addFiles(files);
 });
-createComposerClipboard({ input: $("#composer-input"), addFiles });
+createComposerClipboard({
+  input: $("#composer-input"),
+  addFiles,
+  attachedNames: () => state.attachments.map((file) => file.name)
+});
 window.addEventListener("dragover", (event) => {
   if (Array.from(event.dataTransfer?.types || []).includes("Files")) event.preventDefault();
 });
