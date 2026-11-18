@@ -336,3 +336,20 @@ test("assistant display normalization leaves fenced HTML and star operators read
   assert.equal(answer.querySelector("main").textContent.trim(), "File created.");
   assert.equal(document.querySelector("thinking"), null);
 });
+
+test("a remembered thought layout still depends on whether it is being written", () => {
+  const source = "<think> is a tag";
+  for (let round = 0; round < 2; round += 1) {
+    assert.equal(normalizeReasoningDisplay(source, { streaming: true }), "is a tag");
+    assert.equal(normalizeReasoningDisplay(source), "<think> is a tag");
+  }
+  // A long thought with code, math and fences lays out in one pass per text.
+  const long = Array.from(
+    { length: 2000 },
+    (_, index) => `**第 ${index} 步**\n看看 \`a.js\` 和 $x$。\n\`\`\`\ncode ${index}\n\`\`\`\n`
+  ).join("");
+  const started = performance.now();
+  const laid = normalizeReasoningDisplay(long);
+  assert.ok(performance.now() - started < 2000);
+  assert.match(laid, /第 1999 步/);
+});

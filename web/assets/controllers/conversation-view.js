@@ -469,7 +469,8 @@ export function createConversationView({
     const exchanges = projectExchanges(
       messages || [],
       state.localMessages,
-      state.detail?.runtimeEvents || []
+      state.detail?.runtimeEvents || [],
+      state.detail?.conversationVersion
     );
     const currentExchangeIndex = exchanges.findLastIndex((exchange) => !exchange.awaitingDelivery);
     const failure = stoppedRequestFailure(
