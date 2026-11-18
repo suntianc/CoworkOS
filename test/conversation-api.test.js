@@ -76,6 +76,7 @@ test(
         env: {
           ...process.env,
           COWORK_WORKSPACE: workspaceRoot,
+          ATRIA_HOME: join(root, "home"),
           COWORK_GLOBAL_INDEX: join(root, "global.json"),
           COWORK_CONFIG: join(root, "config.json"),
           COWORK_UI_PORT: String(port),

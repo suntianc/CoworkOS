@@ -214,42 +214,94 @@ export function messagesWithRuntimeHistory(
     .sort((a, b) => (a.timestamp !== undefined && b.timestamp !== undefined ? a.timestamp - b.timestamp : 0));
 }
 
-function isStreamDelta(record: Record<string, unknown>): boolean {
-  if (record.type !== "runtime_event") return false;
-  const payload = record.payload as
-    { type?: unknown; assistantMessageEvent?: { type?: unknown } } | undefined;
-  const update = payload?.assistantMessageEvent?.type;
-  return payload?.type === "message_update" && typeof update === "string" && update.endsWith("_delta");
-}
+type Payload = Record<string, unknown> & {
+  type?: unknown;
+  message?: Record<string, unknown>;
+  assistantMessageEvent?: Record<string, unknown>;
+  toolCallId?: unknown;
+};
 
 /**
- * A saved history without the token deltas of messages that have ended.
+ * A saved history without what later events repeat.
  *
- * Every delta is logged, so a long conversation is mostly deltas, and the
- * page replaces them with the message snapshot once the message ends. Only the
- * deltas of a message still being written are kept, for the live view. Event
- * ids keep their log index, so a stream resumes after the last one sent here.
+ * Every token delta is logged, and once a message ends its snapshot carries
+ * the same content again, as do the block endings and the turn's end. A tool's
+ * progress updates are likewise replaced by its final result. The page draws
+ * the settled parts from the snapshot and the result, so only the events of a
+ * message or tool still in progress keep their bodies, for the live view.
+ * Event ids keep their log index, so a stream resumes after the last one sent.
  */
 export function settledRuntimeEvents(
   records: Array<Record<string, unknown>>
 ): Array<Record<string, unknown>> {
   const dropped = new Set<number>();
-  const pending = new Map<string, number[]>();
+  const slimmed = new Map<number, Record<string, unknown>>();
+  const deltas = new Map<string, number[]>();
+  const blockEnds = new Map<string, number[]>();
+  const ended = new Set<string>();
+  const progress = new Map<string, number[]>();
+  const remember = (lookup: Map<string, number[]>, key: string, index: number) => {
+    const open = lookup.get(key);
+    if (open) open.push(index);
+    else lookup.set(key, [index]);
+  };
+  const settle = (stream: string) => {
+    for (const index of deltas.get(stream) ?? []) dropped.add(index);
+    for (const index of blockEnds.get(stream) ?? []) {
+      const record = records[index];
+      const payload = record.payload as Payload;
+      const { content: _content, toolCall, ...update } = payload.assistantMessageEvent ?? {};
+      const call = toolCall as Record<string, unknown> | undefined;
+      slimmed.set(index, {
+        ...record,
+        payload: {
+          ...payload,
+          assistantMessageEvent: call
+            ? { ...update, toolCall: { type: call.type, id: call.id, name: call.name } }
+            : update
+        }
+      });
+    }
+    deltas.delete(stream);
+    blockEnds.delete(stream);
+  };
   records.forEach((record, index) => {
     if (record.type !== "runtime_event") return;
     const stream = `${String(record.runId)}:${String(record.agentId)}`;
-    if (isStreamDelta(record)) {
-      const open = pending.get(stream);
-      if (open) open.push(index);
-      else pending.set(stream, [index]);
+    const payload = (record.payload ?? {}) as Payload;
+    const update = payload.assistantMessageEvent?.type;
+    if (payload.type === "message_update" && typeof update === "string") {
+      if (update.endsWith("_delta")) remember(deltas, stream, index);
+      else if (update.endsWith("_end")) remember(blockEnds, stream, index);
       return;
     }
-    const type = (record.payload as { type?: unknown } | undefined)?.type;
-    if (type !== "message_end" && type !== "turn_end") return;
-    for (const settled of pending.get(stream) ?? []) dropped.add(settled);
-    pending.delete(stream);
+    if (payload.type === "tool_execution_update" || payload.type === "tool_execution_end") {
+      const call = `${stream}:${String(payload.toolCallId)}`;
+      if (payload.type === "tool_execution_update") remember(progress, call, index);
+      else {
+        for (const update of progress.get(call) ?? []) dropped.add(update);
+        progress.delete(call);
+      }
+      return;
+    }
+    if (payload.type === "turn_start") ended.delete(stream);
+    if (payload.type === "message_end") {
+      settle(stream);
+      if (payload.message?.role === "assistant") ended.add(stream);
+    }
+    if (payload.type !== "turn_end") return;
+    settle(stream);
+    // The turn's message is the one that just ended, and its tool results were
+    // each logged as their own message; keep only what tells the turn apart.
+    if (ended.has(stream) && payload.message) {
+      const { role, id, timestamp, stopReason } = payload.message;
+      const { toolResults: _results, ...rest } = payload;
+      slimmed.set(index, { ...record, payload: { ...rest, message: { role, id, timestamp, stopReason } } });
+    }
+    ended.delete(stream);
   });
-  return dropped.size ? records.filter((_record, index) => !dropped.has(index)) : records;
+  if (!dropped.size && !slimmed.size) return records;
+  return records.flatMap((record, index) => (dropped.has(index) ? [] : [slimmed.get(index) ?? record]));
 }
 
 /**
@@ -257,7 +309,9 @@ export function settledRuntimeEvents(
  *
  * Every Run records Pi's full system prompt (start and end) and an
  * `agent_end` carrying the whole message list again; together they are most of
- * a long conversation's history and the page reads none of it. The events stay,
+ * a long conversation's history and the page reads none of it. Tool results,
+ * callback starts and each update's token count repeat what other events
+ * carry, and reasoning signatures are only for the provider. The events stay,
  * so identities and order are unchanged; only those bodies are dropped.
  */
 export function viewRuntimeEvent(record: Record<string, unknown>): Record<string, unknown> {
@@ -267,8 +321,56 @@ export function viewRuntimeEvent(record: Record<string, unknown>): Record<string
     const { messages: _messages, ...rest } = payload;
     return { ...record, payload: rest };
   }
+  // Each streamed update repeats the message's running token count, which
+  // the page takes from the run statistics instead.
+  if (payload?.type === "message_update" && "usage" in payload) {
+    const { usage: _usage, ...rest } = payload;
+    return { ...record, payload: rest };
+  }
   const message = payload?.message as Record<string, unknown> | undefined;
-  if (message?.role === "system" && (payload?.type === "message_start" || payload?.type === "message_end"))
+  // The provider's signatures let a later request resume the reasoning; the
+  // page never sends them back.
+  if (message?.role === "assistant" && Array.isArray(message.content)) {
+    const content = message.content as Array<Record<string, unknown>>;
+    if (!content.some((part) => "thinkingSignature" in part || "textSignature" in part)) return record;
+    return {
+      ...record,
+      payload: {
+        ...payload,
+        message: {
+          ...message,
+          content: content.map(({ thinkingSignature: _thinking, textSignature: _text, ...part }) => part)
+        }
+      }
+    };
+  }
+  if (payload?.type !== "message_start" && payload?.type !== "message_end") return record;
+  if (message?.role === "system")
     return { ...record, payload: { ...payload, message: { role: "system", timestamp: message.timestamp } } };
+  // A tool result is drawn from its tool_execution_end, which carries it too.
+  if (message?.role === "toolResult") {
+    const { role, toolCallId, toolName, isError, timestamp } = message;
+    return {
+      ...record,
+      payload: { ...payload, message: { role, toolCallId, toolName, isError, timestamp } }
+    };
+  }
+  // A callback is read from its message_end, the start repeats the report.
+  if (payload.type === "message_start" && message?.customType === "cowork-callback") {
+    const details = message.details as Record<string, unknown> | undefined;
+    const { role, customType, timestamp } = message;
+    return {
+      ...record,
+      payload: {
+        ...payload,
+        message: {
+          role,
+          customType,
+          timestamp,
+          details: { callId: details?.callId, status: details?.status }
+        }
+      }
+    };
+  }
   return record;
 }
