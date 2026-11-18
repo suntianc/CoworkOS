@@ -480,13 +480,16 @@ html[data-theme] .reasoning-details > summary:not(:has(.thinking-spinner))::befo
   height: 16px;
   background: radial-gradient(circle closest-side, var(--color-text-3) 2.5px, transparent 3.2px);
 }
+/* The state leads the row and keeps one size from the first wait to the end,
+   so "思考中" never changes size or place; what the thought is about follows. */
+html[data-theme] .reasoning-step .reasoning-state {
+  flex: 0 0 auto;
+  color: var(--color-text-2);
+  font-size: inherit;
+}
 html[data-theme] .reasoning-details > summary .reasoning-preview {
   flex: 0 1 auto;
-  color: var(--color-text-2);
-}
-html[data-theme] .reasoning-details > summary .reasoning-state {
   color: var(--color-text-3);
-  font-size: 12px;
 }
 html[data-theme] .reasoning-details > summary .reasoning-chevron {
   margin-left: 0;

@@ -75,6 +75,13 @@ test("the work tree nests Subagents, marks questions and remembers a folded proj
           name: "Ara",
           role: "subagent",
           workRole: "executor",
+          state: "queued"
+        },
+        {
+          agentId: "subagent_0",
+          name: "Circinus",
+          role: "subagent",
+          workRole: "executor",
           state: "completed"
         },
         {

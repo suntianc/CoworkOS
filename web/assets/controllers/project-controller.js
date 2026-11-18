@@ -54,20 +54,19 @@ export function createProjectController({
   // its tree only while open, so the project icon answers for its questions.
   const railWindow = window.matchMedia?.("(max-width: 1023px)") ?? { matches: false };
   const projects = () => state.projects || [];
-  const subagentsOf = (task) => (task.activity?.agents || []).filter((agent) => agent.role === "subagent");
+  // Only Subagents still at work hang under their session. Finished ones stay
+  // in the conversation and the progress panel; keeping them here made every
+  // round add rows to the tree that never went away.
+  const subagentsOf = (task) =>
+    (task.activity?.agents || []).filter(
+      (agent) => agent.role === "subagent" && ["running", "waiting", "queued"].includes(agent.state)
+    );
   const roleLabel = (agent) =>
     agent.workRole === "reviewer" ? "Reviewer" : agent.workRole === "executor" ? "Executor" : "";
   const subagentRow = (agent) => {
-    const active = ["running", "waiting", "queued"].includes(agent.state);
-    const tone = active
-      ? agent.workRole === "reviewer"
-        ? "is-review"
-        : "is-running"
-      : agent.state === "completed"
-        ? "is-done"
-        : "is-idle";
+    const tone = agent.workRole === "reviewer" ? "is-review" : "is-running";
     const role = roleLabel(agent);
-    return `<div class="subagent-row" data-agent="${esc(agent.agentId)}" data-state="${esc(agent.state)}"><span class="subagent-guide" aria-hidden="true"></span><span class="subagent-state ${tone}" aria-hidden="true">${icon(active ? "loader-circle" : "circle-check")}</span><span class="subagent-name">${esc(agent.name || agent.agentId)}</span>${role ? `<span class="subagent-role">${role}</span>` : ""}</div>`;
+    return `<div class="subagent-row" data-agent="${esc(agent.agentId)}" data-state="${esc(agent.state)}"><span class="subagent-guide" aria-hidden="true"></span><span class="subagent-state ${tone}" aria-hidden="true">${icon("loader-circle")}</span><span class="subagent-name">${esc(agent.name || agent.agentId)}</span>${role ? `<span class="subagent-role">${role}</span>` : ""}</div>`;
   };
   const taskLabel = (task) =>
     `<span class="conversation-item-title">${task.pendingQuestion ? `<span class="conversation-question" role="img" aria-label="${esc(ui("有待回答的问题"))}"></span>` : ""}<span class="conversation-title-text">${esc(conversationTitle(task))}</span>${isUnread(task.taskId) ? ui('<span class="conversation-unread" role="img" aria-label="未读"></span>') : ""}</span>`;

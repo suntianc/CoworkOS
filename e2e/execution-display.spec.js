@@ -450,7 +450,8 @@ for (const width of [1440, 768, 320]) {
       await expect(page.locator(".tool-context").last()).toContainText("Python 第 226 行语法错误");
       const summary = await page.locator(".tool-details > summary").first().boundingBox();
       const action = await page.locator(".tool-action").first().boundingBox();
-      expect(action.x).toBeCloseTo(summary.x, 0);
+      // The verb starts after the row's 16px status mark and its 8px gap.
+      expect(action.x).toBeCloseTo(summary.x + 24, 0);
       await expect(page.locator(".tool-step").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(page.locator(".tool-step .activity-status").first()).toHaveCSS(
         "background-color",

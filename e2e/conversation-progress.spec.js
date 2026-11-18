@@ -80,7 +80,7 @@ test("follow-up opens an assistant message before inference and animates each th
     await page.locator("#composer-input").fill("继续追问，看看工具");
     await page.locator("#send-button").click();
     const pending = page.locator('[data-answer-kind="pending"]');
-    await expect(pending).toContainText("正在思考…");
+    await expect(pending).toContainText("思考中");
     await expect(pending.locator(".thinking-spinner")).toBeVisible();
     await expect(page.locator('[data-answer-kind="final"]')).toContainText("第一轮回答已完成。");
     await expect(page.locator(".chat-message.user").last()).toContainText("继续追问");

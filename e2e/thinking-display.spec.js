@@ -233,7 +233,7 @@ test("progress animates before tokens, during retries and between tools until co
       await page.evaluate(() => window.thoughtFixture.beforeFirstToken());
       const placeholder = page.locator(".assistant-thinking");
       await expect(placeholder).toBeVisible();
-      await expect(placeholder).toContainText("正在思考");
+      await expect(placeholder).toContainText("思考中");
       await page.evaluate(() => window.thoughtFixture.retryBeforeToken());
       await expect(placeholder).toContainText("恢复模型连接");
       await expect(placeholder.locator(".thinking-spinner")).toBeVisible();

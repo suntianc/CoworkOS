@@ -122,7 +122,7 @@ test("a streaming reply shows its state without a sender label", async ({ page }
     await expect(pending.locator(".message-meta")).toHaveCount(0);
     await expect(pending.locator(".message-avatar")).toHaveCount(0);
     await expect(pending.locator(".reasoning-step")).toHaveCount(1);
-    await expect(pending).toContainText("正在思考");
+    await expect(pending).toContainText("思考中");
     await expect(page.locator("#conversation")).not.toContainText("FORMICAND");
   } finally {
     await dashboard.stop();

@@ -830,13 +830,15 @@ export function createConversationView({
       : `<span class="thinking-spinner ant-mark" data-thinking-key="${esc(key)}" aria-hidden="true">${antMarkSvg}</span>`;
     return `<div class="activity-step reasoning-step" data-view-key="${esc(key)}">
     <div class="activity-step-content">
-      ${preview ? `<details class="reasoning-details" data-activity-key="${esc(key)}"><summary>${spinner}<span class="reasoning-preview">${esc(preview)}</span><span class="reasoning-state${turn.done ? "" : " shimmer-text"}">${label}</span><span class="reasoning-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="reasoning-copy markdown-body">${markdown(normalized)}</div>${original !== normalized || /\*\*|```/.test(original) ? ui`<details class="activity-raw" data-activity-key="${esc(`${key}:source`)}"><summary>原始内容</summary><pre class="activity-raw-copy">${esc(original)}</pre></details>` : ""}</details>` : `<div class="activity-step-head">${spinner}<strong>${label}</strong></div>`}
+      ${preview ? `<details class="reasoning-details" data-activity-key="${esc(key)}"><summary>${spinner}<span class="reasoning-state${turn.done ? "" : " shimmer-text"}">${label}</span><span class="reasoning-preview">${esc(preview)}</span><span class="reasoning-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="reasoning-copy markdown-body">${markdown(normalized)}</div>${original !== normalized || /\*\*|```/.test(original) ? ui`<details class="activity-raw" data-activity-key="${esc(`${key}:source`)}"><summary>原始内容</summary><pre class="activity-raw-copy">${esc(original)}</pre></details>` : ""}</details>` : `<div class="activity-step-head">${spinner}<strong>${label}</strong></div>`}
     </div>
   </div>`;
   }
 
-  function renderThinkingPlaceholder(key, label = ui("正在思考…"), announce = true) {
-    return `<div class="assistant-thinking"${announce ? ' role="status"' : ""}><span class="thinking-spinner ant-mark" data-thinking-key="${esc(`${key}:pending`)}" aria-hidden="true">${antMarkSvg}</span><span class="shimmer-text">${esc(label)}</span></div>`;
+  // Before the first token, the turn shows the row its first thought will
+  // take: same place, mark and words, so nothing jumps when the thought arrives.
+  function renderThinkingPlaceholder(key, label = ui("思考中"), announce = true) {
+    return `<section class="live-workflow is-active"><div class="workflow-rail"><div class="activity-step reasoning-step"><div class="activity-step-content"><div class="activity-step-head assistant-thinking"${announce ? ' role="status"' : ""}><span class="thinking-spinner ant-mark" data-thinking-key="${esc(`${key}:pending`)}" aria-hidden="true">${antMarkSvg}</span><strong class="reasoning-state shimmer-text">${esc(label)}</strong></div></div></div></div></section>`;
   }
 
   function renderToolGroup(group, active, presentations) {
