@@ -204,13 +204,27 @@ export function streamRecordKey(record) {
   return `runtime:${JSON.stringify(record)}`;
 }
 
+/**
+ * The ledger events a saved history carries (`readTaskRuntimeEvents`). The
+ * stream also sends the others, such as a pause and its resume, while they
+ * happen; a saved history never has them, so they are not news it missed.
+ */
+const SAVED_LEDGER =
+  /^(?:user\.(?:interjected|message_promoted|message_cancelled)|inbox\.consumed|main\.run_(?:completed|failed|waiting|cancelled|stopped))$/;
+const savedKind = (record) => record?.type === "runtime_event" || SAVED_LEDGER.test(record?.type || "");
+
 // SSE and detail polling can complete in either order. Preserve events that
 // arrived after the detail request started, while accepting its saved history.
+// A streamed event of a kind the history never saves is left out: appended
+// after that history it would land after everything since, so a pause the
+// round was resumed from read as the round's last word and the finished
+// round stayed unfolded until the conversation was reopened.
 export function mergeRuntimeEvents(saved = [], streamed = []) {
   const keys = new Set(saved.map(streamRecordKey));
   return [
     ...saved,
     ...streamed.filter((record) => {
+      if (!savedKind(record)) return false;
       const key = streamRecordKey(record);
       if (keys.has(key)) return false;
       keys.add(key);

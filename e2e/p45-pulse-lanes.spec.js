@@ -274,7 +274,7 @@ test("two nodes draw pulse lanes, Subagent branches, capacity groups and a stall
     await expect(executor).toContainText("Executor");
     await expect(executor).toContainText("Ara");
     await expect(executor).toContainText("已完成");
-    await expect(executor.locator(".runs-done")).toHaveCount(1);
+    await expect(executor.locator(".runs-done, .runs-head")).toHaveCount(0);
     const reviewer = localCard.locator('[data-runs-agent="subagent_3"]');
     await expect(reviewer).toContainText("Reviewer");
     await expect(reviewer).toContainText("Circinus");

@@ -15,6 +15,7 @@ import {
   finalAnswerIndex,
   isMachineTurn,
   mergeRuntimeEvents,
+  exchangeExecutionState,
   streamRecordKey,
   SUPERVISOR_WAKE_TURN
 } from "../web/assets/conversation.js";
@@ -664,4 +665,18 @@ test("a stop in a resident Run belongs to the round it stopped, not the Run's la
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("a re-read history keeps streamed ledger news it saves, not a pause it never saves", () => {
+  const ledger = (eventId, type) => ({ eventId, runId: "one", type, occurredAt: eventId });
+  const answer = runtimeEventRecord("task", "one", 0, { type: "turn_end", message: { role: "assistant" } });
+  const completed = ledger("3", "main.run_completed");
+  // Live: paused, resumed, then completed. The saved history has the completion only.
+  const streamed = [ledger("1", "main.run_pause_requested"), ledger("2", "main.run_paused"), answer, completed];
+  const merged = mergeRuntimeEvents([answer, completed], streamed);
+  assert.deepEqual(merged, [answer, completed]);
+  assert.equal(exchangeExecutionState(merged).terminal, "completed");
+  // News the history does save still survives a read that started before it.
+  const late = ledger("4", "main.run_waiting");
+  assert.deepEqual(mergeRuntimeEvents([answer], [answer, late]), [answer, late]);
 });

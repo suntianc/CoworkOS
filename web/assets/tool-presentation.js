@@ -193,6 +193,7 @@ function delegatedAgent(args, data, detail = {}) {
     role: (entry?.role || args.role) === "reviewer" ? ui("审查") : ui("执行"),
     task: concise(firstString(args.task, entry?.task), 120),
     elapsedMs: typeof entry?.elapsedMs === "number" ? entry.elapsedMs : undefined,
+    startedAt: firstString(entry?.startedAt) || undefined,
     outcome: concise(outcome, 120)
   };
 }

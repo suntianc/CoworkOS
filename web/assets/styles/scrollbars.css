@@ -1,0 +1,9 @@
+/* Scrollbars show only while their area scrolls (`ui/scrollbars.js` marks
+   it), then go back out of sight. These outrank every area's own color
+   (the strongest is `html[data-theme] .chat-scroll`), so all of them follow. */
+:root[data-theme] *:not(.is-scrolling) {
+  scrollbar-color: transparent transparent;
+}
+:root[data-theme] .is-scrolling {
+  scrollbar-color: var(--ui-border-hover) transparent;
+}

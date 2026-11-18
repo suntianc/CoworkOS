@@ -80,7 +80,7 @@ export function createModelPicker({ panel, view, chooseModel, chooseLevel }) {
           }
         ];
     const option = (group, entry) =>
-      `<button type="button" class="model-option${entry.active ? " active" : ""}" data-model="${esc(entry.id)}"${entry.profileId ? ` data-profile="${esc(entry.profileId)}"` : ""} role="option" aria-selected="${entry.active}">${group.mark || ""}<span class="model-option-name">${esc(entry.id)}</span>${entry.isDefault ? `<small>${esc(ui("默认"))}</small>` : ""}<span class="model-option-check">${entry.active ? icon("check") : ""}</span></button>`;
+      `<button type="button" class="model-option${entry.active ? " active" : ""}" data-model="${esc(entry.id)}"${entry.profileId ? ` data-profile="${esc(entry.profileId)}"` : ""} role="option" aria-selected="${entry.active}">${entry.mark ?? group.mark ?? ""}<span class="model-option-name">${esc(entry.id)}</span>${entry.isDefault ? `<small>${esc(ui("默认"))}</small>` : ""}<span class="model-option-check">${entry.active ? icon("check") : ""}</span></button>`;
     return `<div class="picker-head">
         <button type="button" class="picker-back" data-picker-page="effort" aria-label="${esc(ui("返回推理强度"))}">${icon("chevron-left")}</button>
         <span class="picker-title">${esc(ui("选择模型"))}</span>

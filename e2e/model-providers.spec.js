@@ -383,13 +383,13 @@ test("the composer switches one conversation to another provider's model and bac
     const other = await saveTestConnection(request, {
       profileName: "乙供应商",
       baseUrl: beta.baseUrl,
-      model: "beta-model",
+      model: "deepseek-beta",
       apiKey: "local-beta-key",
       activate: false
     });
     await page.goto(dashboard.base);
     await expect(page.locator("#model-select .model-name")).toHaveText("alpha-model");
-    await expect(page.locator("#model-select .model-logo .provider-logo")).toHaveText("甲");
+    await expect(page.locator("#model-select .model-logo .provider-logo")).toHaveAttribute("data-logo", "generic");
     await page.locator("#composer-input").fill("第一轮走 Main 的连接");
     await page.locator("#send-button").click();
     await expect(page.locator("#conversation")).toContainText("alpha-model 来自甲", { timeout: 30_000 });
@@ -400,13 +400,13 @@ test("the composer switches one conversation to another provider's model and bac
     await page.locator('#model-menu [data-picker-page="models"]').click();
     await expect(page.locator("#model-menu .picker-group")).toHaveText(["甲供应商", "乙供应商"]);
     await page.locator(`#model-menu [data-profile="${other.profileId}"]`).click();
-    await expect(page.locator("#model-select .model-name")).toHaveText("beta-model");
-    await expect(page.locator("#model-select .model-logo .provider-logo")).toHaveText("乙");
+    await expect(page.locator("#model-select .model-name")).toHaveText("deepseek-beta");
+    await expect(page.locator("#model-select .model-logo .provider-logo")).toHaveAttribute("data-logo", "deepseek");
     await page.keyboard.press("Escape");
     await page.locator("#composer-input").fill("第二轮换到乙");
     await page.locator("#send-button").click();
-    await expect(page.locator("#conversation")).toContainText("beta-model 来自乙", { timeout: 30_000 });
-    expect(beta.requests.at(-1).body.model).toBe("beta-model");
+    await expect(page.locator("#conversation")).toContainText("deepseek-beta 来自乙", { timeout: 30_000 });
+    expect(beta.requests.at(-1).body.model).toBe("deepseek-beta");
     await expect(page.locator("#stop-button")).toBeHidden();
 
     // Back on the Main connection's model, the next turn returns to it.
