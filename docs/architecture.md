@@ -70,7 +70,7 @@ QuickJS 保存当前 Pi 会话的脚本 state，经受限 dispatcher 逐次调�
 
 Composer Session 按会话保存草稿与已验证附件，发送捕获原 Task、草稿 token、模型及完整附件。刷新、切换、补充回退和附件读取都保持原会话归属。流式更新复用变化的 DOM，保留焦点、选区、阅读位置和展开状态。
 
-桌面后端端口随机；草稿不能只依赖 origin 的 localStorage。可信 preload 在页面启动前恢复私有 `composer-drafts.json`，只镜像允许的草稿键。保存经过格式/大小验证、原子写入和损坏备份；Web 仍按 origin 保存。
+桌面后端端口随机；草稿不能只依赖 origin 的 localStorage。可信 preload 在页面启动前恢复私有 `composer-drafts.json`，只镜像允许的草稿键。保存经过格式/大小验证、原子写入和损坏备份；Web 仍按 origin 保存。页面其余记住的选择（各会话的模型、提供方与推理强度、未读标记、折叠的项目、布局等 `atria.*` 键）同样由 preload 镜像到 `ui-preferences.json`，页面换到新 origin 时写回；草稿键不进入这份文件。
 
 ## 信任边界与支持范围
 

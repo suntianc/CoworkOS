@@ -53,6 +53,7 @@ const { createDesktopTray } = require("./tray.cjs");
 const { createComputerTargetCoordinator } = require("./computer-target.cjs");
 const { createComputerNavigationGuard } = require("./computer-navigation.cjs");
 const { createComposerDraftStore } = require("./composer-drafts.cjs");
+const { createUiPreferenceStore } = require("./ui-preferences.cjs");
 const { installEditContextMenu } = require("./edit-context-menu.cjs");
 const { connectRenderer } = require("./renderer-connection.cjs");
 const { connectBackend } = require("./backend.cjs");
@@ -88,6 +89,7 @@ let backend,
   paths,
   startupPromise,
   composerDrafts,
+  uiPreferences,
   updates,
   backendAuthorization,
   desktopTray,
@@ -474,6 +476,20 @@ ipcMain.handle("bookman:save-composer-drafts", async (event, entries) => {
   trust(event);
   await composerDrafts.save(entries, new URL(event.senderFrame.url).origin);
 });
+// Synchronous for the same reason as drafts: the page reads its choices on load.
+ipcMain.on("bookman:ui-preferences", (event) => {
+  try {
+    trust(event);
+    event.returnValue = uiPreferences.snapshot();
+    // eslint-disable-next-line no-restricted-syntax -- trust() throws for untrusted senders and the store is unset until startup finishes; the page then starts from its own storage
+  } catch {
+    event.returnValue = { entries: {}, persisted: false };
+  }
+});
+ipcMain.handle("bookman:save-ui-preferences", async (event, entries) => {
+  trust(event);
+  await uiPreferences.save(entries, new URL(event.senderFrame.url).origin);
+});
 function registerComputerTakeover(enabled) {
   const shortcut = "Control+Alt+Escape";
   globalShortcut.unregister(shortcut);
@@ -610,6 +626,8 @@ if (owner)
       });
       composerDrafts = createComposerDraftStore(userData);
       await composerDrafts.load();
+      uiPreferences = createUiPreferenceStore(userData);
+      await uiPreferences.load();
       clientSessions = createSessionCredentialStore({ userData, storage: credentialStorage });
       refreshApplicationIcon();
       desktopTray = createDesktopTray({

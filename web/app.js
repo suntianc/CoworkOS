@@ -86,7 +86,9 @@ const state = {
   models: [],
   defaultModel: null,
   model: null,
-  modelByTask: new Map(),
+  // The model picked for each conversation, remembered across restarts like
+  // its level and provider; a conversation without one shows the default.
+  modelByTask: rememberedTaskMap(() => draftStorage, "atria.model.model-by-task"),
   /**
    * A model picked from another provider: its profile id, sent with each run so
    * that run uses that provider. Null follows the Main connection.
@@ -753,11 +755,11 @@ function syncModelConnection(model, profileId, mainEffort) {
     // level and provider remembered for it. A real switch of the Main
     // connection starts every conversation's choices over.
     if (state.connectionProfileId !== undefined) {
+      state.modelByTask.clear();
       state.profileByTask.clear();
       state.thinkingLevelByTask.clear();
     }
     state.connectionProfileId = profileId;
-    state.modelByTask.clear();
     state.profileId = state.selected ? (state.profileByTask.get(state.selected) ?? null) : null;
     // A remembered model of another provider is that provider's, not the default.
     state.model = pickedProfile()?.model.id ?? model;
@@ -1034,7 +1036,8 @@ function resetBackendView() {
   state.openFiles = [];
   state.artifactCache.clear();
   state.viewerTaskId = null;
-  state.modelByTask.clear();
+  // Remembered model choices stay: conversation ids never repeat across
+  // backends, and this also runs when the page first binds after a restart.
   state.mainThinkingLevel = null;
   state.models = [];
   state.model = null;
@@ -1176,7 +1179,6 @@ async function readDetail(taskId, { poll = false, isCurrent = () => true } = {})
       (state.connectionProfileId ? state.defaultModel : detail.task?.model) ||
       detail.runtime?.model ||
       state.defaultModel;
-    if (taskModel && !state.modelByTask.has(taskId)) state.modelByTask.set(taskId, taskModel);
     if (state.selected === taskId) {
       state.model = state.modelByTask.get(taskId) || taskModel || state.model;
       state.profileId = state.profileByTask.get(taskId) ?? null;
@@ -2635,7 +2637,7 @@ const modelSettings = installDesktopSettings({
       : null;
   },
   onSaved: () => {
-    state.modelByTask.clear();
+    // A switch of the Main connection resets the choices in syncModelConnection.
     state.model = null;
     void loadModels().then(() => refresh());
   }
