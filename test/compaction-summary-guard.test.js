@@ -9,7 +9,7 @@ import { guardCompactionSummaries } from "../dist/src/runtime/compaction-summary
 import { createCoworkModel } from "../dist/src/runtime/model-profile.js";
 import { createModelStreams } from "../dist/src/runtime/model-provider.js";
 import { recordModelRequests } from "../dist/src/runtime/model-request-recording.js";
-import { ModelRequestRecorder } from "../dist/src/storage/model-request-recorder.js";
+import { ModelRequestRecorder, parseModelRequestArchive } from "../dist/src/storage/model-request-recorder.js";
 import { modelProtocolFixture } from "./model-protocol-fixture.mjs";
 
 const model = createCoworkModel({
@@ -240,7 +240,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
       ),
       /summarization/i
     );
-    const rows = (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse);
+    const rows = parseModelRequestArchive(await readFile(path, "utf8"));
     assert.equal(provider.requests.length, 1);
     assert.equal(rows.filter((row) => row.type === "model_request").length, 1);
     const raw = rows.find((row) => row.type === "model_response").payload.message;

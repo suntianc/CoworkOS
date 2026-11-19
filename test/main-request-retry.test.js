@@ -14,7 +14,9 @@ import { createModels, createProvider, normalizeContext } from "@earendil-works/
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 const { MainRequestStore, mainRequestPath } = await import("../dist/src/storage/main-request-store.js");
 const { MainRequestRetry } = await import("../dist/src/runtime/main-request-retry.js");
-const { ModelRequestRecorder } = await import("../dist/src/storage/model-request-recorder.js");
+const { ModelRequestRecorder, parseModelRequestArchive } = await import(
+  "../dist/src/storage/model-request-recorder.js"
+);
 const { recordModelRequests } = await import("../dist/src/runtime/model-request-recording.js");
 const { createCoworkModel } = await import("../dist/src/runtime/model-profile.js");
 import { startDashboard } from "./dashboard-fixture.mjs";
@@ -255,28 +257,19 @@ for (const protocol of ["openai-completions", "openai-responses"]) {
       assert.deepEqual(local.requests[1].body, local.requests[0].body);
       assert.equal(completed.messages.filter((m) => m.role === "user").length, 1);
       assert.equal(await store.pending(), undefined);
-      const originalArchive = (
+      const originalArchive = parseModelRequestArchive(
         await readFile(
           join(dashboard.workspaceRoot, "exact/sessions/main", `${first.runId}-requests.jsonl`),
           "utf8"
         )
-      )
-        .trim()
-        .split("\n")
-        .map(JSON.parse)
-        .find((row) => row.type === "model_request");
-      const replayArchive = (
+      ).find((row) => row.type === "model_request");
+      const replayArchive = parseModelRequestArchive(
         await readFile(
           join(dashboard.workspaceRoot, "exact/sessions/main", `${resumed.runId}-requests.jsonl`),
           "utf8"
         )
-      )
-        .trim()
-        .split("\n")
-        .map(JSON.parse)
-        .find((row) => row.type === "model_request" && row.payload.retryOf === failed.requestId);
+      ).find((row) => row.type === "model_request" && row.payload.retryOf === failed.requestId);
       assert.deepEqual(replayArchive.payload.request, originalArchive.payload.request);
-      assert.deepEqual(replayArchive.payload.context, originalArchive.payload.context);
       assert.equal(replayArchive.payload.retryOf, failed.requestId);
       await api(dashboard, "/api/tasks/exact/run", { prompt: "这是新的请求。", model: "new-selection" });
       const fresh = await settle(dashboard, "exact", "completed");

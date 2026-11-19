@@ -1,4 +1,5 @@
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
+import { parseModelRequestArchive } from "../dist/src/storage/model-request-recorder.js";
 import assert from "node:assert/strict";
 import { getCurrentTools } from "@earendil-works/pi-ai";
 import { once } from "node:events";
@@ -233,7 +234,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
         undefined,
         "completed retries cannot retain an old failure notice when a Run ID is reused"
       );
-      const rows = (
+      const rows = parseModelRequestArchive(
         await readFile(
           join(
             f.dashboard.workspaceRoot,
@@ -244,10 +245,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
           ),
           "utf8"
         )
-      )
-        .trim()
-        .split("\n")
-        .map(JSON.parse);
+      );
       const request = rows.filter((row) => row.type === "model_request").at(-1);
       assert.deepEqual(request.payload.request, f.received[0].body);
       assert.equal(request.payload.retryOf, f.received[0].snapshot.requestId);

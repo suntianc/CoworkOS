@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseModelRequestArchive } from "../dist/src/storage/model-request-recorder.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
@@ -12,7 +13,7 @@ const { LocalWorkspaceStore } = await import("../dist/src/workspace/workspace-st
 import { readFixtureRequestBody } from "./http-request-body-fixture.mjs";
 import { protocolStream } from "./model-protocol-fixture.mjs";
 
-const readRows = async (path) => (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse);
+const readRows = async (path) => parseModelRequestArchive(await readFile(path, "utf8"));
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const text = (content) =>
   typeof content === "string" ? content : content.map((part) => part.text ?? "").join("");
@@ -63,7 +64,7 @@ for (const [api, compact] of [
         // yielding: later disk writes cannot make this durability check pass.
         let receiptRows;
         try {
-          receiptRows = readFileSync(recordingPath, "utf8").trim().split("\n").map(JSON.parse);
+          receiptRows = parseModelRequestArchive(readFileSync(recordingPath, "utf8"));
         } catch (error) {
           failures.push(error.stack ?? error.message);
         }
@@ -145,7 +146,7 @@ for (const [api, compact] of [
                 JSON.stringify(body).includes(memory),
                 "the archived body must contain the actual durable-memory compaction"
               );
-              assert.ok(JSON.stringify(saved.payload.context).includes(memory));
+              assert.ok(JSON.stringify(saved.payload.request).includes(memory));
               assert.ok(
                 messages.some(
                   (message) => message.role === "user" && text(message.content).includes(continuation)
@@ -155,7 +156,7 @@ for (const [api, compact] of [
               assert.ok(
                 messages.some((message) => message.role === "user" && text(message.content).includes(prompt))
               );
-              assert.ok(JSON.stringify(saved.payload.context).includes(prompt));
+              assert.ok(JSON.stringify(saved.payload.request).includes(prompt));
             }
 
             const names = saved.payload.tools.map((tool) => tool.name);

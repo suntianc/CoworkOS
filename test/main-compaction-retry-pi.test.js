@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseModelRequestArchive } from "../dist/src/storage/model-request-recorder.js";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -298,12 +299,9 @@ for (const mode of ["cooldown", "manual", "clear-context"])
         rows.some((row) => row.type === "compaction_end" && row.reason === "threshold" && row.aborted),
         "Pi owns cancellation events for skipped threshold compactions"
       );
-      const records = (
+      const records = parseModelRequestArchive(
         await readFile(join(workspace, taskId, "sessions", "main", `${runId}-requests.jsonl`), "utf8")
-      )
-        .trim()
-        .split("\n")
-        .map(JSON.parse);
+      );
       const recordedRequests = records.filter((row) => row.type === "model_request");
       assert.equal(
         recordedRequests.length,
