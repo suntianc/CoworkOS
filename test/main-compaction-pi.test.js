@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseModelRequestArchive } from "../dist/src/storage/model-request-recorder.js";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -293,10 +294,7 @@ for (const [mode, memoryKind, summaryFailure] of [
             "the failure identifies the empty generated summary"
           );
           const recordingPath = join(workspace, taskId, "sessions", "main", `${runId}-requests.jsonl`);
-          const records = (await readFile(recordingPath, "utf8"))
-            .trim()
-            .split("\n")
-            .map((row) => JSON.parse(row));
+          const records = parseModelRequestArchive(await readFile(recordingPath, "utf8"));
           const summaryIds = new Set(
             records
               .filter((row) => row.type === "model_request" && !row.payload.tools.length)

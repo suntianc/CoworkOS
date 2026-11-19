@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseModelRequestArchive } from "../dist/src/storage/model-request-recorder.js";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
@@ -132,7 +133,7 @@ for (const api of ["openai-completions", "openai-responses"]) {
           "utf8"
         );
         assert.ok(!archive.includes("upstream-usage-secret"));
-        const rows = archive.trim().split("\n").map(JSON.parse);
+        const rows = parseModelRequestArchive(archive);
         assert.deepEqual(
           rows.filter((row) => row.type === "model_request").map((row) => row.payload.request),
           requests

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseModelRequestArchive } from "../dist/src/storage/model-request-recorder.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
@@ -22,6 +23,7 @@ const tool = (name, args) => ({ name, arguments: args });
 const text = (content) =>
   typeof content === "string" ? content : content.map((part) => part.text ?? "").join("\n");
 const readRows = async (path) => (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse);
+const readArchive = async (path) => parseModelRequestArchive(await readFile(path, "utf8"));
 
 for (const progress of ["confirmed", "unknown", "intent"])
   test(
@@ -425,7 +427,7 @@ ${state === "confirmed" ? `- confirmed: ${operation} saved; evidence ${download.
         "browser",
         "old image evidence must survive the process restart independently of live page handles"
       );
-      const rows = await readRows(join(taskRoot, "sessions/main", `${runId}-requests.jsonl`));
+      const rows = await readArchive(join(taskRoot, "sessions/main", `${runId}-requests.jsonl`));
       assert.equal(
         new Set(rows.map((row) => row.recorderId)).size,
         2,

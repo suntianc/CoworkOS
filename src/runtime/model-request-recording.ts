@@ -35,7 +35,8 @@ export function recordModelRequests(
         let settled = false;
         let captured = false;
         let preparedPayload: unknown;
-        const requestContext = JSON.parse(JSON.stringify(context));
+        // Only Main's retry snapshot needs Pi's copy of the history.
+        const requestContext = prepared?.main ? JSON.parse(JSON.stringify(context)) : undefined;
         const systemPrompt = getCurrentSystemPrompt(context.messages);
         const tools = getCurrentTools(context.messages);
         const modelInfo = {
@@ -88,7 +89,8 @@ export function recordModelRequests(
               tools,
               systemPromptSha256: recordingHash(systemPrompt),
               toolsSha256: recordingHash(tools),
-              context: requestContext,
+              // The body is what was sent; Pi's own copy of the same history
+              // is kept only in the retry snapshot, which needs it.
               request,
               ...(retryOf ? { retryOf } : {}),
               ...(replaySkipped ? { replaySkipped } : {})
