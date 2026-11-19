@@ -95,20 +95,67 @@ export function privateDataRefusal(
   userHome: string = homedir()
 ): PrivateDataRefusal | undefined {
   const root = resolve(home);
+  for (const { spelled, target } of namedPaths(input, root, userHome))
+    if (!reachable(root, target)) return refusal(spelled);
+  for (const text of strings(input))
+    for (const name of PRIVATE_NAMES) if (text.includes(name)) return refusal(name);
+  return undefined;
+}
+
+/** Every path inside `root` a tool call names, as written and resolved. */
+function* namedPaths(
+  input: unknown,
+  root: string,
+  userHome: string
+): Generator<{ spelled: string; target: string }> {
   const forms = spellings(root, userHome);
-  for (const text of strings(input)) {
+  for (const text of strings(input))
     for (const { prefix, expand } of forms) {
       const pattern = new RegExp(`${escape(prefix)}(?=$|[/\\s'"\`;|&<>()])(${PATH_TAIL})`, "g");
-      for (const match of text.matchAll(pattern)) {
-        const target = resolve(expand(match[1]));
-        if (!reachable(root, target)) return refusal(match[0]);
-      }
+      for (const match of text.matchAll(pattern)) yield { spelled: match[0], target: resolve(expand(match[1])) };
     }
-    for (const name of PRIVATE_NAMES) if (text.includes(name)) return refusal(name);
-  }
-  return undefined;
 }
 
 function refusal(path: string): PrivateDataRefusal {
   return { path, pattern: "CoworkOS data home", reason: privateDataReason(path) };
+}
+
+/**
+ * Parts of the install an Agent is meant to read: the bundled skills, and the
+ * guides those skills link to.
+ */
+const INSTALL_READABLE = [join(".pi", "skills"), "docs"];
+
+export function installReason(path: string): string {
+  return (
+    `${path} is CoworkOS's own program (its source and installed files); agents may not read, list or run it. ` +
+    `When a CoworkOS rule or tool refuses something, its message is the whole answer: ` +
+    `follow it, or ask the user, instead of reading how the rule is implemented.`
+  );
+}
+
+/**
+ * The refusal for one tool call that names CoworkOS's own program, or undefined.
+ *
+ * A Main once spent the three minutes a Subagent was waiting on it reading
+ * the protected-path code to work out why a write was refused, after an
+ * earlier one had read the backend's credential the same way. Nothing a task
+ * needs is in the install beyond its skills and their guides. When the user's
+ * project is CoworkOS itself (or contains it), the install is the work, and
+ * nothing is refused.
+ */
+export function installRefusal(
+  input: unknown,
+  installRoot: string,
+  projectDirectory: string,
+  userHome: string = homedir()
+): PrivateDataRefusal | undefined {
+  const root = resolve(installRoot);
+  const project = resolve(projectDirectory);
+  const within = (target: string, parent: string) => target === parent || target.startsWith(parent + sep);
+  if (within(project, root) || within(root, project)) return undefined;
+  for (const { spelled, target } of namedPaths(input, root, userHome))
+    if (!INSTALL_READABLE.some((entry) => within(target, join(root, entry))))
+      return { path: spelled, pattern: "CoworkOS install", reason: installReason(spelled) };
+  return undefined;
 }
