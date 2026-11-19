@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, open, readFile, readdir } from "node:fs/promises";
+import { mkdir, open, readFile, readdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { atomicWrite } from "../storage/atomic-file.js";
@@ -234,19 +234,11 @@ export class AgentProcessHost {
         stdio: ["pipe", resident ? "pipe" : stdout!.fd, resident ? "pipe" : stderr!.fd]
       });
       // A resident process owns its stdout, so the backend can follow its
-      // turns; the same bytes still go to the durable log beside the record.
+      // turns. The caller keeps the durable log (the Run's runtime-output.log);
+      // a second raw copy here was never read and grew with every token.
       if (resident) {
         child.stderr?.on("data", (chunk: Buffer) => input.onStderr?.(chunk));
-        let logWrites = Promise.resolve();
-        child.stdout?.on("data", (chunk: Buffer) => {
-          // Keep the durable log complete without reordering chunks; the
-          // caller parses the same bytes immediately.
-          logWrites = logWrites
-            .then(() => appendFile(stdoutPath, chunk))
-            // eslint-disable-next-line no-restricted-syntax -- 诊断日志写入失败不影响事件流与进程生命周期
-            .catch(() => {});
-          input.onStdout?.(chunk);
-        });
+        child.stdout?.on("data", (chunk: Buffer) => input.onStdout?.(chunk));
       }
       // A spawn failure is reported asynchronously on `error` and leaves no
       // pid. Attach the listener before the next await (closing the parent's
