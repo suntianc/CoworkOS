@@ -81,6 +81,8 @@ Task 首次写入时创建布局与 `agents/main/work/`，在 Main 首次模型�
 
 `visual/downloads/` 保存 Browser Use 接受的下载，使用随机前缀与清洗后的文件名；工具返回 Task 相对路径、字节数和 SHA-256。浏览器关闭保留已接受文件；取消或失败只删除本次创建的未完成目标。内容属于用户 Task，备份时一起保护，正式交付仍通过产物工具发布。浏览器 cookie/profile、pageId 和脚本 `state` 只在当前运行时存活，重启后不从这些文件恢复。详见 [Browser Use](browser-use.md) 与 [CUA 脚本](cua-scripting.md)。
 
+执行记录只保存已经落定的事件，做法同 Codex 的 rollout：Main 的 `runs/<runId>/runtime-output.log` 不写逐字增量，只留一条跳过计数以保持事件序号；子代理的 `agent-output.log` 由启动器过滤，去掉逐字增量和工具中间输出，`message_start`、`turn_end` 只留角色、时间和结束原因，`agent_end` 不重复整段对话。轨迹、用量和活跃度只读消息结束、工具开始/结束和运行边界，不受影响。常驻 Main 不再另写原样副本 `agents/main/agent-output.log`。
+
 `runs/<runId>/main-input.json` 以版本 1 保存 Main 启动前接受的完整输入及 `submittedAt`（毫秒时间戳），新记录另保存主动来源 `source`、`messageId`/Task/Run 身份、原始 composer `body` 和附件引用，权限为 600。无新消息的续执行沿用这条记录；启动失败后仅补回 Pi 历史中尚未保存的原始输入。旧 Run 没有这个文件时仍可从已有 Pi 会话恢复。该记录包含原始请求和附件引用/内容，应与会话工作区一起备份。
 
 `sessions/main/user-inputs/<messageId>.json` 另外持久保存主动提交的原始 body、附件与稳定消息身份，避免同一 Run 的后续内部输入覆盖可编辑来源。启动未接受的输入会标记为拒绝，不作为最新可编辑消息。

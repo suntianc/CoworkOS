@@ -19,6 +19,7 @@ import { ensurePiRetryDefaults } from "../dist/src/runtime/model-retry.js";
 import { resolveModelRole, roleConnectionEnv } from "../dist/src/runtime/role-models.js";
 import { modelConnections } from "../dist/src/runtime/model-providers.js";
 import { bundledSkillRoot } from "../dist/src/runtime/skill-registry.js";
+import { compactAgentOutputLine } from "../dist/src/runtime/agent-output-compaction.js";
 import { resolveCliSession } from "./cli-session.mjs";
 import { ensureCliBranding, ensureCliStartupSettings } from "./cli-branding.mjs";
 import { installSearchToolAdapters } from "./search-tool-adapter.mjs";
@@ -573,10 +574,14 @@ async function startDelegatedAgent() {
     ...(process.cwd() === harnessRoot ? [] : ["--skill", bundledSkillRoot(harnessRoot)]),
     ...process.argv.slice(2)
   ];
+  const argv = process.argv.slice(2);
+  const jsonEvents = argv.some((value, index) => value === "--mode" && argv[index + 1] === "json");
   process.exitCode = await runCliProcess({
     executable,
     args,
     env: { ...process.env },
-    projectDirectory: process.cwd()
+    projectDirectory: process.cwd(),
+    // This process's stdout is the agent's durable event log.
+    ...(jsonEvents ? { compactStdoutLine: compactAgentOutputLine } : {})
   });
 }

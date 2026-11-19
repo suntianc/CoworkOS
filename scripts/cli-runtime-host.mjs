@@ -11,7 +11,8 @@ export async function runCliProcess({
   projectDirectory,
   uiCompatibility = false,
   onSdkReady,
-  onStop
+  onStop,
+  compactStdoutLine
 }) {
   const token = uiCompatibility ? randomUUID() : undefined;
   // A resident Main outlives the backend that started it. The backend's pipe
@@ -22,8 +23,17 @@ export async function runCliProcess({
   const child = spawn(process.execPath, [...(bootstrap ? [bootstrap] : []), executable, ...args], {
     cwd: projectDirectory,
     env: { ...env, ...(token ? { ATRIA_CLI_UI_READY_TOKEN: token } : {}) },
-    stdio: resident ? ["pipe", "pipe", "pipe"] : token ? ["inherit", "inherit", "inherit", "ipc"] : "inherit"
+    stdio: resident
+      ? ["pipe", "pipe", "pipe"]
+      : token
+        ? ["inherit", "inherit", "inherit", "ipc"]
+        : compactStdoutLine
+          ? ["inherit", "pipe", "inherit"]
+          : "inherit"
   });
+  // The wrapper and Pi share one process group, so this pipe never depends on
+  // the backend: it only lets the wrapper decide what reaches the durable log.
+  const relayed = !resident && !token && compactStdoutLine ? relayCompacted(child, compactStdoutLine) : undefined;
   let ready = false;
   let stopping = false;
   const stop = () => {
@@ -45,12 +55,43 @@ export async function runCliProcess({
     return await new Promise((resolve, reject) => {
       child.once("error", reject);
       child.once("close", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+    }).then(async (code) => {
+      await relayed;
+      return code;
     });
   } finally {
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
     child.off("message", acknowledge);
   }
+}
+
+/**
+ * Write the child's stdout through `compact`, one complete line at a time.
+ *
+ * Settles once everything the child wrote is in this process's stdout, so the
+ * wrapper's exit code never precedes the last line of the log.
+ */
+async function relayCompacted(child, compact) {
+  let pending = "";
+  const emit = (text) =>
+    text
+      ? new Promise((resolve, reject) => process.stdout.write(text, (error) => (error ? reject(error) : resolve())))
+      : undefined;
+  const kept = (lines) =>
+    lines
+      .map(compact)
+      .filter((line) => line !== undefined)
+      .map((line) => `${line}\n`)
+      .join("");
+  child.stdout.setEncoding("utf8");
+  for await (const chunk of child.stdout) {
+    const lines = (pending + chunk).split("\n");
+    pending = lines.pop() ?? "";
+    await emit(kept(lines));
+  }
+  // A last line without a newline is what a killed child leaves; keep it as it is.
+  await emit(pending ? (kept([pending]) || "").replace(/\n$/, "") : "");
 }
 
 /**
