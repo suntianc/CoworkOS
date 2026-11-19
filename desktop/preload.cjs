@@ -112,6 +112,58 @@ window.addEventListener("beforeunload", () => {
   void persistComposerDrafts().catch(reportDraftFailure);
 });
 
+// The page's remembered choices (per-conversation model and level, unread
+// marks, layout) live in origin storage, and the origin's port changes on every
+// restart. A page on a new origin takes the profile's last copy; the copy is
+// refreshed whenever the choices change and when the window goes away.
+const isPreferenceKey = (key) =>
+  typeof key === "string" && key.startsWith("atria.") && key.length <= 256 && !isDraftKey(key);
+function preferenceSnapshot() {
+  const entries = {};
+  for (let index = 0; index < localStorage.length; index++) {
+    const key = localStorage.key(index);
+    if (isPreferenceKey(key)) entries[key] = localStorage.getItem(key);
+  }
+  return entries;
+}
+let lastPreferences;
+function persistPreferences() {
+  let entries, serialized;
+  try {
+    entries = preferenceSnapshot();
+    serialized = JSON.stringify(entries);
+    // eslint-disable-next-line no-restricted-syntax -- blocked storage only loses the remembered choices, as it does in a browser
+  } catch {
+    return;
+  }
+  if (serialized === lastPreferences) return;
+  lastPreferences = serialized;
+  // eslint-disable-next-line no-restricted-syntax -- 偏好写盘失败只是这次没记住；清掉比对值，下一次检查会重试
+  ipcRenderer.invoke("bookman:save-ui-preferences", entries).catch(() => {
+    lastPreferences = undefined;
+  });
+}
+if (location.protocol === "http:" || location.protocol === "https:") {
+  try {
+    const snapshot = ipcRenderer.sendSync("bookman:ui-preferences");
+    // The current origin's own storage is newer than the copy it wrote.
+    if (snapshot?.persisted && snapshot.origin !== location.origin) {
+      for (const key of Object.keys(preferenceSnapshot())) localStorage.removeItem(key);
+      for (const [key, value] of Object.entries(snapshot.entries || {}))
+        if (isPreferenceKey(key) && typeof value === "string") localStorage.setItem(key, value);
+    }
+    lastPreferences = JSON.stringify(preferenceSnapshot());
+    // The page writes its own storage, which an isolated preload cannot observe,
+    // so the copy is compared on a short interval; an unchanged copy is not sent.
+    setInterval(persistPreferences, 2_000);
+    window.addEventListener("pagehide", persistPreferences);
+    document.addEventListener("visibilitychange", persistPreferences);
+    // eslint-disable-next-line no-restricted-syntax -- an unavailable store or blocked storage starts the page from its own storage, as in a browser
+  } catch {
+    /* the page keeps what this origin remembers */
+  }
+}
+
 let fullscreen = false;
 function reflectWindowState() {
   if (!document.documentElement) return;
