@@ -278,21 +278,21 @@ App 将外观偏好保存在用户数据目录的 `appearance.json`，Web 按浏
 
 下表为底层 Runtime 默认值；文件和环境覆盖优先。新连接的输出上限为 8192，推理设置为 `off` / `false`，已有连接不自动改写。
 
-| JSON 字段                   | 环境变量                              | Runtime 默认值                                   |
-| --------------------------- | ------------------------------------- | ------------------------------------------------ |
-| `mainMaxTurns`              | `COWORK_MAIN_MAX_TURNS`               | 2000                                             |
-| `subagentMaxTurns`          | `COWORK_MAX_TURNS`                    | 200                                              |
-| `mainMaxTokens`             | `COWORK_MAIN_MAX_TOKENS`              | 65536；新连接 8192                               |
-| `subagentMaxTokens`         | `COWORK_MAX_TOKENS`                   | 65536；新连接 8192                               |
-| `contextWindow`             | `COWORK_CONTEXT_WINDOW`               | 256000 token                                     |
-| `mainTimeoutMs`             | `COWORK_MAIN_TIMEOUT_MS`              | 0，不限时                                        |
-| `mainIdleTimeoutMs`         | `COWORK_MAIN_IDLE_TIMEOUT_MS`         | 300000（5 分钟）；0 不因空闲退出                 |
-| `subagentTimeoutMs`         | `COWORK_SUBAGENT_TIMEOUT_MS`          | 0，不限时；旧 `COWORK_TIMEOUT_MS` 仅兼容子智能体 |
-| `commandTimeoutMs`          | `COWORK_COMMAND_TIMEOUT_MS`           | 1800000（30 分钟）；0 不限时                     |
-| `maxAttempts`               | `COWORK_MAX_ATTEMPTS`                 | 3，含首次委派；1 关闭委派重试                    |
-| `subagentQuestionTimeoutMs` | `COWORK_SUBAGENT_QUESTION_TIMEOUT_MS` | 180000（3 分钟）；0 关闭向 Main 提问             |
-| `humanAnswerTimeoutMs`      | `COWORK_HUMAN_ANSWER_TIMEOUT_MS`      | 60000（1 分钟）                                  |
-| `subagentMaxQuestions`      | `COWORK_SUBAGENT_MAX_QUESTIONS`       | 3                                                |
+| JSON 字段                   | 环境变量                              | Runtime 默认值                                                  |
+| --------------------------- | ------------------------------------- | --------------------------------------------------------------- |
+| `mainMaxTurns`              | `COWORK_MAIN_MAX_TURNS`               | 2000                                                            |
+| `subagentMaxTurns`          | `COWORK_MAX_TURNS`                    | 200                                                             |
+| `mainMaxTokens`             | `COWORK_MAIN_MAX_TOKENS`              | 65536；新连接 8192                                              |
+| `subagentMaxTokens`         | `COWORK_MAX_TOKENS`                   | 65536；新连接 8192                                              |
+| `contextWindow`             | `COWORK_CONTEXT_WINDOW`               | 256000 token                                                    |
+| `mainTimeoutMs`             | `COWORK_MAIN_TIMEOUT_MS`              | 0，不限时                                                       |
+| `mainIdleTimeoutMs`         | `COWORK_MAIN_IDLE_TIMEOUT_MS`         | 300000（5 分钟）；0 不因空闲退出                                |
+| `subagentTimeoutMs`         | `COWORK_SUBAGENT_TIMEOUT_MS`          | 0，不限时；旧 `COWORK_TIMEOUT_MS` 仅兼容子智能体                |
+| `commandTimeoutMs`          | `COWORK_COMMAND_TIMEOUT_MS`           | 1800000（30 分钟）；0 不限时                                    |
+| `maxAttempts`               | `COWORK_MAX_ATTEMPTS`                 | 3，含首次委派；1 关闭委派重试                                   |
+| `subagentQuestionTimeoutMs` | `COWORK_SUBAGENT_QUESTION_TIMEOUT_MS` | 180000（3 分钟）；0 关闭向 Main 提问；Main 等用户回答期间不计时 |
+| `humanAnswerTimeoutMs`      | `COWORK_HUMAN_ANSWER_TIMEOUT_MS`      | 60000（1 分钟）                                                 |
+| `subagentMaxQuestions`      | `COWORK_SUBAGENT_MAX_QUESTIONS`       | 3                                                               |
 
 超时单位为毫秒。`mainTimeoutMs` 是一轮模型工作的截止时间；`mainIdleTimeoutMs` 是常驻 Main 在没有进行中的回合、也没有在跑的子代理时保留进程的时长，到时保留会话与任务状态退出，之后的消息或回调会重新拉起 Main。`maxAttempts` 是委派预算，独立于模型请求重试。长任务与重试行为见 [运行时参考](runtime-reference.md#请求重试与上下文恢复)。
 

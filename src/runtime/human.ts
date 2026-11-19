@@ -36,6 +36,8 @@ export interface HumanRequest {
   answer?: string;
   createdAt: string;
   answeredAt?: string;
+  /** When it stopped waiting without an answer (`unanswered` or `cancelled`). */
+  closedAt?: string;
   /** Records the replacement Run and the unresolved state to restore on edit rollback. */
   superseded?: { runId: string; status: "pending" | "unanswered" };
 }
@@ -190,7 +192,7 @@ export class HumanRequestStore {
     return withFileLock(path, async () => {
       const request = await this.read(taskId, requestId);
       if (request.status !== "pending") return request;
-      const next: HumanRequest = { ...request, status: "unanswered" };
+      const next: HumanRequest = { ...request, status: "unanswered", closedAt: now() };
       await atomicWrite(path, json(next));
       return next;
     });
@@ -201,7 +203,7 @@ export class HumanRequestStore {
     return withFileLock(path, async () => {
       const request = await this.read(taskId, requestId);
       if (request.status !== "pending") return request;
-      const next: HumanRequest = { ...request, status: "cancelled" };
+      const next: HumanRequest = { ...request, status: "cancelled", closedAt: now() };
       await atomicWrite(path, json(next));
       return next;
     });

@@ -5,7 +5,11 @@ import { atomicWrite } from "../storage/atomic-file.js";
 import { withFileLock } from "../storage/file-lock.js";
 import { notifyAgentProcess, onProcessWake } from "./agent-wake.js";
 import { watchFiles } from "./file-watch.js";
+import { HumanRequestStore } from "./human.js";
 import { InboxStore } from "./scheduler.js";
+
+/** How often a wait paused for the user re-checks whether Main is free again. */
+const HELD_RECHECK_MS = 2_000;
 
 export type SubagentQuestionStatus = "pending" | "answered" | "expired";
 
@@ -192,7 +196,9 @@ export class SubagentQuestionStore {
     questionId: string,
     options: WaitForAnswerOptions
   ): Promise<WaitForAnswerResult> {
-    const deadline = Date.now() + Math.max(0, options.timeoutMs);
+    const timeoutMs = Math.max(0, options.timeoutMs);
+    const started = Date.now();
+    let deadline = started + timeoutMs;
     // Closing the question is also how the race with a just-arrived answer is
     // settled: `expire` leaves an answered record alone, so whatever it returns
     // is the real outcome. Asserting "expired" here instead would throw away an
@@ -207,6 +213,10 @@ export class SubagentQuestionStore {
       if (question.status === "answered") return { status: "answered", question };
       if (question.status === "expired") return { status: "expired", question };
       if (await options.isCancelled?.()) return close("cancelled");
+      // Main cannot answer while it is itself waiting for the user, so that
+      // time does not count, and the full wait starts again when it ends.
+      const main = await this.mainAwaitingUser(taskId, question.runId, started);
+      deadline = main.waiting ? Infinity : Math.max(started, main.freeSince ?? 0) + timeoutMs;
       if (Date.now() >= deadline) return close("expired");
       return undefined;
     };
@@ -240,7 +250,9 @@ export class SubagentQuestionStore {
         const settled = await settle();
         if (settled) return settled;
         if (version !== observed) continue;
-        const remaining = deadline - Date.now();
+        // The user's answer is not a write this wait watches, so a paused
+        // wait looks again on a short interval.
+        const remaining = Number.isFinite(deadline) ? deadline - Date.now() : HELD_RECHECK_MS;
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<void>((resolve) => {
           timer = setTimeout(resolve, Math.max(0, remaining));
@@ -264,6 +276,25 @@ export class SubagentQuestionStore {
       stopWatching();
       stopProcessWake();
     }
+  }
+
+  /**
+   * Whether this Run's Main is blocked on askhuman now, and when it last
+   * stopped being blocked after `since`.
+   */
+  private async mainAwaitingUser(
+    taskId: string,
+    runId: string,
+    since: number
+  ): Promise<{ waiting: boolean; freeSince?: number }> {
+    let freeSince: number | undefined;
+    for (const request of await new HumanRequestStore(this.workspaceRoot).list(taskId)) {
+      if (request.runId !== runId) continue;
+      if (request.status === "pending") return { waiting: true };
+      const ended = Date.parse(request.answeredAt ?? request.closedAt ?? "");
+      if (ended > since) freeSince = Math.max(freeSince ?? 0, ended);
+    }
+    return { waiting: false, ...(freeSince === undefined ? {} : { freeSince }) };
   }
 
   private directory(taskId: string): string {

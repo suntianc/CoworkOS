@@ -51,3 +51,32 @@ test("the directories Agents work in stay reachable", () => {
 test("nested tool input is searched", () => {
   assert.ok(refused({ edits: [{ path: "x", content: "see ~/.atria/runtime" }] }));
 });
+
+test("CoworkOS's own program is refused, except its skills and guides", async () => {
+  const { installRefusal } = await import("../dist/src/tools/private-data.js");
+  const install = "/Users/example/project/CoworkOS";
+  const project = "/Users/example/project/duration-kit";
+  const refusedInstall = (input, directory = project) =>
+    installRefusal(input, install, directory, userHome)?.path;
+  // The calls a Main ran to learn why a write was refused.
+  assert.equal(
+    refusedInstall({ command: `cd ${install} && grep -rn "protected path" --include=*.ts src` }),
+    install
+  );
+  assert.equal(
+    refusedInstall({ path: `${install}/src/tools/protected-paths.ts` }),
+    `${install}/src/tools/protected-paths.ts`
+  );
+  assert.ok(refusedInstall({ command: `sed -n 1,140p ${install}/dist/src/tools/protected-paths.js` }));
+  assert.ok(refusedInstall({ command: "cat ~/project/CoworkOS/package.json" }));
+  assert.ok(refusedInstall({ command: `cat ${install}/.pi/skills/../runtime/extension.ts` }));
+  // Skills and the guides they link to are meant to be read.
+  assert.equal(refusedInstall({ path: `${install}/.pi/skills/cua/SKILL.md` }), undefined);
+  assert.equal(refusedInstall({ path: `${install}/docs/browser-use.md` }), undefined);
+  assert.equal(refusedInstall({ command: `cd ${project} && npm test` }), undefined);
+  assert.equal(refusedInstall({ command: "ls /Users/example/project/CoworkOS-fork" }), undefined);
+  // When the project is CoworkOS itself, or holds it, the install is the work.
+  assert.equal(refusedInstall({ path: `${install}/src/a.ts` }, install), undefined);
+  assert.equal(refusedInstall({ path: `${install}/src/a.ts` }, `${install}/packages`), undefined);
+  assert.equal(refusedInstall({ path: `${install}/src/a.ts` }, "/Users/example/project"), undefined);
+});
